@@ -409,7 +409,7 @@ jobs:
             if git diff --quiet -- "$expected_doc"; then
               continue
             fi
-            if ! echo "$FILE_PATHS" | grep -Eq "(^|[[:space:]])$expected_doc([[:space:]]|$)"; then
+            if ! printf '%s\n' "$CHANGED_FILES" | grep -Fxq -- "$expected_doc"; then
               echo "ERROR: Expected modified doc '$expected_doc' missing from commit file list."
               exit 1
             fi
