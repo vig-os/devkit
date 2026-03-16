@@ -66,6 +66,14 @@ jobs:
           output-type: tar
           output-file: /tmp/image.tar
 
+      - name: Upload image artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: container-image-${{ steps.version.outputs.version }}-amd64
+          path: /tmp/image.tar
+          retention-days: 1
+          compression-level: 0   # Image is already compressed; avoid double-compression overhead
+
   security-scan:
     name: Security Scan
     needs: build-image
