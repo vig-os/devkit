@@ -92,7 +92,7 @@ jobs:
             echo "ERROR: Release branch already exists locally: $RELEASE_BRANCH"
             exit 1
           fi
-          if git show-ref --verify --quiet "refs/remotes/origin/$RELEASE_BRANCH"; then
+          if git ls-remote --exit-code --heads origin "$RELEASE_BRANCH" > /dev/null 2>&1; then
             echo "ERROR: Release branch already exists on remote: $RELEASE_BRANCH"
             exit 1
           fi
@@ -102,8 +102,12 @@ jobs:
           VERSION: ${{ steps.vars.outputs.version }}
         run: |
           set -euo pipefail
-          if git tag -l | grep -q "^$VERSION$"; then
+          if git rev-parse -q --verify "refs/tags/$VERSION" > /dev/null; then
             echo "ERROR: Tag $VERSION already exists"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags --refs origin "refs/tags/$VERSION" > /dev/null 2>&1; then
+            echo "ERROR: Tag $VERSION already exists on remote"
             exit 1
           fi
 

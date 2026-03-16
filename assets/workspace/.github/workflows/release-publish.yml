@@ -109,8 +109,11 @@ jobs:
           VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          awk '/^## \['"$VERSION"'\]/{found=1; next} /^## \[/{found=0} found' \
-            CHANGELOG.md > /tmp/release-notes.md
+          awk -v version="$VERSION" '
+            index($0, "## [" version "]") == 1 {found=1; next}
+            /^## \[/ && found {found=0}
+            found
+          ' CHANGELOG.md > /tmp/release-notes.md
           if [ ! -s /tmp/release-notes.md ]; then
             echo "No changelog notes found for $VERSION" > /tmp/release-notes.md
           fi
