@@ -48,8 +48,8 @@ job; it focuses on validating code quality and tests inside the image.
 
 ## No coverage artifact upload
 
-The test job prints coverage to the terminal
-(`--cov-report=term-missing`) and does not upload artifacts.
+The test job runs `just test` (plain `pytest`) and does not upload
+coverage artifacts.
 
 ## Pre-commit cache miss
 

@@ -29,7 +29,27 @@ runs:
         fi
 
         if [[ -f .vig-os ]]; then
-          VERSION="$(grep '^DEVCONTAINER_VERSION=' .vig-os | cut -d= -f2)"
+          VERSION=""
+          while IFS= read -r line || [[ -n "${line:-}" ]]; do
+            [[ -z "${line//[[:space:]]/}" ]] && continue
+            [[ "$line" =~ ^[[:space:]]*# ]] && continue
+
+            case "$line" in
+              DEVCONTAINER_VERSION=*)
+                VERSION="${line#*=}"
+                VERSION="${VERSION#"${VERSION%%[![:space:]]*}"}"
+                VERSION="${VERSION%"${VERSION##*[![:space:]]}"}"
+
+                if [[ "$VERSION" =~ ^\".*\"$ ]]; then
+                  VERSION="${VERSION:1:-1}"
+                elif [[ "$VERSION" =~ ^\'.*\'$ ]]; then
+                  VERSION="${VERSION:1:-1}"
+                fi
+                break
+                ;;
+            esac
+          done < .vig-os
+
           if [[ -n "$VERSION" ]]; then
             echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
             exit 0
