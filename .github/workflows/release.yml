@@ -72,6 +72,7 @@ jobs:
       publish_version: ${{ steps.publish_meta.outputs.publish_version }}
       next_rc: ${{ steps.publish_meta.outputs.next_rc }}
       pre_finalize_sha: ${{ steps.pre_sha.outputs.pre_finalize_sha }}
+      latest_rc: ${{ steps.latest_rc.outputs.latest_rc }}
       matrix: ${{ steps.matrix.outputs.matrix }}
       architectures: ${{ steps.matrix.outputs.architectures }}
 
@@ -172,6 +173,81 @@ jobs:
           echo "next_rc=$NEXT_RC" >> $GITHUB_OUTPUT
           echo "release_url=$RELEASE_URL" >> $GITHUB_OUTPUT
           echo "Publish version: $PUBLISH_VERSION"
+
+      - name: Find latest RC tag
+        if: steps.vars.outputs.release_kind == 'final'
+        id: latest_rc
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG_PATTERN="${VERSION}-rc*"
+          EXISTING_TAGS=$(git ls-remote --tags --refs origin "$TAG_PATTERN" \
+            | awk '{print $2}' | sed 's#refs/tags/##')
+
+          if [ -z "$EXISTING_TAGS" ]; then
+            echo "ERROR: No RC tags found for version $VERSION"
+            echo "Publish at least one candidate before finalizing: just publish-candidate $VERSION"
+            exit 1
+          fi
+
+          while IFS= read -r tag; do
+            [ -z "$tag" ] && continue
+
+            if ! echo "$tag" | grep -qE "^${VERSION}-rc[0-9]+$"; then
+              echo "ERROR: Malformed candidate tag detected: $tag"
+              echo "Expected format: ${VERSION}-rcN"
+              exit 1
+            fi
+          done <<< "$EXISTING_TAGS"
+
+          LATEST_RC=$(echo "$EXISTING_TAGS" | sort -V | tail -1)
+          echo "latest_rc=$LATEST_RC" >> "$GITHUB_OUTPUT"
+          echo "Latest RC: $LATEST_RC"
+
+      - name: Generate cross-repo token for downstream gate
+        if: steps.vars.outputs.release_kind == 'final'
+        id: smoke-check-token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859  # v2
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: vig-os
+          repositories: devcontainer-smoke-test
+
+      - name: Verify downstream pre-release for latest RC
+        if: steps.vars.outputs.release_kind == 'final'
+        env:
+          GH_TOKEN: ${{ steps.smoke-check-token.outputs.token }}
+          LATEST_RC: ${{ steps.latest_rc.outputs.latest_rc }}
+          VERSION: ${{ steps.vars.outputs.version }}
+        run: |
+          set -euo pipefail
+          echo "Checking downstream pre-release for $LATEST_RC..."
+
+          RELEASE_JSON=$(gh api "repos/vig-os/devcontainer-smoke-test/releases/tags/$LATEST_RC" 2>/dev/null) || {
+            echo "ERROR: No downstream release found for RC tag $LATEST_RC"
+            echo ""
+            echo "The final release requires a successful smoke-test pre-release."
+            echo "Steps to resolve:"
+            echo "  1. Verify the candidate dispatch succeeded:"
+            echo "     gh -R vig-os/devcontainer-smoke-test run list --limit 5"
+            echo "  2. If no dispatch ran, re-publish the candidate:"
+            echo "     just publish-candidate $VERSION"
+            echo "  3. Wait for the downstream pre-release to appear, then retry."
+            exit 1
+          }
+
+          TAG_NAME=$(echo "$RELEASE_JSON" | jq -r '.tag_name')
+          IS_PRERELEASE=$(echo "$RELEASE_JSON" | jq -r '.prerelease')
+
+          if [ "$IS_PRERELEASE" != "true" ]; then
+            echo "ERROR: Downstream release for $LATEST_RC exists but is not a pre-release"
+            echo "Expected prerelease=true for RC gate enforcement"
+            exit 1
+          fi
+
+          echo "✓ Downstream release verified: $TAG_NAME"
 
       - name: Verify CHANGELOG has TBD entry
         env:
@@ -318,6 +394,7 @@ jobs:
           RELEASE_KIND: ${{ steps.vars.outputs.release_kind }}
           PUBLISH_VERSION: ${{ steps.publish_meta.outputs.publish_version }}
           NEXT_RC: ${{ steps.publish_meta.outputs.next_rc }}
+          LATEST_RC: ${{ steps.latest_rc.outputs.latest_rc }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           RELEASE_DATE: ${{ steps.vars.outputs.release_date }}
           ARCHITECTURES: ${{ steps.matrix.outputs.architectures }}
@@ -331,6 +408,9 @@ jobs:
           echo "  Publish Tag: $PUBLISH_VERSION"
           if [ -n "$NEXT_RC" ]; then
             echo "  Next RC Number: $NEXT_RC"
+          fi
+          if [ "$RELEASE_KIND" = "final" ]; then
+            echo "  Latest RC Gate: $LATEST_RC"
           fi
           echo "  Release Branch: release/$VERSION"
           echo "  PR: #$PR_NUMBER"
@@ -914,17 +994,23 @@ jobs:
           echo "    - SBOM (SPDX) generated and attested"
           echo ""
           echo "Next steps:"
-          echo "  1. After publish completion, verify smoke-test repo dispatch run status (dispatch runs later in this job)"
           if [ "$RELEASE_KIND" = "candidate" ]; then
-            echo "  2. If smoke tests pass, run: just finalize-release $BASE_VERSION"
+            echo "  1. Smoke-test dispatch runs in the smoke-test job."
+            echo "  2. If downstream pre-release passes, run: just finalize-release $BASE_VERSION"
           else
+            echo "  1. Smoke-test dispatch runs in the smoke-test job."
             echo "  2. Merge release PR to main (triggers sync-main-to-dev workflow automatically)"
           fi
 
+  smoke-test:
+    name: Smoke-Test Dispatch
+    needs: [validate, finalize, publish]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    if: ${{ github.event.inputs.dry-run != 'true' }}
+    steps:
       - name: Generate smoke-test dispatch token
-        if: needs.validate.outputs.release_kind == 'candidate' || needs.validate.outputs.release_kind == 'final'
         id: smoke-app-token
-        continue-on-error: true
         uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859  # v2
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
@@ -933,11 +1019,10 @@ jobs:
           repositories: devcontainer-smoke-test
 
       - name: Trigger smoke-test repository dispatch
-        if: (needs.validate.outputs.release_kind == 'candidate' || needs.validate.outputs.release_kind == 'final') && steps.smoke-app-token.outcome == 'success'
-        continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.smoke-app-token.outputs.token }}
           RELEASE_TAG: ${{ needs.validate.outputs.publish_version }}
+          RELEASE_KIND: ${{ needs.validate.outputs.release_kind }}
           SOURCE_REPO: ${{ github.repository }}
           SOURCE_WORKFLOW: ${{ github.workflow }}
           SOURCE_RUN_ID: ${{ github.run_id }}
@@ -949,6 +1034,7 @@ jobs:
           gh api repos/vig-os/devcontainer-smoke-test/dispatches \
             -f event_type=smoke-test-trigger \
             -f "client_payload[tag]=$RELEASE_TAG" \
+            -f "client_payload[release_kind]=$RELEASE_KIND" \
             -f "client_payload[event_type]=smoke-test-trigger" \
             -f "client_payload[source_repo]=$SOURCE_REPO" \
             -f "client_payload[source_workflow]=$SOURCE_WORKFLOW" \
@@ -958,18 +1044,55 @@ jobs:
             -f "client_payload[correlation_id]=$CORRELATION_ID"
           echo "✓ Triggered smoke-test dispatch for release tag: $RELEASE_TAG"
 
-      - name: Warn if smoke-test dispatch token generation failed
-        if: (needs.validate.outputs.release_kind == 'candidate' || needs.validate.outputs.release_kind == 'final') && steps.smoke-app-token.outcome != 'success'
+      - name: Wait for downstream smoke-test release completion
+        env:
+          GH_TOKEN: ${{ steps.smoke-app-token.outputs.token }}
+          RELEASE_TAG: ${{ needs.validate.outputs.publish_version }}
+          RELEASE_KIND: ${{ needs.validate.outputs.release_kind }}
         run: |
-          echo "WARNING: Could not generate cross-repo token for smoke-test dispatch."
-          echo "Install RELEASE_APP on vig-os/devcontainer-smoke-test with contents:read permission."
+          set -euo pipefail
+
+          if [ "$RELEASE_KIND" = "candidate" ]; then
+            EXPECTED_PRERELEASE=true
+          else
+            EXPECTED_PRERELEASE=false
+          fi
+
+          TIMEOUT=480
+          INTERVAL=15
+          ELAPSED=0
+
+          echo "Waiting for downstream release '$RELEASE_TAG' (prerelease=$EXPECTED_PRERELEASE)..."
+          while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
+            RELEASE_JSON=$(gh api "repos/vig-os/devcontainer-smoke-test/releases/tags/$RELEASE_TAG" 2>/dev/null || true)
+
+            if [ -n "$RELEASE_JSON" ]; then
+              IS_PRERELEASE=$(echo "$RELEASE_JSON" | jq -r '.prerelease')
+              if [ "$IS_PRERELEASE" = "$EXPECTED_PRERELEASE" ]; then
+                echo "✓ Downstream smoke-test release completed successfully for $RELEASE_TAG"
+                exit 0
+              fi
+
+              echo "ERROR: Downstream release '$RELEASE_TAG' has prerelease=$IS_PRERELEASE (expected $EXPECTED_PRERELEASE)"
+              exit 1
+            fi
+
+            sleep "$INTERVAL"
+            ELAPSED=$((ELAPSED + INTERVAL))
+            echo "Still waiting for downstream release creation... (${ELAPSED}s / ${TIMEOUT}s)"
+          done
+
+          echo "ERROR: Timed out waiting for downstream release '$RELEASE_TAG'"
+          echo "Inspect downstream run status:"
+          echo "  gh -R vig-os/devcontainer-smoke-test run list --workflow repository-dispatch.yml --limit 5"
+          exit 1
 
   rollback:
     name: Rollback on Failure
     needs: [validate, finalize, build-and-test, publish]
     runs-on: ubuntu-22.04
     timeout-minutes: 10
-    if: failure()
+    if: ${{ always() && (needs.validate.result == 'failure' || needs.finalize.result == 'failure' || needs.build-and-test.result == 'failure' || needs.publish.result == 'failure') }}
     permissions:
       issues: write          # create failure issue
       # Branch rollback and tag deletion use the RELEASE_APP token (not GITHUB_TOKEN),
