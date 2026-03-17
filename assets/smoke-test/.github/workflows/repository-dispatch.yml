@@ -177,6 +177,12 @@ jobs:
           curl -sSf "https://raw.githubusercontent.com/vig-os/devcontainer/${TAG}/install.sh" \
             | bash -s -- --version "${TAG}" --smoke-test --force --docker .
 
+          if [ ! -f ".devcontainer/CHANGELOG.md" ]; then
+            echo "ERROR: expected .devcontainer/CHANGELOG.md after install"
+            exit 1
+          fi
+          cp ".devcontainer/CHANGELOG.md" "CHANGELOG.md"
+
       - name: Prepare deploy branch and metadata
         id: prepare_branch
         env:

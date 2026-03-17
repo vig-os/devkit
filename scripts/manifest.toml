@@ -33,6 +33,13 @@ src = ".pymarkdown"
 src = ".pymarkdown.config.md"
 
 [[entries]]
+src = "CHANGELOG.md"
+
+[[entries]]
+src = "CHANGELOG.md"
+dest = ".devcontainer/CHANGELOG.md"
+
+[[entries]]
 src = ".hadolint.yaml"
 
 [[entries]]
