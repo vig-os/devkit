@@ -1021,7 +1021,7 @@ jobs:
     name: Smoke-Test Dispatch
     needs: [validate, finalize, publish]
     runs-on: ubuntu-22.04
-    timeout-minutes: 10
+    timeout-minutes: 35
     if: ${{ github.event.inputs.dry-run != 'true' }}
     steps:
       - name: Generate smoke-test dispatch token
@@ -1073,7 +1073,7 @@ jobs:
             EXPECTED_PRERELEASE=false
           fi
 
-          TIMEOUT=480
+          TIMEOUT=1800
           INTERVAL=15
           ELAPSED=0
 

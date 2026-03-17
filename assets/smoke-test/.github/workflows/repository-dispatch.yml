@@ -32,6 +32,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       tag: ${{ steps.extract.outputs.tag }}
+      release_kind: ${{ steps.extract.outputs.release_kind }}
       source_repo: ${{ steps.extract.outputs.source_repo }}
       source_workflow: ${{ steps.extract.outputs.source_workflow }}
       source_run_id: ${{ steps.extract.outputs.source_run_id }}
@@ -45,6 +46,7 @@ jobs:
           EVENT_ACTION: ${{ github.event.action }}
           EVENT_TYPE: ${{ github.event.client_payload.event_type || '' }}
           TAG: ${{ github.event.client_payload.tag || '' }}
+          RELEASE_KIND: ${{ github.event.client_payload.release_kind || '' }}
           SOURCE_REPO: ${{ github.event.client_payload.source_repo || '' }}
           SOURCE_WORKFLOW: ${{ github.event.client_payload.source_workflow || '' }}
           SOURCE_RUN_ID: ${{ github.event.client_payload.source_run_id || '' }}
@@ -57,6 +59,7 @@ jobs:
           echo "action=${EVENT_ACTION}"
           echo "event_type=${EVENT_TYPE}"
           echo "tag=${TAG}"
+          echo "release_kind=${RELEASE_KIND}"
           echo "source_repo=${SOURCE_REPO}"
           echo "source_workflow=${SOURCE_WORKFLOW}"
           echo "source_run_id=${SOURCE_RUN_ID}"
@@ -74,12 +77,37 @@ jobs:
             exit 1
           fi
 
+          EFFECTIVE_RELEASE_KIND="${RELEASE_KIND}"
+          if [ -z "${EFFECTIVE_RELEASE_KIND}" ]; then
+            if printf '%s' "${TAG}" | grep -Eq -- '-rc[0-9]+$'; then
+              EFFECTIVE_RELEASE_KIND="candidate"
+            else
+              EFFECTIVE_RELEASE_KIND="final"
+            fi
+          fi
+
+          if [ "${EFFECTIVE_RELEASE_KIND}" != "candidate" ] && [ "${EFFECTIVE_RELEASE_KIND}" != "final" ]; then
+            echo "ERROR: release_kind must be candidate or final (got '${EFFECTIVE_RELEASE_KIND}')"
+            exit 1
+          fi
+
+          if [ "${EFFECTIVE_RELEASE_KIND}" = "candidate" ] && ! printf '%s' "${TAG}" | grep -Eq -- '-rc[0-9]+$'; then
+            echo "ERROR: candidate release_kind requires RC tag format (expected X.Y.Z-rcN, got '${TAG}')"
+            exit 1
+          fi
+
+          if [ "${EFFECTIVE_RELEASE_KIND}" = "final" ] && printf '%s' "${TAG}" | grep -Eq -- '-rc[0-9]+$'; then
+            echo "ERROR: final release_kind requires final tag format (expected X.Y.Z, got '${TAG}')"
+            exit 1
+          fi
+
           EFFECTIVE_SOURCE_RUN_URL="${SOURCE_RUN_URL}"
           if [ -z "${EFFECTIVE_SOURCE_RUN_URL}" ] && [ -n "${SOURCE_REPO}" ] && [ -n "${SOURCE_RUN_ID}" ]; then
             EFFECTIVE_SOURCE_RUN_URL="${GITHUB_SERVER_URL}/${SOURCE_REPO}/actions/runs/${SOURCE_RUN_ID}"
           fi
 
           echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "release_kind=${EFFECTIVE_RELEASE_KIND}" >> "${GITHUB_OUTPUT}"
           echo "source_repo=${SOURCE_REPO}" >> "${GITHUB_OUTPUT}"
           echo "source_workflow=${SOURCE_WORKFLOW}" >> "${GITHUB_OUTPUT}"
           echo "source_run_id=${SOURCE_RUN_ID}" >> "${GITHUB_OUTPUT}"
@@ -249,9 +277,10 @@ jobs:
       - name: Create or validate GitHub release
         env:
           TAG: ${{ needs.validate.outputs.tag }}
+          RELEASE_KIND: ${{ needs.validate.outputs.release_kind }}
         run: |
           set -euo pipefail
-          if echo "$TAG" | grep -qE -- '-rc[0-9]+$'; then
+          if [ "$RELEASE_KIND" = "candidate" ]; then
             EXPECTED_PRERELEASE=true
           else
             EXPECTED_PRERELEASE=false
