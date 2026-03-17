@@ -71,6 +71,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Smoke-test dispatch workflow permissions now follow least privilege** ([#340](https://github.com/vig-os/devcontainer/issues/340))
+  - Reduce `assets/smoke-test/.github/workflows/repository-dispatch.yml` workflow token permissions from write to read by default
+  - Grant `contents: write` only to `publish-release`, the single job that creates or edits GitHub Releases
+
 ## [0.3.0](https://github.com/vig-os/devcontainer/releases/tag/0.3.0) - 2026-03-13
 
 ### Added
