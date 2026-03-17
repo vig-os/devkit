@@ -124,7 +124,7 @@ graph TB
     N --> O["Workflow: set release date<br/>build & test"]
     O --> P{Tests pass?}
     P -->|No| Q["Automatic rollback<br/>+ issue creation"]
-    P -->|Yes| R["Workflow: create tag<br/>publish images"]
+    P -->|Yes| R["Workflow: create tag<br/>publish images<br/>publish GitHub Release (final only)"]
     R --> S["Merge PR to main"]
     S --> T["Workflow: sync-main-to-dev<br/>PR-based sync"]
 ```
@@ -361,6 +361,7 @@ The `release.yml` workflow performs the entire remaining release process. Behavi
    - Candidate mode: infers next `rcN`, creates annotated tag `X.Y.Z-rcN`, publishes candidate manifests
    - Final mode: creates annotated tag `X.Y.Z`, publishes final manifests
    - Pushes tag to origin
+   - Final mode only: extracts release notes from finalized `CHANGELOG.md` and publishes GitHub Release for `X.Y.Z`
    - Downloads tested images from artifacts
    - Logs in to GitHub Container Registry
    - Pushes images to GHCR with architecture-specific tags
@@ -605,6 +606,7 @@ gh workflow run prepare-release.yml --ref dev -f "version=1.0.0" -f "dry-run=tru
    - Candidate mode creates and pushes `X.Y.Z-rcN` (next available `N`)
    - Final mode creates and pushes `X.Y.Z`
    - Pushes tag
+   - Final mode only: publishes GitHub Release `X.Y.Z` with notes sourced from finalized `CHANGELOG.md`
    - Downloads tested images from artifacts
    - Pushes images to GHCR
    - Creates multi-architecture manifest for computed publish tag

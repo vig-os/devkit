@@ -4,12 +4,12 @@
 # 1. Validate: Check all prerequisites (PR status, CI passed, CHANGELOG ready)
 # 2. Finalize: For final releases only, set release date in CHANGELOG
 # 3. Build & Test: Build and test images for all architectures
-# 4. Publish: Create tag and publish images only if all tests pass
+# 4. Publish: Create tag, publish images, and publish final GitHub Release
 # 5. Rollback (on failure): Revert changes and create issue
 #
 # Release kinds:
 #   candidate: Publishes X.Y.Z-rcN. No CHANGELOG changes, no sync-issues.
-#   final:     Publishes X.Y.Z. Sets release date in CHANGELOG, triggers sync-issues.
+#   final:     Publishes X.Y.Z. Sets release date in CHANGELOG, triggers sync-issues, publishes GitHub Release.
 #
 # Design: Everything happens in one workflow dispatch before creating the tag.
 # This ensures no broken releases are tagged.
@@ -760,6 +760,43 @@ jobs:
 
           git push origin "$PUBLISH_VERSION"
           echo "✓ Tag pushed: $PUBLISH_VERSION"
+
+      - name: Generate final release notes from CHANGELOG
+        if: needs.validate.outputs.release_kind == 'final'
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          awk -v version="$VERSION" '
+            index($0, "## [" version "] - ") == 1 {found=1; next}
+            /^## \[/ && found {found=0}
+            found {print}
+          ' CHANGELOG.md > /tmp/github-release-notes.md
+
+          if [ ! -s /tmp/github-release-notes.md ]; then
+            echo "ERROR: Failed to generate GitHub Release notes for $VERSION from CHANGELOG.md"
+            echo "Expected section heading: ## [$VERSION] - YYYY-MM-DD"
+            exit 1
+          fi
+
+      - name: Publish final GitHub Release
+        if: needs.validate.outputs.release_kind == 'final'
+        env:
+          PUBLISH_VERSION: ${{ needs.validate.outputs.publish_version }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$PUBLISH_VERSION" >/dev/null 2>&1; then
+            echo "ERROR: GitHub Release already exists for tag $PUBLISH_VERSION"
+            exit 1
+          fi
+
+          gh release create "$PUBLISH_VERSION" \
+            --title "$PUBLISH_VERSION" \
+            --notes-file /tmp/github-release-notes.md \
+            --verify-tag
+
+          echo "✓ GitHub Release published: $PUBLISH_VERSION"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22  # v4

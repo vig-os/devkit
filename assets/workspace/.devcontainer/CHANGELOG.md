@@ -49,6 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Ship changelog into workspace payload and smoke-test deploy root** ([#333](https://github.com/vig-os/devcontainer/issues/333))
   - Sync canonical `CHANGELOG.md` into both workspace root and `.devcontainer/` template paths
   - Smoke-test dispatch now copies `.devcontainer/CHANGELOG.md` to repository root so deploy output keeps a root changelog
+- **Final release now publishes a GitHub Release with finalized notes** ([#310](https://github.com/vig-os/devcontainer/issues/310))
+  - Add a final-only publish step in `.github/workflows/release.yml` that creates a GitHub Release for `X.Y.Z`
+  - Source GitHub Release notes from the finalized `CHANGELOG.md` section and fail the run if notes extraction or release publishing fails
 
 ### Deprecated
 
