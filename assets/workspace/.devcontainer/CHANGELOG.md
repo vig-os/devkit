@@ -66,7 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Image tools** ([[#212](https://github.com/vig-os/devcontainer/issues/212)])
+- **Image tools** ([#212](https://github.com/vig-os/devcontainer/issues/212))
   - Install rsync
 - **Preserve user-authored files during `--force` workspace upgrades** ([#212](https://github.com/vig-os/devcontainer/issues/212))
   - `init-workspace --force` no longer overwrites `README.md`, `CHANGELOG.md`, `LICENSE`, `.github/CODEOWNERS`, or `justfile.project`
