@@ -23,7 +23,7 @@ on:  # yamllint disable-line rule:truthy
       - smoke-test-trigger
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   validate:
@@ -215,11 +215,86 @@ jobs:
           gh pr merge "${PR_URL}" --auto --merge || \
             echo "Warning: could not enable auto-merge"
 
+  publish-release:
+    name: Publish smoke-test release artifact
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    needs: [validate, deploy]
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Create release note
+        id: notes
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+          SOURCE_REPO: ${{ needs.validate.outputs.source_repo }}
+          SOURCE_WORKFLOW: ${{ needs.validate.outputs.source_workflow }}
+          SOURCE_RUN_ID: ${{ needs.validate.outputs.source_run_id }}
+          SOURCE_RUN_URL: ${{ needs.validate.outputs.source_run_url }}
+          SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
+          CORRELATION_ID: ${{ needs.validate.outputs.correlation_id }}
+        run: |
+          set -euo pipefail
+          cat > /tmp/smoke-test-release-notes.md <<EOF
+          Smoke-test release automation for upstream tag \`$TAG\`.
+
+          - source_repo: \`${SOURCE_REPO:-unknown}\`
+          - source_workflow: \`${SOURCE_WORKFLOW:-unknown}\`
+          - source_run_id: \`${SOURCE_RUN_ID:-unknown}\`
+          - source_run_url: ${SOURCE_RUN_URL:-N/A}
+          - source_sha: \`${SOURCE_SHA:-unknown}\`
+          - correlation_id: \`${CORRELATION_ID:-unknown}\`
+          EOF
+
+      - name: Create or validate GitHub release
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if echo "$TAG" | grep -qE -- '-rc[0-9]+$'; then
+            EXPECTED_PRERELEASE=true
+          else
+            EXPECTED_PRERELEASE=false
+          fi
+
+          EXISTING_RELEASE=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" 2>/dev/null || true)
+          if [ -n "$EXISTING_RELEASE" ]; then
+            EXISTING_PRERELEASE=$(echo "$EXISTING_RELEASE" | jq -r '.prerelease')
+            if [ "$EXISTING_PRERELEASE" != "$EXPECTED_PRERELEASE" ]; then
+              echo "ERROR: Existing release '$TAG' prerelease=$EXISTING_PRERELEASE (expected $EXPECTED_PRERELEASE)"
+              exit 1
+            fi
+
+            gh release edit "$TAG" \
+              --title "$TAG" \
+              --notes-file /tmp/smoke-test-release-notes.md
+            echo "Release '$TAG' already exists with expected prerelease value."
+            exit 0
+          fi
+
+          if [ "$EXPECTED_PRERELEASE" = "true" ]; then
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes-file /tmp/smoke-test-release-notes.md \
+              --prerelease
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes-file /tmp/smoke-test-release-notes.md
+          fi
+
+      - name: Summary
+        env:
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          echo "✓ Smoke-test release artifact ready"
+          echo "  Tag: $TAG"
+
   summary:
     name: Dispatch summary
     runs-on: ubuntu-22.04
     timeout-minutes: 5
-    needs: [validate, deploy]
+    needs: [validate, deploy, publish-release]
     if: always()
     steps:
       - name: Write source context summary
@@ -251,6 +326,7 @@ jobs:
           echo ""
           echo "Validate:     ${{ needs.validate.result }}"
           echo "Deploy:       ${{ needs.deploy.result }}"
+          echo "Release:      ${{ needs.publish-release.result }}"
           echo "Deploy PR:    ${{ needs.deploy.outputs.pr_url }}"
           echo ""
 
@@ -263,6 +339,11 @@ jobs:
 
           if [ "${{ needs.deploy.result }}" != "success" ]; then
             echo "ERROR: Deploy job failed"
+            FAILED=true
+          fi
+
+          if [ "${{ needs.publish-release.result }}" != "success" ]; then
+            echo "ERROR: Release publication job failed"
             FAILED=true
           fi
 
