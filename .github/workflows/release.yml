@@ -241,21 +241,35 @@ jobs:
           echo "Checking downstream pre-release for $LATEST_RC..."
 
           RELEASE_JSON=""
+          LAST_ERROR=""
           RETRIES=5
-          for i in $(seq 1 $RETRIES); do
-            RELEASE_JSON=$(gh api "repos/vig-os/devcontainer-smoke-test/releases/tags/$LATEST_RC" 2>/dev/null || true)
-            if [ -n "$RELEASE_JSON" ]; then
+          for i in $(seq 1 "$RETRIES"); do
+            API_OUTPUT=""
+            if API_OUTPUT=$(gh api "repos/vig-os/devcontainer-smoke-test/releases/tags/$LATEST_RC" 2>&1); then
+              RELEASE_JSON="$API_OUTPUT"
               break
             fi
 
-            if [ "$i" -lt "$RETRIES" ]; then
-              echo "Downstream release not visible yet, retrying ($i/$RETRIES)..."
-              sleep 5
+            LAST_ERROR="$API_OUTPUT"
+            if printf '%s' "$API_OUTPUT" | grep -Eqi "404|not found"; then
+              if [ "$i" -lt "$RETRIES" ]; then
+                echo "Downstream release not visible yet, retrying ($i/$RETRIES)..."
+                sleep 5
+              fi
+              continue
             fi
+
+            echo "ERROR: Failed querying downstream release API for $LATEST_RC"
+            echo "$API_OUTPUT"
+            exit 1
           done
 
           if [ -z "$RELEASE_JSON" ]; then
             echo "ERROR: No downstream release found for RC tag $LATEST_RC"
+            if [ -n "$LAST_ERROR" ]; then
+              echo "Last API error:"
+              echo "$LAST_ERROR"
+            fi
             echo ""
             echo "The final release requires a successful smoke-test pre-release."
             echo "Steps to resolve:"
