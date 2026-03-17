@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [0.3.1] - TBD
+
+### Added
+
 - **Split downstream release workflow with project-owned extension hook** ([#326](https://github.com/vig-os/devcontainer/issues/326))
   - Add local `workflow_call` release phases (`release-core.yml`, `release-publish.yml`) and a lightweight `release.yml` orchestrator in `assets/workspace/.github/workflows/`
   - Add `release_kind` support with candidate mode (`X.Y.Z-rcN`) and final mode (`X.Y.Z`) in downstream release workflows
@@ -58,10 +72,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Move final GitHub Release creation to the end of publish so artifact publication/signing completes before release object creation
   - Add concurrency control to `assets/smoke-test/.github/workflows/repository-dispatch.yml` to prevent overlapping dispatch races
   - Handle smoke-test dispatch failures with a targeted issue while avoiding destructive rollback after publish artifacts are already released
-
-### Deprecated
-
-### Removed
 
 ### Fixed
 
