@@ -119,11 +119,42 @@ jobs:
           echo "source_sha=${SOURCE_SHA}" >> "${GITHUB_OUTPUT}"
           echo "correlation_id=${CORRELATION_ID}" >> "${GITHUB_OUTPUT}"
 
+  resolve-image:
+    name: Resolve image tag
+    runs-on: ubuntu-22.04
+    timeout-minutes: 2
+    outputs:
+      image-tag: ${{ steps.resolve.outputs.image-tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          sparse-checkout: .vig-os
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve container image tag from .vig-os
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f .vig-os ]; then
+            echo "ERROR: .vig-os is required to resolve DEVCONTAINER_VERSION"
+            exit 1
+          fi
+          TAG="$(awk -F= '/^DEVCONTAINER_VERSION=/{gsub(/^[ \t"]+|[ \t"]+$/, "", $2); print $2; exit}' .vig-os || true)"
+          if [ -z "${TAG:-}" ]; then
+            echo "ERROR: DEVCONTAINER_VERSION not found in .vig-os"
+            exit 1
+          fi
+          echo "image-tag=$TAG" >> "$GITHUB_OUTPUT"
+
   deploy:
     name: Deploy tag and open PR to dev
     runs-on: ubuntu-22.04
+    needs: [validate, resolve-image]
+    container:
+      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
     timeout-minutes: 15
-    needs: validate
     outputs:
       pr_url: ${{ steps.create_pr.outputs.pr_url }}
     steps:
@@ -155,12 +186,13 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
         run: |
-          gh label create deploy --color 0E8A16 \
+          set -euo pipefail
+          retry --retries 3 --backoff 5 --max-backoff 30 -- gh label create deploy --color 0E8A16 \
             --description "Automated smoke-test deploy PRs" \
             --force
 
           mapfile -t OPEN_DEPLOY_PRS < <(
-            gh pr list --base dev --state open --label deploy \
+            retry --retries 3 --backoff 5 --max-backoff 30 -- gh pr list --base dev --state open --label deploy \
               --json number --jq '.[].number'
           )
 
@@ -171,7 +203,7 @@ jobs:
 
           for pr_number in "${OPEN_DEPLOY_PRS[@]}"; do
             echo "Closing stale deploy PR #${pr_number}"
-            gh pr close "${pr_number}" --delete-branch
+            retry --retries 3 --backoff 5 --max-backoff 30 -- gh pr close "${pr_number}" --delete-branch
           done
 
       - name: Run installer from dispatch tag
@@ -179,7 +211,8 @@ jobs:
           TAG: ${{ needs.validate.outputs.tag }}
         run: |
           set -euo pipefail
-          curl -sSf "https://raw.githubusercontent.com/vig-os/devcontainer/${TAG}/install.sh" \
+          retry --retries 3 --backoff 5 --max-backoff 30 -- \
+            curl -sSf "https://raw.githubusercontent.com/vig-os/devcontainer/${TAG}/install.sh" \
             | bash -s -- --version "${TAG}" --smoke-test --force --docker .
 
           # Docker-based initialization can leave bind-mounted files owned by root.
@@ -211,19 +244,31 @@ jobs:
           GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
           TAG: ${{ needs.validate.outputs.tag }}
         run: |
+          set -euo pipefail
           BRANCH_NAME="chore/deploy-${TAG}"
           echo "branch_name=${BRANCH_NAME}" >> "${GITHUB_OUTPUT}"
 
-          DEV_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/dev" --jq '.object.sha')"
+          DEV_SHA="$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
+            gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/dev" --jq '.object.sha')"
 
-          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${BRANCH_NAME}" >/dev/null 2>&1; then
-            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/heads/${BRANCH_NAME}" \
+          if retry --retries 2 --backoff 5 --max-backoff 20 -- \
+            gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${BRANCH_NAME}" >/dev/null 2>&1; then
+            retry --retries 3 --backoff 5 --max-backoff 30 -- \
+              gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/heads/${BRANCH_NAME}" \
               -f sha="${DEV_SHA}" \
               -F force=true >/dev/null
           else
-            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            retry --retries 3 --backoff 5 --max-backoff 30 -- \
+              gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
               -f ref="refs/heads/${BRANCH_NAME}" \
-              -f sha="${DEV_SHA}" >/dev/null
+              -f sha="${DEV_SHA}" >/dev/null || {
+                if retry --retries 2 --backoff 5 --max-backoff 20 -- \
+                  gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${BRANCH_NAME}" >/dev/null 2>&1; then
+                  echo "Deploy branch already exists: ${BRANCH_NAME}"
+                else
+                  exit 1
+                fi
+              }
           fi
 
       - name: Commit and push deploy changes via signed commit-action
@@ -244,6 +289,7 @@ jobs:
           TAG: ${{ needs.validate.outputs.tag }}
           BRANCH_NAME: ${{ steps.prepare_branch.outputs.branch_name }}
         run: |
+          set -euo pipefail
           PR_BODY="$(
             printf '%s\n' \
               "Automated smoke-test deployment commit created by repository_dispatch." \
@@ -252,14 +298,23 @@ jobs:
               "- Branch: ${BRANCH_NAME}" \
               "- Target: dev"
           )"
-          PR_URL="$(
-            gh pr create \
-              --base dev \
-              --head "${BRANCH_NAME}" \
-              --title "chore: deploy ${TAG}" \
-              --body "${PR_BODY}" \
-              --label deploy
+          EXISTING_PR_URL="$(
+            retry --retries 3 --backoff 5 --max-backoff 30 -- \
+              gh pr list --base dev --head "${BRANCH_NAME}" --state open --json url --jq '.[0].url // empty'
           )"
+          if [ -n "${EXISTING_PR_URL}" ]; then
+            PR_URL="${EXISTING_PR_URL}"
+          else
+            PR_URL="$(
+              retry --retries 3 --backoff 5 --max-backoff 30 -- \
+                gh pr create \
+                  --base dev \
+                  --head "${BRANCH_NAME}" \
+                  --title "chore: deploy ${TAG}" \
+                  --body "${PR_BODY}" \
+                  --label deploy
+            )"
+          fi
           echo "pr_url=${PR_URL}" >> "${GITHUB_OUTPUT}"
           echo "Created PR: ${PR_URL}"
 
@@ -268,14 +323,18 @@ jobs:
           GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
           PR_URL: ${{ steps.create_pr.outputs.pr_url }}
         run: |
-          gh pr merge "${PR_URL}" --auto --merge || \
+          set -euo pipefail
+          retry --retries 2 --backoff 5 --max-backoff 20 -- \
+            gh pr merge "${PR_URL}" --auto --merge || \
             echo "Warning: could not enable auto-merge"
 
   publish-release:
     name: Publish smoke-test release artifact
     runs-on: ubuntu-22.04
+    needs: [validate, resolve-image, deploy]
+    container:
+      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
     timeout-minutes: 10
-    needs: [validate, deploy]
     permissions:
       contents: write
     env:
@@ -318,7 +377,8 @@ jobs:
 
           RELEASE_LOOKUP_OUTPUT=""
           set +e
-          RELEASE_LOOKUP_OUTPUT=$(gh api -i "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" 2>&1)
+          RELEASE_LOOKUP_OUTPUT=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
+            gh api -i "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" 2>&1)
           RELEASE_LOOKUP_EXIT=$?
           set -e
 
@@ -332,26 +392,27 @@ jobs:
           )"
 
           if [ "$RELEASE_LOOKUP_EXIT" -eq 0 ] && [ "$RELEASE_LOOKUP_STATUS" = "200" ]; then
-            EXISTING_RELEASE=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}")
+            EXISTING_RELEASE=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
+              gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}")
             EXISTING_PRERELEASE=$(echo "$EXISTING_RELEASE" | jq -r '.prerelease')
             if [ "$EXISTING_PRERELEASE" != "$EXPECTED_PRERELEASE" ]; then
               echo "ERROR: Existing release '$TAG' prerelease=$EXISTING_PRERELEASE (expected $EXPECTED_PRERELEASE)"
               exit 1
             fi
 
-            gh release edit "$TAG" \
+            retry --retries 3 --backoff 5 --max-backoff 30 -- gh release edit "$TAG" \
               --title "$TAG" \
               --notes-file /tmp/smoke-test-release-notes.md
             echo "Updated existing release '$TAG' with expected prerelease=$EXPECTED_PRERELEASE."
           else
             if [ "$RELEASE_LOOKUP_STATUS" = "404" ]; then
               if [ "$EXPECTED_PRERELEASE" = "true" ]; then
-                gh release create "$TAG" \
+                retry --retries 3 --backoff 5 --max-backoff 30 -- gh release create "$TAG" \
                   --title "$TAG" \
                   --notes-file /tmp/smoke-test-release-notes.md \
                   --prerelease
               else
-                gh release create "$TAG" \
+                retry --retries 3 --backoff 5 --max-backoff 30 -- gh release create "$TAG" \
                   --title "$TAG" \
                   --notes-file /tmp/smoke-test-release-notes.md
               fi
@@ -374,7 +435,7 @@ jobs:
     name: Dispatch summary
     runs-on: ubuntu-22.04
     timeout-minutes: 5
-    needs: [validate, deploy, publish-release]
+    needs: [validate, resolve-image, deploy, publish-release]
     if: always()
     steps:
       - name: Write source context summary
