@@ -125,21 +125,8 @@ runs:
         echo "Pulling image: $IMAGE_TAG"
 
         # Retry logic for podman pull (network flakiness)
-        RETRIES=3
-        for i in $(seq 1 $RETRIES); do
-          if podman pull "$IMAGE_TAG"; then
-            echo "Image pulled successfully"
-            break
-          else
-            if [ $i -lt $RETRIES ]; then
-              echo "Pull failed, retrying ($i/$RETRIES)..."
-              sleep 3
-            else
-              echo "Pull failed after $RETRIES attempts"
-              exit 1
-            fi
-          fi
-        done
+        uv run retry --retries 3 --backoff 3 --max-backoff 3 -- podman pull "$IMAGE_TAG"
+        echo "Image pulled successfully"
 
     - name: Verify image is available
       if: inputs.image-source == 'local'

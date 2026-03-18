@@ -193,7 +193,9 @@ jobs:
           sync-dependencies: 'true'
 
       - name: Install safety
-        run: uv pip install safety==3.7.0
+        run: |
+          set -euo pipefail
+          uv run retry --retries 3 --backoff 5 --max-backoff 30 -- uv pip install safety==3.7.0
 
       - name: Run Bandit (Python security linting)
         id: bandit

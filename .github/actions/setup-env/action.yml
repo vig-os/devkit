@@ -162,8 +162,10 @@ runs:
         BIN_FILE="hadolint-${ARCH}"
         SHA_FILE="${BIN_FILE}.sha256"
 
-        curl -fsSL "${BASE_URL}/${BIN_FILE}" -o "${BIN_FILE}"
-        curl -fsSL "${BASE_URL}/${SHA_FILE}" -o "${SHA_FILE}"
+        uv run retry --retries 3 --backoff 5 --max-backoff 60 -- \
+          curl -fsSL "${BASE_URL}/${BIN_FILE}" -o "${BIN_FILE}"
+        uv run retry --retries 3 --backoff 5 --max-backoff 60 -- \
+          curl -fsSL "${BASE_URL}/${SHA_FILE}" -o "${SHA_FILE}"
 
         EXPECTED_SHA="$(awk '{print $1}' "${SHA_FILE}")"
         echo "${EXPECTED_SHA}  ${BIN_FILE}" | sha256sum -c -
@@ -189,11 +191,17 @@ runs:
             ;;
         esac
 
-        TAPLO_VERSION="$(curl -fsSL https://api.github.com/repos/tamasfe/taplo/releases/latest | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')"
+        TAPLO_VERSION="$(uv run retry --retries 3 --backoff 5 --max-backoff 60 -- \
+          curl -fsSL https://api.github.com/repos/tamasfe/taplo/releases/latest | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')"
+        if [ -z "${TAPLO_VERSION:-}" ]; then
+          echo "ERROR: Failed to resolve Taplo version from GitHub releases API"
+          exit 1
+        fi
         BASE_URL="https://github.com/tamasfe/taplo/releases/download/${TAPLO_VERSION}"
         BIN_FILE="taplo-linux-${ARCH}.gz"
 
-        curl -fsSL "${BASE_URL}/${BIN_FILE}" -o "${BIN_FILE}"
+        uv run retry --retries 3 --backoff 5 --max-backoff 60 -- \
+          curl -fsSL "${BASE_URL}/${BIN_FILE}" -o "${BIN_FILE}"
         gunzip "${BIN_FILE}"
         sudo install -m 0755 "taplo-linux-${ARCH}" /usr/local/bin/taplo
         rm -f "taplo-linux-${ARCH}"
