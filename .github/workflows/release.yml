@@ -806,7 +806,19 @@ jobs:
 
           if ! uv run retry --retries 3 --backoff 5 --max-backoff 30 -- git push origin "$PUBLISH_VERSION"; then
             if git ls-remote --tags --refs origin "$PUBLISH_VERSION" | grep -q "refs/tags/$PUBLISH_VERSION$"; then
-              echo "Tag already present on origin after push attempt: $PUBLISH_VERSION"
+              LOCAL_TAG_TARGET_SHA=$(git rev-parse "$PUBLISH_VERSION^{}")
+              REMOTE_TAG_TARGET_SHA=$(git ls-remote --tags origin "refs/tags/$PUBLISH_VERSION^{}" | awk '{print $1}')
+              if [ -z "$REMOTE_TAG_TARGET_SHA" ]; then
+                echo "ERROR: Remote tag exists but target SHA could not be resolved: $PUBLISH_VERSION"
+                exit 1
+              fi
+              if [ "$REMOTE_TAG_TARGET_SHA" != "$LOCAL_TAG_TARGET_SHA" ]; then
+                echo "ERROR: Remote tag target SHA mismatch for $PUBLISH_VERSION"
+                echo "Local tag target:  $LOCAL_TAG_TARGET_SHA"
+                echo "Remote tag target: $REMOTE_TAG_TARGET_SHA"
+                exit 1
+              fi
+              echo "Tag already present on origin with matching target SHA: $PUBLISH_VERSION"
             else
               echo "ERROR: Failed to push tag $PUBLISH_VERSION"
               exit 1
@@ -1082,7 +1094,7 @@ jobs:
             --title "$PUBLISH_VERSION" \
             --notes-file /tmp/github-release-notes.md \
             --verify-tag || {
-              if gh release view "$PUBLISH_VERSION" >/dev/null 2>&1; then
+              if uv run retry --retries 2 --backoff 5 --max-backoff 20 -- gh release view "$PUBLISH_VERSION" >/dev/null 2>&1; then
                 echo "GitHub Release already present after create attempt: $PUBLISH_VERSION"
               else
                 exit 1
