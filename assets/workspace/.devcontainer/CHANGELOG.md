@@ -97,6 +97,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Release setup-env no longer self-sources retry helper via BASH_ENV** ([#374](https://github.com/vig-os/devcontainer/issues/374))
   - Guard the retry-helper merge logic in `.github/actions/setup-env/action.yml` to skip merging when `PREV_BASH_ENV` already equals `RETRY_HELPER`
   - Prevent infinite `source` recursion and exit 139 crashes when `setup-env` is invoked multiple times in one job
+- **Smoke-test dispatch now checks out repository before local setup action** ([#376](https://github.com/vig-os/devcontainer/issues/376))
+  - Add `actions/checkout` to the `smoke-test` job in `.github/workflows/release.yml` before invoking `./.github/actions/setup-env`
+  - Prevent dispatch failures caused by missing local action metadata (`action.yml`) in a fresh job workspace
 
 ### Security
 
