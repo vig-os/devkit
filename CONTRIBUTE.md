@@ -163,6 +163,10 @@ Available recipes:
     clean version="dev"                        # Remove image (default: dev)
     clean-test-containers                      # Clean up lingering test containers
 
+    [git]
+    branch                                     # Show current branch + list recent branches
+    log                                        # Pretty one-line git log (last 20 commits)
+
     [github]
     gh-issues                                  # List open issues and PRs grouped by milestone [alias: gh-i]
 

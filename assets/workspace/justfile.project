@@ -75,24 +75,6 @@ clean-artifacts:
     rm -rf .pytest_cache .ruff_cache .coverage htmlcov dist build *.egg-info
     find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
-# -------------------------------------------------------------------------------
-# GIT
-# -------------------------------------------------------------------------------
-
-# Pretty one-line git log (last 20 commits)
-[group('git')]
-log:
-    git log --oneline -20
-
-# Show current branch + list recent branches
-[group('git')]
-branch:
-    #!/usr/bin/env bash
-    echo "Current: $(git branch --show-current)"
-    echo ""
-    echo "Recent branches:"
-    git branch -a | head -15
-
 # ===============================================================================
 # PROJECT-SPECIFIC RECIPES
 # ===============================================================================
