@@ -65,8 +65,6 @@ jobs:
 
       - name: Set up environment
         uses: ./.github/actions/setup-env
-        with:
-          sync-dependencies: 'true'
 
       - name: Restore sync state (last synced timestamp)
         id: restore-state

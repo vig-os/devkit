@@ -68,12 +68,6 @@ transforms = [
 src = ".github/workflows/scorecard.yml"
 
 [[entries]]
-src = ".github/workflows/sync-issues.yml"
-
-[[entries]]
-src = ".github/workflows/sync-main-to-dev.yml"
-
-[[entries]]
 src = ".github/workflows/codeql.yml"
 
 [[entries]]

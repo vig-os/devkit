@@ -16,6 +16,9 @@
 # - COMMIT_APP_* for git/ref operations (least-privilege commit identity)
 # - RELEASE_APP_* for PR/label operations that require pull-request scopes
 #
+# NOTE: This workspace workflow is intentionally decoupled from upstream
+# `.github/workflows/sync-main-to-dev.yml` and maintained separately.
+#
 # With the new CHANGELOG flow, dev already has ## Unreleased (created during
 # prepare-release), so no CHANGELOG reset is needed here.
 #
@@ -36,9 +39,29 @@ permissions:
   contents: read
 
 jobs:
+  resolve-image:
+    name: Resolve image tag
+    runs-on: ubuntu-22.04
+    timeout-minutes: 2
+    outputs:
+      image-tag: ${{ steps.resolve.outputs.image-tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          sparse-checkout: .vig-os
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve container image
+        id: resolve
+        uses: ./.github/actions/resolve-image
+
   check:
     name: Check if dev is up to date
+    needs: [resolve-image]
     runs-on: ubuntu-22.04
+    container:
+      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
     timeout-minutes: 5
     outputs:
       up_to_date: ${{ steps.check.outputs.up_to_date }}
@@ -48,11 +71,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
-
-      - name: Set up environment
-        uses: ./.github/actions/setup-env
-        with:
-          sync-dependencies: 'true'
 
       - name: Check if dev is up to date with main
         id: check
@@ -78,9 +96,11 @@ jobs:
 
   sync:
     name: Merge main into dev via PR
-    needs: [check]
+    needs: [resolve-image, check]
     if: needs.check.outputs.up_to_date != 'true'
     runs-on: ubuntu-22.04
+    container:
+      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
     timeout-minutes: 10
     env:
       SYNC_BRANCH: chore/sync-main-to-dev-${{ github.run_number }}-${{ github.run_attempt }}
@@ -103,11 +123,6 @@ jobs:
           ref: dev
           fetch-depth: 0
           token: ${{ steps.commit-app-token.outputs.token }}
-
-      - name: Set up environment
-        uses: ./.github/actions/setup-env
-        with:
-          sync-dependencies: 'true'
 
       - name: Re-check if dev is still behind main
         id: recheck

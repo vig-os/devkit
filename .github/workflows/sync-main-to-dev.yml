@@ -51,8 +51,6 @@ jobs:
 
       - name: Set up environment
         uses: ./.github/actions/setup-env
-        with:
-          sync-dependencies: 'true'
 
       - name: Check if dev is up to date with main
         id: check
@@ -106,8 +104,6 @@ jobs:
 
       - name: Set up environment
         uses: ./.github/actions/setup-env
-        with:
-          sync-dependencies: 'true'
 
       - name: Re-check if dev is still behind main
         id: recheck
