@@ -215,7 +215,21 @@ runs:
     - name: Sync Python dependencies
       if: inputs.sync-dependencies == 'true'
       shell: bash
-      run: uv sync --frozen --all-extras
+      run: |
+        set -euo pipefail
+
+        set +e
+        uv sync --frozen --all-extras
+        rc=$?
+        set -e
+
+        if [ "$rc" -ne 0 ]; then
+          echo "WARNING: uv sync failed (exit $rc), clearing cache and .venv before retry..."
+          uv cache clean
+          rm -rf .venv
+          echo "Retrying uv sync..."
+          uv sync --frozen --all-extras
+        fi
 
     # ── Podman ──────────────────────────────────────────────────────────
     - name: Install podman
