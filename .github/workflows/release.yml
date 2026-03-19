@@ -80,6 +80,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098  # v7
+        with:
+          enable-cache: true
+          version: "0.10.0"
+
+      - name: Sync Python dependencies
+        run: uv sync --frozen --all-extras
+
       - name: Validate and prepare variables
         id: vars
         env:
@@ -497,7 +506,6 @@ jobs:
           persist-credentials: true
 
       - name: Set up environment
-        if: needs.validate.outputs.release_kind == 'final'
         uses: ./.github/actions/setup-env
         with:
           sync-dependencies: 'true'
@@ -773,6 +781,15 @@ jobs:
           ref: ${{ needs.finalize.outputs.finalize_sha }}
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: true
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098  # v7
+        with:
+          enable-cache: true
+          version: "0.10.0"
+
+      - name: Sync Python dependencies
+        run: uv sync --frozen --all-extras
 
       - name: Configure git
         env:
@@ -1166,7 +1183,32 @@ jobs:
           CORRELATION_ID: ${{ github.repository }}:${{ github.run_id }}:${{ needs.validate.outputs.publish_version }}
         run: |
           set -euo pipefail
-          uv run retry --retries 3 --backoff 10 --max-backoff 10 -- \
+          retry() {
+            local retries=$1
+            local backoff=$2
+            local max_backoff=$3
+            shift 3
+            local attempt=1
+            while [ "$attempt" -le "$retries" ]; do
+              if "$@"; then
+                return 0
+              fi
+              if [ "$attempt" -lt "$retries" ]; then
+                local wait="$backoff"
+                if [ "$wait" -gt "$max_backoff" ]; then
+                  wait="$max_backoff"
+                fi
+                echo "Retry $attempt/$retries failed, waiting ${wait}s..."
+                sleep "$wait"
+                backoff=$((backoff * 2))
+              fi
+              attempt=$((attempt + 1))
+            done
+            echo "ERROR: Command failed after $retries attempts: $*"
+            return 1
+          }
+
+          retry 3 10 10 \
             gh api repos/vig-os/devcontainer-smoke-test/dispatches \
               -f event_type=smoke-test-trigger \
               -f "client_payload[tag]=$RELEASE_TAG" \
@@ -1253,8 +1295,33 @@ jobs:
           PRE_SHA: ${{ needs.validate.outputs.pre_finalize_sha }}
         run: |
           set -euo pipefail
+          retry() {
+            local retries=$1
+            local backoff=$2
+            local max_backoff=$3
+            shift 3
+            local attempt=1
+            while [ "$attempt" -le "$retries" ]; do
+              if "$@"; then
+                return 0
+              fi
+              if [ "$attempt" -lt "$retries" ]; then
+                local wait="$backoff"
+                if [ "$wait" -gt "$max_backoff" ]; then
+                  wait="$max_backoff"
+                fi
+                echo "Retry $attempt/$retries failed, waiting ${wait}s..."
+                sleep "$wait"
+                backoff=$((backoff * 2))
+              fi
+              attempt=$((attempt + 1))
+            done
+            echo "ERROR: Command failed after $retries attempts: $*"
+            return 1
+          }
+
           echo "Rolling back release branch to pre-finalization state..."
-          uv run retry --retries 3 --backoff 5 --max-backoff 30 -- gh api "repos/${{ github.repository }}/git/refs/heads/release/$VERSION" \
+          retry 3 5 30 gh api "repos/${{ github.repository }}/git/refs/heads/release/$VERSION" \
             -X PATCH \
             -f sha="$PRE_SHA" \
             -F force=true
@@ -1268,10 +1335,35 @@ jobs:
           PUBLISH_VERSION: ${{ needs.validate.outputs.publish_version }}
         run: |
           set -euo pipefail
+          retry() {
+            local retries=$1
+            local backoff=$2
+            local max_backoff=$3
+            shift 3
+            local attempt=1
+            while [ "$attempt" -le "$retries" ]; do
+              if "$@"; then
+                return 0
+              fi
+              if [ "$attempt" -lt "$retries" ]; then
+                local wait="$backoff"
+                if [ "$wait" -gt "$max_backoff" ]; then
+                  wait="$max_backoff"
+                fi
+                echo "Retry $attempt/$retries failed, waiting ${wait}s..."
+                sleep "$wait"
+                backoff=$((backoff * 2))
+              fi
+              attempt=$((attempt + 1))
+            done
+            echo "ERROR: Command failed after $retries attempts: $*"
+            return 1
+          }
+
           TAG="$PUBLISH_VERSION"
-          if uv run retry --retries 2 --backoff 5 --max-backoff 20 -- gh api "repos/${{ github.repository }}/git/refs/tags/$TAG" >/dev/null 2>&1; then
+          if retry 2 5 20 gh api "repos/${{ github.repository }}/git/refs/tags/$TAG" >/dev/null 2>&1; then
             echo "Deleting remote tag: $TAG"
-            uv run retry --retries 3 --backoff 5 --max-backoff 30 -- gh api "repos/${{ github.repository }}/git/refs/tags/$TAG" -X DELETE
+            retry 3 5 30 gh api "repos/${{ github.repository }}/git/refs/tags/$TAG" -X DELETE
             echo "✓ Tag deleted"
           else
             echo "Tag does not exist on remote (not created)"
