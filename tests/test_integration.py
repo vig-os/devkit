@@ -2030,8 +2030,8 @@ class TestJustRecipes:
             "reset-changelog",
             "pull",
         ]:
-            assert f"{recipe_name}" in content, (
-                f"{recipe_name} should exist in .devcontainer/justfile.gh"
+            assert re.search(rf"(?m)^{recipe_name}(?:\s+.*)?:$", content), (
+                f"{recipe_name} recipe definition should exist in .devcontainer/justfile.gh"
             )
 
     def test_template_release_helpers_dispatch_expected_workflows(self):
@@ -2045,6 +2045,13 @@ class TestJustRecipes:
         assert 'gh workflow run release.yml --ref "$REF"' in content
         assert "release-kind=final" in content
         assert "release-kind=candidate" in content
+        assert "prepare-changelog reset CHANGELOG.md" in content
+        assert "uv run prepare-changelog reset CHANGELOG.md" not in content
+        assert 'pull version="latest" repo="":' in content
+        assert (
+            'RESOLVED_REPO="${repo:-${TEST_REGISTRY:-ghcr.io/vig-os/devcontainer}}"'
+            in (content)
+        )
 
 
 class TestDockerComposeProjectOverrides:
