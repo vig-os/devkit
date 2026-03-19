@@ -94,6 +94,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Release test-image setup now recovers from uv sync crashes** ([#370](https://github.com/vig-os/devcontainer/issues/370))
   - Harden `.github/actions/setup-env/action.yml` to retry `uv sync --frozen --all-extras` once after clearing uv cache and removing stale `.venv`
   - Prevent repeat release test failures when `setup-env` is executed multiple times in the same job
+- **Release setup-env no longer self-sources retry helper via BASH_ENV** ([#374](https://github.com/vig-os/devcontainer/issues/374))
+  - Guard the retry-helper merge logic in `.github/actions/setup-env/action.yml` to skip merging when `PREV_BASH_ENV` already equals `RETRY_HELPER`
+  - Prevent infinite `source` recursion and exit 139 crashes when `setup-env` is invoked multiple times in one job
 
 ### Security
 

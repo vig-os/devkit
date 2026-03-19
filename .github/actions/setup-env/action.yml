@@ -201,7 +201,7 @@ runs:
         export -f retry
         EOF
 
-        if [ -n "$PREV_BASH_ENV" ] && [ -f "$PREV_BASH_ENV" ]; then
+        if [ -n "$PREV_BASH_ENV" ] && [ -f "$PREV_BASH_ENV" ] && [ "$PREV_BASH_ENV" != "$RETRY_HELPER" ]; then
           {
             echo "source \"$PREV_BASH_ENV\""
             cat "$RETRY_HELPER"
