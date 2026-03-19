@@ -65,6 +65,9 @@ jobs:
 
       - name: Set up environment
         uses: ./.github/actions/setup-env
+        with:
+          install-python: 'false'
+          install-just: 'false'
 
       - name: Restore sync state (last synced timestamp)
         id: restore-state
