@@ -100,6 +100,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Smoke-test dispatch now checks out repository before local setup action** ([#376](https://github.com/vig-os/devcontainer/issues/376))
   - Add `actions/checkout` to the `smoke-test` job in `.github/workflows/release.yml` before invoking `./.github/actions/setup-env`
   - Prevent dispatch failures caused by missing local action metadata (`action.yml`) in a fresh job workspace
+- **Workspace resolve-image jobs now checkout local action metadata** ([#380](https://github.com/vig-os/devcontainer/issues/380))
+  - Update `sparse-checkout` in workspace `resolve-image` jobs to include `.github/actions/resolve-image` in addition to `.vig-os`
+  - Prevent CI failures in downstream deploy PRs where local composite actions were missing from sparse checkout
 
 ### Security
 
