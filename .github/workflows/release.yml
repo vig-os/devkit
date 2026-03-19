@@ -80,6 +80,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
 
+      - name: Set up environment
+        uses: ./.github/actions/setup-env
+        with:
+          install-python: 'false'
+          install-just: 'false'
+
       - name: Validate and prepare variables
         id: vars
         env:
@@ -118,7 +124,7 @@ jobs:
           VERSION: ${{ steps.vars.outputs.version }}
         run: |
           set -euo pipefail
-          uv run retry --retries 3 --backoff 3 --max-backoff 20 -- git fetch origin "release/$VERSION" || {
+          retry --retries 3 --backoff 3 --max-backoff 20 -- git fetch origin "release/$VERSION" || {
             echo "ERROR: Release branch not found: release/$VERSION"
             echo "Did you run: just prepare-release $VERSION"
             exit 1
@@ -334,7 +340,7 @@ jobs:
           RELEASE_BRANCH="release/$VERSION"
 
           # Find PR from release branch to main
-          PR_JSON=$(uv run retry --retries 3 --backoff 5 --max-backoff 30 -- gh pr list \
+          PR_JSON=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh pr list \
             --head "$RELEASE_BRANCH" \
             --base main \
             --json number,isDraft,reviewDecision,statusCheckRollup \
@@ -497,10 +503,10 @@ jobs:
           persist-credentials: true
 
       - name: Set up environment
-        if: needs.validate.outputs.release_kind == 'final'
         uses: ./.github/actions/setup-env
         with:
           sync-dependencies: 'true'
+          install-just: 'false'
 
       - name: Set release date in CHANGELOG
         if: needs.validate.outputs.release_kind == 'final'
@@ -576,7 +582,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Triggering sync-issues workflow..."
-          uv run retry --retries 2 --backoff 5 --max-backoff 20 -- gh workflow run sync-issues.yml \
+          retry --retries 2 --backoff 5 --max-backoff 20 -- gh workflow run sync-issues.yml \
             -f "target-branch=release/$VERSION"
           echo "✓ sync-issues workflow triggered"
 
@@ -631,7 +637,7 @@ jobs:
           VERSION: ${{ needs.validate.outputs.version }}
         run: |
           set -euo pipefail
-          uv run retry --retries 3 --backoff 3 --max-backoff 20 -- git fetch origin "release/$VERSION"
+          retry --retries 3 --backoff 3 --max-backoff 20 -- git fetch origin "release/$VERSION"
           git reset --hard "origin/release/$VERSION"
           echo "✓ Synced with remote release branch"
 
@@ -661,7 +667,7 @@ jobs:
           $CHANGELOG_CONTENT
           EOF
 
-          uv run retry --retries 3 --backoff 5 --max-backoff 30 -- \
+          retry --retries 3 --backoff 5 --max-backoff 30 -- \
             gh pr edit "$PR_NUMBER" --body-file /tmp/release-pr-body.md
           echo "✓ Refreshed PR #$PR_NUMBER body from finalized CHANGELOG.md"
 
@@ -676,7 +682,7 @@ jobs:
           if [ "$RELEASE_KIND" = "final" ]; then
             FINALIZE_SHA=$(git rev-parse HEAD)
           else
-            FINALIZE_SHA=$(uv run retry --retries 3 --backoff 5 --max-backoff 30 -- \
+            FINALIZE_SHA=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
               gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/release/$VERSION" --jq '.object.sha')
           fi
           echo "finalize_sha=$FINALIZE_SHA" >> $GITHUB_OUTPUT
@@ -774,6 +780,12 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: true
 
+      - name: Set up environment
+        uses: ./.github/actions/setup-env
+        with:
+          install-python: 'false'
+          install-just: 'false'
+
       - name: Configure git
         env:
           GIT_USER_NAME: ${{ github.event.inputs.git-user-name }}
@@ -797,17 +809,17 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$RELEASE_KIND" = "candidate" ]; then
-            if uv run retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags --refs origin "$PUBLISH_VERSION" | grep -q "refs/tags/$PUBLISH_VERSION$"; then
+            if retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags --refs origin "$PUBLISH_VERSION" | grep -q "refs/tags/$PUBLISH_VERSION$"; then
               echo "ERROR: Candidate tag '$PUBLISH_VERSION' already exists on origin"
               echo "Another candidate publish likely completed concurrently; re-run workflow to infer next RC."
               exit 1
             fi
           fi
 
-          if ! uv run retry --retries 3 --backoff 5 --max-backoff 30 -- git push origin "$PUBLISH_VERSION"; then
-            if uv run retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags --refs origin "$PUBLISH_VERSION" | grep -q "refs/tags/$PUBLISH_VERSION$"; then
+          if ! retry --retries 3 --backoff 5 --max-backoff 30 -- git push origin "$PUBLISH_VERSION"; then
+            if retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags --refs origin "$PUBLISH_VERSION" | grep -q "refs/tags/$PUBLISH_VERSION$"; then
               LOCAL_TAG_TARGET_SHA=$(git rev-parse "$PUBLISH_VERSION^{}")
-              REMOTE_TAG_TARGET_SHA=$(uv run retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags origin "refs/tags/$PUBLISH_VERSION^{}" | awk '{print $1}')
+              REMOTE_TAG_TARGET_SHA=$(retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags origin "refs/tags/$PUBLISH_VERSION^{}" | awk '{print $1}')
               if [ -z "$REMOTE_TAG_TARGET_SHA" ]; then
                 echo "ERROR: Remote tag exists but target SHA could not be resolved: $PUBLISH_VERSION"
                 exit 1
@@ -887,7 +899,7 @@ jobs:
             IMAGE_TAG="$REPO:$PUBLISH_VERSION-$arch"
             docker tag "$SOURCE_IMAGE_TAG" "$IMAGE_TAG"
             echo "Pushing $arch image: $IMAGE_TAG"
-            uv run retry --retries 3 --backoff 3 --max-backoff 3 -- docker push "$IMAGE_TAG"
+            retry --retries 3 --backoff 3 --max-backoff 3 -- docker push "$IMAGE_TAG"
             echo "✓ Pushed: $IMAGE_TAG"
           done
 
@@ -910,7 +922,7 @@ jobs:
           done
 
           echo "Creating version manifest: $REPO:$PUBLISH_VERSION"
-          uv run retry --retries 3 --backoff 3 --max-backoff 3 -- \
+          retry --retries 3 --backoff 3 --max-backoff 3 -- \
             docker buildx imagetools create \
               --tag "$REPO:$PUBLISH_VERSION" \
               "${ARCH_IMAGES[@]}"
@@ -919,7 +931,7 @@ jobs:
           # Update latest manifest only for final releases building both architectures.
           if [ "$RELEASE_KIND" = "final" ] && [ ${#ARCH_ARRAY[@]} -eq 2 ]; then
             echo "Creating/updating latest manifest: $REPO:latest"
-            uv run retry --retries 3 --backoff 3 --max-backoff 3 -- \
+            retry --retries 3 --backoff 3 --max-backoff 3 -- \
               docker buildx imagetools create \
                 --tag "$REPO:latest" \
                 "${ARCH_IMAGES[@]}"
@@ -1013,12 +1025,12 @@ jobs:
           REPO="ghcr.io/vig-os/devcontainer"
 
           # Get the digest for the multi-arch manifest
-          DIGEST=$(uv run retry --retries 3 --backoff 5 --max-backoff 30 -- \
+          DIGEST=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
             docker buildx imagetools inspect "$REPO:$PUBLISH_VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "Signing image: $REPO@$DIGEST"
 
           # Keyless signing using GitHub Actions OIDC identity
-          uv run retry --retries 3 --backoff 15 --max-backoff 15 -- \
+          retry --retries 3 --backoff 15 --max-backoff 15 -- \
             cosign sign --yes "$REPO@$DIGEST"
           echo "✓ Image signed with cosign (keyless)"
 
@@ -1029,7 +1041,7 @@ jobs:
         run: |
           set -euo pipefail
           REPO="ghcr.io/vig-os/devcontainer"
-          DIGEST=$(uv run retry --retries 3 --backoff 5 --max-backoff 30 -- \
+          DIGEST=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
             docker buildx imagetools inspect "$REPO:$PUBLISH_VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "digest=$DIGEST" >> $GITHUB_OUTPUT
           echo "Image digest: $DIGEST"
@@ -1085,16 +1097,16 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
-          if uv run retry --retries 2 --backoff 5 --max-backoff 20 -- gh release view "$PUBLISH_VERSION" >/dev/null 2>&1; then
+          if retry --retries 2 --backoff 5 --max-backoff 20 -- gh release view "$PUBLISH_VERSION" >/dev/null 2>&1; then
             echo "ERROR: GitHub Release already exists for tag $PUBLISH_VERSION"
             exit 1
           fi
 
-          uv run retry --retries 3 --backoff 5 --max-backoff 30 -- gh release create "$PUBLISH_VERSION" \
+          retry --retries 3 --backoff 5 --max-backoff 30 -- gh release create "$PUBLISH_VERSION" \
             --title "$PUBLISH_VERSION" \
             --notes-file /tmp/github-release-notes.md \
             --verify-tag || {
-              if uv run retry --retries 2 --backoff 5 --max-backoff 20 -- gh release view "$PUBLISH_VERSION" >/dev/null 2>&1; then
+              if retry --retries 2 --backoff 5 --max-backoff 20 -- gh release view "$PUBLISH_VERSION" >/dev/null 2>&1; then
                 echo "GitHub Release already present after create attempt: $PUBLISH_VERSION"
               else
                 exit 1
@@ -1153,6 +1165,12 @@ jobs:
           owner: vig-os
           repositories: devcontainer-smoke-test
 
+      - name: Set up environment
+        uses: ./.github/actions/setup-env
+        with:
+          install-python: 'false'
+          install-just: 'false'
+
       - name: Trigger smoke-test repository dispatch
         env:
           GH_TOKEN: ${{ steps.smoke-app-token.outputs.token }}
@@ -1166,7 +1184,7 @@ jobs:
           CORRELATION_ID: ${{ github.repository }}:${{ github.run_id }}:${{ needs.validate.outputs.publish_version }}
         run: |
           set -euo pipefail
-          uv run retry --retries 3 --backoff 10 --max-backoff 10 -- \
+          retry --retries 3 --backoff 10 --max-backoff 10 -- \
             gh api repos/vig-os/devcontainer-smoke-test/dispatches \
               -f event_type=smoke-test-trigger \
               -f "client_payload[tag]=$RELEASE_TAG" \
@@ -1244,6 +1262,12 @@ jobs:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
+      - name: Set up environment
+        uses: ./.github/actions/setup-env
+        with:
+          install-python: 'false'
+          install-just: 'false'
+
       - name: Rollback release branch
         id: rollback-branch
         continue-on-error: true
@@ -1254,7 +1278,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "Rolling back release branch to pre-finalization state..."
-          uv run retry --retries 3 --backoff 5 --max-backoff 30 -- gh api "repos/${{ github.repository }}/git/refs/heads/release/$VERSION" \
+          retry --retries 3 --backoff 5 --max-backoff 30 -- gh api "repos/${{ github.repository }}/git/refs/heads/release/$VERSION" \
             -X PATCH \
             -f sha="$PRE_SHA" \
             -F force=true
@@ -1269,9 +1293,9 @@ jobs:
         run: |
           set -euo pipefail
           TAG="$PUBLISH_VERSION"
-          if uv run retry --retries 2 --backoff 5 --max-backoff 20 -- gh api "repos/${{ github.repository }}/git/refs/tags/$TAG" >/dev/null 2>&1; then
+          if retry --retries 2 --backoff 5 --max-backoff 20 -- gh api "repos/${{ github.repository }}/git/refs/tags/$TAG" >/dev/null 2>&1; then
             echo "Deleting remote tag: $TAG"
-            uv run retry --retries 3 --backoff 5 --max-backoff 30 -- gh api "repos/${{ github.repository }}/git/refs/tags/$TAG" -X DELETE
+            retry --retries 3 --backoff 5 --max-backoff 30 -- gh api "repos/${{ github.repository }}/git/refs/tags/$TAG" -X DELETE
             echo "✓ Tag deleted"
           else
             echo "Tag does not exist on remote (not created)"

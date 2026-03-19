@@ -7,11 +7,15 @@
 # - hadolint (for Containerfile linting in pre-commit)
 # - BATS + helper libraries (for shell script testing)
 #
-# IMPORTANT: The caller must checkout the repository before using this action.
-# This action does NOT checkout code, allowing callers to control ref, token,
-# persist-credentials, and other checkout options.
+# IMPORTANT:
+# - This action does NOT checkout code, allowing callers to control ref, token,
+#   persist-credentials, and other checkout options.
+# - Checkout is only required for operations that read repository files
+#   (for example, sync-dependencies or devcontainer CLI version lookup).
 #
 # Inputs:
+#   install-python:           Install Python (default: true)
+#   python-version:           Python version fallback when pyproject.toml is unavailable (default: '3.12')
 #   sync-dependencies:        Run uv sync to install project deps (default: false)
 #   install-podman:           Install podman (default: false)
 #   install-node:             Install Node.js (default: false)
@@ -25,9 +29,14 @@
 #   uv-version: The version of uv that was installed
 #
 # Usage:
-#   # Minimal (Python + uv only)
+#   # Default (Python + uv only)
 #   - uses: actions/checkout@v4
 #   - uses: ./.github/actions/setup-env
+#
+#   # uv only (skip Python setup)
+#   - uses: ./.github/actions/setup-env
+#     with:
+#       install-python: 'false'
 #
 #   # With project dependencies
 #   - uses: actions/checkout@v4
@@ -47,6 +56,14 @@ name: 'Setup Environment'
 description: 'Set up CI environment with Python, uv, and optional tools (podman, Node.js, devcontainer CLI, hadolint, BATS)'
 
 inputs:
+  install-python:
+    description: 'Install Python runtime'
+    required: false
+    default: 'true'
+  python-version:
+    description: 'Python version fallback when pyproject.toml is unavailable'
+    required: false
+    default: '3.12'
   sync-dependencies:
     description: 'Run uv sync to install project dependencies'
     required: false
@@ -93,10 +110,17 @@ runs:
   using: composite
   steps:
     # ── Python ───────────────────────────────────────────────────────────
-    - name: "Set up Python"
+    - name: "Set up Python from pyproject"
+      if: inputs.install-python == 'true' && hashFiles('pyproject.toml') != ''
       uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
       with:
         python-version-file: "pyproject.toml"
+
+    - name: "Set up Python fallback"
+      if: inputs.install-python == 'true' && hashFiles('pyproject.toml') == ''
+      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
+      with:
+        python-version: ${{ inputs.python-version }}
 
     # ── uv ─────────────────────────────────────────────────────────────
     - name: Install uv
@@ -106,6 +130,86 @@ runs:
         enable-cache: true
         # Install a specific version of uv.
         version: "0.10.0"
+
+    # ── retry() shell helper ───────────────────────────────────────────
+    - name: Export retry helper function
+      shell: bash
+      run: |
+        set -euo pipefail
+        RETRY_HELPER="$RUNNER_TEMP/setup-env-retry.sh"
+        PREV_BASH_ENV="${BASH_ENV:-}"
+
+        cat > "$RETRY_HELPER" <<'EOF'
+        retry() {
+          local retries=3
+          local backoff=1
+          local max_backoff=60
+          local rc=1
+
+          while [ "$#" -gt 0 ]; do
+            case "$1" in
+              --retries)
+                retries="$2"
+                shift 2
+                ;;
+              --backoff)
+                backoff="$2"
+                shift 2
+                ;;
+              --max-backoff)
+                max_backoff="$2"
+                shift 2
+                ;;
+              --)
+                shift
+                break
+                ;;
+              *)
+                echo "ERROR: Unknown retry option '$1'"
+                return 2
+                ;;
+            esac
+          done
+
+          if [ "$#" -eq 0 ]; then
+            echo "ERROR: retry requires a command after '--'"
+            return 2
+          fi
+
+          local attempt=1
+          local current_backoff="$backoff"
+          while [ "$attempt" -le "$retries" ]; do
+            if "$@"; then
+              return 0
+            fi
+            rc=$?
+            if [ "$attempt" -lt "$retries" ]; then
+              local wait="$current_backoff"
+              if [ "$wait" -gt "$max_backoff" ]; then
+                wait="$max_backoff"
+              fi
+              echo "Retry $attempt/$retries failed (exit $rc), waiting ${wait}s..."
+              sleep "$wait"
+              current_backoff=$((current_backoff * 2))
+            fi
+            attempt=$((attempt + 1))
+          done
+
+          echo "ERROR: Command failed after $retries attempts: $*"
+          return "$rc"
+        }
+        export -f retry
+        EOF
+
+        if [ -n "$PREV_BASH_ENV" ] && [ -f "$PREV_BASH_ENV" ]; then
+          {
+            echo "source \"$PREV_BASH_ENV\""
+            cat "$RETRY_HELPER"
+          } > "${RETRY_HELPER}.merged"
+          mv "${RETRY_HELPER}.merged" "$RETRY_HELPER"
+        fi
+
+        echo "BASH_ENV=$RETRY_HELPER" >> "$GITHUB_ENV"
 
     # ── Python dependencies ───────────────────────────────────────────────
     - name: Sync Python dependencies
@@ -162,9 +266,9 @@ runs:
         BIN_FILE="hadolint-${ARCH}"
         SHA_FILE="${BIN_FILE}.sha256"
 
-        uv run retry --retries 3 --backoff 5 --max-backoff 60 -- \
+        retry --retries 3 --backoff 5 --max-backoff 60 -- \
           curl -fsSL "${BASE_URL}/${BIN_FILE}" -o "${BIN_FILE}"
-        uv run retry --retries 3 --backoff 5 --max-backoff 60 -- \
+        retry --retries 3 --backoff 5 --max-backoff 60 -- \
           curl -fsSL "${BASE_URL}/${SHA_FILE}" -o "${SHA_FILE}"
 
         EXPECTED_SHA="$(awk '{print $1}' "${SHA_FILE}")"
@@ -191,7 +295,7 @@ runs:
             ;;
         esac
 
-        TAPLO_VERSION="$(uv run retry --retries 3 --backoff 5 --max-backoff 60 -- \
+        TAPLO_VERSION="$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
           curl -fsSL https://api.github.com/repos/tamasfe/taplo/releases/latest | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')"
         if [ -z "${TAPLO_VERSION:-}" ]; then
           echo "ERROR: Failed to resolve Taplo version from GitHub releases API"
@@ -200,7 +304,7 @@ runs:
         BASE_URL="https://github.com/tamasfe/taplo/releases/download/${TAPLO_VERSION}"
         BIN_FILE="taplo-linux-${ARCH}.gz"
 
-        uv run retry --retries 3 --backoff 5 --max-backoff 60 -- \
+        retry --retries 3 --backoff 5 --max-backoff 60 -- \
           curl -fsSL "${BASE_URL}/${BIN_FILE}" -o "${BIN_FILE}"
         gunzip "${BIN_FILE}"
         sudo install -m 0755 "taplo-linux-${ARCH}" /usr/local/bin/taplo
