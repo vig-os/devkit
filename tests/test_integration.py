@@ -1180,8 +1180,6 @@ class TestDevContainerUserConf:
     def test_files_copied_to_home(self, devcontainer_up):
         """Test that files from .devcontainer/.conf have been copied to their destinations."""
         workspace_path = str(devcontainer_up.resolve())
-        # .devcontainer is inside the project subdirectory
-        conf_dir = "/workspace/test_project/.devcontainer/.conf"
 
         # Check that .gitconfig was copied to ~/.gitconfig
         check_gitconfig_cmd = [
@@ -1211,6 +1209,53 @@ class TestDevContainerUserConf:
             f"stdout: {result.stdout}\n"
             f"stderr: {result.stderr}\n"
             f"command: {' '.join(check_gitconfig_cmd)}"
+        )
+
+    def test_setup_git_conf_falls_back_to_nano_for_invalid_editor(
+        self, devcontainer_up
+    ):
+        """Regression: setup-git-conf should enforce a usable editor fallback."""
+        workspace_path = str(devcontainer_up.resolve())
+        conf_dir = "/workspace/test_project/.devcontainer/.conf"
+        exec_cmd = [
+            "devcontainer",
+            "exec",
+            "--workspace-folder",
+            workspace_path,
+            "--config",
+            f"{workspace_path}/.devcontainer/devcontainer.json",
+            "--docker-path",
+            "podman",
+            "bash",
+            "-c",
+            (
+                "set -e && "
+                "cd /workspace/test_project && "
+                "printf '[core]\\n\\teditor = does-not-exist-editor\\n' > .devcontainer/.conf/.gitconfig && "
+                ".devcontainer/scripts/setup-git-conf.sh >/tmp/setup-git-conf.log 2>&1 && "
+                "git config --global --get core.editor"
+            ),
+        ]
+
+        result = subprocess.run(
+            exec_cmd,
+            capture_output=True,
+            text=True,
+            cwd=workspace_path,
+            env=os.environ.copy(),
+            timeout=60,
+        )
+
+        assert result.returncode == 0, (
+            f"Failed to re-run setup-git-conf.sh\n"
+            f"stdout: {result.stdout}\n"
+            f"stderr: {result.stderr}\n"
+            f"command: {' '.join(exec_cmd)}"
+        )
+        assert result.stdout.strip() == "nano", (
+            "setup-git-conf.sh should replace invalid core.editor with nano\n"
+            f"stdout: {result.stdout}\n"
+            f"stderr: {result.stderr}"
         )
 
         # Check that SSH public key was copied (if it exists in .conf)
