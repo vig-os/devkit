@@ -159,6 +159,20 @@ jobs:
       pull-requests: write
 
     steps:
+      - name: Generate Commit App Token
+        id: commit_app_token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859  # v3
+        with:
+          app-id: ${{ secrets.COMMIT_APP_ID }}
+          private-key: ${{ secrets.COMMIT_APP_PRIVATE_KEY }}
+
+      - name: Generate Release App Token
+        id: release_app_token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859  # v3
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - name: Checkout dev branch
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
@@ -171,7 +185,7 @@ jobs:
       - name: Capture pre-prepare dev SHA
         id: pre_state
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
         run: |
           set -euo pipefail
           PREPARE_START_SHA=$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
@@ -201,7 +215,7 @@ jobs:
       - name: Commit prepared CHANGELOG to dev via API
         uses: vig-os/commit-action@c0024cbad0e501764127cccab732c6cd465b4646  # v0.1.5
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/dev
           COMMIT_MESSAGE: |-
@@ -214,7 +228,7 @@ jobs:
       - name: Create release branch from dev
         id: create_branch
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           RELEASE_BRANCH: ${{ needs.validate.outputs.release_branch }}
         run: |
           set -euo pipefail
@@ -251,7 +265,7 @@ jobs:
       - name: Commit stripped CHANGELOG to release branch via API
         uses: vig-os/commit-action@c0024cbad0e501764127cccab732c6cd465b4646  # v0.1.5
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/${{ needs.validate.outputs.release_branch }}
           COMMIT_MESSAGE: |-
@@ -264,7 +278,7 @@ jobs:
       - name: Create draft PR to main
         id: pr
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.release_app_token.outputs.token }}
           VERSION: ${{ needs.validate.outputs.version }}
           RELEASE_BRANCH: ${{ needs.validate.outputs.release_branch }}
           CHANGELOG_CONTENT: ${{ steps.changelog.outputs.changelog }}
@@ -300,7 +314,7 @@ jobs:
         id: rollback_prepare
         if: ${{ failure() }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           RELEASE_BRANCH: ${{ needs.validate.outputs.release_branch }}
           PREPARE_START_SHA: ${{ steps.pre_state.outputs.prepare_start_sha }}
           POST_FREEZE_DEV_SHA: ${{ steps.create_branch.outputs.dev_sha }}
@@ -336,7 +350,7 @@ jobs:
         if: ${{ failure() && steps.rollback_prepare.outputs.changelog_rollback_needed == 'true' }}
         uses: vig-os/commit-action@c0024cbad0e501764127cccab732c6cd465b4646  # v0.1.5
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/dev
           COMMIT_MESSAGE: |-

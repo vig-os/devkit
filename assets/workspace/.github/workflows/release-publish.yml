@@ -84,11 +84,18 @@ jobs:
       release_url: ${{ steps.out.outputs.release_url }}
 
     steps:
+      - name: Generate release app token
+        id: release_app_token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859  # v3
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - name: Resolve auth token
         id: auth
         env:
           PROVIDED_TOKEN: ${{ secrets.token }}
-          FALLBACK_TOKEN: ${{ github.token }}
+          FALLBACK_TOKEN: ${{ steps.release_app_token.outputs.token }}
         run: |
           set -euo pipefail
           if [ -n "${PROVIDED_TOKEN:-}" ]; then

@@ -35,6 +35,22 @@ The orchestrator `release.yml` passes release context directly to the called reu
 
 There is no separate contract-version handshake; compatibility is defined by the `workflow_call` input schema in each workflow file.
 
+## Required App Secrets
+
+Downstream repositories are expected to provide both app credentials:
+
+- `COMMIT_APP_ID`
+- `COMMIT_APP_PRIVATE_KEY`
+- `RELEASE_APP_ID`
+- `RELEASE_APP_PRIVATE_KEY`
+
+Template behavior relies on explicit app-token generation for release operations:
+
+- use **Commit App** token for protected branch/ref writes (`commit-action`, branch/tag mutation)
+- use **Release App** token for release orchestration and PR/release API operations
+
+`github.token` is intentionally not used as a fallback for these release write paths.
+
 ## Input Naming Convention
 
 All `workflow_call` inputs use underscores (e.g. `release_kind`, `dry_run`, `git_user_name`). The orchestrator `release.yml` translates its own `workflow_dispatch` hyphenated inputs at each call site.

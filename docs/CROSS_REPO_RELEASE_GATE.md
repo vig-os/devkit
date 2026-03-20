@@ -120,3 +120,12 @@ gh -R vig-os/devcontainer-smoke-test release view <TAG>
 
 - Orchestrator logic: `.github/workflows/release.yml`
 - Validation receiver template: `assets/smoke-test/.github/workflows/repository-dispatch.yml`
+
+## Token Model for Downstream Write Paths
+
+For downstream workflow templates used by this gate, repositories must provide both Commit and Release app credentials.
+
+- Commit App token is required for protected branch writes performed by release preparation/finalization flows.
+- Release App token is required for PR/release/workflow dispatch orchestration.
+
+Using `github.token` for protected downstream write paths is not supported by this gate contract because branch rulesets may reject direct writes without app bypass.

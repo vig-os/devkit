@@ -123,6 +123,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Workspace containerized workflows now pin bash for run steps** ([#395](https://github.com/vig-os/devcontainer/issues/395))
   - Set `defaults.run.shell: bash` in containerized workspace release and prepare jobs so `set -euo pipefail` scripts do not execute under POSIX `sh`
   - Prevent downstream smoke-test failures caused by `set: Illegal option -o pipefail` in container jobs
+- **Downstream release templates now require explicit app tokens for write paths** ([#400](https://github.com/vig-os/devcontainer/issues/400))
+  - Update `assets/workspace/.github/workflows/prepare-release.yml`, `release-core.yml`, `release-publish.yml`, `release.yml`, and `sync-issues.yml` to remove `github.token` fallback from protected write operations
+  - Route protected branch/ref writes through Commit App tokens and release orchestration/issue operations through Release App tokens
+  - Document downstream token requirements in `docs/DOWNSTREAM_RELEASE.md` and `docs/CROSS_REPO_RELEASE_GATE.md`
 
 ### Security
 

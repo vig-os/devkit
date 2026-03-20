@@ -102,7 +102,7 @@ jobs:
         if: always()
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
         run: |
           echo "Attempting to delete old cache to prevent save collisions..."
           # Wait a moment to ensure any previous cache saves have completed
@@ -138,7 +138,7 @@ jobs:
         uses: vig-os/commit-action@c0024cbad0e501764127cccab732c6cd465b4646  # v0.1.5
         env:
           # Use App token so push can bypass branch protection when App is in bypass list
-          GH_TOKEN: ${{ steps.generate-token.outputs.token || github.token }}
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/${{ github.event.inputs.target-branch || 'dev' }}
           COMMIT_MESSAGE: "${{ github.event.inputs.commit-msg || 'chore: sync issues and PRs' }}"
