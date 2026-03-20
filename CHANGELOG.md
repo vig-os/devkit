@@ -65,6 +65,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Release app permission docs now include downstream workflow dispatch requirements** ([#397](https://github.com/vig-os/devcontainer/issues/397))
+  - Update `docs/RELEASE_CYCLE.md` to require `Actions` read/write for `RELEASE_APP` on the validation repository
+  - Clarify this is required so downstream `repository-dispatch.yml` can trigger release orchestration workflows via `workflow_dispatch`
+
 - **Release finalization now commits generated docs and refreshes PR content** ([#300](https://github.com/vig-os/devcontainer/issues/300))
   - Final release automation regenerates docs before committing so pre-commit `generate-docs` does not fail CI with tracked file diffs
   - Release PR body is refreshed from finalized `CHANGELOG.md`

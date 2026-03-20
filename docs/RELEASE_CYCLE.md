@@ -524,12 +524,12 @@ Release automation relies on two GitHub Apps with different scopes:
 
 | App | Secrets | Permissions | Used by | Purpose |
 |-----|---------|-------------|---------|---------|
-| **RELEASE_APP** | `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | Contents read/write, Issues read/write, Pull requests read/write | `release.yml`, `prepare-release.yml`, `sync-main-to-dev.yml` | Release operations, PR creation/updates, rollback, and cross-repo validation dispatch |
+| **RELEASE_APP** | `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | Contents read/write, Issues read/write, Pull requests read/write, Actions read/write | `release.yml`, `prepare-release.yml`, `sync-main-to-dev.yml` | Release operations, PR creation/updates, rollback, and cross-repo validation dispatch |
 | **COMMIT_APP** | `COMMIT_APP_ID`, `COMMIT_APP_PRIVATE_KEY` | Contents read/write, Issues read, Pull requests read | `sync-issues.yml`, `sync-main-to-dev.yml` | Commits to protected branches and git ref operations |
 
 Additional requirement:
 - `COMMIT_APP` must be allowed in branch protection bypass rules for `dev` so sync commits can be pushed by automation.
-- `RELEASE_APP` must be installed on the validation repository with Contents read permission so `release.yml` can send `repository_dispatch` for candidate and final release validation events.
+- `RELEASE_APP` must be installed on the validation repository with Contents read and Actions read/write permissions so `release.yml` can send `repository_dispatch` and `repository-dispatch.yml` can trigger downstream workflow dispatch events for candidate and final release validation.
 
 #### prepare-release.yml (Release Preparation Workflow)
 
