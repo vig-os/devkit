@@ -110,7 +110,17 @@ jobs:
     defaults:
       run:
         shell: bash
-    if: ${{ failure() && inputs.dry-run != true }}
+    if: >-
+      ${{
+        always() &&
+        inputs.dry-run != true &&
+        needs.resolve-image.result == 'success' &&
+        (
+          needs.core.result == 'failure' ||
+          needs.extension.result == 'failure' ||
+          needs.publish.result == 'failure'
+        )
+      }}
     permissions:
       contents: write
       issues: write
