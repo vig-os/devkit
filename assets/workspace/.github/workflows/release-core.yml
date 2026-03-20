@@ -87,6 +87,9 @@ jobs:
     name: Validate Release Core
     needs: [resolve-image]
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      pull-requests: read
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
     timeout-minutes: 10
@@ -145,6 +148,9 @@ jobs:
           ref: release/${{ steps.vars.outputs.version }}
           fetch-depth: 0
           token: ${{ steps.auth.outputs.token }}
+
+      - name: Fix git safe.directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Validate image accessibility
         env:
@@ -299,14 +305,15 @@ jobs:
     name: Finalize Release Core
     needs: validate
     runs-on: ubuntu-22.04
+    permissions:
+      actions: write
+      contents: write
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.validate.outputs.image_tag }}
       env:
         UV_PROJECT_ENVIRONMENT: /root/assets/workspace/.venv
     timeout-minutes: 15
     if: ${{ inputs.dry_run != true }}
-    permissions:
-      contents: write
     outputs:
       finalize_sha: ${{ steps.finalize.outputs.finalize_sha }}
 

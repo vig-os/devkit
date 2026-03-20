@@ -74,6 +74,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Fix git safe.directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Check if dev is up to date with main
         id: check
         run: |
@@ -125,6 +128,9 @@ jobs:
           ref: dev
           fetch-depth: 0
           token: ${{ steps.commit-app-token.outputs.token }}
+
+      - name: Fix git safe.directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Re-check if dev is still behind main
         id: recheck

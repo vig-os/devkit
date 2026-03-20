@@ -5,7 +5,7 @@ name: Repository Dispatch Listener
 # - Deploy the requested tag into the smoke-test repo.
 # - Always create a `chore/deploy-<tag>` branch and PR to `dev`.
 # - Create signed deploy commits via `vig-os/commit-action`.
-# - CI (`ci.yml` + `ci-container.yml`) triggers on the deploy PR.
+# - CI (`ci.yml`) triggers on the deploy PR.
 #
 # Dispatch payload:
 # - Preferred:   client_payload.tag

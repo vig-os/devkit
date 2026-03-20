@@ -112,6 +112,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Smoke-test preflight now uses gh CLI ref-compatible workflow validation** ([#392](https://github.com/vig-os/devcontainer/issues/392))
   - Update `assets/smoke-test/.github/workflows/repository-dispatch.yml` preflight checks to call `gh workflow view` with `--yaml` when `--ref` is set
   - Prevent false preflight failures caused by newer GitHub CLI argument validation before `prepare-release` dispatch
+- **Downstream release workflow templates hardened for smoke-test orchestration** ([#394](https://github.com/vig-os/devcontainer/issues/394))
+  - Add missing `git config --global --add safe.directory "$GITHUB_WORKSPACE"` in containerized release and sync jobs that run git after checkout
+  - Decouple `release.yml` rollback container startup from `needs.core.outputs.image_tag` by resolving the image in a dedicated `resolve-image` job
+  - Add explicit release caller/reusable workflow permissions for `actions` and `pull-requests` operations, and update dispatch header comments to reference only current CI workflows
 
 ### Security
 

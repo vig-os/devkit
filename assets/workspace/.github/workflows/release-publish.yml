@@ -112,6 +112,9 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.auth.outputs.token }}
 
+      - name: Fix git safe.directory
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Configure git
         env:
           GIT_USER_NAME: ${{ inputs.git_user_name }}

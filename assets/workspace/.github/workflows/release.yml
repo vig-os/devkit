@@ -36,9 +36,32 @@ permissions:
   contents: read
 
 jobs:
+  resolve-image:
+    name: Resolve image tag
+    runs-on: ubuntu-22.04
+    timeout-minutes: 2
+    outputs:
+      image-tag: ${{ steps.resolve.outputs.image-tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          sparse-checkout: |
+            .vig-os
+            .github/actions/resolve-image
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve container image
+        id: resolve
+        uses: ./.github/actions/resolve-image
+
   core:
     name: Release Core
     uses: ./.github/workflows/release-core.yml
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: read
     with:
       version: ${{ inputs.version }}
       release_kind: ${{ inputs.release-kind }}
@@ -65,6 +88,8 @@ jobs:
     needs: [core, extension]
     if: ${{ inputs.dry-run != true }}
     uses: ./.github/workflows/release-publish.yml
+    permissions:
+      contents: write
     with:
       version: ${{ needs.core.outputs.version }}
       finalize_sha: ${{ needs.core.outputs.finalize_sha }}
@@ -77,10 +102,10 @@ jobs:
 
   rollback:
     name: Rollback on Failure
-    needs: [core, extension, publish]
+    needs: [resolve-image, core, extension, publish]
     runs-on: ubuntu-22.04
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.core.outputs.image_tag }}
+      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
     timeout-minutes: 10
     if: ${{ failure() && inputs.dry-run != true }}
     permissions:
@@ -92,6 +117,10 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0
+
+      - name: Fix git safe.directory
+        if: ${{ needs.core.outputs.pre_finalize_sha != '' }}
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Configure git
         if: ${{ needs.core.outputs.pre_finalize_sha != '' }}
