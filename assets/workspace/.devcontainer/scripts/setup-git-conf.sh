@@ -18,7 +18,8 @@ if [ -f "$HOST_GITCONFIG_FILE" ]; then
 	echo "Applying git configuration from $HOST_GITCONFIG_FILE..."
 	cp "$HOST_GITCONFIG_FILE" "$CONTAINER_GITCONFIG_FILE"
 else
-	echo "No git config file found, skipping git setup"
+	echo "No host git config file found at $HOST_GITCONFIG_FILE"
+	echo "Skipping host git config copy; continuing setup"
 	echo "Run this from host's project root: .devcontainer/scripts/copy-host-user-conf.sh"
 fi
 
