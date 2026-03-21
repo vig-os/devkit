@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-03-19T07:30:56Z
-updated: 2026-03-19T07:30:56Z
+updated: 2026-03-20T08:37:13Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devcontainer/issues/364
-comments: 0
+comments: 1
 labels: bug, priority:medium, area:ci, area:workflow, effort:small, semver:patch
-assignees: none
+assignees: c-vigo
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-03-20T04:20:27.013Z
+synced: 2026-03-21T04:09:50.615Z
 ---
 
 # [Issue 364]: [[BUG] Restore dispatch safeguards after smoke-test workflow sync](https://github.com/vig-os/devcontainer/issues/364)
@@ -58,3 +58,36 @@ Dispatch runs can overlap for the same tag and race on deploy branch/PR orchestr
 
 ## Changelog Category
 Fixed
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on March 20, 2026 at 08:37 AM_
+
+Investigated this and traced the safeguards in git history.
+
+This is already solved in `vig-os/devcontainer` in the smoke-test dispatch template at:
+
+- `assets/smoke-test/.github/workflows/repository-dispatch.yml`
+
+### Solved by PRs
+
+- **PR [#337](https://github.com/vig-os/devcontainer/pull/337)**  
+  Added workflow-level per-tag concurrency:
+  `concurrency.group: smoke-test-dispatch-${{ github.event.client_payload.tag || github.run_id }}`
+  (commit [`6e9f60b`](https://github.com/vig-os/devcontainer/commit/6e9f60b1762aebceb20f18a1ef47a674d97e4690)).
+
+- **PR [#334](https://github.com/vig-os/devcontainer/pull/334)**  
+  Restored strict shell pipeline behavior in installer step:
+  `set -euo pipefail` before `curl -sSf "${INSTALL_URL}" | bash ...`
+  (commit [`0bcefb6`](https://github.com/vig-os/devcontainer/commit/0bcefb686be219b57cf6f2b689278385ee0c1055)).
+
+- **PR [#342](https://github.com/vig-os/devcontainer/pull/342)**  
+  Later workflow hardening/refinement retained those safeguards
+  (commit [`3660a68`](https://github.com/vig-os/devcontainer/commit/3660a68acf01ab8201189fee8185e84b7fac13ae)).
+
+### Conclusion
+
+The issue here is downstream sync drift (manual smoke-test workflow sync dropped safeguards), not missing implementation in the canonical template.  
+Resolution is to re-sync downstream `repository-dispatch.yml` from the PR-backed canonical version above.
+
