@@ -60,14 +60,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Handle smoke-test dispatch failures with a targeted issue while avoiding destructive rollback after publish artifacts are already released
 - **Redesigned smoke-test dispatch release orchestration** ([#358](https://github.com/vig-os/devcontainer/issues/358))
   - Replace premature `publish-release` behavior with full downstream orchestration: deploy-to-dev merge gate, `prepare-release.yml`, release PR readiness/approval, and `release.yml` dispatch polling
-  - Add release-branch CHANGELOG sync so smoke-test `main` ends with the same `CHANGELOG.md` content as `vig-os/devcontainer` at the dispatched tag
   - Add upstream failure issue reporting with job-phase results and cleanup guidance when dispatch orchestration fails
+- **Smoke-test release orchestration now runs as two phases** ([#402](https://github.com/vig-os/devcontainer/issues/402))
+  - Keep `repository-dispatch.yml` focused on deploy/prepare/release-PR readiness and move release dispatch to a dedicated merged-PR workflow (`on-release-pr-merge.yml`)
+  - Add release-kind labeling and auto-merge enablement for release PRs, and keep upstream failure notifications in both phases
+  - Remove release-branch upstream `CHANGELOG.md` sync from `repository-dispatch.yml` (previously added in [#358](https://github.com/vig-os/devcontainer/issues/358))
 
 ### Fixed
 
 - **Release app permission docs now include downstream workflow dispatch requirements** ([#397](https://github.com/vig-os/devcontainer/issues/397))
   - Update `docs/RELEASE_CYCLE.md` to require `Actions` read/write for `RELEASE_APP` on the validation repository
   - Clarify this is required so downstream `repository-dispatch.yml` can trigger release orchestration workflows via `workflow_dispatch`
+- **Smoke-test dispatch no longer fails on release PR self-approval** ([#402](https://github.com/vig-os/devcontainer/issues/402))
+  - Remove bot self-approval from `repository-dispatch.yml` and replace with release-kind labeling plus auto-merge enablement
+  - Remove in-job polling for release PR merge and downstream release execution from phase 1 orchestration
+  - Phase 2 (`on-release-pr-merge.yml`) fails validation unless the merged release PR has `release-kind:final` or `release-kind:candidate`
+- **Sync-main-to-dev PRs now trigger CI reliably in downstream repos** ([#398](https://github.com/vig-os/devcontainer/issues/398))
+  - Replace API-based sync branch creation with `git push` in `assets/workspace/.github/workflows/sync-main-to-dev.yml` so PR-related CI checks are emitted
 
 - **Release finalization now commits generated docs and refreshes PR content** ([#300](https://github.com/vig-os/devcontainer/issues/300))
   - Final release automation regenerates docs before committing so pre-commit `generate-docs` does not fail CI with tracked file diffs

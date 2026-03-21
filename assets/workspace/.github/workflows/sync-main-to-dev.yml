@@ -8,7 +8,7 @@
 #   check - (early exit if dev already contains all main commits)
 #   sync  - clean up stale sync branches
 #         - trial merge to detect conflicts
-#         - create chore/sync-main-to-dev-<run>-<attempt> branch via API
+#         - create chore/sync-main-to-dev-<run>-<attempt> branch via git push
 #         - open PR (auto-merge enabled, or labelled "merge-conflict" with
 #           resolution instructions when conflicts exist)
 #
@@ -211,23 +211,13 @@ jobs:
 
       - name: Create sync branch from main
         if: steps.existing-pr.outputs.count == '0' && steps.recheck.outputs.up_to_date != 'true'
-        env:
-          GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
         run: |
           set -euo pipefail
           MAIN_SHA=$(git rev-parse origin/main)
+          git checkout -b "${SYNC_BRANCH}" origin/main
           retry --retries 3 --backoff 5 --max-backoff 30 -- \
-            gh api "repos/${{ github.repository }}/git/refs" \
-            -f ref="refs/heads/${SYNC_BRANCH}" \
-            -f sha="${MAIN_SHA}" || {
-              if retry --retries 2 --backoff 5 --max-backoff 20 -- \
-                gh api "repos/${{ github.repository }}/git/ref/heads/${SYNC_BRANCH}" >/dev/null 2>&1; then
-                echo "Sync branch already exists: ${SYNC_BRANCH}"
-              else
-                exit 1
-              fi
-            }
-          echo "Sync branch ${SYNC_BRANCH} created from main at ${MAIN_SHA}"
+            git push origin "${SYNC_BRANCH}"
+          echo "Sync branch ${SYNC_BRANCH} pushed from main at ${MAIN_SHA}"
 
       - name: Create PR
         if: steps.existing-pr.outputs.count == '0' && steps.recheck.outputs.up_to_date != 'true'
