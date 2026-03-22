@@ -141,6 +141,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Document downstream token requirements in `docs/DOWNSTREAM_RELEASE.md` and `docs/CROSS_REPO_RELEASE_GATE.md`
   - Use `github.token` specifically for Actions cache deletion in `sync-issues.yml` because that API path requires explicit `actions: write` job token scope
   - Use Commit App credentials for rollback checkout in `release.yml` so rollback branch/tag writes can still bypass protected refs
+- **setup-env retries uv install on transient GitHub Releases download failures** ([#407](https://github.com/vig-os/devcontainer/issues/407))
+  - Add `continue-on-error` plus a delayed second attempt for `astral-sh/setup-uv` in `.github/actions/setup-env/action.yml`
+  - Reduce flaky release publish failures when GitHub CDN returns transient HTTP errors for uv release assets
 
 ### Security
 

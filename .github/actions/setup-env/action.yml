@@ -104,7 +104,7 @@ inputs:
 outputs:
   uv-version:
     description: 'Version of uv installed'
-    value: ${{ steps.setup-uv.outputs.uv-version }}
+    value: ${{ steps.setup-uv-retry.outputs.uv-version || steps.setup-uv.outputs.uv-version }}
 
 runs:
   using: composite
@@ -125,6 +125,21 @@ runs:
     # ── uv ─────────────────────────────────────────────────────────────
     - name: Install uv
       id: setup-uv
+      continue-on-error: true
+      uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098  # v7
+      with:
+        enable-cache: true
+        # Install a specific version of uv.
+        version: "0.10.0"
+
+    - name: Wait before retrying uv install
+      if: steps.setup-uv.outcome == 'failure'
+      shell: bash
+      run: sleep 15
+
+    - name: Install uv (retry)
+      id: setup-uv-retry
+      if: steps.setup-uv.outcome == 'failure'
       uses: astral-sh/setup-uv@5a095e7a2014a4212f075830d4f7277575a9d098  # v7
       with:
         enable-cache: true
