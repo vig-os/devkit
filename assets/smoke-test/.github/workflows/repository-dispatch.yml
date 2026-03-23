@@ -545,14 +545,137 @@ jobs:
           gh pr edit "${PR_NUMBER}" --remove-label "release-kind:final" >/dev/null 2>&1 || true
           gh pr edit "${PR_NUMBER}" --add-label "${LABEL}"
 
+  trigger-release:
+    name: Trigger and wait for release workflow
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    env:
+      GH_REPO: ${{ github.repository }}
+    needs: [validate, ready-release-pr]
+    steps:
+      - name: Generate release app token for release workflow dispatch
+        id: generate_release_token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859  # v3
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Capture latest release run id
+        id: capture_release_before
+        env:
+          GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
+        run: |
+          set -euo pipefail
+          BEFORE_RUN_ID="$(
+            gh run list --workflow release.yml --branch "${WORKFLOW_REF}" --limit 1 --json databaseId --jq '.[0].databaseId // 0' 2>/dev/null || echo 0
+          )"
+          echo "before_run_id=${BEFORE_RUN_ID}" >> "${GITHUB_OUTPUT}"
+
+      - name: Trigger release workflow
+        env:
+          GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
+          BASE_VERSION: ${{ needs.validate.outputs.base_version }}
+          RELEASE_KIND: ${{ needs.validate.outputs.release_kind }}
+        run: |
+          set -euo pipefail
+          gh workflow run release.yml \
+            --ref "${WORKFLOW_REF}" \
+            -f version="${BASE_VERSION}" \
+            -f release-kind="${RELEASE_KIND}"
+
+      - name: Wait for release workflow completion
+        env:
+          GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
+          BEFORE_RUN_ID: ${{ steps.capture_release_before.outputs.before_run_id }}
+        run: |
+          set -euo pipefail
+          TIMEOUT=1800
+          INTERVAL=30
+          ELAPSED=0
+
+          while [ "${ELAPSED}" -lt "${TIMEOUT}" ]; do
+            RUN_ID="$(gh run list --workflow release.yml --branch "${WORKFLOW_REF}" --limit 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)"
+            if [ -n "${RUN_ID}" ] && [ "${RUN_ID}" -gt "${BEFORE_RUN_ID}" ]; then
+              STATUS="$(gh run view "${RUN_ID}" --json status --jq '.status' 2>/dev/null || echo unknown)"
+              if [ "${STATUS}" = "completed" ]; then
+                CONCLUSION="$(gh run view "${RUN_ID}" --json conclusion --jq '.conclusion' 2>/dev/null || echo unknown)"
+                if [ "${CONCLUSION}" != "success" ]; then
+                  echo "ERROR: release workflow concluded with '${CONCLUSION}'"
+                  exit 1
+                fi
+                echo "release workflow completed successfully"
+                exit 0
+              fi
+            fi
+
+            sleep "${INTERVAL}"
+            ELAPSED=$((ELAPSED + INTERVAL))
+            echo "Waiting for release workflow... (${ELAPSED}s/${TIMEOUT}s)"
+          done
+
+          echo "ERROR: timed out waiting for release workflow completion"
+          exit 1
+
+  merge-release-pr:
+    name: Enable auto-merge and wait for release PR merge
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    env:
+      GH_REPO: ${{ github.repository }}
+    needs: [ready-release-pr, trigger-release]
+    steps:
+      - name: Generate release app token for PR merge
+        id: generate_release_token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859  # v3
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
       - name: Enable release PR auto-merge
         env:
           GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
-          PR_NUMBER: ${{ steps.locate_release_pr.outputs.release_pr }}
+          PR_NUMBER: ${{ needs.ready-release-pr.outputs.release_pr }}
         run: |
           set -euo pipefail
           gh pr merge "${PR_NUMBER}" --auto --merge || \
             echo "Warning: could not enable auto-merge yet"
+
+      - name: Poll release PR merge status
+        env:
+          GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
+          PR_URL: ${{ needs.ready-release-pr.outputs.release_pr_url }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PR_URL}" ]; then
+            echo "ERROR: missing release PR URL"
+            exit 1
+          fi
+
+          TIMEOUT=1800
+          INTERVAL=30
+          ELAPSED=0
+
+          while [ "${ELAPSED}" -lt "${TIMEOUT}" ]; do
+            STATE="$(gh pr view "${PR_URL}" --json state --jq '.state' 2>/dev/null || echo unknown)"
+            if [ "${STATE}" = "MERGED" ]; then
+              echo "Release PR merged: ${PR_URL}"
+              exit 0
+            fi
+            if [ "${STATE}" = "CLOSED" ]; then
+              echo "ERROR: release PR closed without merge: ${PR_URL}"
+              exit 1
+            fi
+            sleep "${INTERVAL}"
+            ELAPSED=$((ELAPSED + INTERVAL))
+            echo "Waiting for release PR merge... (${ELAPSED}s/${TIMEOUT}s)"
+          done
+
+          echo "ERROR: timed out waiting for release PR merge"
+          exit 1
 
   summary:
     name: Dispatch summary
@@ -565,6 +688,8 @@ jobs:
       - cleanup-release
       - trigger-prepare-release
       - ready-release-pr
+      - trigger-release
+      - merge-release-pr
     if: always()
     steps:
       - name: Write source context summary
@@ -600,6 +725,8 @@ jobs:
           echo "Cleanup:      ${{ needs.cleanup-release.result }}"
           echo "Prepare:      ${{ needs.trigger-prepare-release.result }}"
           echo "Release PR:   ${{ needs.ready-release-pr.result }}"
+          echo "Release run:  ${{ needs.trigger-release.result }}"
+          echo "Release merge: ${{ needs.merge-release-pr.result }}"
           echo "Deploy PR:    ${{ needs.deploy.outputs.pr_url }}"
           echo "Release PR:   ${{ needs.ready-release-pr.outputs.release_pr_url }}"
           echo ""
@@ -636,6 +763,16 @@ jobs:
             FAILED=true
           fi
 
+          if [ "${{ needs.trigger-release.result }}" != "success" ]; then
+            echo "ERROR: Trigger-release job failed"
+            FAILED=true
+          fi
+
+          if [ "${{ needs.merge-release-pr.result }}" != "success" ]; then
+            echo "ERROR: Merge-release-pr job failed"
+            FAILED=true
+          fi
+
           if [ "${FAILED}" = "true" ]; then
             echo ""
             echo "Dispatch orchestration failed"
@@ -657,6 +794,8 @@ jobs:
       - cleanup-release
       - trigger-prepare-release
       - ready-release-pr
+      - trigger-release
+      - merge-release-pr
       - summary
     steps:
       - name: Generate release app token for upstream issue creation
@@ -711,6 +850,8 @@ jobs:
           - cleanup-release: \`${{ needs.cleanup-release.result }}\`
           - trigger-prepare-release: \`${{ needs.trigger-prepare-release.result }}\`
           - ready-release-pr: \`${{ needs.ready-release-pr.result }}\`
+          - trigger-release: \`${{ needs.trigger-release.result }}\`
+          - merge-release-pr: \`${{ needs.merge-release-pr.result }}\`
           - summary: \`${{ needs.summary.result }}\`
 
           ## Manual cleanup guidance
