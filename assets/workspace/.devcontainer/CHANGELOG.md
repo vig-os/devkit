@@ -65,6 +65,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Keep `repository-dispatch.yml` focused on deploy/prepare/release-PR readiness and move release dispatch to a dedicated merged-PR workflow (`on-release-pr-merge.yml`)
   - Add release-kind labeling and auto-merge enablement for release PRs, and keep upstream failure notifications in both phases
   - Remove release-branch upstream `CHANGELOG.md` sync from `repository-dispatch.yml` (previously added in [#358](https://github.com/vig-os/devcontainer/issues/358))
+- **Dependabot dependency update batch** ([#414](https://github.com/vig-os/devcontainer/pull/414))
+  - Bump `github/codeql-action` from `4.32.6` to `4.34.1` and `anchore/sbom-action` from `0.23.1` to `0.24.0`
+  - Bump `actions/cache` restore/save pins from `5.0.3` to `5.0.4` in `sync-issues.yml`
+- **Dependabot dependency update batch** ([#413](https://github.com/vig-os/devcontainer/pull/413))
+  - Bump `@devcontainers/cli` from `0.84.0` to `0.84.1`
 
 ### Fixed
 
