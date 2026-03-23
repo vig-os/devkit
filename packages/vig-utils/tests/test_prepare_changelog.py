@@ -10,6 +10,7 @@ Comprehensive coverage including:
 Tests are organized by function under test, from low-level helpers up to the CLI layer.
 """
 
+import re
 import shutil
 import subprocess
 from unittest.mock import patch
@@ -20,6 +21,7 @@ from vig_utils.prepare_changelog import (
     cmd_finalize,
     cmd_prepare,
     cmd_reset,
+    cmd_unprepare,
     cmd_validate,
     create_new_changelog,
     extract_unreleased_content,
@@ -27,6 +29,7 @@ from vig_utils.prepare_changelog import (
     main,
     prepare_changelog,
     reset_unreleased,
+    unprepare_changelog,
     validate_changelog,
 )
 
@@ -873,6 +876,115 @@ class TestResetUnreleased:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# unprepare_changelog
+# ═════════════════════════════════════════════════════════════════════════════
+
+TOP_VERSION_TBD_THEN_OLDER = """\
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+## [1.0.0] - TBD
+
+### Added
+
+- **Feature** ([#1](https://example.com/1))
+
+## [0.9.0] - 2026-01-01
+
+### Added
+
+- Prior
+"""
+
+
+class TestUnprepareChangelog:
+    """Unit tests for unprepare_changelog()."""
+
+    def test_renames_tbd_header(self, tmp_path):
+        """Top ## [semver] - TBD becomes ## Unreleased; body preserved."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(TOP_VERSION_TBD_THEN_OLDER)
+        assert unprepare_changelog(str(f)) is True
+        text = f.read_text()
+        assert text.startswith("# Changelog")
+        first_h2 = re.search(r"^## .+$", text, re.MULTILINE)
+        assert first_h2 is not None
+        assert first_h2.group(0) == "## Unreleased"
+        assert "## [1.0.0] - TBD" not in text
+        assert "**Feature**" in text
+        assert "## [0.9.0] - 2026-01-01" in text
+
+    def test_renames_dated_header(self, tmp_path):
+        """Top ## [semver] - YYYY-MM-DD becomes ## Unreleased."""
+        body = """\
+# Changelog
+
+## [2.0.0] - 2026-03-23
+
+### Fixed
+
+- Bug
+
+"""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(body)
+        assert unprepare_changelog(str(f)) is True
+        assert f.read_text().split("\n")[2] == "## Unreleased"
+        assert "- Bug" in f.read_text()
+
+    def test_noop_when_already_unreleased(self, tmp_path):
+        """Returns False and leaves file unchanged."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(BASIC_CHANGELOG)
+        before = f.read_text()
+        assert unprepare_changelog(str(f)) is False
+        assert f.read_text() == before
+
+    def test_raises_no_heading(self, tmp_path):
+        """No ## line raises ValueError."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text("# Title only\n\nNo section.\n")
+        with pytest.raises(ValueError, match="No top-level"):
+            unprepare_changelog(str(f))
+
+    def test_raises_unexpected_heading(self, tmp_path):
+        """Non-version first ## heading raises."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text("# C\n\n## Random\n\n- x\n")
+        with pytest.raises(ValueError, match="Unexpected first"):
+            unprepare_changelog(str(f))
+
+    def test_raises_missing_file(self, tmp_path):
+        with pytest.raises(FileNotFoundError, match="CHANGELOG not found"):
+            unprepare_changelog(str(tmp_path / "missing.md"))
+
+
+class TestCmdUnprepare:
+    """Tests for cmd_unprepare handler."""
+
+    def _make_args(self, filepath):
+        from argparse import Namespace
+
+        return Namespace(file=filepath)
+
+    def test_output_when_modified(self, tmp_path, capsys):
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(TOP_VERSION_TBD_THEN_OLDER)
+        cmd_unprepare(self._make_args(str(f)))
+        out = capsys.readouterr().out
+        assert "Renamed" in out
+        assert "## Unreleased" in f.read_text()
+
+    def test_output_when_noop(self, tmp_path, capsys):
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(BASIC_CHANGELOG)
+        cmd_unprepare(self._make_args(str(f)))
+        out = capsys.readouterr().out
+        assert "no changes" in out.lower() or "already" in out.lower()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # finalize_release_date
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -1210,6 +1322,16 @@ class TestMainCLI:
             main()
         assert "## [1.0.0] - 2026-02-11" in f.read_text()
 
+    def test_unprepare_via_main(self, tmp_path):
+        """main() with 'unprepare' should rename top version heading."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(TOP_VERSION_TBD_THEN_OLDER)
+        with patch("sys.argv", ["prog", "unprepare", str(f)]):
+            main()
+        first = re.search(r"^## .+$", f.read_text(), re.MULTILINE)
+        assert first is not None
+        assert first.group(0) == "## Unreleased"
+
     def test_main_catches_exceptions(self, tmp_path):
         """main() should convert exceptions to stderr + exit(1)."""
         with (
@@ -1324,3 +1446,24 @@ class TestCLISubprocess:
         f.write_text(CHANGELOG_WITH_TBD)
         result = self._run("finalize", "9.9.9", "2026-02-11", str(f))
         assert result.returncode != 0
+
+    # ── unprepare ─────────────────────────────────────────────────────────
+
+    def test_unprepare_e2e(self, tmp_path):
+        """unprepare via subprocess renames top version heading."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(TOP_VERSION_TBD_THEN_OLDER)
+        result = self._run("unprepare", str(f))
+        assert result.returncode == 0
+        first = re.search(r"^## .+$", f.read_text(), re.MULTILINE)
+        assert first is not None
+        assert first.group(0) == "## Unreleased"
+
+    def test_unprepare_noop_e2e(self, tmp_path):
+        """unprepare leaves Unreleased changelog unchanged."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(BASIC_CHANGELOG)
+        before = f.read_text()
+        result = self._run("unprepare", str(f))
+        assert result.returncode == 0
+        assert f.read_text() == before

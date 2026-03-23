@@ -175,6 +175,11 @@ def reset_unreleased(filepath="CHANGELOG.md"):
         raise ValueError("Could not find appropriate location for Unreleased section")
 
 
+def unprepare_changelog(filepath="CHANGELOG.md"):
+    """Rename top version section to ## Unreleased (implemented in next commit)."""
+    raise NotImplementedError
+
+
 def prepare_changelog(version, filepath="CHANGELOG.md"):
     """
     Prepare CHANGELOG for release.
@@ -262,6 +267,14 @@ def cmd_reset(args):
     print("✓ Created fresh empty section for next release")
 
 
+def cmd_unprepare(args):
+    """Handle unprepare command."""
+    if unprepare_changelog(args.file):
+        print(f"✓ Renamed top version section to ## Unreleased in {args.file}")
+    else:
+        print(f"✓ Top section already ## Unreleased in {args.file} (no changes)")
+
+
 def finalize_release_date(version, release_date, filepath="CHANGELOG.md"):
     """
     Replace TBD date with actual release date for a version.
@@ -332,6 +345,9 @@ Examples:
 
   # Reset Unreleased section after release merge
   %(prog)s reset
+
+  # Rename top ## [version] - … to ## Unreleased (smoke-test deploy sync)
+  %(prog)s unprepare
         """,
     )
 
@@ -384,6 +400,19 @@ Examples:
         help="Path to CHANGELOG file (default: CHANGELOG.md)",
     )
     reset_parser.set_defaults(func=cmd_reset)
+
+    # unprepare command
+    unprepare_parser = subparsers.add_parser(
+        "unprepare",
+        help="Rename first ## [semver] - … heading to ## Unreleased",
+    )
+    unprepare_parser.add_argument(
+        "file",
+        nargs="?",
+        default="CHANGELOG.md",
+        help="Path to CHANGELOG file (default: CHANGELOG.md)",
+    )
+    unprepare_parser.set_defaults(func=cmd_unprepare)
 
     # finalize command
     finalize_parser = subparsers.add_parser(
