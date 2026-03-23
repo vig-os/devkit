@@ -73,6 +73,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Smoke-test deploy restores workspace CHANGELOG for prepare-release** ([#417](https://github.com/vig-os/devcontainer/issues/417))
+  - Add `prepare-changelog unprepare` to rename the top `## [semver] - …` heading to `## Unreleased`
+  - `init-workspace.sh --smoke-test` copies `.devcontainer/CHANGELOG.md` into workspace `CHANGELOG.md` and runs unprepare; remove duplicate remap from smoke-test dispatch workflow
 - **Release app permission docs now include downstream workflow dispatch requirements** ([#397](https://github.com/vig-os/devcontainer/issues/397))
   - Update `docs/RELEASE_CYCLE.md` to require `Actions` read/write for `RELEASE_APP` on the validation repository
   - Clarify this is required so downstream `repository-dispatch.yml` can trigger release orchestration workflows via `workflow_dispatch`
