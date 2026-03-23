@@ -228,6 +228,18 @@ if [[ "$SMOKE_TEST" == "true" ]]; then
     else
         echo "Warning: Smoke-test directory not found at $SMOKE_TEST_DIR" >&2
     fi
+
+    # Workspace scaffold CHANGELOG is empty; copy devcontainer changelog and
+    # rename top ## [version] - … to ## Unreleased for downstream prepare-release.
+    if [[ -f "$WORKSPACE_DIR/.devcontainer/CHANGELOG.md" ]]; then
+        echo "Syncing workspace CHANGELOG from .devcontainer/CHANGELOG.md (smoke-test)..."
+        cp "$WORKSPACE_DIR/.devcontainer/CHANGELOG.md" "$WORKSPACE_DIR/CHANGELOG.md"
+        if ! command -v prepare-changelog >/dev/null 2>&1; then
+            echo "ERROR: prepare-changelog not found (required for smoke-test CHANGELOG sync)" >&2
+            exit 1
+        fi
+        prepare-changelog unprepare "$WORKSPACE_DIR/CHANGELOG.md"
+    fi
 else
     # Build exclude list for preserved files that already exist
     EXCLUDE_ARGS=()
