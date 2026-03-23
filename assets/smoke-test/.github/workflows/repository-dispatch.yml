@@ -229,15 +229,25 @@ jobs:
             echo "ERROR: .devcontainer/CHANGELOG.md is not readable after ownership repair"
             exit 1
           fi
-          cat > "CHANGELOG.md" <<CHLOG
-          # Changelog
-
-          ## Unreleased
-
-          ### Changed
-
-          - Deploy devcontainer ${TAG}
-          CHLOG
+          if [ ! -f "CHANGELOG.md" ]; then
+            echo "ERROR: expected CHANGELOG.md after install (workspace scaffold)"
+            exit 1
+          fi
+          if [ ! -r "CHANGELOG.md" ]; then
+            echo "ERROR: CHANGELOG.md is not readable after ownership repair"
+            exit 1
+          fi
+          FIRST_CHANGELOG_SECTION="$(awk '/^## / { print; exit }' CHANGELOG.md)"
+          if [ "${FIRST_CHANGELOG_SECTION}" = "## Unreleased" ]; then
+            :
+          elif printf '%s\n' "${FIRST_CHANGELOG_SECTION}" | grep -Eq '^## \[[^]]+\] - '; then
+            echo "Remapping top ## [version] - <date> to ## Unreleased for prepare-release"
+            sed -i '0,/^## \[[^]]*\] - /s/^## \[[^]]*\] - .*/## Unreleased/' CHANGELOG.md
+          else
+            echo "ERROR: CHANGELOG.md first section is neither ## Unreleased nor ## [version] - <date>: ${FIRST_CHANGELOG_SECTION:-<empty>}"
+            exit 1
+          fi
+          sed -i '/^### Changed$/a\- Deploy devcontainer '"${TAG}" CHANGELOG.md
 
       - name: Prepare deploy branch and metadata
         id: prepare_branch
