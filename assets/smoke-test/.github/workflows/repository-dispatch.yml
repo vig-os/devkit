@@ -553,8 +553,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.locate_release_pr.outputs.release_pr }}
         run: |
+          set -euo pipefail
           gh pr review "${PR_NUMBER}" --approve \
-            --body "Automated approval by smoke-test dispatch orchestration."
+            --body "Automated approval by smoke-test dispatch orchestration." || {
+            echo "::error::Auto-approve failed. If you see a permissions error, enable repository (or organization) setting 'Allow GitHub Actions to create and approve pull requests'. See this PR description for context."
+            exit 1
+          }
 
   trigger-release:
     name: Trigger and wait for release workflow
