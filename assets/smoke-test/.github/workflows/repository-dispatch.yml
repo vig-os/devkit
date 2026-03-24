@@ -487,6 +487,9 @@ jobs:
     name: Prepare release PR
     runs-on: ubuntu-22.04
     timeout-minutes: 35
+    permissions:
+      contents: read
+      pull-requests: write
     env:
       GH_REPO: ${{ github.repository }}
     needs: [validate, trigger-prepare-release]
@@ -544,6 +547,14 @@ jobs:
           gh pr edit "${PR_NUMBER}" --remove-label "release-kind:candidate" >/dev/null 2>&1 || true
           gh pr edit "${PR_NUMBER}" --remove-label "release-kind:final" >/dev/null 2>&1 || true
           gh pr edit "${PR_NUMBER}" --add-label "${LABEL}"
+
+      - name: Approve release PR for automated dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.locate_release_pr.outputs.release_pr }}
+        run: |
+          gh pr review "${PR_NUMBER}" --approve \
+            --body "Automated approval by smoke-test dispatch orchestration."
 
   trigger-release:
     name: Trigger and wait for release workflow
