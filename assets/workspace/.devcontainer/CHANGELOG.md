@@ -96,6 +96,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Smoke-test release phase 2 branch-not-found failure** ([#419](https://github.com/vig-os/devcontainer/issues/419))
   - Merge phase 2 (`on-release-pr-merge.yml`) back into `repository-dispatch.yml` so the release runs while `release/<version>` still exists, matching the normal release flow
   - Remove `on-release-pr-merge.yml` from the smoke-test template
+- **Pinned commit-action to v0.2.0** ([#354](https://github.com/vig-os/devcontainer/issues/354))
+  - Updated workflow pins from `vig-os/commit-action@c0024cb` (v0.1.5) to `1bc004353d08d9332a0cb54920b148256220c8e0` (v0.2.0) in release, sync-issues, prepare-release, and smoke-test workflows
+  - Upstream v0.2.0 adds bounded retry with exponential backoff for transient GitHub API failures (configurable `MAX_ATTEMPTS` and delay bounds)
+  - Efficient multi-file commits via `createTree` inline content for text files, binary blobs only when needed, and chunked tree creation for large change sets
+  - Exports `isBinaryFile`, `getFileMode`, and `TREE_ENTRY_CHUNK_SIZE` for library use; sequential binary blob creation to reduce secondary rate-limit bursts
 
 - **Release finalization now commits generated docs and refreshes PR content** ([#300](https://github.com/vig-os/devcontainer/issues/300))
   - Final release automation regenerates docs before committing so pre-commit `generate-docs` does not fail CI with tracked file diffs

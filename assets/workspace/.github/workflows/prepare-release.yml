@@ -213,7 +213,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Commit prepared CHANGELOG to dev via API
-        uses: vig-os/commit-action@c0024cbad0e501764127cccab732c6cd465b4646  # v0.1.5
+        uses: vig-os/commit-action@1bc004353d08d9332a0cb54920b148256220c8e0  # v0.2.0
         env:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -263,7 +263,7 @@ jobs:
           "
 
       - name: Commit stripped CHANGELOG to release branch via API
-        uses: vig-os/commit-action@c0024cbad0e501764127cccab732c6cd465b4646  # v0.1.5
+        uses: vig-os/commit-action@1bc004353d08d9332a0cb54920b148256220c8e0  # v0.2.0
         env:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -348,7 +348,7 @@ jobs:
 
       - name: Commit CHANGELOG rollback to dev via API
         if: ${{ failure() && steps.rollback_prepare.outputs.changelog_rollback_needed == 'true' }}
-        uses: vig-os/commit-action@c0024cbad0e501764127cccab732c6cd465b4646  # v0.1.5
+        uses: vig-os/commit-action@1bc004353d08d9332a0cb54920b148256220c8e0  # v0.2.0
         env:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
