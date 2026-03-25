@@ -371,6 +371,7 @@ jobs:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/release/${{ needs.validate.outputs.version }}
+          MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
             chore: finalize release ${{ needs.validate.outputs.version }}
 

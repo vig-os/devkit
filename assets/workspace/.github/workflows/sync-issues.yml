@@ -141,6 +141,7 @@ jobs:
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/${{ github.event.inputs.target-branch || 'dev' }}
+          MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: "${{ github.event.inputs.commit-msg || 'chore: sync issues and PRs' }}"
           FILE_PATHS: ${{ steps.sync.outputs.modified-files }}
 

@@ -218,6 +218,7 @@ jobs:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/dev
+          MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
             chore: freeze changelog for release ${{ needs.validate.outputs.version }}
 
@@ -268,6 +269,7 @@ jobs:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/${{ needs.validate.outputs.release_branch }}
+          MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
             chore: prepare release ${{ needs.validate.outputs.version }}
 
@@ -353,6 +355,7 @@ jobs:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/dev
+          MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
             chore: rollback failed prepare-release ${{ needs.validate.outputs.version }}
 
