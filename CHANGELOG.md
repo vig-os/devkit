@@ -190,6 +190,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Downstream candidate RC tag can match upstream dispatch** ([#441](https://github.com/vig-os/devcontainer/issues/441))
   - Workspace `release.yml` / `release-core.yml` accept optional `rc-number` so candidate tags are not always recomputed from local tags only
   - Smoke-test `repository-dispatch.yml` exposes `base_version` and `rc_number` job outputs for orchestration that calls workspace `release.yml`
+- **Release validate fails early when GitHub Release already exists** ([#443](https://github.com/vig-os/devcontainer/issues/443))
+  - Validate job in `.github/workflows/release.yml` now checks `gh release view` for `PUBLISH_VERSION` so an existing release is rejected before build/sign/publish
 
 ### Security
 

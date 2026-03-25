@@ -327,6 +327,17 @@ jobs:
             exit 1
           fi
 
+      - name: Verify GitHub Release does not exist
+        env:
+          PUBLISH_VERSION: ${{ steps.publish_meta.outputs.publish_version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$PUBLISH_VERSION" >/dev/null 2>&1; then
+            echo "ERROR: GitHub Release already exists for $PUBLISH_VERSION"
+            echo "Delete it manually before retrying: gh release delete $PUBLISH_VERSION --yes"
+            exit 1
+          fi
+
       - name: Set up GitHub CLI
         run: |
           gh version
