@@ -72,6 +72,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Bump `actions/cache` restore/save pins from `5.0.3` to `5.0.4` in `sync-issues.yml`
 - **Dependabot dependency update batch** ([#413](https://github.com/vig-os/devcontainer/pull/413))
   - Bump `@devcontainers/cli` from `0.84.0` to `0.84.1`
+- **cursor-agent install is now resilient to CDN failures** ([#434](https://github.com/vig-os/devcontainer/issues/434))
+  - Retries 3 times with backoff before giving up
+  - Build succeeds without cursor-agent when Cursor's CDN is unavailable
 
 ### Fixed
 

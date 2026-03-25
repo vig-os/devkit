@@ -150,8 +150,16 @@ RUN set -eux; \
 # Install cursor-agent CLI (installs to ~/.local/bin)
 ENV PATH="/root/.local/bin:${PATH}"
 RUN set -eux; \
-    curl -fsSL https://cursor.com/install | bash; \
-    agent --version;
+    for attempt in 1 2 3; do \
+        if curl -fsSL https://cursor.com/install | bash; then \
+            agent --version; \
+            exit 0; \
+        fi; \
+        echo "cursor-agent install attempt ${attempt} failed, retrying in 10s..."; \
+        sleep 10; \
+    done; \
+    echo "WARNING: cursor-agent install failed after 3 attempts (external CDN issue); skipping"; \
+    echo "Install manually: curl https://cursor.com/install -fsSL | bash";
 
 # Install latest cargo-binstall from release archive with minisign signature verification
 # cargo-binstall uses minisign for signing releases. Each release has an ephemeral key.
