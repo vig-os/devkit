@@ -182,6 +182,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Smoke-test dispatch approves release PR before downstream release** ([#430](https://github.com/vig-os/devcontainer/issues/430))
   - Grant `pull-requests: write` on `ready-release-pr` and approve with `github.token` (`github-actions[bot]`)
   - Satisfy `release-core.yml` approval gate without the release app self-approving its own PR
+- **commit-action retries enabled for transient git ref API failures** ([#436](https://github.com/vig-os/devcontainer/issues/436))
+  - Set `MAX_ATTEMPTS: "3"` on every `vig-os/commit-action` step so v0.2.0 bounded retry actually runs (default was 1)
+  - Covers smoke-test deploy, prepare-release, release finalization, sync-issues, and workspace templates
 
 ### Security
 
