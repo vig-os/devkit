@@ -20,7 +20,7 @@ On failure, the orchestrator runs a single consolidated rollback that resets the
 
 `release.yml` supports two release modes via `release_kind`:
 
-- `candidate` (default): computes and publishes the next `X.Y.Z-rcN` tag as a GitHub pre-release
+- `candidate` (default): computes and publishes the next `X.Y.Z-rcN` tag as a GitHub pre-release (or use optional `rc-number` to pin `N` when orchestrating from an upstream dispatch; see `docs/CROSS_REPO_RELEASE_GATE.md`)
 - `final`: publishes `X.Y.Z`, finalizes `CHANGELOG.md` release date, and runs `sync-issues`
 
 Candidate mode keeps release branch content unchanged (no CHANGELOG date finalization). Final mode performs changelog finalization before publish.

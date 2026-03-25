@@ -57,6 +57,8 @@ The receiver workflow (`assets/smoke-test/.github/workflows/repository-dispatch.
 4. idempotency checks when a release object already exists
 5. preflight validation that required downstream workflow IDs are resolvable on the dispatch ref before orchestration starts
 
+If the validation repository also runs the shipped workspace `release.yml` workflow for a **candidate** (separate from publishing a release for the dispatched tag), pass workflow input `rc-number` set to the numeric RC suffix of `client_payload.tag` (for example `21` for `0.3.1-rc21`). That keeps the downstream candidate tag aligned with the upstream publish tag and satisfies the orchestrator’s latest-RC gate. The smoke-test template exposes this value as job output `needs.validate.outputs.rc_number`.
+
 ### Gate Checks in the Orchestrator
 
 The orchestrator validates:

@@ -187,6 +187,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Covers smoke-test deploy, prepare-release, release finalization, sync-issues, and workspace templates
 - **Release validation fails when bot approves PR** ([#438](https://github.com/vig-os/devcontainer/issues/438))
   - Add fallback to individual PR review check when `reviewDecision` is empty (bot approvals not counted by branch protection)
+- **Downstream candidate RC tag can match upstream dispatch** ([#441](https://github.com/vig-os/devcontainer/issues/441))
+  - Workspace `release.yml` / `release-core.yml` accept optional `rc-number` so candidate tags are not always recomputed from local tags only
+  - Smoke-test `repository-dispatch.yml` exposes `base_version` and `rc_number` job outputs for orchestration that calls workspace `release.yml`
 
 ### Security
 
