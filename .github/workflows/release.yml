@@ -327,6 +327,56 @@ jobs:
             exit 1
           fi
 
+      - name: Verify GitHub Release does not exist
+        env:
+          PUBLISH_VERSION: ${{ steps.publish_meta.outputs.publish_version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Same error-classification pattern as "Verify downstream pre-release for latest RC" above.
+          RETRIES=5
+          LAST_ERROR=""
+          for i in $(seq 1 "$RETRIES"); do
+            API_OUTPUT=""
+            if API_OUTPUT=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${PUBLISH_VERSION}" 2>&1); then
+              echo "ERROR: GitHub Release already exists for $PUBLISH_VERSION"
+              echo "Delete it manually before retrying: gh release delete $PUBLISH_VERSION --yes"
+              exit 1
+            fi
+
+            LAST_ERROR="$API_OUTPUT"
+            if printf '%s' "$API_OUTPUT" | grep -Eqi "401|403|forbidden|bad credentials|authentication|authorization|insufficient scopes"; then
+              echo "ERROR: Non-retryable authentication/authorization failure while checking for existing GitHub Release for $PUBLISH_VERSION"
+              echo "$API_OUTPUT"
+              exit 1
+            fi
+
+            if printf '%s' "$API_OUTPUT" | grep -Eqi "not found|HTTP 404"; then
+              echo "No existing GitHub Release for $PUBLISH_VERSION (API reports not found)."
+              exit 0
+            fi
+
+            if printf '%s' "$API_OUTPUT" | grep -Eqi "429|5[0-9]{2}|timed out|timeout|temporary|connection reset|connection refused|network|tls"; then
+              if [ "$i" -lt "$RETRIES" ]; then
+                BACKOFF=$((i * 5))
+                echo "Release existence check failed transiently, retrying in ${BACKOFF}s ($i/$RETRIES)..."
+                sleep "$BACKOFF"
+              fi
+              continue
+            fi
+
+            echo "ERROR: Unexpected response while checking for existing GitHub Release for $PUBLISH_VERSION"
+            echo "$API_OUTPUT"
+            exit 1
+          done
+
+          echo "ERROR: Unable to determine whether a GitHub Release exists for $PUBLISH_VERSION after $RETRIES attempts (fail closed)."
+          if [ -n "$LAST_ERROR" ]; then
+            echo "Last API error:"
+            echo "$LAST_ERROR"
+          fi
+          exit 1
+
       - name: Set up GitHub CLI
         run: |
           gh version
@@ -1114,8 +1164,47 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
-          if retry --retries 2 --backoff 5 --max-backoff 20 -- gh release view "$PUBLISH_VERSION" >/dev/null 2>&1; then
-            echo "ERROR: GitHub Release already exists for tag $PUBLISH_VERSION"
+          # Fail if release already exists; only treat API "not found" as absent (same semantics as Validate job).
+          RETRIES=5
+          LAST_ERROR=""
+          for i in $(seq 1 "$RETRIES"); do
+            API_OUTPUT=""
+            if API_OUTPUT=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${PUBLISH_VERSION}" 2>&1); then
+              echo "ERROR: GitHub Release already exists for tag $PUBLISH_VERSION"
+              exit 1
+            fi
+
+            LAST_ERROR="$API_OUTPUT"
+            if printf '%s' "$API_OUTPUT" | grep -Eqi "401|403|forbidden|bad credentials|authentication|authorization|insufficient scopes"; then
+              echo "ERROR: Non-retryable authentication/authorization failure while checking for existing GitHub Release for $PUBLISH_VERSION"
+              echo "$API_OUTPUT"
+              exit 1
+            fi
+
+            if printf '%s' "$API_OUTPUT" | grep -Eqi "not found|HTTP 404"; then
+              break
+            fi
+
+            if printf '%s' "$API_OUTPUT" | grep -Eqi "429|5[0-9]{2}|timed out|timeout|temporary|connection reset|connection refused|network|tls"; then
+              if [ "$i" -lt "$RETRIES" ]; then
+                BACKOFF=$((i * 5))
+                echo "Release existence check failed transiently, retrying in ${BACKOFF}s ($i/$RETRIES)..."
+                sleep "$BACKOFF"
+              fi
+              continue
+            fi
+
+            echo "ERROR: Unexpected response while checking for existing GitHub Release for $PUBLISH_VERSION"
+            echo "$API_OUTPUT"
+            exit 1
+          done
+
+          if ! printf '%s' "$LAST_ERROR" | grep -Eqi "not found|HTTP 404"; then
+            echo "ERROR: Unable to determine whether a GitHub Release exists for $PUBLISH_VERSION after $RETRIES attempts (fail closed)."
+            if [ -n "$LAST_ERROR" ]; then
+              echo "Last API error:"
+              echo "$LAST_ERROR"
+            fi
             exit 1
           fi
 
@@ -1123,9 +1212,45 @@ jobs:
             --title "$PUBLISH_VERSION" \
             --notes-file /tmp/github-release-notes.md \
             --verify-tag || {
-              if retry --retries 2 --backoff 5 --max-backoff 20 -- gh release view "$PUBLISH_VERSION" >/dev/null 2>&1; then
+              RELEASE_PRESENT=0
+              rb_retries=5
+              rb_last=""
+              for j in $(seq 1 "$rb_retries"); do
+                rb_out=""
+                if rb_out=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${PUBLISH_VERSION}" 2>&1); then
+                  RELEASE_PRESENT=1
+                  break
+                fi
+                rb_last="$rb_out"
+                if printf '%s' "$rb_out" | grep -Eqi "401|403|forbidden|bad credentials|authentication|authorization|insufficient scopes"; then
+                  echo "ERROR: Non-retryable authentication/authorization failure while verifying GitHub Release after create for $PUBLISH_VERSION"
+                  echo "$rb_out"
+                  exit 1
+                fi
+                if printf '%s' "$rb_out" | grep -Eqi "not found|HTTP 404"; then
+                  RELEASE_PRESENT=0
+                  break
+                fi
+                if printf '%s' "$rb_out" | grep -Eqi "429|5[0-9]{2}|timed out|timeout|temporary|connection reset|connection refused|network|tls"; then
+                  if [ "$j" -lt "$rb_retries" ]; then
+                    rb_backoff=$((j * 5))
+                    echo "Post-create release check failed transiently, retrying in ${rb_backoff}s ($j/$rb_retries)..."
+                    sleep "$rb_backoff"
+                  fi
+                  continue
+                fi
+                echo "ERROR: Unexpected response while verifying GitHub Release after create for $PUBLISH_VERSION"
+                echo "$rb_out"
+                exit 1
+              done
+              if [ "$RELEASE_PRESENT" -eq 1 ]; then
                 echo "GitHub Release already present after create attempt: $PUBLISH_VERSION"
               else
+                if [ "$j" -eq "$rb_retries" ] && ! printf '%s' "$rb_last" | grep -Eqi "not found|HTTP 404"; then
+                  echo "ERROR: Unable to verify GitHub Release state for $PUBLISH_VERSION after create failure (fail closed)."
+                  echo "$rb_last"
+                  exit 1
+                fi
                 exit 1
               fi
             }
