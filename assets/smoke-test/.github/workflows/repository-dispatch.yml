@@ -17,6 +17,10 @@ name: Repository Dispatch Listener
 #
 # NOTE: Changes to this template may require manual redeploy to
 # vig-os/devcontainer-smoke-test and promotion through PRs until merged to main.
+#
+# If this repo (or a fork) orchestrates workspace release.yml for candidates,
+# pass workflow_dispatch input rc-number=<N> where N is validate.outputs.rc_number
+# so downstream candidate tags match the upstream dispatch tag (cross-repo gate).
 
 on:  # yamllint disable-line rule:truthy
   repository_dispatch:
@@ -41,6 +45,7 @@ jobs:
     outputs:
       tag: ${{ steps.extract.outputs.tag }}
       base_version: ${{ steps.extract.outputs.base_version }}
+      rc_number: ${{ steps.extract.outputs.rc_number }}
       release_kind: ${{ steps.extract.outputs.release_kind }}
       source_repo: ${{ steps.extract.outputs.source_repo }}
       source_workflow: ${{ steps.extract.outputs.source_workflow }}
@@ -111,6 +116,11 @@ jobs:
           fi
 
           BASE_VERSION="$(printf '%s' "${TAG}" | sed 's/-rc[0-9]*$//')"
+          RC_NUMBER=""
+          if printf '%s' "${TAG}" | grep -Eq -- '-rc[0-9]+$'; then
+            RC_NUMBER="$(printf '%s' "${TAG}" | sed 's/^.*-rc//')"
+          fi
+
           EFFECTIVE_SOURCE_RUN_URL="${SOURCE_RUN_URL}"
           if [ -z "${EFFECTIVE_SOURCE_RUN_URL}" ] && [ -n "${SOURCE_REPO}" ] && [ -n "${SOURCE_RUN_ID}" ]; then
             EFFECTIVE_SOURCE_RUN_URL="${GITHUB_SERVER_URL}/${SOURCE_REPO}/actions/runs/${SOURCE_RUN_ID}"
@@ -118,6 +128,7 @@ jobs:
 
           echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
           echo "base_version=${BASE_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "rc_number=${RC_NUMBER}" >> "${GITHUB_OUTPUT}"
           echo "release_kind=${EFFECTIVE_RELEASE_KIND}" >> "${GITHUB_OUTPUT}"
           echo "source_repo=${SOURCE_REPO}" >> "${GITHUB_OUTPUT}"
           echo "source_workflow=${SOURCE_WORKFLOW}" >> "${GITHUB_OUTPUT}"
@@ -593,13 +604,19 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
           BASE_VERSION: ${{ needs.validate.outputs.base_version }}
+          RC_NUMBER: ${{ needs.validate.outputs.rc_number }}
           RELEASE_KIND: ${{ needs.validate.outputs.release_kind }}
         run: |
           set -euo pipefail
+          EXTRA=()
+          if [ "${RELEASE_KIND}" = "candidate" ] && [ -n "${RC_NUMBER}" ]; then
+            EXTRA=( -f "rc-number=${RC_NUMBER}" )
+          fi
           gh workflow run release.yml \
             --ref "${WORKFLOW_REF}" \
             -f version="${BASE_VERSION}" \
-            -f release-kind="${RELEASE_KIND}"
+            -f release-kind="${RELEASE_KIND}" \
+            "${EXTRA[@]}"
 
       - name: Wait for release workflow completion
         env:
@@ -711,6 +728,8 @@ jobs:
       - name: Write source context summary
         env:
           TAG: ${{ needs.validate.outputs.tag }}
+          BASE_VERSION: ${{ needs.validate.outputs.base_version }}
+          RC_NUMBER: ${{ needs.validate.outputs.rc_number }}
           SOURCE_REPO: ${{ needs.validate.outputs.source_repo }}
           SOURCE_WORKFLOW: ${{ needs.validate.outputs.source_workflow }}
           SOURCE_RUN_ID: ${{ needs.validate.outputs.source_run_id }}
@@ -722,6 +741,8 @@ jobs:
             echo "## Source Dispatch Context"
             echo ""
             echo "- Tag: ${TAG:-n/a}"
+            echo "- Base version: ${BASE_VERSION:-n/a}"
+            echo "- RC number (suffix): ${RC_NUMBER:-n/a}"
             echo "- Source Repo: ${SOURCE_REPO:-n/a}"
             echo "- Source Workflow: ${SOURCE_WORKFLOW:-n/a}"
             echo "- Source Run ID: ${SOURCE_RUN_ID:-n/a}"

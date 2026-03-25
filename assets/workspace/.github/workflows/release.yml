@@ -27,6 +27,11 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: "41898282+github-actions[bot]@users.noreply.github.com"
         type: string
+      rc-number:
+        description: "Candidate RC index (e.g. 21 for X.Y.Z-rc21). Omit to auto-increment from existing tags."
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: release
@@ -68,6 +73,7 @@ jobs:
       dry_run: ${{ inputs.dry-run }}
       git_user_name: ${{ inputs.git-user-name }}
       git_user_email: ${{ inputs.git-user-email }}
+      rc_number: ${{ inputs.rc-number || '' }}
     secrets: inherit
 
   extension:

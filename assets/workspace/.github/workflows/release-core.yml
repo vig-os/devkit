@@ -27,6 +27,11 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: "41898282+github-actions[bot]@users.noreply.github.com"
         type: string
+      rc_number:
+        description: "Candidate RC index (e.g. 21 for X.Y.Z-rc21). Omit to auto-increment from existing tags."
+        required: false
+        default: ""
+        type: string
     secrets:
       token:
         required: false
@@ -183,36 +188,51 @@ jobs:
         env:
           VERSION: ${{ steps.vars.outputs.version }}
           RELEASE_KIND: ${{ steps.vars.outputs.release_kind }}
+          INPUT_RC_NUMBER: ${{ inputs.rc_number }}
         run: |
           set -euo pipefail
           NEXT_RC=""
           if [ "$RELEASE_KIND" = "candidate" ]; then
-            TAG_PATTERN="${VERSION}-rc*"
-            EXISTING_TAGS=$(git ls-remote --tags --refs origin "$TAG_PATTERN" | awk '{print $2}' | sed 's#refs/tags/##')
+            if [ -n "${INPUT_RC_NUMBER}" ]; then
+              if ! printf '%s' "${INPUT_RC_NUMBER}" | grep -qE '^[0-9]+$'; then
+                echo "ERROR: rc_number must be a non-negative integer (got '${INPUT_RC_NUMBER}')"
+                exit 1
+              fi
+              if [ "${INPUT_RC_NUMBER}" -lt 1 ]; then
+                echo "ERROR: rc_number must be >= 1 (got '${INPUT_RC_NUMBER}')"
+                exit 1
+              fi
+              NEXT_RC="${INPUT_RC_NUMBER}"
+              PUBLISH_VERSION="${VERSION}-rc${NEXT_RC}"
+              echo "Using explicit rc_number=$NEXT_RC -> publish_version=$PUBLISH_VERSION"
+            else
+              TAG_PATTERN="${VERSION}-rc*"
+              EXISTING_TAGS=$(git ls-remote --tags --refs origin "$TAG_PATTERN" | awk '{print $2}' | sed 's#refs/tags/##')
 
-            MAX_RC=0
-            if [ -n "$EXISTING_TAGS" ]; then
-              while IFS= read -r tag; do
-                [ -z "$tag" ] && continue
-                if [ "${tag#${VERSION}-rc}" = "$tag" ]; then
-                  echo "ERROR: Malformed candidate tag detected: $tag"
-                  echo "Expected format: ${VERSION}-rcN"
-                  exit 1
-                fi
-                rc_num="${tag#${VERSION}-rc}"
-                if ! echo "$rc_num" | grep -qE '^[0-9]+$'; then
-                  echo "ERROR: Malformed candidate tag detected: $tag"
-                  echo "Expected format: ${VERSION}-rcN"
-                  exit 1
-                fi
-                if [ "$rc_num" -gt "$MAX_RC" ]; then
-                  MAX_RC="$rc_num"
-                fi
-              done <<< "$EXISTING_TAGS"
+              MAX_RC=0
+              if [ -n "$EXISTING_TAGS" ]; then
+                while IFS= read -r tag; do
+                  [ -z "$tag" ] && continue
+                  if [ "${tag#${VERSION}-rc}" = "$tag" ]; then
+                    echo "ERROR: Malformed candidate tag detected: $tag"
+                    echo "Expected format: ${VERSION}-rcN"
+                    exit 1
+                  fi
+                  rc_num="${tag#${VERSION}-rc}"
+                  if ! echo "$rc_num" | grep -qE '^[0-9]+$'; then
+                    echo "ERROR: Malformed candidate tag detected: $tag"
+                    echo "Expected format: ${VERSION}-rcN"
+                    exit 1
+                  fi
+                  if [ "$rc_num" -gt "$MAX_RC" ]; then
+                    MAX_RC="$rc_num"
+                  fi
+                done <<< "$EXISTING_TAGS"
+              fi
+
+              NEXT_RC=$((MAX_RC + 1))
+              PUBLISH_VERSION="${VERSION}-rc${NEXT_RC}"
             fi
-
-            NEXT_RC=$((MAX_RC + 1))
-            PUBLISH_VERSION="${VERSION}-rc${NEXT_RC}"
           else
             PUBLISH_VERSION="$VERSION"
           fi
