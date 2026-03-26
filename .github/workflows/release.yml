@@ -4,12 +4,12 @@
 # 1. Validate: Check all prerequisites (PR status, CI passed, CHANGELOG ready)
 # 2. Finalize: For final releases only, set release date in CHANGELOG
 # 3. Build & Test: Build and test images for all architectures
-# 4. Publish: Create tag, publish images, and publish final GitHub Release
-# 5. Rollback (on failure): Revert changes and create issue
+# 4. Publish: Create tag, publish images, and create draft final GitHub Release
+# 5. Rollback (on failure): Reset release branch, create issue (tags are not deleted—forward-fix policy; GitHub immutability applies only after a published release locks the tag when that setting is enabled)
 #
 # Release kinds:
 #   candidate: Publishes X.Y.Z-rcN. No CHANGELOG changes, no sync-issues.
-#   final:     Publishes X.Y.Z. Sets release date in CHANGELOG, triggers sync-issues, publishes GitHub Release.
+#   final:     Publishes X.Y.Z. Sets release date in CHANGELOG, triggers sync-issues, creates draft GitHub Release.
 #
 # Design: Everything happens in one workflow dispatch before creating the tag.
 # This ensures no broken releases are tagged.
@@ -318,18 +318,10 @@ jobs:
             exit 1
           fi
 
-      - name: Verify tag does not exist
+      - name: Verify GitHub Release does not block publish
         env:
           PUBLISH_VERSION: ${{ steps.publish_meta.outputs.publish_version }}
-        run: |
-          if git tag -l | grep -q "^${PUBLISH_VERSION}$"; then
-            echo "ERROR: Tag $PUBLISH_VERSION already exists"
-            exit 1
-          fi
-
-      - name: Verify GitHub Release does not exist
-        env:
-          PUBLISH_VERSION: ${{ steps.publish_meta.outputs.publish_version }}
+          RELEASE_KIND: ${{ steps.vars.outputs.release_kind }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -339,8 +331,17 @@ jobs:
           for i in $(seq 1 "$RETRIES"); do
             API_OUTPUT=""
             if API_OUTPUT=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${PUBLISH_VERSION}" 2>&1); then
+              if [ "$RELEASE_KIND" = "final" ]; then
+                IS_DRAFT=$(printf '%s' "$API_OUTPUT" | jq -r '.draft')
+                if [ "$IS_DRAFT" = "true" ]; then
+                  echo "Draft GitHub Release already exists for $PUBLISH_VERSION; publish job may retry release creation."
+                  exit 0
+                fi
+                echo "ERROR: Published (non-draft) GitHub Release already exists for $PUBLISH_VERSION"
+                echo "Immutable releases cannot be replaced; use a patch version if a new release is required."
+                exit 1
+              fi
               echo "ERROR: GitHub Release already exists for $PUBLISH_VERSION"
-              echo "Delete it manually before retrying: gh release delete $PUBLISH_VERSION --yes"
               exit 1
             fi
 
@@ -552,6 +553,7 @@ jobs:
       actions: write     # trigger sync-issues workflow
     outputs:
       finalize_sha: ${{ steps.finalize.outputs.finalize_sha }}
+      tag_already_exists: ${{ steps.tag_state.outputs.tag_already_exists }}
 
     steps:
       - name: Generate GitHub App Token
@@ -755,6 +757,34 @@ jobs:
           echo "finalize_sha=$FINALIZE_SHA" >> $GITHUB_OUTPUT
           echo "Release kind: $RELEASE_KIND — SHA: $FINALIZE_SHA"
 
+      - name: Check if publish tag already exists at finalize SHA
+        id: tag_state
+        env:
+          PUBLISH_VERSION: ${{ needs.validate.outputs.publish_version }}
+          FINALIZE_SHA: ${{ steps.finalize.outputs.finalize_sha }}
+        run: |
+          set -euo pipefail
+          REMOTE_LINE=$(git ls-remote origin "refs/tags/${PUBLISH_VERSION}^{}" || true)
+          if [ -z "$REMOTE_LINE" ]; then
+            REMOTE_LINE=$(git ls-remote origin "refs/tags/${PUBLISH_VERSION}" || true)
+          fi
+          if [ -z "$REMOTE_LINE" ]; then
+            echo "tag_already_exists=false" >> "$GITHUB_OUTPUT"
+            echo "No remote tag ${PUBLISH_VERSION} yet"
+            exit 0
+          fi
+          REMOTE_TARGET_SHA=$(printf '%s\n' "$REMOTE_LINE" | awk '{print $1}')
+          if [ -z "$REMOTE_TARGET_SHA" ]; then
+            echo "tag_already_exists=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$REMOTE_TARGET_SHA" != "$FINALIZE_SHA" ]; then
+            echo "ERROR: Tag $PUBLISH_VERSION exists but target commit is $REMOTE_TARGET_SHA; expected $FINALIZE_SHA (finalize SHA)"
+            exit 1
+          fi
+          echo "tag_already_exists=true" >> "$GITHUB_OUTPUT"
+          echo "Remote tag $PUBLISH_VERSION already points to finalize SHA; publish will skip tag create/push"
+
   build-and-test:
     name: Build and Test (${{ matrix.arch }})
     needs: [validate, finalize]
@@ -862,6 +892,7 @@ jobs:
           git config user.email "$GIT_USER_EMAIL"
 
       - name: Create annotated tag
+        if: ${{ needs.finalize.outputs.tag_already_exists != 'true' }}
         env:
           PUBLISH_VERSION: ${{ needs.validate.outputs.publish_version }}
         run: |
@@ -870,6 +901,7 @@ jobs:
           echo "✓ Tag created: $PUBLISH_VERSION"
 
       - name: Push tag
+        if: ${{ needs.finalize.outputs.tag_already_exists != 'true' }}
         env:
           PUBLISH_VERSION: ${{ needs.validate.outputs.publish_version }}
           RELEASE_KIND: ${{ needs.validate.outputs.release_kind }}
@@ -887,6 +919,9 @@ jobs:
             if retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags --refs origin "$PUBLISH_VERSION" | grep -q "refs/tags/$PUBLISH_VERSION$"; then
               LOCAL_TAG_TARGET_SHA=$(git rev-parse "$PUBLISH_VERSION^{}")
               REMOTE_TAG_TARGET_SHA=$(retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags origin "refs/tags/$PUBLISH_VERSION^{}" | awk '{print $1}')
+              if [ -z "$REMOTE_TAG_TARGET_SHA" ]; then
+                REMOTE_TAG_TARGET_SHA=$(retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags origin "refs/tags/$PUBLISH_VERSION" | awk '{print $1}')
+              fi
               if [ -z "$REMOTE_TAG_TARGET_SHA" ]; then
                 echo "ERROR: Remote tag exists but target SHA could not be resolved: $PUBLISH_VERSION"
                 exit 1
@@ -1164,13 +1199,19 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
-          # Fail if release already exists; only treat API "not found" as absent (same semantics as Validate job).
+          # Draft first: human publishes from the UI when ready (GitHub immutable-releases best practice).
           RETRIES=5
           LAST_ERROR=""
           for i in $(seq 1 "$RETRIES"); do
             API_OUTPUT=""
             if API_OUTPUT=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${PUBLISH_VERSION}" 2>&1); then
-              echo "ERROR: GitHub Release already exists for tag $PUBLISH_VERSION"
+              IS_DRAFT=$(printf '%s' "$API_OUTPUT" | jq -r '.draft')
+              if [ "$IS_DRAFT" = "true" ]; then
+                echo "✓ Draft GitHub Release already exists for $PUBLISH_VERSION; skipping create (retry path)."
+                echo "Review and publish from: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases"
+                exit 0
+              fi
+              echo "ERROR: Published (non-draft) GitHub Release already exists for tag $PUBLISH_VERSION"
               exit 1
             fi
 
@@ -1211,14 +1252,17 @@ jobs:
           retry --retries 3 --backoff 5 --max-backoff 30 -- gh release create "$PUBLISH_VERSION" \
             --title "$PUBLISH_VERSION" \
             --notes-file /tmp/github-release-notes.md \
-            --verify-tag || {
+            --verify-tag \
+            --draft || {
               RELEASE_PRESENT=0
+              IS_DRAFT_RETRY=0
               rb_retries=5
               rb_last=""
               for j in $(seq 1 "$rb_retries"); do
                 rb_out=""
                 if rb_out=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${PUBLISH_VERSION}" 2>&1); then
                   RELEASE_PRESENT=1
+                  IS_DRAFT_RETRY=$(printf '%s' "$rb_out" | jq -r '.draft')
                   break
                 fi
                 rb_last="$rb_out"
@@ -1244,7 +1288,12 @@ jobs:
                 exit 1
               done
               if [ "$RELEASE_PRESENT" -eq 1 ]; then
-                echo "GitHub Release already present after create attempt: $PUBLISH_VERSION"
+                if [ "$IS_DRAFT_RETRY" = "true" ]; then
+                  echo "✓ Draft GitHub Release present after create attempt: $PUBLISH_VERSION"
+                else
+                  echo "ERROR: Published (non-draft) GitHub Release appeared for $PUBLISH_VERSION during create fallback — expected draft."
+                  exit 1
+                fi
               else
                 if [ "$j" -eq "$rb_retries" ] && ! printf '%s' "$rb_last" | grep -Eqi "not found|HTTP 404"; then
                   echo "ERROR: Unable to verify GitHub Release state for $PUBLISH_VERSION after create failure (fail closed)."
@@ -1255,7 +1304,8 @@ jobs:
               fi
             }
 
-          echo "✓ GitHub Release published: $PUBLISH_VERSION"
+          echo "✓ Draft GitHub Release created: $PUBLISH_VERSION"
+          echo "Review and publish from: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases (publishing locks the linked tag and assets when immutable releases are enabled)"
 
       - name: Summary
         env:
@@ -1285,7 +1335,8 @@ jobs:
             echo "  2. If downstream pre-release passes, run: just finalize-release $BASE_VERSION"
           else
             echo "  1. Smoke-test dispatch runs in the smoke-test job."
-            echo "  2. Merge release PR to main (triggers sync-main-to-dev workflow automatically)"
+            echo "  2. Review the draft GitHub Release and publish it from the Releases UI (publishing applies immutable-release lock-in for the tag and assets when that setting is enabled)."
+            echo "  3. Merge release PR to main (triggers sync-main-to-dev workflow automatically)"
           fi
 
   smoke-test:
@@ -1347,9 +1398,13 @@ jobs:
       - name: Summary
         env:
           RELEASE_TAG: ${{ needs.validate.outputs.publish_version }}
+          RELEASE_KIND: ${{ needs.validate.outputs.release_kind }}
         run: |
           echo "✓ Triggered smoke-test dispatch for release tag: $RELEASE_TAG"
           echo "Downstream validation is asynchronous; verify in devcontainer-smoke-test."
+          if [ "$RELEASE_KIND" = "final" ]; then
+            echo "Final: review the draft GitHub Release in this repo and publish it from the Releases UI when validation is complete."
+          fi
 
       - name: Create issue for smoke dispatch failure
         if: ${{ failure() }}
@@ -1368,7 +1423,7 @@ jobs:
 
             **Important:**
             - Upstream publish already completed before this dispatch step.
-            - Published artifacts (GHCR images, tag, signatures, attestations, and final GitHub Release if applicable) are intentionally left intact.
+            - Published artifacts (GHCR images, tag, signatures, attestations, and draft or published GitHub Release if applicable) are intentionally left intact.
             - No branch reset or tag deletion is performed for dispatch-only failures.
 
             **Next Steps:**
@@ -1390,7 +1445,7 @@ jobs:
   rollback:
     name: Rollback on Failure
     # Rollback is intentionally scoped to pre-publish/publish failures.
-    # Dispatch-only smoke-test failures happen after publish and should not delete tags or reset branches.
+    # Dispatch-only smoke-test failures happen after publish; automation does not delete tags or reset branches (forward-fix policy).
     needs: [validate, finalize, build-and-test, publish]
     runs-on: ubuntu-22.04
     timeout-minutes: 10
@@ -1398,7 +1453,7 @@ jobs:
     permissions:
       contents: read        # required by actions/checkout in rollback job
       issues: write          # create failure issue
-      # Branch rollback and tag deletion use the RELEASE_APP token (not GITHUB_TOKEN),
+      # Branch rollback uses the RELEASE_APP token (not GITHUB_TOKEN),
       # which has Contents read/write configured on the GitHub App.
 
     steps:
@@ -1434,23 +1489,6 @@ jobs:
             -F force=true
           echo "✓ Release branch rolled back to $PRE_SHA"
 
-      - name: Delete tag if created
-        id: rollback-tag
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          PUBLISH_VERSION: ${{ needs.validate.outputs.publish_version }}
-        run: |
-          set -euo pipefail
-          TAG="$PUBLISH_VERSION"
-          if retry --retries 2 --backoff 5 --max-backoff 20 -- gh api "repos/${{ github.repository }}/git/refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "Deleting remote tag: $TAG"
-            retry --retries 3 --backoff 5 --max-backoff 30 -- gh api "repos/${{ github.repository }}/git/refs/tags/$TAG" -X DELETE
-            echo "✓ Tag deleted"
-          else
-            echo "Tag does not exist on remote (not created)"
-          fi
-
       - name: Create failure issue
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd  # v8.0.0
         with:
@@ -1466,7 +1504,6 @@ jobs:
             if ('${{ needs.publish.result }}' !== 'success') failedJobs.push('publish');
 
             const rollbackBranch = '${{ steps.rollback-branch.outcome }}';
-            const rollbackTag = '${{ steps.rollback-tag.outcome }}';
 
             const title = `Release ${publishVersion} failed -- automatic rollback`;
             const body = `
@@ -1480,21 +1517,24 @@ jobs:
 
             **Rollback Results:**
             - Branch rollback: ${rollbackBranch}
-            - Tag deletion: ${rollbackTag}
+
+            **Tag status (forward-fix policy):**
+            - Release tags are **not** deleted by automation (workflow choice; not the same as GitHub immutable-release lock-in).
+            - If the tag was pushed before the failure, it remains on the remote; use a new release candidate to validate fixes, then re-run the final release when ready.
 
             **Actions Taken:**
-            - Release branch rolled back to pre-finalization state
-            - Release tag deleted (if created)
+            - Release branch reset to pre-finalization state (best-effort)
             - This issue created for investigation
 
             **Manual Cleanup May Be Needed:**
             - If images were pushed to GHCR before the failure, they are **not** automatically deleted. Check \`ghcr.io/vig-os/devcontainer:${publishVersion}-*\` and remove any orphaned images manually.
+            - If a **draft** GitHub Release exists for this tag, edit or manage it from the Releases UI (**publishing** locks the linked tag and assets when **immutable releases** are enabled).
 
             **Next Steps:**
             1. Review the workflow logs to identify the root cause
             2. Check rollback results above; fix any partial rollback manually
             3. Fix the issue on the release branch
-            4. Re-run the workflow when ready
+            4. Publish a new release candidate to validate the fix; re-run the final workflow when ready
 
             For details, check the workflow run linked above.
             `;
@@ -1514,8 +1554,8 @@ jobs:
           echo "✗ Release workflow failed"
           echo ""
           echo "Automatic rollback completed:"
-          echo "  - Release branch reset to pre-finalization state"
-          echo "  - Release tag deleted (if created)"
+          echo "  - Release branch reset to pre-finalization state (best-effort)"
+          echo "  - Tags were not deleted (forward-fix policy)"
           echo "  - GitHub issue created for investigation"
           echo ""
           echo "Check the workflow logs and issue for details"

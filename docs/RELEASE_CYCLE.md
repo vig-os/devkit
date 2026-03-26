@@ -124,7 +124,7 @@ graph TB
     N --> O["Workflow: set release date<br/>build & test"]
     O --> P{Tests pass?}
     P -->|No| Q["Automatic rollback<br/>+ issue creation"]
-    P -->|Yes| R["Workflow: create tag<br/>publish images<br/>publish GitHub Release (final only)"]
+    P -->|Yes| R["Workflow: create tag<br/>publish images<br/>draft GitHub Release (final only)"]
     R --> S["Merge PR to main"]
     S --> T["Workflow: sync-main-to-dev<br/>PR-based sync"]
 ```
@@ -134,9 +134,21 @@ graph TB
 1. **Preparation** (`prepare-release`): Freeze CHANGELOG on dev, create release branch, reset Unreleased on dev, open draft PR
 2. **Review & Testing**: CI validation, mark PR ready, fix issues, get approvals
 3. **Candidate Publish** (`publish-candidate`): Build/test/publish `X.Y.Z-rcN` and dispatch cross-repo validation workflow
-4. **Cross-Repo Validation Gate (automated prerequisite)**: Final release validate step requires downstream pre-release for the latest RC tag
-5. **Finalization & Post-Release**: Publish final image/tag, then merge PR to main and let sync automation update dev
+4. **Cross-Repo Validation Gate (automated prerequisite)**: Final release validate step requires a GitHub **pre-release** for the latest RC tag in the validation repo (`vig-os/devcontainer-smoke-test`); see `docs/CROSS_REPO_RELEASE_GATE.md`
+5. **Finalization & Post-Release**: Publish final image/tag, open a **draft** GitHub Release for human review, then merge PR to main and let sync automation update dev
 
+## Immutable releases, tag rulesets, and forward-fix policy
+
+This section applies to **`vig-os/devcontainer`** (this repo) and, for matching supply-chain posture, **`vig-os/devcontainer-smoke-test`**. It does **not** describe release workflows in consumer projects; those are documented in [Downstream release workflows](DOWNSTREAM_RELEASE.md).
+
+**GitHub immutability (organization settings):** With **immutable releases** enabled, a **published** GitHub Release (including a published **pre-release**) locks its **linked** tag and release assets. A git tag with **no** linked published release is **not** immutable via that feature. **Tag rulesets** are separate: they can restrict creating, updating, or deleting tags regardless of releases.
+
+**Policy (behavior in [`.github/workflows/release.yml`](../.github/workflows/release.yml) for this repository):**
+
+- **Final releases (`X.Y.Z`)**: After build/publish, automation creates a **draft** GitHub Release (see GitHub’s [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) and [draft-first best practice](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases#best-practices-for-publishing-immutable-releases)). A human **publishes** the draft from the **Releases** UI when satisfied; with **immutable releases** enabled, **publishing** makes the linked tag and assets immutable.
+- **Candidates (`X.Y.Z-rcN`)**: Candidate mode creates and pushes the **git tag**, publishes **GHCR** images (and related signing/attestations), and triggers smoke-test dispatch. It does **not** create a GitHub **Release** object for the RC—only **final** runs use `gh release create` (as a draft). The RC tag is therefore **not** locked by immutable releases until/unless you add a published release or a tag ruleset applies.
+- **Forward-fix (automation)**: Rollback **does not** delete remote tags—this is a **workflow choice** to avoid rewriting history, not GitHub declaring the tag immutable. Recovery is **forward-fix** (new RC, then final when ready). If a retry publishes the same tag, the workflow skips re-creating the tag when it already points at the finalized commit.
+- **Repository settings** (manual; not stored in git): enable **immutable releases** and **tag rulesets** as appropriate for `vig-os/devcontainer` and `vig-os/devcontainer-smoke-test`. See GitHub: [Preventing changes to your releases](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/preventing-changes-to-your-releases). Use **RELEASE_APP** in bypass lists only where tag creation requires it.
 
 ---
 
@@ -342,7 +354,7 @@ The `release.yml` workflow performs the entire remaining release process. Behavi
    - Validates semantic version format
    - Checks release branch exists
    - Verifies CHANGELOG has `## [X.Y.Z] - TBD`
-   - Verifies tag doesn't already exist
+   - For **final**: allows an existing **draft** GitHub Release for the publish tag (retry path); rejects a **published** (non-draft) release for the same tag
    - Confirms PR exists, is not draft, is approved, and CI passed
    - Records pre-finalization commit for rollback
 
@@ -359,9 +371,9 @@ The `release.yml` workflow performs the entire remaining release process. Behavi
 
 4. ✅ **Publish** job (runs only if all builds/tests pass)
    - Candidate mode: infers next `rcN`, creates annotated tag `X.Y.Z-rcN`, publishes candidate manifests
-   - Final mode: creates annotated tag `X.Y.Z`, publishes final manifests
-   - Pushes tag to origin
-   - Final mode only: extracts release notes from finalized `CHANGELOG.md` and publishes GitHub Release for `X.Y.Z`
+   - Final mode: creates annotated tag `X.Y.Z` (or skips create/push if the tag already points at the finalized commit), publishes final manifests
+   - Pushes tag to origin when needed
+   - Final mode only: extracts release notes from finalized `CHANGELOG.md` and creates a **draft** GitHub Release for `X.Y.Z`
    - Downloads tested images from artifacts
    - Logs in to GitHub Container Registry
    - Pushes images to GHCR with architecture-specific tags
@@ -370,10 +382,10 @@ The `release.yml` workflow performs the entire remaining release process. Behavi
    - Verifies manifests exist
    - Candidate and final modes: trigger cross-repository validation dispatch with `client_payload[tag]` plus source metadata (`source_repo`, `source_workflow`, `source_run_id`, `source_run_url`, `source_sha`, `correlation_id`)
 
-5. ✅ **Rollback** job (runs if ANY job failed)
-   - Resets release branch to pre-finalization state
-   - Deletes tag if it was created
-   - Creates GitHub issue with failure details for investigation
+5. ✅ **Rollback** job (runs if ANY job failed among validate/finalize/build-and-test/publish)
+   - Resets release branch to pre-finalization state (best-effort)
+   - Does **not** delete tags (forward-fix policy)
+   - Creates GitHub issue with failure details and forward-fix guidance
 
 **Output example:**
 
@@ -398,7 +410,7 @@ Release Summary:
 
 - **Earlier validation**: All checks happen at the start in CI
 - **Safer workflow**: Tag is created AFTER successful build/test, not before
-- **Automatic rollback**: Failed releases are automatically cleaned up
+- **Automatic rollback**: Failed releases roll back the release branch; tags are not deleted (forward-fix policy, independent of whether GitHub immutability applies)—recover with a new RC or a careful final retry per docs above
 - **Audit trail**: All steps are recorded in GitHub Actions logs with actor information
 - **Reproducible**: Uses consistent CI environment, not dependent on local tooling
 
@@ -408,7 +420,11 @@ Cross-repository validation gate rationale, mechanics, payload contract, and pas
 
 ### Phase 5: Post-Release Cleanup
 
-**Manual step:** Merge the release PR to main.
+**Manual steps (final releases):**
+
+1. Verify the workflow run succeeded and smoke-test dispatch completed as expected.
+2. Open **Releases** in GitHub, review the **draft** release for `X.Y.Z`, and **Publish** it when ready (with **immutable releases** enabled, **publishing** is what locks the linked tag and assets).
+3. Merge the release PR to `main`.
 
 ```bash
 # Verify release workflow succeeded
@@ -529,7 +545,7 @@ Release automation relies on two GitHub Apps with different scopes:
 
 Additional requirement:
 - `COMMIT_APP` must be allowed in branch protection bypass rules for `dev` so sync commits can be pushed by automation.
-- `RELEASE_APP` must be installed on the validation repository with Contents read and Actions read/write permissions so `release.yml` can send `repository_dispatch` and `repository-dispatch.yml` can trigger downstream workflow dispatch events for candidate and final release validation.
+- `RELEASE_APP` must be installed on the validation repository (`vig-os/devcontainer-smoke-test`) with Contents read and Actions read/write permissions so `release.yml` can send `repository_dispatch` and `repository-dispatch.yml` can trigger workflow runs there for candidate and final release validation.
 
 #### prepare-release.yml (Release Preparation Workflow)
 
@@ -586,7 +602,7 @@ gh workflow run prepare-release.yml --ref dev -f "version=1.0.0" -f "dry-run=tru
    - Computes publish tag (`X.Y.Z-rcN` for candidate, `X.Y.Z` for final)
    - Verifies release branch exists
    - Checks CHANGELOG has `[X.Y.Z] - TBD`
-   - Confirms publish tag doesn't exist
+   - For **final**: rejects a **published** GitHub Release for the publish tag; allows an existing **draft** (retry path)
    - Verifies PR: not draft, approved, CI passed
    - Records pre-finalization commit for rollback
    - Outputs: PR number, release date, pre-finalization SHA, publish tag metadata
@@ -594,6 +610,7 @@ gh workflow run prepare-release.yml --ref dev -f "version=1.0.0" -f "dry-run=tru
 2. **finalize** (skipped if dry-run) - Conditionally updates release branch
    - **Candidate**: No CHANGELOG changes, no sync-issues. Outputs current release branch HEAD SHA.
    - **Final**: Sets release date in CHANGELOG (TBD → YYYY-MM-DD), regenerates docs, commits all tracked finalization changes via dynamic file list, refreshes release PR body from finalized changelog content, triggers sync-issues, outputs finalized SHA.
+   - After computing `finalize_sha`, checks whether the remote publish tag already points at that SHA (retry path; skips redundant tag push in **publish**).
 
 3. **build-and-test** (matrix: amd64, arm64) - Builds and validates images
    - Builds container image for architecture
@@ -604,24 +621,23 @@ gh workflow run prepare-release.yml --ref dev -f "version=1.0.0" -f "dry-run=tru
 
 4. **publish** (runs if all builds/tests pass) - Creates tag and publishes
    - Candidate mode creates and pushes `X.Y.Z-rcN` (next available `N`)
-   - Final mode creates and pushes `X.Y.Z`
-   - Pushes tag
-   - Final mode only: publishes GitHub Release `X.Y.Z` with notes sourced from finalized `CHANGELOG.md`
+   - Final mode creates and pushes `X.Y.Z` unless the tag already exists at `finalize_sha`
+   - Final mode only: creates a **draft** GitHub Release `X.Y.Z` with notes sourced from finalized `CHANGELOG.md`
    - Downloads tested images from artifacts
    - Pushes images to GHCR
    - Creates multi-architecture manifest for computed publish tag
    - Updates `latest` only in final mode
    - Verifies manifests exist
 
-5. **smoke-test** (runs after publish) - Triggers downstream validation
+5. **smoke-test** (runs after publish) - Triggers `repository_dispatch` on `vig-os/devcontainer-smoke-test` (validation repo)
    - Candidate and final modes trigger cross-repository validation `repository_dispatch` with `client_payload[tag]=<publish-tag>`
    - Dispatch failures mark the workflow as failed and create a targeted issue
-   - Dispatch failures do **not** rollback branch/tag, because published artifacts are already immutable at this point
+   - Dispatch failures do **not** rollback branch/tag: publish outputs are already public. Only a **published** GitHub Release locks its tag via **immutable releases**; RC tags in this repo have no release object. Automation still avoids tag deletion (forward-fix policy).
 
 6. **rollback** (runs if validate/finalize/build-and-test/publish fails) - Cleans up partial state
-   - Resets release branch to pre-finalization state
-   - Deletes tag if it was created
-   - Creates GitHub issue with failure details
+   - Resets release branch to pre-finalization state (best-effort)
+   - Does **not** delete tags (forward-fix policy)
+   - Creates GitHub issue with failure details and forward-fix guidance
 
 **Manual trigger (for testing):**
 
@@ -643,7 +659,8 @@ gh workflow run release.yml \
 
 **Key characteristics:**
 - Tag created AFTER successful build/test (safer than before)
-- Automatic rollback on validate/finalize/build-and-test/publish failure
+- Final GitHub Release is a **draft** until a human publishes it from the UI
+- Automatic rollback resets the release branch only; tags are not deleted (forward-fix policy)
 - All in one workflow for atomic operation
 - Audit trail in GitHub Actions logs
 - Dispatch is pinned to `release/X.Y.Z` so candidate/final runs use the release branch workflow definition
@@ -709,19 +726,10 @@ gh workflow run release.yml \
 
 ---
 
-## Downstream Integration
+## Related documentation
 
-Downstream repositories that use the workspace template consume release workflows from:
-
-- `assets/workspace/.github/workflows/prepare-release.yml`
-- `assets/workspace/.github/workflows/release.yml`
-- `assets/workspace/.github/workflows/release-core.yml`
-- `assets/workspace/.github/workflows/release-extension.yml`
-- `assets/workspace/.github/workflows/release-publish.yml`
-
-The orchestrator (`release.yml`) runs core -> extension -> publish and uses contract validation for local `workflow_call` interfaces. Cross-repository validation details are documented in `docs/CROSS_REPO_RELEASE_GATE.md`.
-
-For contract details and extension ownership boundaries, see `docs/DOWNSTREAM_RELEASE.md`.
+- **[Downstream release workflows](DOWNSTREAM_RELEASE.md)** — release process for **consumer projects** that deploy templates from `assets/workspace/` (prepare-release, release orchestration, extension hook, publish). This guide does not duplicate that material.
+- **[Cross-repo release validation gate](CROSS_REPO_RELEASE_GATE.md)** — contract between this repo’s `release.yml` and `vig-os/devcontainer-smoke-test` (`repository_dispatch`, RC/final gates).
 
 ## QMS and Compliance
 
@@ -880,19 +888,15 @@ gh run view <RUN_ID>
 # If it failed, check the sync-issues workflow logs and fix the issue
 ```
 
-#### "Tag already exists"
+#### "Tag already exists" / wrong tag target
 
-**Cause:** A previous release attempt didn't clean up the tag
+**Cause:** A previous run pushed the tag, or the tag points at a different commit than the current finalized release.
 
 **Solution:**
 
-```bash
-# Delete the old tag
-git push origin :refs/tags/<VERSION>
-
-# Try again
-just finalize-release <VERSION>
-```
+- If the tag already points at the **same** finalized commit, re-run `just finalize-release <VERSION>`: the workflow skips re-pushing the tag and can complete the draft release step.
+- If the tag points at the **wrong** commit, do **not** delete or move the tag when GitHub blocks it (published **immutable release** for that tag, or a restrictive **tag ruleset**)—publish a **new release candidate** with fixes, then run the final release again when ready.
+- For a mistaken **draft** GitHub Release only, you may edit or delete the draft from the Releases UI per repository policy.
 
 ### Recovery Procedures
 
@@ -921,8 +925,8 @@ gh issue list --label release
 
 # 3. Examine what was rolled back (issue will document this)
 # The workflow automatically:
-#   - Reset release branch to pre-finalization state
-#   - Deleted any tag that was created
+#   - Reset release branch to pre-finalization state (best-effort)
+#   - Left any pushed tags in place (forward-fix policy)
 #   - Created this issue for investigation
 
 # 4. Fix the underlying issue on the release branch
@@ -936,7 +940,7 @@ git commit -m "fix: address release issue
 Refs: #<ISSUE_NUMBER>"
 git push origin release/X.Y.Z
 
-# 5. Re-run the workflow
+# 5. Re-run the workflow (or publish a new RC first if the tag already exists at the wrong commit)
 just finalize-release X.Y.Z
 ```
 
@@ -952,10 +956,8 @@ git checkout release/X.Y.Z
 git reset --hard $PRE_SHA
 git push --force-with-lease origin release/X.Y.Z
 
-# Delete tag if it exists
-git push origin :refs/tags/X.Y.Z
-
-# Fix the issue and re-run workflow
+# Do not delete or force-move release tags when a tag ruleset or published immutable release blocks it.
+# Fix forward with a new RC, then re-run the final workflow when ready.
 just finalize-release X.Y.Z
 ```
 
@@ -1000,7 +1002,7 @@ Follow [Semantic Versioning 2.0.0](https://semver.org/):
 
 - [CHANGELOG Format](../CHANGELOG.md) - Keep a Changelog standard
 - [Commit Message Standard](COMMIT_MESSAGE_STANDARD.md) - Commit format and validation
-- [Downstream Release Workflows](DOWNSTREAM_RELEASE.md) - Downstream release contract and extension model
+- [Downstream Release Workflows](DOWNSTREAM_RELEASE.md) - Release process for consumer projects using `assets/workspace/` templates (not this repo’s pipeline)
 - [Branch Naming Rules](../.cursor/rules/branch-naming.mdc) - Topic branch conventions
 - [IEC 62304](https://www.iso.org/standard/38421.html) - Medical device software lifecycle
 - [Semantic Versioning](https://semver.org/) - Version numbering scheme

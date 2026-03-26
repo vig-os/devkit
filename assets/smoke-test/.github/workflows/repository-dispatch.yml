@@ -894,7 +894,8 @@ jobs:
           ## Manual cleanup guidance
           - Inspect deploy/release PRs and workflow logs before retrying.
           - If needed, close stale release PRs and delete stale \`release/<version>\` branch.
-          - Re-dispatch using a new RC tag/version once root cause is fixed.
+          - Do not rewrite or delete **published** GitHub Releases (or their linked tags when **immutable releases** are enabled) to retry the same version; bare git tags without a published release are not locked by that feature unless a tag ruleset applies.
+          - After fixing the root cause upstream, publish a **new** RC tag (or a new final attempt only after branch/tag state matches your release policy), then rely on a fresh dispatch.
           EOF
           )"
 

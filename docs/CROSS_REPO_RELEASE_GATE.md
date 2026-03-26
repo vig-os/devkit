@@ -71,6 +71,8 @@ The orchestrator validates:
 
 If any of these checks fail, the release workflow fails and rollback handling is evaluated by workflow conditions.
 
+**Immutable releases:** Where **immutable releases** are enabled, a **published** GitHub Release (including a published **pre-release**) locks its **linked** tag and assets; they cannot be rewritten via normal GitHub UI/API. Downstream and smoke-test flows should fix forward with a new RC or version rather than deleting tags or releases. See [Immutable releases, tag rulesets, and forward-fix policy](RELEASE_CYCLE.md#immutable-releases-tag-rulesets-and-forward-fix-policy) for full policy and recovery procedures (including tags without a published release and the forward-fix no-delete policy).
+
 ## Expected Output
 
 ### Success Signals

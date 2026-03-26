@@ -57,6 +57,9 @@ on:  # yamllint disable-line rule:truthy
       finalize_sha:
         description: "Release branch SHA after finalization"
         value: ${{ jobs.finalize.outputs.finalize_sha }}
+      tag_already_exists:
+        description: "Remote publish tag already exists at finalize SHA (retry path)"
+        value: ${{ jobs.finalize.outputs.tag_already_exists }}
       image_tag:
         description: "Resolved devcontainer image tag"
         value: ${{ jobs.validate.outputs.image_tag }}
@@ -239,18 +242,7 @@ jobs:
           echo "publish_version=$PUBLISH_VERSION" >> "$GITHUB_OUTPUT"
           echo "next_rc=$NEXT_RC" >> "$GITHUB_OUTPUT"
 
-      - name: Verify publish tag does not exist
-        env:
-          PUBLISH_VERSION: ${{ steps.publish_meta.outputs.publish_version }}
-        run: |
-          if git ls-remote --exit-code --tags --refs origin "refs/tags/$PUBLISH_VERSION" > /dev/null 2>&1; then
-            echo "ERROR: Tag $PUBLISH_VERSION already exists"
-            exit 1
-          fi
-          if git rev-parse -q --verify "refs/tags/$PUBLISH_VERSION" > /dev/null; then
-            echo "ERROR: Local tag $PUBLISH_VERSION already exists"
-            exit 1
-          fi
+      # Remote tag vs finalize SHA is validated in the finalize job (tag_state) after finalize_sha is known.
 
       - name: Find and verify PR
         id: pr
@@ -349,6 +341,7 @@ jobs:
     if: ${{ inputs.dry_run != true }}
     outputs:
       finalize_sha: ${{ steps.finalize.outputs.finalize_sha }}
+      tag_already_exists: ${{ steps.tag_state.outputs.tag_already_exists }}
 
     steps:
       - name: Generate commit app token
@@ -491,6 +484,34 @@ jobs:
               gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/release/$VERSION" --jq '.object.sha')
           fi
           echo "finalize_sha=$FINALIZE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Check if publish tag already exists at finalize SHA
+        id: tag_state
+        env:
+          PUBLISH_VERSION: ${{ needs.validate.outputs.publish_version }}
+          FINALIZE_SHA: ${{ steps.finalize.outputs.finalize_sha }}
+        run: |
+          set -euo pipefail
+          REMOTE_LINE=$(git ls-remote origin "refs/tags/${PUBLISH_VERSION}^{}" || true)
+          if [ -z "$REMOTE_LINE" ]; then
+            REMOTE_LINE=$(git ls-remote origin "refs/tags/${PUBLISH_VERSION}" || true)
+          fi
+          if [ -z "$REMOTE_LINE" ]; then
+            echo "tag_already_exists=false" >> "$GITHUB_OUTPUT"
+            echo "No remote tag ${PUBLISH_VERSION} yet"
+            exit 0
+          fi
+          REMOTE_TARGET_SHA=$(printf '%s\n' "$REMOTE_LINE" | awk '{print $1}')
+          if [ -z "$REMOTE_TARGET_SHA" ]; then
+            echo "tag_already_exists=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$REMOTE_TARGET_SHA" != "$FINALIZE_SHA" ]; then
+            echo "ERROR: Tag $PUBLISH_VERSION exists but target commit is $REMOTE_TARGET_SHA; expected $FINALIZE_SHA (finalize SHA)"
+            exit 1
+          fi
+          echo "tag_already_exists=true" >> "$GITHUB_OUTPUT"
+          echo "Remote tag $PUBLISH_VERSION already points to finalize SHA; publish will skip tag create/push"
 
   test:
     name: Test Finalized Release

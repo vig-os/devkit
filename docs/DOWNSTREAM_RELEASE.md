@@ -1,6 +1,6 @@
 # Downstream Release Workflows
 
-This document describes the downstream release workflows shipped in `assets/workspace/.github/workflows/`.
+This document is the **only** place that describes the release process for **consumer projects** that install workflows from `assets/workspace/`. The upstream devcontainer and smoke-test validation flow is documented in [`docs/RELEASE_CYCLE.md`](RELEASE_CYCLE.md) and [`docs/CROSS_REPO_RELEASE_GATE.md`](CROSS_REPO_RELEASE_GATE.md).
 
 ## Overview
 
@@ -14,16 +14,22 @@ The downstream template uses a split release architecture:
 
 All files are deployed from `assets/workspace/` by `init-workspace.sh`.
 
-On failure, the orchestrator runs a single consolidated rollback that resets the release branch, removes any created tag, and opens a failure issue.
+On failure, the orchestrator runs a single consolidated rollback that resets the release branch (best-effort), does **not** delete tags (forward-fix policy), and opens a failure issue with forward-fix guidance.
 
 ## Release Modes
 
 `release.yml` supports two release modes via `release_kind`:
 
 - `candidate` (default): computes and publishes the next `X.Y.Z-rcN` tag as a GitHub pre-release (or use optional `rc-number` to pin `N` when orchestrating from an upstream dispatch; see `docs/CROSS_REPO_RELEASE_GATE.md`)
-- `final`: publishes `X.Y.Z`, finalizes `CHANGELOG.md` release date, and runs `sync-issues`
+- `final`: publishes `X.Y.Z`, finalizes `CHANGELOG.md` release date, runs `sync-issues`, and creates a **draft** GitHub Release (publish from the UI when review is complete; aligns with GitHub’s [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) and [draft-first guidance](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases#best-practices-for-publishing-immutable-releases))
 
 Candidate mode keeps release branch content unchanged (no CHANGELOG date finalization). Final mode performs changelog finalization before publish.
+
+## Immutable releases, tag rulesets, and forward-fix policy (downstream)
+
+- **Candidate (`X.Y.Z-rcN`)**: `release-publish.yml` creates a **published** GitHub **pre-release** for the RC tag. With **immutable releases** enabled, **publishing** that pre-release locks the **linked** tag and assets (see [upstream policy](RELEASE_CYCLE.md#immutable-releases-tag-rulesets-and-forward-fix-policy)); iterate with a **new** RC tag.
+- **Final (`X.Y.Z`)**: Automation creates a **draft** GitHub Release; a human **publishes** it from the Releases UI when ready—**publishing** applies immutable-release lock-in for the linked tag and assets when that setting is enabled. Enable **immutable releases** and **tag rulesets** on each consumer repository (and org policy) as needed; see [Preventing changes to your releases](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/preventing-changes-to-your-releases).
+- **Rollback**: The orchestrator resets the release branch and does **not** delete tags (forward-fix policy); recover with a new RC or a careful final retry per workflow logs.
 
 ## Workflow Interface
 

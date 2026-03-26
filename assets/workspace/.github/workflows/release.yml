@@ -104,6 +104,7 @@ jobs:
       release_kind: ${{ needs.core.outputs.release_kind }}
       git_user_name: ${{ inputs.git-user-name }}
       git_user_email: ${{ inputs.git-user-email }}
+      tag_already_exists: ${{ needs.core.outputs.tag_already_exists }}
     secrets: inherit
 
   rollback:
@@ -183,17 +184,6 @@ jobs:
             fi
           fi
 
-      - name: Delete tag if created
-        if: ${{ needs.core.outputs.publish_version != '' }}
-        continue-on-error: true
-        env:
-          PUBLISH_VERSION: ${{ needs.core.outputs.publish_version }}
-        run: |
-          set -euo pipefail
-          if git ls-remote origin "refs/tags/$PUBLISH_VERSION" | grep -q "$PUBLISH_VERSION"; then
-            retry --retries 3 --backoff 5 --max-backoff 30 -- git push origin ":refs/tags/$PUBLISH_VERSION" || true
-          fi
-
       - name: Create failure issue
         if: ${{ needs.core.outputs.version != '' }}
         env:
@@ -213,5 +203,9 @@ jobs:
           **Release PR:** #$PR_NUMBER
 
           **Automatic rollback attempted:**
-          - Release branch reset to pre-finalization state
-          - Release tag deleted (if created)"
+          - Release branch reset to pre-finalization state (best-effort)
+
+          **Tag status (forward-fix policy):**
+          - Release tags are not deleted by automation (workflow choice; GitHub immutable-release lock-in applies only after a release is **published** when that setting is enabled). If a tag was pushed before the failure, it remains on the remote.
+          - Use a new release candidate to validate fixes, then re-run the final release when ready.
+          - If a draft GitHub Release exists, manage it from the Releases UI; **publishing** locks the linked tag and assets when **immutable releases** are enabled."
