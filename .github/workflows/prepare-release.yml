@@ -295,11 +295,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          PR_BODY="## Release $VERSION
+          PR_BODY="# Release $VERSION
 
           This PR prepares release $VERSION for merge to main.
-
-          ### Release Content
 
           $CHANGELOG_CONTENT
           "

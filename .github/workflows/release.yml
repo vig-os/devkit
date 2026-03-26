@@ -731,8 +731,6 @@ jobs:
 
           This PR prepares release $VERSION for merge to main.
 
-          ### Release Content
-
           $CHANGELOG_CONTENT
           EOF
 
