@@ -108,7 +108,8 @@ jobs:
       # Do not use ./.github/actions/setup-env here: this job checks out `dev`, so the
       # composite action would come from `dev` while the workflow on `main` may pass
       # inputs or rely on helpers only present on `main` (chicken-and-egg). Git + gh
-      # are on the runner; inline retry matches setup-env/action.yml.
+      # are on the runner; this inlines a minimal retry helper similar to setup-env/action.yml
+      # but intentionally sets BASH_ENV to that helper only (setup-env merges a prior BASH_ENV).
       - name: Export retry helper
         shell: bash
         run: |
