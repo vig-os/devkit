@@ -557,7 +557,7 @@ jobs:
               SHA256_IDS+=("$vid")
               echo "GHCR version $vid (sha256-only): ${tags[*]}"
             fi
-          done < <(jq -c '.[]' "$TMP")
+          done < <(jq -s 'add // []' "$TMP" | jq -c '.[]')
 
           mapfile -t DEL_IDS < <(printf '%s\n' "${RC_IDS[@]}" "${SHA256_IDS[@]}" | sort -u)
           for vid in "${DEL_IDS[@]}"; do

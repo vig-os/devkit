@@ -4,8 +4,8 @@
 # delete:packages, or a GitHub App token with package delete rights).
 #
 # Usage:
-#   ./scripts/prune-ghcr-tags.sh --version X.Y.Z          # scope RC prune to one base version
-#   ./scripts/prune-ghcr-tags.sh --all                    # all *-rc* tags on GHCR (any base)
+#   ./scripts/prune-ghcr-tags.sh --version X.Y.Z          # scope RC tag prune to one base version (sha256-orphan cleanup is global)
+#   ./scripts/prune-ghcr-tags.sh --all                    # all *-rc* tags on GHCR (any base) + global sha256-orphan cleanup
 #   ./scripts/prune-ghcr-tags.sh --execute ...            # perform deletes (default is dry-run)
 #
 # Refs: #463
@@ -121,7 +121,7 @@ while IFS= read -r row; do
     DELETE_IDS+=("$vid")
     echo "Would delete GHCR version id=$vid tags=[${tags[*]}]"
   fi
-done < <(jq -c '.[]' "$TMP")
+done < <(jq -s 'add // []' "$TMP" | jq -c '.[]')
 
 if [ "$DRY_RUN" -eq 1 ]; then
   echo ""
