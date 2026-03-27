@@ -25,6 +25,11 @@ setup() {
     assert_success
 }
 
+@test "promote-release dispatches workflow from release branch ref" {
+    run bash -lc "awk '/^promote-release version ref=\"\" \\*flags:/{flag=1; next} /^$/{if(flag){exit}} flag' justfile.gh | grep -Fq -- 'REF=\"release/{{ version }}\"'"
+    assert_success
+}
+
 @test "publish-candidate dispatches workflow from release branch ref" {
     run bash -lc "awk '/^publish-candidate version ref=\"\" \\*flags:/{flag=1; next} /^$/{if(flag){exit}} flag' justfile.gh | grep -Fq -- 'REF=\"release/{{ version }}\"'"
     assert_success

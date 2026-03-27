@@ -2080,6 +2080,7 @@ class TestJustRecipes:
         for recipe_name in [
             "prepare-release",
             "finalize-release",
+            "promote-release",
             "publish-candidate",
             "reset-changelog",
             "pull",
@@ -2097,6 +2098,7 @@ class TestJustRecipes:
         assert 'gh workflow run prepare-release.yml --ref "$REF"' in content
         assert 'REF="dev"' in content
         assert 'gh workflow run release.yml --ref "$REF"' in content
+        assert 'gh workflow run promote-release.yml --ref "$REF"' in content
         assert "release-kind=final" in content
         assert "release-kind=candidate" in content
         assert "uv run prepare-changelog reset CHANGELOG.md" in content
