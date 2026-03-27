@@ -37,6 +37,8 @@ resolve_hostname() {
         fi
     fi
 
+    # Sanitize: DNS labels cannot contain underscores
+    project="${project//_/-}"
     echo "${project}-devc-$(hostname -s)"
 }
 

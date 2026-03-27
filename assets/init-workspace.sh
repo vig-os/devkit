@@ -31,6 +31,9 @@ PRESERVE_FILES=(
     ".github/CODEOWNERS"
     ".github/workflows/release-extension.yml"
     "justfile.project"
+    "pyproject.toml"
+    "uv.lock"
+    ".python-version"
 )
 
 # Get script directory for manifest location
