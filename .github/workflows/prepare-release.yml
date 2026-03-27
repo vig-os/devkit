@@ -249,6 +249,16 @@ jobs:
           echo "dev_sha=$DEV_SHA" >> "$GITHUB_OUTPUT"
           echo "✓ Release branch created on remote"
 
+      - name: Verify release branch is resolvable
+        env:
+          GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
+          RELEASE_BRANCH: ${{ needs.validate.outputs.release_branch }}
+        run: |
+          set -euo pipefail
+          uv run retry --retries 10 --backoff 2 --max-backoff 30 -- \
+            gh api "repos/${{ github.repository }}/git/ref/heads/$RELEASE_BRANCH" --jq '.object.sha'
+          echo "✓ Release branch ref verified as resolvable"
+
       - name: Strip empty Unreleased section for release branch
         run: |
           set -euo pipefail
@@ -349,21 +359,19 @@ jobs:
             echo "i Release branch not present; nothing to delete"
           fi
 
-          if [ -n "${POST_FREEZE_DEV_SHA:-}" ]; then
-            CURRENT_DEV_SHA="$(uv run retry --retries 3 --backoff 5 --max-backoff 60 -- \
-              gh api "repos/${{ github.repository }}/git/ref/heads/dev" --jq '.object.sha')"
-            if [ "$CURRENT_DEV_SHA" != "$POST_FREEZE_DEV_SHA" ]; then
-              echo "w dev advanced after freeze commit; skipping CHANGELOG rollback to avoid clobbering concurrent updates"
-              echo "branch_deleted=$BRANCH_DELETED" >> "$GITHUB_OUTPUT"
-              echo "changelog_rollback_needed=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
+          CURRENT_DEV_SHA="$(uv run retry --retries 3 --backoff 5 --max-backoff 60 -- \
+            gh api "repos/${{ github.repository }}/git/ref/heads/dev" --jq '.object.sha')"
+          if [ -n "${POST_FREEZE_DEV_SHA:-}" ] && [ "$CURRENT_DEV_SHA" != "$POST_FREEZE_DEV_SHA" ]; then
+            echo "w dev advanced after freeze commit; skipping CHANGELOG rollback to avoid clobbering concurrent updates"
+            echo "branch_deleted=$BRANCH_DELETED" >> "$GITHUB_OUTPUT"
+            echo "changelog_rollback_needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
 
           uv run retry --retries 3 --backoff 5 --max-backoff 60 -- \
             gh api "repos/${{ github.repository }}/contents/CHANGELOG.md?ref=$PREPARE_START_SHA" --jq '.content' | tr -d '\n' | base64 -d > /tmp/changelog.pre-prepare.md
           uv run retry --retries 3 --backoff 5 --max-backoff 60 -- \
-            gh api "repos/${{ github.repository }}/contents/CHANGELOG.md?ref=dev" --jq '.content' | tr -d '\n' | base64 -d > /tmp/changelog.current-dev.md
+            gh api "repos/${{ github.repository }}/contents/CHANGELOG.md?ref=$CURRENT_DEV_SHA" --jq '.content' | tr -d '\n' | base64 -d > /tmp/changelog.current-dev.md
 
           if cmp -s /tmp/changelog.pre-prepare.md /tmp/changelog.current-dev.md; then
             echo "i dev CHANGELOG already matches pre-prepare state"

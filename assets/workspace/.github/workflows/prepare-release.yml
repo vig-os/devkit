@@ -248,6 +248,16 @@ jobs:
             }
           echo "dev_sha=$DEV_SHA" >> "$GITHUB_OUTPUT"
 
+      - name: Verify release branch is resolvable
+        env:
+          GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
+          RELEASE_BRANCH: ${{ needs.validate.outputs.release_branch }}
+        run: |
+          set -euo pipefail
+          retry --retries 10 --backoff 2 --max-backoff 30 -- \
+            gh api "repos/${{ github.repository }}/git/ref/heads/$RELEASE_BRANCH" --jq '.object.sha'
+          echo "✓ Release branch ref verified as resolvable"
+
       - name: Strip empty Unreleased section for release branch
         run: |
           set -euo pipefail
@@ -339,7 +349,7 @@ jobs:
           retry --retries 3 --backoff 5 --max-backoff 60 -- \
             gh api "repos/${{ github.repository }}/contents/CHANGELOG.md?ref=$PREPARE_START_SHA" --jq '.content' | tr -d '\n' | base64 -d > /tmp/changelog.pre.md
           retry --retries 3 --backoff 5 --max-backoff 60 -- \
-            gh api "repos/${{ github.repository }}/contents/CHANGELOG.md?ref=dev" --jq '.content' | tr -d '\n' | base64 -d > /tmp/changelog.current.md
+            gh api "repos/${{ github.repository }}/contents/CHANGELOG.md?ref=$CURRENT_DEV_SHA" --jq '.content' | tr -d '\n' | base64 -d > /tmp/changelog.current.md
           if ! cmp -s /tmp/changelog.pre.md /tmp/changelog.current.md; then
             cp /tmp/changelog.pre.md CHANGELOG.md
             CHANGELOG_ROLLBACK_NEEDED=true
