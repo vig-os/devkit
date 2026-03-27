@@ -107,7 +107,7 @@ repos:
         name: generate-docs (regenerate from templates)
         entry: uv run python docs/generate.py
         language: system
-        files: ^(docs/templates/.*\.j2|docs/narrative/.*\.md|scripts/requirements\.yaml|justfile)$
+        files: ^(docs/templates/.*\.j2|docs/narrative/.*\.md|scripts/requirements\.yaml|justfile|CHANGELOG\.md)$
         pass_filenames: false
 
   # Workspace sync (keep assets/workspace in sync with manifest)
