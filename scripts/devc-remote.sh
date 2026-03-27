@@ -675,18 +675,19 @@ remote_compose_up() {
     # shellcheck disable=SC2034
     health=$(echo "$ps_output" | grep -o '"Health":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
 
+    log_info "Starting devcontainer on $SSH_HOST..."
+    # Always run compose up -d: it's idempotent and auto-recreates if config changed.
+    # shellcheck disable=SC2029
+    if ! ssh "$SSH_HOST" "cd $devc_dir && $compose_full up -d"; then
+        log_error "Failed to start devcontainer on $SSH_HOST."
+        log_error "Debug with: ssh $SSH_HOST 'cd $devc_dir && $compose_full logs'"
+        exit 1
+    fi
+    sleep 2
+
     if [[ "$state" == "running" ]]; then
-        log_success "Devcontainer already running on $SSH_HOST"
-        CONTAINER_FRESH=0
+        CONTAINER_FRESH=0  # was already running, lifecycle scripts already ran
     else
-        log_info "Starting devcontainer on $SSH_HOST..."
-        # shellcheck disable=SC2029
-        if ! ssh "$SSH_HOST" "cd $devc_dir && $compose_full up -d"; then
-            log_error "Failed to start devcontainer on $SSH_HOST."
-            log_error "Debug with: ssh $SSH_HOST 'cd $devc_dir && $compose_full logs'"
-            exit 1
-        fi
-        sleep 2
         CONTAINER_FRESH=1
     fi
 }
