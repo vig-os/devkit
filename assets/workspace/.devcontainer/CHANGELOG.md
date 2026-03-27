@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Final `release.yml` publishes versioned GHCR tags and a draft GitHub Release but no longer updates `:latest`
   - New `promote-release.yml` runs after downstream smoke-test publishes its final release: updates `:latest`, publishes the draft release, merges the release PR to `main`
   - Add `just promote-release` in `justfile.gh` (and workspace template copy)
+- **Smoke-test dispatch fails fast when deploy PR checks fail** ([#381](https://github.com/vig-os/devcontainer/issues/381))
+  - `wait-deploy-merge` in `assets/smoke-test/.github/workflows/repository-dispatch.yml` exits as soon as all checks have completed with failures instead of waiting for the merge poll timeout
 
 ### Deprecated
 
