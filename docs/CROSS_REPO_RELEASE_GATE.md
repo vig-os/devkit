@@ -57,19 +57,15 @@ The receiver workflow (`assets/smoke-test/.github/workflows/repository-dispatch.
 4. idempotency checks when a release object already exists
 5. preflight validation that required downstream workflow IDs are resolvable on the dispatch ref before orchestration starts
 
-If the validation repository also runs the shipped workspace `release.yml` workflow for a **candidate** (separate from publishing a release for the dispatched tag), pass workflow input `rc-number` set to the numeric RC suffix of `client_payload.tag` (for example `21` for `0.3.1-rc21`). That keeps the downstream candidate tag aligned with the upstream publish tag and satisfies the orchestrator’s latest-RC gate. The smoke-test template exposes this value as job output `needs.validate.outputs.rc_number`.
+If the validation repository also runs the shipped workspace `release.yml` workflow for a **candidate** (separate from publishing a release for the dispatched tag), pass workflow input `rc-number` set to the numeric RC suffix of `client_payload.tag` (for example `21` for `0.3.1-rc21`). That keeps the downstream candidate tag aligned with the upstream publish tag. The smoke-test template exposes this value as job output `needs.validate.outputs.rc_number`.
 
-### Gate Checks in the Orchestrator
+### Gate enforcement
 
-The orchestrator validates:
+**`vig-os/devcontainer` `release.yml`:** Dispatches downstream validation during publish but does **not** block on downstream GitHub Release state for RC or final tags. The former validate step that required a published downstream pre-release for the latest RC before finalization was **removed**; it duplicated concerns now owned by promotion.
 
-- release completion for the dispatched publish tag
-- release type parity with `release_kind`
-  - candidate expects `prerelease=true`
-  - final expects `prerelease=false`
-- additional finalization precondition: latest RC must already exist as a downstream pre-release
+**`vig-os/devcontainer` `promote-release.yml`:** Before updating GHCR `:latest`, publishing the draft GitHub Release, and merging the release PR, the `validate` job requires a **published** downstream release for the final version tag on `vig-os/devcontainer-smoke-test` that is **not** a draft and **not** a pre-release (`Verify downstream published final release`). Operators must ensure smoke-test has published that final release (including any manual acceptance step on the downstream repo) before running promote.
 
-If any of these checks fail, the release workflow fails and rollback handling is evaluated by workflow conditions.
+If promote validation fails, retry after the downstream release is in the expected state; `release.yml` rollback handling applies only to failures within that workflow.
 
 **Immutable releases:** Where **immutable releases** are enabled, a **published** GitHub Release (including a published **pre-release**) locks its **linked** tag and assets; they cannot be rewritten via normal GitHub UI/API. Downstream and smoke-test flows should fix forward with a new RC or version rather than deleting tags or releases. See [Immutable releases, tag rulesets, and forward-fix policy](RELEASE_CYCLE.md#immutable-releases-tag-rulesets-and-forward-fix-policy) for full policy and recovery procedures (including tags without a published release and the forward-fix no-delete policy).
 
@@ -97,8 +93,6 @@ or for final:
   - tag exists in downstream repo as a pre-release
 - For final publish:
   - tag exists in downstream repo as a non-pre-release release
-- Before final publish validation:
-  - latest RC tag for the base version exists downstream as pre-release
 
 ### Failure Signals
 
@@ -122,7 +116,8 @@ gh -R vig-os/devcontainer-smoke-test release view <TAG>
 
 ## Source of Truth
 
-- Orchestrator logic: `.github/workflows/release.yml`
+- Publish and dispatch: `.github/workflows/release.yml`
+- Promote-time downstream release gate: `.github/workflows/promote-release.yml`
 - Validation receiver template: `assets/smoke-test/.github/workflows/repository-dispatch.yml`
 
 ## Token Model for Downstream Write Paths

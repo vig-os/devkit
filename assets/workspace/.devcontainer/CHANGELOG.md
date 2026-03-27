@@ -9,8 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Downstream `promote-release.yml` workspace template** ([#463](https://github.com/vig-os/devcontainer/issues/463))
+  - Add `assets/workspace/.github/workflows/promote-release.yml` as the counter-party to root `promote-release.yml`: validate draft release and release PR, publish the release, merge to `main`, best-effort git RC tag cleanup (no GHCR/cosign/smoke-test gate)
+  - Document in `docs/DOWNSTREAM_RELEASE.md` and align `docs/RELEASE_CYCLE.md` Phase 5 for consumer vs upstream paths
+- **Optional draft pre-release for downstream release candidates** ([#463](https://github.com/vig-os/devcontainer/issues/463))
+  - Workspace `release.yml` adds `create-release` (`workflow_dispatch`, default `false`); `release-publish.yml` creates a draft GitHub pre-release only when set for `candidate` runs
+  - Smoke-test `repository-dispatch.yml` passes `create-release=true` when triggering downstream `release.yml`
+  - `just publish-candidate` forwards `create-release` in `justfile.gh` and the workspace template copy
+- **One-time GHCR/git RC prune script** ([#463](https://github.com/vig-os/devcontainer/issues/463))
+  - Add `scripts/prune-ghcr-tags.sh` (dry-run by default; `--execute` to delete) for manual cleanup of stale RC and `sha256-*`-only package versions
+
 ### Changed
 
+- **RELEASE_APP permissions and GHCR cleanup token model** ([#463](https://github.com/vig-os/devcontainer/issues/463))
+  - Document Packages read/write on the org for `promote-release` cleanup, align the app table in `docs/RELEASE_CYCLE.md`, and explain why cleanup uses the GitHub App token instead of `GITHUB_TOKEN`
+- **Promote-release cleans up stale RC artifacts after merge** ([#463](https://github.com/vig-os/devcontainer/issues/463))
+  - Best-effort job deletes GHCR package versions for `${VERSION}-rc*` and `sha256-*`-only orphans, and deletes remote git RC tags for that base version when no GitHub Release exists; does not fail the workflow on error
 - **Downstream release helper recipes via GitHub justfile import** ([#373](https://github.com/vig-os/devcontainer/issues/373))
   - Move `prepare-release`, `finalize-release`, `publish-candidate`, `reset-changelog`, and `pull` into `justfile.gh` so downstream workspace templates expose them by default
   - Keep root recipe availability through `import 'justfile.gh'` while consolidating release helper ownership in the GitHub-focused recipe file
@@ -24,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Deprecated
 
 ### Removed
+
+- **Downstream RC pre-release gate from release validate job** ([#463](https://github.com/vig-os/devcontainer/issues/463))
+  - Removed dead `if: false` steps from `release.yml`; downstream final release is verified only in `promote-release.yml` before promote
 
 ### Fixed
 

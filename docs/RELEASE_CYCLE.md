@@ -134,8 +134,9 @@ graph TB
 1. **Preparation** (`prepare-release`): Freeze CHANGELOG on dev, create release branch, reset Unreleased on dev, open draft PR
 2. **Review & Testing**: CI validation, mark PR ready, fix issues, get approvals
 3. **Candidate Publish** (`publish-candidate`): Build/test/publish `X.Y.Z-rcN` and dispatch cross-repo validation workflow
-4. **Cross-Repo Validation Gate (automated prerequisite)**: Final release validate step requires a GitHub **pre-release** for the latest RC tag in the validation repo (`vig-os/devcontainer-smoke-test`); see `docs/CROSS_REPO_RELEASE_GATE.md`
-5. **Finalization & Post-Release**: Publish final image/tag, open a **draft** GitHub Release for human review, then merge PR to main and let sync automation update dev
+4. **Cross-Repo Validation**: Smoke-test runs asynchronously after candidate and final publish; see `docs/CROSS_REPO_RELEASE_GATE.md`. Before promotion, **`promote-release.yml`** requires a published **final** (non-draft, non-prerelease) GitHub Release for the version tag on `devcontainer-smoke-test` so human acceptance downstream is reflected before `:latest` and the draft release are published.
+5. **Finalization & Post-Release**: Publish final image/tag, open a **draft** GitHub Release for human review, then merge PR to `main` and let sync automation update `dev`
+6. **Promote & cleanup**: `promote-release.yml` updates `:latest`, publishes the draft release, merges the release PR, then runs a **best-effort** cleanup job (Refs [#463](https://github.com/vig-os/devcontainer/issues/463)): deletes GHCR package versions for `${VERSION}-rc*` (per-arch tags included) and `sha256-*`-only orphaned versions, and deletes remote git RC tags for that base version when **no** GitHub Release is linked. GHCR deletes use **RELEASE_APP** with **Packages: Read and write** on the org (not `GITHUB_TOKEN`; see [Registry and cleanup tokens](#registry-and-cleanup-tokens-upstream)). Cleanup failures do not fail the workflow.
 
 ## Immutable releases, tag rulesets, and forward-fix policy
 
@@ -148,6 +149,7 @@ This section applies to **`vig-os/devcontainer`** (this repo) and, for matching 
 - **Final releases (`X.Y.Z`)**: After build/publish, automation creates a **draft** GitHub Release (see GitHub’s [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) and [draft-first best practice](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases#best-practices-for-publishing-immutable-releases)). A human **publishes** the draft from the **Releases** UI when satisfied; with **immutable releases** enabled, **publishing** makes the linked tag and assets immutable.
 - **Candidates (`X.Y.Z-rcN`)**: Candidate mode creates and pushes the **git tag**, publishes **GHCR** images (and related signing/attestations), and triggers smoke-test dispatch. It does **not** create a GitHub **Release** object for the RC—only **final** runs use `gh release create` (as a draft). The RC tag is therefore **not** locked by immutable releases until/unless you add a published release or a tag ruleset applies.
 - **Forward-fix (automation)**: Rollback **does not** delete remote tags—this is a **workflow choice** to avoid rewriting history, not GitHub declaring the tag immutable. Recovery is **forward-fix** (new RC, then final when ready). If a retry publishes the same tag, the workflow skips re-creating the tag when it already points at the finalized commit.
+- **Post-promote RC cleanup**: After a successful **`promote-release`** merge to `main`, automation may delete stale **git** RC tags (only when no GitHub Release is associated) and matching **GHCR** RC package versions for that base semver; see step 6 under [Release Phases](#release-phases). Tags tied to a published or draft GitHub Release are not removed by this job.
 - **Repository settings** (manual; not stored in git): enable **immutable releases** and **tag rulesets** as appropriate for `vig-os/devcontainer` and `vig-os/devcontainer-smoke-test`. See GitHub: [Preventing changes to your releases](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/preventing-changes-to-your-releases). Use **RELEASE_APP** in bypass lists only where tag creation requires it.
 
 ---
@@ -420,11 +422,17 @@ Cross-repository validation gate rationale, mechanics, payload contract, and pas
 
 ### Phase 5: Post-Release Cleanup
 
-**Manual steps (final releases):**
+**This repository (`vig-os/devcontainer`) — manual promote path:**
 
 1. Verify the workflow run succeeded and smoke-test dispatch completed as expected.
-2. Open **Releases** in GitHub, review the **draft** release for `X.Y.Z`, and **Publish** it when ready (with **immutable releases** enabled, **publishing** is what locks the linked tag and assets).
-3. Merge the release PR to `main`.
+2. After smoke-test has published its **final** GitHub Release for `X.Y.Z`, run **`promote-release.yml`** (e.g. `just promote-release X.Y.Z`), which updates GHCR `:latest`, publishes the draft release, merges the release PR, and runs best-effort RC cleanup. See [Release Phases](#release-phases) step 6 and [`docs/CROSS_REPO_RELEASE_GATE.md`](CROSS_REPO_RELEASE_GATE.md).
+
+**Consumer projects** using templates from `assets/workspace/` follow [Downstream release workflows](DOWNSTREAM_RELEASE.md): final `release.yml` leaves a **draft** GitHub Release; run **`promote-release.yml`** (or `just promote-release X.Y.Z`) to publish the release and merge to `main` (no upstream GHCR/smoke-test gate in that template).
+
+**Legacy manual steps** (if not using promote automation):
+
+1. Open **Releases** in GitHub, review the **draft** release for `X.Y.Z`, and **Publish** it when ready (with **immutable releases** enabled, **publishing** is what locks the linked tag and assets).
+2. Merge the release PR to `main`.
 
 ```bash
 # Verify release workflow succeeded
@@ -540,12 +548,18 @@ Release automation relies on two GitHub Apps with different scopes:
 
 | App | Secrets | Permissions | Used by | Purpose |
 |-----|---------|-------------|---------|---------|
-| **RELEASE_APP** | `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | Contents read/write, Issues read/write, Pull requests read/write, Actions read/write | `release.yml`, `prepare-release.yml`, `sync-main-to-dev.yml` | Release operations, PR creation/updates, rollback, and cross-repo validation dispatch |
+| **RELEASE_APP** | `RELEASE_APP_ID`, `RELEASE_APP_PRIVATE_KEY` | Contents read/write, Issues read/write, Pull requests read/write, Actions read/write, Packages read/write (org — see [below](#registry-and-cleanup-tokens-upstream)) | `release.yml`, `prepare-release.yml`, `sync-main-to-dev.yml`, `promote-release.yml` | Release operations, PR creation/updates, rollback, cross-repo dispatch, and **promote-release** cleanup (GHCR version deletes + git RC tags without a release) |
 | **COMMIT_APP** | `COMMIT_APP_ID`, `COMMIT_APP_PRIVATE_KEY` | Contents read/write, Issues read, Pull requests read | `sync-issues.yml`, `sync-main-to-dev.yml` | Commits to protected branches and git ref operations |
+
+#### Registry and cleanup tokens (upstream)
+
+- **`release.yml` (`publish`)** and **`promote-release.yml` (`validate`, `promote`)** push and inspect GHCR images using job `permissions.packages` on **`GITHUB_TOKEN`** (`docker/login-action` with `github.token`). The GitHub App token in those jobs is for git, releases, and PRs—not for registry writes.
+- **`promote-release.yml` (`cleanup`)** lists and deletes package versions with `gh api` against **`/orgs/vig-os/packages/container/devcontainer/versions`**. That is an **org-level** Packages API; **`GITHUB_TOKEN`** is **repository-scoped** and does not authorize deleting org-owned package versions through that endpoint. The cleanup step therefore uses **`GH_TOKEN`** from **RELEASE_APP**, which must be installed on the **`vig-os` organization** with **Packages: Read and write** (same token also deletes remote git RC tags in that job). Pushing images does not require Packages on the app; only this cleanup path does.
 
 Additional requirement:
 - `COMMIT_APP` must be allowed in branch protection bypass rules for `dev` so sync commits can be pushed by automation.
 - `RELEASE_APP` must be installed on the validation repository (`vig-os/devcontainer-smoke-test`) with Contents read and Actions read/write permissions so `release.yml` can send `repository_dispatch` and `repository-dispatch.yml` can trigger workflow runs there for candidate and final release validation.
+- `RELEASE_APP` must have **Packages: Read and write** on the **`vig-os` org** (not only on `devcontainer-smoke-test`) so **`promote-release.yml` cleanup** can prune GHCR RC and orphaned `sha256-*`-only versions for `ghcr.io/vig-os/devcontainer`.
 
 #### prepare-release.yml (Release Preparation Workflow)
 

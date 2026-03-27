@@ -151,7 +151,7 @@ Available recipes:
     finalize-release version ref="" *flags     # Finalize and publish release via GitHub Actions workflow (step 3, after testing)
     prepare-release version ref="" *flags      # Prepare release branch for testing (step 1)
     promote-release version ref="" *flags      # Promote final release: GHCR :latest, publish draft GitHub Release, merge release PR (after downstream smoke-test final release)
-    publish-candidate version ref="" *flags    # Publish release candidate via GitHub Actions workflow
+    publish-candidate version ref="" create-release="false" *flags # Publish release candidate via GitHub Actions workflow
     pull version="latest" repo=""              # Pull image from registry (default: latest)
     reset-changelog                            # Reset CHANGELOG Unreleased section (after merging release to dev)
 

@@ -11,6 +11,7 @@ The downstream template uses a split release architecture:
   - `release-core.yml` (`workflow_call`)
   - `release-extension.yml` (`workflow_call`, project-owned)
   - `release-publish.yml` (`workflow_call`)
+- `promote-release.yml` (`workflow_dispatch`) runs **after** a successful final `release.yml`: validates draft GitHub Release and release PR state, publishes the release, merges `release/X.Y.Z` to `main`, and best-effort cleans up remote git RC tags without a GitHub Release (no GHCR/cosign; see [Promote release (final)](#promote-release-final))
 
 All files are deployed from `assets/workspace/` by `init-workspace.sh`.
 
@@ -20,16 +21,29 @@ On failure, the orchestrator runs a single consolidated rollback that resets the
 
 `release.yml` supports two release modes via `release_kind`:
 
-- `candidate` (default): computes and publishes the next `X.Y.Z-rcN` tag as a GitHub pre-release (or use optional `rc-number` to pin `N` when orchestrating from an upstream dispatch; see `docs/CROSS_REPO_RELEASE_GATE.md`)
+- `candidate` (default): computes and publishes the next `X.Y.Z-rcN` git tag; optional workflow input **`create-release`** (default `false`) also creates a **draft** GitHub **pre-release**. Use optional `rc-number` to pin `N` when orchestrating from an upstream dispatch (see `docs/CROSS_REPO_RELEASE_GATE.md`). The smoke-test template passes `create-release=true` when it runs the workspace `release.yml` for a candidate.
 - `final`: publishes `X.Y.Z`, finalizes `CHANGELOG.md` release date, runs `sync-issues`, and creates a **draft** GitHub Release (publish from the UI when review is complete; aligns with GitHub’s [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) and [draft-first guidance](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases#best-practices-for-publishing-immutable-releases))
 
 Candidate mode keeps release branch content unchanged (no CHANGELOG date finalization). Final mode performs changelog finalization before publish.
 
 ## Immutable releases, tag rulesets, and forward-fix policy (downstream)
 
-- **Candidate (`X.Y.Z-rcN`)**: `release-publish.yml` creates a **published** GitHub **pre-release** for the RC tag. With **immutable releases** enabled, **publishing** that pre-release locks the **linked** tag and assets (see [upstream policy](RELEASE_CYCLE.md#immutable-releases-tag-rulesets-and-forward-fix-policy)); iterate with a **new** RC tag.
-- **Final (`X.Y.Z`)**: Automation creates a **draft** GitHub Release; a human **publishes** it from the Releases UI when ready—**publishing** applies immutable-release lock-in for the linked tag and assets when that setting is enabled. Enable **immutable releases** and **tag rulesets** on each consumer repository (and org policy) as needed; see [Preventing changes to your releases](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/preventing-changes-to-your-releases).
+- **Candidate (`X.Y.Z-rcN`)**: By default only the git tag is created. With **`create-release: true`**, `release-publish.yml` creates a **draft** GitHub **pre-release** (`gh release create --draft --prerelease`). Drafts are not returned by `releases/tags/{tag}` until published; see [Cross-repo gate](CROSS_REPO_RELEASE_GATE.md) for upstream enforcement status. With **immutable releases** enabled, **publishing** a pre-release locks the **linked** tag and assets (see [upstream policy](RELEASE_CYCLE.md#immutable-releases-tag-rulesets-and-forward-fix-policy)); iterate with a **new** RC tag.
+- **Final (`X.Y.Z`)**: Automation creates a **draft** GitHub Release; **publishing** it (UI or `promote-release.yml`) applies immutable-release lock-in for the linked tag and assets when that setting is enabled. Enable **immutable releases** and **tag rulesets** on each consumer repository (and org policy) as needed; see [Preventing changes to your releases](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/preventing-changes-to-your-releases).
 - **Rollback**: The orchestrator resets the release branch and does **not** delete tags (forward-fix policy); recover with a new RC or a careful final retry per workflow logs.
+
+## Promote release (final)
+
+After final `release.yml` has pushed tag `X.Y.Z` and created a **draft** GitHub Release, run **`promote-release.yml`** (or `just promote-release X.Y.Z` from the devcontainer; dispatches on `release/X.Y.Z` by default) to:
+
+1. **Validate** — semver, draft release for `X.Y.Z`, release PR not draft / approved / CI green
+2. **Promote** — `gh release edit --draft=false`
+3. **Merge** — merge `release/X.Y.Z` → `main` (triggers `sync-main-to-dev` when configured)
+4. **Cleanup** (best-effort, does not fail the workflow) — delete remote git tags matching `${VERSION}-rc*` that have **no** GitHub Release
+
+**Upstream (`vig-os/devcontainer`) only:** Root `promote-release.yml` also prunes GHCR RC package versions via the org Packages API; that requires **RELEASE_APP** with **Packages: Read and write** on the org. See [GitHub App Configuration](RELEASE_CYCLE.md#github-app-configuration) and [Registry and cleanup tokens](RELEASE_CYCLE.md#registry-and-cleanup-tokens-upstream) in `docs/RELEASE_CYCLE.md`.
+
+This template does **not** implement upstream-only steps (GHCR `:latest`, cosign, cross-repo smoke-test gate). Projects that need registry or deploy promotion after merge should run separate automation or extend their `release-extension.yml` / own workflows; see [Extension Hook](#extension-hook).
 
 ## Workflow Interface
 
@@ -40,6 +54,8 @@ The orchestrator `release.yml` passes release context directly to the called reu
 - `.github/workflows/release-publish.yml`
 
 There is no separate contract-version handshake; compatibility is defined by the `workflow_call` input schema in each workflow file.
+
+`promote-release.yml` is a standalone `workflow_dispatch` workflow (input: `version`); it does not call the reusable workflows above.
 
 ## Required App Secrets
 
