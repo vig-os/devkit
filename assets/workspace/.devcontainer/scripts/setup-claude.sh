@@ -60,9 +60,8 @@ cmd_install() {
                 | gpg --dearmor --yes -o /usr/share/keyrings/nodesource.gpg 2>/dev/null
             echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg arch=$arch] https://deb.nodesource.com/node_22.x nodistro main" \
                 | tee /etc/apt/sources.list.d/nodesource.list >/dev/null
-            apt-get -o Acquire::Check-Valid-Until=false update \
-                -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/nodesource.list \
-                -o Dir::Etc::sourceparts=- -qq 2>/dev/null
+            # Update all repos with clock-skew tolerance (nodesource nodejs depends on system python3)
+            apt-get -o Acquire::Check-Valid-Until=false update -qq 2>/dev/null
             apt-get install -y nodejs
         fi
 
