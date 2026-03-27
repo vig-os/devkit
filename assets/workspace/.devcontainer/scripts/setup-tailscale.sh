@@ -53,17 +53,17 @@ cmd_install() {
     fi
 
     echo "Tailscale: installing..."
-    # Use Acquire::Check-Valid-Until=false to handle container clock skew
-    curl -fsSL https://tailscale.com/install.sh | env APT_SYSTEMCTL_SKIP=1 sh -s -- --apt-options="-o Acquire::Check-Valid-Until=false" 2>&1 || {
-        # Fallback: install manually with clock-skew workaround
-        echo "Tailscale: install.sh failed, trying manual install..."
-        curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg \
-            | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
-        echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/debian bookworm main" \
-            | tee /etc/apt/sources.list.d/tailscale.list
-        apt-get -o Acquire::Check-Valid-Until=false update -qq
-        apt-get install -y -qq tailscale
-    }
+    # Containers often have clock skew causing apt "Release file not valid yet".
+    # Install directly from Tailscale repo with clock-skew workaround.
+    curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarmor.gpg \
+        | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+    echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/debian bookworm main" \
+        | tee /etc/apt/sources.list.d/tailscale.list
+    # Only update the tailscale repo (avoids clock-skew failures on other repos)
+    apt-get -o Acquire::Check-Valid-Until=false update \
+        -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/tailscale.list \
+        -o Dir::Etc::sourceparts=- -qq 2>/dev/null
+    apt-get install -y -qq tailscale
     echo "Tailscale: install complete."
 }
 
