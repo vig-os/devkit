@@ -142,7 +142,7 @@ ROOT_ALIASES
 
     # Pre-configure onboarding and theme so interactive TUI skips login screen
     cat > "$CLAUDE_HOME/.claude/.claude.json" << 'ONBOARD'
-{"hasCompletedOnboarding": true}
+{"hasCompletedOnboarding": true, "hasCompletedAuthFlow": true}
 ONBOARD
     chown "$CLAUDE_USER:$CLAUDE_USER" "$CLAUDE_HOME/.claude/.claude.json"
 
