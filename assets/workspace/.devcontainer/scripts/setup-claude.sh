@@ -140,19 +140,44 @@ alias cl='claude'
 alias cld='claude --dangerously-skip-permissions'
 ROOT_ALIASES
 
-    # Pre-configure onboarding so interactive TUI skips login screen
-    cat > "$CLAUDE_HOME/.claude/.claude.json" << 'ONBOARD'
-{"hasCompletedOnboarding": true, "hasCompletedAuthFlow": true}
-ONBOARD
-    chown "$CLAUDE_USER:$CLAUDE_USER" "$CLAUDE_HOME/.claude/.claude.json"
-
-    # Pre-configure settings: trust workspace, skip dangerous mode prompt
-    # devc-remote.sh sync_claude_config may overwrite with user's full settings later
+    # Pre-configure onboarding + workspace trust so interactive TUI skips all prompts
     local ws_project
     ws_project=$(find /workspace -maxdepth 1 -mindepth 1 -type d 2>/dev/null | head -1)
     if [[ -z "$ws_project" ]]; then
         ws_project="/workspace"
     fi
+
+    # .claude.json: onboarding state + per-project trust (keyed by absolute path)
+    python3 -c "
+import json, pathlib
+data = {
+    'hasCompletedOnboarding': True,
+    'hasCompletedAuthFlow': True,
+    'projects': {
+        '${ws_project}': {
+            'hasTrustDialogAccepted': True,
+            'allowedTools': [],
+            'hasCompletedProjectOnboarding': True
+        },
+        '/workspace': {
+            'hasTrustDialogAccepted': True,
+            'allowedTools': [],
+            'hasCompletedProjectOnboarding': True
+        }
+    }
+}
+pathlib.Path('$CLAUDE_HOME/.claude/.claude.json').write_text(json.dumps(data, indent=2))
+"
+    chown "$CLAUDE_USER:$CLAUDE_USER" "$CLAUDE_HOME/.claude/.claude.json"
+
+    # Per-project settings.json (trust dialog flag in project dir too)
+    local project_key
+    project_key=$(echo "$ws_project" | tr '/' '-')
+    mkdir -p "$CLAUDE_HOME/.claude/projects/${project_key}"
+    echo '{"hasTrustDialogAccepted": true}' > "$CLAUDE_HOME/.claude/projects/${project_key}/settings.json"
+    chown -R "$CLAUDE_USER:$CLAUDE_USER" "$CLAUDE_HOME/.claude/projects/"
+
+    # Global settings: trust workspace dirs, skip dangerous mode prompt
     cat > "$CLAUDE_HOME/.claude/settings.json" << SETTINGS
 {
   "permissions": {
