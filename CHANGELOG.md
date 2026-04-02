@@ -61,6 +61,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Fetch dev `CHANGELOG.md` by resolved commit SHA during rollback so Contents API staleness does not skip the rollback commit
 - **sync-main-to-dev sync job no longer depends on dev's setup-env** ([#459](https://github.com/vig-os/devcontainer/issues/459))
   - Inline the same `retry` shell helper used by `setup-env` so the job works when `main`'s workflow expects helpers not yet on `dev`
+- **CI container build avoids shared-runner Docker Hub rate limits** ([#473](https://github.com/vig-os/devcontainer/issues/473))
+  - `build-image` logs in to `docker.io` before `setup-buildx-action` when `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` secrets are set; `ci.yml` and `release.yml` pass them
+  - Omitting secrets (e.g. forks) keeps prior anonymous-pull behavior
 
 ### Security
 

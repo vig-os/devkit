@@ -748,6 +748,8 @@ jobs:
           release-url: ${{ needs.validate.outputs.release_url }}
           build-timestamp: ${{ needs.validate.outputs.build_timestamp }}
           vcs-ref: ${{ github.sha }}
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
           output-type: tar
           output-file: /tmp/image.tar
 

@@ -93,6 +93,8 @@ jobs:
           release-url: ${{ steps.version.outputs.release_url }}
           build-timestamp: ${{ steps.version.outputs.build_timestamp }}
           vcs-ref: ${{ steps.version.outputs.vcs_ref }}
+          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
           output-type: tar
           output-file: /tmp/image.tar
 

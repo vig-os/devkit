@@ -5,6 +5,13 @@
 # - Builds architecture-specific container image
 # - Outputs image as tar file or pushes to registry
 #
+# Docker Hub (optional, Refs: #473):
+#   docker/setup-buildx-action pulls moby/buildkit from Docker Hub; anonymous pulls on
+#   shared runners hit rate limits. Pass dockerhub-username and dockerhub-token from
+#   workflow secrets (DOCKERHUB_USERNAME, DOCKERHUB_TOKEN) to log in before Buildx.
+#   Recommended for org/repo CI; omit for forks (secrets unavailable) — behavior matches
+#   pre-auth CI (anonymous pulls).
+#
 # Inputs:
 #   version: Semantic version (e.g., 1.0.0, dev-abc123)
 #   arch: Target architecture (amd64, arm64)
@@ -16,6 +23,8 @@
 #   output-type: Output type - "tar" saves to file, "registry" pushes to registry
 #   output-file: Path for tar output (used if output-type=tar)
 #   push: Whether to push to registry (used if output-type=registry)
+#   dockerhub-username: Docker Hub user (optional; from secrets.DOCKERHUB_USERNAME)
+#   dockerhub-token: Docker Hub access token (optional; from secrets.DOCKERHUB_TOKEN)
 #
 # Outputs:
 #   image-tag: Full image tag (e.g., ghcr.io/vig-os/devcontainer:1.0.0-amd64)
@@ -30,6 +39,8 @@
 #       release-url: 'https://github.com/vig-os/devcontainer/releases/tag/1.0.0'
 #       build-timestamp: '2026-02-06T12:00:00Z'
 #       vcs-ref: ${{ github.sha }}
+#       dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
+#       dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
 
 name: 'Build Container Image'
 description: 'Build architecture-specific container image'
@@ -69,6 +80,14 @@ inputs:
     description: 'Whether to push to registry (if output-type=registry)'
     required: false
     default: 'false'
+  dockerhub-username:
+    description: 'Docker Hub username for authenticated pulls (optional; omit on forks)'
+    required: false
+    default: ''
+  dockerhub-token:
+    description: 'Docker Hub access token for authenticated pulls (optional; omit on forks)'
+    required: false
+    default: ''
 
 outputs:
   image-tag:
@@ -81,6 +100,14 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Login to Docker Hub
+      if: inputs.dockerhub-username != '' && inputs.dockerhub-token != ''
+      uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2  # v4.0.0
+      with:
+        registry: docker.io
+        username: ${{ inputs.dockerhub-username }}
+        password: ${{ inputs.dockerhub-token }}
+
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd  # v4.0.0
 
