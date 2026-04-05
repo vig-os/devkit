@@ -39,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dependabot dependency update batch** ([#474](https://github.com/vig-os/devcontainer/pull/474))
   - Bump `github/codeql-action` from `4.34.1` to `4.35.1`
   - Bump `sigstore/cosign-installer` from `4.1.0` to `4.1.1`
+- **Simplify `just pull` in `justfile.gh`** ([#482](https://github.com/vig-os/devcontainer/issues/482))
+  - Pull `ghcr.io/vig-os/devcontainer` by tag; drop redundant shell fallback, per-recipe `repo` argument, and unused `REGISTRY_TEST` TLS path (imported `justfile.gh` cannot reference root `repo`)
 
 ### Deprecated
 

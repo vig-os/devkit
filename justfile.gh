@@ -104,12 +104,5 @@ reset-changelog:
 
 # Pull image from registry (default: latest)
 [group('release')]
-pull version="latest" repo="":
-    #!/usr/bin/env bash
-    RESOLVED_REPO="${repo:-${TEST_REGISTRY:-ghcr.io/vig-os/devcontainer}}"
-    echo "Pulling image ${RESOLVED_REPO}:{{ version }}..."
-    TLS_FLAG=""
-    if [ "${REGISTRY_TEST:-}" = "1" ]; then
-        TLS_FLAG="--tls-verify=false"
-    fi
-    podman pull $TLS_FLAG "${RESOLVED_REPO}:{{ version }}" || echo "[!]  Failed to pull ${RESOLVED_REPO}:{{ version }}"
+pull version="latest":
+    podman pull "ghcr.io/vig-os/devcontainer:{{ version }}"
