@@ -184,3 +184,8 @@ setup() {
     run bash -lc "grep -Fq -- 'rc-number:' assets/workspace/.github/workflows/release.yml && grep -Fq -- 'rc_number:' assets/workspace/.github/workflows/release.yml && grep -Fq -- 'rc_number:' assets/workspace/.github/workflows/release-core.yml"
     assert_success
 }
+
+@test "prepare-release workflow FILE_PATHS uses comma delimiter for multi-file values" {
+    run bash -lc "! grep -E 'FILE_PATHS:.*CHANGELOG\.md [a-zA-Z]' .github/workflows/prepare-release.yml"
+    assert_success
+}
