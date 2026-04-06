@@ -3,7 +3,7 @@
   "private": true,
   "description": "CI-only npm dependencies tracked by Dependabot",
   "dependencies": {
-    "@devcontainers/cli": "0.84.1",
+    "@devcontainers/cli": "0.85.0",
     "bats": "1.13.0",
     "bats-support": "github:bats-core/bats-support#v0.3.0",
     "bats-assert": "github:bats-core/bats-assert#v2.2.4",
