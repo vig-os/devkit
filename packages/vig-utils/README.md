@@ -83,10 +83,12 @@ Manages `CHANGELOG.md` in Keep a Changelog format.
 ```bash
 prepare-changelog validate [FILE]
 prepare-changelog prepare <VERSION> [FILE]
-prepare-changelog finalize <VERSION> <YYYY-MM-DD> [FILE]
+prepare-changelog finalize <VERSION> <YYYY-MM-DD> [FILE] [--github-repository OWNER/REPO]
 prepare-changelog reset [FILE]
 prepare-changelog unprepare [FILE]
 ```
+
+`finalize` needs a repository slug for the release link: use `GITHUB_REPOSITORY` (as in GitHub Actions) or pass `--github-repository` after the optional file path.
 
 Examples:
 
@@ -94,6 +96,7 @@ Examples:
 prepare-changelog validate
 prepare-changelog prepare 0.3.0
 prepare-changelog finalize 0.3.0 2026-03-04
+prepare-changelog finalize 0.3.0 2026-03-04 CHANGELOG.md --github-repository my-org/my-repo
 prepare-changelog reset
 prepare-changelog unprepare
 ```

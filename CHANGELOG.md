@@ -42,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Bump `docker/login-action` from `4.0.0` to `4.1.0`
 - **Simplify `just pull` in `justfile.gh`** ([#482](https://github.com/vig-os/devcontainer/issues/482))
   - Pull `ghcr.io/vig-os/devcontainer` by tag; drop redundant shell fallback, per-recipe `repo` argument, and unused `REGISTRY_TEST` TLS path (imported `justfile.gh` cannot reference root `repo`)
+- **prepare-changelog finalize adds GitHub release link to version headings** ([#496](https://github.com/vig-os/devcontainer/issues/496))
+  - `finalize_release_date` writes `## [X.Y.Z](https://github.com/owner/repo/releases/tag/X.Y.Z) - date`; repository slug comes from `GITHUB_REPOSITORY` (set in Actions) or from `prepare-changelog finalize ... --github-repository owner/repo`
+  - `unprepare` recognizes linked `## [semver](url) - …` headings
 
 ### Removed
 

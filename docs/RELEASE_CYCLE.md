@@ -505,11 +505,12 @@ Create fresh Unreleased section when one doesn't exist. **Safety:** Fails if Unr
 uv run prepare-changelog reset [CHANGELOG.md]
 ```
 
-#### `finalize VERSION DATE [FILE]`
-Replace TBD date with actual release date. Used by `release.yml` (final releases only) to set the date.
+#### `finalize VERSION DATE [FILE] [--github-repository OWNER/REPO]`
+Replace TBD with the release date and add a markdown link on the version heading to `https://github.com/OWNER/REPO/releases/tag/VERSION`. Used by `release.yml` (final releases only). In Actions the slug comes from `GITHUB_REPOSITORY`; locally pass `--github-repository` after the file path (or export `GITHUB_REPOSITORY`).
 
 ```bash
 uv run prepare-changelog finalize 1.0.0 2026-02-11 [CHANGELOG.md]
+uv run prepare-changelog finalize 1.0.0 2026-02-11 CHANGELOG.md --github-repository my-org/my-repo
 ```
 
 **Tests:** `packages/vig-utils/tests/test_prepare_changelog.py`
