@@ -1365,8 +1365,8 @@ jobs:
     permissions:
       contents: read        # required by actions/checkout in rollback job
       issues: write          # create failure issue
-      # Branch rollback uses the RELEASE_APP token (not GITHUB_TOKEN),
-      # which has Contents read/write configured on the GitHub App.
+      # Git Data API rollback (commit + ref) uses COMMIT_APP (same as finalize) so protected
+      # release/* updates are allowed. Failure issues use RELEASE_APP via github-script.
 
     steps:
       - name: Generate GitHub App Token
@@ -1375,6 +1375,13 @@ jobs:
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Generate Commit App Token
+        id: commit-app-token
+        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859  # v3
+        with:
+          app-id: ${{ secrets.COMMIT_APP_ID }}
+          private-key: ${{ secrets.COMMIT_APP_PRIVATE_KEY }}
 
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
@@ -1389,7 +1396,7 @@ jobs:
         id: rollback-branch
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           VERSION: ${{ needs.validate.outputs.version }}
           PRE_SHA: ${{ needs.validate.outputs.pre_finalize_sha }}
         run: |
