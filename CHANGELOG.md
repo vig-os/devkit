@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- **Release rollback and CI `retry` exit codes** ([#500](https://github.com/vig-os/devcontainer/issues/500))
+  - `retry` shell helper now propagates the command's non-zero exit code when all attempts fail
+  - Release rollback creates a fast-forward revert commit via the Git API instead of force-pushing, compatible with branch protection on `release/*`
+
 ## [0.3.2] - TBD
 
 ### Added
