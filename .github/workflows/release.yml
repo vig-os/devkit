@@ -502,7 +502,6 @@ jobs:
         uses: ./.github/actions/setup-env
         with:
           sync-dependencies: 'true'
-          install-just: 'false'
 
       - name: Set release date in CHANGELOG
         if: needs.validate.outputs.release_kind == 'final'

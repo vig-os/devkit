@@ -32,8 +32,8 @@ def get_just_help() -> str:
         )
         return result.stdout
     except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        print(f"Warning: Could not get just help: {e}", file=sys.stderr)
-        return "<!-- Run 'just --list' to see available recipes -->"
+        print(f"Error: Could not get just help: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def get_version_from_changelog() -> str:
