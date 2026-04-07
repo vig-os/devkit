@@ -108,70 +108,7 @@ After installation, open the project in VS Code. It will detect `.devcontainer/d
 ## Available Commands
 
 ```text
-Available recipes:
-    [build]
-    build no_cache=""                          # Build local development image
-    clean version="dev"                        # Remove image (default: dev)
-    clean-test-containers                      # Clean up lingering test containers
-
-    [git]
-    branch                                     # Show current branch + list recent branches
-    log                                        # Pretty one-line git log (last 20 commits)
-
-    [github]
-    gh-issues                                  # List open issues and PRs grouped by milestone [alias: gh-i]
-
-    [info]
-    default                                    # Show available commands (default)
-    docs                                       # Generate documentation from templates
-    help                                       # Show available commands
-    info                                       # Show image information
-    init *args                                 # Install system dependencies and setup development environment
-    login                                      # Test login to GHCR
-    sync-workspace                             # Sync workspace templates from repo root to assets/workspace/
-
-    [podman]
-    podman-kill name                           # Stop and remove a container by name or ID [alias: pdm-kill]
-    podman-kill-all                            # Stop and remove all containers (with confirmation) [alias: pdm-kill-all]
-    podman-kill-project                        # Stop and remove project-related containers [alias: pdm-kill-project]
-    podman-prune                               # Prune unused containers, images, networks, and volumes [alias: pdm-prune]
-    podman-prune-all                           # Full cleanup: prune including volumes [alias: pdm-prune-all]
-    podman-ps *args                            # List containers/images (--all for all podman resources) [alias: pdm-ps]
-    podman-rmi image                           # Remove an image by name, tag, or ID [alias: pdm-rmi]
-    podman-rmi-all                             # Remove all images (with confirmation) [alias: pdm-rmi-all]
-    podman-rmi-dangling                        # Remove dangling images (untagged) [alias: pdm-rmi-dangling]
-    podman-rmi-project                         # Remove project-related images [alias: pdm-rmi-project]
-
-    [quality]
-    format                                     # Format code
-    lint                                       # Run all linters
-    precommit                                  # Run pre-commit hooks on all files
-
-    [release]
-    finalize-release version ref="" *flags     # Finalize and publish release via GitHub Actions workflow (step 3, after testing)
-    prepare-release version ref="" *flags      # Prepare release branch for testing (step 1)
-    promote-release version ref="" *flags      # Promote final release: GHCR :latest, publish draft GitHub Release, merge release PR (after downstream smoke-test final release)
-    publish-candidate version ref="" *flags    # Publish release candidate via GitHub Actions workflow
-    pull version="latest"                      # Pull image from registry (default: latest)
-    reset-changelog                            # Reset CHANGELOG Unreleased section (after merging release to dev)
-
-    [test]
-    test version="dev"                         # Run all test suites
-    test-bats                                  # Run BATS shell script tests
-    test-image version="dev"                   # Run image tests only
-    test-install                               # Run install script tests only
-    test-integration version="dev"             # Run integration tests only
-    test-utils                                 # Run utils tests only
-    test-validate-commit-msg                   # Run validate commit msg tests only
-    test-vig-utils                             # Run check action pins tests only
-
-    [worktree]
-    worktree-attach issue                      # before attaching. See tests/bats/worktree.bats for integration tests. [alias: wt-attach]
-    worktree-clean mode=""                     # Default (no args): clean only stopped worktrees. Use 'all' to clean everything. [alias: wt-clean]
-    worktree-list                              # List active worktrees and their tmux sessions [alias: wt-list]
-    worktree-start issue prompt="" reviewer="" # Create a worktree for an issue, open tmux session, launch cursor-agent [alias: wt-start]
-    worktree-stop issue                        # Stop a worktree's tmux session and remove the worktree [alias: wt-stop]
-
+<!-- Run 'just --list' to see available recipes -->
 ```
 
 For detailed command descriptions, run `just --list --unsorted` or `just --help`.
@@ -182,7 +119,7 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 - **Registry**: `ghcr.io/vig-os/devcontainer`
 - **Architecture**: Multi-platform support (AMD64, ARM64)
 - **License**: Apache
-- **Latest Version**: [0.3.1](https://github.com/vig-os/devcontainer/releases/tag/0.3.1) - 2026-03-26
+- **Latest Version**: [0.3.2](https://github.com/vig-os/devcontainer/releases/tag/0.3.2) - 2026-04-07
 - **Image tags**: bare semver (`0.2.1`, `latest`) — git tags use `v` prefix (`v0.2.1`) but image tags do not
 
 ## Features
