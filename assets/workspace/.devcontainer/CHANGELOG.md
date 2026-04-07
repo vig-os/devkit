@@ -32,8 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Add `just promote-release` in `justfile.gh` (and workspace template copy)
 - **Smoke-test dispatch fails fast when deploy PR checks fail** ([#381](https://github.com/vig-os/devcontainer/issues/381))
   - `wait-deploy-merge` in `assets/smoke-test/.github/workflows/repository-dispatch.yml` exits as soon as all required checks have completed with failures instead of waiting for the merge poll timeout (`gh pr checks --required`)
-- **Nightly CI schedule** ([#461](https://github.com/vig-os/devcontainer/issues/461))
-  - `ci.yml` adds a `schedule` trigger at 04:00 UTC that checks out `dev` and runs all test suites; checkout `ref` and `vcs-ref` are resolved correctly for scheduled runs
 - **Scheduled security scan pulls GHCR `:latest` instead of rebuilding** ([#461](https://github.com/vig-os/devcontainer/issues/461))
   - Runs nightly at 05:00 UTC, pulls the published image, gates on fixable HIGH/CRITICAL vulnerabilities, auto-creates a deduplicated GitHub issue on failure, and uploads SARIF under `container-image-latest`
 - **Dependabot dependency update batch** ([#474](https://github.com/vig-os/devcontainer/pull/474))
@@ -51,6 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Remove `scripts/prune-ghcr-tags.sh`; RC and `sha256-*` orphan cleanup remains in root `promote-release.yml`
 - **Downstream RC pre-release gate from release validate job** ([#463](https://github.com/vig-os/devcontainer/issues/463))
   - Removed dead `if: false` steps from `release.yml`; downstream final release is verified only in `promote-release.yml` before promote
+- **Nightly full CI schedule from `ci.yml`** ([#492](https://github.com/vig-os/devcontainer/issues/492))
+  - Remove the `schedule` trigger and schedule-only checkout overrides; CI remains on pull requests and `workflow_dispatch` only
+  - Nightly GHCR `:latest` scan in `security-scan.yml` is unchanged
 
 ### Fixed
 

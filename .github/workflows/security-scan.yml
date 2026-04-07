@@ -1,11 +1,11 @@
 # Scheduled Security Scan
 #
 # Nightly scan of the latest published container image from GHCR (covers main via
-# :latest) without rebuilding. Dev-branch builds are covered by nightly CI
-# (ci.yml) including Trivy + full-severity SARIF (category: container-image).
+# :latest) without rebuilding. Pull requests to dev/release/main run full CI
+# (ci.yml), including Trivy on the built image (category: container-image).
 #
 # Triggers:
-#   - Nightly schedule: 05:00 UTC (after nightly CI at 04:00 UTC)
+#   - Nightly schedule: 05:00 UTC
 #
 # Jobs:
 #   1. scan-latest - Pull ghcr.io/vig-os/devcontainer:latest and Trivy + SBOM + SARIF
