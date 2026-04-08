@@ -93,6 +93,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Canonical `retry()` implementation lives in `.github/scripts/retry.sh`; `setup-env` and BATS source it so CI and tests stay aligned (`sync-main-to-dev.yml` keeps an inline copy documented as in sync)
 - **Release rollback restores release PR body after finalize** ([#502](https://github.com/vig-os/devcontainer/issues/502))
   - `rollback` job in `release.yml` restores the PR description from pre-finalization `CHANGELOG.md` (TBD / prepare-release format) using RELEASE_APP when `release_kind` is final, after branch rollback; failure issue and job summary report the step outcome
+- **Final release notes extraction after linked changelog headings** ([#504](https://github.com/vig-os/devcontainer/issues/504))
+  - Publish job `awk` matches `## [VERSION]` prefix so finalized `## [X.Y.Z](url) - date` headings produce GitHub Release notes (regression after prepare-changelog linked headings in #496)
 
 ### Security
 
