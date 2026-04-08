@@ -900,7 +900,7 @@ jobs:
 
           if [ ! -s /tmp/github-release-notes.md ]; then
             echo "ERROR: Failed to generate GitHub Release notes for $VERSION from CHANGELOG.md"
-            echo "Expected section heading: ## [$VERSION] - YYYY-MM-DD"
+            echo "Expected heading like: ## [$VERSION] - YYYY-MM-DD or ## [$VERSION](url) - YYYY-MM-DD"
             exit 1
           fi
 
