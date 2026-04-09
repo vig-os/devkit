@@ -160,10 +160,11 @@ jobs:
           RELEASE_JSON=""
           for i in $(seq 1 "$RETRIES"); do
             API_OUTPUT=""
-            if API_OUTPUT=$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
-              --jq 'first(.[] | select(.tag_name == $tag))' --arg tag "$VERSION" 2>&1); then
-              if printf '%s' "$API_OUTPUT" | jq -e 'type == "object"' >/dev/null 2>&1; then
-                RELEASE_JSON="$API_OUTPUT"
+            if API_OUTPUT=$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate 2>&1); then
+              MATCHED=$(printf '%s' "$API_OUTPUT" | \
+                jq -s --arg tag "$VERSION" 'flatten | map(select(.tag_name == $tag)) | .[0] // empty' 2>/dev/null)
+              if printf '%s' "$MATCHED" | jq -e 'type == "object"' >/dev/null 2>&1; then
+                RELEASE_JSON="$MATCHED"
                 break
               fi
               LAST_ERROR="No release found for tag $VERSION (not in releases list yet)"
@@ -594,10 +595,15 @@ jobs:
           fi
           while IFS= read -r tag; do
             [ -z "$tag" ] && continue
-            if REL_JSON=$(retry --retries 2 --backoff 3 --max-backoff 10 -- \
-              gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
-              --jq 'first(.[] | select(.tag_name == $tag))' --arg tag "$tag" 2>&1) && \
-              printf '%s' "$REL_JSON" | jq -e 'type == "object"' >/dev/null 2>&1; then
+            RAW=""
+            if ! RAW=$(retry --retries 2 --backoff 3 --max-backoff 10 -- \
+              gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate 2>&1); then
+              echo "WARN: release lookup failed for tag $tag, skipping deletion"
+              continue
+            fi
+            if printf '%s' "$RAW" | \
+              jq -s --arg tag "$tag" 'flatten | map(select(.tag_name == $tag)) | .[0] // empty' 2>/dev/null | \
+              jq -e 'type == "object"' >/dev/null 2>&1; then
               echo "Skipping tag $tag (GitHub Release exists)"
               continue
             fi
