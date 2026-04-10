@@ -228,17 +228,27 @@ sanitize_for_security() {
 # Same rules as assets/parse-github-remote-lib.sh (for GITHUB_REPOSITORY / renovate.json).
 parse_github_remote() {
     local url="$1"
+    local owner repo
     [[ -z "$url" ]] && return 1
     if [[ "$url" =~ https?://github\.com/([^/]+)/([^/.]+)(\.git)?/?$ ]]; then
-        echo "${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+        owner="${BASH_REMATCH[1]}"
+        repo="${BASH_REMATCH[2]}"
+        [[ "$owner/$repo" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || return 1
+        echo "$owner/$repo"
         return 0
     fi
     if [[ "$url" =~ ^git@github\.com:([^/]+)/([^/.]+)(\.git)?$ ]]; then
-        echo "${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+        owner="${BASH_REMATCH[1]}"
+        repo="${BASH_REMATCH[2]}"
+        [[ "$owner/$repo" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || return 1
+        echo "$owner/$repo"
         return 0
     fi
     if [[ "$url" =~ ^ssh://git@github\.com/([^/]+)/([^/.]+)(\.git)?$ ]]; then
-        echo "${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+        owner="${BASH_REMATCH[1]}"
+        repo="${BASH_REMATCH[2]}"
+        [[ "$owner/$repo" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]] || return 1
+        echo "$owner/$repo"
         return 0
     fi
     return 1
