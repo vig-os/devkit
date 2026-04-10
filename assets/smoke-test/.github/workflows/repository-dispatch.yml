@@ -695,8 +695,29 @@ jobs:
           ELAPSED=0
 
           while [ "${ELAPSED}" -lt "${TIMEOUT}" ]; do
-            CHECKS_JSON="$(gh pr checks "${PR_NUMBER}" --required --json bucket 2>/dev/null || echo '[]')"
+            PR_STATE="$(gh pr view "${PR_NUMBER}" --json state --jq '.state' 2>/dev/null || echo "UNKNOWN")"
+            if [ "${PR_STATE}" = "CLOSED" ]; then
+              echo "ERROR: release PR was closed unexpectedly: ${PR_URL}"
+              exit 1
+            fi
+            if [ "${PR_STATE}" = "MERGED" ]; then
+              echo "WARNING: release PR was merged unexpectedly -- skipping check wait: ${PR_URL}"
+              exit 0
+            fi
+
+            CHECKS_JSON="$(gh pr checks "${PR_NUMBER}" --required --json bucket 2>&1)" || {
+              echo "WARNING: gh pr checks failed (attempt $((ELAPSED / INTERVAL + 1))): ${CHECKS_JSON}"
+              sleep "${INTERVAL}"
+              ELAPSED=$((ELAPSED + INTERVAL))
+              continue
+            }
             TOTAL="$(echo "${CHECKS_JSON}" | jq 'length')"
+            if [ "${TOTAL}" -eq 0 ]; then
+              echo "WARNING: no required checks reported yet (attempt $((ELAPSED / INTERVAL + 1)))"
+              sleep "${INTERVAL}"
+              ELAPSED=$((ELAPSED + INTERVAL))
+              continue
+            fi
             FAIL_COUNT="$(echo "${CHECKS_JSON}" | jq '[.[] | select(.bucket == "fail")] | length')"
             CANCEL_COUNT="$(echo "${CHECKS_JSON}" | jq '[.[] | select(.bucket == "cancel")] | length')"
             PENDING_COUNT="$(echo "${CHECKS_JSON}" | jq '[.[] | select(.bucket == "pending" or .bucket == "skipping")] | length')"
