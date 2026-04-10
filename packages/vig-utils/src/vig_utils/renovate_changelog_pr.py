@@ -172,6 +172,10 @@ def insert_renovate_changelog_entry(
     # Insert before the next ### heading, or at end of ## Unreleased if Changed is last subsection
     insert_at = next_sec if next_sec is not None else unreleased_end
 
+    # Keep blank line between list items and the following heading (Keep-a-Changelog)
+    while insert_at > changed_idx + 1 and lines[insert_at - 1].strip() == "":
+        insert_at -= 1
+
     if not entry.endswith("\n"):
         entry = entry + "\n"
     new_lines = lines[:insert_at] + [entry] + lines[insert_at:]
