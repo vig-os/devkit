@@ -124,6 +124,11 @@ setup() {
     assert_failure
 }
 
+@test "parse_github_remote rejects owner/repo outside GitHub slug charset" {
+    run bash -c "source \"$PARSE_GITHUB_REMOTE_LIB\" && parse_github_remote 'https://github.com/or;g/re\$po.git'"
+    assert_failure
+}
+
 @test "resolve_github_repository uses GITHUB_REPOSITORY when set" {
     run bash -c "source \"$PARSE_GITHUB_REMOTE_LIB\" && GITHUB_REPOSITORY=vig-os/app resolve_github_repository"
     assert_success
