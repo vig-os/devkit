@@ -135,6 +135,12 @@ setup() {
     assert_output --partial "vig-os/app (from environment)"
 }
 
+@test "resolve_github_repository rejects invalid GITHUB_REPOSITORY from environment" {
+    run bash -c "source \"$PARSE_GITHUB_REMOTE_LIB\" && GITHUB_REPOSITORY='bad repo/name' NO_PROMPTS=true resolve_github_repository"
+    assert_failure
+    assert_output --partial "GITHUB_REPOSITORY must be owner/repo"
+}
+
 @test "resolve_github_repository parses origin from git workspace" {
     git_fixture=$(mktemp -d)
     git init -q "$git_fixture"

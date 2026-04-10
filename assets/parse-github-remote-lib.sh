@@ -35,6 +35,10 @@ parse_github_remote() {
 # Resolve GITHUB_REPOSITORY for {{GITHUB_REPOSITORY}} in renovate.json (after template copy)
 resolve_github_repository() {
     if [[ -n "${GITHUB_REPOSITORY:-}" ]]; then
+        if [[ ! "$GITHUB_REPOSITORY" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+            echo "Error: GITHUB_REPOSITORY must be owner/repo using only [A-Za-z0-9._-] segments." >&2
+            exit 1
+        fi
         echo "GitHub repository (Renovate): $GITHUB_REPOSITORY (from environment)"
         return 0
     fi
@@ -57,6 +61,10 @@ resolve_github_repository() {
     read -rp "Enter GitHub repository for Renovate (owner/repo, e.g. vig-os/myapp): " GITHUB_REPOSITORY
     if [[ -z "$GITHUB_REPOSITORY" ]]; then
         echo "Error: GitHub repository is required to fill renovate.json." >&2
+        exit 1
+    fi
+    if [[ ! "$GITHUB_REPOSITORY" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]; then
+        echo "Error: GITHUB_REPOSITORY must be owner/repo using only [A-Za-z0-9._-] segments." >&2
         exit 1
     fi
     echo "GitHub repository (Renovate): $GITHUB_REPOSITORY"
