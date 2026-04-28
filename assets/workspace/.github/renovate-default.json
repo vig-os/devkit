@@ -23,7 +23,7 @@
       "semanticCommitScope": "actions"
     },
     {
-      "description": "Python (PEP 621 + uv) — always pin ranges",
+      "description": "Python (PEP 621) — always pin ranges",
       "matchManagers": ["pep621"],
       "rangeStrategy": "pin",
       "semanticCommitType": "build",

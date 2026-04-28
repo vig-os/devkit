@@ -19,7 +19,7 @@ import pytest
 EXPECTED_VERSIONS = {
     "git": "2.",  # Major version check (from apt package)
     "curl": "8.",  # Major version check (from apt package)
-    "gh": "2.92.",  # Minor version check (GitHub CLI (manually installed from latest release)
+    "gh": "2.92.",  # Minor version check (GitHub CLI, manually installed from latest release)
     "uv": "0.11.",  # Minor version check (manually installed from latest release)
     "python": "3.12",  # Python (from base image)
     "pre_commit": "4.5.",  # Minor version check (installed via uv pip)
