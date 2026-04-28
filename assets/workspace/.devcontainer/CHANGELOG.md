@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Renovate config validation on pull requests** ([#520](https://github.com/vig-os/devcontainer/issues/520))
-  - Workflow runs `renovate-config-validator --strict` against every tracked `renovate*.json` entrypoint when renovate JSON changes
+  - Workflow discovers tracked `renovate*.json` files (excluding `assets/workspace/renovate.json`, whose `extends` uses an unresolved template placeholder) and runs `renovate-config-validator --strict` on the rest when renovate JSON changes
 
 ### Changed
 

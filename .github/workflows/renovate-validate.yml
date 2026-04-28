@@ -24,10 +24,12 @@ jobs:
         with:
           node-version: '20'
 
+      # Exclude assets/workspace/renovate.json: extends uses {{GITHUB_REPOSITORY}};
+      # renovate-config-validator --strict rejects the preset until init replaces it.
       - name: Discover Renovate configs
         id: configs
         run: |
-          mapfile -t files < <(git ls-files 'renovate*.json' '**/renovate*.json')
+          mapfile -t files < <(git ls-files 'renovate*.json' '**/renovate*.json' | grep -vx 'assets/workspace/renovate.json' || true)
           printf '%s\n' "${files[@]}"
           printf 'files=%s\n' "${files[*]}" >> "$GITHUB_OUTPUT"
 
