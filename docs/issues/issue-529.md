@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-04-29T15:25:59Z
+updated: 2026-05-01T20:00:23Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devcontainer/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-04-30T05:36:10.675Z
+synced: 2026-05-02T05:17:22.111Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devcontainer/issues/529)
@@ -26,6 +26,12 @@ These problems occurred while renovating this repository. [View logs](https://de
 
  - ⚠️ WARN: Package lookup failures
 
+## Rate-Limited
+
+The following updates are currently rate-limited. To force their creation now, click on a checkbox below.
+
+ - [ ] <!-- unlimit-branch=renovate/bats-file-0.x-lockfile -->build(npm): update dependency bats-file to v0.4.0
+
 
 ---
 
@@ -37,12 +43,6 @@ These problems occurred while renovating this repository. [View logs](https://de
 ---
 
 
-## Other Branches
-
-The following updates are pending. To force the creation of a PR, click on a checkbox below.
-
- - [ ] <!-- other-branch=renovate/bats-file-0.x-lockfile -->build(npm): update dependency bats-file to v0.4.0
-
 ## Open
 
 The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
@@ -52,8 +52,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - [ ] <!-- rebase-branch=renovate/python-3.12-slim-bookworm -->[build(docker): update python:3.12-slim-bookworm docker digest to 58525e1](../pull/531)
  - [ ] <!-- rebase-branch=renovate/actions-create-github-app-token-digest -->[chore(deps): update actions/create-github-app-token digest to 1b10c78](../pull/532)
  - [ ] <!-- rebase-branch=renovate/astral-sh-setup-uv-digest -->[chore(deps): update astral-sh/setup-uv digest to 37802ad](../pull/533)
- - [ ] <!-- rebase-branch=renovate/github-codeql-action-digest -->[chore(deps): update github/codeql-action digest to 95e58e9](../pull/534)
- - [ ] <!-- rebase-branch=renovate/taiki-e-install-action-digest -->[chore(deps): update taiki-e/install-action digest to 930231a](../pull/535)
+ - [ ] <!-- rebase-branch=renovate/github-codeql-action-digest -->[chore(deps): update github/codeql-action digest to e46ed2c](../pull/534)
+ - [ ] <!-- rebase-branch=renovate/taiki-e-install-action-digest -->[chore(deps): update taiki-e/install-action digest to b1fb785](../pull/535)
  - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch)](../pull/536) (`actions/cache`, `actions/setup-node`, `actions/upload-artifact`, `aquasecurity/trivy`, `aquasecurity/trivy-action`, `astral-sh/uv`, `docker/build-push-action`, `docker/login-action`)
  - [ ] <!-- rebase-branch=renovate/python-3.x -->[build(docker): update python docker tag to v3.14](../pull/537)
  - [ ] <!-- rebase-branch=renovate/devcontainers-cli-0.x -->[build(npm): update dependency @devcontainers/cli to v0.86.0](../pull/538)
