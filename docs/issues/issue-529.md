@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-05-03T11:48:02Z
+updated: 2026-05-05T23:52:10Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devcontainer/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-05-04T05:41:14.907Z
+synced: 2026-05-06T05:35:53.966Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devcontainer/issues/529)
@@ -53,7 +53,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - [ ] <!-- rebase-branch=renovate/actions-create-github-app-token-digest -->[chore(deps): update actions/create-github-app-token digest to 1b10c78](../pull/532)
  - [ ] <!-- rebase-branch=renovate/astral-sh-setup-uv-digest -->[chore(deps): update astral-sh/setup-uv digest to 37802ad](../pull/533)
  - [ ] <!-- rebase-branch=renovate/github-codeql-action-digest -->[chore(deps): update github/codeql-action digest to e46ed2c](../pull/534)
- - [ ] <!-- rebase-branch=renovate/taiki-e-install-action-digest -->[chore(deps): update taiki-e/install-action digest to d999316](../pull/535)
+ - [ ] <!-- rebase-branch=renovate/taiki-e-install-action-digest -->[chore(deps): update taiki-e/install-action digest to 6155d2c](../pull/535)
  - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch)](../pull/536) (`actions/cache`, `actions/setup-node`, `actions/upload-artifact`, `aquasecurity/trivy`, `aquasecurity/trivy-action`, `astral-sh/uv`, `docker/build-push-action`, `docker/login-action`)
  - [ ] <!-- rebase-branch=renovate/python-3.x -->[build(docker): update python docker tag to v3.14](../pull/537)
  - [ ] <!-- rebase-branch=renovate/devcontainers-cli-0.x -->[build(npm): update dependency @devcontainers/cli to v0.86.0](../pull/538)
@@ -101,8 +101,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/setup-node v6.3.0@53b83947a5a98c8d113130e565377fae1a50d02f` → [Updates: `v6.4.0`]
  - `taiki-e/install-action just@01159adff8f38113be7211e869405f6f6abf02d7` → [Updates: `just`]
  - `bats-core/bats-action v4.0.0@77d6fb60505b4d0d1d73e48bd035b55074bbfb43`
- - `astral-sh/uv 0.10.0` → [Updates: `0.11.8`]
- - `astral-sh/uv 0.10.0` → [Updates: `0.11.8`]
+ - `astral-sh/uv 0.10.0` → [Updates: `0.11.10`]
+ - `astral-sh/uv 0.10.0` → [Updates: `0.11.10`]
 
 </details>
 
