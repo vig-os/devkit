@@ -26,14 +26,29 @@ EXPECTED_VERSIONS = {
     "ruff": "0.15.",  # Minor version check (installed via uv pip)
     "bandit": "1.9.",  # Minor version check (installed via uv pip)
     "pip_licenses": "5.",  # Major version check (installed via uv pip)
-    "just": "1.50.",  # Minor version check (manually installed from latest release)
+    "just": "1.51.",  # Minor version check (manually installed from latest release)
     "hadolint": "2.14.",  # Minor version check (manually installed from pinned release)
     "taplo": "0.10.",  # Minor version check (manually installed from latest release)
-    "cargo-binstall": "1.18.",  # Minor version check (installed from latest release),
+    "cargo-binstall": "1.19.",  # Minor version check (installed from latest release),
     "typstyle": "0.14.",  # Minor version check (installed from latest release)
     "vig_utils": "0.1.",  # Minor version check (installed via uv pip)
     "tmux": "3.3",  # Major.minor version check (from apt package)
     "rsync": "3.2",  # Major.minor version check (from apt package)
+    # ── Agent-CLI / TUI-debug toolkit (#545) ───────────────────────────────
+    # Only major-line checks; latest-of-line tracked elsewhere.
+    "ripgrep": "13.",  # apt package
+    "fd": "8.",  # apt fd-find package, symlinked as fd
+    "bat": "0.",  # apt bat package, symlinked as bat
+    "fzf": "0.",  # apt package
+    "expect": "5.",  # apt package
+    "nvim": "0.7",  # apt neovim package (Debian bookworm pins 0.7.x)
+    "eza": "0.",  # binary release
+    "delta": "0.",  # binary release
+    "lazygit": "0.",  # binary release
+    "zoxide": "0.",  # binary release
+    "starship": "1.",  # binary release
+    "freeze": "0.",  # binary release (charm-freeze)
+    "claude": "2.",  # binary install via official installer
 }
 
 
@@ -256,6 +271,200 @@ class TestSystemTools:
             assert result.rc == 0, f"Process {pid} is not running"
         finally:
             host.run(f"tmux kill-session -t {session} 2>/dev/null")
+
+
+class TestAgentToolkit:
+    """
+    Agent-CLI + TUI-debug + Claude Code toolkit (issue #545).
+
+    Verifies the bundle that closes recurring gaps for AI-assisted development:
+      - modern CLI replacements (rg/fd/bat/eza/delta) — what agents reach for
+      - TUI debug primitives (tmux already, expect, freeze)
+      - in-container editor (neovim) for git commit/edit fallback
+      - Claude Code baked + IS_SANDBOX=1 + cc/cld aliases
+
+    Each tool gets two asserts: presence on PATH (or expected install path)
+    and a successful --version invocation. Version-string checks use
+    EXPECTED_VERSIONS' loose major-line prefixes — tight pins live elsewhere.
+    """
+
+    # ── apt-installed essentials ─────────────────────────────────────────────
+
+    def test_ripgrep_installed(self, host):
+        assert host.package("ripgrep").is_installed, "ripgrep not installed"
+
+    def test_ripgrep_version(self, host):
+        result = host.run("rg --version")
+        assert result.rc == 0, f"rg --version failed: {result.stderr}"
+        expected = EXPECTED_VERSIONS["ripgrep"]
+        assert expected in result.stdout, (
+            f"Expected rg {expected}x, got: {result.stdout}"
+        )
+
+    def test_fd_installed(self, host):
+        # Debian's fd-find ships as `fdfind`; we add /usr/local/bin/fd symlink.
+        assert host.file("/usr/local/bin/fd").exists, "fd symlink missing"
+        assert host.file("/usr/bin/fdfind").exists, "fdfind binary missing"
+
+    def test_fd_version(self, host):
+        result = host.run("fd --version")
+        assert result.rc == 0, f"fd --version failed: {result.stderr}"
+        expected = EXPECTED_VERSIONS["fd"]
+        assert expected in result.stdout, (
+            f"Expected fd {expected}x, got: {result.stdout}"
+        )
+
+    def test_bat_installed(self, host):
+        assert host.file("/usr/local/bin/bat").exists, "bat symlink missing"
+        assert host.file("/usr/bin/batcat").exists, "batcat binary missing"
+
+    def test_bat_version(self, host):
+        result = host.run("bat --version")
+        assert result.rc == 0, f"bat --version failed: {result.stderr}"
+        expected = EXPECTED_VERSIONS["bat"]
+        assert expected in result.stdout, (
+            f"Expected bat {expected}x, got: {result.stdout}"
+        )
+
+    def test_fzf_installed(self, host):
+        assert host.package("fzf").is_installed, "fzf not installed"
+
+    def test_fzf_version(self, host):
+        result = host.run("fzf --version")
+        assert result.rc == 0, f"fzf --version failed: {result.stderr}"
+        expected = EXPECTED_VERSIONS["fzf"]
+        assert expected in result.stdout, (
+            f"Expected fzf {expected}x, got: {result.stdout}"
+        )
+
+    def test_expect_installed(self, host):
+        assert host.package("expect").is_installed, "expect not installed"
+
+    def test_expect_version(self, host):
+        # `expect -v` returns version
+        result = host.run("expect -v")
+        assert result.rc == 0, f"expect -v failed: {result.stderr}"
+        expected = EXPECTED_VERSIONS["expect"]
+        assert expected in result.stdout, (
+            f"Expected expect {expected}x, got: {result.stdout}"
+        )
+
+    def test_neovim_installed(self, host):
+        assert host.package("neovim").is_installed, "neovim not installed"
+
+    def test_neovim_version(self, host):
+        result = host.run("nvim --version")
+        assert result.rc == 0, f"nvim --version failed: {result.stderr}"
+        expected = EXPECTED_VERSIONS["nvim"]
+        assert expected in result.stdout, (
+            f"Expected nvim {expected}x, got: {result.stdout}"
+        )
+
+    # ── binary release downloads ─────────────────────────────────────────────
+
+    def test_eza_installed(self, host):
+        assert host.file("/usr/local/bin/eza").exists, "eza binary missing"
+
+    def test_eza_version(self, host):
+        result = host.run("eza --version")
+        assert result.rc == 0, f"eza --version failed: {result.stderr}"
+        expected = EXPECTED_VERSIONS["eza"]
+        assert expected in result.stdout, (
+            f"Expected eza {expected}x, got: {result.stdout}"
+        )
+
+    def test_delta_installed(self, host):
+        assert host.file("/usr/local/bin/delta").exists, "delta binary missing"
+
+    def test_delta_version(self, host):
+        result = host.run("delta --version")
+        assert result.rc == 0, f"delta --version failed: {result.stderr}"
+        expected = EXPECTED_VERSIONS["delta"]
+        assert expected in result.stdout, (
+            f"Expected delta {expected}x, got: {result.stdout}"
+        )
+
+    def test_lazygit_installed(self, host):
+        assert host.file("/usr/local/bin/lazygit").exists, "lazygit binary missing"
+
+    def test_lazygit_version(self, host):
+        result = host.run("lazygit --version")
+        assert result.rc == 0, f"lazygit --version failed: {result.stderr}"
+        expected = EXPECTED_VERSIONS["lazygit"]
+        assert expected in result.stdout, (
+            f"Expected lazygit {expected}x, got: {result.stdout}"
+        )
+
+    def test_zoxide_installed(self, host):
+        assert host.file("/usr/local/bin/zoxide").exists, "zoxide binary missing"
+
+    def test_zoxide_version(self, host):
+        result = host.run("zoxide --version")
+        assert result.rc == 0, f"zoxide --version failed: {result.stderr}"
+        expected = EXPECTED_VERSIONS["zoxide"]
+        assert expected in result.stdout, (
+            f"Expected zoxide {expected}x, got: {result.stdout}"
+        )
+
+    def test_starship_installed(self, host):
+        assert host.file("/usr/local/bin/starship").exists, "starship binary missing"
+
+    def test_starship_version(self, host):
+        result = host.run("starship --version")
+        assert result.rc == 0, f"starship --version failed: {result.stderr}"
+        expected = EXPECTED_VERSIONS["starship"]
+        assert expected in result.stdout, (
+            f"Expected starship {expected}x, got: {result.stdout}"
+        )
+
+    def test_freeze_installed(self, host):
+        assert host.file("/usr/local/bin/freeze").exists, "freeze binary missing"
+
+    def test_freeze_version(self, host):
+        result = host.run("freeze --version")
+        assert result.rc == 0, f"freeze --version failed: {result.stderr}"
+        expected = EXPECTED_VERSIONS["freeze"]
+        assert expected in result.stdout, (
+            f"Expected freeze {expected}x, got: {result.stdout}"
+        )
+
+    # ── Claude Code + sandbox + aliases ──────────────────────────────────────
+
+    def test_claude_installed(self, host):
+        # Installed by the official installer to ~/.local/bin/claude, then
+        # symlinked to /usr/local/bin/claude so it's on the default PATH.
+        assert host.file("/usr/local/bin/claude").exists, "claude symlink missing"
+
+    def test_claude_version(self, host):
+        result = host.run("claude --version")
+        assert result.rc == 0, f"claude --version failed: {result.stderr}"
+        expected = EXPECTED_VERSIONS["claude"]
+        assert expected in result.stdout, (
+            f"Expected claude {expected}x, got: {result.stdout}"
+        )
+
+    def test_is_sandbox_env_set(self, host):
+        # IS_SANDBOX=1 is what lets `claude --dangerously-skip-permissions`
+        # run as root inside the container without the uid-0 refusal. Set as
+        # a layer ENV so it's present in every shell + every claude invocation.
+        result = host.run("printenv IS_SANDBOX")
+        assert result.rc == 0, "IS_SANDBOX env var not set"
+        assert result.stdout.strip() == "1", (
+            f"Expected IS_SANDBOX=1, got: {result.stdout!r}"
+        )
+
+    def test_cc_alias_in_bashrc(self, host):
+        # The cc/cld aliases are user-facing ergonomics; verify the literal
+        # strings landed in /root/.bashrc rather than executing the aliases
+        # (testinfra `host.run` runs non-interactively; aliases would not
+        # be expanded).
+        bashrc = host.file("/root/.bashrc")
+        assert bashrc.exists, "/root/.bashrc missing"
+        content = bashrc.content_string
+        assert 'alias cc="claude"' in content, "cc alias not in /root/.bashrc"
+        assert 'alias cld="claude --dangerously-skip-permissions"' in content, (
+            "cld alias not in /root/.bashrc"
+        )
 
 
 class TestPythonEnvironment:
