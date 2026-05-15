@@ -8,11 +8,23 @@ services:
       # Container socket for Docker-out-of-Docker (DooD) - enables sidecars
       # Path is set by initialize.sh in .env, falls back to Docker default
       - "${CONTAINER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock"
+      # Tailscale state — persistent across container recreate so the same
+      # node identity is reused (avoids ephemeral-key collisions on the
+      # tailnet when the previous still-online ephemeral hasn't expired yet).
+      # Idle when Tailscale isn't enabled. See setup-tailscale.sh.
+      - tailscale-state:/var/lib/tailscale
     environment:
       # PRE_COMMIT_HOME, UV_PROJECT_ENVIRONMENT, VIRTUAL_ENV are set in the image (Containerfile)
       # Tell Podman/Docker to use the mounted socket (for sidecars and container builds)
       - CONTAINER_HOST=unix:///var/run/docker.sock
       - DOCKER_HOST=unix:///var/run/docker.sock
+    # Required for Tailscale SSH (real TUN device, not userspace networking).
+    # Idle when no TAILSCALE_AUTHKEY is set. See docs/designs/tailscale-ssh.md.
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
     # Keep container running for VS Code to attach
     command: sleep infinity
     # Use root user (default from image)
@@ -23,3 +35,6 @@ services:
     # Disable SELinux labeling to allow socket access (required for sidecars)
     security_opt:
       - label=disable
+
+volumes:
+  tailscale-state:

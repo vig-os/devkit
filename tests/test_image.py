@@ -34,6 +34,11 @@ EXPECTED_VERSIONS = {
     "vig_utils": "0.1.",  # Minor version check (installed via uv pip)
     "tmux": "3.3",  # Major.minor version check (from apt package)
     "rsync": "3.2",  # Major.minor version check (from apt package)
+    # ── Tailscale (#85) ────────────────────────────────────────────────────
+    # Pulled fresh on every build from pkgs.tailscale.com/stable; only check
+    # the major-line "1." so dependabot-style version bumps don't churn pins.
+    "tailscale": "1.",
+    "tailscaled": "1.",
 }
 
 
@@ -256,6 +261,74 @@ class TestSystemTools:
             assert result.rc == 0, f"Process {pid} is not running"
         finally:
             host.run(f"tmux kill-session -t {session} 2>/dev/null")
+
+
+class TestTailscale:
+    """
+    Tailscale binary baking + setup script (issue #85).
+
+    Verifies image-side concerns only:
+      - tailscale + tailscaled are baked at the expected paths
+      - both report a 1.x major-line version
+      - setup-tailscale.sh ships in the workspace template + is executable
+      - the script no-ops cleanly when TAILSCALE_AUTHKEY is unset
+
+    Live-tailnet integration (real /dev/net/tun, real ephemeral key, peer
+    visibility from the Mac side) is verified separately on ksb-meatgrinder.
+    """
+
+    def test_tailscale_cli_installed(self, host):
+        # Baked at /usr/local/bin/tailscale by the Containerfile binary install.
+        assert host.file("/usr/local/bin/tailscale").exists, (
+            "tailscale CLI binary missing"
+        )
+        assert host.file("/usr/local/bin/tailscale").is_file, (
+            "tailscale is not a regular file"
+        )
+
+    def test_tailscaled_installed(self, host):
+        # Daemon at /usr/local/sbin (sbin convention for daemons).
+        assert host.file("/usr/local/sbin/tailscaled").exists, (
+            "tailscaled daemon binary missing"
+        )
+        assert host.file("/usr/local/sbin/tailscaled").is_file, (
+            "tailscaled is not a regular file"
+        )
+
+    def test_tailscale_version(self, host):
+        result = host.run("tailscale version")
+        assert result.rc == 0, f"tailscale version failed: {result.stderr}"
+        expected = EXPECTED_VERSIONS["tailscale"]
+        assert expected in result.stdout, (
+            f"Expected tailscale {expected}x, got: {result.stdout}"
+        )
+
+    def test_tailscaled_version(self, host):
+        result = host.run("/usr/local/sbin/tailscaled --version")
+        assert result.rc == 0, f"tailscaled --version failed: {result.stderr}"
+        expected = EXPECTED_VERSIONS["tailscaled"]
+        assert expected in result.stdout, (
+            f"Expected tailscaled {expected}x, got: {result.stdout}"
+        )
+
+    def test_setup_tailscale_script_in_workspace_template(self, host):
+        # The script ships via the workspace template that init-workspace.sh
+        # copies into a fresh project. Check it at the expected baked location.
+        path = "/root/assets/workspace/.devcontainer/scripts/setup-tailscale.sh"
+        assert host.file(path).exists, f"setup-tailscale.sh missing at {path}"
+        assert host.file(path).mode & 0o111, "setup-tailscale.sh not executable"
+
+    def test_setup_tailscale_no_op_without_authkey(self, host):
+        # Critical: must exit 0 silently when TAILSCALE_AUTHKEY is unset.
+        # Otherwise users who never enable Tailscale see errors every start.
+        path = "/root/assets/workspace/.devcontainer/scripts/setup-tailscale.sh"
+        result = host.run(f"unset TAILSCALE_AUTHKEY && bash {path} connect")
+        assert result.rc == 0, (
+            f"setup-tailscale.sh should exit 0 without AUTHKEY, got rc={result.rc}: {result.stderr}"
+        )
+        assert "TAILSCALE_AUTHKEY not set" in result.stdout, (
+            f"Expected opt-out log line, got stdout: {result.stdout!r}"
+        )
 
 
 class TestPythonEnvironment:

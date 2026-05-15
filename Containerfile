@@ -153,6 +153,39 @@ RUN set -eux; \
     rm -f "taplo-linux-${ARCH}"; \
     taplo --version;
 
+# Install Tailscale (binary tarball — Tailscale ships static x86_64 + arm64
+# Linux binaries directly, no apt repo dance needed at build time). Bakes
+# both `tailscale` (CLI) and `tailscaled` (daemon) into /usr/local/bin so the
+# container image can join a tailnet on first start without per-host install
+# friction. Opt-in remains gated by the TAILSCALE_AUTHKEY env var at runtime
+# — no key, no daemon (see setup-tailscale.sh).
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+        amd64) ARCH=amd64 ;; \
+        arm64) ARCH=arm64 ;; \
+        *) echo "Unsupported architecture: ${TARGETARCH}"; exit 1 ;; \
+    esac; \
+    TS_VERSION="$( \
+        curl -fsSL https://pkgs.tailscale.com/stable/?mode=json \
+        | sed -n 's/.*"'"$ARCH"'":[[:space:]]*"tailscale_\([^_]*\)_'"$ARCH"'\.tgz".*/\1/p' \
+    )"; \
+    if [ -z "$TS_VERSION" ]; then \
+        echo "Failed to resolve Tailscale latest version for $ARCH"; \
+        exit 1; \
+    fi; \
+    URL="https://pkgs.tailscale.com/stable"; \
+    FILE="tailscale_${TS_VERSION}_${ARCH}.tgz"; \
+    curl -fsSL "${URL}/${FILE}" -o ts.tgz; \
+    curl -fsSL "${URL}/${FILE}.sha256" -o ts.tgz.sha256; \
+    EXPECTED_SHA="$(awk '{print $1}' ts.tgz.sha256)"; \
+    echo "${EXPECTED_SHA}  ts.tgz" | sha256sum -c -; \
+    tar -xzf ts.tgz; \
+    install -m 0755 "tailscale_${TS_VERSION}_${ARCH}/tailscale"  /usr/local/bin/tailscale; \
+    install -m 0755 "tailscale_${TS_VERSION}_${ARCH}/tailscaled" /usr/local/sbin/tailscaled; \
+    rm -rf "tailscale_${TS_VERSION}_${ARCH}" ts.tgz ts.tgz.sha256; \
+    tailscale version; \
+    tailscaled --version;
+
 # Install cursor-agent CLI (installs to ~/.local/bin)
 ENV PATH="/root/.local/bin:${PATH}"
 RUN set -eux; \

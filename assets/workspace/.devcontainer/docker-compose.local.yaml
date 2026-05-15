@@ -22,4 +22,16 @@
 #       environment:
 #         - MY_API_KEY=secret123
 
+# Optional: Tailscale SSH for direct mesh access (e.g. Cursor GUI workaround).
+# Generate an auth key at https://login.tailscale.com/admin/settings/keys
+# (Reusable + Ephemeral recommended). The base docker-compose.yml already
+# ships /dev/net/tun + NET_ADMIN/NET_RAW + the tailscale-state volume; setting
+# TAILSCALE_AUTHKEY here is the only opt-in step. See docs/designs/tailscale-ssh.md.
+#
+#   services:
+#     devcontainer:
+#       environment:
+#         - TAILSCALE_AUTHKEY=tskey-auth-XXXX
+#         - TAILSCALE_HOSTNAME=myproject-devc-mybox  # optional override
+
 services: {}

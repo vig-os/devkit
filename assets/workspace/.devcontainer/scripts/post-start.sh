@@ -20,4 +20,12 @@ sudo chmod 666 /var/run/docker.sock 2>/dev/null || true
 echo "Syncing dependencies..."
 just --justfile "$PROJECT_ROOT/justfile" --working-directory "$PROJECT_ROOT" sync
 
+# Bring container into tailnet if TAILSCALE_AUTHKEY is set (no-op otherwise).
+# Image bake handles install; this script only handles runtime connect.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -x "$SCRIPT_DIR/setup-tailscale.sh" ]; then
+    "$SCRIPT_DIR/setup-tailscale.sh" connect || \
+        echo "Tailscale: connect failed but post-start continues (container still usable via devcontainer protocol)"
+fi
+
 echo "Post-start setup complete"
