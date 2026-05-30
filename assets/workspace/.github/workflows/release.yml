@@ -48,7 +48,7 @@ permissions:
 jobs:
   resolve-image:
     name: Resolve image tag
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     outputs:
       image-tag: ${{ steps.resolve.outputs.image-tag }}
@@ -116,7 +116,7 @@ jobs:
   rollback:
     name: Rollback on Failure
     needs: [resolve-image, core, extension, publish]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
     timeout-minutes: 10

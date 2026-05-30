@@ -46,7 +46,7 @@ permissions:
 jobs:
   validate:
     name: Validate Release Preparation
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       version: ${{ steps.vars.outputs.version }}
@@ -147,7 +147,7 @@ jobs:
   prepare:
     name: Prepare Release Branch
     needs: validate
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     if: ${{ github.event.inputs.dry-run != 'true' }}
     permissions:

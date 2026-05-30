@@ -61,7 +61,7 @@ permissions:
 jobs:
   validate:
     name: Validate Release
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -466,7 +466,7 @@ jobs:
   finalize:
     name: Finalize Release
     needs: validate
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     if: ${{ github.event.inputs.dry-run != 'true' }}
     permissions:
@@ -808,7 +808,7 @@ jobs:
   publish:
     name: Publish Release
     needs: [validate, finalize, build-and-test]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
       contents: write       # create and push tags
@@ -1263,7 +1263,7 @@ jobs:
   smoke-test:
     name: Smoke-Test Dispatch
     needs: [validate, finalize, publish]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     if: ${{ github.event.inputs.dry-run != 'true' }}
     permissions:
@@ -1368,7 +1368,7 @@ jobs:
     # Rollback is intentionally scoped to pre-publish/publish failures.
     # Dispatch-only smoke-test failures happen after publish; automation does not delete tags or reset branches (forward-fix policy).
     needs: [validate, finalize, build-and-test, publish]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     if: ${{ always() && (needs.validate.result == 'failure' || needs.finalize.result == 'failure' || needs.build-and-test.result == 'failure' || needs.publish.result == 'failure') }}
     permissions:

@@ -26,7 +26,7 @@ permissions:
 jobs:
   resolve-image:
     name: Resolve image tag
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     outputs:
       image-tag: ${{ steps.resolve.outputs.image-tag }}
@@ -46,7 +46,7 @@ jobs:
   validate:
     name: Validate promote prerequisites
     needs: [resolve-image]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
     timeout-minutes: 15
@@ -219,7 +219,7 @@ jobs:
   promote:
     name: Publish GitHub Release
     needs: [resolve-image, validate]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
     timeout-minutes: 10
@@ -258,7 +258,7 @@ jobs:
   merge:
     name: Merge release PR to main
     needs: [resolve-image, validate, promote]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
     timeout-minutes: 10
@@ -375,7 +375,7 @@ jobs:
   cleanup:
     name: Cleanup git RC tags
     needs: [resolve-image, validate, promote, merge]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
     timeout-minutes: 15

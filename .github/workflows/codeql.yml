@@ -31,7 +31,7 @@ permissions: {}  # restrict default; job declares its own
 jobs:
   analyze:
     name: CodeQL Analysis
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       security-events: write   # upload SARIF results

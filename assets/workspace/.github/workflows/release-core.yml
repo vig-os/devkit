@@ -74,7 +74,7 @@ permissions:
 jobs:
   resolve-image:
     name: Resolve image tag
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     outputs:
       image-tag: ${{ steps.resolve.outputs.image-tag }}
@@ -94,7 +94,7 @@ jobs:
   validate:
     name: Validate Release Core
     needs: [resolve-image]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: read
@@ -326,7 +326,7 @@ jobs:
   finalize:
     name: Finalize Release Core
     needs: validate
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     permissions:
       actions: write
       contents: write
@@ -516,7 +516,7 @@ jobs:
   test:
     name: Test Finalized Release
     needs: [validate, finalize]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.validate.outputs.image_tag }}
       env:

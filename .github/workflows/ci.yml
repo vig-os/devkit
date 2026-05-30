@@ -42,7 +42,7 @@ permissions:
 jobs:
   build-image:
     name: Build Container Image
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Build image once and share via tar artifact to avoid rebuilding in each test job
     # Trade-off: tar transfer is slower but ensures all tests use identical image
@@ -103,7 +103,7 @@ jobs:
   test-image:
     name: Image Tests
     needs: build-image
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     if: |
       github.event_name != 'workflow_dispatch' ||
@@ -129,7 +129,7 @@ jobs:
   test-integration:
     name: Integration Tests
     needs: build-image
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     if: |
       github.event_name != 'workflow_dispatch' ||
@@ -164,7 +164,7 @@ jobs:
 
   project-checks:
     name: Project Checks
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     if: |
       github.event_name != 'workflow_dispatch' ||
@@ -180,7 +180,7 @@ jobs:
 
   python-security:
     name: Python Security Scan
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     if: |
       github.event_name != 'workflow_dispatch' ||
@@ -235,7 +235,7 @@ jobs:
   security-scan:
     name: Security Scan
     needs: build-image
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     if: |
       github.event_name != 'workflow_dispatch' ||
@@ -324,7 +324,7 @@ jobs:
 
   dependency-review:
     name: Dependency Review
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     if: github.event_name == 'pull_request'
     permissions:
@@ -400,7 +400,7 @@ jobs:
 
   summary:
     name: Test Summary
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     needs:
       - build-image

@@ -44,7 +44,7 @@ permissions:
 jobs:
   resolve-image:
     name: Resolve image tag
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     outputs:
       image-tag: ${{ steps.resolve.outputs.image-tag }}
@@ -67,7 +67,7 @@ jobs:
   lint:
     name: Lint & Format
     needs: [resolve-image]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
       env:
@@ -97,7 +97,7 @@ jobs:
   test:
     name: Tests
     needs: [resolve-image]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
       env:
@@ -124,7 +124,7 @@ jobs:
 
   summary:
     name: CI Summary
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     needs: [resolve-image, lint, test]
     if: always()
