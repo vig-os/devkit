@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-06-04T04:14:20Z
+updated: 2026-06-06T19:02:59Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devcontainer/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-06-04T06:50:12.027Z
+synced: 2026-06-07T06:37:16.914Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devcontainer/issues/529)
@@ -54,8 +54,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - [ ] <!-- rebase-branch=renovate/python-3.12-slim-bookworm -->[build(docker): update python:3.12-slim-bookworm docker digest to 93ab4b7](../pull/531)
  - [ ] <!-- rebase-branch=renovate/actions-create-github-app-token-digest -->[chore(deps): update actions/create-github-app-token digest to bcd2ba4](../pull/532)
  - [ ] <!-- rebase-branch=renovate/astral-sh-setup-uv-digest -->[chore(deps): update astral-sh/setup-uv digest to 37802ad](../pull/533)
- - [ ] <!-- rebase-branch=renovate/github-codeql-action-digest -->[chore(deps): update github/codeql-action digest to 87557b9](../pull/534)
- - [ ] <!-- rebase-branch=renovate/taiki-e-install-action-digest -->[chore(deps): update taiki-e/install-action digest to 4272625](../pull/535)
+ - [ ] <!-- rebase-branch=renovate/github-codeql-action-digest -->[chore(deps): update github/codeql-action digest to 8aad20d](../pull/534)
+ - [ ] <!-- rebase-branch=renovate/taiki-e-install-action-digest -->[chore(deps): update taiki-e/install-action digest to 95b969f](../pull/535)
  - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch)](../pull/536) (`actions/cache`, `actions/checkout`, `actions/setup-node`, `actions/upload-artifact`, `aquasecurity/trivy`, `aquasecurity/trivy-action`, `astral-sh/uv`, `docker/build-push-action`, `docker/login-action`, `docker/metadata-action`, `docker/setup-buildx-action`)
  - [ ] <!-- rebase-branch=renovate/python-3.x -->[build(docker): update python docker tag to v3.14](../pull/537)
  - [ ] <!-- rebase-branch=renovate/devcontainers-cli-0.x -->[build(npm): update dependency @devcontainers/cli to v0.87.0](../pull/538)
