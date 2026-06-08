@@ -69,6 +69,7 @@ jobs:
 
       - name: Update CHANGELOG.md from Renovate PR metadata
         id: update
+        shell: bash
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}

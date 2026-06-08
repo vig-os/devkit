@@ -59,7 +59,7 @@ repos:
         types: [toml]
       - id: taplo-lint
         name: taplo-lint
-        entry: taplo lint --config .taplo.toml --default-schema-catalogs
+        entry: taplo lint --config .taplo.toml
         language: system
         types: [toml]
 

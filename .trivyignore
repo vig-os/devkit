@@ -1,144 +1,25 @@
 # Trivy Vulnerability Ignore Policy
 # This file documents known vulnerabilities that are either:
 # 1. Not exploitable in container context
-# 2. Fixed in the latest patches but may lag in Trivy DB
+# 2. Fixed upstream but awaiting propagation to shipped binaries/packages
 # 3. Have acceptable risk for devcontainer usage
+#
+# Each entry requires an Expiration date. Expired entries cause CI to fail,
+# forcing periodic review. Tracking: https://github.com/vig-os/devcontainer/issues/512
 
-# CVE-2026-0861: glibc integer overflow in memalign
-# Risk Assessment: LOW
-# - Requires specific malloc patterns not triggered by normal Python/tool usage
-# - No known public exploits targeting memalign in containerized environments
-# - System library; cannot be removed without breaking core functionality
-# - Patched upstream; awaiting propagation to stable Debian releases
-# Mitigation: Image updated to latest Debian stable with available patches
-Expiration: 2026-06-01
-CVE-2026-0861
-
-# CVE-2025-14831: GnuTLS DoS via certificate verification
-# Risk Assessment: LOW
-# - Requires attacker control of certificate chain during connection
-# - Devcontainer uses GnuTLS only for SSH/TLS connections to known hosts
-# - Impact is denial of service only, not code execution
-# - Will be patched in Debian stable updates
-Expiration: 2026-05-15
-CVE-2025-14831
-
-# CVE-2025-59375: libexpat DoS via crafted file
-# Risk Assessment: LOW
-# - Requires attacker to provide malicious XML files
-# - Used indirectly by system tools; not directly exposed in devcontainer
-# - No user-controlled XML parsing in primary workflows
-Expiration: 2026-05-15
-CVE-2025-59375
-
-# CVE-2025-7709: SQLite integer overflow in FTS5
-# Risk Assessment: LOW
-# - Requires specific FTS5 query patterns
-# - SQLite in container used only for pre-commit and build caching
-# - No direct user input to SQLite databases
-# - Impact would be denial of service, not code execution
-Expiration: 2026-05-15
-CVE-2025-7709
-
-# CVE-2023-50495: ncurses segmentation fault
-# Risk Assessment: LOW
-# - Requires specific terminal control sequences
-# - Terminal environment is controlled by container operator
-# - No public exploits known
-Expiration: 2026-05-15
-CVE-2023-50495
-
-# CVE-2025-69720: ncurses buffer overflow
-# Risk Assessment: LOW (devcontainer context)
-# - HIGH severity; may lead to arbitrary code execution via crafted terminal sequences
-# - Terminal environment is controlled by the container operator, not untrusted remote users
-# - No Debian stable fix available yet (Trivy status: affected)
-# - Tracking: https://github.com/vig-os/devcontainer/issues/512
-Expiration: 2026-06-01
-CVE-2025-69720
-
-# CVE-2025-7458: SQLite integer overflow
-# Risk Assessment: LOW (devcontainer context)
-# - CRITICAL severity in Trivy/NVD; no Debian stable fix available yet (Trivy status: affected)
-# - SQLite used only for pre-commit and build tooling caches, not as an app database
-# - No attacker-controlled SQL/query surface in primary devcontainer workflows
-# - Tracking: https://github.com/vig-os/devcontainer/issues/512
-Expiration: 2026-06-01
-CVE-2025-7458
-
-# CVE-2026-29111: systemd arbitrary code execution or DoS via spurious IPC
-# Risk Assessment: LOW (devcontainer context)
-# - HIGH severity; libsystemd0/libudev1 pulled transitively by base image and tools
-# - Single-user dev environment; not a multi-tenant service exposing systemd IPC to attackers
-# - No Debian stable fix available yet (Trivy status: affected)
-# - Tracking: https://github.com/vig-os/devcontainer/issues/512
-Expiration: 2026-06-01
-CVE-2026-29111
-
-# CVE-2023-45853: zlib/minizip integer overflow and heap buffer overflow
-# Risk Assessment: LOW (devcontainer context)
-# - CRITICAL in vendor DBs; Debian marks will_not_fix (minizip code path not exposed by package)
-# - Core zlib usage in image does not invoke the vulnerable minizip entry point as shipped
-# - No actionable package upgrade in bookworm; accept until base image rebases
-# - Tracking: https://github.com/vig-os/devcontainer/issues/512
-Expiration: 2026-06-01
-CVE-2023-45853
-
-# CVE-2026-32281: crypto/x509 inefficient certificate chain validation (DoS)
+# CVE-2026-42504: Go stdlib MIME header DoS in gh binary
 # Risk Assessment: LOW (devcontainer context)
 # - HIGH severity in Go stdlib embedded in gh (GitHub CLI) binary
-# - Requires pathological certificate chains; gh validates chains for GitHub API TLS only
-# - gh connects only to GitHub APIs; no user-facing TLS server in devcontainer
-# - Fixed in newer Go releases; awaiting upstream gh rebuild with patched stdlib
+# - Requires maliciously-crafted MIME headers; gh validates GitHub API responses only
+# - Fixed in Go 1.26.4; awaiting upstream gh release rebuilt with patched stdlib
 # - Tracking: https://github.com/vig-os/devcontainer/issues/512
-Expiration: 2026-05-15
-CVE-2026-32281
-
-# CVE-2026-32288: archive/tar denial of service via malicious archive
-# Risk Assessment: LOW (devcontainer context)
-# - HIGH severity in Go stdlib embedded in gh binary
-# - Requires attacker-supplied tar archives; gh does not process untrusted archives in typical devcontainer flows
-# - Impact is denial of service, not code execution
-# - Fixed in newer Go releases; awaiting upstream gh release
-# - Tracking: https://github.com/vig-os/devcontainer/issues/512
-Expiration: 2026-05-15
-CVE-2026-32288
-
-# CVE-2026-32289: html/template XSS via JS template literal context
-# Risk Assessment: LOW (devcontainer context)
-# - HIGH severity in Go stdlib embedded in gh binary
-# - Affects HTML template rendering; gh is a CLI client, not a web server serving user HTML
-# - Fixed in newer Go releases; awaiting upstream gh release
-# - Tracking: https://github.com/vig-os/devcontainer/issues/512
-Expiration: 2026-05-15
-CVE-2026-32289
-
-# CVE-2026-25727: time stack exhaustion denial of service
-# Risk Assessment: LOW (devcontainer context)
-# - HIGH severity; reported in typos (pre-commit hook) dependency tree / Cargo.lock
-# - typos runs offline spell-check on repo files; no attacker-controlled time parsing surface
-# - Awaiting upstream typos or dependency release with patched version
-# - Tracking: https://github.com/vig-os/devcontainer/issues/512
-Expiration: 2026-05-15
-CVE-2026-25727
+Expiration: 2026-09-01
+CVE-2026-42504
 
 # jwt-token: Trivy secret scan false positive
 # Risk Assessment: N/A (not a vulnerability)
-# - JWT-like string in typos crate test fixtures under /opt/pre-commit-cache (e.g. tokens.rs)
+# - JWT-like string in typos crate test fixtures under /opt/pre-commit-cache
 # - Not a live credential; embedded test data only
 # - Tracking: https://github.com/vig-os/devcontainer/issues/512
-Expiration: 2026-05-15
+Expiration: 2026-09-01
 jwt-token
-
-# CVE-2026-31812: quinn-proto unauthenticated remote DoS via QUIC transport parameter panic
-# Risk Assessment: LOW (devcontainer context)
-# - HIGH severity in quinn-proto v0.11.12 embedded in uv/uvx Rust binaries
-# - Affects QUIC transport parameter handling and may panic on malformed unauthenticated input
-# - uv/uvx in this image is used for package downloads from trusted registries, not as a QUIC server
-# - No user-facing QUIC endpoint is exposed by devcontainer workflows
-# - Fixed in quinn-proto v0.11.14; awaiting upstream uv release with patched dependency
-Expiration: 2026-05-15
-CVE-2026-31812
-
-# Tracking: https://github.com/vig-os/devcontainer
-# Upstream: https://github.com/aquasecurity/trivy/
