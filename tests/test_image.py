@@ -21,7 +21,7 @@ EXPECTED_VERSIONS = {
     "curl": "8.",  # Major version check (from apt package)
     "gh": "2.93.",  # Minor version check (GitHub CLI, manually installed from latest release)
     "uv": "0.11.",  # Minor version check (manually installed from latest release)
-    "python": "3.12",  # Python (from base image)
+    "python": "3.14",  # Python (from base image)
     "pre_commit": "4.5.",  # Minor version check (installed via uv pip)
     "ruff": "0.15.",  # Minor version check (installed via uv pip)
     "bandit": "1.9.",  # Minor version check (installed via uv pip)
