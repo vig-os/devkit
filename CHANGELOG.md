@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- **Renovate PR CI gates expired or broken** ([#550](https://github.com/vig-os/devcontainer/issues/550))
+  - Renovate changelog workflow now runs under `bash` so `set -euo pipefail` works inside the container
+  - Taplo lint hook uses `--no-default-schema-catalogs` after remote catalog fetch started failing
+  - Renewed dependency-review allow-list exception for bats-file false positive (`GHSA-wvrr-2x4r-394v`)
+
 ## [0.3.4](https://github.com/vig-os/devcontainer/releases/tag/0.3.4) - 2026-04-29
 
 ### Added
