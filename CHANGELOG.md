@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Added
+
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [0.3.5] - TBD
+
+### Changed
+
+- **Consolidate Renovate dependency updates** ([#550](https://github.com/vig-os/devcontainer/issues/550))
+  - Python 3.12 → 3.14.5 (`Containerfile`, `requires-python`, and lockfile)
+  - CI runners `ubuntu-22.04` → `24.04` and Node.js 22 → 24
+  - GitHub Actions major bumps: `setup-node` v6, `setup-uv` v8, `github-script` v9
+  - SHA-pinned digest updates for checkout, codeql, create-github-app-token, and taiki-e/install-action
+  - Pin Python, npm, and workspace template dependencies to exact versions ([#530](https://github.com/vig-os/devcontainer/issues/530))
+  - `@devcontainers/cli` 0.87.0 ([#538](https://github.com/vig-os/devcontainer/issues/538))
+
+- **Bump expected tool versions in image tests**
+  - `gh` 2.92 → 2.93, `just` 1.50 → 1.52, `cargo-binstall` 1.18 → 1.19 to match latest upstream releases
+
+- **Consolidate Renovate dependency updates (553–556)** ([#553](https://github.com/vig-os/devcontainer/issues/553), [#554](https://github.com/vig-os/devcontainer/issues/554), [#555](https://github.com/vig-os/devcontainer/issues/555), [#556](https://github.com/vig-os/devcontainer/issues/556))
+  - Pin `pytest` to 9.0.3, bump `pytest-cov` to 7.1.0, `rich` to 15.0.0
+  - Bump `github-backup` to 0.62.1, `pre-commit` to 4.6.0, `ruff` to 0.15.16, `pip-licenses` to 5.5.5
+  - Bump expected `pre-commit` version in image tests to 4.6
+  - Bump `actions/dependency-review-action` to v5.0.0
+
 ### Fixed
 
 - **Renovate PR CI gates expired or broken** ([#550](https://github.com/vig-os/devcontainer/issues/550))
@@ -56,25 +89,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Add `assets/workspace/SECURITY.md` so generated and smoke-test repos ship a security policy (clears Scorecard `SecurityPolicyID` on the next release re-sync)
   - Document `FuzzingID` and `CIIBestPracticesID` as accepted won't-fix posture in the template policy
   - Document smoke-test-specific accepted findings (branch-protection, code-review, pinned `download-then-run`) in the `assets/smoke-test/` overlay, accepted because the deploy-validation repo runs fully unattended
-
-### Changed
-
-- **Consolidate Renovate dependency updates** ([#550](https://github.com/vig-os/devcontainer/issues/550))
-  - Python 3.12 → 3.14.5 (`Containerfile`, `requires-python`, and lockfile)
-  - CI runners `ubuntu-22.04` → `24.04` and Node.js 22 → 24
-  - GitHub Actions major bumps: `setup-node` v6, `setup-uv` v8, `github-script` v9
-  - SHA-pinned digest updates for checkout, codeql, create-github-app-token, and taiki-e/install-action
-  - Pin Python, npm, and workspace template dependencies to exact versions ([#530](https://github.com/vig-os/devcontainer/issues/530))
-  - `@devcontainers/cli` 0.87.0 ([#538](https://github.com/vig-os/devcontainer/issues/538))
-
-- **Bump expected tool versions in image tests**
-  - `gh` 2.92 → 2.93, `just` 1.50 → 1.52, `cargo-binstall` 1.18 → 1.19 to match latest upstream releases
-
-- **Consolidate Renovate dependency updates (553–556)** ([#553](https://github.com/vig-os/devcontainer/issues/553), [#554](https://github.com/vig-os/devcontainer/issues/554), [#555](https://github.com/vig-os/devcontainer/issues/555), [#556](https://github.com/vig-os/devcontainer/issues/556))
-  - Pin `pytest` to 9.0.3, bump `pytest-cov` to 7.1.0, `rich` to 15.0.0
-  - Bump `github-backup` to 0.62.1, `pre-commit` to 4.6.0, `ruff` to 0.15.16, `pip-licenses` to 5.5.5
-  - Bump expected `pre-commit` version in image tests to 4.6
-  - Bump `actions/dependency-review-action` to v5.0.0
 
 ## [0.3.4](https://github.com/vig-os/devcontainer/releases/tag/0.3.4) - 2026-04-29
 
