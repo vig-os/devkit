@@ -27,6 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Patched `libgnutls30` to `3.7.9-2+deb12u7` for fixable GnuTLS CVEs
   - Rewrote `.trivyignore` from scratch with fresh expirations for unfixable findings only
 
+- **Resolve repo-owned workflow security findings** ([#562](https://github.com/vig-os/devcontainer/issues/562))
+  - Split Renovate changelog automation into read-only `pull_request` build + privileged `workflow_run` commit, removing `pull_request_target` and PR-head checkout under elevated permissions (Scorecard `DangerousWorkflowID`)
+  - Add GitHub Actions to CodeQL language matrix so stale `actions/missing-workflow-permissions` alerts auto-close on the next default-branch run
+  - Add explicit `permissions:` to workspace `release-extension.yml` template; downstream smoke-test updates flow through release re-sync
+  - Document accepted OpenSSF Scorecard posture (Fuzzing, CII) and verified branch-protection rulesets in `SECURITY.md`
+
 ### Changed
 
 - **Consolidate Renovate dependency updates** ([#550](https://github.com/vig-os/devcontainer/issues/550))
