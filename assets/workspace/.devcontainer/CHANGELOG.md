@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Refresh bundled gh and uv to clear Go and Rust CVEs** ([#564](https://github.com/vig-os/devcontainer/issues/564))
+  - Fresh image build pulls latest `gh` v2.93.0 and `uv` v0.11.19, clearing all bundled-tool HIGH findings except one awaiting upstream
+  - `uv`/`uvx` Rust crate CVEs (including `rustls-webpki` GHSA-82j2-j2ch-gfr8) no longer reported after rebuild
+  - Remaining `gh` Go-stdlib HIGH (CVE-2026-42504) kept in `.trivyignore` until `gh` ships a Go 1.26.4 rebuild
+
 - **Update pytest to v9.0.3** ([#528](https://github.com/vig-os/devcontainer/issues/528))
   - Security patch for pytest dependency bump
 

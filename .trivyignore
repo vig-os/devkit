@@ -11,8 +11,9 @@
 # Risk Assessment: LOW (devcontainer context)
 # - HIGH severity in Go stdlib embedded in gh (GitHub CLI) binary
 # - Requires maliciously-crafted MIME headers; gh validates GitHub API responses only
-# - Fixed in Go 1.26.4; awaiting upstream gh release rebuilt with patched stdlib
-# - Tracking: https://github.com/vig-os/devcontainer/issues/512
+# - Latest gh v2.93.0 (2026-05-27) still embeds Go 1.26.3; fix requires Go 1.26.4 rebuild
+# - Fresh image build (gh 2.93.0, uv 0.11.19) cleared all other bundled-tool HIGH findings
+# - Tracking: https://github.com/vig-os/devcontainer/issues/512, #564
 Expiration: 2026-09-01
 CVE-2026-42504
 
