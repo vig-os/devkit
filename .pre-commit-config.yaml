@@ -165,6 +165,16 @@ repos:
         files: ^\.cursor/skills/
         pass_filenames: false
 
+  # Security exception expiry enforcement (Refs: #566)
+  - repo: local
+    hooks:
+      - id: check-expirations
+        name: check-expirations (.trivyignore expiry enforcement)
+        entry: uv run check-expirations .trivyignore
+        language: system
+        files: ^\.trivyignore$
+        pass_filenames: false
+
   # AI agent identity: strip trailers before commit-msg (Refs: #163)
   - repo: local
     hooks:

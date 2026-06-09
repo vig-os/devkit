@@ -249,6 +249,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
+      - name: Set up environment
+        uses: ./.github/actions/setup-env
+        with:
+          sync-dependencies: 'true'
+
+      - name: Validate .trivyignore exception expirations
+        run: uv run check-expirations .trivyignore
+
       - name: Download image artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
@@ -335,9 +343,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
 
+      - name: Set up environment
+        uses: ./.github/actions/setup-env
+        with:
+          sync-dependencies: 'true'
+
       - name: Validate dependency-review exceptions
         id: exceptions
         run: |
+          set -euo pipefail
           FILE=".github/dependency-review-allow.txt"
           if [[ ! -f "$FILE" ]]; then
             echo "No exceptions file found — skipping"
@@ -345,52 +359,21 @@ jobs:
             exit 0
           fi
 
-          TODAY=$(date +%Y-%m-%d)
-          EXPIRED=()
-          VALID=()
-          EXPIRATION=""
+          uv run check-expirations "$FILE"
 
+          GHSA_LIST=""
           while IFS= read -r line || [[ -n "$line" ]]; do
-            # Skip blank lines and comments
             [[ -z "$line" || "$line" =~ ^[[:space:]]*# ]] && continue
-
-            # Parse Expiration directive
-            if [[ "$line" =~ ^Expiration:[[:space:]]*([0-9]{4}-[0-9]{2}-[0-9]{2}) ]]; then
-              EXPIRATION="${BASH_REMATCH[1]}"
-              continue
-            fi
-
-            # Parse GHSA identifier
+            [[ "$line" =~ ^Expiration: ]] && continue
             if [[ "$line" =~ ^GHSA- ]]; then
               ghsa="${line%%[[:space:]]*}"
-              if [[ -z "$EXPIRATION" ]]; then
-                echo "::error::${ghsa} has no Expiration directive"
-                exit 1
-              fi
-              if [[ "$TODAY" > "$EXPIRATION" ]]; then
-                EXPIRED+=("${ghsa} (expired ${EXPIRATION})")
-              else
-                VALID+=("$ghsa")
-              fi
-              EXPIRATION=""
+              [[ -n "$GHSA_LIST" ]] && GHSA_LIST+=", "
+              GHSA_LIST+="$ghsa"
             fi
           done < "$FILE"
 
-          if [[ ${#EXPIRED[@]} -gt 0 ]]; then
-            echo "::error::Expired dependency-review exceptions — review and renew or remove:"
-            for entry in "${EXPIRED[@]}"; do
-              echo "::error::  - ${entry}"
-            done
-            exit 1
-          fi
-
-          GHSA_LIST=""
-          for i in "${!VALID[@]}"; do
-            [[ $i -gt 0 ]] && GHSA_LIST+=", "
-            GHSA_LIST+="${VALID[$i]}"
-          done
           echo "allow-ghsas=${GHSA_LIST}" >> "$GITHUB_OUTPUT"
-          echo "Validated ${#VALID[@]} exception(s): ${GHSA_LIST:-none}"
+          echo "Validated dependency-review exceptions: ${GHSA_LIST:-none}"
 
       - name: Review dependencies for vulnerabilities
         uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0

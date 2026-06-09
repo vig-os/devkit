@@ -24,3 +24,119 @@ CVE-2026-42504
 # - Tracking: https://github.com/vig-os/devcontainer/issues/512
 Expiration: 2026-09-01
 jwt-token
+
+# Debian won't-fix LOW CVEs (Debian 12.14 OS packages)
+# Risk Assessment: LOW (devcontainer context)
+# - 78 unfixed LOW findings in Debian base packages; no upstream patch available
+# - Ancient or Debian-marked won't-fix/affected; not exploitable in isolated devcontainer use
+# - CI gates only fixable HIGH/CRITICAL (ignore-unfixed); these never block release
+# - Re-scan after each base-image digest bump; drop entries when Debian ships fixes
+# - Tracking: https://github.com/vig-os/devcontainer/issues/566, #512, #521
+Expiration: 2026-12-01
+# glibc
+CVE-2010-4756
+CVE-2018-20796
+CVE-2019-1010022
+CVE-2019-1010023
+CVE-2019-1010024
+CVE-2019-1010025
+CVE-2019-9192
+# perl
+CVE-2011-4116
+CVE-2023-31486
+# openssh-client
+CVE-2007-2243
+CVE-2007-2768
+CVE-2008-3234
+CVE-2016-20012
+CVE-2018-15919
+CVE-2019-6110
+CVE-2020-14145
+CVE-2020-15778
+# curl
+CVE-2024-2379
+CVE-2025-0725
+CVE-2025-10148
+CVE-2025-10966
+CVE-2025-14017
+CVE-2025-14524
+CVE-2025-14819
+CVE-2025-15079
+CVE-2025-15224
+# krb5
+CVE-2018-5709
+CVE-2024-26458
+CVE-2024-26461
+# systemd
+CVE-2013-4392
+CVE-2023-31437
+CVE-2023-31438
+CVE-2023-31439
+CVE-2026-40228
+# openldap
+CVE-2015-3276
+CVE-2017-14159
+CVE-2017-17740
+CVE-2020-15719
+CVE-2026-22185
+# git
+CVE-2018-1000021
+CVE-2022-24975
+CVE-2024-52005
+# sqlite
+CVE-2021-45346
+CVE-2025-29088
+CVE-2025-70873
+# expat
+CVE-2023-52426
+CVE-2024-28757
+CVE-2026-24515
+CVE-2026-41080
+# jq
+CVE-2024-23337
+CVE-2025-9403
+CVE-2026-40612
+# util-linux
+CVE-2022-0563
+CVE-2025-14104
+# coreutils
+CVE-2016-2781
+CVE-2017-18018
+CVE-2025-5278
+# gnupg
+CVE-2022-3219
+# ncurses
+CVE-2025-6141
+# gcc-binutils
+CVE-2022-27943
+# libgcrypt
+CVE-2018-6829
+CVE-2024-2236
+# iptables
+CVE-2012-2663
+# tar
+CVE-2005-2541
+TEMP-0290435-0B57B5
+# gnutls
+CVE-2011-3389
+# glib2
+CVE-2012-0039
+# openssl
+CVE-2025-27587
+# libtasn1
+CVE-2025-13151
+# rsync
+CVE-2026-41035
+CVE-2026-45232
+# nano
+CVE-2026-6842
+# sysvinit
+TEMP-0517018-A83CE6
+# bash
+TEMP-0841856-B18BAF
+# shadow-utils
+CVE-2007-5686
+CVE-2024-56433
+TEMP-0628843-DBAD28
+# apt
+CVE-2011-3374

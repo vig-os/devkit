@@ -79,6 +79,16 @@ documented in `.trivyignore` with:
 - An expiration date after which the entry must be re-evaluated.
 - A link to the tracking issue.
 
+Expired entries fail CI via `check-expirations` (pre-commit hook and CI
+workflows), forcing periodic review consistent with the IEC 62304 exception
+register model.
+
+As of the next release image (Debian 12.14 base), 78 unfixed LOW CVEs in OS
+packages are accepted in `.trivyignore` with expiration 2026-12-01. These
+have no available Debian patch; the nightly gate only fails on fixable
+HIGH/CRITICAL findings. Re-scan after each base-image digest bump and drop
+entries when Debian ships fixes. Tracking: #566, #512, #521.
+
 ## Why not `apt-get upgrade`?
 
 Running `apt-get upgrade` (or `dist-upgrade`) in the Containerfile has several

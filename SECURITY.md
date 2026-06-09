@@ -84,7 +84,17 @@ and risk management requirements of these standards.
 This project accepts and documents known vulnerabilities in test-only dependencies
 through expiration-enforced exception registers (`.github/dependency-review-allow.txt`
 and `.trivyignore`). These exceptions follow an IEC 62304 medtech-compliant risk
-assessment model:
+assessment model. Expired entries fail CI via the `check-expirations` utility
+(pre-commit hook and CI workflows).
+
+### Container Image LOW CVEs (Trivy Exceptions)
+
+After the next-release image refresh (Debian 12.14 base, buckets B–D remediated),
+78 unfixed LOW CVEs in Debian OS packages remain with no available patch. These
+are documented in `.trivyignore` with shared risk assessment and expiration
+2026-12-01. They do not gate CI or release (only fixable HIGH/CRITICAL do).
+The GitHub Security tab LOW count drops once `:latest` is refreshed to that
+image. Tracking: #566, #512, #521.
 
 ### Test Dependency Vulnerabilities (GHSA Exceptions)
 

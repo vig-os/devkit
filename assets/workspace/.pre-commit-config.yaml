@@ -82,3 +82,13 @@ repos:
     rev: 07d900b8fa1097806b8adb6391b0d3e0ac2fdea7  # v1.39.0
     hooks:
       - id: typos
+
+  # Security exception expiry enforcement (Refs: #566)
+  - repo: local
+    hooks:
+      - id: check-expirations
+        name: check-expirations (.trivyignore expiry enforcement)
+        entry: uv run check-expirations .trivyignore
+        language: system
+        files: ^\.trivyignore$
+        pass_filenames: false

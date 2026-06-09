@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Accept Debian won't-fix LOW CVEs in .trivyignore** ([#566](https://github.com/vig-os/devcontainer/issues/566))
+  - Document 78 unfixed LOW Debian OS-package CVEs from the next-release image with shared risk note and 2026-12-01 expiration
+  - Add `check-expirations` utility with pre-commit and CI enforcement so expired `.trivyignore` entries fail the pipeline
+  - Security tab LOW count drops after the next release refreshes `:latest`
+
 - **Bump base image digest and clear fixable OS-package CVEs** ([#565](https://github.com/vig-os/devcontainer/issues/565))
   - Pin `python:3.14-slim-bookworm` to latest upstream digest (`sha256:ec58d916…`)
   - Retain targeted `libgnutls30=3.7.9-2+deb12u7` upgrade (new base ships `deb12u6`; fixable GnuTLS CVEs require `deb12u7`)
