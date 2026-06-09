@@ -22,27 +22,29 @@ The `FROM` line in the Containerfile pins the base image to an immutable
 SHA-256 digest:
 
 ```dockerfile
-FROM python:3.12-slim-bookworm@sha256:<digest>
+FROM python:3.14-slim-bookworm@sha256:<digest>
 ```
 
-Dependabot (configured for the `docker` ecosystem) monitors the upstream image
-and opens a pull request whenever a new digest is published. Because the
-upstream maintainers rebuild the image to include Debian security patches, most
-CVEs are resolved simply by merging the Dependabot PR.
+Renovate (configured with the `dockerfile` manager in `renovate.json`) monitors
+the upstream image and opens a pull request whenever a new digest is published.
+Because the upstream maintainers rebuild the image to include Debian security
+patches, most CVEs are resolved simply by merging the Renovate PR.
 
 **Typical remediation time:** 1–7 days after the upstream image is rebuilt.
 
-### 2. Weekly Trivy scan (detection)
+### 2. Nightly Trivy scan (detection)
 
-The scheduled workflow (`.github/workflows/security-scan.yml`) builds the
-image every Monday and runs a full Trivy vulnerability scan. Results are:
+The scheduled workflow (`.github/workflows/security-scan.yml`) pulls the
+published `:latest` image nightly (05:00 UTC) and runs a full Trivy vulnerability
+scan. Results are:
 
 - Printed as a table in the workflow log.
 - Uploaded as a SARIF report to the GitHub Security tab.
 - Accompanied by a CycloneDX SBOM artifact.
 
-This scan is **non-blocking** (exit-code 0) and serves as an early-warning
-system for newly published CVEs.
+This scan is **non-blocking** for the full report (exit-code 0) and serves as
+an early-warning system for newly published CVEs. A separate gate step fails
+on fixable HIGH/CRITICAL findings (`ignore-unfixed: true`).
 
 ### 3. Targeted package upgrades (escape hatch)
 
@@ -111,7 +113,7 @@ New CVE detected by Trivy
            (with risk   No ──┤──── Yes
            assessment)  │         │
                         ▼         ▼
-                   Add targeted   Wait for Dependabot
+                   Add targeted   Wait for Renovate
                    --only-upgrade   digest update PR
                    to Containerfile
 ```
@@ -120,4 +122,4 @@ New CVE detected by Trivy
 
 - [Containerfile](../Containerfile) – Build definition with inline comments
 - [.trivyignore](../.trivyignore) – Accepted low-risk CVEs
-- [security-scan.yml](../.github/workflows/security-scan.yml) – Weekly scan workflow
+- [security-scan.yml](../.github/workflows/security-scan.yml) – Nightly scan workflow

@@ -1,7 +1,7 @@
 # Use Python 3.14 as base image (pinned to digest for supply chain integrity)
-# Dependabot (docker ecosystem) will propose digest updates automatically
+# Renovate (dockerfile manager) will propose digest updates automatically
 # Updated to bookworm (stable) for better security patch cadence
-FROM python:3.14-slim-bookworm@sha256:a9bee15510a364124aa24692899d269835683b883de42f7ebec8c293cf679ccb
+FROM python:3.14-slim-bookworm@sha256:ec58d916f9e24a6035cab2bdf07f6206c4cc092a16613c60597534711332d9d6
 
 # Add metadata
 # By default, we build the dev version unless specified as an argument
@@ -36,8 +36,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 # upgrade silently changes packages between builds, defeating that guarantee.
 #
 # Instead we rely on:
-#   1. Dependabot proposing base-image digest updates (covers most CVEs).
-#   2. Weekly Trivy scans (.github/workflows/security-scan.yml) for visibility.
+#   1. Renovate proposing base-image digest updates (covers most CVEs).
+#   2. Nightly Trivy scans (.github/workflows/security-scan.yml) for visibility.
 #   3. Targeted --only-upgrade for HIGH/CRITICAL CVEs that cannot wait for a
 #      new base image rebuild. Each entry must reference a CVE.
 #
