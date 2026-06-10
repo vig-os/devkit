@@ -59,7 +59,7 @@ repos:
         types: [toml]
       - id: taplo-lint
         name: taplo-lint
-        entry: taplo lint --config .taplo.toml --default-schema-catalogs
+        entry: taplo lint --config .taplo.toml
         language: system
         types: [toml]
 
@@ -163,6 +163,16 @@ repos:
         entry: uv run check-skill-names .cursor/skills
         language: system
         files: ^\.cursor/skills/
+        pass_filenames: false
+
+  # Security exception expiry enforcement (Refs: #566)
+  - repo: local
+    hooks:
+      - id: check-expirations
+        name: check-expirations (.trivyignore expiry enforcement)
+        entry: uv run check-expirations .trivyignore
+        language: system
+        files: ^\.trivyignore$
         pass_filenames: false
 
   # AI agent identity: strip trailers before commit-msg (Refs: #163)

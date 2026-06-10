@@ -24,10 +24,13 @@ on:  # yamllint disable-line rule:truthy
         required: true
         type: string
 
+permissions:
+  contents: read
+
 jobs:
   extension:
     name: Extension Hook (Default No-op)
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - name: Default extension summary
         env:

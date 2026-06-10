@@ -1,10 +1,10 @@
-# Append Keep-a-Changelog Unreleased entries for Renovate dependency PRs (Refs: #506).
-# Uses pull_request_target so the workflow definition always comes from the default branch.
+# Append Keep-a-Changelog Unreleased entries for Renovate dependency PRs (Refs: #506, #562).
+# Read-only build on pull_request; privileged commit runs via workflow_run from default branch.
 
-name: Renovate changelog
+name: Renovate changelog build
 
 on:  # yamllint disable-line rule:truthy
-  pull_request_target:
+  pull_request:
     types: [opened, synchronize]
 
 permissions: {}
@@ -15,7 +15,7 @@ jobs:
     if: >-
       github.event.pull_request.user.login == 'renovate[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 2
     permissions:
       contents: read
@@ -24,8 +24,9 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
+          ref: ${{ github.event.pull_request.base.ref }}
           sparse-checkout: |
             .vig-os
             .github/actions/resolve-image
@@ -35,12 +36,13 @@ jobs:
         id: resolve
         uses: ./.github/actions/resolve-image
 
-  changelog:
+  build:
+    name: Build changelog artifact
     if: >-
       github.event.pull_request.user.login == 'renovate[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
     needs: [resolve-image]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
     timeout-minutes: 10
@@ -48,27 +50,18 @@ jobs:
       group: renovate-changelog-${{ github.repository }}-${{ github.event.pull_request.number }}
       cancel-in-progress: true
     permissions:
-      contents: write
-      pull-requests: read
+      contents: read
 
     steps:
-      - name: Generate a token
-        id: generate-token
-        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859  # v3
-        with:
-          app-id: ${{ secrets.COMMIT_APP_ID }}
-          private-key: ${{ secrets.COMMIT_APP_PRIVATE_KEY }}
-
       - name: Checkout PR head
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
-          token: ${{ steps.generate-token.outputs.token }}
           persist-credentials: false
 
       - name: Update CHANGELOG.md from Renovate PR metadata
         id: update
+        shell: bash
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -83,16 +76,27 @@ jobs:
             echo "modified=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Commit changelog via API
-        if: steps.update.outputs.modified == 'true'
-        uses: vig-os/commit-action@1bc004353d08d9332a0cb54920b148256220c8e0  # v0.2.0
+      - name: Prepare changelog artifact
+        shell: bash
         env:
-          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          TARGET_BRANCH: refs/heads/${{ github.event.pull_request.head.ref }}
-          MAX_ATTEMPTS: "3"
-          COMMIT_MESSAGE: |-
-            docs(changelog): add unreleased entry for renovate PR ${{ github.event.pull_request.number }}
+          MODIFIED: ${{ steps.update.outputs.modified }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          mkdir -p changelog-artifact
+          {
+            echo "MODIFIED=${MODIFIED}"
+            echo "PR_NUMBER=${PR_NUMBER}"
+            echo "HEAD_REF=${HEAD_REF}"
+          } > changelog-artifact/metadata.env
+          if [[ "${MODIFIED}" == "true" ]]; then
+            cp CHANGELOG.md changelog-artifact/
+          fi
 
-            Refs: #${{ github.event.pull_request.number }}
-          FILE_PATHS: CHANGELOG.md
+      - name: Upload changelog artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: renovate-changelog
+          path: changelog-artifact/
+          retention-days: 1

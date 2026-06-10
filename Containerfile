@@ -1,7 +1,12 @@
-# Use Python 3.12 as base image (pinned to digest for supply chain integrity)
-# Dependabot (docker ecosystem) will propose digest updates automatically
+# Use Python 3.14 as base image (pinned to digest for supply chain integrity)
+# Renovate (dockerfile manager) will propose digest updates automatically
 # Updated to bookworm (stable) for better security patch cadence
-FROM python:3.12-slim-bookworm@sha256:d97792894a6a4162cae14da44542a83c75e56c77a27b92d58f3f83b7bc961292
+#
+# IMPORTANT: this MUST be the multi-arch *index* digest (the top-level
+# `Digest:` from `docker buildx imagetools inspect python:3.14-slim-bookworm`),
+# never a per-platform child manifest. Pinning a single-arch (amd64) child
+# manifest breaks the arm64 release build with "exec format error" (see #578).
+FROM python:3.14-slim-bookworm@sha256:a9bee15510a364124aa24692899d269835683b883de42f7ebec8c293cf679ccb
 
 # Add metadata
 # By default, we build the dev version unless specified as an argument
@@ -36,8 +41,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 # upgrade silently changes packages between builds, defeating that guarantee.
 #
 # Instead we rely on:
-#   1. Dependabot proposing base-image digest updates (covers most CVEs).
-#   2. Weekly Trivy scans (.github/workflows/security-scan.yml) for visibility.
+#   1. Renovate proposing base-image digest updates (covers most CVEs).
+#   2. Nightly Trivy scans (.github/workflows/security-scan.yml) for visibility.
 #   3. Targeted --only-upgrade for HIGH/CRITICAL CVEs that cannot wait for a
 #      new base image rebuild. Each entry must reference a CVE.
 #
@@ -49,10 +54,15 @@ ENV DEBIAN_FRONTEND=noninteractive
 #     <package>=<version> \  # CVE-XXXX-XXXXX
 #     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# CVE-2026-28390, CVE-2026-31790 (OpenSSL; bookworm-security ahead of base digest)
+# CVE-2026-33845, CVE-2026-33846, CVE-2026-3833, CVE-2026-42009, CVE-2026-42010 (GnuTLS; bookworm-security)
 RUN apt-get update && apt-get install -y --no-install-recommends --only-upgrade \
-    libssl3=3.0.19-1~deb12u2 \
-    openssl=3.0.19-1~deb12u2 \
+    libgnutls30=3.7.9-2+deb12u7 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# CVE-2026-45447 (OpenSSL PKCS#7/S-MIME; bookworm-security)
+RUN apt-get update && apt-get install -y --no-install-recommends --only-upgrade \
+    libssl3=3.0.20-1~deb12u2 \
+    openssl=3.0.20-1~deb12u2 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install minimal system dependencies

@@ -61,7 +61,10 @@ src = ".github/ISSUE_TEMPLATE/"
 src = ".github/actions/resolve-image/"
 
 [[entries]]
-src = ".github/workflows/renovate-changelog.yml"
+src = ".github/workflows/renovate-changelog-build.yml"
+
+[[entries]]
+src = ".github/workflows/renovate-changelog-commit.yml"
 
 [[entries]]
 src = ".github/workflows/scorecard.yml"

@@ -41,7 +41,7 @@ env:
 jobs:
   validate:
     name: Validate dispatch payload
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       tag: ${{ steps.extract.outputs.tag }}
@@ -140,7 +140,7 @@ jobs:
 
   deploy:
     name: Deploy tag and open PR to dev
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     needs: validate
     outputs:
@@ -148,7 +148,7 @@ jobs:
     steps:
       - name: Generate release app token for PR/issue operations
         id: generate_release_token
-        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859  # v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
@@ -157,7 +157,7 @@ jobs:
 
       - name: Generate commit app token for signed commits
         id: generate_commit_token
-        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859  # v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
         with:
           app-id: ${{ secrets.COMMIT_APP_ID }}
           private-key: ${{ secrets.COMMIT_APP_PRIVATE_KEY }}
@@ -165,7 +165,7 @@ jobs:
           repositories: ${{ github.event.repository.name }}
 
       - name: Checkout dev branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
         with:
           ref: dev
           fetch-depth: 0
@@ -322,7 +322,7 @@ jobs:
 
   wait-deploy-merge:
     name: Wait for deploy PR merge
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     needs: deploy
     permissions:
@@ -371,7 +371,7 @@ jobs:
 
   cleanup-release:
     name: Cleanup stale release branch and PR
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
       GH_REPO: ${{ github.repository }}
@@ -379,7 +379,7 @@ jobs:
     steps:
       - name: Generate release app token for PR/branch cleanup
         id: generate_release_token
-        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859  # v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
@@ -412,7 +412,7 @@ jobs:
 
   trigger-prepare-release:
     name: Trigger and wait for prepare-release workflow
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
       GH_REPO: ${{ github.repository }}
@@ -422,7 +422,7 @@ jobs:
     steps:
       - name: Generate release app token for workflow dispatch
         id: generate_release_token
-        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859  # v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
@@ -506,7 +506,7 @@ jobs:
 
   ready-release-pr:
     name: Prepare release PR
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
       contents: read
@@ -520,7 +520,7 @@ jobs:
     steps:
       - name: Generate release app token for PR operations
         id: generate_release_token
-        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859  # v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
@@ -583,7 +583,7 @@ jobs:
 
   trigger-release:
     name: Trigger and wait for release workflow
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
       GH_REPO: ${{ github.repository }}
@@ -591,7 +591,7 @@ jobs:
     steps:
       - name: Generate release app token for release workflow dispatch
         id: generate_release_token
-        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859  # v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
@@ -663,7 +663,7 @@ jobs:
 
   wait-release-pr-ci:
     name: Wait for release PR required checks
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
       GH_REPO: ${{ github.repository }}
@@ -671,7 +671,7 @@ jobs:
     steps:
       - name: Generate release app token for PR checks
         id: generate_release_token
-        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859  # v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
@@ -748,7 +748,7 @@ jobs:
 
   trigger-promote-release:
     name: Trigger and wait for promote-release workflow
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
       GH_REPO: ${{ github.repository }}
@@ -757,7 +757,7 @@ jobs:
     steps:
       - name: Generate release app token for promote-release dispatch
         id: generate_release_token
-        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859  # v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
@@ -820,7 +820,7 @@ jobs:
 
   summary:
     name: Dispatch summary
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     needs:
       - validate
@@ -945,7 +945,7 @@ jobs:
 
   notify-failure:
     name: Notify upstream on smoke-test dispatch failure
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     if: failure()
     needs:
@@ -962,7 +962,7 @@ jobs:
     steps:
       - name: Generate release app token for upstream issue creation
         id: generate_release_token
-        uses: actions/create-github-app-token@f8d387b68d61c58ab83c6c016672934102569859  # v3
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
         with:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}

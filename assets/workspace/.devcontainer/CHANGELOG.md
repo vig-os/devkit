@@ -5,6 +5,82 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.5](https://github.com/vig-os/devcontainer/releases/tag/0.3.5) - 2026-06-10
+
+### Changed
+
+- **Consolidate Renovate dependency updates** ([#550](https://github.com/vig-os/devcontainer/issues/550))
+  - Python 3.12 → 3.14.5 (`Containerfile`, `requires-python`, and lockfile)
+  - CI runners `ubuntu-22.04` → `24.04` and Node.js 22 → 24
+  - GitHub Actions major bumps: `setup-node` v6, `setup-uv` v8, `github-script` v9
+  - SHA-pinned digest updates for checkout, codeql, create-github-app-token, and taiki-e/install-action
+  - Pin Python, npm, and workspace template dependencies to exact versions ([#530](https://github.com/vig-os/devcontainer/issues/530))
+  - `@devcontainers/cli` 0.87.0 ([#538](https://github.com/vig-os/devcontainer/issues/538))
+
+- **Bump expected tool versions in image tests**
+  - `gh` 2.92 → 2.93, `just` 1.50 → 1.52, `cargo-binstall` 1.18 → 1.20 to match latest upstream releases
+
+- **Consolidate Renovate dependency updates (553–556)** ([#553](https://github.com/vig-os/devcontainer/issues/553), [#554](https://github.com/vig-os/devcontainer/issues/554), [#555](https://github.com/vig-os/devcontainer/issues/555), [#556](https://github.com/vig-os/devcontainer/issues/556))
+  - Pin `pytest` to 9.0.3, bump `pytest-cov` to 7.1.0, `rich` to 15.0.0
+  - Bump `github-backup` to 0.62.1, `pre-commit` to 4.6.0, `ruff` to 0.15.16, `pip-licenses` to 5.5.5
+  - Bump expected `pre-commit` version in image tests to 4.6
+  - Bump `actions/dependency-review-action` to v5.0.0
+
+### Fixed
+
+- **Renovate PR CI gates expired or broken** ([#550](https://github.com/vig-os/devcontainer/issues/550))
+  - Renovate changelog workflow now runs under `bash` so `set -euo pipefail` works inside the container
+  - Taplo lint hook no longer fetches remote schema catalogs (fetch started failing in taplo 0.10)
+  - Renewed dependency-review allow-list exception for bats-file false positive (`GHSA-wvrr-2x4r-394v`)
+
+- **Image tests red on stale cargo-binstall pin** ([#557](https://github.com/vig-os/devcontainer/issues/557))
+  - Bump expected `cargo-binstall` to 1.20 to match the latest upstream release the image installs
+
+- **arm64 release build failed with "exec format error"** ([#578](https://github.com/vig-os/devcontainer/issues/578))
+  - Restore the multi-arch index digest for `python:3.14-slim-bookworm` (`sha256:a9bee155…`); the previous bump pinned the amd64-only child manifest, so the arm64 build pulled an amd64 image and the first `RUN` died with `exec /bin/sh: exec format error`
+  - Document in `Containerfile` that manual base-image pins must use the index digest, never a per-platform child manifest
+
+### Security
+
+- **Accept Debian won't-fix LOW CVEs in .trivyignore** ([#566](https://github.com/vig-os/devcontainer/issues/566))
+  - Document 78 unfixed LOW Debian OS-package CVEs from the next-release image with shared risk note and 2026-12-01 expiration
+  - Add `check-expirations` utility with pre-commit and CI enforcement so expired `.trivyignore` entries fail the pipeline
+  - Security tab LOW count drops after the next release refreshes `:latest`
+
+- **Bump base image digest and clear fixable OS-package CVEs** ([#565](https://github.com/vig-os/devcontainer/issues/565))
+  - Keep `python:3.14-slim-bookworm` pinned to its multi-arch index digest (`sha256:a9bee155…`)
+  - Retain targeted `libgnutls30=3.7.9-2+deb12u7` upgrade (base ships `deb12u6`; fixable GnuTLS CVEs require `deb12u7`)
+  - CI Trivy gate passes with zero fixable HIGH/CRITICAL OS findings after rebuild
+
+- **Patch fixable OpenSSL HIGH CVE blocking the 0.3.5 release** ([#580](https://github.com/vig-os/devcontainer/issues/580))
+  - Targeted `libssl3`/`openssl` upgrade to `3.0.20-1~deb12u2` (base ships `deb12u1`); clears `CVE-2026-45447` flagged by the release Trivy gate
+
+- **Refresh bundled gh and uv to clear Go and Rust CVEs** ([#564](https://github.com/vig-os/devcontainer/issues/564))
+  - Fresh image build pulls latest `gh` v2.93.0 and `uv` v0.11.19, clearing all bundled-tool HIGH findings except one awaiting upstream
+  - `uv`/`uvx` Rust crate CVEs (including `rustls-webpki` GHSA-82j2-j2ch-gfr8) no longer reported after rebuild
+  - Remaining `gh` Go-stdlib HIGH (CVE-2026-42504) kept in `.trivyignore` until `gh` ships a Go 1.26.4 rebuild
+
+- **Update pytest to v9.0.3** ([#528](https://github.com/vig-os/devcontainer/issues/528))
+  - Security patch for pytest dependency bump
+
+- **Remediate nightly scan gate failures on :latest** ([#549](https://github.com/vig-os/devcontainer/issues/549))
+  - Patched `libgnutls30` to `3.7.9-2+deb12u7` for fixable GnuTLS CVEs (retained across the 3.14 base rebase; see #565)
+
+- **Resolve repo-owned workflow security findings** ([#562](https://github.com/vig-os/devcontainer/issues/562))
+  - Split Renovate changelog automation into read-only `pull_request` build + privileged `workflow_run` commit, removing `pull_request_target` and PR-head checkout under elevated permissions (Scorecard `DangerousWorkflowID`)
+  - Add GitHub Actions to CodeQL language matrix so stale `actions/missing-workflow-permissions` alerts auto-close on the next default-branch run
+  - Add explicit `permissions:` to workspace `release-extension.yml` template; downstream smoke-test updates flow through release re-sync
+  - Document accepted OpenSSF Scorecard posture (Fuzzing, CII) and verified branch-protection rulesets in `SECURITY.md`
+
+- **Update vulnerable Python dependencies** ([#563](https://github.com/vig-os/devcontainer/issues/563))
+  - Bump `urllib3` 2.7.0, `requests` 2.34.2, `idna` 3.18, `Pygments` 2.20.0 in the repo lockfile
+  - Constrain workspace-template jupyter stack to patched versions (`notebook` 7.5.6, `jupyterlab` 4.5.7, `jupyter-server` 2.18.0, `mistune` 3.2.1)
+
+- **Add downstream SECURITY.md template and close smoke-test Scorecard gaps** ([#568](https://github.com/vig-os/devcontainer/issues/568))
+  - Add `assets/workspace/SECURITY.md` so generated and smoke-test repos ship a security policy (clears Scorecard `SecurityPolicyID` on the next release re-sync)
+  - Document `FuzzingID` and `CIIBestPracticesID` as accepted won't-fix posture in the template policy
+  - Document smoke-test-specific accepted findings (branch-protection, code-review, pinned `download-then-run`) in the `assets/smoke-test/` overlay, accepted because the deploy-validation repo runs fully unattended
+
 ## [0.3.4](https://github.com/vig-os/devcontainer/releases/tag/0.3.4) - 2026-04-29
 
 ### Added

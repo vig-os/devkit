@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Reusable CLI utilities for development workflows"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = "==3.14.5"
 dependencies = ["rich"]
 authors = [
   { name = "Carlos Vigo", email = "carlos.vigo@exoma.ch" },
@@ -26,6 +26,7 @@ check-pr-agent-fingerprints = "vig_utils.check_pr_agent_fingerprints:main"
 resolve-branch = "vig_utils.resolve_branch:main"
 derive-branch-summary = "vig_utils.derive_branch_summary:main"
 check-skill-names = "vig_utils.check_skill_names:main"
+check-expirations = "vig_utils.check_expirations:main"
 setup-labels = "vig_utils.setup_labels:main"
 retry = "vig_utils.retry:main"
 renovate-changelog-pr = "vig_utils.renovate_changelog_pr:main"

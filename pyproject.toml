@@ -2,15 +2,15 @@
 name = "devcontainer"
 version = "0.1.1"
 description = "vigOS development environment"
-requires-python = "==3.12.10"
+requires-python = "==3.14.5"
 dependencies = [
-  "github-backup>=0.50.3",
-  "jinja2>=3.1.0",
-  "pexpect>=4.9.0",
-  "pre-commit>=4.3.0",
-  "pytest>=9.0.1",
-  "pyyaml>=6.0.3",
-  "testinfra>=6.0.0",
+  "github-backup==0.62.1",
+  "jinja2==3.1.6",
+  "pexpect==4.9.0",
+  "pre-commit==4.6.0",
+  "pytest==9.0.3",
+  "pyyaml==6.0.3",
+  "testinfra==6.0.0",
 ]
 
 [dependency-groups]
@@ -21,31 +21,31 @@ dev = [
   { include-group = "test" },
 ]
 devcontainer = [
-  "rich>=13.0.0",
-  "pre-commit>=4.3.0",
-  "ruff>=0.14.3",
-  "pip-licenses>=5.0.0",
-  "bandit[toml]>=1.7.5",
+  "rich==15.0.0",
+  "pre-commit==4.6.0",
+  "ruff==0.15.16",
+  "pip-licenses==5.5.5",
+  "bandit[toml]==1.9.4",
 ]
 lint = [
-  "pre-commit>=4.3.0",
-  "ruff>=0.14.3",
-  "pip-licenses>=5.0.0",
-  "bandit[toml]>=1.7.5",
+  "pre-commit==4.6.0",
+  "ruff==0.15.16",
+  "pip-licenses==5.5.5",
+  "bandit[toml]==1.9.4",
 ]
 test = [
-  "pytest>=8.4.1",
-  "pytest-cov>=6.0",
-  "pytest-testinfra>=10.2.2",
-  "pytest-docker>=3.2.3",
-  "pexpect>=4.8.0",
-  "testcontainers>=4.9.0",
-  "bcrypt>=5.0.0",
+  "pytest==9.0.3",
+  "pytest-cov==7.1.0",
+  "pytest-testinfra==10.2.2",
+  "pytest-docker==3.2.5",
+  "pexpect==4.9.0",
+  "testcontainers==4.14.1",
+  "bcrypt==5.0.0",
 ]
 
 [tool.uv]
 constraint-dependencies = [
-  "urllib3>=2.6.3",
+  "urllib3>=2.7.0",
   "filelock>=3.20.3",
   "virtualenv>=20.36.1",
 ]

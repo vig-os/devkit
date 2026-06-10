@@ -61,8 +61,17 @@ This repository follows these security practices:
 - Workflow inputs are bound to environment variables (not interpolated inline)
 - No `pull_request_target` triggers are used (prevents untrusted code execution)
 - OpenSSF Scorecard runs weekly to track security posture
-- CodeQL static analysis scans Python build tooling
-- Branch protection is enforced via GitHub Enterprise
+- CodeQL static analysis scans Python build tooling and GitHub Actions workflows
+- Branch protection is enforced via GitHub Enterprise rulesets (Main protection requires pull request review, code-owner approval, required status checks, non-fast-forward merges, and branch deletion protection)
+
+### OpenSSF Scorecard accepted findings
+
+The following Scorecard checks are not applicable to a devcontainer image repository and are accepted as won't-fix:
+
+- **FuzzingID** (medium): no fuzzing targets in container build tooling or CI scripts
+- **CIIBestPracticesID** (low): not a CII Best Practices badge candidate; posture is tracked via Scorecard and CodeQL instead
+
+**VulnerabilitiesID** (high) is a roll-up of container and dependency findings remediated separately (see `.trivyignore` and dependency review).
 
 ## Compliance
 
@@ -75,7 +84,17 @@ and risk management requirements of these standards.
 This project accepts and documents known vulnerabilities in test-only dependencies
 through expiration-enforced exception registers (`.github/dependency-review-allow.txt`
 and `.trivyignore`). These exceptions follow an IEC 62304 medtech-compliant risk
-assessment model:
+assessment model. Expired entries fail CI via the `check-expirations` utility
+(pre-commit hook and CI workflows).
+
+### Container Image LOW CVEs (Trivy Exceptions)
+
+After the next-release image refresh (Debian 12.14 base, buckets B–D remediated),
+78 unfixed LOW CVEs in Debian OS packages remain with no available patch. These
+are documented in `.trivyignore` with shared risk assessment and expiration
+2026-12-01. They do not gate CI or release (only fixable HIGH/CRITICAL do).
+The GitHub Security tab LOW count drops once `:latest` is refreshed to that
+image. Tracking: #566, #512, #521.
 
 ### Test Dependency Vulnerabilities (GHSA Exceptions)
 

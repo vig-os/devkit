@@ -51,6 +51,25 @@ from `vig-os/devcontainer` and runs an automated deploy-and-test cycle:
 
 This flow applies to both RC tags and final tags.
 
+## Accepted Scorecard findings
+
+This repository is an **unattended deploy-validation target**, so a few OpenSSF
+Scorecard checks are intentionally accepted as won't-fix here (they do not apply
+to real downstream projects, which should keep branch protection and review).
+The full security policy and project-general accepted findings live in
+[`SECURITY.md`](SECURITY.md); the smoke-test-specific ones are:
+
+- **BranchProtectionID** / **CodeReviewID**: the automated deploy/release PRs are
+  merged without human review by design. Requiring approving reviews would stall
+  the `chore/deploy-<tag>` auto-merge and defeat the purpose of the smoke test.
+- **PinnedDependenciesID** (`download-then-run`): the installer in
+  `.github/workflows/repository-dispatch.yml` is fetched by immutable release
+  tag, retried, and validated post-install. The `curl | bash` step cannot be
+  pinned by hash and is accepted.
+
+These are recorded as dismissed (won't-fix) code-scanning alerts with a comment
+referencing the upstream tracking issue. See `vig-os/devcontainer` #568.
+
 ## Audit trail and status
 
 There is no CHANGELOG in this repository.

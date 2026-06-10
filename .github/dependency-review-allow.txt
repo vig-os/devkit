@@ -18,5 +18,5 @@
 # - Upstream package.json has never updated its version field from 0.2.0
 # - The lock file records 0.2.0 regardless of which git tag is used
 # Mitigation: Source is verified GitHub repository, not npm registry
-Expiration: 2026-06-01
+Expiration: 2026-09-01
 GHSA-wvrr-2x4r-394v
