@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- **GHCR RC artifacts never pruned after promote-release** ([#583](https://github.com/vig-os/devcontainer/issues/583))
+  - Switch GHCR package-version deletes to `GITHUB_TOKEN` with repo Admin on the `devcontainer` package (one-time Manage Actions access grant)
+  - Replace blanket `sha256-*` deletion with digest-aware selection that prunes RC images and matching RC cosign signatures only
+  - Fail the cleanup step loudly when deletes fail or RC tags remain (job still uses `continue-on-error`)
+
 ## [0.3.5](https://github.com/vig-os/devcontainer/releases/tag/0.3.5) - 2026-06-10
 
 ### Changed
