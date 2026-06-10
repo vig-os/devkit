@@ -52,6 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Retain targeted `libgnutls30=3.7.9-2+deb12u7` upgrade (base ships `deb12u6`; fixable GnuTLS CVEs require `deb12u7`)
   - CI Trivy gate passes with zero fixable HIGH/CRITICAL OS findings after rebuild
 
+- **Patch fixable OpenSSL HIGH CVE blocking the 0.3.5 release** ([#580](https://github.com/vig-os/devcontainer/issues/580))
+  - Targeted `libssl3`/`openssl` upgrade to `3.0.20-1~deb12u2` (base ships `deb12u1`); clears `CVE-2026-45447` flagged by the release Trivy gate
+
 - **Refresh bundled gh and uv to clear Go and Rust CVEs** ([#564](https://github.com/vig-os/devcontainer/issues/564))
   - Fresh image build pulls latest `gh` v2.93.0 and `uv` v0.11.19, clearing all bundled-tool HIGH findings except one awaiting upstream
   - `uv`/`uvx` Rust crate CVEs (including `rustls-webpki` GHSA-82j2-j2ch-gfr8) no longer reported after rebuild

@@ -59,6 +59,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends --only-upgrade 
     libgnutls30=3.7.9-2+deb12u7 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# CVE-2026-45447 (OpenSSL PKCS#7/S-MIME; bookworm-security)
+RUN apt-get update && apt-get install -y --no-install-recommends --only-upgrade \
+    libssl3=3.0.20-1~deb12u2 \
+    openssl=3.0.20-1~deb12u2 \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # Install minimal system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
