@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-06-08T21:05:31Z
+updated: 2026-06-10T02:14:17Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devcontainer/issues/529
@@ -13,45 +13,32 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-06-09T06:16:02.385Z
+synced: 2026-06-10T06:38:26.174Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devcontainer/issues/529)
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.<br>[View this repository on the Mend.io Web Portal](https://developer.mend.io/github/vig-os/devcontainer).
 
-## Repository Problems
-
-These problems occurred while renovating this repository. [View logs](https://developer.mend.io//github/vig-os/devcontainer).
-
- - ⚠️ WARN: Package lookup failures
-
 ## Awaiting Schedule
 
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
+ - [ ] <!-- unschedule-branch=renovate/taiki-e-install-action-digest -->chore(deps): update taiki-e/install-action digest to 7592c42
+ - [ ] <!-- unschedule-branch=renovate/python-(minor-and-patch) -->build(pip): update python (minor and patch) to v4.14.2
  - [ ] <!-- unschedule-branch=renovate/bats-file-0.x-lockfile -->build(npm): update dependency bats-file to v0.4.0
+ - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
 
 
 ---
 
 > [!WARNING]
-> Renovate failed to look up the following dependencies: `Could not determine new digest for update (github-tags package bats-core/bats-action)`, `Could not determine new digest for update (github-tags package actions/dependency-review-action)`, `Could not determine new digest for update (github-tags package sigstore/cosign-installer)`.
+> Renovate failed to look up the following dependencies: `Could not determine new digest for update (github-tags package bats-core/bats-action)`, `Could not determine new digest for update (github-tags package sigstore/cosign-installer)`.
 > 
-> Files affected: `.github/actions/setup-env/action.yml`, `.github/workflows/ci.yml`, `.github/workflows/promote-release.yml`, `.github/workflows/release.yml`
+> Files affected: `.github/actions/setup-env/action.yml`, `.github/workflows/promote-release.yml`, `.github/workflows/release.yml`
 
 ---
 
-
-## Open
-
-The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
-
- - [ ] <!-- rebase-branch=renovate/pin-dependencies -->[build(pip): pin dependencies](../pull/553)
- - [ ] <!-- rebase-branch=renovate/python-(minor-and-patch) -->[build(pip): update python (minor and patch)](../pull/554) (`github-backup`, `pip-licenses`, `pre-commit`, `pytest-cov`, `rich`, `ruff`, `testcontainers`)
- - [ ] <!-- rebase-branch=renovate/rich-15.x -->[build(pip): update dependency rich to v15](../pull/555)
- - [ ] <!-- rebase-branch=renovate/actions-dependency-review-action-5.x -->[ci(actions): update actions/dependency-review-action action to v5](../pull/556)
- - [ ] <!-- rebase-all-open-prs -->**Click on this checkbox to rebase all open PRs at once**
 
 ## Detected Dependencies
 
@@ -60,14 +47,14 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 <details><summary>Containerfile (1)</summary>
 
- - `python 3.14-slim-bookworm@sha256:a9bee15510a364124aa24692899d269835683b883de42f7ebec8c293cf679ccb`
+ - `python 3.14-slim-bookworm@sha256:ec58d916f9e24a6035cab2bdf07f6206c4cc092a16613c60597534711332d9d6`
 
 </details>
 
 </blockquote>
 </details>
 
-<details><summary>github-actions (29)</summary>
+<details><summary>github-actions (31)</summary>
 <blockquote>
 
 <details><summary>.github/actions/build-image/action.yml (5)</summary>
@@ -87,7 +74,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `astral-sh/setup-uv v8.2.0@fac544c07dec837d0ccb6301d7b5580bf5edae39`
  - `astral-sh/setup-uv v8.2.0@fac544c07dec837d0ccb6301d7b5580bf5edae39`
  - `actions/setup-node v6.4.0@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e`
- - `taiki-e/install-action just@e75cfd3544e409eb8da0d09dd5d918cd3e6e3982`
+ - `taiki-e/install-action just@e75cfd3544e409eb8da0d09dd5d918cd3e6e3982` → [Updates: `just`]
  - `bats-core/bats-action v4.0.0@77d6fb60505b4d0d1d73e48bd035b55074bbfb43`
  - `astral-sh/uv 0.11.19`
  - `astral-sh/uv 0.11.19`
@@ -136,7 +123,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `github/codeql-action v4@8aad20d150bbac5944a9f9d289da16a4b0d87c1e`
  - `actions/checkout v6.0.3@df4cb1c069e1874edd31b4311f1884172cec0e10`
- - `actions/dependency-review-action v4@2031cfc080254a8a887f58cffee85186f0e49e48` → [Updates: `v5.0.0`]
+ - `actions/dependency-review-action v5.0.0@a1d282b36b6f3519aa1f3fc636f609c47dddb294`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -234,13 +221,21 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 </details>
 
-<details><summary>.github/workflows/renovate-changelog.yml (6)</summary>
+<details><summary>.github/workflows/renovate-changelog-build.yml (5)</summary>
 
  - `actions/checkout v6.0.3@df4cb1c069e1874edd31b4311f1884172cec0e10`
- - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v6.0.3@df4cb1c069e1874edd31b4311f1884172cec0e10`
- - `vig-os/commit-action v0.2.0@1bc004353d08d9332a0cb54920b148256220c8e0`
+ - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `ubuntu 24.04`
+ - `ubuntu 24.04`
+
+</details>
+
+<details><summary>.github/workflows/renovate-changelog-commit.yml (4)</summary>
+
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/download-artifact v8.0.1@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`
+ - `vig-os/commit-action v0.2.0@1bc004353d08d9332a0cb54920b148256220c8e0`
  - `ubuntu 24.04`
 
 </details>
@@ -429,13 +424,21 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/renovate-changelog.yml (6)</summary>
+<details><summary>assets/workspace/.github/workflows/renovate-changelog-build.yml (5)</summary>
 
  - `actions/checkout v6.0.3@df4cb1c069e1874edd31b4311f1884172cec0e10`
- - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v6.0.3@df4cb1c069e1874edd31b4311f1884172cec0e10`
- - `vig-os/commit-action v0.2.0@1bc004353d08d9332a0cb54920b148256220c8e0`
+ - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `ubuntu 24.04`
+ - `ubuntu 24.04`
+
+</details>
+
+<details><summary>assets/workspace/.github/workflows/renovate-changelog-commit.yml (4)</summary>
+
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/download-artifact v8.0.1@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`
+ - `vig-os/commit-action v0.2.0@1bc004353d08d9332a0cb54920b148256220c8e0`
  - `ubuntu 24.04`
 
 </details>
@@ -502,9 +505,9 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `python ==3.14.5`
  - `hatchling ==1.30.1`
- - `rich ==14.3.3` → [Updates: `==14.3.4`, `==15.0.0`]
- - `pytest >=8.0` → [Updates: `==9.0.3`]
- - `pytest-cov ==7.0.0` → [Updates: `==7.1.0`]
+ - `rich ==15.0.0`
+ - `pytest ==9.0.3`
+ - `pytest-cov ==7.1.0`
  - `ipykernel ==7.2.0`
  - `jupyter ==1.1.1`
  - `numpy ==2.4.6`
@@ -523,24 +526,24 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>pyproject.toml (24)</summary>
 
  - `python ==3.14.5`
- - `github-backup ==0.61.5` → [Updates: `==0.62.1`]
+ - `github-backup ==0.62.1`
  - `jinja2 ==3.1.6`
  - `pexpect ==4.9.0`
- - `pre-commit ==4.5.1` → [Updates: `==4.6.0`]
- - `pytest >=9.0.1` → [Updates: `==9.0.3`]
+ - `pre-commit ==4.6.0`
+ - `pytest ==9.0.3`
  - `pyyaml ==6.0.3`
  - `testinfra ==6.0.0`
- - `rich ==14.3.3` → [Updates: `==14.3.4`, `==15.0.0`]
- - `pre-commit ==4.5.1` → [Updates: `==4.6.0`]
- - `ruff ==0.15.5` → [Updates: `==0.15.16`]
- - `pip-licenses ==5.5.1` → [Updates: `==5.5.5`]
+ - `rich ==15.0.0`
+ - `pre-commit ==4.6.0`
+ - `ruff ==0.15.16`
+ - `pip-licenses ==5.5.5`
  - `bandit ==1.9.4`
- - `pre-commit ==4.5.1` → [Updates: `==4.6.0`]
- - `ruff ==0.15.5` → [Updates: `==0.15.16`]
- - `pip-licenses ==5.5.1` → [Updates: `==5.5.5`]
+ - `pre-commit ==4.6.0`
+ - `ruff ==0.15.16`
+ - `pip-licenses ==5.5.5`
  - `bandit ==1.9.4`
- - `pytest >=8.4.1` → [Updates: `==9.0.3`]
- - `pytest-cov ==7.0.0` → [Updates: `==7.1.0`]
+ - `pytest ==9.0.3`
+ - `pytest-cov ==7.1.0`
  - `pytest-testinfra ==10.2.2`
  - `pytest-docker ==3.2.5`
  - `pexpect ==4.9.0`
