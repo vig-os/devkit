@@ -6,10 +6,11 @@
 # 1. validate: GHCR X.Y.Z + cosign, draft release on this repo, downstream final release
 # 2. promote: GHCR :latest manifest, publish (undraft) GitHub Release
 # 3. merge: merge release/X.Y.Z PR to main (triggers sync-main-to-dev)
-# 4. cleanup (best-effort): delete GHCR RC + orphaned sha256-only package versions for this
-#    base version; delete matching git RC tags that have no GitHub Release. Uses RELEASE_APP
-#    with org Packages read/write (not GITHUB_TOKEN for GHCR deletes); see docs/RELEASE_CYCLE.md
-#    heading "Registry and cleanup tokens (upstream)". Does not fail the workflow on error.
+# 4. cleanup (best-effort): delete GHCR RC images and matching RC cosign signatures for this
+#    base version; delete matching git RC tags that have no GitHub Release. GHCR deletes use
+#    GITHUB_TOKEN with repo Admin on the package (Manage Actions access); git RC tag deletes
+#    still use RELEASE_APP. Cleanup step fails loudly on leftover RC tags; job uses
+#    continue-on-error so promote still completes. See docs/RELEASE_CYCLE.md.
 
 name: Promote Release
 
@@ -513,13 +514,14 @@ jobs:
           app-id: ${{ secrets.RELEASE_APP_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
-      - name: Prune GHCR RC and orphaned sha256 package versions
+      - name: Prune GHCR RC and matching RC signature package versions
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.validate.outputs.version }}
         run: |
           set -euo pipefail
           PKG_PATH="/orgs/vig-os/packages/container/devcontainer/versions"
+          SELECT_SCRIPT="${GITHUB_WORKSPACE}/.github/scripts/select-ghcr-prune-targets.sh"
 
           is_rc_for_base() {
             local tag="$1" base="$2"
@@ -531,14 +533,19 @@ jobs:
             return 1
           }
 
-          all_tags_sha256_prefixed() {
-            local -a tags=("$@")
-            [ "${#tags[@]}" -gt 0 ] || return 1
-            local t
-            for t in "${tags[@]}"; do
-              [[ "$t" == sha256-* ]] || return 1
-            done
-            return 0
+          delete_ghcr_version() {
+            local vid="$1"
+            echo "Deleting GHCR package version id=$vid"
+            if retry --retries 3 --backoff 5 --max-backoff 30 -- \
+              gh api -X DELETE "$PKG_PATH/$vid"; then
+              return 0
+            fi
+            if ! gh api "$PKG_PATH/$vid" >/dev/null 2>&1; then
+              echo "Version id=$vid already absent (idempotent success after 404)"
+              return 0
+            fi
+            echo "ERROR: delete failed for id=$vid — version still present (likely missing package admin permission)"
+            return 1
           }
 
           TMP=$(mktemp)
@@ -547,37 +554,49 @@ jobs:
           retry --retries 3 --backoff 5 --max-backoff 30 -- \
             gh api --paginate "$PKG_PATH" > "$TMP"
 
-          RC_IDS=()
-          SHA256_IDS=()
-          while IFS= read -r row; do
-            [ -z "$row" ] && continue
-            vid=$(printf '%s' "$row" | jq -r '.id')
-            mapfile -t tags < <(printf '%s' "$row" | jq -r '(.metadata.container.tags // [])[]?')
-            rc_hit=false
-            for t in "${tags[@]}"; do
-              if is_rc_for_base "$t" "$VERSION"; then
-                rc_hit=true
-                break
-              fi
-            done
-            if [ "$rc_hit" = true ]; then
-              RC_IDS+=("$vid")
-              echo "GHCR version $vid (RC for $VERSION): ${tags[*]}"
-            elif all_tags_sha256_prefixed "${tags[@]}"; then
-              SHA256_IDS+=("$vid")
-              echo "GHCR version $vid (sha256-only): ${tags[*]}"
-            fi
-          done < <(jq -s 'add // []' "$TMP" | jq -c '.[]')
+          mapfile -t DEL_IDS < <(
+            jq -s 'add // []' "$TMP" | bash "$SELECT_SCRIPT" "$VERSION" | sort -u
+          )
 
-          mapfile -t DEL_IDS < <(printf '%s\n' "${RC_IDS[@]}" "${SHA256_IDS[@]}" | sort -u)
+          if [ "${#DEL_IDS[@]}" -eq 0 ]; then
+            echo "No GHCR RC prune targets for base version $VERSION"
+          fi
+
+          FAILURES=()
           for vid in "${DEL_IDS[@]}"; do
             [ -z "$vid" ] && continue
-            echo "Deleting GHCR package version id=$vid"
-            retry --retries 3 --backoff 5 --max-backoff 30 -- \
-              gh api -X DELETE "$PKG_PATH/$vid" || echo "WARN: delete failed for id=$vid"
+            if ! delete_ghcr_version "$vid"; then
+              FAILURES+=("$vid")
+            fi
           done
 
-          echo "✓ GHCR prune pass complete for base version $VERSION"
+          LEFT_TAGS=()
+          retry --retries 3 --backoff 5 --max-backoff 30 -- \
+            gh api --paginate "$PKG_PATH" > "$TMP"
+          while IFS= read -r row; do
+            [ -z "$row" ] && continue
+            mapfile -t tags < <(printf '%s' "$row" | jq -r '(.metadata.container.tags // [])[]?')
+            for t in "${tags[@]}"; do
+              if is_rc_for_base "$t" "$VERSION"; then
+                LEFT_TAGS+=("$t")
+              fi
+            done
+          done < <(jq -s 'add // []' "$TMP" | jq -c '.[]')
+
+          mapfile -t UNIQUE_LEFT < <(printf '%s\n' "${LEFT_TAGS[@]}" | sort -u | sed '/^$/d')
+
+          if [ ${#FAILURES[@]} -gt 0 ] || [ ${#UNIQUE_LEFT[@]} -gt 0 ]; then
+            if [ ${#FAILURES[@]} -gt 0 ]; then
+              echo "ERROR: GHCR delete failures (${#FAILURES[@]}): ${FAILURES[*]}"
+            fi
+            if [ ${#UNIQUE_LEFT[@]} -gt 0 ]; then
+              echo "ERROR: RC tags still present for $VERSION: ${UNIQUE_LEFT[*]}"
+            fi
+            echo "See https://github.com/vig-os/devcontainer/issues/583"
+            exit 1
+          fi
+
+          echo "✓ GHCR prune pass complete for base version $VERSION (no RC tags remain)"
 
       - name: Delete git RC tags without GitHub Release
         env:

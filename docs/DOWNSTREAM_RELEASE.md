@@ -41,7 +41,7 @@ After final `release.yml` has pushed tag `X.Y.Z` and created a **draft** GitHub 
 3. **Merge** — merge `release/X.Y.Z` → `main` (triggers `sync-main-to-dev` when configured)
 4. **Cleanup** (best-effort, does not fail the workflow) — delete remote git tags matching `${VERSION}-rc*` that have **no** GitHub Release
 
-**Upstream (`vig-os/devcontainer`) only:** Root `promote-release.yml` also prunes GHCR RC package versions via the org Packages API; that requires **RELEASE_APP** with **Packages: Read and write** on the org. See [GitHub App Configuration](RELEASE_CYCLE.md#github-app-configuration) and [Registry and cleanup tokens](RELEASE_CYCLE.md#registry-and-cleanup-tokens-upstream) in `docs/RELEASE_CYCLE.md`.
+**Upstream (`vig-os/devcontainer`) only:** Root `promote-release.yml` also prunes GHCR RC package versions via the org Packages API using **`GITHUB_TOKEN`** with **repo Admin** on the `devcontainer` package (one-time **Manage Actions access** grant). See [GitHub App Configuration](RELEASE_CYCLE.md#github-app-configuration) and [Registry and cleanup tokens](RELEASE_CYCLE.md#registry-and-cleanup-tokens-upstream) in `docs/RELEASE_CYCLE.md`.
 
 This template does **not** implement upstream-only steps (GHCR `:latest`, cosign, cross-repo smoke-test gate). Projects that need registry or deploy promotion after merge should run separate automation or extend their `release-extension.yml` / own workflows; see [Extension Hook](#extension-hook).
 
