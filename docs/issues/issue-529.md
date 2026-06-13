@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-06-11T06:05:46Z
+updated: 2026-06-13T05:40:27Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devcontainer/issues/529
@@ -13,18 +13,25 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-06-11T06:57:28.949Z
+synced: 2026-06-13T06:24:13.509Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devcontainer/issues/529)
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.<br>[View this repository on the Mend.io Web Portal](https://developer.mend.io/github/vig-os/devcontainer).
 
-## Repository Problems
+## Awaiting Schedule
 
-These problems occurred while renovating this repository. [View logs](https://developer.mend.io//github/vig-os/devcontainer).
+The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
- - ⚠️ WARN: Package lookup failures
+ - [ ] <!-- unschedule-branch=renovate/bats-file-0.x-lockfile -->build(npm): update dependency bats-file to v0.4.0
+
+## PR Edited (Blocked)
+
+The following updates have been manually edited so Renovate will no longer make changes. To discard all commits and start over, click on a checkbox below.
+
+ - [ ] <!-- rebase-branch=renovate/python-3.14-slim-bookworm -->[build(docker): update python:3.14-slim-bookworm docker digest to a705190](../pull/586)
+ - [ ] <!-- rebase-branch=renovate/taiki-e-install-action-digest -->[chore(deps): update taiki-e/install-action digest to bafb217](../pull/587)
 
 
 ---
@@ -37,20 +44,12 @@ These problems occurred while renovating this repository. [View logs](https://de
 ---
 
 
-## Other Branches
-
-The following updates are pending. To force the creation of a PR, click on a checkbox below.
-
- - [ ] <!-- other-branch=renovate/bats-file-0.x-lockfile -->build(npm): update dependency bats-file to v0.4.0
-
 ## Open
 
 The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
 
- - [ ] <!-- rebase-branch=renovate/python-3.14-slim-bookworm -->[build(docker): update python:3.14-slim-bookworm docker digest to 7e2f304](../pull/586)
- - [ ] <!-- rebase-branch=renovate/taiki-e-install-action-digest -->[chore(deps): update taiki-e/install-action digest to bafb217](../pull/587)
- - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch) to v0.11.20](../pull/588)
- - [ ] <!-- rebase-branch=renovate/python-(minor-and-patch) -->[build(pip): update python (minor and patch)](../pull/589) (`ipykernel`, `python`, `testcontainers`)
+ - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch) to v0.11.21](../pull/588)
+ - [ ] <!-- rebase-branch=renovate/python-(minor-and-patch) -->[build(pip): update python (minor and patch)](../pull/589) (`ipykernel`, `matplotlib`, `python`, `ruff`, `testcontainers`)
  - [ ] <!-- rebase-all-open-prs -->**Click on this checkbox to rebase all open PRs at once**
 
 ## Detected Dependencies
@@ -89,8 +88,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/setup-node v6.4.0@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e`
  - `taiki-e/install-action just@e75cfd3544e409eb8da0d09dd5d918cd3e6e3982` → [Updates: `just`]
  - `bats-core/bats-action v4.0.0@77d6fb60505b4d0d1d73e48bd035b55074bbfb43`
- - `astral-sh/uv 0.11.19` → [Updates: `0.11.20`]
- - `astral-sh/uv 0.11.19` → [Updates: `0.11.20`]
+ - `astral-sh/uv 0.11.19` → [Updates: `0.11.21`]
+ - `astral-sh/uv 0.11.19` → [Updates: `0.11.21`]
 
 </details>
 
@@ -526,7 +525,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `numpy ==2.4.6`
  - `scipy ==1.17.1`
  - `pandas ==3.0.3`
- - `matplotlib ==3.10.9`
+ - `matplotlib ==3.10.9` → [Updates: `==3.11.0`]
 
 </details>
 
@@ -548,11 +547,11 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `testinfra ==6.0.0`
  - `rich ==15.0.0`
  - `pre-commit ==4.6.0`
- - `ruff ==0.15.16`
+ - `ruff ==0.15.16` → [Updates: `==0.15.17`]
  - `pip-licenses ==5.5.5`
  - `bandit ==1.9.4`
  - `pre-commit ==4.6.0`
- - `ruff ==0.15.16`
+ - `ruff ==0.15.16` → [Updates: `==0.15.17`]
  - `pip-licenses ==5.5.5`
  - `bandit ==1.9.4`
  - `pytest ==9.0.3`
