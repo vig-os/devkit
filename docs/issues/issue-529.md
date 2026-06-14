@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-06-13T05:40:27Z
+updated: 2026-06-13T22:42:46Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devcontainer/issues/529
@@ -13,12 +13,18 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-06-13T06:24:13.509Z
+synced: 2026-06-14T06:48:51.800Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devcontainer/issues/529)
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.<br>[View this repository on the Mend.io Web Portal](https://developer.mend.io/github/vig-os/devcontainer).
+
+## Repository Problems
+
+These problems occurred while renovating this repository. [View logs](https://developer.mend.io//github/vig-os/devcontainer).
+
+ - ⚠️ WARN: Package lookup failures
 
 ## Awaiting Schedule
 
@@ -49,7 +55,7 @@ The following updates have been manually edited so Renovate will no longer make 
 The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
 
  - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch) to v0.11.21](../pull/588)
- - [ ] <!-- rebase-branch=renovate/python-(minor-and-patch) -->[build(pip): update python (minor and patch)](../pull/589) (`ipykernel`, `matplotlib`, `python`, `ruff`, `testcontainers`)
+ - [ ] <!-- rebase-branch=renovate/python-(minor-and-patch) -->[build(pip): update python (minor and patch)](../pull/589) (`ipykernel`, `matplotlib`, `pytest`, `python`, `ruff`, `testcontainers`)
  - [ ] <!-- rebase-all-open-prs -->**Click on this checkbox to rebase all open PRs at once**
 
 ## Detected Dependencies
@@ -518,7 +524,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `python ==3.14.5` → [Updates: `==3.14.6`]
  - `hatchling ==1.30.1`
  - `rich ==15.0.0`
- - `pytest ==9.0.3`
+ - `pytest ==9.0.3` → [Updates: `==9.1.0`]
  - `pytest-cov ==7.1.0`
  - `ipykernel ==7.2.0` → [Updates: `==7.3.0`]
  - `jupyter ==1.1.1`
@@ -542,7 +548,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `jinja2 ==3.1.6`
  - `pexpect ==4.9.0`
  - `pre-commit ==4.6.0`
- - `pytest ==9.0.3`
+ - `pytest ==9.0.3` → [Updates: `==9.1.0`]
  - `pyyaml ==6.0.3`
  - `testinfra ==6.0.0`
  - `rich ==15.0.0`
@@ -554,7 +560,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `ruff ==0.15.16` → [Updates: `==0.15.17`]
  - `pip-licenses ==5.5.5`
  - `bandit ==1.9.4`
- - `pytest ==9.0.3`
+ - `pytest ==9.0.3` → [Updates: `==9.1.0`]
  - `pytest-cov ==7.1.0`
  - `pytest-testinfra ==10.2.2`
  - `pytest-docker ==3.2.5`
