@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-06-13T22:42:46Z
+updated: 2026-06-15T03:00:10Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devcontainer/issues/529
@@ -13,24 +13,12 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-06-14T06:48:51.800Z
+synced: 2026-06-15T07:29:35.322Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devcontainer/issues/529)
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.<br>[View this repository on the Mend.io Web Portal](https://developer.mend.io/github/vig-os/devcontainer).
-
-## Repository Problems
-
-These problems occurred while renovating this repository. [View logs](https://developer.mend.io//github/vig-os/devcontainer).
-
- - ⚠️ WARN: Package lookup failures
-
-## Awaiting Schedule
-
-The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
-
- - [ ] <!-- unschedule-branch=renovate/bats-file-0.x-lockfile -->build(npm): update dependency bats-file to v0.4.0
 
 ## PR Edited (Blocked)
 
@@ -49,6 +37,12 @@ The following updates have been manually edited so Renovate will no longer make 
 
 ---
 
+
+## Other Branches
+
+The following updates are pending. To force the creation of a PR, click on a checkbox below.
+
+ - [ ] <!-- other-branch=renovate/bats-file-0.x-lockfile -->build(npm): update dependency bats-file to v0.4.0
 
 ## Open
 
