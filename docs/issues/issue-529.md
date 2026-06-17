@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-06-16T00:44:08Z
+updated: 2026-06-16T11:48:28Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devcontainer/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-06-16T07:35:08.662Z
+synced: 2026-06-17T07:21:12.489Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devcontainer/issues/529)
@@ -43,9 +43,9 @@ The following updates have been manually edited so Renovate will no longer make 
 ---
 
 > [!WARNING]
-> Renovate failed to look up the following dependencies: `Could not determine new digest for update (github-tags package bats-core/bats-action)`, `Failed to look up github-releases package aquasecurity/trivy: no-result`, `Could not determine new digest for update (github-tags package sigstore/cosign-installer)`.
+> Renovate failed to look up the following dependencies: `Could not determine new digest for update (github-tags package bats-core/bats-action)`, `Could not determine new digest for update (github-tags package sigstore/cosign-installer)`.
 > 
-> Files affected: `.github/actions/setup-env/action.yml`, `.github/workflows/ci.yml`, `.github/workflows/promote-release.yml`, `.github/workflows/release.yml`, `.github/workflows/security-scan.yml`
+> Files affected: `.github/actions/setup-env/action.yml`, `.github/workflows/promote-release.yml`, `.github/workflows/release.yml`
 
 ---
 
@@ -54,7 +54,7 @@ The following updates have been manually edited so Renovate will no longer make 
 
 The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
 
- - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch) to v0.11.21](../pull/588)
+ - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch)](../pull/588) (`aquasecurity/trivy`, `astral-sh/uv`)
  - [ ] <!-- rebase-branch=renovate/python-(minor-and-patch) -->[build(pip): update python (minor and patch)](../pull/589) (`ipykernel`, `matplotlib`, `pytest`, `python`, `ruff`, `testcontainers`)
  - [ ] <!-- rebase-all-open-prs -->**Click on this checkbox to rebase all open PRs at once**
 
@@ -148,11 +148,11 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
- - `aquasecurity/trivy v0.71.0`
- - `aquasecurity/trivy v0.71.0`
- - `aquasecurity/trivy v0.71.0`
- - `aquasecurity/trivy v0.71.0`
- - `aquasecurity/trivy v0.71.0`
+ - `aquasecurity/trivy v0.71.0` → [Updates: `v0.71.1`]
+ - `aquasecurity/trivy v0.71.0` → [Updates: `v0.71.1`]
+ - `aquasecurity/trivy v0.71.0` → [Updates: `v0.71.1`]
+ - `aquasecurity/trivy v0.71.0` → [Updates: `v0.71.1`]
+ - `aquasecurity/trivy v0.71.0` → [Updates: `v0.71.1`]
  - `ubuntu 24.04`
  - `ubuntu 24.04`
 
@@ -232,7 +232,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/github-script v9.0.0@3a2844b7e9c422d3c10d287c895573f7108da1b3`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
- - `aquasecurity/trivy v0.71.0`
+ - `aquasecurity/trivy v0.71.0` → [Updates: `v0.71.1`]
  - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -286,10 +286,10 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `github/codeql-action v4@8aad20d150bbac5944a9f9d289da16a4b0d87c1e`
  - `ubuntu 24.04`
- - `aquasecurity/trivy v0.71.0`
- - `aquasecurity/trivy v0.71.0`
- - `aquasecurity/trivy v0.71.0`
- - `aquasecurity/trivy v0.71.0`
+ - `aquasecurity/trivy v0.71.0` → [Updates: `v0.71.1`]
+ - `aquasecurity/trivy v0.71.0` → [Updates: `v0.71.1`]
+ - `aquasecurity/trivy v0.71.0` → [Updates: `v0.71.1`]
+ - `aquasecurity/trivy v0.71.0` → [Updates: `v0.71.1`]
 
 </details>
 
