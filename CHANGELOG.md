@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Migrate `actions/create-github-app-token` to `client-id`** ([#576](https://github.com/vig-os/devcontainer/issues/576))
   - Replace deprecated `app-id` input with `client-id` across root, workspace template, and smoke-test workflows
   - Requires org-level `COMMIT_APP_CLIENT_ID` and `RELEASE_APP_CLIENT_ID` secrets (GitHub App Client ID, not numeric App ID)
+- **Consolidate Renovate dependency updates (586–589)** ([#586](https://github.com/vig-os/devcontainer/pull/586), [#587](https://github.com/vig-os/devcontainer/pull/587), [#588](https://github.com/vig-os/devcontainer/pull/588), [#589](https://github.com/vig-os/devcontainer/pull/589))
+  - Bump `python:3.14-slim-bookworm` base image to multi-arch index digest `sha256:7e2f304…`
+  - Update `taiki-e/install-action` digest to `bafb217`, `astral-sh/setup-uv` to `0.11.21`, and other GitHub Actions minor/patch versions
+  - Bump `requires-python` to `==3.14.6` and Python deps: `pytest` 9.1.0, `ruff` 0.15.17, `github-backup` 0.63.0 (lockfile refreshed)
 
 ### Fixed
 
