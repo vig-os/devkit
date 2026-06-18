@@ -75,7 +75,7 @@ jobs:
         if: steps.pull.outcome == 'success'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          version: 'v0.71.0'
+          version: 'v0.71.1'
           input: /tmp/image-latest.tar
           format: 'table'
           severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
@@ -88,7 +88,7 @@ jobs:
         continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          version: 'v0.71.0'
+          version: 'v0.71.1'
           input: /tmp/image-latest.tar
           format: 'table'
           severity: 'HIGH,CRITICAL'
@@ -100,7 +100,7 @@ jobs:
         if: steps.pull.outcome == 'success'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          version: 'v0.71.0'
+          version: 'v0.71.1'
           input: /tmp/image-latest.tar
           format: 'cyclonedx'
           output: 'sbom-latest-cyclonedx.json'
@@ -109,7 +109,7 @@ jobs:
         if: steps.pull.outcome == 'success'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          version: 'v0.71.0'
+          version: 'v0.71.1'
           input: /tmp/image-latest.tar
           format: 'sarif'
           output: 'trivy-latest-results.sarif'

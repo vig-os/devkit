@@ -266,7 +266,7 @@ jobs:
       - name: Scan image for vulnerabilities
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          version: 'v0.71.0'
+          version: 'v0.71.1'
           input: /tmp/image.tar
           format: 'table'
           severity: 'HIGH,CRITICAL'
@@ -278,7 +278,7 @@ jobs:
         if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          version: 'v0.71.0'
+          version: 'v0.71.1'
           input: /tmp/image.tar
           format: 'table'
           severity: 'HIGH,CRITICAL'
@@ -289,7 +289,7 @@ jobs:
         if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          version: 'v0.71.0'
+          version: 'v0.71.1'
           input: /tmp/image.tar
           format: 'table'
           severity: 'MEDIUM'
@@ -299,7 +299,7 @@ jobs:
         if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          version: 'v0.71.0'
+          version: 'v0.71.1'
           input: /tmp/image.tar
           format: 'cyclonedx'
           output: 'sbom-cyclonedx.json'
@@ -308,7 +308,7 @@ jobs:
         if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          version: 'v0.71.0'
+          version: 'v0.71.1'
           input: /tmp/image.tar
           format: 'sarif'
           output: 'trivy-results.sarif'
