@@ -17,12 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+### Security
+
+## [0.3.8] - TBD
+
+### Fixed
+
 - **Make smoke-test dispatch idempotent across candidate→final on one base version** ([#612](https://github.com/vig-os/devcontainer/issues/612))
   - `prepare-changelog finalize` is now a no-op when the version heading is already dated, instead of erroring
   - `prepare-changelog prepare` folds an existing same-version heading back into a single `## [X.Y.Z] - TBD` section instead of stacking a duplicate
   - New `prepare-changelog reset-version <version>` command reverts a dated heading back to `- TBD` (idempotent); the smoke-test dispatch template runs it at dispatch start and scopes its deploy-seed check to the `Unreleased` section
-
-### Security
 
 ## [0.3.7](https://github.com/vig-os/devcontainer/releases/tag/0.3.7) - 2026-06-22
 
