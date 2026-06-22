@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Consolidate Renovate dependency updates (588, 589, 606, 607)** ([#588](https://github.com/vig-os/devcontainer/pull/588), [#589](https://github.com/vig-os/devcontainer/pull/589), [#606](https://github.com/vig-os/devcontainer/pull/606), [#607](https://github.com/vig-os/devcontainer/pull/607))
+  - Update `actions/checkout` to `v7.0.0`, `taiki-e/install-action` digest to `ab08a3b`, `astral-sh/setup-uv` to `0.11.23`, and the `aquasecurity/trivy-action` scanner to `v0.71.2`
+  - Bump Python deps: `pytest` 9.1.1, `ruff` 0.15.18 (root); `numpy` 2.5.0, `scipy` 1.18.0 (workspace template); lockfile refreshed
+
 ### Deprecated
 
 ### Removed
