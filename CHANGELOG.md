@@ -17,15 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Prevent prepare-release from branching `release/X.Y.Z` at the pre-freeze dev SHA** ([#617](https://github.com/vig-os/devcontainer/issues/617))
-  - The "Create release branch from dev" step now polls dev until it advances past the captured pre-freeze SHA before branching, and hard-fails if it never does, closing a read-after-write race that could create a release branch missing the `## [X.Y.Z] - TBD` freeze
-
 ### Security
 
 ## [0.3.8] - TBD
 
 ### Fixed
 
+- **Prevent prepare-release from branching `release/X.Y.Z` at the pre-freeze dev SHA** ([#617](https://github.com/vig-os/devcontainer/issues/617))
+  - The "Create release branch from dev" step now polls dev until it advances past the captured pre-freeze SHA before branching, and hard-fails if it never does, closing a read-after-write race that could create a release branch missing the `## [X.Y.Z] - TBD` freeze
 - **Make smoke-test dispatch idempotent across candidate→final on one base version** ([#612](https://github.com/vig-os/devcontainer/issues/612))
   - `prepare-changelog finalize` is now a no-op when the version heading is already dated, instead of erroring
   - `prepare-changelog prepare` folds an existing same-version heading back into a single `## [X.Y.Z] - TBD` section instead of stacking a duplicate
