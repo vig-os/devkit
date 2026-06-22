@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `prepare-changelog finalize` is now a no-op when the version heading is already dated, instead of erroring
   - `prepare-changelog prepare` folds an existing same-version heading back into a single `## [X.Y.Z] - TBD` section instead of stacking a duplicate
   - New `prepare-changelog reset-version <version>` command reverts a dated heading back to `- TBD` (idempotent); the smoke-test dispatch template runs it at dispatch start and scopes its deploy-seed check to the `Unreleased` section
+- **Fix release PR body truncation when changelog bullets quote a version heading** ([#620](https://github.com/vig-os/devcontainer/issues/620))
+  - The "Extract CHANGELOG content for PR body" step now anchors its `sed` range to start-of-line headings, so an inline backtick-quoted heading inside a bullet no longer ends the range early
 
 ## [0.3.7](https://github.com/vig-os/devcontainer/releases/tag/0.3.7) - 2026-06-22
 

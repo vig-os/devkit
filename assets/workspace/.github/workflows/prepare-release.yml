@@ -210,7 +210,11 @@ jobs:
           VERSION: ${{ needs.validate.outputs.version }}
         run: |
           set -euo pipefail
-          CHANGELOG_CONTENT=$(sed -n "/## \[$VERSION\]/,/## \[/p" CHANGELOG.md | sed '$d')
+          # Anchor the range patterns to start-of-line so only real column-0
+          # version headings delimit the section. An unanchored "## [" also
+          # matches inline backtick-quoted headings inside bullets (e.g.
+          # `## [X.Y.Z] - TBD`), which truncated the PR body early (#620).
+          CHANGELOG_CONTENT=$(sed -n "/^## \[$VERSION\]/,/^## \[/p" CHANGELOG.md | sed '$d')
           {
             echo "changelog<<CHANGELOGEOF"
             echo "$CHANGELOG_CONTENT"
