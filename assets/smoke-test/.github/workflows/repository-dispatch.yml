@@ -282,7 +282,15 @@ jobs:
             }
           ' CHANGELOG.md > "$tmp"
           mv "$tmp" CHANGELOG.md
-          if ! grep -q "Smoke-test deploy of ${TAG}" CHANGELOG.md; then
+          # Verify the bullet landed inside Unreleased specifically (#612): a
+          # whole-file grep can be satisfied by a stale bullet left in a prior
+          # `## [X.Y.Z]` section, masking an un-seeded Unreleased.
+          if ! awk -v tag="$TAG" '
+            /^## Unreleased$/ {in_unreleased=1; next}
+            /^## \[/ && in_unreleased {in_unreleased=0}
+            in_unreleased && index($0, "Smoke-test deploy of " tag) {found=1}
+            END {exit(found ? 0 : 1)}
+          ' CHANGELOG.md; then
             echo "ERROR: failed to seed Unreleased entry (no '### Changed' under '## Unreleased'?)"
             exit 1
           fi

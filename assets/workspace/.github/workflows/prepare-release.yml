@@ -197,6 +197,11 @@ jobs:
           VERSION: ${{ needs.validate.outputs.version }}
         run: |
           set -euo pipefail
+          # Normalize any dated `## [X.Y.Z]` heading left by a prior candidate→final
+          # pass on this base version back to `- TBD` before freezing, so prepare/
+          # release stay idempotent on a reused release branch (#612). No-op when
+          # the heading is already TBD or absent.
+          prepare-changelog reset-version "$VERSION" CHANGELOG.md
           prepare-changelog prepare "$VERSION" CHANGELOG.md
 
       - name: Extract CHANGELOG content for PR body
