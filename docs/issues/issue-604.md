@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-06-19T12:53:02Z
-updated: 2026-06-19T12:53:33Z
+updated: 2026-06-21T19:45:33Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devcontainer/issues/604
-comments: 0
+comments: 1
 labels: chore, priority:medium, area:ci, effort:medium, security
 assignees: c-vigo
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-06-20T06:37:44.397Z
+synced: 2026-06-22T07:13:14.693Z
 ---
 
 # [Issue 604]: [[CHORE] Clean up stale code-scanning alerts and consolidate Trivy scan categories](https://github.com/vig-os/devcontainer/issues/604)
@@ -74,4 +74,19 @@ Medium
 ### Changelog Category
 
 Security
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on June 21, 2026 at 07:45 PM_
+
+Executed on branch `chore/604-cleanup-scanning-alerts` (PR #605).
+
+**Outcome — open alerts 564 → 237:**
+- Track A: dismissed 10 orphaned `container-image-scheduled` alerts (no producer since 2026-03-30).
+- Track B: `ci.yml` Trivy is now a gate-only step (SARIF upload removed); `container-image-latest` documented as SSoT; dismissed all 313 now-orphaned `container-image` alerts.
+- Track C: dismissed all 5 Scorecard `supply-chain/*` findings with per-alert rationale.
+
+**New baseline:** 237 open, all from the single authoritative nightly `container-image-latest` scan. Remaining genuinely-fixable HIGH/CRITICAL exposure continues to be tracked by the nightly gate issue #602.
 
