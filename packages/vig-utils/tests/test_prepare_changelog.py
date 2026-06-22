@@ -22,6 +22,7 @@ from vig_utils.prepare_changelog import (
     cmd_finalize,
     cmd_prepare,
     cmd_reset,
+    cmd_reset_version,
     cmd_unprepare,
     cmd_validate,
     create_new_changelog,
@@ -30,6 +31,7 @@ from vig_utils.prepare_changelog import (
     main,
     prepare_changelog,
     reset_unreleased,
+    reset_version_to_tbd,
     unprepare_changelog,
     validate_changelog,
 )
@@ -953,6 +955,80 @@ class TestResetUnreleased:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# reset_version_to_tbd
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestResetVersionToTbd:
+    """Unit tests for reset_version_to_tbd() (#612 dispatch-start normalizer)."""
+
+    def test_resets_dated_linked_heading(self, tmp_path):
+        """A finalized ## [X.Y.Z](…) - DATE heading reverts to ## [X.Y.Z] - TBD."""
+        changelog = (
+            "# Changelog\n\n## Unreleased\n\n### Added\n\n"
+            "## [0.3.7](https://github.com/vig-os/devcontainer/releases/tag/0.3.7)"
+            " - 2026-06-22\n\n### Changed\n\n- Smoke-test deploy\n"
+        )
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(changelog)
+        modified = reset_version_to_tbd("0.3.7", str(f))
+        content = f.read_text()
+        assert modified is True
+        assert "## [0.3.7] - TBD" in content
+        assert "releases/tag/0.3.7" not in content
+        assert "- Smoke-test deploy" in content
+
+    def test_resets_plain_dated_heading(self, tmp_path):
+        """A plain ## [X.Y.Z] - DATE heading reverts to TBD."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text("# Changelog\n\n## [0.3.7] - 2026-06-22\n\n### Added\n\n- X\n")
+        modified = reset_version_to_tbd("0.3.7", str(f))
+        assert modified is True
+        assert "## [0.3.7] - TBD" in f.read_text()
+
+    def test_noop_when_already_tbd(self, tmp_path):
+        """Already-TBD heading is left unchanged and reports no modification."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(CHANGELOG_WITH_TBD)
+        before = f.read_text()
+        modified = reset_version_to_tbd("1.0.0", str(f))
+        assert modified is False
+        assert f.read_text() == before
+
+    def test_noop_when_version_absent(self, tmp_path):
+        """Absent version is a no-op (never errors) and leaves the file unchanged."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(CHANGELOG_WITH_TBD)
+        before = f.read_text()
+        modified = reset_version_to_tbd("9.9.9", str(f))
+        assert modified is False
+        assert f.read_text() == before
+
+    def test_only_targets_requested_version(self, tmp_path):
+        """Other dated versions stay untouched."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(
+            "# Changelog\n\n## [0.3.7] - 2026-06-22\n\n## [0.2.0] - 2026-01-01\n"
+        )
+        reset_version_to_tbd("0.3.7", str(f))
+        content = f.read_text()
+        assert "## [0.3.7] - TBD" in content
+        assert "## [0.2.0] - 2026-01-01" in content
+
+    def test_invalid_version_raises(self, tmp_path):
+        """Invalid semver still raises (consistent with sibling commands)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(CHANGELOG_WITH_TBD)
+        with pytest.raises(ValueError, match="Invalid semantic version"):
+            reset_version_to_tbd("v1.0.0", str(f))
+
+    def test_raises_for_missing_file(self, tmp_path):
+        """Should raise FileNotFoundError for a nonexistent changelog."""
+        with pytest.raises(FileNotFoundError, match="CHANGELOG not found"):
+            reset_version_to_tbd("1.0.0", str(tmp_path / "nope.md"))
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # unprepare_changelog
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -1477,6 +1553,32 @@ class TestCmdReset:
         assert "Reset" in out
 
 
+class TestCmdResetVersion:
+    """Tests for cmd_reset_version handler."""
+
+    def _make_args(self, version, filepath):
+        from argparse import Namespace
+
+        return Namespace(version=version, file=filepath)
+
+    def test_reset_output(self, tmp_path, capsys):
+        """Should report the version was reset to TBD."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text("# Changelog\n\n## [0.3.7] - 2026-06-22\n")
+        cmd_reset_version(self._make_args("0.3.7", str(f)))
+        out = capsys.readouterr().out
+        assert "✓" in out
+        assert "0.3.7" in out
+
+    def test_noop_output(self, tmp_path, capsys):
+        """Should still succeed (no error) when there is nothing to reset."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(CHANGELOG_WITH_TBD)
+        cmd_reset_version(self._make_args("9.9.9", str(f)))
+        out = capsys.readouterr().out
+        assert "9.9.9" in out
+
+
 class TestCmdFinalize:
     """Tests for cmd_finalize handler."""
 
@@ -1569,6 +1671,14 @@ class TestMainCLI:
             f"## [1.0.0](https://github.com/{_FINALIZE_TEST_REPO}/releases/tag/1.0.0) - 2026-02-11"
             in f.read_text()
         )
+
+    def test_reset_version_via_main(self, tmp_path):
+        """main() with 'reset-version' should revert a dated heading to TBD."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text("# Changelog\n\n## [0.3.7] - 2026-06-22\n")
+        with patch("sys.argv", ["prog", "reset-version", "0.3.7", str(f)]):
+            main()
+        assert "## [0.3.7] - TBD" in f.read_text()
 
     def test_unprepare_via_main(self, tmp_path):
         """main() with 'unprepare' should rename top version heading."""
@@ -1728,6 +1838,29 @@ class TestCLISubprocess:
             _FINALIZE_TEST_REPO,
         )
         assert result.returncode != 0
+
+    # ── reset-version ─────────────────────────────────────────────────────
+
+    def test_reset_version_e2e(self, tmp_path):
+        """reset-version via subprocess reverts a dated heading to TBD."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(
+            "# Changelog\n\n## [0.3.7]"
+            "(https://github.com/vig-os/devcontainer/releases/tag/0.3.7)"
+            " - 2026-06-22\n"
+        )
+        result = self._run("reset-version", "0.3.7", str(f))
+        assert result.returncode == 0
+        assert "## [0.3.7] - TBD" in f.read_text()
+
+    def test_reset_version_noop_e2e(self, tmp_path):
+        """reset-version is a clean no-op when the version is absent."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(CHANGELOG_WITH_TBD)
+        before = f.read_text()
+        result = self._run("reset-version", "9.9.9", str(f))
+        assert result.returncode == 0
+        assert f.read_text() == before
 
     # ── unprepare ─────────────────────────────────────────────────────────
 
