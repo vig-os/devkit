@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-05-15T13:52:28Z
-updated: 2026-05-15T13:52:28Z
+updated: 2026-06-23T06:56:34Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devcontainer/issues/546
-comments: 0
+comments: 1
 labels: feature, priority:medium, area:workspace, semver:minor
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-05-16T05:32:49.639Z
+synced: 2026-06-23T08:02:54.120Z
 ---
 
 # [Issue 546]: [[FEATURE] Slim Claude Code OAuth-token forwarding (replace setup-claude.sh + sed-YAML editing)](https://github.com/vig-os/devcontainer/issues/546)
@@ -60,3 +60,11 @@ A ~50-line replacement that:
 ### Changelog Category
 
 Changed (replaces existing flow)
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on June 23, 2026 at 06:56 AM_
+
+Cross-link: overlaps the editor/auth scripts touched by #629 in the Nix/Claude migration (#625). Mostly independent (remote-devcontainer OAuth forwarding), but coordinate the `setup-claude.sh` / non-root-user removal with #629.
+

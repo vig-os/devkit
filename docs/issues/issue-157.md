@@ -2,17 +2,18 @@
 type: issue
 state: open
 created: 2026-02-22T09:52:12Z
-updated: 2026-02-24T18:52:08Z
+updated: 2026-06-23T06:56:42Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devcontainer/issues/157
-comments: 3
+comments: 4
 labels: feature
 assignees: gerchowl
 milestone: none
 projects: none
-relationship: none
-synced: 2026-02-25T04:25:57.516Z
+parent: 145
+children: none
+synced: 2026-06-23T08:02:57.077Z
 ---
 
 # [Issue 157]: [[FEATURE] Show pipeline phase (progress) per issue in gh-issues dashboard](https://github.com/vig-os/devcontainer/issues/157)
@@ -251,4 +252,12 @@ Created PR #168: https://github.com/vig-os/devcontainer/pull/168
 - `docs: update CHANGELOG for pipeline phase column feature`
 
 Refs: #157
+
+---
+
+# [Comment #4]() by [c-vigo]()
+
+_Posted on June 23, 2026 at 06:56 AM_
+
+Built on the worktree pipeline migrated in #625 (#626 paths, #627 CLI swap). Coordinate so the dashboard reflects the new paths/CLI.
 

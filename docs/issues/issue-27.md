@@ -1,18 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-01-23T15:32:05Z
-updated: 2026-02-28T21:44:09Z
+updated: 2026-06-23T06:56:50Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devcontainer/issues/27
-comments: 1
+comments: 2
 labels: feature, priority:low, area:image, effort:large, semver:minor
 assignees: gerchowl, c-vigo
 milestone: Backlog
 projects: none
-relationship: none
-synced: 2026-03-01T04:27:31.888Z
+parent: none
+children: none
+synced: 2026-06-23T08:02:59.789Z
 ---
 
 # [Issue 27]: [Adopt Nix/devenv for reproducible, auditable dependency management](https://github.com/vig-os/devcontainer/issues/27)
@@ -230,4 +231,12 @@ What's implemented so far:
 - CI workflows (build, test, scheduled rebuild)
 
 This is a prototype/sandbox — not a migration plan. Serves as a reference for what the Nix layer could look like when we tackle this in devc.
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on June 23, 2026 at 06:56 AM_
+
+Superseded by the Nix migration epic #625 and its sub-issues. #625 is the decided execution of this proposal: full flake-as-SSoT (#631) + a `buildLayeredImage` devcontainer image (#634), with the IEC 62304 / SBOM / air-gapped framing preserved in #637. Closing in favour of the epic.
 

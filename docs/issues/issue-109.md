@@ -2,17 +2,18 @@
 type: issue
 state: open
 created: 2026-02-20T10:34:52Z
-updated: 2026-02-20T10:34:52Z
+updated: 2026-06-23T06:56:47Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devcontainer/issues/109
-comments: 0
+comments: 1
 labels: discussion, area:ci
 assignees: c-vigo
 milestone: none
 projects: none
-relationship: none
-synced: 2026-02-20T13:17:15.416Z
+parent: none
+children: none
+synced: 2026-06-23T08:02:58.288Z
 ---
 
 # [Issue 109]: [[DISCUSSION] Optimize CI pipeline for PRs to dev — full security scan on every PR?](https://github.com/vig-os/devcontainer/issues/109)
@@ -47,3 +48,11 @@ _None yet_
 ### Changelog Category
 
 No changelog needed
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on June 23, 2026 at 06:56 AM_
+
+The Trivy scan-category consolidation discussed here overlaps the CVE rework in #637 (vulnix + SBOM, part of #625); worth resolving together.
+
