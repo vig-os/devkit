@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Make the image testinfra suite portable across Debian and Nix images** ([#635](https://github.com/vig-os/devcontainer/issues/635))
+  - Replace dpkg `host.package(...).is_installed` checks (git, curl, openssh-client, nano, tmux, rsync) with path-agnostic `--version`/`-V` runs
+  - Resolve `gh`, `just`, `hadolint`, `taplo` and cargo-installed tools via PATH (`command -v`) instead of hardcoded `/usr/local/bin` / `/root/.cargo/bin` / `/root/.local/bin` locations
+  - Drop the `DEBIAN_FRONTEND` environment assertion and the apt-sourced version-prefix checks (git, curl, tmux, rsync) from `EXPECTED_VERSIONS`
+
 ### Deprecated
 
 ### Removed

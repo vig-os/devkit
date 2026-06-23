@@ -15,10 +15,14 @@ from pathlib import Path
 import pytest
 
 # Expected versions for installed tools
-# These should be updated when the Containerfile is updated
+# These should be updated when the Containerfile is updated.
+#
+# Only tools whose versions are pinned/managed by the image build are checked.
+# System packages sourced from the base image's package manager (e.g. git,
+# curl, tmux, rsync) are intentionally omitted: their versions are determined
+# by the upstream distribution and differ between the Debian and Nix images, so
+# we only assert their presence (via `--version`), not a version prefix.
 EXPECTED_VERSIONS = {
-    "git": "2.",  # Major version check (from apt package)
-    "curl": "8.",  # Major version check (from apt package)
     "gh": "2.95.",  # Minor version check (GitHub CLI, manually installed from latest release)
     "uv": "0.11.",  # Minor version check (manually installed from latest release)
     "python": "3.14",  # Python (from base image)
@@ -26,14 +30,12 @@ EXPECTED_VERSIONS = {
     "ruff": "0.15.",  # Minor version check (installed via uv pip)
     "bandit": "1.9.",  # Minor version check (installed via uv pip)
     "pip_licenses": "5.",  # Major version check (installed via uv pip)
-    "just": "1.53.",  # Minor version check (manually installed from latest release)
+    "just": "1.54.",  # Minor version check (manually installed from latest release)
     "hadolint": "2.14.",  # Minor version check (manually installed from pinned release)
     "taplo": "0.10.",  # Minor version check (manually installed from latest release)
     "cargo-binstall": "1.20.",  # Minor version check (installed from latest release)
     "typstyle": "0.15.",  # Minor version check (installed from latest release)
     "vig_utils": "0.1.",  # Minor version check (installed via uv pip)
-    "tmux": "3.3",  # Major.minor version check (from apt package)
-    "rsync": "3.2",  # Major.minor version check (from apt package)
 }
 
 
@@ -74,52 +76,82 @@ def verify_file_identity(host, src_rel, dest_path):
     )
 
 
+def assert_tool_on_path(host, tool):
+    """
+    Assert that a tool is installed and resolvable on PATH.
+
+    Path-agnostic: works for both the Debian image (tools under /usr/bin,
+    /usr/local/bin) and the Nix image (tools under the Nix store), since it
+    relies on PATH resolution rather than a hardcoded FHS location.
+
+    Args:
+        host: testinfra host object
+        tool: executable name to resolve (e.g. "gh", "just")
+
+    Returns:
+        The resolved absolute path to the tool.
+    """
+    result = host.run(f"command -v {tool}")
+    assert result.rc == 0, f"{tool} not found on PATH: {result.stderr}"
+    resolved = result.stdout.strip()
+    assert resolved, f"{tool} resolved to an empty path"
+    return resolved
+
+
+def assert_tool_runs(host, *cmd):
+    """
+    Assert that a tool runs successfully (exit code 0), proving it is installed.
+
+    Path-agnostic replacement for distro-package checks (e.g. dpkg
+    `is_installed`): valid for both the Debian and Nix images.
+
+    Args:
+        host: testinfra host object
+        cmd: command and args to run (e.g. "git", "--version")
+
+    Returns:
+        The testinfra CommandResult.
+    """
+    command = " ".join(cmd)
+    result = host.run(command)
+    assert result.rc == 0, f"{command} failed (tool not installed?): {result.stderr}"
+    return result
+
+
 class TestSystemTools:
     """Test that system tools are installed with correct versions."""
 
     def test_git_installed(self, host):
-        """Test that git is installed."""
-        assert host.package("git").is_installed, "Git is not installed"
+        """Test that git is installed (path-agnostic, via --version)."""
+        assert_tool_runs(host, "git", "--version")
 
     def test_git_version(self, host):
-        """Test that git version is correct."""
+        """Test that git runs and reports a version."""
         result = host.run("git --version")
         assert result.rc == 0, "git --version failed"
         assert "git version" in result.stdout.lower()
-        expected = EXPECTED_VERSIONS["git"]
-        assert expected in result.stdout, (
-            f"Expected git {expected}x, got: {result.stdout}"
-        )
 
     def test_curl_installed(self, host):
-        """Test that curl is installed."""
-        assert host.package("curl").is_installed, "curl is not installed"
+        """Test that curl is installed (path-agnostic, via --version)."""
+        assert_tool_runs(host, "curl", "--version")
 
     def test_curl_version(self, host):
-        """Test that curl version is correct."""
+        """Test that curl runs and reports a version."""
         result = host.run("curl --version")
         assert result.rc == 0, "curl --version failed"
         assert "curl" in result.stdout.lower()
-        expected = EXPECTED_VERSIONS["curl"]
-        assert expected in result.stdout, (
-            f"Expected curl {expected}x, got: {result.stdout}"
-        )
 
     def test_openssh_client_installed(self, host):
-        """Test that openssh-client is installed."""
-        assert host.package("openssh-client").is_installed, (
-            "openssh-client is not installed"
-        )
+        """Test that the openssh client is installed (path-agnostic)."""
+        assert_tool_runs(host, "ssh", "-V")
 
     def test_nano_installed(self, host):
-        """Test that nano is installed."""
-        assert host.package("nano").is_installed, "nano is not installed"
+        """Test that nano is installed (path-agnostic, via --version)."""
+        assert_tool_runs(host, "nano", "--version")
 
     def test_gh_installed(self, host):
-        """Test that GitHub CLI (gh) is installed."""
-        # gh is manually installed, so check for the binary file
-        assert host.file("/usr/local/bin/gh").exists, "GitHub CLI (gh) binary not found"
-        assert host.file("/usr/local/bin/gh").is_file, "GitHub CLI (gh) is not a file"
+        """Test that GitHub CLI (gh) is installed (path-agnostic)."""
+        assert_tool_on_path(host, "gh")
 
     def test_gh_version(self, host):
         """Test that gh version is correct."""
@@ -132,10 +164,8 @@ class TestSystemTools:
         )
 
     def test_just_installed(self, host):
-        """Test that just is installed."""
-        # just is manually installed, so check for the binary file
-        assert host.file("/usr/local/bin/just").exists, "just binary not found"
-        assert host.file("/usr/local/bin/just").is_file, "just is not a file"
+        """Test that just is installed (path-agnostic)."""
+        assert_tool_on_path(host, "just")
 
     def test_just_version(self, host):
         """Test that just version is correct."""
@@ -148,10 +178,8 @@ class TestSystemTools:
         )
 
     def test_hadolint_installed(self, host):
-        """Test that hadolint is installed."""
-        # hadolint is manually installed, so check for the binary file
-        assert host.file("/usr/local/bin/hadolint").exists, "hadolint binary not found"
-        assert host.file("/usr/local/bin/hadolint").is_file, "hadolint is not a file"
+        """Test that hadolint is installed (path-agnostic)."""
+        assert_tool_on_path(host, "hadolint")
 
     def test_hadolint_version(self, host):
         """Test that hadolint version is correct."""
@@ -163,9 +191,8 @@ class TestSystemTools:
         )
 
     def test_taplo_installed(self, host):
-        """Test that taplo (TOML formatter/linter) is installed."""
-        assert host.file("/usr/local/bin/taplo").exists, "taplo binary not found"
-        assert host.file("/usr/local/bin/taplo").is_file, "taplo is not a file"
+        """Test that taplo (TOML formatter/linter) is installed (path-agnostic)."""
+        assert_tool_on_path(host, "taplo")
 
     def test_taplo_version(self, host):
         """Test that taplo version is correct."""
@@ -209,30 +236,14 @@ class TestSystemTools:
         )
 
     def test_tmux_installed(self, host):
-        """Test that tmux is installed."""
-        assert host.package("tmux").is_installed, "tmux is not installed"
-
-    def test_tmux_version(self, host):
-        """Test that tmux version is correct."""
-        result = host.run("tmux -V")
-        assert result.rc == 0, "tmux -V failed"
-        expected = EXPECTED_VERSIONS["tmux"]
-        assert expected in result.stdout, (
-            f"Expected tmux {expected}, got: {result.stdout}"
-        )
+        """Test that tmux is installed (path-agnostic, via -V)."""
+        result = assert_tool_runs(host, "tmux", "-V")
+        assert "tmux" in result.stdout.lower()
 
     def test_rsync_installed(self, host):
-        """Test that rsync is installed."""
-        assert host.package("rsync").is_installed, "rsync is not installed"
-
-    def test_rsync_version(self, host):
-        """Test that rsync version is correct."""
-        result = host.run("rsync --version")
-        assert result.rc == 0, "rsync --version failed"
-        expected = EXPECTED_VERSIONS["rsync"]
-        assert expected in result.stdout, (
-            f"Expected rsync {expected}, got: {result.stdout}"
-        )
+        """Test that rsync is installed (path-agnostic, via --version)."""
+        result = assert_tool_runs(host, "rsync", "--version")
+        assert "rsync" in result.stdout.lower()
 
     def test_tmux_detached_session_survives(self, host):
         """Test that tmux can create a detached session with a background process."""
@@ -465,8 +476,9 @@ class TestEnvironmentVariables:
 
     @pytest.mark.parametrize(
         ("name", "expected"),
+        # DEBIAN_FRONTEND is intentionally omitted: it is a Debian/apt-specific
+        # build-time variable that is not meaningful on the Nix image.
         [
-            ("DEBIAN_FRONTEND", "noninteractive"),
             ("LANG", "en_US.UTF-8"),
             ("LANGUAGE", "en_US:en"),
             ("LC_ALL", "en_US.UTF-8"),
@@ -477,7 +489,6 @@ class TestEnvironmentVariables:
             ("VIRTUAL_ENV", "/root/assets/workspace/.venv"),
         ],
         ids=[
-            "debian_frontend",
             "lang",
             "language",
             "lc_all",
@@ -497,21 +508,22 @@ class TestEnvironmentVariables:
         )
 
     @pytest.mark.parametrize(
-        "path_entry",
+        "tool",
         [
-            "/root/.local/bin",
-            "/root/.cargo/bin",
+            "cargo-binstall",
+            "typstyle",
         ],
-        ids=["cursor_agent_path", "cargo_path"],
+        ids=["cargo_binstall_on_path", "cargo_tool_on_path"],
     )
-    def test_path_contains_required_entries(self, host, path_entry):
-        """Test that PATH includes required binary locations."""
-        result = host.run("printenv PATH")
-        assert result.rc == 0, "Failed to read PATH"
-        path_entries = result.stdout.strip().split(":")
-        assert path_entry in path_entries, (
-            f"Expected PATH to contain {path_entry}, got: {result.stdout.strip()}"
-        )
+    def test_path_resolves_required_tools(self, host, tool):
+        """Test that cargo-installed tools resolve on PATH.
+
+        Path-agnostic replacement for asserting hardcoded install dirs
+        (e.g. /root/.cargo/bin) are on PATH: we instead verify the tools
+        those dirs provide are reachable, which holds for both the Debian
+        and Nix images.
+        """
+        assert_tool_on_path(host, tool)
 
 
 class TestFileStructure:
