@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added reusable flake outputs `lib.mkProjectShell`, `overlays.default`, and a `packages.devcontainerImage` stub for the later image build
   - Added a non-blocking `Nix Cachix` workflow (with `workflow_dispatch`) that builds the dev-shell and pushes its closure to the `vig-os` Cachix cache
   - Added a per-tool `nix develop -c <tool> --version` parity test driven from the flake SSoT to guard against future dev-shell/image drift
+- **Build the devcontainer image with Nix (`buildLayeredImage`, non-publishing)** ([#634](https://github.com/vig-os/devcontainer/issues/634))
+  - Fleshed out `packages.devcontainerImage` from a stub into a real, bit-reproducible image assembled by `dockerTools.buildLayeredImage` (not a Dockerfile `FROM`); a `--rebuild` verifies the closure hash is identical
+  - Baked the in-container Nix evaluator (upstream CppNix, `pkgs.nix`) plus `direnv`/`nix-direnv` into the closure so `nix`/`direnv` are live inside the container; documented the CppNix-vs-Lix and `pre-commit`-vs-`prek` decisions in the flake
+  - Reproduced the Debian bootstrap layers in Nix: locale via `glibcLocales` + `LOCALE_ARCHIVE` (no `locale-gen`), `/root/assets`, pre-commit cache dir, template `.venv` scaffold (`UV_PYTHON_DOWNLOADS=never`, `UV_PYTHON=<nix python3.14>`), the `precommit`/`cc`/`cld` aliases, and `IS_SANDBOX=1`
+  - Added `fakeNss` (root uid-0 user database) and a sticky `/tmp` to close the first FHS gaps surfaced by the portable testinfra (fixing `ssh`, `whoami`, and `tmux`)
+  - Added a non-publishing `Nix Image (discovery)` workflow (with `workflow_dispatch`) that builds the image and runs the portable testinfra under `continue-on-error: true`
 
 ### Changed
 

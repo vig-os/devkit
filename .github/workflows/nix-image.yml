@@ -1,0 +1,95 @@
+# Nix-built devcontainer image (discovery phase, non-publishing)
+#
+# Builds the devcontainer image with Nix (`dockerTools.buildLayeredImage`, NOT a
+# Dockerfile `FROM`) and runs the portable testinfra suite (#635) against it.
+#
+# This workflow is intentionally NON-BLOCKING and NON-PUBLISHING (T2.1, #634):
+#   - It is a standalone workflow, not part of the required CI gate.
+#   - The build+test job is guarded with `continue-on-error: true`, so the
+#     FHS/bootstrap gaps the discovery phase is meant to surface (uv-pip tools,
+#     cargo tools, network-populated venv / pre-commit cache, version-pin
+#     differences vs. the Debian build) can never fail CI.
+#   - The image is loaded into the runner's local podman only; it is never
+#     pushed to any registry. Publishing is #639.
+#
+# Evaluator choice: upstream CppNix via cachix/install-nix-action, matching
+# nix-cachix.yml. The flake bakes CppNix (`pkgs.nix`) into the image closure so
+# `nix`/`direnv` are live inside the container.
+#
+# Triggers:
+#   - Push to the migration epic branch when the flake or this workflow changes.
+#   - workflow_dispatch (so it can be triggered later from the default branch).
+
+name: Nix Image (discovery)
+
+on:  # yamllint disable-line rule:truthy
+  push:
+    branches:
+      - 'feature/625-nix-claude-migration'
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - '.github/workflows/nix-image.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build Nix image & run portable testinfra
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    # Non-blocking: discovery phase. Remaining FHS/bootstrap gaps must not fail
+    # the wider CI while the image story is being iterated toward green.
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Install Nix (upstream CppNix)
+        uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3  # v31.10.6
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Configure Cachix (pull-only substituter)
+        uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71  # v17
+        with:
+          name: ${{ vars.CACHIX_CACHE }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Build the devcontainer image with Nix
+        run: |
+          set -euo pipefail
+          # buildLayeredImage emits a gzipped OCI tarball at ./result.
+          nix build .#devcontainerImage --print-build-logs
+          # Stage it where the test-image composite action expects a tar file.
+          cp -L result /tmp/nix-devcontainer-image.tar.gz
+          ls -lL /tmp/nix-devcontainer-image.tar.gz
+
+      - name: Record image size
+        run: |
+          set -euo pipefail
+          echo "Compressed tarball size:"
+          du -h /tmp/nix-devcontainer-image.tar.gz
+
+      # Reuse the shared composite action: it loads the tar into podman, retags
+      # it to ghcr.io/vig-os/devcontainer:nix-image (local only, never pushed),
+      # and runs tests/test_image.py via TEST_CONTAINER_TAG.
+      - name: Load image and run portable testinfra
+        id: testinfra
+        uses: ./.github/actions/test-image
+        with:
+          image-tag: 'nix-image'
+          image-source: 'tar'
+          tar-file: '/tmp/nix-devcontainer-image.tar.gz'
+          skip-container-check: 'true'
+
+      - name: Report testinfra result
+        if: always()
+        run: |
+          echo "Portable testinfra result code: ${{ steps.testinfra.outputs.test-result }}"
+          echo "Discovery phase: non-zero is expected while FHS/bootstrap gaps remain."

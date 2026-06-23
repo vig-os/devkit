@@ -152,6 +152,9 @@ activemq-data/
 
 # Nix / direnv
 .direnv/
+# Nix build output symlinks (e.g. `nix build` -> ./result)
+/result
+/result-*
 
 # Environments
 .env
