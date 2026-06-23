@@ -2,17 +2,18 @@
 type: issue
 state: open
 created: 2026-03-11T07:37:14Z
-updated: 2026-03-11T07:37:14Z
+updated: 2026-06-23T06:56:43Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devcontainer/issues/255
-comments: 0
+comments: 1
 labels: docs, effort:small, area:docs
 assignees: none
 milestone: none
 projects: none
-relationship: none
-synced: 2026-03-12T07:59:30.398Z
+parent: none
+children: none
+synced: 2026-06-23T08:02:55.419Z
 ---
 
 # [Issue 255]: [[DOCS] Document Nix flake as alternative dev environment setup](https://github.com/vig-os/devcontainer/issues/255)
@@ -48,3 +49,11 @@ Changed
 ### Additional Context
 
 The `flake.nix` and `.envrc` were added without corresponding documentation. Users encountering Nix for the first time hit `error: experimental Nix feature 'nix-command' is disabled` with no guidance.
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on June 23, 2026 at 06:56 AM_
+
+Superseded by #633 (part of #625), which switches `.envrc` to nix-direnv and documents the clone → `direnv allow` flow + the Cachix substituter in `docs/templates/CONTRIBUTE.md.j2`, plus enabling the `nix-command`/`flakes` experimental features. Will close when #633 lands.
+

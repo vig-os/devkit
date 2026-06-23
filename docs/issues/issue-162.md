@@ -2,17 +2,18 @@
 type: issue
 state: open
 created: 2026-02-23T22:58:38Z
-updated: 2026-02-23T22:58:38Z
+updated: 2026-06-23T06:56:40Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devcontainer/issues/162
-comments: 0
+comments: 1
 labels: refactor
 assignees: none
 milestone: none
 projects: none
-relationship: none
-synced: 2026-02-24T04:24:07.894Z
+parent: none
+children: none
+synced: 2026-06-23T08:02:56.625Z
 ---
 
 # [Issue 162]: [[REFACTOR] Replace hand-rolled CI polling in worktree_ci-check with gh pr checks --watch](https://github.com/vig-os/devcontainer/issues/162)
@@ -74,3 +75,11 @@ Changed
 Discussion: the `gh pr checks --watch` flag has been available since gh v2.26+. The `gh run watch` command has been available for longer. Both eliminate the need for agent-side backoff loops, reducing token consumption and complexity in the autonomous worktree pipeline.
 
 Token cost concern: the current polling approach generates ~5-10 `gh pr checks` calls over 15 minutes. If `gh run watch` streams hundreds of status lines, the cure could be worse than the disease. The implementation must measure and compare.
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on June 23, 2026 at 06:56 AM_
+
+Touches the worktree pipeline being migrated in #625: #626 moves the skill paths and #627 swaps `cursor-agent` → `claude`. The `gh pr checks --watch` refactor is a good companion to land alongside the CLI swap. Coordinate.
+

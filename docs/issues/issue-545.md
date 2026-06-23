@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-05-15T13:50:24Z
-updated: 2026-05-15T13:50:24Z
+updated: 2026-06-23T06:56:33Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devcontainer/issues/545
-comments: 0
+comments: 1
 labels: feature, priority:medium, area:image, semver:minor
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-05-16T05:32:49.904Z
+synced: 2026-06-23T08:02:54.564Z
 ---
 
 # [Issue 545]: [[FEATURE] Bake agent-CLI toolkit + Claude Code into image (rg/fd/bat/eza/delta/lazygit/zoxide/starship/freeze/expect/nvim + IS_SANDBOX=1)](https://github.com/vig-os/devcontainer/issues/545)
@@ -62,3 +62,11 @@ Image builds (linux/arm64); all 14 added tools resolve on PATH; `IS_SANDBOX=1` s
 ### Changelog Category
 
 Added
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on June 23, 2026 at 06:56 AM_
+
+Re-scoped by the Nix migration epic #625: the install *mechanism* (apt/curl) is replaced by the Nix `devTools` path (#631 / #634); the tool list is absorbed into `devTools` (#631), and the image-level requirements (`claude` on PATH, `IS_SANDBOX=1`, `cc`/`cld` aliases) carry into #634. Suggest treating this as a **requirements checklist** consumed by #631 / #634 / #627 / #628.
+

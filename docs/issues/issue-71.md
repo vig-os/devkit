@@ -2,17 +2,18 @@
 type: issue
 state: open
 created: 2026-02-18T01:46:51Z
-updated: 2026-02-22T09:33:32Z
+updated: 2026-06-23T06:56:46Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devcontainer/issues/71
-comments: 4
+comments: 5
 labels: feature, priority:medium, area:workspace, effort:large, semver:minor
 assignees: gerchowl
 milestone: 0.4
 projects: none
-relationship: none
-synced: 2026-02-23T04:30:08.422Z
+parent: none
+children: 73, 66
+synced: 2026-06-23T08:02:58.673Z
 ---
 
 # [Issue 71]: [[FEATURE] Expand justfile.base with devcontainer, quality, security, docs, info, and git recipes](https://github.com/vig-os/devcontainer/issues/71)
@@ -178,4 +179,12 @@ _Posted on February 22, 2026 at 09:33 AM_
 - Verify: lint passed
 - PR: https://github.com/vig-os/devcontainer/pull/151 (updated with new commit)
 - CI: most checks pass; Security Scan still pending
+
+---
+
+# [Comment #5]() by [c-vigo]()
+
+_Posted on June 23, 2026 at 06:56 AM_
+
+Coordinate with #625: the scaffolded modes (#641) should expose a consistent recipe set so direnv-only repos still get the relevant `justfile.base` recipes.
 

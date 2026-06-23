@@ -1,18 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-02-22T09:21:10Z
-updated: 2026-02-22T09:48:13Z
+updated: 2026-06-23T06:56:53Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devcontainer/issues/153
-comments: 3
+comments: 4
 labels: feature, area:workspace, effort:small, semver:minor
 assignees: gerchowl
 milestone: none
 projects: none
-relationship: none
-synced: 2026-02-23T04:30:07.699Z
+parent: 70
+children: none
+synced: 2026-06-23T08:02:57.490Z
 ---
 
 # [Issue 153]: [[FEATURE] devc_remote_uri.py — Cursor URI construction for remote devcontainers](https://github.com/vig-os/devcontainer/issues/153)
@@ -151,4 +152,12 @@ _Posted on February 22, 2026 at 09:48 AM_
 - Verify: lint pass, 11 unit tests pass
 - PR: https://github.com/vig-os/devcontainer/pull/155
 - CI: PR Title Check pass
+
+---
+
+# [Comment #4]() by [c-vigo]()
+
+_Posted on June 23, 2026 at 06:56 AM_
+
+Scope resolved: **VS Code only.** Cursor **editor** support is being dropped along with `cursor-agent` as part of #625 (see #629), so the Cursor-URI remote wrapper is no longer wanted. Closing — the VS Code half is tracked under #231 (de-scoped to `code-remote` only).
 

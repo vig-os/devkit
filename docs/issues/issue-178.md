@@ -2,17 +2,18 @@
 type: issue
 state: open
 created: 2026-02-24T13:19:01Z
-updated: 2026-02-24T13:19:01Z
+updated: 2026-06-23T06:56:41Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devcontainer/issues/178
-comments: 0
+comments: 1
 labels: feature, area:workflow, effort:small
 assignees: none
 milestone: none
 projects: none
-relationship: none
-synced: 2026-02-25T04:25:53.689Z
+parent: none
+children: none
+synced: 2026-06-23T08:02:56.227Z
 ---
 
 # [Issue 178]: [Add [IDLE] status to worktree-list and idle mode to worktree-clean](https://github.com/vig-os/devcontainer/issues/178)
@@ -40,3 +41,11 @@ synced: 2026-02-25T04:25:53.689Z
 - [ ] `just wt-clean idle` cleans stopped + idle, skips running
 - [ ] `just wt-clean all` cleans everything (unchanged)
 - [ ] BATS tests cover new behavior
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on June 23, 2026 at 06:56 AM_
+
+Built on the worktree pipeline migrated in #625 (#626 paths, #627 CLI swap). Verify idle mode still works once the pipeline is driven by `claude`. Coordinate — not superseded.
+

@@ -2,17 +2,18 @@
 type: issue
 state: open
 created: 2026-03-06T20:44:36Z
-updated: 2026-03-06T20:51:28Z
+updated: 2026-06-23T06:56:31Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devcontainer/issues/231
-comments: 0
+comments: 1
 labels: feature, area:workspace, effort:small, semver:minor
 assignees: none
 milestone: none
 projects: none
-relationship: none
-synced: 2026-03-07T04:05:37.525Z
+parent: none
+children: none
+synced: 2026-06-23T08:02:55.829Z
 ---
 
 # [Issue 231]: [[FEATURE] IDE-agnostic remote connection wrappers (cursor-remote, code-remote)](https://github.com/vig-os/devcontainer/issues/231)
@@ -74,3 +75,11 @@ code --remote "ssh-remote+root@${1}" "${2:-/workspace}"
 
 - JetBrains Gateway support (future, different protocol)
 - Neovim/SSH (already works with plain `ssh root@<hostname>`)
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on June 23, 2026 at 06:56 AM_
+
+Scope update from the Nix/Claude migration (#625, #629): Cursor **editor** support is being dropped along with `cursor-agent`, so this should be **de-scoped to `code-remote` only** (VS Code `vscode-remote://` URI). The `cursor-remote` half is no longer wanted — #153 has been closed for that reason.
+

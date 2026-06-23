@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-04-14T06:53:24Z
-updated: 2026-04-29T07:37:58Z
+updated: 2026-06-23T06:56:35Z
 author: github-actions[bot]
 author_url: https://github.com/github-actions[bot]
 url: https://github.com/vig-os/devcontainer/issues/521
-comments: 1
+comments: 2
 labels: security, security-scan
 assignees: c-vigo
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-04-29T13:52:25.855Z
+synced: 2026-06-23T08:02:54.972Z
 ---
 
 # [Issue 521]: [Nightly security scan: HIGH/CRITICAL vulnerabilities in :latest](https://github.com/vig-os/devcontainer/issues/521)
@@ -50,4 +50,12 @@ The only fixable HIGH after `.trivyignore` is **CVE-2026-32280** (Go stdlib `cry
 - Remove all four `CVE-2026-3228x` blocks from `.trivyignore`.
 
 **Closing this issue:** leave open; closes naturally after the post-0.3.4 nightly scan is green.
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on June 23, 2026 at 06:56 AM_
+
+The apt-CVE surface this gate tracks changes under the Nix image: Trivy-on-apt is replaced by vulnix + SBOM in #637, and the Debian path is decommissioned in #642 (both part of #625). This gate will be re-pointed/closed once the new scan passes its gate (with #642).
 
