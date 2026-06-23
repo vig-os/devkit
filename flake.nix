@@ -1,5 +1,5 @@
 {
-  description = "eXoma devcontainer – toolchain SSoT (dev-shell + image basis)";
+  description = "vigOS devcontainer – toolchain SSoT (dev-shell + image basis)";
 
   inputs = {
     # Pinned stable channel: the controlled version document (flake.lock).
