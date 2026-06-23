@@ -203,3 +203,116 @@ jobs:
         run: |
           echo "::error::Fixable HIGH/CRITICAL vulnerabilities detected in ${IMAGE_REF} (pulled as ghcr.io/vig-os/devcontainer:latest)"
           exit 1
+
+  # vulnix CVE scan of the Nix-built image (T3.1, #637).
+  #
+  # A Nix image has no apt/dpkg DB, so Trivy's OS-package scanner goes dark.
+  # vulnix (nixpkgs-native) becomes the PRIMARY CVE signal here, scanning the
+  # image's package closure (flake `devcontainerImageEnv`); Trivy stays on for a
+  # CycloneDX SBOM + an SBOM-mode vuln view (defense in depth). The vulnix-gate
+  # step is NON-BLOCKING for now (discovery): vulnix over-reports because it does
+  # not see nixpkgs' backported patches, so findings are triaged into
+  # .vulnixignore (and the nixpkgs rev advanced) before #639 flips this gate to
+  # blocking and wires SARIF upload + a deduplicated issue, like scan-latest.
+  scan-nix-image:
+    name: Scan Nix image (vulnix + SBOM)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Install Nix (upstream CppNix)
+        uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3  # v31.10.6
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Configure Cachix (pull-only substituter)
+        uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71  # v17
+        with:
+          name: ${{ vars.CACHIX_CACHE }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Set up environment (uv for the gate utilities)
+        uses: ./.github/actions/setup-env
+        with:
+          sync-dependencies: 'true'
+
+      - name: Validate .vulnixignore exception expirations
+        run: uv run check-expirations .vulnixignore
+
+      - name: Build the vulnix scan target (image package closure)
+        run: |
+          set -euo pipefail
+          nix build .#devcontainerImageEnv --print-build-logs
+
+      - name: Run vulnix (primary CVE scanner)
+        run: |
+          set -euo pipefail
+          # vulnix exits non-zero when advisories are found; the gate decides
+          # pass/fail, so don't let the scan itself fail the step.
+          nix run .#vulnix -- --closure ./result --json > vulnix-findings.json || true
+          nix run .#vulnix -- --closure ./result | tee vulnix-report.txt || true
+
+      - name: Gate on unexcepted HIGH/CRITICAL vulnix findings
+        id: vulnix-gate
+        # Discovery phase: non-blocking. #639 removes continue-on-error to make
+        # this the publish-cutover gate.
+        continue-on-error: true
+        run: uv run vulnix-gate vulnix-findings.json --register .vulnixignore
+
+      - name: Build the Nix image for SBOM generation
+        run: |
+          set -euo pipefail
+          nix build .#devcontainerImage --print-build-logs
+          cp -L result /tmp/nix-image.tar.gz
+
+      - name: Generate Nix image SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          version: 'v0.71.2'
+          input: /tmp/nix-image.tar.gz
+          format: 'cyclonedx'
+          output: 'sbom-nix-cyclonedx.json'
+
+      - name: Trivy SBOM-mode scan (defense in depth, awareness only)
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          version: 'v0.71.2'
+          scan-type: 'sbom'
+          scan-ref: 'sbom-nix-cyclonedx.json'
+          format: 'table'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '0'
+
+      - name: Upload vulnix findings + SBOM (Trivy-vs-vulnix overlap evidence)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: nix-image-cve-scan
+          path: |
+            vulnix-findings.json
+            vulnix-report.txt
+            sbom-nix-cyclonedx.json
+          retention-days: 90
+
+      - name: Write Nix image scan summary
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "## Nix image CVE scan (vulnix + SBOM)"
+            echo ""
+            echo "- **Scan target:** flake \`devcontainerImageEnv\` (image package closure)"
+            echo "- **Primary scanner:** vulnix (nixpkgs-native)"
+            echo "- **Date (UTC):** $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "- **Gate:** ${{ steps.vulnix-gate.outcome }} (non-blocking during discovery; blocking at #639)"
+            echo ""
+            echo "vulnix over-reports CVEs already patched in nixpkgs; triage findings"
+            echo "into \`.vulnixignore\` and advance the nixpkgs rev before #639."
+          } >> "$GITHUB_STEP_SUMMARY"

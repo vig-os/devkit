@@ -1,0 +1,25 @@
+# vulnix CVE Exception Register (Nix image)
+#
+# Companion to .trivyignore for the Nix-built image. vulnix scans the image's
+# Nix-store package closure (flake `devcontainerImageEnv`); this register lists
+# CVEs accepted as non-blocking, each with a risk note and an expiration date.
+# Format is identical to .trivyignore and is validated by `check-expirations`
+# (pre-commit + CI): an `Expiration: YYYY-MM-DD` directive applies to every
+# entry below it until the next directive, and expired entries fail CI to force
+# periodic review (IEC 62304 exception-register model).
+#
+# `vulnix-gate` consults this file: a HIGH/CRITICAL finding (CVSS v3 >= 7.0) is
+# blocking only when it is NOT covered by a non-expired entry here. This is the
+# objective go/no-go input for the publish-cutover (#639).
+#
+# NOTE (vulnix over-reporting): vulnix matches NVD by package name + upstream
+# version and does NOT see nixpkgs' backported security patches, so it reports
+# CVEs already fixed in the shipped derivation. The primary remediation lever is
+# to advance the pinned nixpkgs rev (Renovate `nix` manager + lockFileMaintenance,
+# #638); genuinely-not-applicable findings are accepted here with a rationale.
+# Each accepted entry should record WHY (patched-in-nixpkgs / not-exploitable /
+# awaiting-upstream) per docs/CONTAINER_SECURITY.md.
+#
+# This register starts empty: the discovery-phase vulnix job is non-blocking
+# (continue-on-error), so its findings are triaged here before #639 flips the
+# gate to blocking. Tracking: https://github.com/vig-os/devcontainer/issues/637

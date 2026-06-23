@@ -169,10 +169,10 @@ repos:
   - repo: local
     hooks:
       - id: check-expirations
-        name: check-expirations (.trivyignore expiry enforcement)
-        entry: uv run check-expirations .trivyignore
+        name: check-expirations (.trivyignore/.vulnixignore expiry enforcement)
+        entry: uv run check-expirations .trivyignore .vulnixignore
         language: system
-        files: ^\.trivyignore$
+        files: ^\.(trivyignore|vulnixignore)$
         pass_filenames: false
 
   # AI agent identity: strip trailers before commit-msg (Refs: #163)
