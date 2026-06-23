@@ -7,6 +7,35 @@ setup() {
     load test_helper
     INIT_WORKSPACE_SH="$PROJECT_ROOT/assets/init-workspace.sh"
     PARSE_GITHUB_REMOTE_LIB="$PROJECT_ROOT/assets/parse-github-remote-lib.sh"
+    TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace"
+}
+
+# ── Claude-native template scaffold (#629) ────────────────────────────────────
+# init-workspace.sh rsyncs assets/workspace/ verbatim into a new workspace, so
+# asserting on the template tree is a faithful, build-free proxy for "what new
+# workspaces scaffold".
+
+@test "template scaffolds .claude/ directory" {
+    run test -d "$TEMPLATE_DIR/.claude"
+    assert_success
+}
+
+@test "template scaffolds .claude/skills/" {
+    run test -d "$TEMPLATE_DIR/.claude/skills"
+    assert_success
+}
+
+@test "template does NOT scaffold .cursor/ directory" {
+    run test -e "$TEMPLATE_DIR/.cursor"
+    assert_failure
+}
+
+@test "template carries no Cursor editor glue (cursor-remote / cursor-agent)" {
+    # Exclude CHANGELOG.md: released entries are immutable history and may name
+    # cursor-agent for the change that removed it.
+    run grep -rn --exclude=CHANGELOG.md \
+        'cursor-remote\|cursor-agent\|command -v cursor' "$TEMPLATE_DIR"
+    assert_failure
 }
 
 # ── script structure ──────────────────────────────────────────────────────────
