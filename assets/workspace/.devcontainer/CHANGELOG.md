@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Drive autonomous worktree pipelines with the `claude` CLI** ([#627](https://github.com/vig-os/devcontainer/issues/627))
+  - `just worktree-start`/`worktree-attach` now launch `claude --dangerously-skip-permissions` in the tmux session instead of `cursor-agent` (`agent chat --yolo --approve-mcps`); the cursor-specific directory-trust step and the `tmux send-keys "a"` approval trigger are no longer needed and have been removed
+  - Prerequisite, authentication (`claude auth status`/`claude auth login`, `ANTHROPIC_API_KEY`), and `scripts/requirements.yaml` now reference the `claude` CLI rather than the Cursor Agent CLI
+
 ### Deprecated
 
 ### Removed

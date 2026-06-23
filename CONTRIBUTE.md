@@ -17,7 +17,7 @@ This guide explains how to develop, build, test, and release the vigOS developme
 | **gh** | latest | GitHub CLI for repository and PR/issue management |
 | **jq** | latest | JSON parsing for worktree commands and issue metadata |
 | **tmux** | latest | Session manager required by worktree-start and worktree-attach |
-| **agent** | latest | Cursor Agent CLI required by worktree-start/worktree-attach flows |
+| **claude** | latest | Claude Code CLI required by worktree-start/worktree-attach flows |
 | **npm** | latest | Node.js package manager (for DevContainer CLI) |
 | **uv** | >=0.8 | Python package and project manager |
 | **bats** | 1.13.0 | Bash Automated Testing System for shell script tests |
@@ -219,7 +219,7 @@ Available recipes:
     worktree-attach issue                      # before attaching. See tests/bats/worktree.bats for integration tests. [alias: wt-attach]
     worktree-clean mode=""                     # Default (no args): clean only stopped worktrees. Use 'all' to clean everything. [alias: wt-clean]
     worktree-list                              # List active worktrees and their tmux sessions [alias: wt-list]
-    worktree-start issue prompt="" reviewer="" # Create a worktree for an issue, open tmux session, launch cursor-agent [alias: wt-start]
+    worktree-start issue prompt="" reviewer="" # Create a worktree for an issue, open tmux session, launch the claude CLI [alias: wt-start]
     worktree-stop issue                        # Stop a worktree's tmux session and remove the worktree [alias: wt-stop]
 
 ```

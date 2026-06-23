@@ -127,7 +127,7 @@ Each phase produces concrete artifacts that feed into the next. This is the data
 
 ### Autonomous Pipeline (same artifacts, no human prompts)
 
-> **Important:** `worktree_*` skills are **not** invoked directly in your editor session. They only work inside a worktree launched via `just worktree-start`, which sets up the isolated environment, tmux session, and `cursor-agent` process they depend on.
+> **Important:** `worktree_*` skills are **not** invoked directly in your editor session. They only work inside a worktree launched via `just worktree-start`, which sets up the isolated environment, tmux session, and `claude` process they depend on.
 
 | Step | Output | Where it lives |
 |------|--------|---------------|
@@ -163,13 +163,13 @@ Skills can delegate mechanical sub-steps (CLI calls, template filling, comment p
 
 ## Worktree Infrastructure (`justfile.worktree`)
 
-The autonomous pipeline doesn't run inside your current editor session. It runs in an isolated **git worktree** managed by `just` recipes, with a `cursor-agent` process inside a `tmux` session. This is the runtime layer that makes `worktree_*` skills work.
+The autonomous pipeline doesn't run inside your current editor session. It runs in an isolated **git worktree** managed by `just` recipes, with a `claude` process inside a `tmux` session. This is the runtime layer that makes `worktree_*` skills work.
 
 ### Lifecycle Recipes
 
 | Recipe | What it does |
 |--------|-------------|
-| `just worktree-start <issue> "<prompt>"` | Creates a worktree, resolves (or creates) the linked branch, sets up the environment (`uv sync`, `pre-commit install`, `.env` copy), trusts the directory for `cursor-agent`, then launches a `tmux` session running `agent chat --yolo` with the given prompt. If the worktree already exists, it reuses it. |
+| `just worktree-start <issue> "<prompt>"` | Creates a worktree, resolves (or creates) the linked branch, sets up the environment (`uv sync`, `pre-commit install`, `.env` copy), then launches a `tmux` session running `claude --dangerously-skip-permissions` with the given prompt. If the worktree already exists, it reuses it. |
 | `just worktree-attach <issue>` | Attaches to the running `tmux` session so you can watch or intervene. |
 | `just worktree-list` | Lists all worktrees with their branch, issue number, and tmux status (`[RUNNING]` / `[STOPPED]`). |
 | `just worktree-stop <issue>` | Kills the tmux session, removes the worktree directory, and deletes the local branch. |
@@ -177,8 +177,8 @@ The autonomous pipeline doesn't run inside your current editor session. It runs 
 
 ### What `worktree-start` Does Under the Hood
 
-1. **Prerequisites** — checks for `tmux` and `cursor-agent` CLI.
-2. **Authentication** — tries existing browser login, falls back to `CURSOR_API_KEY`, or prompts `agent login`.
+1. **Prerequisites** — checks for `tmux` and the `claude` CLI.
+2. **Authentication** — tries existing browser login, falls back to `ANTHROPIC_API_KEY`, or prompts `claude auth login`.
 3. **Branch resolution** — calls `gh issue develop --list` to find the linked branch. If none exists, it:
    - Fetches issue metadata, infers branch type from labels (`bugfix` vs `feature`).
    - Uses a lightweight agent call to derive a kebab-case summary from the issue title.
