@@ -4,3 +4,5 @@
 [default.extend-words]
 # Shell scripting: sed label syntax uses 'ba' (branch to label 'a')
 ba = "ba"
+# CVE policy term (#637): a finding "unexcepted" = not in the exception register
+unexcepted = "unexcepted"
