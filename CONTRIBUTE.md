@@ -129,7 +129,11 @@ build, so the first `direnv allow` completes in seconds.
    source it from `~/.config/direnv/direnvrc`, that installation is used instead.
 
 This Nix dev shell is an alternative to the devcontainer image below; use whichever
-fits your workflow.
+fits your workflow. Downstream workspaces scaffolded by `install.sh` choose between
+the two (or both) via the delivery mode: `--mode devcontainer|direnv|both`
+(default `both`; the interactive `init-workspace.sh` prompts, defaulting to
+`both`). `devcontainer` scaffolds `.devcontainer/` only, `direnv` scaffolds
+`flake.nix` + `.envrc` only, and `both` scaffolds everything.
 
 ## Setup
 

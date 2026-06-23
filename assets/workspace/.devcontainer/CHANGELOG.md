@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Install/init delivery-mode picker (`--mode devcontainer|direnv|both`)** ([#641](https://github.com/vig-os/devcontainer/issues/641))
+  - `install.sh` gained a `--mode devcontainer|direnv|both` flag (accepts both `--mode X` and `--mode=X`), validated up front and passed through to `init-workspace.sh`. Empty means "let init-workspace decide": the one-line install runs non-interactively and defaults to `both` (unchanged behaviour)
+  - `init-workspace.sh` gained the same `--mode` flag plus an interactive prompt when the mode is unset and prompts are enabled (default selection `both`); under `--no-prompts`/`--smoke-test` with no `--mode` it defaults to `both`. After the rsync scaffold it prunes to the chosen mode: `devcontainer` removes the `flake.nix` + `.envrc` stub, `direnv` removes the `.devcontainer/` scaffold, and `both` keeps everything (prune is idempotent and scoped to the new workspace)
 - **Downstream minimal flake stub (non-overwriting) + `nix2container` production builder** ([#640](https://github.com/vig-os/devcontainer/issues/640))
   - Scaffold `assets/workspace/flake.nix` (a minimal stub consuming the shared toolchain as a flake input — `vigos.url = github:vig-os/devcontainer`, `nixpkgs.follows = vigos/nixpkgs`, `vigos.lib.mkProjectShell` + a placeholder `extraPackages`) and `assets/workspace/.envrc` (`use flake` via nix-direnv). Updating the dev environment is `nix flake update vigos`; it never overwrites user files
   - Added both to the `PRESERVE_FILES` never-overwrite class in `init-workspace.sh` (same guarantee as `justfile.project`) and committed the template `.envrc` (un-ignored in the template `.gitignore`, with `.direnv/`/`.envrc.local` still ignored)

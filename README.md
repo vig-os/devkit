@@ -30,6 +30,14 @@ This will:
 - Pull the latest devcontainer image
 - Initialize your project with the devcontainer template
 
+**Delivery mode.** A workspace can run on a VS Code **devcontainer**, on a Nix
+flake + **direnv**, or **both**. Pass `--mode devcontainer|direnv|both` to choose
+(both forms `--mode X` and `--mode=X` work). The one-line install runs
+non-interactively and defaults to `both`; run `init-workspace.sh` directly (see
+Manual Setup) without `--mode` to be prompted, where the default selection is
+also `both`. `devcontainer` scaffolds `.devcontainer/` only; `direnv` scaffolds
+`flake.nix` + `.envrc` only; `both` scaffolds everything.
+
 **Options:**
 
 ```bash
@@ -44,6 +52,9 @@ curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh 
 
 # Override organization name (default: vigOS)
 curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --org MyOrg ~/my-project
+
+# Choose the delivery mode: devcontainer | direnv | both (default: both)
+curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --mode direnv ~/my-project
 
 # Preview without executing
 curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --dry-run ~/my-project
@@ -85,6 +96,11 @@ curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh 
    ```
 
    The script copies the devcontainer template (`.devcontainer/`), git hooks, README/CHANGELOG, and auth helpers into your project.
+
+   Run interactively (no `-it` dropped), the script prompts for the delivery mode
+   (`devcontainer`/`direnv`/`both`, default `both`). Pass `--mode <value>` to skip
+   the prompt; under `--no-prompts` (e.g. the one-line install) it defaults to
+   `both`.
 
 3. **Run with `--force` when overwriting or updating an existing project**
 

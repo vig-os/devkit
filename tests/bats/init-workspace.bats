@@ -72,6 +72,88 @@ setup() {
     assert_success
 }
 
+# ── delivery-mode picker (#641) ───────────────────────────────────────────────
+# init-workspace.sh scaffolds the template, then prunes to the chosen mode:
+#   devcontainer -> .devcontainer/ only (no flake.nix/.envrc)
+#   direnv       -> flake.nix + .envrc only (no .devcontainer/)
+#   both         -> everything (default, current behaviour)
+# We exercise the prune on a copy of the template (build-free proxy for the
+# in-container scaffold), and assert the flag/default wiring on script structure.
+
+# Apply the same prune the script does for a given mode to $1 (a workspace copy).
+prune_mode() {
+    local ws="$1" mode="$2"
+    case "$mode" in
+        devcontainer) rm -f "$ws/flake.nix" "$ws/.envrc" ;;
+        direnv) rm -rf "$ws/.devcontainer" ;;
+        both) : ;;
+    esac
+}
+
+@test "mode=devcontainer keeps .devcontainer/, drops flake.nix and .envrc (#641)" {
+    ws="$BATS_TEST_TMPDIR/ws-devcontainer"
+    cp -r "$TEMPLATE_DIR" "$ws"
+    prune_mode "$ws" devcontainer
+    run test -d "$ws/.devcontainer"
+    assert_success
+    run test -e "$ws/flake.nix"
+    assert_failure
+    run test -e "$ws/.envrc"
+    assert_failure
+}
+
+@test "mode=direnv keeps flake.nix and .envrc, drops .devcontainer/ (#641)" {
+    ws="$BATS_TEST_TMPDIR/ws-direnv"
+    cp -r "$TEMPLATE_DIR" "$ws"
+    prune_mode "$ws" direnv
+    run test -f "$ws/flake.nix"
+    assert_success
+    run test -f "$ws/.envrc"
+    assert_success
+    run test -e "$ws/.devcontainer"
+    assert_failure
+}
+
+@test "mode=both keeps .devcontainer/, flake.nix and .envrc (#641)" {
+    ws="$BATS_TEST_TMPDIR/ws-both"
+    cp -r "$TEMPLATE_DIR" "$ws"
+    prune_mode "$ws" both
+    run test -d "$ws/.devcontainer"
+    assert_success
+    run test -f "$ws/flake.nix"
+    assert_success
+    run test -f "$ws/.envrc"
+    assert_success
+}
+
+@test "init-workspace.sh accepts a --mode flag (#641)" {
+    run grep -- '--mode' "$INIT_WORKSPACE_SH"
+    assert_success
+}
+
+@test "init-workspace.sh validates --mode against the three modes (#641)" {
+    run grep -E 'devcontainer\|direnv\|both' "$INIT_WORKSPACE_SH"
+    assert_success
+}
+
+@test "init-workspace.sh defaults to 'both' under --no-prompts (#641)" {
+    # shellcheck disable=SC2016
+    run grep -A4 'if \[\[ -z "\$MODE" \]\]' "$INIT_WORKSPACE_SH"
+    assert_success
+    assert_output --partial 'MODE="both"'
+}
+
+@test "init-workspace.sh prunes the scaffold by delivery mode (#641)" {
+    # devcontainer drops the flake stub; direnv drops the devcontainer scaffold.
+    # shellcheck disable=SC2016
+    run grep -A12 'case "\$MODE" in' "$INIT_WORKSPACE_SH"
+    assert_success
+    # shellcheck disable=SC2016
+    assert_output --partial 'rm -f "$WORKSPACE_DIR/flake.nix" "$WORKSPACE_DIR/.envrc"'
+    # shellcheck disable=SC2016
+    assert_output --partial 'rm -rf "$WORKSPACE_DIR/.devcontainer"'
+}
+
 # ── script structure ──────────────────────────────────────────────────────────
 
 @test "init-workspace.sh is executable" {

@@ -1,12 +1,17 @@
 #!/bin/bash
 # Initialize workspace by copying template files
 #
-# Usage: init-workspace [--force] [--no-prompts] [--smoke-test]
+# Usage: init-workspace [--force] [--no-prompts] [--smoke-test] [--mode MODE]
 #
 # Options:
 #   --force       Overwrite existing files (for upgrades)
 #   --no-prompts  Run non-interactively (requires SHORT_NAME env var)
 #   --smoke-test  Deploy smoke-test-specific assets
+#   --mode MODE   Delivery mode: devcontainer | direnv | both
+#                 devcontainer  scaffold .devcontainer/ only (no flake.nix/.envrc)
+#                 direnv        scaffold flake.nix + .envrc only (no .devcontainer/)
+#                 both          scaffold everything (default)
+#                 Unset: prompt interactively, or default to "both" with --no-prompts
 #
 # Environment variables (used with --no-prompts):
 #   SHORT_NAME           - Project short name (required)
@@ -20,6 +25,8 @@ WORKSPACE_DIR="/workspace"
 FORCE=false
 NO_PROMPTS=false
 SMOKE_TEST=false
+# Delivery mode: devcontainer | direnv | both. Empty = prompt (or "both" with --no-prompts).
+MODE=""
 
 # Files to preserve during --force upgrades (never overwrite if they exist)
 # These are user/project customization files that should survive upgrades
@@ -48,24 +55,44 @@ MANIFEST_FILE="$SCRIPT_DIR/.placeholder-manifest.txt"
 source "$SCRIPT_DIR/parse-github-remote-lib.sh"
 
 # Parse arguments
-for arg in "$@"; do
-    case "$arg" in
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         --force)
             FORCE=true
+            shift
             ;;
         --no-prompts)
             NO_PROMPTS=true
+            shift
             ;;
         --smoke-test)
             SMOKE_TEST=true
+            shift
+            ;;
+        --mode)
+            MODE="$2"
+            shift 2
+            ;;
+        --mode=*)
+            MODE="${1#--mode=}"
+            shift
             ;;
         *)
-            echo "Unknown option: $arg" >&2
-            echo "Usage: init-workspace [--force] [--no-prompts] [--smoke-test]" >&2
+            echo "Unknown option: $1" >&2
+            echo "Usage: init-workspace [--force] [--no-prompts] [--smoke-test] [--mode MODE]" >&2
             exit 1
             ;;
     esac
 done
+
+# Validate delivery mode (empty handled later: prompt, or default to "both").
+case "$MODE" in
+    ""|devcontainer|direnv|both) ;;
+    *)
+        echo "Error: Invalid --mode: $MODE (expected: devcontainer | direnv | both)" >&2
+        exit 1
+        ;;
+esac
 
 # Smoke mode must run unattended and allow overwriting existing content.
 if [[ "$SMOKE_TEST" == "true" ]]; then
@@ -147,6 +174,32 @@ else
     fi
 fi
 echo "Organization name set to: $ORG_NAME"
+
+# Get MODE - from flag, prompt, or default. Selects which delivery the workspace
+# scaffolds: a devcontainer, the Nix/direnv stub, or both.
+if [[ -z "$MODE" ]]; then
+    if [[ "$NO_PROMPTS" == "true" ]] || [[ ! -t 0 ]]; then
+        # Non-interactive (--no-prompts, or no TTY: CI / piped stdin): default to
+        # "both" without blocking on the prompt, preserving prior behaviour.
+        MODE="both"
+    else
+        # Interactive mode: prompt user (default selection: both).
+        echo "Choose how this workspace runs its dev environment:"
+        echo "  1) devcontainer - VS Code Dev Containers (.devcontainer/)"
+        echo "  2) direnv       - Nix flake + direnv (flake.nix + .envrc)"
+        echo "  3) both         - scaffold both (default)"
+        read -rp "Delivery mode [devcontainer/direnv/both] (default: both): " MODE
+        MODE="${MODE:-both}"
+        case "$MODE" in
+            devcontainer|direnv|both) ;;
+            *)
+                echo "Error: Invalid mode: $MODE (expected: devcontainer | direnv | both)" >&2
+                exit 1
+                ;;
+        esac
+    fi
+fi
+echo "Delivery mode set to: $MODE"
 
 # Helper: check if a file is in the preserve list
 is_preserved_file() {
@@ -261,6 +314,25 @@ else
 
     rsync -av --exclude='.git' --exclude='.venv' "${EXCLUDE_ARGS[@]}" "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
 fi
+
+# Prune the scaffold to the chosen delivery mode. Idempotent and safe: only
+# removes paths inside the new workspace.
+#   devcontainer -> remove the flake.nix + .envrc stub
+#   direnv       -> remove the .devcontainer/ scaffold
+#   both         -> keep everything
+case "$MODE" in
+    devcontainer)
+        echo "Pruning to 'devcontainer' mode: removing flake.nix and .envrc..."
+        rm -f "$WORKSPACE_DIR/flake.nix" "$WORKSPACE_DIR/.envrc"
+        ;;
+    direnv)
+        echo "Pruning to 'direnv' mode: removing .devcontainer/..."
+        rm -rf "$WORKSPACE_DIR/.devcontainer"
+        ;;
+    both)
+        : # keep everything
+        ;;
+esac
 
 resolve_github_repository
 

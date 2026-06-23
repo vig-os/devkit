@@ -13,6 +13,7 @@
 #   --name NAME       Override project name (SHORT_NAME)
 #   --org ORG         Override organization name (default: vigOS)
 #   --repo OWNER/REPO GitHub repo for Renovate preset (default: detect from origin or OWNER/REPO)
+#   --mode MODE       Delivery mode: devcontainer | direnv | both (default: prompt, both non-interactively)
 #   --smoke-test      Deploy smoke-test-specific assets
 #   --dry-run         Show what would be done without executing
 #   -h, --help        Show this help message
@@ -36,6 +37,7 @@ PROJECT_PATH=""
 PROJECT_NAME=""
 ORG_NAME="vigOS"
 GITHUB_REPO_OVERRIDE=""
+MODE=""
 SMOKE_TEST=""
 
 # Colors (disabled if not a tty)
@@ -70,6 +72,8 @@ OPTIONS:
     --name NAME       Override project name (SHORT_NAME, used for module name)
     --org ORG         Override organization name (default: vigOS)
     --repo OWNER/REPO GitHub repository for Renovate (default: git origin or OWNER/REPO)
+    --mode MODE       Delivery mode: devcontainer | direnv | both
+                      (default: prompt interactively; "both" non-interactively)
     --smoke-test      Deploy smoke-test-specific assets
     --dry-run         Show what would be done
     -h, --help        Show this help
@@ -92,6 +96,9 @@ EXAMPLES:
 
     # Use custom organization name
     curl -sSf ... | bash -s -- --org MyOrg ./my-project
+
+    # Scaffold only the Nix/direnv stub (no .devcontainer/)
+    curl -sSf ... | bash -s -- --mode direnv ./my-project
 EOF
 }
 
@@ -307,6 +314,14 @@ while [ $# -gt 0 ]; do
             GITHUB_REPO_OVERRIDE="$2"
             shift 2
             ;;
+        --mode)
+            MODE="$2"
+            shift 2
+            ;;
+        --mode=*)
+            MODE="${1#--mode=}"
+            shift
+            ;;
         --dry-run)
             DRY_RUN=true
             shift
@@ -334,6 +349,16 @@ while [ $# -gt 0 ]; do
             ;;
     esac
 done
+
+# Validate delivery mode (empty = let init-workspace.sh prompt / default to both)
+case "$MODE" in
+    ""|devcontainer|direnv|both) ;;
+    *)
+        err "Invalid --mode: $MODE (expected: devcontainer | direnv | both)"
+        usage
+        exit 1
+        ;;
+esac
 
 # Validate and set project path
 PROJECT_PATH="${PROJECT_PATH:-.}"
@@ -446,6 +471,10 @@ if [ -n "$SMOKE_TEST" ]; then
     CMD+=(--smoke-test)
 fi
 
+if [ -n "$MODE" ]; then
+    CMD+=(--mode "$MODE")
+fi
+
 if [ "$DRY_RUN" = true ]; then
     info "Would execute:"
     printf "  %s" "$RUNTIME run --rm -e SHORT_NAME=\"$PROJECT_NAME\" -e ORG_NAME=\"$ORG_NAME\" -e GITHUB_REPOSITORY=\"$GITHUB_REPOSITORY\" -v \"$PROJECT_PATH\":/workspace \"$IMAGE\" /root/assets/init-workspace.sh --no-prompts"
@@ -454,6 +483,9 @@ if [ "$DRY_RUN" = true ]; then
     fi
     if [ -n "$SMOKE_TEST" ]; then
         printf " %s" "--smoke-test"
+    fi
+    if [ -n "$MODE" ]; then
+        printf " %s %s" "--mode" "$MODE"
     fi
     printf "\n"
     exit 0
