@@ -1,5 +1,5 @@
-# .cursor/agent-models.toml
-# Single source of truth for cursor-agent model assignments.
+# .claude/agent-models.toml
+# Single source of truth for agent model assignments.
 # Referenced by: justfile.worktree (worktree-start recipe)
 
 [models]

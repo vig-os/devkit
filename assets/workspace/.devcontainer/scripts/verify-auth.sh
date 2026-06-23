@@ -50,7 +50,7 @@ verify_ssh_agent() {
 	local found_socket=""
 	local socket_count=0
 
-	for sock in /tmp/cursor-remote-ssh-*.sock /tmp/ssh-*/agent.* /run/user/*/openssh_agent; do
+	for sock in /tmp/ssh-*/agent.* /run/user/*/openssh_agent; do
 		[ ! -S "$sock" ] 2>/dev/null && continue
 		socket_count=$((socket_count + 1))
 

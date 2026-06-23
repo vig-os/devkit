@@ -21,7 +21,7 @@ Refs: <IDs>
 - **Body** — Optional. Include additional context on _what_ and _why_. May have multiple paragraphs. If present, end the body with a blank line before the Refs line.
 - **Refs line** — Mandatory for most types. Exactly one line starting with `Refs:`; it must be the last non-empty line. Include at least one GitHub issue ID (e.g. `#36`); other references (e.g. `REQ-...`, `RISK-...`, `SOP-...`) may follow. See [Exemptions](#exemptions) for types where `Refs:` is optional.
 
-## Enforcing the template in VS Code / Cursor
+## Enforcing the template in VS Code
 
 - **Git commit template** — A `.gitmessage` file in the repo root is used as the default message when you run `git commit` from the terminal (no `-m`). After `just init` or devcontainer setup, `commit.template` is set to `.gitmessage` so the template is loaded when Git opens the editor.
 - **Source Control + AI** — When using the Source Control panel and the GitHub extension to generate the message:

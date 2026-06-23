@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Drive autonomous worktree pipelines with the `claude` CLI** ([#627](https://github.com/vig-os/devcontainer/issues/627))
   - `just worktree-start`/`worktree-attach` now launch `claude --dangerously-skip-permissions` in the tmux session instead of `cursor-agent` (`agent chat --yolo --approve-mcps`); the cursor-specific directory-trust step and the `tmux send-keys "a"` approval trigger are no longer needed and have been removed
   - Prerequisite, authentication (`claude auth status`/`claude auth login`, `ANTHROPIC_API_KEY`), and `scripts/requirements.yaml` now reference the `claude` CLI rather than the Cursor Agent CLI
+- **Migrate the workspace template and editor glue off Cursor (VS Code only)** ([#629](https://github.com/vig-os/devcontainer/issues/629))
+  - New workspaces now scaffold `.claude/` (skills, `agent-models.toml`, `worktrees.json`) instead of the removed `.cursor/` template tree; the sync manifest carries the `.claude/` payload accordingly
+  - `just open` launches VS Code only (dropped the `command -v cursor` fallback), and `verify-auth.sh` no longer scans the `cursor-remote-ssh` SSH-agent socket
+  - `COMMIT_MESSAGE_STANDARD.md` now refers to VS Code rather than "VS Code / Cursor"
 - **Make the image testinfra suite portable across Debian and Nix images** ([#635](https://github.com/vig-os/devcontainer/issues/635))
   - Replace dpkg `host.package(...).is_installed` checks (git, curl, openssh-client, nano, tmux, rsync) with path-agnostic `--version`/`-V` runs
   - Resolve `gh`, `just`, `hadolint`, `taplo` and cargo-installed tools via PATH (`command -v`) instead of hardcoded `/usr/local/bin` / `/root/.cargo/bin` / `/root/.local/bin` locations

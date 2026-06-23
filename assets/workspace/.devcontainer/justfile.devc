@@ -202,7 +202,7 @@ restart *args:
         exit 1
     fi
 
-# Open Cursor/VS Code attached to the running container
+# Open VS Code attached to the running container
 [group('devcontainer')]
 open:
     #!/usr/bin/env bash
@@ -210,12 +210,10 @@ open:
         echo "[ERROR] Run this from the host: just open"
         exit 1
     fi
-    if command -v cursor &>/dev/null; then
-        cursor .
-    elif command -v code &>/dev/null; then
+    if command -v code &>/dev/null; then
         code .
     else
-        echo "[ERROR] Neither cursor nor code found. Install Cursor or VS Code."
+        echo "[ERROR] code not found. Install VS Code."
         exit 1
     fi
 

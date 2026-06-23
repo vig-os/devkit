@@ -5,16 +5,22 @@
 src = "docs/COMMIT_MESSAGE_STANDARD.md"
 
 # Agent skills/config now live in .claude/ (SSoT, #626). They sync into the
-# downstream template under assets/workspace/.claude/. The stale
-# assets/workspace/.cursor/ template tree is removed by #629. The former
+# downstream template under assets/workspace/.claude/, replacing the stale
+# assets/workspace/.cursor/ template tree removed by #629. The former
 # .cursor/rules/ entry is dropped: workflow rules became skills (synced below)
-# and static principles moved into CLAUDE.md.
+# and static principles moved into CLAUDE.md. The template carries the same
+# .claude/ payload the old .cursor/ template did: skills, agent-models.toml,
+# and worktrees.json. Command wrappers (.claude/commands/) are not synced —
+# the downstream template has no CLAUDE.md command table and never carried them.
 [[entries]]
 src = ".claude/skills/"
 transforms = [
   { type = "Sed", pattern = "just test-image", replace = "just test", target = "code_verify/SKILL.md" },
   { type = "Sed", pattern = "just test-image", replace = "just test", target = "design_plan/SKILL.md" },
 ]
+
+[[entries]]
+src = ".claude/agent-models.toml"
 
 [[entries]]
 src = ".claude/worktrees.json"
