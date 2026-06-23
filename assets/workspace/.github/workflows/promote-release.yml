@@ -403,42 +403,70 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
+          TMP=$(mktemp)
+          trap 'rm -f "$TMP"' EXIT
+
+          # Emit "<id>\t<tag>" for every RC draft pre-release of the base version,
+          # read from the releases list cached in "$TMP". Drafts must be deleted by
+          # id (gh release delete <tag> cannot resolve a draft), and seeding from
+          # releases — not git tags — reclaims drafts whose RC tag was already
+          # removed by an earlier partial run.
+          select_rc_draft_releases() {
+            jq -r -s --arg base "$VERSION" '
+              ( "^" + ($base | gsub("\\.";"\\.")) + "-rc[0-9]+$" ) as $rc
+              | (add // [])[]
+              | select(.draft == true and .prerelease == true and (.tag_name | test($rc)))
+              | "\(.id)\t\(.tag_name)"
+            ' "$TMP"
+          }
+
+          # Pass 1: delete RC draft pre-releases by release id.
+          retry --retries 3 --backoff 5 --max-backoff 30 -- \
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" > "$TMP"
+          DELETE_FAILED=0
+          while IFS=$'\t' read -r rel_id tag; do
+            [ -z "$rel_id" ] && continue
+            echo "Deleting RC draft pre-release $tag (release id $rel_id)"
+            if ! retry --retries 3 --backoff 5 --max-backoff 30 -- \
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/${rel_id}"; then
+              echo "ERROR: failed to delete RC draft pre-release $tag (release id $rel_id)"
+              DELETE_FAILED=1
+            fi
+          done < <(select_rc_draft_releases)
+
+          # Re-read releases after deletions for the tag pass and verification.
+          retry --retries 3 --backoff 5 --max-backoff 30 -- \
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" > "$TMP"
+          RELEASES_AFTER=$(jq -s 'add // []' "$TMP")
+
+          # Pass 2: delete leftover git RC tags for the base version, but keep any
+          # tag that still has a GitHub Release attached — a published pre-release,
+          # or a draft whose deletion failed above so it stays discoverable.
           TAGS=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
             git ls-remote --tags --refs "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "${VERSION}-rc*" \
             | awk '{print $2}' | sed 's#refs/tags/##' || true)
-          if [ -z "$TAGS" ]; then
-            echo "No remote RC tags matching ${VERSION}-rc*"
-            exit 0
-          fi
           while IFS= read -r tag; do
             [ -z "$tag" ] && continue
-            RAW=""
-            if ! RAW=$(retry --retries 2 --backoff 3 --max-backoff 10 -- \
-              gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate 2>&1); then
-              echo "WARN: release lookup failed for tag $tag, skipping deletion"
+            HAS_RELEASE=$(printf '%s' "$RELEASES_AFTER" | jq -r --arg t "$tag" 'any(.[]; .tag_name == $t)')
+            if [ "$HAS_RELEASE" = "true" ]; then
+              echo "Keeping tag $tag (GitHub Release still attached)"
               continue
-            fi
-            RELEASE_JSON=$(printf '%s' "$RAW" | \
-              jq -s --arg tag "$tag" 'flatten | map(select(.tag_name == $tag)) | .[0] // empty' 2>/dev/null || true)
-            if printf '%s' "$RELEASE_JSON" | jq -e 'type == "object"' >/dev/null 2>&1; then
-              IS_DRAFT=$(printf '%s' "$RELEASE_JSON" | jq -r '.draft')
-              IS_PRERELEASE=$(printf '%s' "$RELEASE_JSON" | jq -r '.prerelease')
-              # Only prune RC draft pre-releases; never touch a published release.
-              if [ "$IS_DRAFT" = "true" ] && [ "$IS_PRERELEASE" = "true" ] && \
-                printf '%s' "$tag" | grep -qE "^${VERSION}-rc[0-9]+$"; then
-                echo "Deleting RC draft pre-release $tag (draft pre-release)"
-                retry --retries 3 --backoff 5 --max-backoff 30 -- \
-                  gh release delete "$tag" --yes \
-                  || echo "WARN: failed to delete RC draft pre-release $tag"
-                # Fall through to delete the now-orphaned tag below.
-              else
-                echo "Skipping tag $tag (published GitHub Release exists)"
-                continue
-              fi
             fi
             echo "Deleting remote tag $tag (no GitHub Release)"
             retry --retries 3 --backoff 5 --max-backoff 30 -- \
               gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${tag}" \
               || echo "WARN: failed to delete tag $tag"
           done <<< "$TAGS"
+
+          # Verify: no RC draft pre-release for the base version may survive.
+          REMAINING=$(select_rc_draft_releases || true)
+          if [ -n "$REMAINING" ]; then
+            echo "ERROR: RC draft pre-releases still present for $VERSION:"
+            printf '%s\n' "$REMAINING"
+            exit 1
+          fi
+          if [ "$DELETE_FAILED" -ne 0 ]; then
+            echo "ERROR: one or more RC draft pre-release deletions failed for $VERSION"
+            exit 1
+          fi
           echo "✓ RC draft pre-release and git RC tag cleanup complete for $VERSION"
