@@ -3,13 +3,23 @@
   "extends": [
     "github>vig-os/devcontainer//assets/workspace/.github/renovate-default"
   ],
-  "enabledManagers": ["github-actions", "pep621", "npm", "dockerfile"],
+  "enabledManagers": ["github-actions", "pep621", "npm", "dockerfile", "nix"],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 9am on monday"]
+  },
   "packageRules": [
     {
       "description": "Dockerfile / Containerfile",
       "matchManagers": ["dockerfile"],
       "semanticCommitType": "build",
       "semanticCommitScope": "docker"
+    },
+    {
+      "description": "Nix flake.lock — bump flake inputs through the normal PR/CI gate",
+      "matchManagers": ["nix"],
+      "semanticCommitType": "build",
+      "semanticCommitScope": "nix"
     }
   ]
 }

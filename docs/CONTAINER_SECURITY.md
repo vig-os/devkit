@@ -89,6 +89,28 @@ have no available Debian patch; the nightly gate only fails on fixable
 HIGH/CRITICAL findings. Re-scan after each base-image digest bump and drop
 entries when Debian ships fixes. Tracking: #566, #512, #521.
 
+### 5. Nix flake input maintenance (toolchain)
+
+The developer toolchain comes from the Nix flake (`flake.nix` / `flake.lock`),
+not from `apt`. Renovate keeps `flake.lock` current through two mechanisms in
+`renovate.json`:
+
+- The **`nix` manager** detects flake inputs and proposes pinned-input updates.
+- **`lockFileMaintenance`** (enabled, scheduled weekly) refreshes the locked
+  revisions of all inputs (notably `nixpkgs`) so security fixes land through the
+  normal PR/CI gate rather than a manual `nix flake update`.
+
+**Compensating control — `vulnix` before/after diff.** A `nixpkgs` revision bump
+does not declare *which* CVE it fixes (the `nix` manager reports only the
+old → new git revision). To keep the audit trail, each `flake.lock` /
+nixpkgs-bump PR must include a `vulnix` scan diff of the dev shell taken
+**before and after** the bump, showing which advisories the new revision clears
+(or introduces). This mirrors the CVE-comment rule for targeted `apt` upgrades:
+no change to the security surface lands without a recorded, auditable reason.
+
+The `vulnix` scanner setup itself is tracked separately (#637); this layer
+documents the required PR evidence regardless of how the scan is wired.
+
 ## Why not `apt-get upgrade`?
 
 Running `apt-get upgrade` (or `dist-upgrade`) in the Containerfile has several

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Renovate `nix` manager for `flake.lock` maintenance** ([#638](https://github.com/vig-os/devcontainer/issues/638))
+  - Enabled the Renovate `nix` manager and weekly `lockFileMaintenance` in `renovate.json` so flake inputs (notably `nixpkgs`) are bumped through the normal PR/CI gate; the existing `pep621`, `npm`, `github-actions`, and `dockerfile` managers are retained
+  - Documented the compensating control in `docs/CONTAINER_SECURITY.md`: every `flake.lock`/nixpkgs-bump PR must include a `vulnix` before/after diff, since the `nix` manager reports only the input revision change and not which CVE a bump fixes
 - **De-duplicate the flake into the toolchain SSoT** ([#631](https://github.com/vig-os/devcontainer/issues/631))
   - Factored a single `devTools` list in `flake.nix` as the source of truth shared by the dev-shell now and the image later, absorbing the agent-CLI toolkit (`rg`, `fd`, `bat`, `eza`, `delta`, `lazygit`, `zoxide`, `starship`, `freeze`, `expect`, `nvim`) plus `claude` ([#545](https://github.com/vig-os/devcontainer/issues/545))
   - Pinned `nixpkgs` to `nixos-25.05` and added a `nixpkgs-unstable` input overlaid only for fast-movers (`uv`, `gh`, `claude-code`); refreshed `flake.lock`
