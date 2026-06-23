@@ -41,20 +41,29 @@ setup() {
     assert_success
 }
 
-@test "send-keys 'a' approves agent trust prompt in tmux session" {
+# ── claude CLI launches without a trust prompt (#630) ──────────────────────────
+# The worktree recipes drive the `claude` CLI with
+# `--dangerously-skip-permissions`, which bypasses every permission and MCP
+# approval prompt — so there is no interactive trust prompt to send-keys to
+# (this replaces the old cursor-agent "send 'a' to approve" flow). Validate that
+# the autonomous invocation runs inside a tmux session without stalling on a
+# prompt.
+
+@test "claude CLI launches in tmux without an interactive trust prompt" {
     [ "${CI:-}" = "true" ] && skip "tmux integration tests require interactive TTY"
     command -v tmux >/dev/null 2>&1 || skip "tmux not installed"
-    command -v agent >/dev/null 2>&1 || skip "cursor-agent not installed"
+    command -v claude >/dev/null 2>&1 || skip "claude CLI not installed"
 
-    SESSION="wt-test-trust-$$"
-    TESTDIR="/tmp/bats-trust-$$"
+    SESSION="wt-test-claude-$$"
+    TESTDIR="/tmp/bats-claude-$$"
     mkdir -p "$TESTDIR"
 
     tmux new-session -d -s "$SESSION" -c "$TESTDIR"
     tmux set-option -t "$SESSION" remain-on-exit on
-    tmux send-keys -t "$SESSION" "agent chat --yolo --approve-mcps 'say hello'" Enter
-    sleep 5
-    tmux send-keys -t "$SESSION" "a" 2>/dev/null || true
+    # Launch claude the same way the recipes do, but with a non-interactive
+    # subcommand: if a trust prompt were shown the pane would stall instead of
+    # printing the version string.
+    tmux send-keys -t "$SESSION" "claude --dangerously-skip-permissions --version" Enter
     sleep 5
 
     run tmux capture-pane -t "$SESSION" -p
@@ -62,7 +71,7 @@ setup() {
     rm -rf "$TESTDIR"
 
     assert_success
-    assert_output --partial "Cursor Agent"
+    refute_output --partial "trust"
 }
 
 @test "worktree-start detects branch already checked out via worktree list" {
