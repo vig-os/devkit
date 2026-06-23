@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-06-22T12:26:15Z
-updated: 2026-06-22T12:26:15Z
+updated: 2026-06-22T21:04:18Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devcontainer/issues/617
-comments: 0
+comments: 1
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-06-22T20:15:51.088Z
+synced: 2026-06-23T06:15:17.393Z
 ---
 
 # [Issue 617]: [[BUG] prepare-release can branch release/X.Y.Z at pre-freeze dev SHA (read-after-write race)](https://github.com/vig-os/devcontainer/issues/617)
@@ -70,4 +70,12 @@ Apply to both copies (identical pattern):
 
 Surfaced while validating #612 (0.3.8 release). Distinct root cause (branch-creation
 read-after-write race), not the smoke-test dispatch idempotency fixed there.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on June 22, 2026 at 09:04 PM_
+
+Fixed via #618 and shipped in [0.3.8](https://github.com/vig-os/devcontainer/releases/tag/0.3.8). The prepare-release "Create release branch from dev" step now polls dev until it advances past the captured pre-freeze SHA before branching. Validated end-to-end by the 0.3.8 candidate→final release runs.
 

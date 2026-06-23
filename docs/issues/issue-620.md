@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-06-22T12:47:49Z
-updated: 2026-06-22T12:47:49Z
+updated: 2026-06-22T21:04:21Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devcontainer/issues/620
-comments: 0
+comments: 1
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-06-22T20:15:50.711Z
+synced: 2026-06-23T06:15:17.031Z
 ---
 
 # [Issue 620]: [[BUG] prepare-release PR-body extraction truncates at inline '## [' in changelog bullets](https://github.com/vig-os/devcontainer/issues/620)
@@ -68,4 +68,12 @@ Apply to both copies (identical step):
 
 Surfaced on the 0.3.8 release PR (#619). Latent bug, exposed by changelog entries
 for #617/#612 that quote `## [X.Y.Z]` headings.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on June 22, 2026 at 09:04 PM_
+
+Fixed via #621 and shipped in [0.3.8](https://github.com/vig-os/devcontainer/releases/tag/0.3.8). The PR-body changelog extraction now anchors its sed range to start-of-line headings, so inline backtick-quoted `## [X.Y.Z]` text no longer truncates the body. Confirmed on PR #619's refreshed body.
 
