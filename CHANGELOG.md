@@ -44,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enabled the mode in the CI build/test path (`build-image`, `test-image`, `test-integration`, `project-checks`) so jobs run inside the flake shell (the toolchain SSoT); `podman`, Node.js, BATS, and the devcontainer CLI keep their dedicated install paths
   - The Debian image is still built unchanged and the Docker `type=gha` build cache stays intact
   - Set `UV_PYTHON_DOWNLOADS_JSON_URL` in the flake dev-shell so the nixpkgs `uv` (whose embedded Python-download list is stripped) can fetch the project's pinned CPython `3.14.6`, which nixpkgs does not package, letting `uv sync --frozen` succeed under flake provisioning
+  - Keep `podman` off the flake-provisioned `PATH` so the runner's rootless-configured host `podman` is used (the nix-store `podman` cannot reach the host's setuid `newuidmap`/`newgidmap`, so `podman info` failed)
 
 ### Deprecated
 

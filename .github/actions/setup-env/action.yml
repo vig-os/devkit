@@ -171,11 +171,19 @@ runs:
 
         # Capture the dev-shell PATH and prepend its nix-store bin dirs to
         # GITHUB_PATH so all following steps resolve the flake's tools first.
+        #
+        # Exclude the flake's podman: rootless podman on GitHub runners relies
+        # on the host's setuid newuidmap/newgidmap and container config, which
+        # the nix-store podman does not see, so `podman info` fails. The host's
+        # preinstalled podman is kept on PATH by NOT shadowing it here (matches
+        # the apt-podman intent documented on the provision-via-flake input).
+        # Refs #632.
         SHELL_PATH="$(nix develop --profile "$RUNNER_TEMP/dev-profile" \
           --command bash -c 'printf "%s" "$PATH"')"
 
         printf '%s' "$SHELL_PATH" | tr ':' '\n' \
-          | grep '^/nix/store' >> "$GITHUB_PATH"
+          | grep '^/nix/store' \
+          | grep -v '/nix/store/[^/]*-podman[^/]*/bin' >> "$GITHUB_PATH"
 
         # Propagate the dev-shell's uv Python-download metadata URL to later
         # steps. GITHUB_PATH only carries PATH, not env vars, so this var (set
