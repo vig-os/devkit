@@ -158,3 +158,11 @@ def test_derive_branch_summary_accepts_optional_model_tier_arg() -> None:
 
     assert result.returncode == 0
     assert result.stdout.strip() == "retry-summary"
+
+
+@pytest.mark.parametrize("flag", ["-h", "--help"])
+def test_derive_branch_summary_help_exits_zero(flag: str) -> None:
+    result = _run(["derive-branch-summary", flag])
+
+    assert result.returncode == 0, result.stderr
+    assert "Usage" in result.stdout
