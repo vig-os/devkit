@@ -363,6 +363,11 @@ def _run_interactive_init(cmd, container_image):
         current_stage = "org_name_prompt"
         child.sendline(organization_name)
 
+        # Delivery-mode picker (#641): answer "both" to keep the full scaffold
+        # (prior behaviour) so the downstream structure assertions still hold.
+        child.expect("Delivery mode", timeout=30)
+        child.sendline("both")
+
         pattern = "Copying files from"
         stage_name = "copying_files"
         timeout = 30
