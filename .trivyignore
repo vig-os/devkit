@@ -17,18 +17,6 @@
 Expiration: 2026-09-01
 CVE-2026-42504
 
-# CVE-2026-55388: piscina Prototype Pollution gadget -> RCE in cursor-agent CLI
-# Risk Assessment: LOW (devcontainer context)
-# - HIGH severity in piscina 4.9.0 bundled in the cursor-agent CLI
-#   (/root/.local/share/cursor-agent/.../node_modules/piscina); fixed upstream in piscina 4.9.3+
-# - cursor-agent is installed unpinned from cursor.com/install; we do not control its bundled
-#   deps and the fix can only arrive via a future cursor-agent build
-# - Gadget requires attacker-controlled piscina options (inherited options.filename); not an
-#   attacker-reachable surface in devcontainer/CI use
-# - Tracking: https://github.com/vig-os/devcontainer/issues/602, #512
-Expiration: 2026-09-01
-CVE-2026-55388
-
 # jwt-token: Trivy secret scan false positive
 # Risk Assessment: N/A (not a vulnerability)
 # - JWT-like string in typos crate test fixtures under /opt/pre-commit-cache

@@ -31,9 +31,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Remove the `cursor-agent` CLI install from the image** ([#628](https://github.com/vig-os/devcontainer/issues/628))
+  - Dropped the unpinned `curl … cursor.com/install` build step and its `/root/.local/bin` PATH entry, leaving an all-nixpkgs toolchain ahead of the Nix migration
+  - Removed the coupled `test_cursor_agent_installed` image test
+
 ### Fixed
 
 ### Security
+
+- **Drop the piscina CVE ignore tied to `cursor-agent`** ([#628](https://github.com/vig-os/devcontainer/issues/628))
+  - Removed the `CVE-2026-55388` (piscina) `.trivyignore` entry, which only existed for the now-removed `cursor-agent` CLI
 
 ## [0.3.9](https://github.com/vig-os/devcontainer/releases/tag/0.3.9) - 2026-06-23
 
