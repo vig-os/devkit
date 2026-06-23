@@ -163,24 +163,6 @@ RUN set -eux; \
     rm -f "taplo-linux-${ARCH}"; \
     taplo --version;
 
-# Install cursor-agent CLI (installs to ~/.local/bin)
-ENV PATH="/root/.local/bin:${PATH}"
-RUN set -eux; \
-    INSTALLER="/tmp/cursor-install.sh"; \
-    for attempt in 1 2 3; do \
-        if curl -fsSL https://cursor.com/install -o "${INSTALLER}" \
-            && bash "${INSTALLER}" \
-            && agent --version; then \
-            rm -f "${INSTALLER}"; \
-            exit 0; \
-        fi; \
-        rm -f "${INSTALLER}"; \
-        echo "cursor-agent install attempt ${attempt} failed, retrying in 10s..."; \
-        sleep 10; \
-    done; \
-    echo "WARNING: cursor-agent install failed after 3 attempts (external CDN issue); skipping"; \
-    echo "Install manually: curl -fsSL https://cursor.com/install | bash";
-
 # Install latest cargo-binstall from release archive with minisign signature verification
 # cargo-binstall uses minisign for signing releases. Each release has an ephemeral key.
 ENV PATH="/root/.cargo/bin:${PATH}"
