@@ -98,7 +98,7 @@ dependencies:
       fedora: sudo dnf install -y gh
       manual: https://cli.github.com/
 
-  # JSON processor (required by worktree trust/config commands)
+  # JSON processor (required by worktree issue-metadata parsing)
   - name: jq
     version: latest
     purpose: JSON parsing for worktree commands and issue metadata
@@ -130,18 +130,18 @@ dependencies:
       alpine: sudo apk add tmux
       manual: https://github.com/tmux/tmux/wiki/Installing
 
-  # Cursor agent CLI (required by worktree autonomous flows)
-  - name: agent
+  # Claude CLI (required by worktree autonomous flows)
+  - name: claude
     version: latest
-    purpose: Cursor Agent CLI required by worktree-start/worktree-attach flows
+    purpose: Claude Code CLI required by worktree-start/worktree-attach flows
     required: true
     check:
-      command: command -v agent
-      version_command: agent --version
+      command: command -v claude
+      version_command: claude --version
       version_regex: '([0-9]+\.[0-9]+\.[0-9]+)'
     install:
-      all: curl https://cursor.com/install -fsSL | bash
-      manual: https://cursor.com/install
+      all: npm install -g @anthropic-ai/claude-code
+      manual: https://docs.claude.com/en/docs/claude-code/setup
 
   # Node.js (for devcontainer CLI)
   - name: npm

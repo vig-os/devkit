@@ -12,7 +12,7 @@ alias wt-attach := worktree-attach
 alias wt-stop := worktree-stop
 alias wt-clean := worktree-clean
 # NOTE: Cursor's native worktree UI does NOT work inside devcontainers (Feb 2026).
-# These recipes provide a CLI-based alternative using tmux + cursor-agent.
+# These recipes provide a CLI-based alternative using tmux + the claude CLI.
 # Native worktree support (.cursor/worktrees.json) works on macOS/Linux local only.
 # Tracked: https://forum.cursor.com/t/cursor-parallel-agents-in-wsl-devcontainers-misresolve-worktree-paths-and-context/145711
 # ===============================================================================
@@ -25,7 +25,7 @@ _wt_base := "../" + _wt_repo + "-worktrees"
 # START
 # -------------------------------------------------------------------------------
 
-# Create a worktree for an issue, open tmux session, launch cursor-agent
+# Create a worktree for an issue, open tmux session, launch the claude CLI
 [group('worktree')]
 worktree-start issue prompt="" reviewer="":
     #!/usr/bin/env bash
@@ -36,9 +36,9 @@ worktree-start issue prompt="" reviewer="":
         echo "[ERROR] tmux is not installed. Install it first."
         exit 1
     fi
-    if ! command -v agent >/dev/null 2>&1; then
-        echo "[ERROR] cursor-agent CLI is not installed."
-        echo "Install: curl https://cursor.com/install -fsSL | bash"
+    if ! command -v claude >/dev/null 2>&1; then
+        echo "[ERROR] claude CLI is not installed."
+        echo "Install: npm install -g @anthropic-ai/claude-code"
         exit 1
     fi
     if ! resolve-branch --help >/dev/null 2>&1; then
@@ -52,24 +52,6 @@ worktree-start issue prompt="" reviewer="":
         exit 1
     fi
 
-    # Helper: ensure a directory is in cursor-agent's trustedDirectories
-    _wt_ensure_trust() {
-        local dir_abs
-        dir_abs=$(cd "$1" && pwd)
-        local cfg="${HOME}/.cursor/cli-config.json"
-        mkdir -p "$(dirname "$cfg")"
-        if [ ! -f "$cfg" ]; then
-            echo '{}' > "$cfg"
-        fi
-        if ! jq -e --arg d "$dir_abs" '.trustedDirectories // [] | index($d)' "$cfg" >/dev/null 2>&1; then
-            jq --arg d "$dir_abs" '.trustedDirectories = ((.trustedDirectories // []) + [$d])' "$cfg" > "${cfg}.tmp" \
-                && mv "${cfg}.tmp" "$cfg"
-            echo "[OK] Trusted directory added: $dir_abs"
-        else
-            echo "[OK] Directory already trusted: $dir_abs"
-        fi
-    }
-
     # Helper: read agent model from config
     _read_model() {
         local tier="$1"
@@ -77,19 +59,19 @@ worktree-start issue prompt="" reviewer="":
         grep "^${tier}" "$cfg" | sed 's/.*= *"//' | sed 's/".*//'
     }
 
-    # Auth: check existing login first, then fall back to CURSOR_API_KEY
-    if agent status 2>/dev/null | grep -qi "logged in\|authenticated"; then
-        echo "[OK] cursor-agent: authenticated via browser login"
-    elif [ -n "${CURSOR_API_KEY:-}" ]; then
-        echo "[OK] cursor-agent: using CURSOR_API_KEY"
+    # Auth: check existing login first, then fall back to ANTHROPIC_API_KEY
+    if claude auth status 2>/dev/null | grep -qi "logged in\|authenticated"; then
+        echo "[OK] claude: authenticated via browser login"
+    elif [ -n "${ANTHROPIC_API_KEY:-}" ]; then
+        echo "[OK] claude: using ANTHROPIC_API_KEY"
     else
-        echo "[!] cursor-agent: not authenticated. Attempting browser login..."
-        if agent login; then
-            echo "[OK] cursor-agent: browser login successful"
+        echo "[!] claude: not authenticated. Attempting browser login..."
+        if claude auth login; then
+            echo "[OK] claude: browser login successful"
         else
             echo "[ERROR] Authentication failed. Either:"
-            echo "  1. Run 'agent login' to authenticate via browser, or"
-            echo "  2. Export CURSOR_API_KEY in your shell profile or .env"
+            echo "  1. Run 'claude auth login' to authenticate via browser, or"
+            echo "  2. Export ANTHROPIC_API_KEY in your shell profile or .env"
             exit 1
         fi
     fi
@@ -129,17 +111,15 @@ worktree-start issue prompt="" reviewer="":
     # Check if worktree already exists
     if [ -d "$WT_DIR" ]; then
         echo "[!] Worktree already exists at $WT_DIR"
-        _wt_ensure_trust "$WT_DIR"
         if tmux has-session -t "$SESSION" 2>/dev/null; then
             echo "    tmux session '$SESSION' is running. Use: just worktree-attach $ISSUE"
         else
             echo "    No tmux session found. Starting one..."
             if [ -n "$PROMPT" ]; then
-                tmux new-session -d -s "$SESSION" -c "$WT_DIR" -e "PR_REVIEWER=$REVIEWER" "agent chat --yolo --approve-mcps \"$PROMPT\""
+                tmux new-session -d -s "$SESSION" -c "$WT_DIR" -e "PR_REVIEWER=$REVIEWER" "claude --dangerously-skip-permissions \"$PROMPT\""
             else
-                tmux new-session -d -s "$SESSION" -c "$WT_DIR" -e "PR_REVIEWER=$REVIEWER" "agent chat --approve-mcps"
+                tmux new-session -d -s "$SESSION" -c "$WT_DIR" -e "PR_REVIEWER=$REVIEWER" "claude --dangerously-skip-permissions"
             fi
-            sleep 2 && tmux send-keys -t "$SESSION" "a" 2>/dev/null || true
             echo "[OK] tmux session '$SESSION' started. Use: just worktree-attach $ISSUE"
         fi
         exit 0
@@ -233,17 +213,14 @@ worktree-start issue prompt="" reviewer="":
     fi
     popd >/dev/null
 
-    # Ensure worktree directory is trusted by cursor-agent
-    _wt_ensure_trust "$WT_DIR"
-
     # Start tmux session
-    # --yolo: auto-approve all shell commands (autonomous agent, no human at the terminal)
+    # --dangerously-skip-permissions: bypass all permission and MCP approval
+    # prompts (autonomous agent, no human at the terminal)
     if [ -n "$PROMPT" ]; then
-        tmux new-session -d -s "$SESSION" -c "$WT_DIR" -e "PR_REVIEWER=$REVIEWER" "agent chat --yolo --approve-mcps \"$PROMPT\""
+        tmux new-session -d -s "$SESSION" -c "$WT_DIR" -e "PR_REVIEWER=$REVIEWER" "claude --dangerously-skip-permissions \"$PROMPT\""
     else
-        tmux new-session -d -s "$SESSION" -c "$WT_DIR" -e "PR_REVIEWER=$REVIEWER" "agent chat --approve-mcps"
+        tmux new-session -d -s "$SESSION" -c "$WT_DIR" -e "PR_REVIEWER=$REVIEWER" "claude --dangerously-skip-permissions"
     fi
-    sleep 2 && tmux send-keys -t "$SESSION" "a" 2>/dev/null || true
 
     echo ""
     echo "[OK] Worktree created at $WT_DIR"
@@ -307,23 +284,6 @@ worktree-attach issue:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    _wt_ensure_trust() {
-        local dir_abs
-        dir_abs=$(cd "$1" && pwd)
-        local cfg="${HOME}/.cursor/cli-config.json"
-        mkdir -p "$(dirname "$cfg")"
-        if [ ! -f "$cfg" ]; then
-            echo '{}' > "$cfg"
-        fi
-        if ! jq -e --arg d "$dir_abs" '.trustedDirectories // [] | index($d)' "$cfg" >/dev/null 2>&1; then
-            jq --arg d "$dir_abs" '.trustedDirectories = ((.trustedDirectories // []) + [$d])' "$cfg" > "${cfg}.tmp" \
-                && mv "${cfg}.tmp" "$cfg"
-            echo "[OK] Trusted directory added: $dir_abs"
-        else
-            echo "[OK] Directory already trusted: $dir_abs"
-        fi
-    }
-
     ISSUE="{{ issue }}"
     SESSION="wt-${ISSUE}"
     WT_DIR="{{ _wt_base }}/${ISSUE}"
@@ -331,14 +291,12 @@ worktree-attach issue:
     if ! tmux has-session -t "$SESSION" 2>/dev/null; then
         if [ -d "$WT_DIR" ]; then
             echo "[!] tmux session '$SESSION' stopped. Restarting..."
-            _wt_ensure_trust "$WT_DIR"
             REVIEWER=$(gh api user --jq '.login' 2>/dev/null || echo "")
             if [ -n "${WORKTREE_ATTACH_RESTART_CMD:-}" ]; then
                 tmux new-session -d -s "$SESSION" -c "$WT_DIR" -e "PR_REVIEWER=$REVIEWER" "$WORKTREE_ATTACH_RESTART_CMD"
             else
-                tmux new-session -d -s "$SESSION" -c "$WT_DIR" -e "PR_REVIEWER=$REVIEWER" "agent chat --approve-mcps"
+                tmux new-session -d -s "$SESSION" -c "$WT_DIR" -e "PR_REVIEWER=$REVIEWER" "claude --dangerously-skip-permissions"
             fi
-            sleep 2 && tmux send-keys -t "$SESSION" "a" 2>/dev/null || true
             echo "[OK] tmux session '$SESSION' restarted"
         else
             echo "[ERROR] No tmux session '$SESSION' found."
@@ -385,7 +343,7 @@ worktree-stop issue:
 # CLEAN
 # -------------------------------------------------------------------------------
 
-# Remove cursor-managed worktrees and tmux sessions.
+# Remove managed worktrees and tmux sessions.
 # Default (no args): clean only stopped worktrees. Use 'all' to clean everything.
 [group('worktree')]
 worktree-clean mode="":

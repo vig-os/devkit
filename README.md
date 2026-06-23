@@ -170,7 +170,7 @@ Available recipes:
     worktree-attach issue                      # before attaching. See tests/bats/worktree.bats for integration tests. [alias: wt-attach]
     worktree-clean mode=""                     # Default (no args): clean only stopped worktrees. Use 'all' to clean everything. [alias: wt-clean]
     worktree-list                              # List active worktrees and their tmux sessions [alias: wt-list]
-    worktree-start issue prompt="" reviewer="" # Create a worktree for an issue, open tmux session, launch cursor-agent [alias: wt-start]
+    worktree-start issue prompt="" reviewer="" # Create a worktree for an issue, open tmux session, launch the claude CLI [alias: wt-start]
     worktree-stop issue                        # Stop a worktree's tmux session and remove the worktree [alias: wt-stop]
 
 ```
