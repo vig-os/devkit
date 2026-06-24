@@ -2,22 +2,26 @@
 # shellcheck disable=SC2016
 # BATS tests for init.sh
 #
-# Tests the init.sh script which checks and installs development dependencies.
+# init.sh is a Nix-first onboarding script: it gates on the host prerequisites
+# (Nix + direnv) and the dev-shell toolchain, then performs one-time project
+# bootstrap (uv sync, git hooks, commit template, pre-commit). The toolchain
+# itself is provisioned by the flake (`flake.nix` devTools), NOT by this script.
+#
 # These tests verify:
-# - Command-line flag parsing (--check, --yes, --help, --verbose)
-# - OS detection (macOS, Debian/Ubuntu, Fedora, Alpine)
-# - YAML parsing of requirements.yaml
-# - Dependency checking
-# - Installation path detection
-# - Error handling
+# - Script structure and strict error handling
+# - Flag parsing (--check, --no-direnv, --help)
+# - The Nix/direnv prerequisite gate and dev-shell detection
+# - The container short-circuit
+# - That project bootstrap steps are wired up
+# - That the legacy OS-detect / requirements.yaml installer is gone
 #
 # Note: SC2016 disabled because we intentionally use single quotes to search
-# for literal shell variable syntax (e.g., '$VAR') in the target scripts.
+# for literal shell syntax in the target script.
 
 setup() {
     load test_helper
     INIT_SH="$PROJECT_ROOT/scripts/init.sh"
-    REQUIREMENTS_YAML="$PROJECT_ROOT/scripts/requirements.yaml"
+    BASH_BIN="$(command -v bash)"
 }
 
 # ── script structure ──────────────────────────────────────────────────────────
@@ -32,367 +36,153 @@ setup() {
     assert_output "#!/usr/bin/env bash"
 }
 
-# ── error handling ────────────────────────────────────────────────────────────
-
 @test "init.sh uses strict error handling (set -euo pipefail)" {
     run grep 'set -euo pipefail' "$INIT_SH"
     assert_success
 }
 
-# ── flag parsing ──────────────────────────────────────────────────────────────
+# ── flag parsing / help ─────────────────────────────────────────────────────────
 
-@test "init.sh initializes CHECK_ONLY flag as false" {
-    run grep 'CHECK_ONLY=false' "$INIT_SH"
+@test "init.sh --help exits 0 and prints usage" {
+    run bash "$INIT_SH" --help
+    assert_success
+    assert_output --partial "USAGE:"
+}
+
+@test "init.sh --help documents the --check flag" {
+    run bash "$INIT_SH" --help
+    assert_success
+    assert_output --partial "--check"
+}
+
+@test "init.sh --help documents the --no-direnv flag" {
+    run bash "$INIT_SH" --help
+    assert_success
+    assert_output --partial "--no-direnv"
+}
+
+@test "init.sh rejects unknown options" {
+    run bash "$INIT_SH" --definitely-not-a-flag
+    assert_failure
+    assert_output --partial "Unknown option"
+}
+
+# ── nix-first prerequisite gate ─────────────────────────────────────────────────
+
+@test "init.sh gates on Nix and points to the installer when absent" {
+    # Empty PATH: `command -v nix` fails; the gate must fire before any external
+    # tool is needed (pure shell builtins up to this point).
+    local stub="$BATS_TEST_TMPDIR/empty-bin"
+    mkdir -p "$stub"
+    run env PATH="$stub" "$BASH_BIN" "$INIT_SH"
+    assert_failure
+    assert_output --partial "nixos.org/download"
+}
+
+@test "init.sh gate explains how to enable flakes + the vig-os cache" {
+    local stub="$BATS_TEST_TMPDIR/empty-bin2"
+    mkdir -p "$stub"
+    run env PATH="$stub" "$BASH_BIN" "$INIT_SH"
+    assert_failure
+    assert_output --partial "experimental-features"
+    assert_output --partial "vig-os.cachix.org"
+}
+
+@test "init.sh tells you to enter the dev shell when the toolchain is missing" {
+    # nix present (stub), but the dev-shell toolchain (uv) is not on PATH.
+    local stub="$BATS_TEST_TMPDIR/nix-only-bin"
+    mkdir -p "$stub"
+    ln -s "$(command -v true)" "$stub/nix"
+    run env PATH="$stub" "$BASH_BIN" "$INIT_SH"
+    assert_failure
+    assert_output --partial "direnv allow"
+}
+
+# ── container short-circuit ─────────────────────────────────────────────────────
+
+@test "init.sh is a no-op inside the built image (IN_CONTAINER=true)" {
+    IN_CONTAINER=true run bash "$INIT_SH"
+    assert_success
+    assert_output --partial "already provisioned"
+}
+
+# ── check-only mode ─────────────────────────────────────────────────────────────
+
+@test "init.sh --check verifies prerequisites without bootstrapping" {
+    command -v nix >/dev/null || skip "nix not on PATH"
+    command -v uv >/dev/null || skip "uv not on PATH"
+    run bash "$INIT_SH" --check
+    assert_success
+    assert_output --partial "Prerequisites"
+}
+
+# ── project bootstrap is wired up ───────────────────────────────────────────────
+
+@test "init.sh syncs the project venv from the lockfile" {
+    run grep 'uv sync --frozen --all-extras' "$INIT_SH"
     assert_success
 }
 
-@test "init.sh initializes AUTO_YES flag as false" {
-    run grep 'AUTO_YES=false' "$INIT_SH"
+@test "init.sh configures the git hooks path" {
+    run grep 'core.hooksPath .githooks' "$INIT_SH"
     assert_success
 }
 
-@test "init.sh initializes VERBOSE flag as false" {
-    run grep 'VERBOSE=false' "$INIT_SH"
+@test "init.sh configures the commit message template" {
+    run grep 'commit.template .gitmessage' "$INIT_SH"
     assert_success
 }
 
-@test "init.sh supports --check flag" {
-    run grep '\-\-check' "$INIT_SH"
+@test "init.sh installs pre-commit hooks" {
+    run grep 'pre-commit install-hooks' "$INIT_SH"
     assert_success
 }
 
-@test "init.sh supports --yes flag" {
-    run grep '\-\-yes' "$INIT_SH"
+@test "init.sh probes the host container runtime (advisory)" {
+    run grep 'podman info' "$INIT_SH"
     assert_success
 }
 
-@test "init.sh supports --help flag" {
-    run grep '\-\-help' "$INIT_SH"
-    assert_success
+# ── legacy installer is gone ────────────────────────────────────────────────────
+
+@test "requirements.yaml has been retired" {
+    run test -f "$PROJECT_ROOT/scripts/requirements.yaml"
+    assert_failure
 }
 
-@test "init.sh supports --verbose flag" {
-    run grep '\-\-verbose' "$INIT_SH"
-    assert_success
+@test "init.sh no longer references requirements.yaml" {
+    run grep -F 'requirements.yaml' "$INIT_SH"
+    assert_failure
 }
 
-# ── os detection ──────────────────────────────────────────────────────────────
-
-@test "init.sh defines detect_os function" {
-    run grep 'detect_os()' "$INIT_SH"
-    assert_success
+@test "init.sh no longer detects the OS for package installs" {
+    run grep -E 'detect_os|parse_requirements' "$INIT_SH"
+    assert_failure
 }
 
-@test "init.sh detects OS using uname -s" {
-    run grep 'uname -s' "$INIT_SH"
-    assert_success
+@test "init.sh no longer hardcodes a Python version" {
+    run grep 'PYTHON_VERSION' "$INIT_SH"
+    assert_failure
 }
 
-@test "init.sh detects macOS as 'Darwin'" {
-    run grep 'Darwin)' "$INIT_SH"
-    assert_success
+@test "init.sh no longer installs packages via apt/brew/dnf/apk" {
+    run grep -E 'apt install|brew install|dnf install|apk add' "$INIT_SH"
+    assert_failure
 }
 
-@test "init.sh returns 'macos' for macOS" {
-    run grep 'os_type="macos"' "$INIT_SH"
-    assert_success
-}
+# ── output helpers retained ─────────────────────────────────────────────────────
 
-@test "init.sh detects Linux" {
-    run grep 'Linux)' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh reads /etc/os-release on Linux" {
-    run grep 'os-release' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh detects Debian/Ubuntu" {
-    run grep 'debian' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh detects Fedora/RHEL/CentOS" {
-    run grep 'fedora' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh detects Alpine Linux" {
-    run grep 'alpine)' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh detects Arch Linux" {
-    run grep 'arch' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh returns 'unknown' for unrecognized OS" {
-    run grep 'os_type="unknown"' "$INIT_SH"
-    assert_success
-}
-
-# ── os pretty name ────────────────────────────────────────────────────────────
-
-@test "init.sh defines get_os_pretty_name function" {
-    run grep 'get_os_pretty_name()' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh gets macOS version via sw_vers" {
-    run grep 'sw_vers -productVersion' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh reads PRETTY_NAME from /etc/os-release" {
-    run grep 'PRETTY_NAME' "$INIT_SH"
-    assert_success
-}
-
-# ── yaml parsing ──────────────────────────────────────────────────────────────
-
-@test "init.sh defines parse_requirements function" {
-    run grep 'parse_requirements()' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh skips comment lines in YAML" {
-    run grep '# Skip comments' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh skips empty lines in YAML" {
-    run grep '# Skip.*empty' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh detects dependencies section" {
-    run grep 'dependencies:' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh detects optional section" {
-    run grep 'optional:' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh parses dependency name" {
-    run grep 'name:' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh parses dependency version" {
-    run grep 'version:' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh parses dependency purpose" {
-    run grep 'purpose:' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh parses dependency required flag" {
-    run grep 'required:' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh parses check command" {
-    run grep 'check:' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh parses install commands" {
-    run grep 'install:' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh supports macOS-specific install" {
-    run grep 'macos) target_var="current_install_macos"' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh supports Debian-specific install" {
-    run grep 'debian) target_var="current_install_debian"' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh supports Fedora-specific install" {
-    run grep 'fedora) target_var="current_install_fedora"' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh supports Alpine-specific install" {
-    run grep 'alpine) target_var="current_install_alpine"' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh supports platform-agnostic install" {
-    run grep 'all) target_var="current_install_all"' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh supports manual install instructions" {
-    run grep 'manual:' "$INIT_SH"
-    assert_success
-}
-
-# ── requirements file ─────────────────────────────────────────────────────────
-
-@test "requirements.yaml exists" {
-    run test -f "$REQUIREMENTS_YAML"
-    assert_success
-}
-
-@test "requirements.yaml is readable" {
-    run test -r "$REQUIREMENTS_YAML"
-    assert_success
-}
-
-@test "requirements.yaml contains dependencies section" {
-    run grep '^dependencies:' "$REQUIREMENTS_YAML"
-    assert_success
-}
-
-@test "requirements.yaml has at least one dependency" {
-    run grep '^  - name:' "$REQUIREMENTS_YAML"
-    assert_success
-}
-
-@test "requirements.yaml dependencies have version" {
-    run grep 'version:' "$REQUIREMENTS_YAML"
-    assert_success
-}
-
-@test "requirements.yaml dependencies have purpose" {
-    run grep 'purpose:' "$REQUIREMENTS_YAML"
-    assert_success
-}
-
-# ── path setup ────────────────────────────────────────────────────────────────
-
-@test "init.sh derives SCRIPT_DIR from script path" {
-    run grep 'SCRIPT_DIR=' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh derives PROJECT_ROOT as parent of SCRIPT_DIR" {
-    run grep 'PROJECT_ROOT=' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh sets REQUIREMENTS_FILE path" {
-    run grep 'REQUIREMENTS_FILE=' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh defines PYTHON_VERSION" {
-    run grep 'PYTHON_VERSION=' "$INIT_SH"
-    assert_success
-}
-
-# ── output functions ─────────────────────────────────────────────────────────
-
-@test "init.sh defines print_header function" {
-    run grep 'print_header()' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh defines print_section function" {
-    run grep 'print_section()' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh defines log_info function" {
+@test "init.sh defines log_info helper" {
     run grep 'log_info()' "$INIT_SH"
     assert_success
 }
 
-@test "init.sh defines log_success function" {
-    run grep 'log_success()' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh defines log_warning function" {
-    run grep 'log_warning()' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh defines log_error function" {
+@test "init.sh defines log_error helper" {
     run grep 'log_error()' "$INIT_SH"
     assert_success
 }
 
-@test "init.sh defines log_debug function" {
-    run grep 'log_debug()' "$INIT_SH"
-    assert_success
-}
-
-# ── user interaction ──────────────────────────────────────────────────────────
-
-@test "init.sh defines confirm function" {
-    run grep 'confirm()' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh confirm function uses AUTO_YES" {
-    run grep 'if \$AUTO_YES' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh confirm function reads user input" {
-    run grep 'read -r response' "$INIT_SH"
-    assert_success
-}
-
-# ── color support ─────────────────────────────────────────────────────────────
-
-@test "init.sh defines RED color" {
-    run grep "RED=" "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh defines GREEN color" {
-    run grep "GREEN=" "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh defines YELLOW color" {
-    run grep "YELLOW=" "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh defines BLUE color" {
-    run grep "BLUE=" "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh defines CYAN color" {
-    run grep "CYAN=" "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh defines BOLD style" {
-    run grep "BOLD=" "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh defines NC (no color) reset" {
-    run grep "NC=" "$INIT_SH"
-    assert_success
-}
-
-# ── devcontainer local install ───────────────────────────────────────────────
-
-@test "requirements.yaml devcontainer check falls back to node_modules/.bin" {
-    run grep 'node_modules/.bin/devcontainer' "$REQUIREMENTS_YAML"
-    assert_success
-}
-
-@test "requirements.yaml devcontainer does not use npm install -g" {
-    run grep 'npm install -g.*devcontainer' "$REQUIREMENTS_YAML"
-    assert_failure
-}
+# ── devcontainer CLI check (conftest, unrelated to package installs) ─────────────
 
 @test "conftest.py devcontainer check falls back to node_modules/.bin" {
     run grep 'node_modules/.bin/devcontainer' "$PROJECT_ROOT/tests/conftest.py"
