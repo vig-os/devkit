@@ -104,6 +104,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`just build` no longer fails on dev-shell-only podman hosts (missing containers `policy.json`)** ([#685](https://github.com/vig-os/devcontainer/issues/685))
+  - On a NixOS host that gets `podman` purely from the flake dev-shell (no `virtualisation.containers` module), no signature-verification `policy.json` exists at `/etc/containers/policy.json` or `~/.config/containers/policy.json`, so `podman load` (`just build`) failed even though `nix build` and the advisory `podman info` check (`just init`) were green
+  - `just init` now ensures the user-level `~/.config/containers/policy.json` with the standard permissive default (`{ "default": [ { "type": "insecureAcceptAnything" } ] }`, the same content `containers-common` / the NixOS module ship); the write is idempotent and never overwrites a system or user policy. Documented in `docs/NIX.md`
 - **`just init` no longer fails on NixOS hosts (uv downloaded a CPython NixOS cannot execute)** ([#683](https://github.com/vig-os/devcontainer/issues/683))
   - The flake dev-shell carried no Python and let the nixpkgs `uv` fetch a managed CPython — a generic, dynamically-linked ELF a NixOS host cannot execute out of the box (no FHS `ld-linux`) — so `uv sync` (`just init`) aborted on NixOS hosts while FHS hosts were unaffected
   - `mkProjectShell` now pins a Nix store CPython via `UV_PYTHON` and sets `UV_PYTHON_DOWNLOADS=never`, so the dev-shell builds the venv from a store interpreter (patched to the store loader) that runs on both NixOS and FHS hosts instead of a downloaded one

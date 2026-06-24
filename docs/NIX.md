@@ -96,6 +96,29 @@ template `.venv` scaffold, a sticky `/tmp`, and the `precommit`/`cc`/`cld`
 aliases. The image's interpreter is pinned via `UV_PYTHON=<nix python3.14>` and
 `UV_PYTHON_DOWNLOADS=never`.
 
+### Host container runtime (`policy.json`)
+
+`just build` ends in `podman load -i result`, and podman's containers/image
+library refuses to load any image unless a signature-verification `policy.json`
+exists at `~/.config/containers/policy.json` or `/etc/containers/policy.json`
+(this podman build has no `--signature-policy` flag and no env override). The
+flake dev-shell ships the **podman CLI** but not that host file: on NixOS the
+`virtualisation.containers` module normally installs `/etc/containers/policy.json`,
+so a host that gets podman purely from the dev-shell never receives one and
+`podman load` fails — even though `podman info` (the `just init` advisory check)
+is green.
+
+`just init` closes this gap: if neither lookup path has a policy, it writes the
+user-level default `~/.config/containers/policy.json` with the standard permissive
+content (the same `{ "default": [ { "type": "insecureAcceptAnything" } ] }` that
+`containers-common` / the NixOS module ship). The write is idempotent and never
+overwrites a system or user policy. To do it by hand:
+
+```bash
+mkdir -p ~/.config/containers
+printf '{ "default": [ { "type": "insecureAcceptAnything" } ] }\n' > ~/.config/containers/policy.json
+```
+
 ## Evaluator and pre-commit decisions
 
 These are decided inline in `flake.nix`; summarized here.

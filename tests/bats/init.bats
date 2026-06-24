@@ -143,6 +143,24 @@ setup() {
     assert_success
 }
 
+@test "init.sh ensures a containers signature policy for podman load" {
+    # `podman load` (just build) needs a policy.json that `podman info` does not;
+    # the dev-shell podman ships none, so init must handle it.
+    run grep 'policy.json' "$INIT_SH"
+    assert_success
+}
+
+@test "init.sh writes the permissive containers policy default" {
+    run grep 'insecureAcceptAnything' "$INIT_SH"
+    assert_success
+}
+
+@test "init.sh checks the system containers policy before writing a user one" {
+    # Idempotent / never-clobber: a system (or user) policy short-circuits the write.
+    run grep -F '/etc/containers/policy.json' "$INIT_SH"
+    assert_success
+}
+
 # ── legacy installer is gone ────────────────────────────────────────────────────
 
 @test "requirements.yaml has been retired" {
