@@ -34,11 +34,6 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: 'candidate'
         type: string
-      builder:
-        description: 'Image builder: debian (Containerfile) or nix (flake). Default debian keeps the publish-cutover paused (#639); set nix to cut over.'
-        required: false
-        default: 'debian'
-        type: string
       dry-run:
         description: 'Validate without making changes'
         required: false
@@ -764,16 +759,12 @@ jobs:
         with:
           version: ${{ needs.validate.outputs.publish_version }}
           arch: ${{ matrix.arch }}
-          # debian by default; set the workflow `builder` input to `nix` to cut
-          # the published image over to the Nix build (#639). Paused by default.
-          builder: ${{ inputs.builder }}
           release-date: ${{ needs.validate.outputs.release_date }}
           release-url: ${{ needs.validate.outputs.release_url }}
           build-timestamp: ${{ needs.validate.outputs.build_timestamp }}
           vcs-ref: ${{ github.sha }}
-          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
-          output-type: tar
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           output-file: /tmp/image.tar
 
       - name: Run image tests

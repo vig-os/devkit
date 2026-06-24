@@ -301,6 +301,14 @@
                     chmod -R u+w "$out/root/assets"
                     find "$out/root/assets" -type f -name "*.sh" -exec chmod +x {} \;
 
+                    # Bake the devcontainer version into the scaffolded `.vig-os`,
+                    # replacing the {{IMAGE_TAG}} placeholder. The Debian build
+                    # relied on the IMAGE_TAG build-arg; the reproducible Nix image
+                    # reads the repo's pinned DEVCONTAINER_VERSION, so a scaffolded
+                    # workspace pins the devcontainer release it was built from. #642.
+                    dcver="$(sed -n 's/^DEVCONTAINER_VERSION=//p' ${./.vig-os})"
+                    sed -i "s/{{IMAGE_TAG}}/$dcver/g" "$out/root/assets/workspace/.vig-os"
+
                     # /root/.bashrc with carried aliases: precommit (Debian
                     # build) plus cc/cld (#545).
                     cat > "$out/root/.bashrc" <<'BASHRC'

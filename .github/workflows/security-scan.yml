@@ -1,25 +1,19 @@
 # Scheduled Security Scan
 #
-# Nightly scan of the latest published container image from GHCR (covers main via
-# :latest) without rebuilding. This scan (category: container-image-latest) is the
-# single source of truth for the GitHub Security tab. Pull requests to
-# dev/release/main run full CI (ci.yml), where Trivy acts as a blocking GATE only
-# (fail on fixable HIGH/CRITICAL) and does NOT upload SARIF to the Security tab.
+# Nightly CVE scan of the Nix-built devcontainer image. vulnix (nixpkgs-native)
+# is the primary scanner — the image has no apt/dpkg DB — gated by `vulnix-gate`
+# against the `.vulnixignore` exception register; Trivy emits a CycloneDX SBOM +
+# an SBOM-mode view for defence in depth. (The Debian `:latest` Trivy job was
+# removed with the Debian path in #642.)
 #
 # Triggers:
 #   - Nightly schedule: 05:00 UTC
 #
 # Jobs:
-#   1. scan-latest - Pull ghcr.io/vig-os/devcontainer:latest and Trivy + SBOM + SARIF
-#
-# When fixable HIGH/CRITICAL vulnerabilities are found (after .trivyignore):
-#   - Workflow fails (GitHub notifies watchers)
-#   - One open issue with label security-scan is created (deduplicated)
-#   - Step summary records verdict and links
+#   1. scan-nix-image - build the image closure, run vulnix (+ Trivy SBOM)
 #
 # Artifacts:
-#   - SBOM (CycloneDX) with all packages
-#   - SARIF report uploaded to GitHub Security tab (category: container-image-latest)
+#   - vulnix findings (JSON + table) and a CycloneDX SBOM (uploaded)
 
 name: Scheduled Security Scan
 
@@ -32,178 +26,6 @@ permissions:
   contents: read
 
 jobs:
-  scan-latest:
-    name: Scan GHCR Latest Image
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    permissions:
-      contents: read
-      issues: write               # create deduplicated security-scan issue on gate failure
-      security-events: write    # upload SARIF results to GitHub Security tab
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-
-      - name: Set up environment
-        uses: ./.github/actions/setup-env
-        with:
-          sync-dependencies: 'true'
-
-      - name: Validate .trivyignore exception expirations
-        run: uv run check-expirations .trivyignore
-
-      - name: Pull latest image and save as tar
-        id: pull
-        continue-on-error: true
-        run: |
-          set -euo pipefail
-          IMAGE=ghcr.io/vig-os/devcontainer:latest
-          docker pull "$IMAGE"
-          docker save "$IMAGE" -o /tmp/image-latest.tar
-          RESOLVED=$(docker inspect --format '{{range .RepoDigests}}{{.}}{{"\n"}}{{end}}' "$IMAGE" | head -n1 | tr -d '\n')
-          if [ -z "$RESOLVED" ] || [ "$RESOLVED" = '<no value>' ]; then
-            RESOLVED=$(docker inspect --format='{{.Id}}' "$IMAGE")
-          fi
-          echo "image_ref=${RESOLVED}" >> "$GITHUB_OUTPUT"
-
-      - name: Log when latest image is unavailable
-        if: steps.pull.outcome != 'success'
-        run: |
-          echo "::error::Scan skipped: GHCR devcontainer:latest pull failed"
-          exit 1
-
-      - name: Scan latest image for all vulnerabilities
-        if: steps.pull.outcome == 'success'
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
-        with:
-          version: 'v0.71.2'
-          input: /tmp/image-latest.tar
-          format: 'table'
-          severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
-          exit-code: '0'  # Non-blocking: for awareness only
-          trivyignores: '.trivyignore'
-
-      - name: Gate on fixable HIGH/CRITICAL vulnerabilities
-        id: gate
-        if: steps.pull.outcome == 'success'
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
-        with:
-          version: 'v0.71.2'
-          input: /tmp/image-latest.tar
-          format: 'table'
-          severity: 'HIGH,CRITICAL'
-          exit-code: '1'
-          ignore-unfixed: true
-          trivyignores: '.trivyignore'
-
-      - name: Generate latest image SBOM (CycloneDX)
-        if: steps.pull.outcome == 'success'
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
-        with:
-          version: 'v0.71.2'
-          input: /tmp/image-latest.tar
-          format: 'cyclonedx'
-          output: 'sbom-latest-cyclonedx.json'
-
-      - name: Generate latest image SARIF report
-        if: steps.pull.outcome == 'success'
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
-        with:
-          version: 'v0.71.2'
-          input: /tmp/image-latest.tar
-          format: 'sarif'
-          output: 'trivy-latest-results.sarif'
-          severity: 'UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL'
-          trivyignores: '.trivyignore'
-
-      - name: Upload latest SBOM artifact
-        if: steps.pull.outcome == 'success'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: sbom-latest
-          path: sbom-latest-cyclonedx.json
-          retention-days: 90
-
-      - name: Upload latest SARIF to GitHub Security
-        if: steps.pull.outcome == 'success'
-        uses: github/codeql-action/upload-sarif@8aad20d150bbac5944a9f9d289da16a4b0d87c1e  # v4
-        with:
-          sarif_file: trivy-latest-results.sarif
-          category: 'container-image-latest'
-
-      - name: Write scan summary
-        if: steps.pull.outcome == 'success'
-        env:
-          IMAGE_REF: ${{ steps.pull.outputs.image_ref }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          SECURITY_URL: ${{ github.server_url }}/${{ github.repository }}/security
-        run: |
-          set -euo pipefail
-          {
-            echo "## Scheduled security scan (:latest)"
-            echo ""
-            echo "- **Image (resolved):** \`${IMAGE_REF}\`"
-            echo "- **Tag pulled:** \`ghcr.io/vig-os/devcontainer:latest\`"
-            echo "- **Date (UTC):** $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo "- **Workflow run:** [${{ github.run_id }}](${RUN_URL})"
-            echo ""
-            if [ "${{ steps.gate.outcome }}" = "failure" ]; then
-              echo "### Result"
-              echo ""
-              echo "**Fixable HIGH/CRITICAL vulnerabilities detected** (see Trivy table in job logs and [Security](${SECURITY_URL}))."
-            else
-              echo "### Result"
-              echo ""
-              echo "No fixable HIGH/CRITICAL vulnerabilities passed the gate (after \`.trivyignore\`)."
-            fi
-            echo ""
-            echo "Full dependency results: [Code security](${SECURITY_URL})."
-          } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Create GitHub issue on gate failure
-        if: steps.pull.outcome == 'success' && steps.gate.outcome == 'failure'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          IMAGE_REF: ${{ steps.pull.outputs.image_ref }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          SECURITY_URL: ${{ github.server_url }}/${{ github.repository }}/security
-        run: |
-          set -euo pipefail
-          gh label create security-scan \
-            --description 'Automated nightly security scan findings for :latest image' \
-            --color BFD4F2 2>/dev/null || true
-          EXISTING=$(gh issue list --label security-scan --state open --limit 1 --json number -q '.[0].number // empty')
-          if [ -n "$EXISTING" ]; then
-            echo "Open security-scan issue already exists: #$EXISTING -- skipping create"
-            exit 0
-          fi
-          BODY="$(cat <<EOF
-          Nightly scan found **fixable HIGH/CRITICAL** vulnerabilities in the resolved image below (after \`.trivyignore\`).
-
-          - **Image (resolved):** \`${IMAGE_REF}\`
-          - **Tag pulled:** \`ghcr.io/vig-os/devcontainer:latest\`
-          - **Scan date (UTC):** $(date -u +%Y-%m-%dT%H:%M:%SZ)
-          - **Workflow run:** ${RUN_URL}
-          - **Security tab:** ${SECURITY_URL}
-
-          Close this issue after the image is remediated and the next scheduled run passes the gate.
-          EOF
-          )"
-          gh issue create \
-            --title "Nightly security scan: HIGH/CRITICAL vulnerabilities in :latest" \
-            --label security-scan --label security \
-            --body "$BODY"
-
-      - name: Fail if fixable HIGH/CRITICAL vulnerabilities found
-        if: steps.pull.outcome == 'success' && steps.gate.outcome == 'failure'
-        env:
-          IMAGE_REF: ${{ steps.pull.outputs.image_ref }}
-        run: |
-          echo "::error::Fixable HIGH/CRITICAL vulnerabilities detected in ${IMAGE_REF} (pulled as ghcr.io/vig-os/devcontainer:latest)"
-          exit 1
-
   # vulnix CVE scan of the Nix-built image (T3.1, #637).
   #
   # A Nix image has no apt/dpkg DB, so Trivy's OS-package scanner goes dark.
@@ -213,8 +35,8 @@ jobs:
   # step is BLOCKING (#639): the nixpkgs baseline was advanced to 26.05 and the
   # residual findings triaged into .vulnixignore (see docs/security/
   # nix-cutover-scan-overlap.md), so any new unexcepted HIGH/CRITICAL fails the
-  # scan. SARIF upload + a deduplicated issue (like scan-latest) land with the
-  # actual publish-cutover.
+  # scan. SARIF upload to the Security tab + a deduplicated issue can be added
+  # alongside the actual publish-cutover.
   scan-nix-image:
     name: Scan Nix image (vulnix + SBOM)
     runs-on: ubuntu-24.04

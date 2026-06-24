@@ -78,6 +78,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Decommission the Debian build path** ([#642](https://github.com/vig-os/devcontainer/issues/642))
+  - Deleted the root `Containerfile`, `scripts/prepare-build.sh`, `scripts/build.sh`, and the `.hadolint.yaml` config (plus its synced workspace copy); the image now builds Nix-only
+  - Removed the `hadolint` pre-commit hook and its `setup-env`/`test-project` install wiring, the `hadolint` and Containerfile entries from `scripts/requirements.yaml` and `scripts/manifest.toml`, and the `Containerfile`/build-script `CODEOWNERS` entries
+  - `build-image`, `release.yml`, and `ci.yml` are now Nix-only
+  - Dropped the Debian `scan-latest` nightly Trivy job, the ~78 Debian OS-package CVE entries from `.trivyignore`, and the Renovate `dockerfile` manager; `docs/CONTAINER_SECURITY.md` now reads as Nix-only
+
 - **Remove the `cursor-agent` CLI install from the image** ([#628](https://github.com/vig-os/devcontainer/issues/628))
   - Dropped the unpinned `curl … cursor.com/install` build step and its `/root/.local/bin` PATH entry, leaving an all-nixpkgs toolchain ahead of the Nix migration
   - Removed the coupled `test_cursor_agent_installed` image test

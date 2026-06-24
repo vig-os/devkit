@@ -42,9 +42,6 @@ src = "CHANGELOG.md"
 dest = ".devcontainer/CHANGELOG.md"
 
 [[entries]]
-src = ".hadolint.yaml"
-
-[[entries]]
 src = ".vscode/settings.json"
 transforms = [
   { type = "Sed", pattern = "\\$\\{workspaceFolder\\}/\\.venv/bin/python3", replace = "/opt/venv/bin/python3" },
@@ -104,7 +101,6 @@ transforms = [
 src = ".pre-commit-config.yaml"
 transforms = [
   { type = "RemovePrecommitHooks", hook_ids = [
-    "hadolint",
     "generate-docs",
     "sync-manifest",
     "pip-licenses",

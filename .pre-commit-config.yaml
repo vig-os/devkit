@@ -74,15 +74,6 @@ repos:
         args: ["-x"]
         exclude: (^|/)\.envrc$
 
-  # Containerfile
-  - repo: local
-    hooks:
-      - id: hadolint
-        name: hadolint
-        entry: hadolint
-        language: system
-        files: ^(.*/)?(Containerfile|Dockerfile)$
-
   # Markdown Linting (excludes auto-generated docs)
   - repo: https://github.com/jackdewinter/pymarkdown
     rev: f93643d339dfee2a1022e7b05e8b5a281bfac553  # v0.9.23

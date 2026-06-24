@@ -11,7 +11,6 @@ Usage:
     uv run python scripts/sync_manifest.py list --transformed
 
 Called by:
-    - scripts/prepare-build.sh  (build-time: sync into build/assets/workspace/)
     - just sync-workspace       (dev-time: sync into assets/workspace/)
 """
 

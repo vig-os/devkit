@@ -1,49 +1,25 @@
-# Composite action to build container images
+# Composite action to build the Nix-built devcontainer image to a tar.
 #
-# This action handles the complete container image build process:
-# - Prepares build directory with version metadata
-# - Builds architecture-specific container image
-# - Outputs image as tar file or pushes to registry
-#
-# Docker Hub (optional, Refs: #473):
-#   docker/setup-buildx-action pulls moby/buildkit from Docker Hub; anonymous pulls on
-#   shared runners hit rate limits. Pass dockerhub-username and dockerhub-token from
-#   workflow secrets (DOCKERHUB_USERNAME, DOCKERHUB_TOKEN) to log in before Buildx.
-#   Recommended for org/repo CI; omit for forks (secrets unavailable) — behavior matches
-#   pre-auth CI (anonymous pulls).
+# Builds `packages.devcontainerImage` (flake `dockerTools.buildLayeredImage`)
+# natively for the runner's architecture and writes a gzipped OCI tar. Nix is
+# the only build path (the Debian Containerfile was decommissioned in #642).
 #
 # Inputs:
-#   version: Semantic version (e.g., 1.0.0, dev-abc123)
-#   arch: Target architecture (amd64, arm64)
-#   release-date: Release date in YYYY-MM-DD format
-#   release-url: URL to release page
-#   build-timestamp: Build timestamp in ISO 8601 format
-#   vcs-ref: Git commit SHA
+#   version: Semantic version (e.g., 1.0.0, dev-abc123) — used for the image tag
+#   arch: Target architecture (amd64, arm64) — used for the image tag
+#   release-date / release-url / build-timestamp / vcs-ref: release metadata
+#     (kept for caller compatibility; the Nix image stamps its own static,
+#     reproducible OCI labels in flake.nix, so these are not baked into it)
 #   registry: Container registry URL (default: ghcr.io/vig-os/devcontainer)
-#   output-type: Output type - "tar" saves to file, "registry" pushes to registry
-#   output-file: Path for tar output (used if output-type=tar)
-#   push: Whether to push to registry (used if output-type=registry)
-#   dockerhub-username: Docker Hub user (optional; from secrets.DOCKERHUB_USERNAME)
-#   dockerhub-token: Docker Hub access token (optional; from secrets.DOCKERHUB_TOKEN)
+#   output-file: Path for the tar output
+#   cachix-cache / cachix-auth-token: passed to flake provisioning (setup-env)
 #
 # Outputs:
 #   image-tag: Full image tag (e.g., ghcr.io/vig-os/devcontainer:1.0.0-amd64)
-#   tar-file: Path to saved tar file (if output-type=tar)
-#
-# Usage:
-#   - uses: ./.github/actions/build-image
-#     with:
-#       version: '1.0.0'
-#       arch: 'amd64'
-#       release-date: '2026-02-06'
-#       release-url: 'https://github.com/vig-os/devcontainer/releases/tag/1.0.0'
-#       build-timestamp: '2026-02-06T12:00:00Z'
-#       vcs-ref: ${{ github.sha }}
-#       dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
-#       dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
+#   tar-file: Path to the saved tar file
 
 name: 'Build Container Image'
-description: 'Build architecture-specific container image'
+description: 'Build the Nix-built devcontainer image (flake devcontainerImage) for an architecture'
 
 inputs:
   version:
@@ -53,45 +29,29 @@ inputs:
     description: 'Target architecture (amd64, arm64)'
     required: true
   release-date:
-    description: 'Release date in YYYY-MM-DD format'
-    required: true
+    description: 'Release date in YYYY-MM-DD format (release metadata)'
+    required: false
+    default: ''
   release-url:
-    description: 'URL to release page'
-    required: true
+    description: 'URL to release page (release metadata)'
+    required: false
+    default: ''
   build-timestamp:
-    description: 'Build timestamp in ISO 8601 format'
-    required: true
+    description: 'Build timestamp in ISO 8601 format (release metadata)'
+    required: false
+    default: ''
   vcs-ref:
-    description: 'Git commit SHA'
-    required: true
+    description: 'Git commit SHA (release metadata)'
+    required: false
+    default: ''
   registry:
     description: 'Container registry URL'
     required: false
     default: 'ghcr.io/vig-os/devcontainer'
-  builder:
-    description: 'Image builder: "debian" (Containerfile) or "nix" (flake devcontainerImage). Default debian keeps the cutover paused (#639).'
-    required: false
-    default: 'debian'
-  output-type:
-    description: 'Output type: "tar" (save to file) or "registry" (push to registry)'
-    required: false
-    default: 'tar'
   output-file:
-    description: 'Path for tar output (if output-type=tar)'
+    description: 'Path for the tar output'
     required: false
     default: '/tmp/image.tar'
-  push:
-    description: 'Whether to push to registry (if output-type=registry)'
-    required: false
-    default: 'false'
-  dockerhub-username:
-    description: 'Docker Hub username for authenticated pulls (optional; omit on forks)'
-    required: false
-    default: ''
-  dockerhub-token:
-    description: 'Docker Hub access token for authenticated pulls (optional; omit on forks)'
-    required: false
-    default: ''
   cachix-cache:
     description: 'Cachix binary cache name (passed to flake provisioning)'
     required: false
@@ -106,101 +66,40 @@ outputs:
     description: 'Full image tag'
     value: ${{ steps.set-tag.outputs.tag }}
   tar-file:
-    description: 'Path to tar file (only set when output-type=tar)'
+    description: 'Path to the saved tar file'
     value: ${{ steps.tar-output.outputs.tar-file }}
 
 runs:
   using: composite
   steps:
-    - name: Login to Docker Hub
-      if: inputs.dockerhub-username != '' && inputs.dockerhub-token != ''
-      uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
-      with:
-        registry: docker.io
-        username: ${{ inputs.dockerhub-username }}
-        password: ${{ inputs.dockerhub-token }}
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4.1.0
-
-    - name: Set up environment
+    - name: Set up environment (provision Nix + toolchain from the flake)
       uses: ./.github/actions/setup-env
       with:
         sync-dependencies: 'true'
-        # Provision the toolchain from the flake (SSoT). The Debian image build
-        # itself (buildx + Containerfile) is unchanged. Refs #632.
         provision-via-flake: 'true'
         cachix-cache: ${{ inputs.cachix-cache }}
         cachix-auth-token: ${{ inputs.cachix-auth-token }}
-
-    - name: Prepare build directory
-      shell: bash
-      run: |
-        set -euo pipefail
-        echo "Preparing build directory..."
-        ./scripts/prepare-build.sh "${{ inputs.version }}"
-        echo "Build directory prepared"
 
     - name: Set image tag
       id: set-tag
       shell: bash
       run: |
         TAG="${{ inputs.registry }}:${{ inputs.version }}-${{ inputs.arch }}"
-        echo "tag=$TAG" >> $GITHUB_OUTPUT
+        echo "tag=$TAG" >> "$GITHUB_OUTPUT"
         echo "Image tag: $TAG"
 
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9  # v6.1.0
-      with:
-        images: ${{ inputs.registry }}
-        tags: |
-          type=raw,value=${{ inputs.version }}-${{ inputs.arch }}
-        labels: |
-          org.opencontainers.image.title=vigOS development environment
-          org.opencontainers.image.description=Development environment with common tools and utilities
-          org.opencontainers.image.version=${{ inputs.version }}
-          org.opencontainers.image.created=${{ inputs.build-timestamp }}
-          org.opencontainers.image.revision=${{ inputs.vcs-ref }}
-          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          org.opencontainers.image.vendor=vigOS
-          org.opencontainers.image.licenses=MIT
-
-    - name: Build image (tar output, Debian/Containerfile)
-      if: inputs.output-type == 'tar' && inputs.builder != 'nix'
-      uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
-      with:
-        context: ./build
-        file: ./build/Containerfile
-        platforms: linux/${{ inputs.arch }}
-        push: false
-        outputs: type=docker,dest=${{ inputs.output-file }}
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        build-args: |
-          BUILD_DATE=${{ inputs.build-timestamp }}
-          VCS_REF=${{ inputs.vcs-ref }}
-          IMAGE_TAG=${{ inputs.version }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-
-    # Nix build path (#639 cutover). Native per-arch: `nix build .#devcontainerImage`
-    # resolves to the runner's own architecture, mirroring nix-image.yml. Nix is
-    # already provisioned by the setup-env step above (provision-via-flake). The
-    # flake stamps its own OCI labels; the docker metadata-action labels are not
-    # applied to the Nix image. Inert unless builder=nix (default debian).
-    - name: Build image (tar output, Nix flake)
-      if: inputs.output-type == 'tar' && inputs.builder == 'nix'
+    - name: Build the devcontainer image with Nix
       shell: bash
       run: |
         set -euo pipefail
+        # Native per-arch: `nix build` resolves to the runner's own architecture
+        # (x86_64-linux / aarch64-linux). buildLayeredImage emits a gzipped OCI
+        # tar; docker/podman load handles gzip. The flake sets the OCI labels.
         nix build .#devcontainerImage --print-build-logs
-        # buildLayeredImage emits a gzipped OCI tar; docker load handles gzip.
         cp -L result "${{ inputs.output-file }}"
         ls -lL "${{ inputs.output-file }}"
 
     - name: Verify tar output was created
-      if: inputs.output-type == 'tar'
       shell: bash
       run: |
         set -euo pipefail
@@ -212,7 +111,6 @@ runs:
         fi
 
         # Verify file size is reasonable (at least 100MB for a valid image)
-        # Using Linux stat syntax since this action only runs on ubuntu-22.04
         FILE_SIZE=$(stat -c%s "${{ inputs.output-file }}")
         MIN_SIZE=$((100 * 1024 * 1024))  # 100 MB
 
@@ -227,23 +125,5 @@ runs:
 
     - name: Set tar-file output
       id: tar-output
-      if: inputs.output-type == 'tar'
       shell: bash
-      run: echo "tar-file=${{ inputs.output-file }}" >> $GITHUB_OUTPUT
-
-    - name: Build image (registry output, Debian/Containerfile)
-      if: inputs.output-type == 'registry' && inputs.builder != 'nix'
-      uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
-      with:
-        context: ./build
-        file: ./build/Containerfile
-        platforms: linux/${{ inputs.arch }}
-        push: ${{ inputs.push }}
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        build-args: |
-          BUILD_DATE=${{ inputs.build-timestamp }}
-          VCS_REF=${{ inputs.vcs-ref }}
-          IMAGE_TAG=${{ inputs.version }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+      run: echo "tar-file=${{ inputs.output-file }}" >> "$GITHUB_OUTPUT"

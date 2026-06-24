@@ -14,8 +14,6 @@ justfile.worktree               @gerchowl
 .github/actions/                @c-vigo
 
 # Build and release scripts
-scripts/build.sh                @c-vigo
-scripts/prepare-build.sh        @c-vigo
 scripts/clean.sh                @c-vigo
 scripts/sync_manifest.py        @c-vigo
 
@@ -35,4 +33,3 @@ renovate.json                   @c-vigo
 assets/workspace/.github/renovate-default.json @c-vigo
 .github/CODEOWNERS              @c-vigo
 SECURITY.md                     @c-vigo
-Containerfile                   @c-vigo

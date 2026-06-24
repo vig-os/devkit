@@ -197,37 +197,6 @@ dependencies:
       all: npm install
       manual: https://github.com/devcontainers/cli
 
-  # Containerfile linting
-  - name: hadolint
-    version: latest
-    purpose: Containerfile/Dockerfile linter used by pre-commit
-    required: true
-    check:
-      command: command -v hadolint
-      version_command: hadolint --version
-      version_regex: 'Haskell Dockerfile Linter (\d+\.\d+)'
-    install:
-      macos: brew install hadolint
-      debian: |
-        case "$(dpkg --print-architecture)" in
-          amd64) ARCH="linux-x86_64" ;;
-          arm64) ARCH="linux-arm64" ;;
-          *)
-            echo "Unsupported architecture: $(dpkg --print-architecture)"
-            exit 1
-            ;;
-        esac
-        BASE_URL="https://github.com/hadolint/hadolint/releases/latest/download"
-        BIN_FILE="hadolint-${ARCH}"
-        SHA_FILE="${BIN_FILE}.sha256"
-        curl -fsSL "${BASE_URL}/${BIN_FILE}" -o "${BIN_FILE}"
-        curl -fsSL "${BASE_URL}/${SHA_FILE}" -o "${SHA_FILE}"
-        EXPECTED_SHA="$(awk '{print $1}' "${SHA_FILE}")"
-        echo "${EXPECTED_SHA}  ${BIN_FILE}" | sha256sum -c -
-        sudo install -m 0755 "${BIN_FILE}" /usr/local/bin/hadolint
-        rm -f "${BIN_FILE}" "${SHA_FILE}"
-      manual: https://github.com/hadolint/hadolint/releases
-
   # TOML linting
   - name: taplo
     version: latest

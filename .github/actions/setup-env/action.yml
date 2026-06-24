@@ -4,14 +4,13 @@
 # - Podman (for container operations)
 # - Node.js (for JS tooling)
 # - Devcontainer CLI + docker-compose wrapper (for integration tests)
-# - hadolint (for Containerfile linting in pre-commit)
 # - BATS + helper libraries (for shell script testing)
 #
 # Flake provisioning (provision-via-flake, Refs #632):
 # - When 'true', the toolchain comes from the Nix flake (the SSoT) via
 #   `nix develop` instead of the ad-hoc installs below: Nix + Cachix are
 #   installed, the dev-shell is built (a warm vig-os Cachix pull), and its
-#   tool bin dirs are prepended to PATH. Python/uv, just, hadolint, and taplo
+#   tool bin dirs are prepended to PATH. Python/uv, just, and taplo
 #   ad-hoc steps are skipped; podman, Node.js, BATS, and the devcontainer CLI
 #   keep their dedicated steps (not flake-provided or host-integration tools).
 #
@@ -29,7 +28,6 @@
 #   install-node:             Install Node.js (default: false)
 #   node-version:             Node.js version (default: '24')
 #   install-devcontainer-cli: Install devcontainer CLI + docker-compose wrapper (default: false)
-#   install-hadolint:         Install hadolint binary (default: false)
 #   install-taplo:            Install taplo TOML linter/formatter (default: false)
 #   install-bats:             Install BATS + helper libraries (default: false)
 #
@@ -61,7 +59,7 @@
 #       install-devcontainer-cli: 'true'
 
 name: 'Setup Environment'
-description: 'Set up CI environment with Python, uv, and optional tools (podman, Node.js, devcontainer CLI, hadolint, BATS)'
+description: 'Set up CI environment with Python, uv, and optional tools (podman, Node.js, devcontainer CLI, BATS)'
 
 inputs:
   install-python:
@@ -92,10 +90,6 @@ inputs:
     description: 'Install @devcontainers/cli and docker-compose wrapper (requires Node.js)'
     required: false
     default: 'false'
-  install-hadolint:
-    description: 'Install hadolint binary for Containerfile linting'
-    required: false
-    default: 'false'
   install-just:
     description: 'Install just command runner for Justfile support'
     required: false
@@ -114,7 +108,7 @@ inputs:
       ad-hoc installs. When 'true', installs Nix + Cachix, builds the flake
       dev-shell, and prepends its tools to PATH so every subsequent step runs as
       if inside `nix develop`. Tools provided by the flake (Python/uv, just,
-      hadolint, taplo, Node.js) skip their ad-hoc install steps. podman is kept
+      taplo, Node.js) skip their ad-hoc install steps. podman is kept
       on the apt path even under flake provisioning because rootless podman on
       GitHub runners needs the host's setuid newuidmap/newgidmap and container
       config; BATS and the devcontainer CLI are not in the flake and keep their
@@ -142,7 +136,7 @@ runs:
     # When provision-via-flake is true, install Nix + Cachix and build the
     # flake dev-shell, then prepend its tool bin dirs to GITHUB_PATH so every
     # subsequent step runs as if inside `nix develop`. The ad-hoc tool installs
-    # below (Python/uv, just, hadolint, taplo, Node.js) are gated off in this
+    # below (Python/uv, just, taplo, Node.js) are gated off in this
     # mode. The Nix installer is SHA-pinned to match nix-cachix.yml and the
     # vig-os Cachix substituter makes the dev-shell a fast binary-cache pull.
     # Refs #632.
@@ -320,41 +314,6 @@ runs:
       uses: taiki-e/install-action@ab08a3b50948bd57d91bd2980f025da7e0a88231  # just
       with:
         tool: just
-
-    # ── hadolint (Containerfile linter) ───────────────────────────────────
-    # Skipped under flake provisioning: hadolint comes from the flake dev-shell.
-    - name: Install hadolint
-      if: inputs.provision-via-flake != 'true' && inputs.install-hadolint == 'true'
-      shell: bash
-      run: |
-        set -euo pipefail
-
-        case "$(uname -m)" in
-          x86_64) ARCH="linux-x86_64" ;;
-          aarch64|arm64) ARCH="linux-arm64" ;;
-          *)
-            echo "Unsupported architecture: $(uname -m)"
-            exit 1
-            ;;
-        esac
-
-        HADOLINT_VERSION="v2.14.0"
-        BASE_URL="https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}"
-        BIN_FILE="hadolint-${ARCH}"
-        SHA_FILE="${BIN_FILE}.sha256"
-
-        retry --retries 3 --backoff 5 --max-backoff 60 -- \
-          curl -fsSL "${BASE_URL}/${BIN_FILE}" -o "${BIN_FILE}"
-        retry --retries 3 --backoff 5 --max-backoff 60 -- \
-          curl -fsSL "${BASE_URL}/${SHA_FILE}" -o "${SHA_FILE}"
-
-        EXPECTED_SHA="$(awk '{print $1}' "${SHA_FILE}")"
-        echo "${EXPECTED_SHA}  ${BIN_FILE}" | sha256sum -c -
-
-        sudo install -m 0755 "${BIN_FILE}" /usr/local/bin/hadolint
-        rm -f "${BIN_FILE}" "${SHA_FILE}"
-
-        hadolint --version
 
     # ── taplo (TOML linter/formatter) ──────────────────────────────────
     # Skipped under flake provisioning: taplo comes from the flake dev-shell.

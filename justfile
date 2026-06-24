@@ -53,7 +53,7 @@ info:
         NATIVE_ARCH="linux/amd64"
     fi
     echo "Image: {{ repo }}"
-    echo "Containerfile: Containerfile"
+    echo "Image builder: Nix flake (.#devcontainerImage)"
     echo "Native arch: $NATIVE_ARCH"
 
 # Install system dependencies and setup development environment
@@ -86,17 +86,16 @@ login:
 [group('build')]
 build no_cache="":
     #!/usr/bin/env bash
-    ARCH=$(uname -m)
-    if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
-        NATIVE_ARCH="linux/arm64"
-    else
-        NATIVE_ARCH="linux/amd64"
-    fi
-    if [ -n "{{ no_cache }}" ]; then
-        ./scripts/build.sh --no-cache dev "{{ repo }}" "$NATIVE_ARCH"
-    else
-        ./scripts/build.sh dev "{{ repo }}" "$NATIVE_ARCH"
-    fi
+    set -euo pipefail
+    # Nix-only (#642): build the layered image from the flake and load it into
+    # podman under the local `dev` tag. Builds natively for the host arch.
+    # `no_cache` is accepted for compatibility but is a no-op — Nix builds are
+    # content-addressed (there is no Docker layer cache to bust).
+    echo "Building the Nix devcontainer image (.#devcontainerImage)..."
+    nix build .#devcontainerImage --accept-flake-config --print-build-logs
+    loaded=$(podman load -i result | sed -n 's/^Loaded image: //p' | head -n1)
+    podman tag "${loaded}" "{{ repo }}:dev"
+    echo "Loaded and tagged {{ repo }}:dev (from ${loaded})"
 
 # ===============================================================================
 # TEST

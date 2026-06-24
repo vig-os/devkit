@@ -55,7 +55,6 @@ runs:
       uses: ./.github/actions/setup-env
       with:
         sync-dependencies: 'true'
-        install-hadolint: 'true'
         install-taplo: 'true'
         install-bats: 'true'
         # Provision the toolchain from the flake (SSoT). Refs #632.

@@ -3,12 +3,9 @@
 This document describes how the devcontainer image handles software
 vulnerabilities (CVEs).
 
-The image is migrating from a Debian/`apt` base to a **Nix-built image**
-(`dockerTools.buildLayeredImage`, see `flake.nix`). This document describes the
-**Nix posture** — the target and the mechanisms now in place. The published
-`:latest` image remains the Debian build until the publish-cutover (#639), so a
-residual Trivy nightly still scans it until the Debian path is decommissioned
-(#642); see [Transition](#transition-residual-debian-scan).
+The image is a **Nix-built image** (`dockerTools.buildLayeredImage`, see
+`flake.nix`). This document describes the **Nix posture** — the mechanisms now in
+place. The Debian/`apt` build path has been decommissioned (#642).
 
 ## Principles
 
@@ -60,7 +57,7 @@ instead.
 
 During the discovery phase the gate is **non-blocking** (`continue-on-error`).
 The publish-cutover (#639) flips it to blocking and wires SARIF upload and a
-deduplicated issue, matching the Debian `scan-latest` job.
+deduplicated issue.
 
 ### 3. CycloneDX SBOM + Trivy SBOM-mode scan (defence in depth)
 
@@ -112,8 +109,8 @@ Two registers share one format and one validator:
 
 - **`.vulnixignore`** — `vulnix` findings on the Nix image (consumed by
   `vulnix-gate`).
-- **`.trivyignore`** — Trivy findings on the residual Debian `:latest` image and
-  Trivy secret-scan false positives.
+- **`.trivyignore`** — image-agnostic Trivy findings on the Nix image (bundled-
+  binary CVEs) and Trivy secret-scan false positives.
 
 Both use the `Expiration: YYYY-MM-DD` directive format and are validated by
 `check-expirations` (pre-commit hook and CI). Expired entries fail CI, forcing
@@ -159,20 +156,11 @@ New CVE reported by vulnix (Nix image)
               with expiry)
 ```
 
-## Transition: residual Debian scan
-
-Until the publish-cutover (#639) and Debian decommission (#642), the published
-`:latest` is still the Debian build. The existing nightly job (`scan-latest`)
-continues to pull and Trivy-scan it (gating fixable HIGH/CRITICAL, uploading
-SARIF to the `container-image-latest` category) with `.trivyignore` as its
-exception register. That job and `.trivyignore`'s OS-package entries are removed
-when the Debian path is decommissioned (#642).
-
 ## References
 
 - [flake.nix](../flake.nix) – Nix image (`devcontainerImage`), scan target
   (`devcontainerImageEnv`), and pinned `vulnix`
 - [.vulnixignore](../.vulnixignore) – Accepted `vulnix` findings (Nix image)
-- [.trivyignore](../.trivyignore) – Accepted Trivy findings (residual Debian image)
+- [.trivyignore](../.trivyignore) – Accepted Trivy findings (Nix image, image-agnostic)
 - [security-scan.yml](../.github/workflows/security-scan.yml) – Nightly scan workflow
 - `vulnix-gate` / `check-expirations` (`packages/vig-utils`) – Gate and expiry validators

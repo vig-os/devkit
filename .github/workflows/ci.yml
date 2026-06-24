@@ -87,11 +87,8 @@ jobs:
           release-url: ${{ steps.version.outputs.release_url }}
           build-timestamp: ${{ steps.version.outputs.build_timestamp }}
           vcs-ref: ${{ steps.version.outputs.vcs_ref }}
-          dockerhub-username: ${{ secrets.DOCKERHUB_USERNAME }}
-          dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          output-type: tar
           output-file: /tmp/image.tar
 
       - name: Upload image artifact
@@ -253,11 +250,11 @@ jobs:
     permissions:
       contents: read
 
-    # PR CI runs Trivy as a blocking GATE only (fail on fixable HIGH/CRITICAL)
-    # plus non-blocking reports in the job log. It does NOT upload SARIF to the
-    # Security tab: the nightly scheduled scan of the published :latest image
-    # (security-scan.yml, category container-image-latest) is the single source
-    # of truth for the GitHub Security tab. Refs #604.
+    # The Nix image has no apt/dpkg DB, so Trivy's OS-package scanner is largely
+    # dark here; the authoritative CVE gate is the nightly vulnix scan
+    # (security-scan.yml, scan-nix-image — blocking via vulnix-gate). PR CI runs
+    # Trivy non-blocking for awareness + a CycloneDX SBOM artifact, and validates
+    # the exception registers' expiry. Refs #642, #637.
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
@@ -276,19 +273,7 @@ jobs:
           name: container-image-${{ needs.build-image.outputs.version }}-amd64
           path: /tmp
 
-      - name: Scan image for vulnerabilities
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
-        with:
-          version: 'v0.71.2'
-          input: /tmp/image.tar
-          format: 'table'
-          severity: 'HIGH,CRITICAL'
-          exit-code: '1'
-          ignore-unfixed: true
-          trivyignores: '.trivyignore'
-
-      - name: Report unfixed HIGH/CRITICAL vulnerabilities (non-blocking)
-        if: always()
+      - name: Report HIGH/CRITICAL vulnerabilities (non-blocking)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           version: 'v0.71.2'
