@@ -98,6 +98,8 @@
           hadolint
           taplo
           nixfmt-rfc-style # nix file formatter (flake `formatter`, pre-commit hook)
+          ruff # python linter/formatter (pre-commit ruff/ruff-format hooks)
+          typos # source typo checker (pre-commit typos hook)
 
           # Container runtime
           podman
@@ -252,7 +254,6 @@
             # the hermetic Nix build takes them from nixpkgs instead (#666).
             pythonEnv
             pre-commit
-            ruff
             bandit
 
             # Rust/cargo + just LSP/formatter tools. The Debian image installed

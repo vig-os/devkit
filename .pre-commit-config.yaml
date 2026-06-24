@@ -34,13 +34,19 @@ repos:
       - id: mixed-line-ending
       - id: trailing-whitespace
 
-  # Python Linting and Formatting (Ruff)
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: aad66557af3b56ba6d4d69cd1b6cba87cef50cbb  # v0.14.3
+  # Python Linting and Formatting (Ruff, sourced from the flake dev-shell)
+  - repo: local
     hooks:
       - id: ruff
-        args: [--fix]
+        name: ruff (lint/fix python)
+        entry: ruff check --fix
+        language: system
+        types: [python]
       - id: ruff-format
+        name: ruff-format (format python)
+        entry: ruff format
+        language: system
+        types: [python]
 
   # YAML Linting
   - repo: https://github.com/adrienverge/yamllint
@@ -122,11 +128,13 @@ repos:
         language: system
         pass_filenames: false
 
-  # Typo Linting
-  - repo: https://github.com/crate-ci/typos
-    rev: 07d900b8fa1097806b8adb6391b0d3e0ac2fdea7  # v1.39.0
+  # Typo Linting (typos sourced from the flake dev-shell)
+  - repo: local
     hooks:
       - id: typos
+        name: typos (source typo checker)
+        entry: typos
+        language: system
 
   # License Compliance Check (runs only when dependencies change)
   - repo: local
