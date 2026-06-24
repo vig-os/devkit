@@ -184,6 +184,13 @@ jobs:
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
+      # Gate the flake itself: `test-project` provisions Nix + the flake
+      # dev-shell, so nix is on PATH here. `nix flake check` runs the flake's
+      # lightweight checks (nixfmt --check, dev-shell build, devShellTools
+      # eval). The richer pytest parity test stays in `test-project`. Refs #674.
+      - name: Check flake quality gates
+        run: nix flake check --accept-flake-config
+
   python-security:
     name: Python Security Scan
     runs-on: ubuntu-24.04

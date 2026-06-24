@@ -79,6 +79,16 @@ repos:
         files: ^justfile(\..*)?$
         pass_filenames: false
 
+  # Nix formatting (nixfmt-rfc-style from the flake dev-shell toolchain)
+  - repo: local
+    hooks:
+      - id: nixfmt
+        name: nixfmt (format/check nix files)
+        entry: nixfmt --check
+        language: system
+        files: \.nix$
+        types: [file]
+
   # Typo Linting
   - repo: https://github.com/crate-ci/typos
     rev: 07d900b8fa1097806b8adb6391b0d3e0ac2fdea7  # v1.39.0

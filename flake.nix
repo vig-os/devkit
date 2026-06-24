@@ -20,7 +20,7 @@
       # ---------------------------------------------------------------------
       # Overlay: pull fast-movers from nixpkgs-unstable.
       #
-      # The stable channel (nixos-25.05) lags on tools that ship frequently and
+      # The stable channel (nixos-26.05) lags on tools that ship frequently and
       # whose latest version we want in both the dev-shell and the image. We
       # overlay only those few packages from unstable; everything else stays on
       # the pinned stable channel for reproducibility.
@@ -56,9 +56,7 @@
       # drift from this list.
       # ---------------------------------------------------------------------
       devTools =
-        pkgs:
-        with pkgs;
-        [
+        pkgs: with pkgs; [
           # Build automation
           just
 
@@ -82,6 +80,7 @@
           # Linting
           hadolint
           taplo
+          nixfmt-rfc-style # nix file formatter (flake `formatter`, pre-commit hook)
 
           # Container runtime
           podman
@@ -104,9 +103,9 @@
       # neovim -> nvim, claude-code -> claude); fall back to the pname.
       devShellToolNames =
         pkgs:
-        map (
-          drv: drv.meta.mainProgram or drv.pname or (builtins.parseDrvName drv.name).name
-        ) (devTools pkgs);
+        map (drv: drv.meta.mainProgram or drv.pname or (builtins.parseDrvName drv.name).name) (
+          devTools pkgs
+        );
 
       # ---------------------------------------------------------------------
       # mkProjectShell — reusable dev-shell builder for downstream repos.
@@ -130,8 +129,7 @@
       # restores that capability without un-pinning nixpkgs. The IMAGE does not
       # use this: it bakes the interpreter (pythonEnv) + the toolchain from
       # nixpkgs and sets UV_PYTHON_DOWNLOADS=never. Refs #632, #666.
-      uvPythonDownloadsJsonUrl =
-        "https://raw.githubusercontent.com/astral-sh/uv/0.11.23/crates/uv-python/download-metadata.json";
+      uvPythonDownloadsJsonUrl = "https://raw.githubusercontent.com/astral-sh/uv/0.11.23/crates/uv-python/download-metadata.json";
 
       mkProjectShell =
         {
@@ -258,6 +256,43 @@
         # Binary names of every tool in devTools — read by the parity test.
         devShellTools = devShellToolNames pkgs;
 
+        # ------------------------------------------------------------------
+        # formatter — `nix fmt` formats every *.nix file with nixfmt-rfc-style.
+        #
+        # Same package as the `nixfmt` pre-commit hook (sourced from devTools)
+        # so editor `nix fmt`, the hook, and the `checks.format` gate below all
+        # agree on one formatting. Refs #674.
+        # ------------------------------------------------------------------
+        formatter = pkgs.nixfmt-rfc-style;
+
+        # ------------------------------------------------------------------
+        # checks — lightweight flake quality gates run by `nix flake check`.
+        #
+        # Kept deliberately lightweight. The richer dev-shell/image parity test
+        # (tests/test_flake_devshell.py) is NOT wrapped as a flake check: nix
+        # checks build in a sandbox with no recursive nix access, so a check
+        # that itself runs `nix eval`/`nix develop` cannot work here. That test
+        # therefore stays in CI as a pytest (the project-checks job), and the
+        # flake checks cover what a sandbox can: the flake formats cleanly, the
+        # dev-shell builds, and devShellTools evaluates. Refs #674.
+        checks = {
+          # Every *.nix file is nixfmt-clean (the `nix fmt` idempotency gate).
+          format = pkgs.runCommand "nixfmt-check" { nativeBuildInputs = [ pkgs.nixfmt-rfc-style ]; } ''
+            nixfmt --check ${./flake.nix}
+            touch "$out"
+          '';
+
+          # The dev-shell evaluates and its closure builds.
+          devShell = self.devShells.${system}.default;
+
+          # devShellTools (the parity-test SSoT) evaluates to a non-empty list.
+          devShellTools = pkgs.runCommand "devshell-tools-eval" { } ''
+            count=${toString (builtins.length (devShellToolNames pkgs))}
+            test "$count" -gt 0
+            touch "$out"
+          '';
+        };
+
         packages = {
           # -----------------------------------------------------------------
           # devcontainerImage — Nix-built devcontainer image (T2.1, #634).
@@ -364,8 +399,7 @@
                 ];
                 Labels = {
                   "org.opencontainers.image.title" = "vigOS development environment";
-                  "org.opencontainers.image.source" =
-                    "https://github.com/vig-os/devcontainer";
+                  "org.opencontainers.image.source" = "https://github.com/vig-os/devcontainer";
                   "org.opencontainers.image.licenses" = "MIT";
                 };
               };

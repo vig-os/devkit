@@ -93,6 +93,16 @@ repos:
         files: ^justfile(\..*)?$
         pass_filenames: false
 
+  # Nix formatting (nixfmt-rfc-style from the flake dev-shell toolchain)
+  - repo: local
+    hooks:
+      - id: nixfmt
+        name: nixfmt (format/check nix files)
+        entry: nixfmt --check
+        language: system
+        files: \.nix$
+        types: [file]
+
   # Documentation Generation (auto-regenerate on template/requirements changes)
   - repo: local
     hooks:
