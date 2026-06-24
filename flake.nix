@@ -123,12 +123,13 @@
       # The nixpkgs build of uv ships with its embedded Python-download list
       # stripped (Nix is expected to supply interpreters), so `uv sync` cannot
       # fetch a managed CPython on its own — it reports "No interpreter found
-      # ... in managed installations or search path". Our projects pin an exact
-      # patch (requires-python == 3.14.6) that nixpkgs does not package (stable
-      # has 3.14.0, unstable 3.14.4), so the interpreter must come from uv's
-      # managed download. Pointing uv at upstream's download-metadata.json
-      # (pinned to the same uv version installed on the non-flake CI path)
-      # restores that capability without un-pinning nixpkgs. Refs #632.
+      # ... in managed installations or search path". The dev-shell carries no
+      # Python on PATH (the project venv is uv-managed), so uv must fetch a
+      # CPython matching `requires-python` (>=3.14,<3.15). Pointing uv at
+      # upstream's download-metadata.json (pinned to the provisioned uv version)
+      # restores that capability without un-pinning nixpkgs. The IMAGE does not
+      # use this: it bakes the interpreter (pythonEnv) + the toolchain from
+      # nixpkgs and sets UV_PYTHON_DOWNLOADS=never. Refs #632, #666.
       uvPythonDownloadsJsonUrl =
         "https://raw.githubusercontent.com/astral-sh/uv/0.11.23/crates/uv-python/download-metadata.json";
 
@@ -157,6 +158,46 @@
 
         python = pkgs.python314;
 
+        # vig-utils packaged for the image (T2.4, #666): a pure-Python hatchling
+        # package (single runtime dep `rich`) built by Nix, so `import vig_utils`
+        # and its console scripts (check-expirations, vulnix-gate, …) are present
+        # without a network-populated uv venv (impossible in a hermetic build).
+        vigUtils = python.pkgs.buildPythonPackage {
+          pname = "vig-utils";
+          version = "0.1.0";
+          pyproject = true;
+          src = ./packages/vig-utils;
+          build-system = [ python.pkgs.hatchling ];
+          dependencies = [ python.pkgs.rich ];
+          pythonImportsCheck = [ "vig_utils" ];
+          # The package's own tests need pytest + the repo; CI covers them.
+          doCheck = false;
+        };
+
+        # pip-licenses is not packaged in nixpkgs, so install it from its PyPI
+        # wheel (pinned to the project's locked version + hash). Using the wheel
+        # avoids its setuptools-scm/setuptools>=82 build backend; its only runtime
+        # dep, prettytable, is in nixpkgs. Refs #666.
+        pipLicenses = python.pkgs.buildPythonPackage {
+          pname = "pip-licenses";
+          version = "5.5.5";
+          format = "wheel";
+          src = pkgs.fetchurl {
+            url = "https://files.pythonhosted.org/packages/2a/9a/6acfdb8d463eac7cdae7534d35d72237eca63f5fbafe797289d8a5fae447/pip_licenses-5.5.5-py3-none-any.whl";
+            sha256 = "f4c4c6d9e6a03612cf59f29f19dc8ab54904d82e055b8e191498f2279a224e14";
+          };
+          dependencies = [ python.pkgs.prettytable ];
+          pythonImportsCheck = [ "piplicenses" ];
+        };
+
+        # The image's Python interpreter, with the project's Python tools
+        # (vig-utils + pip-licenses) and their console scripts on PATH. Replaces
+        # the bare interpreter in imageTools.
+        pythonEnv = python.withPackages (_ps: [
+          vigUtils
+          pipLicenses
+        ]);
+
         # The toolchain SSoT plus the runtime substrate a bare layered image
         # lacks (an FHS base distro would provide these; here we add them
         # explicitly — this is the discovery surface for FHS gaps). Shared by
@@ -173,9 +214,19 @@
             # Locale support without locale-gen.
             glibcLocales
 
-            # Python + uv-managed venv bootstrap.
-            python
+            # Python (with vig-utils baked) + the project Python toolchain.
+            # The Debian image installed these via `uv pip install` at build;
+            # the hermetic Nix build takes them from nixpkgs instead (#666).
+            pythonEnv
             pre-commit
+            ruff
+            bandit
+
+            # Rust/cargo + just LSP/formatter tools. The Debian image installed
+            # these via cargo-binstall; Nix-native from nixpkgs here (#666).
+            cargo-binstall
+            just-lsp
+            typstyle
 
             # Base runtime substrate (no FHS base distro to inherit).
             bashInteractive
