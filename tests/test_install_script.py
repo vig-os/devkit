@@ -30,7 +30,8 @@ class TestInstallScriptIntegration:
     """
 
     @pytest.fixture(scope="class")
-    def install_workspace(self, container_image):
+    @staticmethod
+    def install_workspace(container_image):
         """
         Deploy devcontainer using install.sh (not init-workspace.sh directly).
         Tests the full user-facing workflow.
