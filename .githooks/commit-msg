@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Set error handling, fail on any error during script execution
 set -euo pipefail
 

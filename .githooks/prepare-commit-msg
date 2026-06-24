@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Strip AI agent trailers from commit message before validation.
 # Refs: #163
 set -euo pipefail
