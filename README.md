@@ -195,7 +195,7 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 
 ## Image Details
 
-- **Base Image**: `python:3.12-slim-trixie`
+- **Build**: Nix flake via `dockerTools.buildLayeredImage` (no Debian/Docker base image); bit-reproducible
 - **Registry**: `ghcr.io/vig-os/devcontainer`
 - **Architecture**: Multi-platform support (AMD64, ARM64)
 - **License**: Apache
@@ -204,9 +204,9 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 
 ## Features
 
-### **Base Image**
+### **Build**
 
-- **python:3.12-slim-trixie** – Minimal Python base image (Debian Trixie) for lightweight and robust foundation
+- **Nix flake** – The image is assembled entirely by Nix via `dockerTools.buildLayeredImage` (no Debian/Docker base image). Python (CPython 3.14) and the whole toolchain come from a pinned `nixpkgs`, so the build is bit-reproducible
 
 ### **System Tools**
 
@@ -220,8 +220,7 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 
 ### **Python Environment**
 
-- **Python 3.12** - Latest stable Python version
-- **pip, setuptools, wheel** - Python packaging tools (included with base image)
+- **Python 3.14** - CPython from the pinned `nixpkgs`
 - **uv** - Fast Python package installer and resolver
 
 ### **Development Tools**

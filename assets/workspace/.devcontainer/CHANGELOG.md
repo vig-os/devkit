@@ -46,6 +46,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **README now describes the Nix-built image** ([#673](https://github.com/vig-os/devcontainer/issues/673))
+  - Replaced the stale `python:3.12-slim-trixie` Debian base-image claim with the actual build: a Nix flake assembled via `dockerTools.buildLayeredImage` (no Debian/Docker base), with CPython 3.14 and the toolchain from a pinned `nixpkgs`, bit-reproducible
 - **Make `just init` Nix-first** ([#671](https://github.com/vig-os/devcontainer/issues/671))
   - Rewrote `scripts/init.sh` from a multi-OS package installer into a Nix-first gate + bootstrapper: it requires Nix (and direnv, unless `--no-direnv`) and the dev-shell toolchain, then performs one-time, idempotent project bootstrap (`uv sync --frozen --all-extras`, git hooks path, commit-message template, `pre-commit install-hooks`) with advisory `podman info` / `gh auth status` checks. It no longer installs any tool — the toolchain is the flake's `devTools` — and short-circuits inside the built image (`IN_CONTAINER=true`)
   - Repointed `docs/generate.py` and the `CONTRIBUTE.md.j2` template: the per-OS "Requirements" table is now a "Prerequisites: Nix + direnv + a working host container runtime" section, with the toolchain sourced from `flake.nix`
