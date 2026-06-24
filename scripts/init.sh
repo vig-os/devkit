@@ -188,8 +188,9 @@ cd "$PROJECT_ROOT"
 
 print_section "Project Bootstrap"
 
-# Materialize the project venv from the lockfile. uv resolves the pinned CPython
-# via the flake's UV_PYTHON_DOWNLOADS_JSON_URL; no interpreter is hardcoded here.
+# Materialize the project venv from the lockfile. uv builds it from the
+# interpreter the flake dev-shell pins via UV_PYTHON (UV_PYTHON_DOWNLOADS=never);
+# no interpreter is hardcoded here.
 log_info "Syncing the project environment from the lockfile..."
 if uv sync --frozen --all-extras; then
     log_success "Project dependencies installed"

@@ -116,33 +116,32 @@
       #     inherit pkgs;
       #     extraPackages = [ pkgs.foo ];
       #   };
-      # ---------------------------------------------------------------------
-      # uv's Python-download metadata, pinned to the uv release we provision.
-      #
-      # The nixpkgs build of uv ships with its embedded Python-download list
-      # stripped (Nix is expected to supply interpreters), so `uv sync` cannot
-      # fetch a managed CPython on its own — it reports "No interpreter found
-      # ... in managed installations or search path". The dev-shell carries no
-      # Python on PATH (the project venv is uv-managed), so uv must fetch a
-      # CPython matching `requires-python` (>=3.14,<3.15). Pointing uv at
-      # upstream's download-metadata.json (pinned to the provisioned uv version)
-      # restores that capability without un-pinning nixpkgs. The IMAGE does not
-      # use this: it bakes the interpreter (pythonEnv) + the toolchain from
-      # nixpkgs and sets UV_PYTHON_DOWNLOADS=never. Refs #632, #666.
-      uvPythonDownloadsJsonUrl = "https://raw.githubusercontent.com/astral-sh/uv/0.11.23/crates/uv-python/download-metadata.json";
-
       mkProjectShell =
         {
           pkgs,
           extraPackages ? [ ],
           shellHook ? ''echo "devcontainer dev environment loaded (nix)"'',
         }:
+        let
+          # CPython matching `requires-python` (>=3.14,<3.15). The dev-shell
+          # carries no Python on PATH (the project venv is uv-managed), so
+          # `uv sync` must be told which interpreter to build the venv from. We
+          # pin a Nix store CPython via UV_PYTHON and forbid downloads
+          # (UV_PYTHON_DOWNLOADS=never) rather than let the nixpkgs uv fetch a
+          # managed CPython: that download is a generic, dynamically-linked ELF
+          # a NixOS host cannot execute out of the box (no FHS ld-linux), so
+          # `uv sync` aborted there (#683). A store interpreter is patched to
+          # the store loader and runs on both NixOS and FHS hosts. This mirrors
+          # the IMAGE path, which bakes pythonEnv and sets the same two vars.
+          # Refs #632, #666, #683.
+          python = pkgs.python314;
+        in
         pkgs.mkShell {
           packages = (devTools pkgs) ++ extraPackages;
           inherit shellHook;
 
-          # Let the nixpkgs uv resolve managed Python downloads (see note above).
-          UV_PYTHON_DOWNLOADS_JSON_URL = uvPythonDownloadsJsonUrl;
+          UV_PYTHON = "${python}/bin/python3.14";
+          UV_PYTHON_DOWNLOADS = "never";
         };
     in
     flake-utils.lib.eachDefaultSystem (

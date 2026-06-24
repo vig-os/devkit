@@ -179,21 +179,23 @@ runs:
           | grep '^/nix/store' \
           | grep -v '/nix/store/[^/]*-podman[^/]*/bin' >> "$GITHUB_PATH"
 
-        # Propagate the dev-shell's uv Python-download metadata URL to later
-        # steps. GITHUB_PATH only carries PATH, not env vars, so this var (set
-        # in the flake dev-shell, the SSoT) must be forwarded explicitly so
-        # `uv sync` can fetch the project's pinned CPython, which nixpkgs does
-        # not package and the nixpkgs uv cannot download on its own. Refs #632.
-        # The dev-shell's shellHook prints a banner to stdout, so capture the
-        # var on its own line and extract just that line (mirrors the PATH
-        # filtering above).
-        UV_DL_JSON_URL="$(nix develop --profile "$RUNNER_TEMP/dev-profile" \
-          --command bash -c 'printf "UV_PYTHON_DOWNLOADS_JSON_URL=%s\n" "${UV_PYTHON_DOWNLOADS_JSON_URL:-}"' \
-          | grep '^UV_PYTHON_DOWNLOADS_JSON_URL=' | tail -n1 | cut -d= -f2-)"
-        if [ -n "$UV_DL_JSON_URL" ]; then
-          echo "UV_PYTHON_DOWNLOADS_JSON_URL=$UV_DL_JSON_URL" >> "$GITHUB_ENV"
-          echo "Forwarded UV_PYTHON_DOWNLOADS_JSON_URL=$UV_DL_JSON_URL"
-        fi
+        # Propagate the dev-shell's uv interpreter pin (UV_PYTHON + the
+        # downloads policy) to later steps. GITHUB_PATH only carries PATH, not
+        # env vars, so these vars (set in the flake dev-shell, the SSoT) must be
+        # forwarded explicitly so `uv sync` builds the venv from the pinned Nix
+        # store CPython instead of downloading a managed one — which nixpkgs
+        # does not package, the nixpkgs uv cannot fetch, and a NixOS host cannot
+        # execute. Refs #632, #683. The dev-shell's shellHook prints a banner to
+        # stdout, so read the variables from `env` output by exact key match.
+        DEVSHELL_ENV="$(nix develop --profile "$RUNNER_TEMP/dev-profile" \
+          --command env)"
+        for var in UV_PYTHON UV_PYTHON_DOWNLOADS; do
+          value="$(printf '%s\n' "$DEVSHELL_ENV" | grep "^$var=" | tail -n1 | cut -d= -f2-)"
+          if [ -n "$value" ]; then
+            echo "$var=$value" >> "$GITHUB_ENV"
+            echo "Forwarded $var=$value"
+          fi
+        done
 
         echo "Flake dev-shell provisioned; tools added to PATH:"
         printf '%s' "$SHELL_PATH" | tr ':' '\n' | grep '^/nix/store' | head -50
