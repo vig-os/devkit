@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-06-22T20:07:05Z
+updated: 2026-06-24T05:29:47Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devcontainer/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-06-22T20:15:53.555Z
+synced: 2026-06-24T06:13:09.527Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devcontainer/issues/529)
@@ -24,7 +24,13 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
+ - [ ] <!-- unschedule-branch=renovate/actions-setup-python-digest -->chore(deps): update actions/setup-python digest to ece7cb0
+ - [ ] <!-- unschedule-branch=renovate/taiki-e-install-action-digest -->chore(deps): update taiki-e/install-action digest to 1848b81
+ - [ ] <!-- unschedule-branch=renovate/python-(minor-and-patch) -->build(pip): update python (minor and patch)
+ - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update github-actions (minor and patch)
  - [ ] <!-- unschedule-branch=renovate/bats-file-0.x-lockfile -->build(npm): update dependency bats-file to v0.4.0
+ - [ ] <!-- unschedule-branch=renovate/actions-cache-6.x -->ci(actions): update actions/cache action to v6
+ - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
 
 
 ---
@@ -72,15 +78,15 @@ The following updates are blocked by an existing closed PR. To recreate the PR, 
 
 <details><summary>.github/actions/setup-env/action.yml (9)</summary>
 
- - `actions/setup-python v6@a309ff8b426b58ec0e2a45f0f869d46889d02405`
- - `actions/setup-python v6@a309ff8b426b58ec0e2a45f0f869d46889d02405`
+ - `actions/setup-python v6@a309ff8b426b58ec0e2a45f0f869d46889d02405` → [Updates: `v6`]
+ - `actions/setup-python v6@a309ff8b426b58ec0e2a45f0f869d46889d02405` → [Updates: `v6`]
  - `astral-sh/setup-uv v8.2.0@fac544c07dec837d0ccb6301d7b5580bf5edae39`
  - `astral-sh/setup-uv v8.2.0@fac544c07dec837d0ccb6301d7b5580bf5edae39`
  - `actions/setup-node v6.4.0@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e`
- - `taiki-e/install-action just@ab08a3b50948bd57d91bd2980f025da7e0a88231`
+ - `taiki-e/install-action just@ab08a3b50948bd57d91bd2980f025da7e0a88231` → [Updates: `just`]
  - `bats-core/bats-action v4.0.0@77d6fb60505b4d0d1d73e48bd035b55074bbfb43`
- - `astral-sh/uv 0.11.23`
- - `astral-sh/uv 0.11.23`
+ - `astral-sh/uv 0.11.23` → [Updates: `0.11.24`]
+ - `astral-sh/uv 0.11.23` → [Updates: `0.11.24`]
 
 </details>
 
@@ -99,7 +105,7 @@ The following updates are blocked by an existing closed PR. To recreate the PR, 
 <details><summary>.github/actions/test-project/action.yml (3)</summary>
 
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
- - `actions/cache v5.0.5@27d5ce7f107fe9357f9df03efb73ab90386fccae`
+ - `actions/cache v5.0.5@27d5ce7f107fe9357f9df03efb73ab90386fccae` → [Updates: `v6.0.0`]
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
 
 </details>
@@ -279,10 +285,10 @@ The following updates are blocked by an existing closed PR. To recreate the PR, 
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
- - `actions/cache v5.0.5@27d5ce7f107fe9357f9df03efb73ab90386fccae`
+ - `actions/cache v5.0.5@27d5ce7f107fe9357f9df03efb73ab90386fccae` → [Updates: `v6.0.0`]
  - `vig-os/sync-issues-action v0.2.2@bad447d330526a7313ffddae084010c39b335fc1`
  - `vig-os/commit-action v0.2.0@1bc004353d08d9332a0cb54920b148256220c8e0`
- - `actions/cache v5.0.5@27d5ce7f107fe9357f9df03efb73ab90386fccae`
+ - `actions/cache v5.0.5@27d5ce7f107fe9357f9df03efb73ab90386fccae` → [Updates: `v6.0.0`]
  - `ubuntu 24.04`
  - `ubuntu 24.04`
 
@@ -455,10 +461,10 @@ The following updates are blocked by an existing closed PR. To recreate the PR, 
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
- - `actions/cache v5.0.5@27d5ce7f107fe9357f9df03efb73ab90386fccae`
+ - `actions/cache v5.0.5@27d5ce7f107fe9357f9df03efb73ab90386fccae` → [Updates: `v6.0.0`]
  - `vig-os/sync-issues-action v0.2.2@bad447d330526a7313ffddae084010c39b335fc1`
  - `vig-os/commit-action v0.2.0@1bc004353d08d9332a0cb54920b148256220c8e0`
- - `actions/cache v5.0.5@27d5ce7f107fe9357f9df03efb73ab90386fccae`
+ - `actions/cache v5.0.5@27d5ce7f107fe9357f9df03efb73ab90386fccae` → [Updates: `v6.0.0`]
  - `ubuntu 24.04`
  - `ubuntu 24.04`
 
@@ -533,11 +539,11 @@ The following updates are blocked by an existing closed PR. To recreate the PR, 
  - `testinfra ==6.0.0`
  - `rich ==15.0.0`
  - `pre-commit ==4.6.0`
- - `ruff ==0.15.18`
+ - `ruff ==0.15.18` → [Updates: `==0.15.19`]
  - `pip-licenses ==5.5.5`
  - `bandit ==1.9.4`
  - `pre-commit ==4.6.0`
- - `ruff ==0.15.18`
+ - `ruff ==0.15.18` → [Updates: `==0.15.19`]
  - `pip-licenses ==5.5.5`
  - `bandit ==1.9.4`
  - `pytest ==9.1.1`
