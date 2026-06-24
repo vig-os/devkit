@@ -6,65 +6,20 @@
 
 This guide explains how to develop, build, test, and release the vigOS development container image.
 
-## Requirements
+## Prerequisites
 
-| Component            | Version | Purpose |
-|----------------------|---------|---------|
-| **podman** | >=4.0 | Container runtime, compose, and image building |
-| **just** | >=1.40.0 | Command runner for task automation |
-| **git** | >=2.34 | Version control and pre-commit hooks |
-| **ssh** | latest | GitHub authentication and commit signing |
-| **gh** | latest | GitHub CLI for repository and PR/issue management |
-| **jq** | latest | JSON parsing for worktree commands and issue metadata |
-| **tmux** | latest | Session manager required by worktree-start and worktree-attach |
-| **claude** | latest | Claude Code CLI required by worktree-start/worktree-attach flows |
-| **npm** | latest | Node.js package manager (for DevContainer CLI) |
-| **uv** | >=0.8 | Python package and project manager |
-| **bats** | 1.13.0 | Bash Automated Testing System for shell script tests |
-| **devcontainer** | 0.81.1 | DevContainer CLI for testing devcontainer functionality |
-| **taplo** | latest | TOML formatter and linter used by pre-commit |
-| **parallel** | latest | Parallelizes BATS test execution for faster test runs |
+This repository is **Nix-first**: the toolchain is defined by the Nix flake
+(`flake.nix` — its `devTools` list is the single source of truth) and provisioned
+into your shell by [direnv](https://direnv.net/) or `nix develop`. You only need
+three things on the host:
 
-**Ubuntu/Debian:**
+| Prerequisite | Purpose |
+|--------------|---------|
+| **[Nix](https://nixos.org/download)** | Provides the entire dev toolchain (just, git, gh, uv, node, jq, tmux, ripgrep, claude, …) from the flake — no manual installs |
+| **[direnv](https://direnv.net/)** | Loads the flake dev-shell automatically on `cd` (recommended; `nix develop` works without it) |
+| **A working container runtime** (podman or Docker) | Building and testing the image needs a usable rootless runtime. The flake ships the `podman` CLI, but rootless operation depends on host setup — `subuid`/`subgid` + `uidmap` on Linux, or `podman machine` on macOS |
 
-```bash
-sudo apt update
-sudo apt install -y podman git openssh-client jq tmux nodejs npm parallel
-# just
-curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh | sudo bash -s -- --to /usr/local/bin
-
-# gh
-curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-sudo apt update && sudo apt install -y gh
-
-# taplo
-case "$(dpkg --print-architecture)" in
-  amd64) ARCH="x86_64" ;;
-  arm64) ARCH="aarch64" ;;
-  *)
-    echo "Unsupported architecture: $(dpkg --print-architecture)"
-    exit 1
-    ;;
-esac
-BASE_URL="https://github.com/tamasfe/taplo/releases/latest/download"
-BIN_FILE="taplo-linux-${ARCH}.gz"
-curl -fsSL "${BASE_URL}/${BIN_FILE}" -o "${BIN_FILE}"
-gunzip "${BIN_FILE}"
-sudo install -m 0755 "taplo-linux-${ARCH}" /usr/local/bin/taplo
-rm -f "taplo-linux-${ARCH}"
-
-```
-
-**macOS (Homebrew):**
-
-```bash
-brew install podman just git openssh gh jq tmux node taplo parallel
-```
-
-- For other Linux distributions, use your package manager (e.g., `dnf`, `yum`, `zypper`, `apk`) to install these dependencies.
-- Run `./scripts/init.sh` to check dependencies and get OS-specific installation commands.
-- Ensure Docker is installed if you plan to use it instead of Podman.
+Everything else comes from the flake. See the fast path below to get set up.
 
 ## Nix dev shell (fast path)
 
@@ -117,13 +72,18 @@ the two (or both) via the delivery mode: `--mode devcontainer|direnv|both`
 
 ## Setup
 
-Clone this repository and prepare it for container development:
+Clone this repository, enter the Nix dev shell, then bootstrap the project:
 
 ```bash
 git clone git@github.com:vig-os/devcontainer.git
 cd devcontainer
-just init           # Install dependencies and setup development environment
+direnv allow        # (recommended) loads the flake toolchain — or run `nix develop`
+just init           # Gate prerequisites and bootstrap the project (venv, git hooks, pre-commit)
 ```
+
+`just init` does not install tools — it verifies the Nix prerequisites are in
+place and then performs one-time project bootstrap (`uv sync`, git hooks, commit
+template, pre-commit). It is safe to re-run.
 
 ## Development Workflow
 
@@ -204,7 +164,7 @@ Available recipes:
     docs                                       # Generate documentation from templates
     help                                       # Show available commands
     info                                       # Show image information
-    init *args                                 # Install system dependencies and setup development environment
+    init *args                                 # Gate Nix prerequisites and bootstrap the project (venv, git hooks, pre-commit)
     login                                      # Test login to GHCR
     sync-workspace                             # Sync workspace templates from repo root to assets/workspace/
 

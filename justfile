@@ -56,7 +56,7 @@ info:
     echo "Image builder: Nix flake (.#devcontainerImage)"
     echo "Native arch: $NATIVE_ARCH"
 
-# Install system dependencies and setup development environment
+# Gate Nix prerequisites and bootstrap the project (venv, git hooks, pre-commit)
 [group('info')]
 init *args:
     ./scripts/init.sh {{ args }}

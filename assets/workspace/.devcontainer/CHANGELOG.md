@@ -44,6 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Make `just init` Nix-first** ([#671](https://github.com/vig-os/devcontainer/issues/671))
+  - Rewrote `scripts/init.sh` from a multi-OS package installer into a Nix-first gate + bootstrapper: it requires Nix (and direnv, unless `--no-direnv`) and the dev-shell toolchain, then performs one-time, idempotent project bootstrap (`uv sync --frozen --all-extras`, git hooks path, commit-message template, `pre-commit install-hooks`) with advisory `podman info` / `gh auth status` checks. It no longer installs any tool — the toolchain is the flake's `devTools` — and short-circuits inside the built image (`IN_CONTAINER=true`)
+  - Repointed `docs/generate.py` and the `CONTRIBUTE.md.j2` template: the per-OS "Requirements" table is now a "Prerequisites: Nix + direnv + a working host container runtime" section, with the toolchain sourced from `flake.nix`
+
 - **Nix image passes the full testinfra suite (toolchain parity)** ([#666](https://github.com/vig-os/devcontainer/issues/666))
   - Packaged `vig-utils` (and `pip-licenses` from its PyPI wheel, as it is not in nixpkgs) as Nix python packages exposed through a `python314.withPackages` env, and added `ruff`, `bandit`, `cargo-binstall`, `just-lsp`, and `typstyle` from nixpkgs — the Nix image now carries the project Python toolchain hermetically, replacing the Debian image's build-time `uv pip install`
   - Relaxed `requires-python` from `==3.14.6` to `>=3.14,<3.15` across the root, `vig-utils`, and workspace-template pyprojects: `flake.lock` is the reproducibility anchor now, so the exact pin was redundant and unsatisfiable against nixpkgs (3.14.4)
@@ -77,6 +81,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Deprecated
 
 ### Removed
+
+- **Retire `scripts/requirements.yaml`** ([#671](https://github.com/vig-os/devcontainer/issues/671))
+  - Deleted the per-OS dependency manifest and its consumers (the `load_requirements`/`format_requirements_table`/`format_install_commands` helpers in `docs/generate.py` and their tests). `flake.nix` `devTools` is now the single source of truth for the toolchain, ending the dual-SSoT drift
 
 - **Decommission the Debian build path** ([#642](https://github.com/vig-os/devcontainer/issues/642))
   - Deleted the root `Containerfile`, `scripts/prepare-build.sh`, `scripts/build.sh`, and the `.hadolint.yaml` config (plus its synced workspace copy); the image now builds Nix-only

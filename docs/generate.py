@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Generate documentation from narrative sources, requirements.yaml, skills, and just help output.
+"""Generate documentation from narrative sources, skills, and just help output.
 
 This script implements "docs as code" by generating documentation from:
 - Narrative markdown files (docs/narrative/)
-- Requirements definitions (scripts/requirements.yaml)
 - Agent skill definitions (.claude/skills/*/SKILL.md frontmatter)
 - Just recipe help output (just --list)
 
-Single source of truth principle: All dependency information comes from requirements.yaml,
-all skill metadata comes from SKILL.md frontmatter.
+Single source of truth principle: the toolchain is defined by the Nix flake
+(`flake.nix` devTools); all skill metadata comes from SKILL.md frontmatter.
 """
 
 import re
@@ -60,31 +59,6 @@ def get_release_date_from_changelog() -> str:
                     if match:
                         return match.group()
     return datetime.now().isoformat(timespec="seconds")
-
-
-def load_requirements() -> dict:
-    """Load requirements from requirements.yaml.
-
-    Returns a dictionary with:
-    - dependencies: List of required dependencies
-    - optional: List of optional dependencies
-    """
-    requirements_file = Path(__file__).parent.parent / "scripts" / "requirements.yaml"
-
-    if not requirements_file.exists():
-        print(
-            f"Warning: Requirements file not found: {requirements_file}",
-            file=sys.stderr,
-        )
-        return {"dependencies": [], "optional": [], "auto_install": []}
-
-    with requirements_file.open() as f:
-        data = yaml.safe_load(f)
-
-    return {
-        "dependencies": data.get("dependencies", []),
-        "optional": data.get("optional", []),
-    }
 
 
 SKILL_GROUP_ORDER = [
@@ -187,75 +161,10 @@ def group_skills(skills: list[dict]) -> list[dict]:
     return [g for g in groups if g["skills"]]
 
 
-def format_requirements_table(requirements: dict) -> str:
-    """Generate markdown table from requirements data."""
-    lines = [
-        "| Component            | Version | Purpose |",
-        "|----------------------|---------|---------|",
-    ]
-
-    # Required dependencies (manual install)
-    for dep in requirements["dependencies"]:
-        name = dep.get("name", "unknown")
-        version = dep.get("version", "latest")
-        purpose = dep.get("purpose", "")
-        lines.append(f"| **{name}** | {version} | {purpose} |")
-
-    return "\n".join(lines)
-
-
-def format_install_commands(requirements: dict, os_type: str) -> str:
-    """Generate installation command for a specific OS."""
-    deps = requirements["dependencies"]
-    install_field = {
-        "macos": "macos",
-        "debian": "debian",
-        "fedora": "fedora",
-    }.get(os_type, "debian")
-
-    # Collect package names for package manager installs
-    brew_packages = []
-    apt_packages = []
-    other_commands = []
-
-    for dep in deps:
-        install_info = dep.get("install", {})
-        cmd = install_info.get(install_field, "")
-
-        if not cmd:
-            continue
-
-        # Parse common package manager patterns
-        if os_type == "macos" and cmd.startswith("brew install "):
-            brew_packages.append(cmd.replace("brew install ", "").strip())
-        elif os_type == "debian" and cmd.startswith("sudo apt install -y "):
-            apt_packages.append(cmd.replace("sudo apt install -y ", "").strip())
-        elif "|" in cmd or "\n" in cmd:
-            # Multi-line or piped commands - keep separate
-            other_commands.append(f"# {dep.get('name', 'unknown')}\n{cmd}")
-        else:
-            other_commands.append(cmd)
-
-    result = []
-
-    if os_type == "macos" and brew_packages:
-        result.append(f"brew install {' '.join(brew_packages)}")
-    elif os_type == "debian" and apt_packages:
-        result.append("sudo apt update")
-        result.append(f"sudo apt install -y {' '.join(apt_packages)}")
-
-    result.extend(other_commands)
-
-    return "\n".join(result)
-
-
 def generate_docs() -> bool:
     """Generate documentation from templates."""
     docs_dir = Path(__file__).parent
     root_dir = docs_dir.parent
-
-    # Load requirements
-    requirements = load_requirements()
 
     # Set up Jinja2 environment
     env = jinja2.Environment(
@@ -289,11 +198,6 @@ def generate_docs() -> bool:
         "version": get_version_from_changelog(),
         "release_date": get_release_date_from_changelog(),
         "release_url": f"https://github.com/vig-os/devcontainer/releases/tag/{get_version_from_changelog()}",
-        # Requirements data
-        "requirements": requirements,
-        "requirements_table": format_requirements_table(requirements),
-        "install_macos": format_install_commands(requirements, "macos"),
-        "install_debian": format_install_commands(requirements, "debian"),
         # Skill data
         "skill_groups": group_skills(skills),
     }

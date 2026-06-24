@@ -142,7 +142,7 @@ Available recipes:
     docs                                       # Generate documentation from templates
     help                                       # Show available commands
     info                                       # Show image information
-    init *args                                 # Install system dependencies and setup development environment
+    init *args                                 # Gate Nix prerequisites and bootstrap the project (venv, git hooks, pre-commit)
     login                                      # Test login to GHCR
     sync-workspace                             # Sync workspace templates from repo root to assets/workspace/
 
