@@ -30,12 +30,12 @@ help:
 # Run all linters
 [group('quality')]
 lint:
-    uv run ruff check .
+    ruff check .
 
 # Format code
 [group('quality')]
 format:
-    uv run ruff format .
+    ruff format .
 
 # Run pre-commit hooks on all files
 [group('quality')]

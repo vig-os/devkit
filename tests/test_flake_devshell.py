@@ -255,6 +255,25 @@ def test_devshell_provides_bats(dev_shell_tools: list[str]) -> None:
     )
 
 
+def test_devshell_provides_precommit_binary_hooks(
+    dev_shell_tools: list[str],
+) -> None:
+    """The flake must provide ruff and typos so their pre-commit hooks run (#697).
+
+    These hooks were sourced from upstream manylinux wheels
+    (``astral-sh/ruff-pre-commit``, ``crate-ci/typos``) that a NixOS host cannot
+    execute (no FHS ``ld-linux``), forcing ``--no-verify`` on every commit. They
+    are now ``language: system`` hooks that resolve their tool from the flake
+    dev-shell, so ``ruff`` and ``typos`` must be in the ``devTools`` SSoT.
+    """
+    required = {"ruff", "typos"}
+    missing = required - set(dev_shell_tools)
+    assert not missing, (
+        "devTools must provide the binary pre-commit tools so their "
+        f"language: system hooks resolve from the flake: missing {sorted(missing)}"
+    )
+
+
 def test_devshell_bats_lib_path_resolves_helpers(dev_shell_env: dict[str, str]) -> None:
     """BATS_LIB_PATH in the dev-shell must expose the three helper libraries.
 
