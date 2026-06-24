@@ -31,6 +31,7 @@ from transforms import (
     RemoveLines,
     RemovePrecommitHooks,
     ReplaceBlock,
+    ReplacePrecommitRepoBlock,
     Sed,
     StripTrailingBlankLines,
     Transform,
@@ -71,6 +72,7 @@ _TRANSFORM_REGISTRY: dict[str, type] = {
     "RemoveBlock": RemoveBlock,
     "RemovePrecommitHooks": RemovePrecommitHooks,
     "ReplaceBlock": ReplaceBlock,
+    "ReplacePrecommitRepoBlock": ReplacePrecommitRepoBlock,
 }
 
 

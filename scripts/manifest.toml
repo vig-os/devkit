@@ -100,6 +100,28 @@ transforms = [
 [[entries]]
 src = ".pre-commit-config.yaml"
 transforms = [
+  # The repo runs pre-commit inside the Nix dev-shell, so ruff/typos are
+  # repo-local language:system hooks resolved from the flake. A downstream
+  # workspace commits inside the published image without that toolchain on PATH,
+  # so the scaffolded config keeps self-contained upstream hooks instead. #697.
+  { type = "ReplacePrecommitRepoBlock", hook_id = "ruff", replacement = """
+  # Python Linting and Formatting (Ruff)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: aad66557af3b56ba6d4d69cd1b6cba87cef50cbb  # v0.14.3
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+""" },
+  { type = "ReplacePrecommitRepoBlock", hook_id = "typos", replacement = """
+  # Typo Linting
+  - repo: https://github.com/crate-ci/typos
+    rev: 07d900b8fa1097806b8adb6391b0d3e0ac2fdea7  # v1.39.0
+    hooks:
+      - id: typos
+
+""" },
   { type = "RemovePrecommitHooks", hook_ids = [
     "generate-docs",
     "sync-manifest",

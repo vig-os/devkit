@@ -77,3 +77,75 @@ class TestRemovePrecommitHooks:
         assert "keep-me" in result
         assert "# Section A" not in result
         assert "remove-me" not in result
+
+
+class TestReplacePrecommitRepoBlock:
+    """Tests for ReplacePrecommitRepoBlock transform (#697 scaffold decoupling)."""
+
+    def test_replaces_local_block_and_preserves_next_section(self, tmp_path):
+        """A repo-local `language: system` block is swapped for an upstream block.
+
+        The scaffolded config must keep self-contained (pre-commit-managed) hooks
+        so a downstream workspace's pre-commit runs without the flake toolchain on
+        PATH, while the repo itself keeps `language: system`. The following section
+        (and the rest of the file) must be preserved intact.
+        """
+        transforms = _load_transforms()
+        f = tmp_path / ".pre-commit-config.yaml"
+        f.write_text(
+            "repos:\n"
+            "  # Python Linting and Formatting (Ruff, sourced from the flake)\n"
+            "  - repo: local\n"
+            "    hooks:\n"
+            "      - id: ruff\n"
+            "        entry: ruff check --fix\n"
+            "        language: system\n"
+            "        types: [python]\n"
+            "      - id: ruff-format\n"
+            "        entry: ruff format\n"
+            "        language: system\n"
+            "        types: [python]\n"
+            "\n"
+            "  # YAML Linting\n"
+            "  - repo: https://example.com/yaml\n"
+            "    rev: x\n"
+            "    hooks:\n"
+            "      - id: yamllint\n"
+        )
+
+        transforms.ReplacePrecommitRepoBlock(
+            hook_id="ruff",
+            replacement=(
+                "  # Python Linting and Formatting (Ruff)\n"
+                "  - repo: https://github.com/astral-sh/ruff-pre-commit\n"
+                "    rev: deadbeef  # v0.14.3\n"
+                "    hooks:\n"
+                "      - id: ruff\n"
+                "        args: [--fix]\n"
+                "      - id: ruff-format\n"
+                "\n"
+            ),
+        ).apply(f)
+
+        result = f.read_text()
+        # local language:system block is gone
+        assert "repo: local" not in result
+        assert "language: system" not in result
+        # upstream block restored (both ruff and ruff-format)
+        assert "astral-sh/ruff-pre-commit" in result
+        assert "args: [--fix]" in result
+        assert "id: ruff-format" in result
+        # the following section is preserved intact
+        assert "# YAML Linting" in result
+        assert "id: yamllint" in result
+
+    def test_noop_when_hook_absent(self, tmp_path):
+        """Absent hook id leaves the file unchanged."""
+        transforms = _load_transforms()
+        f = tmp_path / ".pre-commit-config.yaml"
+        original = "repos:\n  - repo: local\n    hooks:\n      - id: other\n"
+        f.write_text(original)
+
+        transforms.ReplacePrecommitRepoBlock(hook_id="ruff", replacement="X\n").apply(f)
+
+        assert f.read_text() == original

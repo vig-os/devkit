@@ -168,6 +168,49 @@ class RemovePrecommitHooks:
 
 
 @dataclass
+class ReplacePrecommitRepoBlock:
+    """Replace the ``- repo:`` block defining ``hook_id`` (with the section
+    comment directly above it) with ``replacement``.
+
+    Used to decouple the scaffolded config from the repo's own: the repo runs
+    pre-commit inside the Nix dev-shell, so ``ruff``/``typos`` are ``repo: local``
+    / ``language: system`` hooks resolved from the flake. A downstream workspace
+    commits inside the published image without that toolchain on PATH, so its
+    scaffolded config must keep self-contained (pre-commit-managed) upstream
+    hooks instead. Refs #697.
+    """
+
+    hook_id: str
+    replacement: str
+
+    def apply(self, file_path: Path) -> None:
+        lines = file_path.read_text().splitlines(keepends=True)
+        hook_idx = next(
+            (
+                i
+                for i, ln in enumerate(lines)
+                if re.match(rf"^      - id: {re.escape(self.hook_id)}\s*$", ln)
+            ),
+            None,
+        )
+        if hook_idx is None:
+            return
+        # Walk back to the `- repo:` line, then over its leading comment lines.
+        start = hook_idx
+        while start > 0 and not re.match(r"^  - repo:", lines[start]):
+            start -= 1
+        while start > 0 and lines[start - 1].lstrip().startswith("#"):
+            start -= 1
+        # End (exclusive) at the next section: a top-level comment or repo block.
+        # The trailing blank separator is inside [start:end] and is replaced too,
+        # so `replacement` should carry its own trailing blank line.
+        end = hook_idx + 1
+        while end < len(lines) and not re.match(r"^  (- repo:|#)", lines[end]):
+            end += 1
+        file_path.write_text("".join(lines[:start] + [self.replacement] + lines[end:]))
+
+
+@dataclass
 class ReplaceBlock:
     """Replace a block of lines (start through end, inclusive) with new content.
 
