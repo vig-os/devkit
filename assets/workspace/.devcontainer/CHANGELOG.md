@@ -104,6 +104,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **BATS suite no longer fails locally on the Nix toolchain (helper libraries unresolved)** ([#695](https://github.com/vig-os/devcontainer/issues/695))
+  - `tests/bats/test_helper.bash` resolved the BATS helper libraries (`bats-support`/`-assert`/`-file`) from `node_modules` (npm) or the now-removed Debian `/usr/lib` path; on the Nix toolchain neither exists locally, so every `.bats` file errored in `setup()` (`Could not find library 'bats-support'`) and all 246 tests failed
+  - Added `bats` wrapped with its helper libraries to the flake `devTools` SSoT and exported `BATS_LIB_PATH` in the dev-shell and image, so `bats_load_library` resolves the helpers from the Nix store; simplified `test_helper.bash` to that single path, switched `just test-bats` to the flake-provided `bats`, and removed the now-unused `bats*` npm dependencies. CI provisions BATS from the flake under `provision-via-flake` (the ad-hoc `bats-action` steps now run only for non-flake callers)
 - **Host-executed scripts no longer fail on NixOS (non-portable `#!/bin/bash` shebang)** ([#687](https://github.com/vig-os/devcontainer/issues/687))
   - `install.sh`, `assets/workspace/.devcontainer/scripts/initialize.sh`, and `assets/workspace/.devcontainer/scripts/version-check.sh` hardcoded `#!/bin/bash`, which has no `/bin/bash` on NixOS and similar hosts, so they failed to execute (and `just test` aborted). Switched all three to the portable `#!/usr/bin/env bash` (already used by `scripts/init.sh`), which resolves `bash` via `PATH`
 - **`allowed-signers` integration test no longer rejects valid ECDSA / security-key SSH keys** ([#688](https://github.com/vig-os/devcontainer/issues/688))

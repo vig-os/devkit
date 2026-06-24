@@ -157,13 +157,15 @@ test-vig-utils:
 [group('test')]
 test-bats:
     #!/usr/bin/env bash
+    # bats and its helper libraries come from the flake (the toolchain SSoT);
+    # the wrapper exports BATS_LIB_PATH so test_helper.bash resolves them. #695.
     # Use GNU parallel if available for faster test execution
     if command -v parallel >/dev/null 2>&1; then
         echo "Running BATS tests in parallel..."
-        find tests/bats -name '*.bats' -print0 | parallel -0 -j+0 npx bats {}
+        find tests/bats -name '*.bats' -print0 | parallel -0 -j+0 bats {}
     else
         echo "Running BATS tests sequentially (install 'parallel' for faster execution)..."
-        npx bats tests/bats/
+        bats tests/bats/
     fi
 
 # Validate tracked Renovate configs with renovate-config-validator --strict

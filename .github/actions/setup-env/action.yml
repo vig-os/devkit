@@ -10,8 +10,8 @@
 # - When 'true', the toolchain comes from the Nix flake (the SSoT) via
 #   `nix develop` instead of the ad-hoc installs below: Nix + Cachix are
 #   installed, the dev-shell is built (a warm vig-os Cachix pull), and its
-#   tool bin dirs are prepended to PATH. Python/uv, just, and taplo
-#   ad-hoc steps are skipped; podman, Node.js, BATS, and the devcontainer CLI
+#   tool bin dirs are prepended to PATH. Python/uv, just, taplo, and BATS
+#   ad-hoc steps are skipped; podman, Node.js, and the devcontainer CLI
 #   keep their dedicated steps (not flake-provided or host-integration tools).
 #
 # IMPORTANT:
@@ -108,11 +108,11 @@ inputs:
       ad-hoc installs. When 'true', installs Nix + Cachix, builds the flake
       dev-shell, and prepends its tools to PATH so every subsequent step runs as
       if inside `nix develop`. Tools provided by the flake (Python/uv, just,
-      taplo, Node.js) skip their ad-hoc install steps. podman is kept
+      taplo, Node.js, BATS) skip their ad-hoc install steps. podman is kept
       on the apt path even under flake provisioning because rootless podman on
       GitHub runners needs the host's setuid newuidmap/newgidmap and container
-      config; BATS and the devcontainer CLI are not in the flake and keep their
-      dedicated steps. Refs #632.
+      config; the devcontainer CLI is not in the flake and keeps its dedicated
+      step. Refs #632, #695.
     required: false
     default: 'false'
   cachix-cache:
@@ -370,11 +370,13 @@ runs:
         echo "devcontainer $(devcontainer --version)"
 
     # ── BATS (shell testing) ─────────────────────────────────────────
-    # Installs BATS core and helper libraries via the official action.
-    # Versions match package.json to keep local and CI environments in sync.
+    # Under flake provisioning BATS comes from the flake (the SSoT): the
+    # bats.withLibraries wrapper is on PATH and exports BATS_LIB_PATH, so these
+    # ad-hoc steps are skipped (mirrors just/taplo). The official action remains
+    # for non-flake callers, installing BATS core + helper libraries. Refs #695.
     - name: Setup BATS and libraries
       id: bats
-      if: inputs.install-bats == 'true'
+      if: inputs.provision-via-flake != 'true' && inputs.install-bats == 'true'
       uses: bats-core/bats-action@77d6fb60505b4d0d1d73e48bd035b55074bbfb43  # v4.0.0
       with:
         support-version: '0.3.0'
@@ -383,7 +385,7 @@ runs:
         detik-install: 'false'
 
     - name: Export BATS_LIB_PATH
-      if: inputs.install-bats == 'true'
+      if: inputs.provision-via-flake != 'true' && inputs.install-bats == 'true'
       shell: bash
       run: |
         # The bats-core/bats-action installs libraries to standard system paths
