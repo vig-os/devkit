@@ -16,6 +16,25 @@ When running from inside a devcontainer, the test infrastructure automatically:
 - Translates container paths to host paths using `HOST_WORKSPACE_PATH`
 - Handles all path translation transparently
 
+## Image under test
+
+Integration and image tests run against a single image, selected by the
+`TEST_CONTAINER_TAG` environment variable (default `dev`, the tag `just build`
+loads the freshly-built Nix image under). The `just test`/`just test-integration`
+recipes set it for you.
+
+This matters for the `devcontainer up` tests: the scaffolded
+`docker-compose.yml` pins the runtime image as
+`ghcr.io/vig-os/devcontainer:${DEVCONTAINER_VERSION:-latest}`, and
+`initialize.sh` writes the scaffolded `.vig-os` version (a *published* release)
+into `.devcontainer/.env`. To keep the suite validating the image under test
+rather than a stale published image, the `devcontainer_up` and
+`devcontainer_with_sidecar` fixtures export `DEVCONTAINER_VERSION=TEST_CONTAINER_TAG`.
+Compose resolves shell environment variables ahead of `.env`, so the
+freshly-built tag wins; `devcontainer exec` calls inherit the same environment.
+To point the suite at a different build, set `TEST_CONTAINER_TAG` to that tag
+(the image must already be loaded into podman). Refs #701.
+
 ## Prerequisites
 
 ### From Host
