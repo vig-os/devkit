@@ -248,7 +248,7 @@ clean version="dev":
 [group('build')]
 clean-test-containers:
     #!/usr/bin/env bash
-    echo "Cleaning Cleaning up lingering test containers..."
+    echo "Cleaning up lingering test containers..."
     FMT=$(printf '\x7b\x7b.ID\x7d\x7d')
     DEVCONTAINERS=$(podman ps -a --filter "name=workspace-devcontainer" --format "$FMT" 2>/dev/null)
     SIDECARS=$(podman ps -a --filter "name=test-sidecar" --format "$FMT" 2>/dev/null)
