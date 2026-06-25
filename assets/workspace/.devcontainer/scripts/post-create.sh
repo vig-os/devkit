@@ -22,9 +22,6 @@ if [ ! -d "$PROJECT_ROOT" ]; then
     exit 1
 fi
 
-# Set venv prompt
-sed -i 's/template-project/{{SHORT_NAME}}/g' /root/assets/workspace/.venv/bin/activate
-
 # One-time setup: git repo, config, hooks, gh auth
 "$SCRIPT_DIR/init-git.sh"
 "$SCRIPT_DIR/setup-git-conf.sh"
@@ -34,6 +31,18 @@ sed -i 's/template-project/{{SHORT_NAME}}/g' /root/assets/workspace/.venv/bin/ac
 # Sync dependencies (fast if nothing changed from pre-built venv)
 echo "Syncing dependencies..."
 just --justfile "$PROJECT_ROOT/justfile" --working-directory "$PROJECT_ROOT" sync
+
+# Set the venv prompt to the project name. Runs after `just sync` because the
+# Nix image populates /root/assets/workspace/.venv at this stage rather than
+# baking it at image-build time (the Debian image baked a venv whose prompt was
+# the literal "template-project"). `uv` writes the prompt as the basename of the
+# venv's parent dir, so rewrite the VIRTUAL_ENV_PROMPT assignment directly
+# instead of substituting a fixed string. Guarded so a missing activate script
+# never aborts post-create.
+venv_activate="/root/assets/workspace/.venv/bin/activate"
+if [ -f "$venv_activate" ]; then
+    sed -i -E 's/^([[:space:]]*VIRTUAL_ENV_PROMPT=)"[^"]*"/\1"{{SHORT_NAME}}"/' "$venv_activate"
+fi
 
 # User specific setup
 # Add your custom setup commands here to install any dependencies or tools needed for your project
