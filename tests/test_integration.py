@@ -3426,14 +3426,18 @@ class TestVersionCheckJustIntegration:
             )
 
     def test_workspace_justfile_imports_justfile_devc(self, initialized_workspace):
-        """Test that workspace justfile imports justfile.devc."""
+        """Test that workspace justfile optionally imports justfile.devc.
+
+        The import is optional (``import?``) so a ``direnv``-mode workspace, which
+        prunes ``.devcontainer/``, still loads `just` (#641).
+        """
         workspace_justfile = initialized_workspace / "justfile"
 
         if not workspace_justfile.exists():
             pytest.skip("workspace justfile not found")
 
         content = workspace_justfile.read_text()
-        assert "import '.devcontainer/justfile.devc'" in content
+        assert "import? '.devcontainer/justfile.devc'" in content
         assert "import '.devcontainer/justfile.base'" not in content
 
     def test_just_check_mute_functionality(self, initialized_workspace):
