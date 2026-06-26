@@ -9,6 +9,7 @@ setup() {
     load test_helper
     WT_MAIN="${PROJECT_ROOT}/justfile.worktree"
     WT_TEMPLATE="${PROJECT_ROOT}/assets/workspace/.devcontainer/justfile.worktree"
+    DBS="${PROJECT_ROOT}/packages/vig-utils/src/vig_utils/shell/derive-branch-summary.sh"
 }
 
 @test "justfile.worktree has no cursor-agent invocation" {
@@ -33,5 +34,30 @@ setup() {
 
 @test "justfile.worktree checks for the claude binary as a prerequisite" {
     run grep -nE 'command -v claude' "$WT_MAIN"
+    assert_success
+}
+
+# The launch command was migrated, but the worktree recipes also *read* agent
+# config (model tiers, branch-naming rule). Those reads must point at the
+# .claude/ SSoT, not the removed .cursor/ tree (#627).
+@test "justfile.worktree reads agent config from .claude, not .cursor" {
+    run grep -nE '\.cursor/(agent-models|rules)' "$WT_MAIN"
+    assert_failure
+}
+
+@test "template justfile.worktree reads agent config from .claude, not .cursor" {
+    run grep -nE '\.cursor/(agent-models|rules)' "$WT_TEMPLATE"
+    assert_failure
+}
+
+# derive-branch-summary is invoked by worktree-start; it must drive the claude
+# CLI, not the removed cursor-agent binary (#627).
+@test "derive-branch-summary drives the claude CLI, not cursor-agent" {
+    run grep -nE 'cursor-agent|agent --print|agent chat' "$DBS"
+    assert_failure
+}
+
+@test "derive-branch-summary invokes the claude binary in print mode" {
+    run grep -nE 'claude (--print|-p)' "$DBS"
     assert_success
 }

@@ -57,6 +57,27 @@ def test_no_tracked_file_references_cursor_skills() -> None:
     assert not offenders, f"Files still reference .cursor/skills/: {offenders}"
 
 
+def test_no_tracked_file_reads_cursor_agent_config() -> None:
+    """No tracked file (outside the workspace template) reads a removed .cursor/ config path.
+
+    The .cursor/ → .claude/ migration moved agent-models.toml and the
+    branch-naming rule, but callers that *read* those paths (e.g. the worktree
+    recipes) must follow them to the .claude/ SSoT (Refs: #627).
+    """
+    offenders: list[str] = []
+    for rel in _tracked_files():
+        if rel.startswith(_ARCHIVAL_PREFIXES) or rel in _ARCHIVAL_FILES:
+            continue
+        path = REPO_ROOT / rel
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError, FileNotFoundError:
+            continue
+        if ".cursor/agent-models.toml" in text or ".cursor/rules/" in text:
+            offenders.append(rel)
+    assert not offenders, f"Files still read removed .cursor/ config paths: {offenders}"
+
+
 def test_root_cursor_dir_deleted() -> None:
     """The root .cursor/ directory is removed; .claude/ is the SSoT."""
     assert not (REPO_ROOT / ".cursor").exists(), "root .cursor/ should be deleted"
