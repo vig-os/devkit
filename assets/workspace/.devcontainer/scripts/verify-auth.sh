@@ -10,7 +10,7 @@ DEVCONTAINER_DIR="/workspace/{{SHORT_NAME}}/.devcontainer"
 SSH_PUBKEY="$DEVCONTAINER_DIR/.conf/id_ed25519_github.pub"
 
 # ── SSH agent verification ─────────────────────────────────────────────────────
-# VS Code/Cursor forwards the host SSH agent into the container.
+# VS Code forwards the host SSH agent into the container.
 # We verify the signing key is accessible so git commit signing works.
 
 verify_ssh_agent() {

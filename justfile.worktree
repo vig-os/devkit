@@ -11,10 +11,8 @@ alias wt-list := worktree-list
 alias wt-attach := worktree-attach
 alias wt-stop := worktree-stop
 alias wt-clean := worktree-clean
-# NOTE: Cursor's native worktree UI does NOT work inside devcontainers (Feb 2026).
-# These recipes provide a CLI-based alternative using tmux + the claude CLI.
-# Native worktree support (.cursor/worktrees.json) works on macOS/Linux local only.
-# Tracked: https://forum.cursor.com/t/cursor-parallel-agents-in-wsl-devcontainers-misresolve-worktree-paths-and-context/145711
+# These recipes provide CLI-based parallel-agent worktrees using tmux + the
+# claude CLI, usable inside devcontainers and over SSH.
 # ===============================================================================
 
 # Derive worktree base directory: ../<repo>-worktrees/
