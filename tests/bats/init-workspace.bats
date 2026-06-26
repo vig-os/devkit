@@ -154,6 +154,87 @@ prune_mode() {
     assert_output --partial 'rm -rf "$WORKSPACE_DIR/.devcontainer"'
 }
 
+# ── delivery-mode scaffold, end to end (#641) ─────────────────────────────────
+# The tests above assert the prune in isolation; these run init-workspace.sh
+# itself (arg-parse → rsync → prune → placeholder substitution) against a temp
+# workspace and assert the real scaffold. TEMPLATE_DIR/WORKSPACE_DIR are
+# overridden to host paths and `just` is stubbed so the final `just sync` step
+# is a fast no-op rather than a real `uv sync`.
+
+# Run the real script in delivery mode $1, scaffolding into the empty dir $2.
+_scaffold() {
+    local mode="$1" ws="$2"
+    local stub="$BATS_TEST_TMPDIR/stub-bin"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+    env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode "$mode"
+}
+
+@test "init-workspace --mode=devcontainer scaffolds .devcontainer only (#641)" {
+    ws="$BATS_TEST_TMPDIR/e2e-devcontainer"
+    mkdir -p "$ws"
+    run _scaffold devcontainer "$ws"
+    assert_success
+    run test -d "$ws/.devcontainer"
+    assert_success
+    run test -e "$ws/flake.nix"
+    assert_failure
+    run test -e "$ws/.envrc"
+    assert_failure
+}
+
+@test "init-workspace --mode=direnv scaffolds flake.nix + .envrc only (#641)" {
+    ws="$BATS_TEST_TMPDIR/e2e-direnv"
+    mkdir -p "$ws"
+    run _scaffold direnv "$ws"
+    assert_success
+    run test -f "$ws/flake.nix"
+    assert_success
+    run test -f "$ws/.envrc"
+    assert_success
+    run test -e "$ws/.devcontainer"
+    assert_failure
+}
+
+@test "init-workspace --mode=both scaffolds everything (#641)" {
+    ws="$BATS_TEST_TMPDIR/e2e-both"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run test -d "$ws/.devcontainer"
+    assert_success
+    run test -f "$ws/flake.nix"
+    assert_success
+    run test -f "$ws/.envrc"
+    assert_success
+}
+
+@test "init-workspace --mode=direnv yields a justfile that still loads (#641)" {
+    # Regression guard: direnv mode prunes .devcontainer/, so the scaffolded
+    # justfile's .devcontainer imports must be optional or `just` fails to parse.
+    real_just="$(command -v just)"
+    ws="$BATS_TEST_TMPDIR/e2e-direnv-just"
+    mkdir -p "$ws"
+    run _scaffold direnv "$ws"
+    assert_success
+    run bash -c "cd '$ws' && '$real_just' --list"
+    assert_success
+}
+
+@test "init-workspace rejects an invalid --mode (#641)" {
+    ws="$BATS_TEST_TMPDIR/e2e-bad"
+    mkdir -p "$ws"
+    run _scaffold bogus "$ws"
+    assert_failure
+    assert_output --partial "Invalid --mode"
+}
+
 # ── script structure ──────────────────────────────────────────────────────────
 
 @test "init-workspace.sh is executable" {
