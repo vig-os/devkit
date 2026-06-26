@@ -20,8 +20,10 @@
 
 set -euo pipefail
 
-TEMPLATE_DIR="/root/assets/workspace"
-WORKSPACE_DIR="/workspace"
+# Defaults match the in-image layout; overridable so the scaffold can be
+# exercised end-to-end from tests against temporary directories.
+TEMPLATE_DIR="${TEMPLATE_DIR:-/root/assets/workspace}"
+WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 FORCE=false
 NO_PROMPTS=false
 SMOKE_TEST=false
