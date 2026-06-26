@@ -50,10 +50,10 @@ This repository follows these security practices:
 
 - All GitHub Actions are pinned to commit SHAs (not mutable tags)
 - Pre-commit hook repos are pinned to commit SHAs
-- Docker base image is pinned to digest in the Containerfile
+- The container image is built reproducibly with Nix (`dockerTools.buildLayeredImage`) from a pinned `nixpkgs` revision in `flake.lock`
 - Dependabot monitors dependencies for known vulnerabilities
 - Dependency review blocks PRs that introduce vulnerable dependencies
-- Container images are scanned for vulnerabilities (Trivy) in CI and release
+- The container image is scanned nightly with `vulnix` (Nix store closure), plus a CycloneDX SBOM and a Trivy SBOM-mode scan (see `docs/CONTAINER_SECURITY.md`)
 - SBOM (SPDX) is generated and attested for every release
 - Released container images are signed with Sigstore cosign (keyless)
 - SLSA build provenance attestations are attached to released images
@@ -71,7 +71,7 @@ The following Scorecard checks are not applicable to a devcontainer image reposi
 - **FuzzingID** (medium): no fuzzing targets in container build tooling or CI scripts
 - **CIIBestPracticesID** (low): not a CII Best Practices badge candidate; posture is tracked via Scorecard and CodeQL instead
 
-**VulnerabilitiesID** (high) is a roll-up of container and dependency findings remediated separately (see `.trivyignore` and dependency review).
+**VulnerabilitiesID** (high) is a roll-up of container and dependency findings remediated separately (see `.vulnixignore`, `.trivyignore`, and dependency review).
 
 ## Compliance
 
@@ -81,40 +81,37 @@ and risk management requirements of these standards.
 
 ## Known Vulnerability Exceptions
 
-This project accepts and documents known vulnerabilities in test-only dependencies
-through expiration-enforced exception registers (`.github/dependency-review-allow.txt`
-and `.trivyignore`). These exceptions follow an IEC 62304 medtech-compliant risk
-assessment model. Expired entries fail CI via the `check-expirations` utility
-(pre-commit hook and CI workflows).
+This project accepts and documents known vulnerabilities through
+expiration-enforced exception registers (`.vulnixignore`, `.trivyignore`, and
+`.github/dependency-review-allow.txt`). These exceptions follow an IEC 62304
+medtech-compliant risk assessment model. Expired entries fail CI via the
+`check-expirations` utility (pre-commit hook and CI workflows).
 
-### Container Image LOW CVEs (Trivy Exceptions)
+### Container Image CVEs (`vulnix` / Trivy Exceptions)
 
-After the next-release image refresh (Debian 12.14 base, buckets B–D remediated),
-78 unfixed LOW CVEs in Debian OS packages remain with no available patch. These
-are documented in `.trivyignore` with shared risk assessment and expiration
-2026-12-01. They do not gate CI or release (only fixable HIGH/CRITICAL do).
-The GitHub Security tab LOW count drops once `:latest` is refreshed to that
-image. Tracking: #566, #512, #521.
+The image is Nix-built (`dockerTools.buildLayeredImage`) from a pinned `nixpkgs`
+revision, so its CVE surface is the package closure of that revision. The nightly
+`vulnix` scan (`.github/workflows/security-scan.yml`) gates HIGH/CRITICAL findings
+(CVSS v3 ≥ 7.0) against the `.vulnixignore` register, and a CycloneDX SBOM + Trivy
+SBOM-mode scan provides an independent second view. The primary remediation lever
+is advancing the pinned `nixpkgs` revision (Renovate `nix` manager + weekly
+`lockFileMaintenance`). Findings that are not exploitable in the devcontainer
+context — or that `vulnix` reports despite a `nixpkgs` backport — are accepted in
+`.vulnixignore` / `.trivyignore` with a rationale and an expiration. See
+[`docs/CONTAINER_SECURITY.md`](docs/CONTAINER_SECURITY.md) for the full strategy
+and decision flow.
 
 ### Test Dependency Vulnerabilities (GHSA Exceptions)
 
-Nine vulnerabilities have been accepted in unmaintained legacy BATS test framework
-dependencies (bats-assert, verbose, reconnect, request, sockjs, engine.io, engine.io-client):
+CI-only npm dependencies are minimal (`@devcontainers/cli`); the BATS test
+framework and its helpers are now provided by the Nix toolchain (`flake.nix`)
+rather than npm, removing the legacy transitive advisory surface. The sole
+standing `dependency-review` exception is a documented false positive:
 
-- **engine.io** (GHSA-r7qp-cfhv-p84w): Uncaught exception leading to DoS
-- **engine.io** (GHSA-j4f2-536g-r55m): Resource exhaustion via large messages
-- **debug** (GHSA-gxpj-cx7g-858c): Regular Expression Denial of Service (ReDoS)
-- **node-uuid** (GHSA-265q-28rp-chq5): Insecure entropy source (Math.random())
-- **qs** (GHSA-6rw7-vpxm-498p): DoS via memory exhaustion (arrayLimit bypass)
-- **tough-cookie** (GHSA-72xf-g2v4-qvf3): Prototype Pollution
-- **ws** (GHSA-6663-c963-2gqg): DoS via large websocket messages
-- **ws** (GHSA-5v72-xg48-5rpm): Denial of Service via malformed frames
-- **ws** (GHSA-2mhh-w6q8-5hxw): Remote memory disclosure
+- **bats-file** (GHSA-wvrr-2x4r-394v): the advisory flags the npm-registry
+  `bats-file@0.2.0` as malware; the project installs from the official GitHub
+  source (`github:bats-core/bats-file#v0.4.0`), whose `package.json` simply never
+  bumped its version field. Tracked in `.github/dependency-review-allow.txt` with
+  an expiration.
 
-**Risk Assessment:** All are HIGH or MODERATE severity vulnerabilities from packages
-last updated 5-10+ years ago. Impact is **isolated to CI/development environment**
-with **no runtime production code exposure**. Expiration dates (2026-11-17) enforce
-periodic re-evaluation and investigation of BATS framework modernization.
-
-**Mitigation:** These dependencies are transitive and only used in the test pipeline.
 Production deployments do not include or execute any test dependencies.

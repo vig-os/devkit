@@ -51,6 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`SECURITY.md` describes the Nix image security posture** ([#642](https://github.com/vig-os/devcontainer/issues/642))
+  - Replaced the stale Debian/`Containerfile` base-image pin, the "Trivy in CI/release" line, the 78 Debian LOW-CVE `.trivyignore` note, and the nine legacy BATS-npm GHSA exceptions (the framework now ships from the flake) with the current `vulnix` + CycloneDX SBOM scanning model and the `.vulnixignore`/`.trivyignore` dual register, mirroring `docs/CONTAINER_SECURITY.md`
 - **README now describes the Nix-built image** ([#673](https://github.com/vig-os/devcontainer/issues/673))
   - Replaced the stale `python:3.12-slim-trixie` Debian base-image claim with the actual build: a Nix flake assembled via `dockerTools.buildLayeredImage` (no Debian/Docker base), with CPython 3.14 and the toolchain from a pinned `nixpkgs`, bit-reproducible
 - **Make `just init` Nix-first** ([#671](https://github.com/vig-os/devcontainer/issues/671))
