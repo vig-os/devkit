@@ -325,6 +325,14 @@
             # "No user exists for uid 0". fakeNss provides the minimal
             # nss files an FHS base distro would have supplied.
             dockerTools.fakeNss
+
+            # /usr/bin/env -> coreutils env. A bare layered image has no
+            # /usr/bin at all, so the ubiquitous `#!/usr/bin/env <interp>`
+            # shebang fails with "/usr/bin/env: bad interpreter" — breaking
+            # essentially every Node/Python/Ruby CLI (e.g.
+            # node_modules/.bin/tsc) for image-mode consumers. usrBinEnv is
+            # the minimal shim an FHS base distro would have supplied. #727.
+            dockerTools.usrBinEnv
           ]);
       in
       {

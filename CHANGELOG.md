@@ -107,6 +107,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`/usr/bin/env` now exists in the Nix-built image** ([#727](https://github.com/vig-os/devcontainer/issues/727))
+  - The bare `dockerTools.buildLayeredImage` had no `/usr/bin` at all, so the ubiquitous `#!/usr/bin/env <interp>` shebang failed with `/usr/bin/env: bad interpreter: No such file or directory` — breaking essentially every Node/Python/Ruby CLI (e.g. `node_modules/.bin/tsc`) for image-mode consumers. Added `dockerTools.usrBinEnv` (the FHS shim symlinking `/usr/bin/env` to coreutils `env`) to the image package set, alongside the existing `fakeNss` shim
 - **`init-workspace --mode direnv` now produces a loadable `justfile`** ([#641](https://github.com/vig-os/devcontainer/issues/641))
   - The scaffolded root `justfile` hard-imported `.devcontainer/justfile.devc` and `.devcontainer/justfile.gh`, but `direnv` mode prunes `.devcontainer/` — so every `just` command (including init-workspace's own final `just sync`) failed to parse in a direnv-mode workspace. Made the two `.devcontainer/` imports optional (`import?`, matching `justfile.project`/`justfile.local`); the `sync` recipe lives in the preserved `justfile.project`, so `just sync` still works in all modes
 - **Worktree recipes read agent config from the `.claude/` SSoT** ([#627](https://github.com/vig-os/devcontainer/issues/627))

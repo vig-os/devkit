@@ -150,6 +150,46 @@ def test_image_oci_config_declares_path(container_image):
     )
 
 
+class TestFhsShims:
+    """Test the minimal FHS shims a bare layered image needs (#727)."""
+
+    def test_usr_bin_env_exists(self, host):
+        """``/usr/bin/env`` must exist (the universal shebang interpreter).
+
+        A bare ``buildLayeredImage`` has no ``/usr/bin`` at all, so the
+        ubiquitous ``#!/usr/bin/env <interp>`` shebang fails with
+        ``/usr/bin/env: bad interpreter`` — breaking essentially every
+        Node/Python/Ruby CLI (e.g. ``node_modules/.bin/tsc``) for image-mode
+        consumers. An FHS base distro would have supplied it. Refs #727.
+        """
+        env = host.file("/usr/bin/env")
+        assert env.exists, "/usr/bin/env not found (universal shebang interpreter)"
+
+    def test_usr_bin_env_shebang_runs(self, host):
+        """A ``#!/usr/bin/env <interp>`` script must execute via ``/usr/bin/env``.
+
+        Mirrors how a ``node_modules/.bin`` CLI is launched: the kernel reads the
+        shebang and execs ``/usr/bin/env <interp>``. Uses ``bash`` (always in the
+        image) as the interpreter so the test asserts the ``/usr/bin/env``
+        resolution path itself, not the presence of any one language runtime.
+        """
+        script = "/tmp/usr_bin_env_shebang_test"
+        host.run(f"rm -f {script}")
+        try:
+            result = host.run(
+                f"printf '#!/usr/bin/env bash\\necho shebang-ok\\n' > {script} "
+                f"&& chmod +x {script} && {script}"
+            )
+            assert result.rc == 0, (
+                f"#!/usr/bin/env bash script failed to run: {result.stderr}"
+            )
+            assert "shebang-ok" in result.stdout, (
+                f"unexpected shebang script output: {result.stdout!r}"
+            )
+        finally:
+            host.run(f"rm -f {script}")
+
+
 class TestSystemTools:
     """Test that system tools are installed with correct versions."""
 
