@@ -221,15 +221,23 @@ class TestManylinuxRuntime:
     """
 
     def test_fhs_loader_exists(self, host):
-        """The FHS loader manylinux x86_64 wheels exec must exist.
+        """The FHS loader manylinux wheels exec must exist (arch-specific).
 
-        Unconditional (needs no network): a missing
-        ``/lib64/ld-linux-x86-64.so.2`` is the root cause of ``cannot execute:
-        required file not found`` for any PyPI-pinned standalone tool. Refs #736.
+        Unconditional (needs no network): a missing loader is the root cause of
+        ``cannot execute: required file not found`` for any PyPI-pinned
+        standalone tool. The path is arch-specific (the image builds natively
+        per arch): x86_64 -> ``/lib64/ld-linux-x86-64.so.2``,
+        aarch64 -> ``/lib/ld-linux-aarch64.so.1``. Refs #736.
         """
-        loader = host.file("/lib64/ld-linux-x86-64.so.2")
+        arch = host.system_info.arch
+        loader_path = (
+            "/lib/ld-linux-aarch64.so.1"
+            if arch in ("aarch64", "arm64")
+            else "/lib64/ld-linux-x86-64.so.2"
+        )
+        loader = host.file(loader_path)
         assert loader.exists, (
-            "/lib64/ld-linux-x86-64.so.2 missing; manylinux wheel executables "
+            f"{loader_path} missing; manylinux wheel executables "
             "(e.g. PyPI-pinned pre-commit ruff/typos) cannot exec"
         )
 

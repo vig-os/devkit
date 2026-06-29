@@ -418,6 +418,17 @@
                 pkgs.zlib
               ];
 
+              # The FHS loader name/dir manylinux wheels hardcode are
+              # arch-specific: x86_64 -> /lib64/ld-linux-x86-64.so.2,
+              # aarch64 -> /lib/ld-linux-aarch64.so.1. Derive from the build
+              # platform so the multi-arch image is correct on both. Refs #736.
+              fhsLoaderName =
+                if pkgs.stdenv.hostPlatform.isAarch64 then
+                  "ld-linux-aarch64.so.1"
+                else
+                  "ld-linux-x86-64.so.2";
+              fhsLoaderDir = if pkgs.stdenv.hostPlatform.isAarch64 then "lib" else "lib64";
+
               # Bake the workspace assets, pre-commit cache dir and template
               # .venv scaffold as a normal image layer. UV_PYTHON pins the Nix
               # interpreter and UV_PYTHON_DOWNLOADS=never forbids uv from
@@ -471,6 +482,15 @@
                     find "$venvdir/bin" -maxdepth 1 -type f \
                       -exec sed -i "s|$out||g" {} +
                     sed -i "s|$out||g" "$venvdir/pyvenv.cfg"
+                    # `python -m venv` writes VIRTUAL_ENV_PROMPT unquoted
+                    # (VIRTUAL_ENV_PROMPT=.venv), but the consumer post-create.sh
+                    # rewrites the *double-quoted* form
+                    # (VIRTUAL_ENV_PROMPT="..." -> the project short name). Without
+                    # quotes that sed no-ops and the prompt is never renamed.
+                    # Normalize to the quoted "template-project" the template
+                    # expects so the rename applies. Refs #735.
+                    sed -i -E 's/^([[:space:]]*VIRTUAL_ENV_PROMPT=).*/\1"template-project"/' \
+                      "$venvdir/bin/activate"
 
                     mkdir -p "$out/opt/pre-commit-cache"
                     mkdir -p "$out/workspace"
@@ -508,17 +528,20 @@
                     chmod 1777 "$out/tmp"
 
                     # FHS dynamic loader for runtime-installed manylinux wheels.
-                    # A bare Nix layered image has no /lib64/ld-linux-x86-64.so.2
-                    # — the interpreter every manylinux x86_64 wheel hardcodes as
-                    # its PT_INTERP — so PyPI-pinned standalone tools (e.g.
-                    # pre-commit's ruff/typos) abort with "cannot execute:
-                    # required file not found". Symlink the Nix glibc loader
-                    # there; being newer it runs the old-glibc wheels (glibc is
+                    # A bare Nix layered image lacks the loader every manylinux
+                    # wheel hardcodes as its PT_INTERP, so PyPI-pinned standalone
+                    # tools (e.g. pre-commit's ruff/typos) abort with "cannot
+                    # execute: required file not found". Symlink the Nix glibc
+                    # loader there; being newer it runs old-glibc wheels (glibc is
                     # backward compatible). Paired with LD_LIBRARY_PATH
-                    # (config.Env) for the C++/z runtime the wheels need. #736.
-                    mkdir -p "$out/lib64"
-                    ln -s ${pkgs.glibc}/lib/ld-linux-x86-64.so.2 \
-                      "$out/lib64/ld-linux-x86-64.so.2"
+                    # (config.Env) for the C++/z runtime the wheels need. The
+                    # loader name and FHS dir are ARCH-SPECIFIC — x86_64 wheels
+                    # want /lib64/ld-linux-x86-64.so.2, aarch64 wheels want
+                    # /lib/ld-linux-aarch64.so.1 — so derive both from the build
+                    # platform (the image builds natively per arch). Refs #736.
+                    mkdir -p "$out/${fhsLoaderDir}"
+                    ln -s ${pkgs.glibc}/lib/${fhsLoaderName} \
+                      "$out/${fhsLoaderDir}/${fhsLoaderName}"
                     # /etc/nix/nix.conf enabling the experimental features the
                     # modern Nix CLI needs. The image bakes CppNix but shipped
                     # no nix.conf, so `nix-command`/`flakes` were off by default
