@@ -596,6 +596,36 @@ class TestDevelopmentTools:
         assert result.rc == 0, f"{name} command failed: {result.stderr}"
 
 
+class TestContainerRuntime:
+    """Test the container runtime tooling (#740)."""
+
+    def test_podman_installed(self, host):
+        """podman is installed (the image's container runtime)."""
+        result = assert_tool_runs(host, "podman", "--version")
+        assert "podman" in result.stdout.lower()
+
+    def test_docker_shim_on_path(self, host):
+        """A `docker` shim must resolve on PATH (#740).
+
+        The image ships `podman` but no `docker` binary. Docker-out-of-Docker
+        works because podman honors DOCKER_HOST, but any recipe/script that
+        invokes `docker` literally fails with "command not found" without a
+        shim. The image bakes a `docker -> podman` wrapper on /usr/local/bin.
+        """
+        assert_tool_on_path(host, "docker")
+
+    def test_docker_shim_runs_podman(self, host):
+        """The `docker` shim must run and report podman's version (#740).
+
+        Proves the wrapper execs podman rather than merely existing on PATH.
+        """
+        result = host.run("docker --version")
+        assert result.rc == 0, f"docker --version failed: {result.stderr}"
+        assert "podman" in result.stdout.lower(), (
+            f"docker shim did not exec podman: {result.stdout!r}"
+        )
+
+
 class TestNodeEnvironment:
     """Test the Node.js / npm environment (#728)."""
 
@@ -847,6 +877,51 @@ class TestFileStructure:
                         )
                     else:
                         verify_file_identity(host, str(rel), dest_file_path)
+
+
+class TestNixConfiguration:
+    """Test that the baked /etc/nix/nix.conf enables the modern Nix CLI.
+
+    The image bakes CppNix but historically shipped no nix.conf, leaving
+    `nix-command`/`flakes` disabled by default so ad-hoc on-demand tooling
+    (`nix shell nixpkgs#<x>`, `nix run`, `nix eval`) failed without an explicit
+    `--extra-experimental-features` flag. Refs #739.
+    """
+
+    def test_nix_conf_exists(self, host):
+        """/etc/nix/nix.conf is present as a regular file."""
+        conf = host.file("/etc/nix/nix.conf")
+        assert conf.exists, "/etc/nix/nix.conf not found"
+        assert conf.is_file, "/etc/nix/nix.conf is not a regular file"
+
+    def test_nix_conf_enables_experimental_features(self, host):
+        """nix.conf turns on the nix-command and flakes experimental features."""
+        content = host.file("/etc/nix/nix.conf").content_string
+        feature_line = next(
+            (
+                line
+                for line in content.splitlines()
+                if line.strip().startswith("experimental-features")
+            ),
+            None,
+        )
+        assert feature_line is not None, (
+            "no experimental-features setting in /etc/nix/nix.conf"
+        )
+        assert "nix-command" in feature_line, (
+            "nix-command not enabled in /etc/nix/nix.conf"
+        )
+        assert "flakes" in feature_line, "flakes not enabled in /etc/nix/nix.conf"
+
+    def test_nix_command_works_without_flag(self, host):
+        """`nix eval` succeeds without an explicit experimental-features flag."""
+        result = host.run('nix eval --expr "1 + 1"')
+        assert result.rc == 0, (
+            f"nix eval failed without experimental-features flag: {result.stderr}"
+        )
+        assert result.stdout.strip() == "2", (
+            f"unexpected nix eval output: {result.stdout!r}"
+        )
 
 
 class TestPlaceholders:

@@ -466,6 +466,22 @@
                     # (config.Env) points npm here. Refs #728.
                     mkdir -p "$out/usr/local/bin"
 
+                    # docker -> podman compatibility shim. The image ships
+                    # `podman` but no `docker` binary. Docker-out-of-Docker
+                    # works because podman honors DOCKER_HOST (set by the
+                    # consumer docker-compose.yml), but any recipe/script that
+                    # invokes `docker` literally fails with "command not found".
+                    # A tiny wrapper on the (already on-PATH) /usr/local/bin
+                    # execs the baked podman, so docker-literal callers get a
+                    # working binary without pulling in the Docker engine. The
+                    # heredoc is quoted so `$@` is written verbatim; the store
+                    # paths are interpolated by Nix at eval time. Refs #740.
+                    cat > "$out/usr/local/bin/docker" <<'DOCKERSHIM'
+                    #!${pkgs.runtimeShell}
+                    exec ${pkgs.podman}/bin/podman "$@"
+                    DOCKERSHIM
+                    chmod +x "$out/usr/local/bin/docker"
+
                     # /tmp with the sticky bit. A bare layered image has no
                     # /tmp; tools that need a scratch/socket dir (tmux, uv,
                     # pytest) fail without it ("no suitable socket path"). An
@@ -485,6 +501,23 @@
                     mkdir -p "$out/lib64"
                     ln -s ${pkgs.glibc}/lib/ld-linux-x86-64.so.2 \
                       "$out/lib64/ld-linux-x86-64.so.2"
+                    # /etc/nix/nix.conf enabling the experimental features the
+                    # modern Nix CLI needs. The image bakes CppNix but shipped
+                    # no nix.conf, so `nix-command`/`flakes` were off by default
+                    # and ad-hoc on-demand tooling (`nix shell nixpkgs#<x>`,
+                    # `nix run`, `nix eval`) failed without an explicit
+                    # `--extra-experimental-features` flag. accept-flake-config
+                    # matches the repo's build posture (CI and docs invoke
+                    # `nix build --accept-flake-config`). Pinning the flake
+                    # registry `nixpkgs` to the image's locked input is deferred:
+                    # it needs that input's store path threaded in here and is
+                    # not a one-liner, so on-demand `nix shell` tracks the
+                    # channel default for now. Refs #739.
+                    mkdir -p "$out/etc/nix"
+                    cat > "$out/etc/nix/nix.conf" <<'NIXCONF'
+                    experimental-features = nix-command flakes
+                    accept-flake-config = true
+                    NIXCONF
                   '';
             in
             pkgs.dockerTools.buildLayeredImage {

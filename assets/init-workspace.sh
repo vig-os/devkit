@@ -46,6 +46,9 @@ PRESERVE_FILES=(
     # dev-env upgrade must never clobber it — same class as justfile.project.
     "flake.nix"
     ".envrc"
+    # The consumer owns its project manifest (#738): a (re)scaffold must never
+    # overwrite an existing pyproject.toml with the generic template one.
+    "pyproject.toml"
 )
 
 # Get script directory for manifest location
@@ -275,6 +278,14 @@ if [[ "$FORCE" == "true" ]]; then
     fi
 fi
 
+# Record whether the consumer already had a populated .devcontainer/ before the
+# scaffold (#738). In direnv mode we must neither overwrite nor delete it.
+DEVCONTAINER_PREEXISTED=false
+if [[ -d "$WORKSPACE_DIR/.devcontainer" ]] \
+    && [[ -n "$(ls -A "$WORKSPACE_DIR/.devcontainer" 2>/dev/null)" ]]; then
+    DEVCONTAINER_PREEXISTED=true
+fi
+
 # Copy template contents to workspace
 echo "Initializing workspace from template..."
 echo "Copying files from $TEMPLATE_DIR to $WORKSPACE_DIR..."
@@ -314,6 +325,13 @@ else
         fi
     done
 
+    # direnv mode wants no .devcontainer/ at all, so never copy the template one
+    # over a populated consumer .devcontainer/ (#738). Excluding it from the copy
+    # (rather than copying-then-pruning) keeps a real .devcontainer/ intact.
+    if [[ "$MODE" == "direnv" ]]; then
+        EXCLUDE_ARGS+=("--exclude=.devcontainer")
+    fi
+
     rsync -avL --exclude='.git' --exclude='.venv' "${EXCLUDE_ARGS[@]}" "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
 fi
 
@@ -335,8 +353,14 @@ case "$MODE" in
         rm -f "$WORKSPACE_DIR/flake.nix" "$WORKSPACE_DIR/.envrc"
         ;;
     direnv)
-        echo "Pruning to 'direnv' mode: removing .devcontainer/..."
-        rm -rf "$WORKSPACE_DIR/.devcontainer"
+        # Only drop a .devcontainer/ that this scaffold created; never delete a
+        # populated consumer .devcontainer/ that predates the (re)scaffold (#738).
+        if [[ "$DEVCONTAINER_PREEXISTED" == "true" ]]; then
+            echo "direnv mode: preserving existing .devcontainer/ (#738)"
+        else
+            echo "Pruning to 'direnv' mode: removing .devcontainer/..."
+            rm -rf "$WORKSPACE_DIR/.devcontainer"
+        fi
         ;;
     both)
         : # keep everything

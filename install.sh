@@ -540,8 +540,15 @@ echo ""
 info "Running post-initialization setup..."
 
 # 1. Copy host user configuration (git, ssh, gh) into .devcontainer/.conf/
-# Non-fatal: warnings about missing SSH keys or GH CLI are expected on CI/fresh machines
-run_user_conf "$PROJECT_PATH" || true
+# Non-fatal: warnings about missing SSH keys or GH CLI are expected on CI/fresh machines.
+# direnv mode scaffolds no .devcontainer/, so the host-user-conf step (a
+# devcontainer-only concern) does not apply — skip it rather than emit a
+# misleading "script not found" warning (#738).
+if [ "$MODE" = "direnv" ]; then
+    info "direnv mode: skipping host user-conf copy (no .devcontainer/)"
+else
+    run_user_conf "$PROJECT_PATH" || true
+fi
 
 # 2. Git repository setup (init, initial commit, dev branch)
 # Runs on the host (not in container) so that SSH agent is available for commit signing
