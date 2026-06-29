@@ -152,17 +152,15 @@
           shellHook ? ''echo "devcontainer dev environment loaded (nix)"'',
         }:
         let
-          # CPython matching `requires-python` (>=3.14,<3.15). It is exposed on
-          # PATH (`python`/`python3`) for parity with the image, which ships a
-          # `pythonEnv`; the project venv is still uv-managed. Pin this same
-          # store CPython via UV_PYTHON and forbid downloads
+          # CPython matching `requires-python` (>=3.14,<3.15). The dev-shell
+          # carries no Python on PATH (the project venv is uv-managed). Pin a
+          # Nix store CPython via UV_PYTHON and forbid downloads
           # (UV_PYTHON_DOWNLOADS=never): the nixpkgs uv would otherwise fetch a
           # generic, dynamically-linked managed CPython a NixOS host cannot
           # execute out of the box (no FHS ld-linux), so `uv sync` (`just init`)
           # aborted there (#683). A store interpreter is patched to the store
           # loader and runs in the dev-shell on both NixOS and FHS hosts. The
-          # IMAGE path sets the same two vars (baking pythonEnv). Refs #666, #683,
-          # #729.
+          # IMAGE path sets the same two vars (baking pythonEnv). Refs #666, #683.
           python = pkgs.python314;
 
           # The C++ runtime (libstdc++.so.6). The `pymarkdown` pre-commit hook
@@ -207,19 +205,7 @@
           '';
         in
         pkgs.mkShell {
-          # The toolchain SSoT, plus a bare Python interpreter and pre-commit so
-          # the downstream dev-shell matches the image's PATH (`python`/`python3`
-          # + `pre-commit`). These are not in `devTools`: the image already
-          # provides them via `pythonEnv` + `pre-commit` in `imageTools`, and
-          # adding a bare interpreter to the SSoT would collide with `pythonEnv`
-          # there. Refs #729.
-          packages =
-            (devTools pkgs)
-            ++ [
-              python
-              pkgs.pre-commit
-            ]
-            ++ extraPackages;
+          packages = (devTools pkgs) ++ extraPackages;
           shellHook = ldLibraryPathHook + "\n" + nvimIsolationHook + "\n" + shellHook;
 
           UV_PYTHON = "${python}/bin/python3.14";
