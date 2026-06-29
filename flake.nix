@@ -190,10 +190,23 @@
               export LD_LIBRARY_PATH="''${LD_LIBRARY_PATH:+$LD_LIBRARY_PATH:}${ldLibraryPath}"
             fi
           '';
+
+          # The dev-shell's `neovim` must not inherit the user's personal
+          # `~/.config/nvim`. nixvim (and other launchers like a LazyVim
+          # lockfile) emit a config at the standard XDG path that assumes a
+          # specific wrapper — e.g. nixvim's `init.lua` only finds its plugins
+          # when launched by its wrapper's `--cmd "set packpath^=…"`. A bare
+          # `nvim` auto-sources that config but lacks the packpath, so it crashes
+          # on startup (`module 'catppuccin' not found`). NVIM_APPNAME redirects
+          # config/data/state lookups to `~/.config/vigos-dev` (which does not
+          # exist), so the shell's nvim starts vanilla and isolated. Refs #723.
+          nvimIsolationHook = ''
+            export NVIM_APPNAME="vigos-dev"
+          '';
         in
         pkgs.mkShell {
           packages = (devTools pkgs) ++ extraPackages;
-          shellHook = ldLibraryPathHook + "\n" + shellHook;
+          shellHook = ldLibraryPathHook + "\n" + nvimIsolationHook + "\n" + shellHook;
 
           UV_PYTHON = "${python}/bin/python3.14";
           UV_PYTHON_DOWNLOADS = "never";
