@@ -107,6 +107,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`install.sh --mode direnv --force` no longer clobbers a populated consumer repo** ([#738](https://github.com/vig-os/devcontainer/issues/738))
+  - Re-initializing an existing project in `direnv` mode deployed the full workspace template over it: the scaffold `rsync` overwrote a real `pyproject.toml` with the generic template one, and copied the template `.devcontainer/` before the mode prune deleted the directory wholesale — destroying tracked files (`devcontainer.json`, project compose files, …). `pyproject.toml` is now in the never-overwrite `PRESERVE_FILES` class, and `direnv` mode excludes `.devcontainer/` from the copy and skips the prune when a populated `.devcontainer/` predates the (re)scaffold, so real project files survive untouched. `--force` still deploys the Nix/direnv stub (`flake.nix`, `.envrc`, `.vig-os`) onto repos that lack it
+  - `install.sh` no longer prints a misleading `User configuration script not found … copy-host-user-conf.sh` warning in `direnv` mode, which scaffolds no `.devcontainer/` and therefore has no host-user-conf step to run
 - **`/usr/bin/env` now exists in the Nix-built image** ([#727](https://github.com/vig-os/devcontainer/issues/727))
   - The bare `dockerTools.buildLayeredImage` had no `/usr/bin` at all, so the ubiquitous `#!/usr/bin/env <interp>` shebang failed with `/usr/bin/env: bad interpreter: No such file or directory` — breaking essentially every Node/Python/Ruby CLI (e.g. `node_modules/.bin/tsc`) for image-mode consumers. Added `dockerTools.usrBinEnv` (the FHS shim symlinking `/usr/bin/env` to coreutils `env`) to the image package set, alongside the existing `fakeNss` shim
 - **`npm install -g` now lands CLIs on PATH in the Nix image** ([#728](https://github.com/vig-os/devcontainer/issues/728))

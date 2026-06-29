@@ -235,6 +235,40 @@ _scaffold() {
     assert_output --partial "Invalid --mode"
 }
 
+# ── direnv (re)scaffold must not clobber a populated consumer repo (#738) ──────
+# `install.sh --mode direnv --force` on an existing project deployed the full
+# template over it: overwrote a real pyproject.toml and deleted a populated
+# .devcontainer/. direnv mode must only ADD the Nix/direnv stub.
+
+@test "init-workspace --mode=direnv --force preserves a populated pyproject.toml (#738)" {
+    ws="$BATS_TEST_TMPDIR/e2e-direnv-keep-pyproject"
+    mkdir -p "$ws"
+    printf '# SENTINEL-738 real consumer pyproject\n[project]\nname = "real_consumer"\n' \
+        >"$ws/pyproject.toml"
+    run _scaffold direnv "$ws"
+    assert_success
+    run grep -q 'SENTINEL-738 real consumer pyproject' "$ws/pyproject.toml"
+    assert_success
+    # ...and the Nix/direnv stub was still added.
+    run test -f "$ws/flake.nix"
+    assert_success
+    run test -f "$ws/.envrc"
+    assert_success
+}
+
+@test "init-workspace --mode=direnv --force preserves a populated .devcontainer/ (#738)" {
+    ws="$BATS_TEST_TMPDIR/e2e-direnv-keep-devcontainer"
+    mkdir -p "$ws/.devcontainer"
+    printf '{ "name": "SENTINEL-738 real devcontainer" }\n' \
+        >"$ws/.devcontainer/devcontainer.json"
+    run _scaffold direnv "$ws"
+    assert_success
+    run test -f "$ws/.devcontainer/devcontainer.json"
+    assert_success
+    run grep -q 'SENTINEL-738 real devcontainer' "$ws/.devcontainer/devcontainer.json"
+    assert_success
+}
+
 # ── script structure ──────────────────────────────────────────────────────────
 
 @test "init-workspace.sh is executable" {
