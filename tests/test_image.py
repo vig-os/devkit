@@ -150,6 +150,46 @@ def test_image_oci_config_declares_path(container_image):
     )
 
 
+class TestFhsShims:
+    """Test the minimal FHS shims a bare layered image needs (#727)."""
+
+    def test_usr_bin_env_exists(self, host):
+        """``/usr/bin/env`` must exist (the universal shebang interpreter).
+
+        A bare ``buildLayeredImage`` has no ``/usr/bin`` at all, so the
+        ubiquitous ``#!/usr/bin/env <interp>`` shebang fails with
+        ``/usr/bin/env: bad interpreter`` — breaking essentially every
+        Node/Python/Ruby CLI (e.g. ``node_modules/.bin/tsc``) for image-mode
+        consumers. An FHS base distro would have supplied it. Refs #727.
+        """
+        env = host.file("/usr/bin/env")
+        assert env.exists, "/usr/bin/env not found (universal shebang interpreter)"
+
+    def test_usr_bin_env_shebang_runs(self, host):
+        """A ``#!/usr/bin/env <interp>`` script must execute via ``/usr/bin/env``.
+
+        Mirrors how a ``node_modules/.bin`` CLI is launched: the kernel reads the
+        shebang and execs ``/usr/bin/env <interp>``. Uses ``bash`` (always in the
+        image) as the interpreter so the test asserts the ``/usr/bin/env``
+        resolution path itself, not the presence of any one language runtime.
+        """
+        script = "/tmp/usr_bin_env_shebang_test"
+        host.run(f"rm -f {script}")
+        try:
+            result = host.run(
+                f"printf '#!/usr/bin/env bash\\necho shebang-ok\\n' > {script} "
+                f"&& chmod +x {script} && {script}"
+            )
+            assert result.rc == 0, (
+                f"#!/usr/bin/env bash script failed to run: {result.stderr}"
+            )
+            assert "shebang-ok" in result.stdout, (
+                f"unexpected shebang script output: {result.stdout!r}"
+            )
+        finally:
+            host.run(f"rm -f {script}")
+
+
 class TestSystemTools:
     """Test that system tools are installed with correct versions."""
 
@@ -477,6 +517,57 @@ class TestDevelopmentTools:
         assert result.rc == 0, f"{name} command failed: {result.stderr}"
 
 
+class TestNodeEnvironment:
+    """Test the Node.js / npm environment (#728)."""
+
+    def test_npm_installed(self, host):
+        """npm runs (ships with the nixpkgs nodejs)."""
+        result = host.run("npm --version")
+        assert result.rc == 0, f"npm --version failed: {result.stderr}"
+
+    def test_npm_global_prefix_bin_on_path(self, host):
+        """npm's global prefix bin/ must be writable and on PATH (#728).
+
+        In a bare Nix-built image npm's default prefix is the read-only nodejs
+        nix-store path, whose bin/ is not on PATH: ``npm install -g`` reports
+        success but the binary lands somewhere nothing can resolve. The image
+        bakes ``NPM_CONFIG_PREFIX`` to a writable, on-PATH dir to fix this.
+        """
+        prefix = host.run("npm config get prefix")
+        assert prefix.rc == 0, f"npm config get prefix failed: {prefix.stderr}"
+        prefix_dir = prefix.stdout.strip()
+        assert prefix_dir, "npm reported an empty global prefix"
+
+        path = host.run("printenv PATH")
+        assert f"{prefix_dir}/bin" in path.stdout.split(":"), (
+            f"npm global bin {prefix_dir}/bin is not on PATH: {path.stdout.strip()}"
+        )
+
+        probe = f"{prefix_dir}/bin/.npm_prefix_write_probe"
+        result = host.run(f"touch {probe} && rm {probe}")
+        assert result.rc == 0, (
+            f"npm global bin {prefix_dir}/bin is not writable: {result.stderr}"
+        )
+
+    def test_npm_global_install_resolves_on_path(self, host):
+        """A global ``npm install -g`` lands a resolvable binary on PATH (#728).
+
+        Faithful reproduction of the reported bug: install a CLI globally and
+        confirm it resolves on PATH afterwards (previously the binary landed in
+        the read-only nodejs store path, off PATH, so ``command -v`` failed).
+
+        Scoped to #728: only that the binary is on PATH. Executing it relies on
+        the ``#!/usr/bin/env`` shebang interpreter, which #727 provides — this
+        test deliberately does not depend on that.
+        """
+        try:
+            install = host.run("npm install -g tsx")
+            assert install.rc == 0, f"npm install -g tsx failed: {install.stderr}"
+            assert_tool_on_path(host, "tsx")
+        finally:
+            host.run("npm uninstall -g tsx")
+
+
 class TestEnvironmentVariables:
     """Test that environment variables are set correctly."""
 
@@ -493,6 +584,7 @@ class TestEnvironmentVariables:
             ("PRE_COMMIT_HOME", "/opt/pre-commit-cache"),
             ("UV_PROJECT_ENVIRONMENT", "/root/assets/workspace/.venv"),
             ("VIRTUAL_ENV", "/root/assets/workspace/.venv"),
+            ("NPM_CONFIG_PREFIX", "/usr/local"),
         ],
         ids=[
             "lang",
@@ -503,6 +595,7 @@ class TestEnvironmentVariables:
             "pre_commit_home",
             "uv_project_environment",
             "virtual_env",
+            "npm_config_prefix",
         ],
     )
     def test_env_vars_set(self, host, name, expected):
