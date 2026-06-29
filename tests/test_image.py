@@ -800,6 +800,51 @@ class TestFileStructure:
                         verify_file_identity(host, str(rel), dest_file_path)
 
 
+class TestNixConfiguration:
+    """Test that the baked /etc/nix/nix.conf enables the modern Nix CLI.
+
+    The image bakes CppNix but historically shipped no nix.conf, leaving
+    `nix-command`/`flakes` disabled by default so ad-hoc on-demand tooling
+    (`nix shell nixpkgs#<x>`, `nix run`, `nix eval`) failed without an explicit
+    `--extra-experimental-features` flag. Refs #739.
+    """
+
+    def test_nix_conf_exists(self, host):
+        """/etc/nix/nix.conf is present as a regular file."""
+        conf = host.file("/etc/nix/nix.conf")
+        assert conf.exists, "/etc/nix/nix.conf not found"
+        assert conf.is_file, "/etc/nix/nix.conf is not a regular file"
+
+    def test_nix_conf_enables_experimental_features(self, host):
+        """nix.conf turns on the nix-command and flakes experimental features."""
+        content = host.file("/etc/nix/nix.conf").content_string
+        feature_line = next(
+            (
+                line
+                for line in content.splitlines()
+                if line.strip().startswith("experimental-features")
+            ),
+            None,
+        )
+        assert feature_line is not None, (
+            "no experimental-features setting in /etc/nix/nix.conf"
+        )
+        assert "nix-command" in feature_line, (
+            "nix-command not enabled in /etc/nix/nix.conf"
+        )
+        assert "flakes" in feature_line, "flakes not enabled in /etc/nix/nix.conf"
+
+    def test_nix_command_works_without_flag(self, host):
+        """`nix eval` succeeds without an explicit experimental-features flag."""
+        result = host.run('nix eval --expr "1 + 1"')
+        assert result.rc == 0, (
+            f"nix eval failed without experimental-features flag: {result.stderr}"
+        )
+        assert result.stdout.strip() == "2", (
+            f"unexpected nix eval output: {result.stdout!r}"
+        )
+
+
 class TestPlaceholders:
     """Test that placeholders are replaced correctly."""
 

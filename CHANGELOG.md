@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Bake `/etc/nix/nix.conf` enabling `nix-command`/`flakes`** ([#739](https://github.com/vig-os/devcontainer/issues/739))
+  - The Nix-built image bundles CppNix but shipped no `nix.conf`, leaving the modern CLI's `nix-command`/`flakes` features disabled by default so ad-hoc on-demand tooling (`nix shell nixpkgs#<x>`, `nix run`, `nix eval`) failed without an explicit `--extra-experimental-features` flag. The `buildLayeredImage` bootstrap layer now writes `/etc/nix/nix.conf` with `experimental-features = nix-command flakes` and `accept-flake-config = true` (matching the repo's `nix build --accept-flake-config` posture); flake-registry `nixpkgs` pinning to the image's locked input is deferred
 - **Consolidated `docs/NIX.md` Nix reference** ([#255](https://github.com/vig-os/devcontainer/issues/255))
   - Added a single onboarding/architecture doc for the flake: the `devTools` toolchain SSoT and the dev-shell ↔ image parity guard, the stable/unstable channel split + fast-mover overlay, the Nix-built (`buildLayeredImage`) reproducible multi-arch image, the CppNix-vs-Lix and `pre-commit`-vs-`prek` decisions, the `vig-os` Cachix `direnv allow` flow, how `nixpkgs` bumps flow (Renovate `nix` manager + `vulnix` before/after), and the #639 publish-cutover — cross-linking `CONTRIBUTE.md`, `docs/NIX2CONTAINER.md`, and `docs/CONTAINER_SECURITY.md`
 - **In-container Nix runtime smoke test** ([#675](https://github.com/vig-os/devcontainer/issues/675))

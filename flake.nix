@@ -471,6 +471,24 @@
                     # FHS base distro would have supplied it.
                     mkdir -p "$out/tmp"
                     chmod 1777 "$out/tmp"
+
+                    # /etc/nix/nix.conf enabling the experimental features the
+                    # modern Nix CLI needs. The image bakes CppNix but shipped
+                    # no nix.conf, so `nix-command`/`flakes` were off by default
+                    # and ad-hoc on-demand tooling (`nix shell nixpkgs#<x>`,
+                    # `nix run`, `nix eval`) failed without an explicit
+                    # `--extra-experimental-features` flag. accept-flake-config
+                    # matches the repo's build posture (CI and docs invoke
+                    # `nix build --accept-flake-config`). Pinning the flake
+                    # registry `nixpkgs` to the image's locked input is deferred:
+                    # it needs that input's store path threaded in here and is
+                    # not a one-liner, so on-demand `nix shell` tracks the
+                    # channel default for now. Refs #739.
+                    mkdir -p "$out/etc/nix"
+                    cat > "$out/etc/nix/nix.conf" <<'NIXCONF'
+                    experimental-features = nix-command flakes
+                    accept-flake-config = true
+                    NIXCONF
                   '';
             in
             pkgs.dockerTools.buildLayeredImage {
