@@ -53,6 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Applied the still-relevant Renovate dependency updates** ([#625](https://github.com/vig-os/devcontainer/issues/625))
+  - Folded the open Renovate PRs that still apply post-migration onto the epic: `actions/cache` → v6.1.0 (the v6 service, superseding the v5.x bumps), `actions/attest`/`actions/attest-build-provenance` → v4.1.1, `actions/setup-python` and `taiki-e/install-action` (just) digest refreshes, and `pandas` 3.0.3 → 3.0.4 in the workspace template. Stale ones were dropped: the `python:3.14-slim-bookworm` Docker digest (the `Containerfile` is gone) and the `ruff` pip pin (sourced from the flake now, #697); the `uv` 0.11.23 → 0.11.25 bump is deferred to the flake↔setup-env version sync (#720)
 - **`SECURITY.md` describes the Nix image security posture** ([#642](https://github.com/vig-os/devcontainer/issues/642))
   - Replaced the stale Debian/`Containerfile` base-image pin, the "Trivy in CI/release" line, the 78 Debian LOW-CVE `.trivyignore` note, and the nine legacy BATS-npm GHSA exceptions (the framework now ships from the flake) with the current `vulnix` + CycloneDX SBOM scanning model and the `.vulnixignore`/`.trivyignore` dual register, mirroring `docs/CONTAINER_SECURITY.md`
 - **README now describes the Nix-built image** ([#673](https://github.com/vig-os/devcontainer/issues/673))

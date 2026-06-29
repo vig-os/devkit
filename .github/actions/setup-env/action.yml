@@ -217,13 +217,13 @@ runs:
     # project interpreter via `uv sync` / `uv run`.
     - name: "Set up Python from pyproject"
       if: inputs.provision-via-flake != 'true' && inputs.install-python == 'true' && hashFiles('pyproject.toml') != ''
-      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
       with:
         python-version-file: "pyproject.toml"
 
     - name: "Set up Python fallback"
       if: inputs.provision-via-flake != 'true' && inputs.install-python == 'true' && hashFiles('pyproject.toml') == ''
-      uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
       with:
         python-version: ${{ inputs.python-version }}
 
@@ -325,7 +325,7 @@ runs:
     # Skipped under flake provisioning: just comes from the flake dev-shell.
     - name: Install just
       if: inputs.provision-via-flake != 'true' && inputs.install-just == 'true'
-      uses: taiki-e/install-action@ab08a3b50948bd57d91bd2980f025da7e0a88231  # just
+      uses: taiki-e/install-action@9cfa436698ecd30b7b47d715cbb8241e4624245a  # just
       with:
         tool: just
 

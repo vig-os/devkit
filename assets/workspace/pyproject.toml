@@ -15,7 +15,7 @@ dev = [
 science = [
   "numpy==2.5.0",
   "scipy==1.18.0",
-  "pandas==3.0.3",
+  "pandas==3.0.4",
   "matplotlib==3.11.0",
 ]
 all = ["{{SHORT_NAME}}[dev,science]"]
