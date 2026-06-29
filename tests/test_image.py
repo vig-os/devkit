@@ -749,6 +749,15 @@ class TestFileStructure:
         """Test that workspace directory exists."""
         assert host.file("/workspace").is_directory, "Workspace directory not found"
 
+    def test_migration_guide_shipped(self, host):
+        """The migration guide ships in the image at /root/assets/MIGRATION.md (#625)."""
+        doc = host.file("/root/assets/MIGRATION.md")
+        assert doc.exists, "/root/assets/MIGRATION.md not found in image"
+        assert doc.is_file, "/root/assets/MIGRATION.md is not a regular file"
+        assert "Migrating to the Nix devcontainer" in doc.content_string, (
+            "MIGRATION.md does not contain its expected heading"
+        )
+
     def test_precommit_alias_in_bashrc(self, host):
         """Test that precommit alias is defined in .bashrc."""
         bashrc = host.file("/root/.bashrc")

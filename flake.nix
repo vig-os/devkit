@@ -463,6 +463,13 @@
                     chmod -R u+w "$out/root/assets"
                     find "$out/root/assets" -type f -name "*.sh" -exec chmod +x {} \;
 
+                    # Ship the migration guide in the image (canonical copy is
+                    # docs/MIGRATION.md; docs/ is not otherwise baked). Lets a
+                    # user read the new-environment paradigm + consumer contract
+                    # from inside the container. Refs #625.
+                    cp ${./docs/MIGRATION.md} "$out/root/assets/MIGRATION.md"
+                    chmod u+w "$out/root/assets/MIGRATION.md"
+
                     # Bake the devcontainer version into the scaffolded `.vig-os`,
                     # replacing the {{IMAGE_TAG}} placeholder. The Debian build
                     # relied on the IMAGE_TAG build-arg; the reproducible Nix image
