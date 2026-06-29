@@ -947,6 +947,28 @@ class TestNixConfiguration:
             f"unexpected nix eval output: {result.stdout!r}"
         )
 
+    def test_nix_conf_disables_build_users_group(self, host):
+        """nix.conf sets an empty ``build-users-group`` (#749).
+
+        The in-image nix runs as root, single-user, daemonless with no
+        ``nixbld`` group, so any on-demand ``nix shell``/``nix develop`` that
+        needs a local build (not a pure cache substitution) would abort with
+        "the group 'nixbld' ... does not exist". An empty ``build-users-group``
+        makes root build directly.
+        """
+        content = host.file("/etc/nix/nix.conf").content_string
+        group_lines = [
+            line.strip()
+            for line in content.splitlines()
+            if line.strip().startswith("build-users-group")
+        ]
+        assert group_lines, "no build-users-group setting in /etc/nix/nix.conf"
+        # Must be empty (everything after '=' is blank) so root builds directly.
+        value = group_lines[0].split("=", 1)[1].strip()
+        assert value == "", (
+            f"build-users-group must be empty for single-user in-image nix, got {value!r}"
+        )
+
 
 class TestPlaceholders:
     """Test that placeholders are replaced correctly."""

@@ -568,10 +568,20 @@
                     # it needs that input's store path threaded in here and is
                     # not a one-liner, so on-demand `nix shell` tracks the
                     # channel default for now. Refs #739.
+                    #
+                    # `build-users-group =` (empty): the in-image nix runs as
+                    # root, single-user, daemonless (no `nixbld` group, store
+                    # owned root:root). Without this, any on-demand `nix shell`/
+                    # `nix develop` that needs a LOCAL build (not a pure cache
+                    # substitution) aborts with "the group 'nixbld' ... does not
+                    # exist" — e.g. a rust-overlay toolchain. Empty disables the
+                    # build-user drop so root builds directly (standard rootless/
+                    # in-container setting). Refs #749.
                     mkdir -p "$out/etc/nix"
                     cat > "$out/etc/nix/nix.conf" <<'NIXCONF'
                     experimental-features = nix-command flakes
                     accept-flake-config = true
+                    build-users-group =
                     NIXCONF
                   '';
             in
