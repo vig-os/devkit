@@ -107,6 +107,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`npm install -g` now lands CLIs on PATH in the Nix image** ([#728](https://github.com/vig-os/devcontainer/issues/728))
+  - npm's default global prefix was the read-only `nodejs` nix-store path, whose `bin/` is not on `PATH` — so `npm install -g <tool>` reported success but the binary was unresolvable (`command -v <tool>` failed). The image now bakes `NPM_CONFIG_PREFIX=/usr/local` (already on the baked `PATH`) and creates a writable `/usr/local/bin` in the bootstrap layer, so globally installed CLIs resolve on `PATH`
 - **`init-workspace --mode direnv` now produces a loadable `justfile`** ([#641](https://github.com/vig-os/devcontainer/issues/641))
   - The scaffolded root `justfile` hard-imported `.devcontainer/justfile.devc` and `.devcontainer/justfile.gh`, but `direnv` mode prunes `.devcontainer/` — so every `just` command (including init-workspace's own final `just sync`) failed to parse in a direnv-mode workspace. Made the two `.devcontainer/` imports optional (`import?`, matching `justfile.project`/`justfile.local`); the `sync` recipe lives in the preserved `justfile.project`, so `just sync` still works in all modes
 - **Worktree recipes read agent config from the `.claude/` SSoT** ([#627](https://github.com/vig-os/devcontainer/issues/627))

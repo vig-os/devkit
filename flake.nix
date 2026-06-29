@@ -432,6 +432,15 @@
                     mkdir -p "$out/opt/pre-commit-cache"
                     mkdir -p "$out/workspace"
 
+                    # Writable global-install prefix for npm. npm's default
+                    # prefix is the read-only nodejs nix-store path, whose bin/
+                    # is off PATH — so `npm install -g <tool>` reports success
+                    # but the binary lands where nothing can resolve it. Create
+                    # the FHS /usr/local/bin (already on the baked PATH) so the
+                    # prefix exists and is writable at runtime; NPM_CONFIG_PREFIX
+                    # (config.Env) points npm here. Refs #728.
+                    mkdir -p "$out/usr/local/bin"
+
                     # /tmp with the sticky bit. A bare layered image has no
                     # /tmp; tools that need a scratch/socket dir (tmux, uv,
                     # pytest) fail without it ("no suitable socket path"). An
@@ -480,6 +489,10 @@
                   "PRE_COMMIT_HOME=/opt/pre-commit-cache"
                   "UV_PROJECT_ENVIRONMENT=/root/assets/workspace/.venv"
                   "VIRTUAL_ENV=/root/assets/workspace/.venv"
+                  # Point npm's global prefix at the writable, on-PATH
+                  # /usr/local (its bin/ is baked by the bootstrap layer) so
+                  # `npm install -g` lands runnable CLIs on PATH. Refs #728.
+                  "NPM_CONFIG_PREFIX=/usr/local"
                   "UV_PYTHON_DOWNLOADS=never"
                   "UV_PYTHON=${python}/bin/python3.14"
                   "BATS_LIB_PATH=${batsWithLibs pkgs}/share/bats"
