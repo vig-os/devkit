@@ -843,6 +843,22 @@ class TestFileStructure:
         )
         assert cache_dir.is_directory, "Pre-commit cache is not a directory"
 
+    def test_template_venv_baked(self, host):
+        """Test that the project virtualenv is baked into the image.
+
+        The image advertises ``UV_PROJECT_ENVIRONMENT``/``VIRTUAL_ENV`` at
+        ``/root/assets/workspace/.venv``; the consumer post-create.sh runs
+        ``sed -i .../.venv/bin/activate`` and aborts under ``set -e`` if the
+        activate script is missing (#735). The flake bootstrap pre-creates the
+        venv from the baked CPython (no deps; ``just sync`` populates it).
+        """
+        activate = host.file("/root/assets/workspace/.venv/bin/activate")
+        assert activate.exists, (
+            "venv activate script not found at "
+            "/root/assets/workspace/.venv/bin/activate"
+        )
+        assert activate.is_file, "venv activate script is not a regular file"
+
     def test_manifest_files(self, host, parse_manifest):
         """Test that all files in manifest are copied to the image.
 

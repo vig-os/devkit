@@ -454,6 +454,24 @@
                     alias cld="claude --dangerously-skip-permissions"
                     BASHRC
 
+                    # Pre-create the project virtualenv from the baked CPython
+                    # so /root/assets/workspace/.venv/bin/activate exists in the
+                    # image. The published 0.3.x consumer post-create.sh runs
+                    # `sed -i .../.venv/bin/activate` as its first venv step and
+                    # aborts under `set -e` when the file is missing (#735).
+                    # Hermetic and network-free: no packages are installed; the
+                    # consumer's `just sync` (uv) populates the venv at
+                    # post-create. The path matches UV_PROJECT_ENVIRONMENT /
+                    # VIRTUAL_ENV (config.Env). `venv` bakes the build-time $out
+                    # prefix into activate/pyvenv.cfg, so rewrite it to the
+                    # runtime image path so VIRTUAL_ENV resolves to
+                    # /root/assets/workspace/.venv inside the container.
+                    venvdir="$out/root/assets/workspace/.venv"
+                    ${python}/bin/python3 -m venv "$venvdir"
+                    find "$venvdir/bin" -maxdepth 1 -type f \
+                      -exec sed -i "s|$out||g" {} +
+                    sed -i "s|$out||g" "$venvdir/pyvenv.cfg"
+
                     mkdir -p "$out/opt/pre-commit-cache"
                     mkdir -p "$out/workspace"
 
