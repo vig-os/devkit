@@ -191,6 +191,16 @@ jobs:
       - name: Check flake quality gates
         run: nix flake check --accept-flake-config
 
+      # Guard the dev-shell <-> image parity: the dev-shell must expose
+      # `python3`/`pre-commit` (#729) and must NOT leak the Nix C++ runtime onto
+      # an FHS host's LD_LIBRARY_PATH (#703). These drive `nix develop` directly
+      # (not covered by `test-project`'s pytest scope), so run them explicitly
+      # here where Nix + the dev profile are warm. Refs #729, #703.
+      - name: Check dev-shell python/pre-commit parity + FHS leak-guard
+        run: |
+          uv run pytest tests/test_flake_devshell.py \
+            -k "exposes_python3_and_precommit or no_nix_cxx_runtime_leak" -v
+
       # Validate the scaffolded downstream stub (assets/workspace/flake.nix)
       # against THIS toolchain, not the published vigos, so a change to the flake
       # API (lib.mkProjectShell / overlays.default) can't silently break a

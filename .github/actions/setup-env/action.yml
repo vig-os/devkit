@@ -172,12 +172,26 @@ runs:
         # preinstalled podman is kept on PATH by NOT shadowing it here (matches
         # the apt-podman intent documented on the provision-via-flake input).
         # Refs #632.
+        #
+        # Exclude the flake's bare CPython (and pre-commit): the dev-shell now
+        # ships `python3`/`pre-commit` on PATH for dev-shell<->image parity
+        # (#729), but CI must keep building the project venv from a DOWNLOADED
+        # manylinux-compatible CPython (the UV_PYTHON_DOWNLOADS_JSON_URL path
+        # below) so pre-commit's manylinux hooks (pymarkdown -> pyjson5) resolve
+        # the runner's system libstdc++. If the Nix `python3.14` were on the
+        # runner PATH, `uv sync` would select it (it satisfies requires-python),
+        # rebuild the venv on the Nix loader, and reintroduce the #698/#703
+        # `libstdc++` ImportError that forced the #729 revert. The interpreter
+        # drv is `python3-<ver>` (library pkgs are `python3.14-<pkg>` and are
+        # unaffected); the `pre-commit-` exclusion is belt-and-suspenders (CI
+        # uses `uv run pre-commit`, never the bare flake one). Refs #729.
         SHELL_PATH="$(nix develop --profile "$RUNNER_TEMP/dev-profile" \
           --command bash -c 'printf "%s" "$PATH"')"
 
         printf '%s' "$SHELL_PATH" | tr ':' '\n' \
           | grep '^/nix/store' \
-          | grep -v '/nix/store/[^/]*-podman[^/]*/bin' >> "$GITHUB_PATH"
+          | grep -v '/nix/store/[^/]*-podman[^/]*/bin' \
+          | grep -Ev '/nix/store/[^/]*-(python3-[0-9]|pre-commit-)[^/]*/bin' >> "$GITHUB_PATH"
 
         # Propagate the dev-shell's uv Python-download metadata URL to later
         # steps. GITHUB_PATH only carries PATH, not env vars, so this var (set

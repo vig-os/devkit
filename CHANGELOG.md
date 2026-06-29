@@ -109,6 +109,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Dev-shell exposes `python3` + `pre-commit` (image parity), CI-safely** ([#729](https://github.com/vig-os/devcontainer/issues/729))
+  - `mkProjectShell` now ships a bare `python3`/`pre-commit` on PATH so the downstream flake-input/direnv dev-shell matches the image. The earlier attempt was reverted because, on the FHS CI runner, the dev-shell→PATH forwarding leaked the Nix CPython, so `uv sync` built the project venv from it and pre-commit's manylinux `pymarkdown` (`pyjson5`) hook could not resolve `libstdc++`. Fixed at the right layer: `setup-env` now filters the Nix `python3-<ver>` (and `pre-commit`) out of the forwarded runner PATH so CI keeps building the venv from the downloaded managed CPython. No new `LD_LIBRARY_PATH`, so the #703 FHS leak-guard is unaffected. A `nix develop --ignore-environment` parity test (and the FHS leak-guard) now run in the Project Checks job
 - **FHS loader symlink is now architecture-aware** ([#736](https://github.com/vig-os/devcontainer/issues/736))
   - The manylinux FHS loader was hardcoded to `/lib64/ld-linux-x86-64.so.2`, which does not exist on `aarch64` (the loader is `/lib/ld-linux-aarch64.so.1`), so the arm64 image build failed the `test_fhs_loader_exists` portable testinfra check. The loader name and FHS dir are now derived from the build platform, and the test asserts the arch-appropriate path
 - **Baked `.venv` prompt is now renameable by consumer `post-create.sh`** ([#735](https://github.com/vig-os/devcontainer/issues/735))

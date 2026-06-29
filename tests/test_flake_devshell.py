@@ -349,6 +349,51 @@ def test_devshell_bats_lib_path_resolves_helpers(dev_shell_env: dict[str, str]) 
         )
 
 
+@pytest.mark.parametrize("binary", ["python3", "pre-commit"])
+def test_devshell_exposes_python3_and_precommit(binary: str) -> None:
+    """The dev-shell must put ``python3`` and ``pre-commit`` on PATH (#729).
+
+    The image (``imageTools``) ships a Python interpreter (``pythonEnv``) and
+    ``pre-commit``, but ``mkProjectShell`` carried neither: the downstream
+    flake-input / direnv dev-shell could reach Python only via ``uv run`` and
+    had no ``pre-commit`` at all — a dev-shell ↔ image parity gap.
+
+    The check runs under ``nix develop --ignore-environment`` so it asserts the
+    dev-shell's *own* PATH contribution and is not satisfied by a host
+    ``python3``/``pre-commit`` leaking through the inherited environment (the
+    exact way the gap hid until #729). These two binaries are intentionally not
+    in the ``devTools`` SSoT (a bare interpreter there would collide with the
+    image's ``pythonEnv``), so they are asserted explicitly here rather than
+    through ``devShellTools``.
+    """
+    cmd = [
+        "nix",
+        "develop",
+        "--ignore-environment",
+        "--keep",
+        "HOME",
+        str(REPO_ROOT),
+        "-c",
+        "bash",
+        "-c",
+        f"command -v {binary}",
+    ]
+    proc = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=900,
+    )
+    # `command -v` exits 0 iff the binary is on PATH; rely on the exit code
+    # (the shellHook's banner pollutes stdout, so it is not a presence signal).
+    assert proc.returncode == 0, (
+        f"{binary} must be on the dev-shell's own PATH (#729): "
+        f"rc={proc.returncode} stdout={proc.stdout.strip()!r} "
+        f"stderr={proc.stderr.strip()[:200]}"
+    )
+
+
 def test_each_tool_runs_in_devshell(dev_shell_tools: list[str]) -> None:
     """Every tool in ``devTools`` is runnable inside ``nix develop``."""
     failures: list[str] = []

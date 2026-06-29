@@ -205,7 +205,24 @@
           '';
         in
         pkgs.mkShell {
-          packages = (devTools pkgs) ++ extraPackages;
+          # The toolchain SSoT, plus a bare Python interpreter and pre-commit so
+          # the downstream dev-shell matches the image's PATH (`python`/`python3`
+          # + `pre-commit`). These are not in `devTools`: the image already
+          # provides them via `pythonEnv` + `pre-commit` in `imageTools`, and a
+          # bare interpreter in the SSoT would collide with `pythonEnv` there.
+          # Safe for CI despite the FHS pymarkdown/manylinux constraint: the
+          # dev-shell pins `UV_PYTHON` (below) to this same store CPython, and
+          # the CI PATH-forwarding (setup-env) filters this interpreter out so
+          # `uv` still builds the runner venv from a downloaded managed CPython.
+          # No new LD_LIBRARY_PATH, so the #703 FHS leak-guard is unaffected.
+          # Refs #729.
+          packages =
+            (devTools pkgs)
+            ++ [
+              python
+              pkgs.pre-commit
+            ]
+            ++ extraPackages;
           shellHook = ldLibraryPathHook + "\n" + nvimIsolationHook + "\n" + shellHook;
 
           UV_PYTHON = "${python}/bin/python3.14";
