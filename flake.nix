@@ -449,6 +449,22 @@
                     # (config.Env) points npm here. Refs #728.
                     mkdir -p "$out/usr/local/bin"
 
+                    # docker -> podman compatibility shim. The image ships
+                    # `podman` but no `docker` binary. Docker-out-of-Docker
+                    # works because podman honors DOCKER_HOST (set by the
+                    # consumer docker-compose.yml), but any recipe/script that
+                    # invokes `docker` literally fails with "command not found".
+                    # A tiny wrapper on the (already on-PATH) /usr/local/bin
+                    # execs the baked podman, so docker-literal callers get a
+                    # working binary without pulling in the Docker engine. The
+                    # heredoc is quoted so `$@` is written verbatim; the store
+                    # paths are interpolated by Nix at eval time. Refs #740.
+                    cat > "$out/usr/local/bin/docker" <<'DOCKERSHIM'
+                    #!${pkgs.runtimeShell}
+                    exec ${pkgs.podman}/bin/podman "$@"
+                    DOCKERSHIM
+                    chmod +x "$out/usr/local/bin/docker"
+
                     # /tmp with the sticky bit. A bare layered image has no
                     # /tmp; tools that need a scratch/socket dir (tmux, uv,
                     # pytest) fail without it ("no suitable socket path"). An

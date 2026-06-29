@@ -517,6 +517,36 @@ class TestDevelopmentTools:
         assert result.rc == 0, f"{name} command failed: {result.stderr}"
 
 
+class TestContainerRuntime:
+    """Test the container runtime tooling (#740)."""
+
+    def test_podman_installed(self, host):
+        """podman is installed (the image's container runtime)."""
+        result = assert_tool_runs(host, "podman", "--version")
+        assert "podman" in result.stdout.lower()
+
+    def test_docker_shim_on_path(self, host):
+        """A `docker` shim must resolve on PATH (#740).
+
+        The image ships `podman` but no `docker` binary. Docker-out-of-Docker
+        works because podman honors DOCKER_HOST, but any recipe/script that
+        invokes `docker` literally fails with "command not found" without a
+        shim. The image bakes a `docker -> podman` wrapper on /usr/local/bin.
+        """
+        assert_tool_on_path(host, "docker")
+
+    def test_docker_shim_runs_podman(self, host):
+        """The `docker` shim must run and report podman's version (#740).
+
+        Proves the wrapper execs podman rather than merely existing on PATH.
+        """
+        result = host.run("docker --version")
+        assert result.rc == 0, f"docker --version failed: {result.stderr}"
+        assert "podman" in result.stdout.lower(), (
+            f"docker shim did not exec podman: {result.stdout!r}"
+        )
+
+
 class TestNodeEnvironment:
     """Test the Node.js / npm environment (#728)."""
 
