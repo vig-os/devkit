@@ -137,10 +137,10 @@ class TestInstallScriptIntegration:
             f"install.sh --dry-run --name failed:\n"
             f"stdout: {result.stdout}\nstderr: {result.stderr}"
         )
-        assert 'SHORT_NAME="install_test_project"' in result.stdout, (
+        assert "SHORT_NAME=install_test_project" in result.stdout, (
             "Expected sanitized name without trailing underscore in dry-run output"
         )
-        assert 'SHORT_NAME="install_test_project_"' not in result.stdout, (
+        assert "SHORT_NAME=install_test_project_" not in result.stdout, (
             "Sanitized name should not end with an underscore"
         )
 
