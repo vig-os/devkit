@@ -3,15 +3,35 @@
   "extends": [
     "github>vig-os/devcontainer//assets/workspace/.github/renovate-default"
   ],
-  "enabledManagers": ["github-actions", "pep621", "npm", "nix"],
+  "enabledManagers": ["github-actions", "pep621", "npm", "nix", "custom.regex"],
   "lockFileMaintenance": {
     "enabled": true,
     "schedule": ["before 9am on monday"]
   },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track the pip-licenses wheel pinned in flake.nix (version lives in the pythonhosted wheel URL). Renovate proposes the version bump; the sha256 + URL hash path are refreshed by hand when the PR lands.",
+      "managerFilePatterns": ["/^flake\\.nix$/"],
+      "matchStrings": [
+        "pip_licenses-(?<currentValue>[0-9]+(?:\\.[0-9]+)*)-py3-none-any\\.whl"
+      ],
+      "depNameTemplate": "pip-licenses",
+      "packageNameTemplate": "pip-licenses",
+      "datasourceTemplate": "pypi"
+    }
+  ],
   "packageRules": [
     {
       "description": "Nix flake.lock — bump flake inputs through the normal PR/CI gate",
       "matchManagers": ["nix"],
+      "semanticCommitType": "build",
+      "semanticCommitScope": "nix"
+    },
+    {
+      "description": "pip-licenses wheel (custom regex manager) — build/nix scope, matching the flake.nix pin it lives in",
+      "matchManagers": ["custom.regex"],
+      "matchDepNames": ["pip-licenses"],
       "semanticCommitType": "build",
       "semanticCommitScope": "nix"
     }

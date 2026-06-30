@@ -45,20 +45,33 @@
           p.bats-file
         ]);
 
-      overlay =
-        final: prev:
-        let
-          unstable = import nixpkgs-unstable {
-            inherit (final) system;
-            config.allowUnfree = true;
-          };
-        in
+      # Import nixpkgs-unstable for a given system (allowUnfree covers
+      # claude-code). Evaluated once per system in the per-system `let` below and
+      # threaded into the overlay, rather than re-imported inside the overlay
+      # fixpoint on each application. Refs #774.
+      importUnstable =
+        system:
+        import nixpkgs-unstable {
+          inherit system;
+          config.allowUnfree = true;
+        };
+
+      # Build the fast-mover overlay from an already-imported `unstable` pkgs set,
+      # so the unstable import is hoisted out of the overlay closure (see
+      # importUnstable above).
+      mkFastMoverOverlay =
+        unstable: final: prev:
         builtins.listToAttrs (
           map (name: {
             inherit name;
             value = unstable.${name};
           }) fastMovers
         );
+
+      # System-independent overlay for downstream consumers (overlays.default).
+      # No concrete system is known here, so it imports unstable inside the
+      # fixpoint; the in-flake path below uses the hoisted importUnstable.
+      overlay = final: prev: mkFastMoverOverlay (importUnstable final.system) final prev;
 
       # ---------------------------------------------------------------------
       # devTools — the single source of truth for the toolchain.
@@ -135,16 +148,6 @@
       #     inherit pkgs;
       #     extraPackages = [ pkgs.foo ];
       #   };
-      # ---------------------------------------------------------------------
-      # uv's Python-download metadata, pinned to the uv release we provision.
-      # The nixpkgs build of uv ships with its embedded Python-download list
-      # stripped, so it cannot fetch a managed CPython on its own. CI provisions
-      # FROM this dev-shell on an FHS runner and forwards this URL (see the
-      # setup-env action) so the runner's uv can download a managed CPython for
-      # `uv sync` / pre-commit — a Nix-store interpreter cannot load pre-commit's
-      # manylinux-wheel C extensions outside `nix develop`. Refs #632, #666, #683.
-      uvPythonDownloadsJsonUrl = "https://raw.githubusercontent.com/astral-sh/uv/0.11.23/crates/uv-python/download-metadata.json";
-
       mkProjectShell =
         {
           pkgs,
@@ -152,6 +155,17 @@
           shellHook ? ''echo "devcontainer dev environment loaded (nix)"'',
         }:
         let
+          # uv's Python-download metadata, pinned to the uv release we provision.
+          # The nixpkgs build of uv ships with its embedded Python-download list
+          # stripped, so it cannot fetch a managed CPython on its own. CI
+          # provisions FROM this dev-shell on an FHS runner and forwards this URL
+          # (see the setup-env action) so the runner's uv can download a managed
+          # CPython for `uv sync` / pre-commit — a Nix-store interpreter cannot
+          # load pre-commit's manylinux-wheel C extensions outside `nix develop`.
+          # Derived from `pkgs.uv.version` so it tracks the overlaid (floating)
+          # uv and cannot drift from a literal pin. Refs #632, #666, #683, #774.
+          uvPythonDownloadsJsonUrl = "https://raw.githubusercontent.com/astral-sh/uv/${pkgs.uv.version}/crates/uv-python/download-metadata.json";
+
           # CPython matching `requires-python` (>=3.14,<3.15). The dev-shell
           # carries no Python on PATH (the project venv is uv-managed). Pin a
           # Nix store CPython via UV_PYTHON and forbid downloads
@@ -243,9 +257,11 @@
     flake-utils.lib.eachDefaultSystem (
       system:
       let
+        # Imported once per system and reused by the overlay below.
+        unstable = importUnstable system;
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [ overlay ];
+          overlays = [ (mkFastMoverOverlay unstable) ];
           config.allowUnfree = true;
         };
 
@@ -379,10 +395,19 @@
         # dev-shell builds, and devShellTools evaluates. Refs #674.
         checks = {
           # Every *.nix file is nixfmt-clean (the `nix fmt` idempotency gate).
-          format = pkgs.runCommand "nixfmt-check" { nativeBuildInputs = [ pkgs.nixfmt-rfc-style ]; } ''
-            nixfmt --check ${./flake.nix}
-            touch "$out"
-          '';
+          # Source filtered to `.nix` files so the check only depends on (and
+          # reruns for) those, while still covering every *.nix in the repo —
+          # not just flake.nix. Refs #674, #774.
+          format =
+            pkgs.runCommand "nixfmt-check"
+              {
+                nativeBuildInputs = [ pkgs.nixfmt-rfc-style ];
+                src = pkgs.lib.sources.sourceFilesBySuffices ./. [ ".nix" ];
+              }
+              ''
+                find "$src" -name '*.nix' -exec nixfmt --check {} +
+                touch "$out"
+              '';
 
           # The dev-shell evaluates and its closure builds.
           devShell = self.devShells.${system}.default;
@@ -394,7 +419,12 @@
             touch "$out"
           '';
         };
-
+      }
+      # The image and its scan targets are Linux-only (dockerTools.* fails to
+      # even evaluate on darwin), so expose `packages` only on *-linux systems.
+      # Without this guard `nix flake check --all-systems` aborts during the
+      # darwin eval. The dev-shell stays cross-platform. Refs #774.
+      // pkgs.lib.optionalAttrs (pkgs.lib.hasSuffix "-linux" system) {
         packages = {
           # -----------------------------------------------------------------
           # devcontainerImage — Nix-built devcontainer image (T2.1, #634).
