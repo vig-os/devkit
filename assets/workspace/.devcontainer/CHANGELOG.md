@@ -55,6 +55,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Flake cheap-fix batch: darwin-guarded image outputs, single nixpkgs-unstable eval, uv downloads URL derived from version, Renovate wheel-hash rule, nixfmt over all `*.nix`** ([#774](https://github.com/vig-os/devcontainer/issues/774))
+  - The Linux-only `packages` (`devcontainerImage` plus its `devcontainerImageEnv`/`vulnix` scan targets) are now exposed only on `*-linux` systems, so `nix flake check --all-systems` no longer aborts during the darwin `dockerTools` evaluation; the dev-shell stays cross-platform
+  - `nixpkgs-unstable` is imported once per system and threaded into the fast-mover overlay, instead of being re-imported inside the overlay fixpoint on each application
+  - `UV_PYTHON_DOWNLOADS_JSON_URL` is derived from `pkgs.uv.version` rather than a literal version pin, so it can no longer drift from the overlaid (floating) `uv`
+  - Added a Renovate custom regex manager that tracks the `pip-licenses` wheel version pinned in `flake.nix` (the sha256/URL hash path is refreshed by hand when the bump PR lands)
+  - The flake `checks.format` gate now runs `nixfmt --check` over every `*.nix` in the repo (source filtered to `.nix` files), not just `flake.nix`
 - **Resync security-gate docs to reflect the blocking vulnix gate** ([#758](https://github.com/vig-os/devcontainer/issues/758))
   - `docs/NIX.md`, `docs/CONTAINER_SECURITY.md`, and the `security-scan.yml` summary string still described the nightly `vulnix` CVE gate as non-blocking / in a discovery phase, with a stale `builder: debian|nix` selector reference; the gate is now **blocking** (#639) and the build pipeline is Nix-only post-Debian-decommission (#642), so the wording is corrected to match
 - **Offline skip-guard for network-dependent image tests** ([#761](https://github.com/vig-os/devcontainer/issues/761))
