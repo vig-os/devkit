@@ -108,6 +108,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **release.yml publish retags the loaded Nix image tag** ([#752](https://github.com/vig-os/devcontainer/issues/752))
 - **Dev-shell exposes `python3` + `pre-commit` (image parity), CI-safely** ([#729](https://github.com/vig-os/devcontainer/issues/729))
   - `mkProjectShell` now ships a bare `python3`/`pre-commit` on PATH so the downstream flake-input/direnv dev-shell matches the image. `setup-env` filters the Nix `python3-<ver>` (and `pre-commit`) out of the forwarded CI runner PATH so `uv` keeps building the project venv from the downloaded managed CPython. No new `LD_LIBRARY_PATH`, so the #703 FHS leak-guard is intact. A `nix develop --ignore-environment` parity test (and the FHS leak-guard) now run in the Project Checks job
 - **Nix image runs pre-compiled PyPI (manylinux) wheels at runtime (arch-aware FHS loader + baked `LD_LIBRARY_PATH`)** ([#736](https://github.com/vig-os/devcontainer/issues/736))

@@ -949,9 +949,12 @@ jobs:
             fi
 
             echo "Loading $arch image..."
-            docker load < "$ARTIFACT_PATH/image.tar"
-
-            SOURCE_IMAGE_TAG="$REPO:$BUILD_VERSION-$arch"
+            # Read back whatever tag the flake stamped (e.g. `nix-dev`) rather
+            # than assuming `$BUILD_VERSION-$arch`; the Nix image is saved
+            # verbatim and never carries the versioned tag.
+            SOURCE_IMAGE_TAG="$(docker load < "$ARTIFACT_PATH/image.tar" \
+              | sed -n 's/^Loaded image: //p' | head -n1)"
+            echo "Loaded: $SOURCE_IMAGE_TAG"
             IMAGE_TAG="$REPO:$PUBLISH_VERSION-$arch"
             docker tag "$SOURCE_IMAGE_TAG" "$IMAGE_TAG"
             echo "Pushing $arch image: $IMAGE_TAG"
