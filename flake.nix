@@ -568,13 +568,23 @@
                     # no nix.conf, so `nix-command`/`flakes` were off by default
                     # and ad-hoc on-demand tooling (`nix shell nixpkgs#<x>`,
                     # `nix run`, `nix eval`) failed without an explicit
-                    # `--extra-experimental-features` flag. accept-flake-config
-                    # matches the repo's build posture (CI and docs invoke
-                    # `nix build --accept-flake-config`). Pinning the flake
-                    # registry `nixpkgs` to the image's locked input is deferred:
-                    # it needs that input's store path threaded in here and is
-                    # not a one-liner, so on-demand `nix shell` tracks the
-                    # channel default for now. Refs #739.
+                    # `--extra-experimental-features` flag. Refs #739.
+                    #
+                    # `accept-flake-config` is deliberately NOT baked: setting it
+                    # `true` made any in-container `nix run github:attacker/flake`
+                    # silently accept that flake's `substituters`/
+                    # `trusted-public-keys` — a cache-redirection supply-chain
+                    # trapdoor. Instead the trusted caches are pinned EXPLICITLY
+                    # below so normal builds still substitute from them, while a
+                    # foreign flake's `nixConfig` needs a per-invocation
+                    # `--accept-flake-config`. The substituters + public keys
+                    # mirror CONTRIBUTE.md (cache.nixos.org + the public vig-os
+                    # Cachix cache); the keys are PUBLIC. Refs #773.
+                    #
+                    # Pinning the flake registry `nixpkgs` to the image's locked
+                    # input is deferred: it needs that input's store path threaded
+                    # in here and is not a one-liner, so on-demand `nix shell`
+                    # tracks the channel default for now. Refs #739.
                     #
                     # `build-users-group =` (empty): the in-image nix runs as
                     # root, single-user, daemonless (no `nixbld` group, store
@@ -587,7 +597,8 @@
                     mkdir -p "$out/etc/nix"
                     cat > "$out/etc/nix/nix.conf" <<'NIXCONF'
                     experimental-features = nix-command flakes
-                    accept-flake-config = true
+                    substituters = https://cache.nixos.org https://vig-os.cachix.org
+                    trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= vig-os.cachix.org-1:yoOYRi3bvnM6ThxO0joLt7vtzhTfkq3r6jykeUMg7Bk=
                     build-users-group =
                     NIXCONF
                   '';

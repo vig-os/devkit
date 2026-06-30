@@ -1080,6 +1080,70 @@ class TestNixConfiguration:
             f"build-users-group must be empty for single-user in-image nix, got {value!r}"
         )
 
+    def test_nix_conf_does_not_accept_flake_config(self, host):
+        """nix.conf must NOT bake ``accept-flake-config = true`` (#773).
+
+        Baking ``accept-flake-config = true`` makes any in-container
+        ``nix run github:attacker/flake`` silently accept that flake's
+        ``substituters``/``trusted-public-keys`` — a cache-redirection
+        supply-chain attack. Foreign-flake config must require an explicit
+        per-invocation ``--accept-flake-config`` instead.
+        """
+        content = host.file("/etc/nix/nix.conf").content_string
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("accept-flake-config"):
+                value = stripped.split("=", 1)[1].strip()
+                assert value != "true", (
+                    "accept-flake-config must not be 'true' in baked nix.conf "
+                    "(supply-chain trapdoor, #773)"
+                )
+
+    def test_nix_conf_bakes_explicit_substituters(self, host):
+        """nix.conf bakes explicit substituters so caches still resolve (#773).
+
+        With ``accept-flake-config`` dropped, the trusted caches must be set
+        explicitly or normal builds would no longer substitute from them.
+        """
+        content = host.file("/etc/nix/nix.conf").content_string
+        sub_line = next(
+            (
+                line
+                for line in content.splitlines()
+                if line.strip().startswith("substituters")
+            ),
+            None,
+        )
+        assert sub_line is not None, "no substituters setting in /etc/nix/nix.conf"
+        assert "https://cache.nixos.org" in sub_line, (
+            "cache.nixos.org missing from substituters in /etc/nix/nix.conf"
+        )
+        assert "https://vig-os.cachix.org" in sub_line, (
+            "vig-os.cachix.org missing from substituters in /etc/nix/nix.conf"
+        )
+
+    def test_nix_conf_bakes_trusted_public_keys(self, host):
+        """nix.conf bakes the trusted-public-keys for the explicit caches (#773)."""
+        content = host.file("/etc/nix/nix.conf").content_string
+        key_line = next(
+            (
+                line
+                for line in content.splitlines()
+                if line.strip().startswith("trusted-public-keys")
+            ),
+            None,
+        )
+        assert key_line is not None, (
+            "no trusted-public-keys setting in /etc/nix/nix.conf"
+        )
+        assert (
+            "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=" in key_line
+        ), "cache.nixos.org public key missing from trusted-public-keys"
+        assert (
+            "vig-os.cachix.org-1:yoOYRi3bvnM6ThxO0joLt7vtzhTfkq3r6jykeUMg7Bk="
+            in key_line
+        ), "vig-os.cachix.org public key missing from trusted-public-keys"
+
 
 class TestPlaceholders:
     """Test that placeholders are replaced correctly."""
