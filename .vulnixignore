@@ -44,40 +44,96 @@ CVE-2022-30947
 CVE-2022-36882
 CVE-2022-36883
 
-# --- Class 2: recent CVEs vulnix matches by version against the current-stable
-#     nixpkgs (26.05). Low exploitability in an interactive, single-user dev
-#     container (no untrusted network services or inputs); the primary
-#     remediation is advancing the pinned nixpkgs rev as fixes land (Renovate
-#     `nix` manager + lockFileMaintenance, #638). Short expiry forces re-review
-#     each quarter as the pin advances. ---
-Expiration: 2026-09-23
-# glibc 2.42
-CVE-2025-15281
-CVE-2026-4046
-CVE-2026-4437
-CVE-2026-5435
-CVE-2026-5450
-CVE-2026-5928
-# openssl 3.6.2
+# --- Class 2: recent CVEs vulnix matches by package version against the
+#     current-stable nixpkgs (26.05). Every package below is genuinely present
+#     in the image's runtime closure — confirmed via
+#     `nix path-info -r .#devcontainerImageEnv` and `nix why-depends` (see the
+#     per-package provenance notes) — so these are REAL suppressions, not
+#     closure false positives. The shared mitigating context is the deployment
+#     model: an interactive, single-user dev container with no untrusted network
+#     services or inputs. The primary remediation is advancing the pinned
+#     nixpkgs rev as fixes land (Renovate `nix` manager + lockFileMaintenance,
+#     #638).
+#
+#     HONESTY NOTE (#762): these are mostly 2026 CVEs whose per-CVE
+#     exploitability and CVSS could NOT be verified offline in this environment
+#     (no external CVE lookups permitted). Each note below records the package,
+#     what pulls it into the closure, and an honest reachability assessment; it
+#     does NOT assert a verified all-clear. The deliberately SHORT, staggered
+#     expiries below (≈30–60 days, vs the prior single 2026-09-23) exist to
+#     FORCE near-term re-review with proper CVE data rather than to certify
+#     safety. ---
+
+# openssl 3.6.2 — TLS/crypto library. In-closure via rsync, and also curl,
+#   openssh, nix and python (network-facing crypto). GENUINELY REACHABLE
+#   whenever the container does TLS (git fetch over https, curl, ssh). This
+#   block is expected to hold the CRITICAL openssl finding called out in #762;
+#   the specific per-CVE CVSS could not be confirmed offline. Given the high
+#   reachability and a CRITICAL in the set, this block carries the SHORTEST
+#   expiry of the register to force the soonest re-review.
+Expiration: 2026-07-31
+# CVE-2026-7383 — openssl (TLS, reachable); CVSS/specifics unverified offline.
 CVE-2026-7383
+# CVE-2026-9076 — openssl (TLS, reachable); CVSS/specifics unverified offline.
 CVE-2026-9076
+# CVE-2026-34180 — openssl (TLS, reachable); CVSS/specifics unverified offline.
 CVE-2026-34180
+# CVE-2026-34181 — openssl (TLS, reachable); CVSS/specifics unverified offline.
 CVE-2026-34181
+# CVE-2026-34182 — openssl (TLS, reachable); CVSS/specifics unverified offline.
 CVE-2026-34182
+# CVE-2026-34183 — openssl (TLS, reachable); CVSS/specifics unverified offline.
 CVE-2026-34183
+# CVE-2026-42764 — openssl (TLS, reachable); CVSS/specifics unverified offline.
 CVE-2026-42764
+# CVE-2026-42765 — openssl (TLS, reachable); CVSS/specifics unverified offline.
 CVE-2026-42765
+# CVE-2026-45445 — openssl (TLS, reachable); CVSS/specifics unverified offline.
 CVE-2026-45445
+# CVE-2026-45447 — openssl (TLS, reachable); CVSS/specifics unverified offline.
 CVE-2026-45447
-# perl 5.42.0
+
+# glibc 2.42 — the base C library. Loaded by essentially every process in the
+#   closure, so unconditionally present; most glibc CVEs need a specific local
+#   vector (crafted input/locale/regex), mitigated by the single-user model but
+#   NOT individually verified here.
+Expiration: 2026-08-15
+# CVE-2025-15281 — glibc (base libc, loaded everywhere); specifics unverified offline.
+CVE-2025-15281
+# CVE-2026-4046 — glibc (base libc, loaded everywhere); specifics unverified offline.
+CVE-2026-4046
+# CVE-2026-4437 — glibc (base libc, loaded everywhere); specifics unverified offline.
+CVE-2026-4437
+# CVE-2026-5435 — glibc (base libc, loaded everywhere); specifics unverified offline.
+CVE-2026-5435
+# CVE-2026-5450 — glibc (base libc, loaded everywhere); specifics unverified offline.
+CVE-2026-5450
+# CVE-2026-5928 — glibc (base libc, loaded everywhere); specifics unverified offline.
+CVE-2026-5928
+
+# Remaining lower-reachability components (provenance per note). Specifics
+# unverified offline; medium-near expiry to force re-review.
+Expiration: 2026-08-31
+# perl 5.42.0 — in-closure via git (git's perl-based subcommands: send-email,
+#   instaweb, etc.). Reachable only when those subcommands run, not on the hot
+#   path; specifics unverified offline.
 CVE-2026-4176
-# zlib 1.3.2
+# zlib 1.3.2 — ubiquitous compression dep (curl, openssh, git, nix, python).
+#   Reachable on any decompression path; specifics unverified offline.
 CVE-2026-27820
-# sqlite 3.51.2
+# sqlite 3.51.2 — in-closure via the python env (and nix's own DB). Most sqlite
+#   CVEs require opening a malicious DB/SQL; not exposed to untrusted input in
+#   this usage. Specifics unverified offline.
 CVE-2026-11822
+# sqlite 3.51.2 — see CVE-2026-11822 note; specifics unverified offline.
 CVE-2026-11824
-# ldns 1.9.0
+# ldns 1.9.0 — in-closure via openssh (DNSSEC/SSHFP support). Reachable only on
+#   ssh hostname-resolution paths; specifics unverified offline.
 CVE-2026-10846
-# libmicrohttpd 1.0.2
+# libmicrohttpd 1.0.2 — in-closure via podman -> systemd. The container does not
+#   run systemd as PID 1 and podman is used as a rootless CLI, so this embedded
+#   HTTP server is effectively not exercised — LOWEST reachability of the set.
+#   Specifics unverified offline.
 CVE-2025-59777
+# libmicrohttpd 1.0.2 — see CVE-2025-59777 note; specifics unverified offline.
 CVE-2025-62689

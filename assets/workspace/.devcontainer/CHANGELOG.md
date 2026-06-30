@@ -181,6 +181,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Per-CVE rationale and shorter expiry for `.vulnixignore` Class-2 excepts** ([#762](https://github.com/vig-os/devcontainer/issues/762))
+  - Replaced the single blanket Class-2 rationale and long uniform expiry (2026-09-23) over ~22 HIGH/CRITICAL CVEs with a per-CVE note (package, what pulls it into the runtime closure, honest reachability) and short, staggered expiries (openssl 2026-07-31, glibc 2026-08-15, the rest 2026-08-31) so each suppression is individually justified and re-reviewed near-term. Provenance was confirmed against the real image closure (`nix path-info -r .#devcontainerImageEnv` + `nix why-depends`); 2026 CVE specifics were not verified offline, so the notes state this plainly and the short expiries force re-review rather than asserting an all-clear
 - **Drop the piscina CVE ignore tied to `cursor-agent`** ([#628](https://github.com/vig-os/devcontainer/issues/628))
   - Removed the `CVE-2026-55388` (piscina) `.trivyignore` entry, which only existed for the now-removed `cursor-agent` CLI
 - **vulnix gate fails loud on unscored CVEs and scanner crashes** ([#755](https://github.com/vig-os/devcontainer/issues/755))
