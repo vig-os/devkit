@@ -6,3 +6,5 @@
 ba = "ba"
 # CVE policy term (#637): a finding "unexcepted" = not in the exception register
 unexcepted = "unexcepted"
+# version-check.sh duration placeholder (#759): 'Nd' = N days (cf. Nw/Nh/Nm)
+Nd = "Nd"
