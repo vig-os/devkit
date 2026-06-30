@@ -180,6 +180,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **vulnix gate fails loud on unscored CVEs and scanner crashes** ([#755](https://github.com/vig-os/devcontainer/issues/755))
   - `vulnix-gate` now blocks on a CVE with no CVSS v3 base score (unknown severity is failed loud, not silently skipped); only sub-threshold *scored* CVEs remain awareness-only
   - The nightly `security-scan` step no longer wraps the vulnix scan in `|| true`: it tolerates only vulnix's scan-ran exit codes (≤ 2) and fails the job on any higher code, so a scanner crash can no longer masquerade as an empty, clean result
+- **Hard vulnix CVE gate on the release publish path** ([#753](https://github.com/vig-os/devcontainer/issues/753))
+  - The release workflow now runs a `vulnix-gate` job (the same `vulnix-gate` / `.vulnixignore` check as the nightly `security-scan`, built from the finalized release commit's image closure) that the `publish` job `needs:`, so a release can no longer ship an image carrying an unexcepted HIGH/CRITICAL CVE that nightly vulnix would have blocked. Previously the only CVE gate on the publish path was the per-arch Trivy step, which is largely dark on a Nix image. Wired into the rollback trigger alongside the other pre-publish jobs (Refs [#639](https://github.com/vig-os/devcontainer/issues/639))
 
 ## [0.3.9](https://github.com/vig-os/devcontainer/releases/tag/0.3.9) - 2026-06-23
 

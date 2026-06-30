@@ -804,9 +804,58 @@ jobs:
         run: |
           echo "✓ Build, tests, and security scan passed for ${{ matrix.arch }}"
 
+  vulnix-gate:
+    name: Vulnix CVE Gate
+    needs: [validate, finalize]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          ref: ${{ needs.finalize.outputs.finalize_sha }}
+
+      - name: Set up environment (Nix flake + uv for the gate)
+        uses: ./.github/actions/setup-env
+        with:
+          provision-via-flake: 'true'
+          sync-dependencies: 'true'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Validate .vulnixignore exception expirations
+        run: uv run check-expirations .vulnixignore
+
+      - name: Build the vulnix scan target (image package closure)
+        run: |
+          set -euo pipefail
+          nix build .#devcontainerImageEnv --print-build-logs
+
+      - name: Run vulnix (primary CVE scanner)
+        # Mirrors security-scan.yml: vulnix exit codes 0=clean, 1=only
+        # whitelisted (needs -s), 2=reportable advisories (the gate, not the
+        # scan, decides pass/fail). Any code > 2 means the scan itself failed —
+        # fail the job instead of masking the crash as an empty, clean result.
+        run: |
+          set -uo pipefail
+          nix run .#vulnix -- --closure ./result --json > vulnix-findings.json
+          rc=$?
+          [ "$rc" -le 2 ] || { echo "::error::vulnix scan failed (exit $rc)"; exit "$rc"; }
+
+      - name: Gate on unexcepted HIGH/CRITICAL vulnix findings
+        id: vulnix-gate
+        # BLOCKING (#639): fails on any HIGH/CRITICAL not covered by a
+        # non-expired entry in .vulnixignore. Reuses vig_utils.vulnix_gate (the
+        # same gate the nightly security-scan runs) so the publish job below
+        # cannot proceed on a CVE the nightly would have blocked.
+        run: uv run vulnix-gate vulnix-findings.json --register .vulnixignore
+
   publish:
     name: Publish Release
-    needs: [validate, finalize, build-and-test]
+    needs: [validate, finalize, build-and-test, vulnix-gate]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -1369,10 +1418,10 @@ jobs:
     name: Rollback on Failure
     # Rollback is intentionally scoped to pre-publish/publish failures.
     # Dispatch-only smoke-test failures happen after publish; automation does not delete tags or reset branches (forward-fix policy).
-    needs: [validate, finalize, build-and-test, publish]
+    needs: [validate, finalize, build-and-test, vulnix-gate, publish]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    if: ${{ always() && (needs.validate.result == 'failure' || needs.finalize.result == 'failure' || needs.build-and-test.result == 'failure' || needs.publish.result == 'failure') }}
+    if: ${{ always() && (needs.validate.result == 'failure' || needs.finalize.result == 'failure' || needs.build-and-test.result == 'failure' || needs.vulnix-gate.result == 'failure' || needs.publish.result == 'failure') }}
     permissions:
       contents: read        # required by actions/checkout in rollback job
       issues: write          # create failure issue
@@ -1492,6 +1541,7 @@ jobs:
             if ('${{ needs.validate.result }}' !== 'success') failedJobs.push('validate');
             if ('${{ needs.finalize.result }}' !== 'success') failedJobs.push('finalize');
             if ('${{ needs.build-and-test.result }}' !== 'success') failedJobs.push('build-and-test');
+            if ('${{ needs.vulnix-gate.result }}' !== 'success') failedJobs.push('vulnix-gate');
             if ('${{ needs.publish.result }}' !== 'success') failedJobs.push('publish');
 
             const rollbackBranch = '${{ steps.rollback-branch.outcome }}';
