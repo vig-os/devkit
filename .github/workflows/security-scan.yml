@@ -75,12 +75,19 @@ jobs:
           nix build .#devcontainerImageEnv --print-build-logs
 
       - name: Run vulnix (primary CVE scanner)
+        # NOTE: no blanket `|| true`. vulnix exit codes: 0 = clean, 1 = only
+        # whitelisted (needs -s), 2 = reportable advisories found (the gate, not
+        # the scan, decides pass/fail). Any code > 2 (e.g. 3 usage error, 127
+        # not-found, 137 OOM-kill) means the scan itself failed — fail the job
+        # instead of masking the crash as an empty, clean-looking result.
         run: |
-          set -euo pipefail
-          # vulnix exits non-zero when advisories are found; the gate decides
-          # pass/fail, so don't let the scan itself fail the step.
-          nix run .#vulnix -- --closure ./result --json > vulnix-findings.json || true
-          nix run .#vulnix -- --closure ./result | tee vulnix-report.txt || true
+          set -uo pipefail
+          nix run .#vulnix -- --closure ./result --json > vulnix-findings.json
+          rc=$?
+          [ "$rc" -le 2 ] || { echo "::error::vulnix scan failed (exit $rc)"; exit "$rc"; }
+          nix run .#vulnix -- --closure ./result | tee vulnix-report.txt
+          rc=${PIPESTATUS[0]}
+          [ "$rc" -le 2 ] || { echo "::error::vulnix report failed (exit $rc)"; exit "$rc"; }
 
       - name: Gate on unexcepted HIGH/CRITICAL vulnix findings
         id: vulnix-gate

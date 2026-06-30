@@ -171,6 +171,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Drop the piscina CVE ignore tied to `cursor-agent`** ([#628](https://github.com/vig-os/devcontainer/issues/628))
   - Removed the `CVE-2026-55388` (piscina) `.trivyignore` entry, which only existed for the now-removed `cursor-agent` CLI
+- **vulnix gate fails loud on unscored CVEs and scanner crashes** ([#755](https://github.com/vig-os/devcontainer/issues/755))
+  - `vulnix-gate` now blocks on a CVE with no CVSS v3 base score (unknown severity is failed loud, not silently skipped); only sub-threshold *scored* CVEs remain awareness-only
+  - The nightly `security-scan` step no longer wraps the vulnix scan in `|| true`: it tolerates only vulnix's scan-ran exit codes (≤ 2) and fails the job on any higher code, so a scanner crash can no longer masquerade as an empty, clean result
 
 ## [0.3.9](https://github.com/vig-os/devcontainer/releases/tag/0.3.9) - 2026-06-23
 
