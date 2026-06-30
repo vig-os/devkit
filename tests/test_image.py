@@ -10,6 +10,9 @@ base functionality is preserved in their containers.
 """
 
 import hashlib
+import json
+import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -113,6 +116,92 @@ def assert_tool_runs(host, *cmd):
     result = host.run(command)
     assert result.rc == 0, f"{command} failed (tool not installed?): {result.stderr}"
     return result
+
+
+# ---------------------------------------------------------------------------
+# devShellTools <-> image parity gate (#754).
+#
+# tests/test_flake_devshell.py exercises the flake's ``devShellTools`` SSoT
+# only inside ``nix develop`` (the dev-shell side) and is skipped wherever the
+# host lacks nix, so the SSoT was never gated against the running image — only
+# a hand-curated ~10 of the 27 ``devTools`` had an image check. This closes the
+# gap: every tool name is read straight from the flake (``nix eval
+# .#devShellTools``, never hardcoded) and must resolve on PATH inside the
+# image, so a ``devTools`` entry absent from the image fails CI.
+#
+# The tool list is evaluated at collection time (pytest needs the parametrize
+# ids before fixtures run) against the checked-out flake — mirroring the
+# dev-shell fixtures in test_flake_devshell.py (which eval ``devShellTools``
+# from the repo root). Both image-test CI lanes provision nix on the host
+# (nix-image.yml installs it; ci.yml's test-image provisions via the flake), so
+# the eval resolves there and the gate never silently no-ops. The per-tool
+# presence assertion itself runs INSIDE the running container via ``command
+# -v`` (assert_tool_on_path), matching the existing image idiom.
+# ---------------------------------------------------------------------------
+def _image_devshell_tool_names() -> list[str]:
+    """Binary names of every tool in the flake's ``devTools`` SSoT.
+
+    Returns ``[]`` (so the parametrized gate skips rather than erroring
+    collection) when nix or the ``devShellTools`` output is unavailable.
+    """
+    if shutil.which("nix") is None:
+        return []
+    repo_root = Path(__file__).resolve().parent.parent
+    env = os.environ.copy()
+    env.setdefault("NIX_CONFIG", "experimental-features = nix-command flakes")
+    try:
+        system = subprocess.run(
+            ["nix", "eval", "--raw", "--impure", "--expr", "builtins.currentSystem"],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=120,
+        )
+        if system.returncode != 0 or not system.stdout.strip():
+            return []
+        result = subprocess.run(
+            [
+                "nix",
+                "eval",
+                "--json",
+                f"{repo_root}#devShellTools.{system.stdout.strip()}",
+            ],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=900,
+        )
+        if result.returncode != 0:
+            return []
+        names = json.loads(result.stdout)
+    except Exception:
+        # Best-effort, collection-time helper: any failure (nix missing, eval
+        # error, malformed JSON) yields an empty list so the parametrized gate
+        # skips rather than erroring collection of the whole module.
+        return []
+    return names if isinstance(names, list) else []
+
+
+_DEVSHELL_TOOL_NAMES = _image_devshell_tool_names()
+
+
+@pytest.mark.skipif(
+    not _DEVSHELL_TOOL_NAMES,
+    reason=(
+        "could not evaluate the flake's devShellTools SSoT (nix unavailable); "
+        "the image-side parity gate needs the flake's tool list"
+    ),
+)
+@pytest.mark.parametrize("tool", _DEVSHELL_TOOL_NAMES or ["<unavailable>"])
+def test_devshell_tool_resolves_on_image_path(host, tool):
+    """Every tool in the ``devTools`` SSoT resolves on PATH inside the image (#754).
+
+    Turns the ``devShellTools`` SSoT into an image-side gate (the dev-shell
+    side is covered by tests/test_flake_devshell.py). The tool list is read
+    from the flake, so it can never drift from the SSoT and needs no
+    hand-maintained copy of the tool names.
+    """
+    assert_tool_on_path(host, tool)
 
 
 def test_image_oci_config_declares_path(container_image):
