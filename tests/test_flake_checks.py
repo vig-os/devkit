@@ -60,8 +60,12 @@ def _current_system() -> str:
     return result.stdout.strip()
 
 
-def test_formatter_is_nixfmt() -> None:
-    """``flake.formatter.<system>`` must resolve to nixfmt (so ``nix fmt`` works)."""
+def test_formatter_is_treefmt() -> None:
+    """``flake.formatter.<system>`` must be the treefmt wrapper (so ``nix fmt`` works).
+
+    treefmt-nix unifies the per-language formatters (nixfmt, ruff-format, taplo)
+    behind one ``nix fmt`` entrypoint; the wrapper derivation is named ``treefmt``.
+    """
     system = _current_system()
     result = subprocess.run(
         ["nix", "eval", "--raw", f"{REPO_ROOT}#formatter.{system}.name"],
@@ -72,17 +76,18 @@ def test_formatter_is_nixfmt() -> None:
     )
     if result.returncode != 0:
         pytest.fail("Failed to read formatter.<system>.name:\n" + result.stderr)
-    assert "nixfmt" in result.stdout.strip(), (
-        f"formatter is not nixfmt: {result.stdout.strip()!r}"
+    assert "treefmt" in result.stdout.strip(), (
+        f"formatter is not treefmt: {result.stdout.strip()!r}"
     )
 
 
-def test_checks_output_exposes_format_and_devshell_gates() -> None:
+def test_checks_output_exposes_quality_gates() -> None:
     """``flake.checks.<system>`` must expose the lightweight quality gates.
 
     ``nix flake check`` on a flake with no ``checks`` output trivially succeeds,
-    so guard the actual gate: assert the ``checks`` attrset names the format
-    check, the dev-shell build, and the ``devShellTools`` eval.
+    so guard the actual gate: assert the ``checks`` attrset names the treefmt
+    formatting check, the dead-code (deadnix) and lint (statix) Nix gates, the
+    dev-shell build, and the ``devShellTools`` eval.
     """
     system = _current_system()
     result = subprocess.run(
@@ -102,9 +107,67 @@ def test_checks_output_exposes_format_and_devshell_gates() -> None:
     if result.returncode != 0:
         pytest.fail("Failed to read checks.<system> attr names:\n" + result.stderr)
     names = set(json.loads(result.stdout))
-    required = {"format", "devShell", "devShellTools"}
+    required = {"formatting", "deadnix", "statix", "devShell", "devShellTools"}
     missing = required - names
     assert not missing, f"checks output is missing gates: {sorted(missing)}"
+
+
+def test_install_app_is_runnable() -> None:
+    """``flake.apps.<system>.install`` must expose a runnable installer program.
+
+    Wraps ``install.sh`` so ``nix run .#install`` bootstraps a consumer project
+    without a prior ``curl | bash``. Assert the app is well-formed (type ``app``
+    with a program path) rather than executing it (which reaches the network).
+    """
+    system = _current_system()
+    result = subprocess.run(
+        [
+            "nix",
+            "eval",
+            "--json",
+            f"{REPO_ROOT}#apps.{system}.install",
+            "--apply",
+            "a: { inherit (a) type; hasProgram = a ? program; }",
+        ],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=600,
+    )
+    if result.returncode != 0:
+        pytest.fail("Failed to read apps.<system>.install:\n" + result.stderr)
+    app = json.loads(result.stdout)
+    assert app["type"] == "app", f"install app has wrong type: {app!r}"
+    assert app["hasProgram"], "install app has no program attribute"
+
+
+def test_toolchain_modules_are_exposed() -> None:
+    """``nixosModules.default`` and ``homeManagerModules.default`` must exist.
+
+    They expose the shared toolchain (``devTools``) as importable NixOS /
+    home-manager config. Both are module functions, so assert their presence and
+    that they evaluate to functions rather than converting them to JSON.
+    """
+    for output in ("nixosModules", "homeManagerModules"):
+        result = subprocess.run(
+            [
+                "nix",
+                "eval",
+                "--json",
+                f"{REPO_ROOT}#{output}",
+                "--apply",
+                "m: { hasDefault = m ? default; isFn = builtins.isFunction m.default; }",
+            ],
+            capture_output=True,
+            text=True,
+            env=_nix_env(),
+            timeout=600,
+        )
+        if result.returncode != 0:
+            pytest.fail(f"Failed to read {output}:\n" + result.stderr)
+        info = json.loads(result.stdout)
+        assert info["hasDefault"], f"{output} is missing a default module"
+        assert info["isFn"], f"{output}.default is not a module function"
 
 
 def test_flake_check_succeeds() -> None:
