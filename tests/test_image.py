@@ -23,7 +23,7 @@ import pytest
 # Under the Nix image the toolchain is pinned by flake.lock, so each tool's exact
 # version is determined by nixpkgs and intentionally changes on a nixpkgs bump.
 # Fast-movers (gh) and tools whose nixpkgs version simply differs from the old
-# Debian pin (just, pre-commit, cargo-binstall, typstyle) are checked for
+# Debian pin (just, prek, cargo-binstall, typstyle) are checked for
 # presence/run only, not a version prefix — otherwise they'd need updating on
 # every nixpkgs bump. System packages (git, curl, tmux, rsync) were already
 # presence-only. Refs #635, #666.
@@ -595,12 +595,10 @@ PYPROJECT_EOF"""
                 f"{package_name} should not be available system-wide, only in venv"
             )
 
-            # Step 5: Verify system packages (pre-commit, ruff) are still available
+            # Step 5: Verify system packages (prek, ruff) are still available
             # This confirms uv sync didn't remove them
-            result = host.run("pre-commit --version")
-            assert result.rc == 0, (
-                "pre-commit was removed by uv sync (should not happen)"
-            )
+            result = host.run("prek --version")
+            assert result.rc == 0, "prek was removed by uv sync (should not happen)"
             result = host.run("ruff --version")
             assert result.rc == 0, "ruff was removed by uv sync (should not happen)"
 
@@ -613,10 +611,14 @@ class TestDevelopmentTools:
     """Test that development tools are installed."""
 
     def test_pre_commit_installed(self, host):
-        """Test that pre-commit runs (version nixpkgs-pinned via flake.lock)."""
-        result = host.run("pre-commit --version")
-        assert result.rc == 0, "pre-commit --version failed"
-        assert "pre-commit" in result.stdout.lower()
+        """Test that the prek hook runner runs (nixpkgs-pinned via flake.lock, #778)."""
+        result = host.run("prek --version")
+        assert result.rc == 0, "prek --version failed"
+        assert "prek" in result.stdout.lower()
+        # The Python pre-commit is intentionally dropped from the image (#778).
+        assert host.run("command -v pre-commit").rc != 0, (
+            "pre-commit should be absent from the image (prek supersedes it, #778)"
+        )
 
     def test_ruff_installed(self, host):
         """Test that ruff is installed."""
@@ -800,7 +802,7 @@ class TestEnvironmentVariables:
             ("LC_ALL", "en_US.UTF-8"),
             ("PYTHONUNBUFFERED", "1"),
             ("IN_CONTAINER", "true"),
-            ("PRE_COMMIT_HOME", "/opt/pre-commit-cache"),
+            ("PREK_HOME", "/opt/prek-cache"),
             ("UV_PROJECT_ENVIRONMENT", "/root/assets/workspace/.venv"),
             ("VIRTUAL_ENV", "/root/assets/workspace/.venv"),
             ("NPM_CONFIG_PREFIX", "/usr/local"),
@@ -811,7 +813,7 @@ class TestEnvironmentVariables:
             "lc_all",
             "pythonunbuffered",
             "in_container",
-            "pre_commit_home",
+            "prek_home",
             "uv_project_environment",
             "virtual_env",
             "npm_config_prefix",
@@ -948,19 +950,17 @@ class TestFileStructure:
             )
 
     def test_workspace_template_pre_commit_hooks_initialized(self, host):
-        """Test that the pre-commit cache dir exists at the system cache location.
+        """Test that the prek cache dir exists at the system cache location.
 
-        The dir is `PRE_COMMIT_HOME=/opt/pre-commit-cache` (set in the image env)
-        so init-workspace.sh need not exclude it during copy. Unlike the Debian
+        The dir is `PREK_HOME=/opt/prek-cache` (set in the image env, #778) so
+        init-workspace.sh need not exclude it during copy. Unlike the Debian
         build, a hermetic Nix build cannot pre-fetch the hook repos (no network),
         so we assert the cache *directory* is present; it populates on the first
-        `pre-commit run` / `install-hooks`.
+        `prek run` / `prek prepare-hooks`.
         """
-        cache_dir = host.file("/opt/pre-commit-cache")
-        assert cache_dir.exists, (
-            "Pre-commit cache directory not found at /opt/pre-commit-cache"
-        )
-        assert cache_dir.is_directory, "Pre-commit cache is not a directory"
+        cache_dir = host.file("/opt/prek-cache")
+        assert cache_dir.exists, "prek cache directory not found at /opt/prek-cache"
+        assert cache_dir.is_directory, "prek cache is not a directory"
 
     def test_template_venv_baked(self, host):
         """Test that the project virtualenv is baked into the image.
