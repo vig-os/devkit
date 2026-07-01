@@ -212,6 +212,25 @@ self-bootstraps the pinned library on first allow, or uses your
 to bare `use flake` when unavailable. The full fast path lives in
 [`CONTRIBUTE.md`](../CONTRIBUTE.md).
 
+### Image closures are cache-backed too (blocking push)
+
+The cache is not just for the dev-shell. On the trusted paths the **image**
+closure is pushed to `vig-os` Cachix as a **first-class, blocking** step (#776),
+so published images are guaranteed cache-backed and consumers substitute the
+closure instead of rebuilding it from source:
+
+- `.github/actions/build-image` pushes the built `devcontainerImage` closure when
+  its `push-image-closure` input is `true` (`nix path-info --recursive ./result |
+  cachix push`). The release workflow (`build-and-test`) opts in, so every
+  released image is cache-backed. The push is **blocking** (no
+  `continue-on-error`) and guarded on a non-empty auth token, so per-PR CI stays
+  **pull-only** and fork PRs (which lack the secret) never fail.
+- The `Nix Image (discovery)` workflow pushes each per-arch image closure on
+  `dev` as the same blocking step (distinct from the non-blocking GHCR discovery
+  *tag* push).
+- The release CVE gate also pushes the `devcontainerImageEnv` scan-target closure,
+  so the vulnix scan surface is cache-backed as well.
+
 ## How `nixpkgs` bumps flow (Renovate + vulnix)
 
 The pinned `nixpkgs` revision in `flake.lock` defines the image's entire CVE

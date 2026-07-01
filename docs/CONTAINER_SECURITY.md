@@ -11,7 +11,12 @@ place. The Debian/`apt` build path has been decommissioned (#642).
 
 1. **Reproducibility first** – Every build from the same commit and the same
    `flake.lock` produces a byte-identical image closure. There is no
-   non-deterministic upgrade step (no `apt-get upgrade`) in the build path.
+   non-deterministic upgrade step (no `apt-get upgrade`) in the build path. On
+   the trusted paths (push to `dev` and releases) that closure is pushed to the
+   `vig-os` Cachix cache as a **blocking** step (#776), so published images are
+   guaranteed cache-backed: consumers substitute the exact, pinned closure
+   instead of rebuilding it from source. Per-PR CI stays pull-only. See
+   [`docs/NIX.md`](NIX.md#image-closures-are-cache-backed-too-blocking-push).
 2. **Defence in depth** – Multiple scanners and levers detect and remediate CVEs
    at different speeds and over different surfaces so no single mechanism is a
    bottleneck.

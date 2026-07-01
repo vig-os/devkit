@@ -13,6 +13,10 @@
 #   registry: Container registry URL (default: ghcr.io/vig-os/devcontainer)
 #   output-file: Path for the tar output
 #   cachix-cache / cachix-auth-token: passed to flake provisioning (setup-env)
+#   push-image-closure: when 'true', push the built image closure to Cachix as a
+#     BLOCKING step (trusted paths only — `dev`/release) so published images are
+#     cache-backed. Default false keeps per-PR CI pull-only; the step is also
+#     guarded on the auth token so fork PRs (no secret) never fail.
 #
 # Outputs:
 #   image-tag: Full image tag (e.g., ghcr.io/vig-os/devcontainer:1.0.0-amd64)
@@ -60,6 +64,14 @@ inputs:
     description: 'Cachix auth token (optional; pulls need no token)'
     required: false
     default: ''
+  push-image-closure:
+    description: >-
+      Push the built image closure to Cachix as a BLOCKING step (trusted paths
+      only: `dev` and releases) so published images are cache-backed. Default
+      false keeps per-PR CI pull-only. Only takes effect when a Cachix cache and
+      auth token are both provided (fork PRs lack the token and are never failed).
+    required: false
+    default: 'false'
 
 outputs:
   image-tag:
@@ -98,6 +110,27 @@ runs:
         nix build .#devcontainerImage --print-build-logs
         cp -L result "${{ inputs.output-file }}"
         ls -lL "${{ inputs.output-file }}"
+
+    # First-class, BLOCKING push of the built image closure to the vig-os Cachix
+    # cache so published images are cache-backed: consumers substitute the closure
+    # instead of rebuilding it from source. Mirrors the nix-cachix.yml dev-shell
+    # idiom (`nix path-info --recursive | cachix push`). NO continue-on-error — a
+    # push failure on a trusted path (dev/release) fails the build. Runs only when
+    # opted in (`push-image-closure`) AND a cache + auth token are present, so
+    # per-PR CI stays pull-only and fork PRs (no secret) never fail. setup-env
+    # already ran cachix-action, which installed `cachix` and configured auth.
+    - name: Push image closure to Cachix (blocking, trusted paths only)
+      if: >-
+        inputs.push-image-closure == 'true' &&
+        inputs.cachix-cache != '' &&
+        inputs.cachix-auth-token != ''
+      shell: bash
+      env:
+        CACHIX_CACHE: ${{ inputs.cachix-cache }}
+        CACHIX_AUTH_TOKEN: ${{ inputs.cachix-auth-token }}
+      run: |
+        set -euo pipefail
+        nix path-info --recursive ./result | cachix push "$CACHIX_CACHE"
 
     - name: Verify tar output was created
       shell: bash

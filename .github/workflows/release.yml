@@ -766,6 +766,9 @@ jobs:
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           output-file: /tmp/image.tar
+          # Trusted publish path: BLOCKING push of the image closure to Cachix so
+          # released images are cache-backed (consumers substitute, not rebuild).
+          push-image-closure: 'true'
 
       - name: Run image tests
         uses: ./.github/actions/test-image
@@ -833,6 +836,20 @@ jobs:
         run: |
           set -euo pipefail
           nix build .#devcontainerImageEnv --print-build-logs
+
+      # First-class, BLOCKING push of the scan-target closure to Cachix (#776) so
+      # the CVE-scan closure is cache-backed too (nightly + re-runs substitute it
+      # instead of rebuilding). setup-env (provision-via-flake) already ran
+      # cachix-action, installing `cachix` and configuring push auth. Guarded on
+      # the cache being set; the release path always carries the auth token.
+      - name: Push scan-target closure to Cachix (blocking)
+        if: vars.CACHIX_CACHE != ''
+        env:
+          CACHIX_CACHE: ${{ vars.CACHIX_CACHE }}
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          nix path-info --recursive ./result | cachix push "$CACHIX_CACHE"
 
       - name: Run vulnix (primary CVE scanner)
         # Mirrors security-scan.yml: vulnix exit codes 0=clean, 1=only

@@ -8,12 +8,16 @@
 #
 # The portable testinfra suite now passes on the Nix image, so the
 # build-and-test job GATES on it (#666); the FHS/bootstrap discovery gaps are
-# closed. The per-arch push and the multi-arch-index job stay
+# closed. The per-arch GHCR *tag* push and the multi-arch-index job stay
 # `continue-on-error` so a registry hiccup cannot fail the build/test gate.
 #   - It pushes ONLY the disposable `nix-dev*` discovery tags (per-arch +
 #     index). It never touches the versioned or `:latest` cutover tags — the
 #     publish-cutover is #639. These tags exist so `imagetools inspect` can prove
-#     the index shape and so the arm64 closure lands in Cachix.
+#     the index shape.
+#   - The per-arch image *closure* push to the `vig-os` Cachix cache is
+#     first-class and BLOCKING (#776): a push failure fails the build so the
+#     discovery images are guaranteed cache-backed (distinct from the GHCR tag
+#     push above, which stays non-blocking).
 #
 # Evaluator choice: upstream CppNix via cachix/install-nix-action, matching
 # nix-cachix.yml. The flake bakes CppNix (`pkgs.nix`) into the image closure so
@@ -78,8 +82,9 @@ jobs:
             experimental-features = nix-command flakes
             accept-flake-config = true
 
-      # authToken set => cachix-action pushes every store path built in this job
-      # on post-run, so the arm64 closure lands in the `vig-os` cache too (#636).
+      # authToken set => cachix-action installs `cachix`, configures push auth,
+      # and adds the `vig-os` substituter for this job (the explicit blocking
+      # push below is the first-class guarantee; #776).
       - name: Configure Cachix (push arch closure)
         uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71  # v17
         with:
@@ -95,6 +100,21 @@ jobs:
           # Stage it where the test-image composite action expects a tar file.
           cp -L result /tmp/nix-devcontainer-image.tar.gz
           ls -lL /tmp/nix-devcontainer-image.tar.gz
+
+      # First-class, BLOCKING push of the per-arch image closure to the vig-os
+      # cache (#776): published/discovery images are cache-backed so consumers
+      # substitute the closure instead of rebuilding from source. NO
+      # continue-on-error — a push failure fails the discovery build. Runs on the
+      # trusted paths only (push to `dev`/epic + workflow_dispatch, which carry
+      # the auth token); guarded on the cache being set for safety.
+      - name: Push per-arch image closure to Cachix (blocking)
+        if: vars.CACHIX_CACHE != ''
+        env:
+          CACHIX_CACHE: ${{ vars.CACHIX_CACHE }}
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          nix path-info --recursive ./result | cachix push "$CACHIX_CACHE"
 
       - name: Record image size
         run: |
