@@ -332,6 +332,23 @@ def test_devshell_provides_precommit_binary_hooks(
     )
 
 
+def test_devshell_hook_runner_is_prek(dev_shell_tools: list[str]) -> None:
+    """The hook runner in the ``devTools`` SSoT must be ``prek``, not ``pre-commit`` (#778).
+
+    Issue #778 migrates the git-hook runner from the Python ``pre-commit`` to the
+    Rust ``prek`` (faster, one fewer manylinux/FHS consumer): ``prek`` joins the
+    shared ``devTools`` (so it ships in the dev-shell *and* the image), and the
+    standalone ``pre-commit`` is dropped from both. Assert the SSoT reflects that
+    swap so the dev-shell ↔ image parity holds.
+    """
+    assert "prek" in dev_shell_tools, (
+        "devTools must provide 'prek' as the hook runner (#778)"
+    )
+    assert "pre-commit" not in dev_shell_tools, (
+        "'pre-commit' must be dropped from devTools in favour of 'prek' (#778)"
+    )
+
+
 def test_devshell_bats_lib_path_resolves_helpers(dev_shell_env: dict[str, str]) -> None:
     """BATS_LIB_PATH in the dev-shell must expose the three helper libraries.
 
@@ -349,22 +366,23 @@ def test_devshell_bats_lib_path_resolves_helpers(dev_shell_env: dict[str, str]) 
         )
 
 
-@pytest.mark.parametrize("binary", ["python3", "pre-commit"])
+@pytest.mark.parametrize("binary", ["python3"])
 def test_devshell_exposes_python3_and_precommit(binary: str) -> None:
-    """The dev-shell must put ``python3`` and ``pre-commit`` on PATH (#729).
+    """The dev-shell must put ``python3`` on PATH (#729).
 
-    The image (``imageTools``) ships a Python interpreter (``pythonEnv``) and
-    ``pre-commit``, but ``mkProjectShell`` carried neither: the downstream
-    flake-input / direnv dev-shell could reach Python only via ``uv run`` and
-    had no ``pre-commit`` at all — a dev-shell ↔ image parity gap.
+    The image (``imageTools``) ships a Python interpreter (``pythonEnv``), but
+    ``mkProjectShell`` carried none: the downstream flake-input / direnv
+    dev-shell could reach Python only via ``uv run`` — a dev-shell ↔ image
+    parity gap. The hook runner (``prek``, #778) lives in the ``devTools`` SSoT,
+    so it is covered by ``devShellTools`` / ``test_each_tool_runs_in_devshell``
+    rather than here; only the bare interpreter — intentionally *not* in
+    ``devTools`` (it would collide with the image's ``pythonEnv``) — is asserted
+    explicitly.
 
     The check runs under ``nix develop --ignore-environment`` so it asserts the
     dev-shell's *own* PATH contribution and is not satisfied by a host
-    ``python3``/``pre-commit`` leaking through the inherited environment (the
-    exact way the gap hid until #729). These two binaries are intentionally not
-    in the ``devTools`` SSoT (a bare interpreter there would collide with the
-    image's ``pythonEnv``), so they are asserted explicitly here rather than
-    through ``devShellTools``.
+    ``python3`` leaking through the inherited environment (the exact way the gap
+    hid until #729).
     """
     cmd = [
         "nix",

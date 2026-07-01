@@ -107,7 +107,16 @@ def test_checks_output_exposes_quality_gates() -> None:
     if result.returncode != 0:
         pytest.fail("Failed to read checks.<system> attr names:\n" + result.stderr)
     names = set(json.loads(result.stdout))
-    required = {"formatting", "deadnix", "statix", "devShell", "devShellTools"}
+    required = {
+        "formatting",
+        "deadnix",
+        "statix",
+        "devShell",
+        "devShellTools",
+        # git-hooks.nix runs the sandbox-pure subset of the pre-commit hooks as
+        # a flake check, driven by the prek runner (#778).
+        "pre-commit",
+    }
     missing = required - names
     assert not missing, f"checks output is missing gates: {sorted(missing)}"
 
