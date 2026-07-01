@@ -69,12 +69,19 @@ repos:
         language: system
         types: [toml]
 
-  # Shellcheck
-  - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: a23f6b85d0fdd5bb9d564e2579e678033debbdff  # v0.10.0.1
+  # Shellcheck (sourced from the flake dev-shell toolchain). The
+  # shellcheck-py wheel bundles a manylinux shellcheck binary that the Nix
+  # image's non-FHS userland cannot exec, and the prek/uv installer cannot
+  # build that wheel under Python 3.14 — so, like ruff/typos/nixfmt (#697,
+  # #701), shellcheck runs as a language:system hook resolved from the flake
+  # (devTools ships `shellcheck`). Refs #778.
+  - repo: local
     hooks:
       - id: shellcheck
         name: shellcheck
+        entry: shellcheck
+        language: system
+        types: [shell]
         # .envrc files (root + the scaffolded template stub) are direnv stdlib
         # scripts with no shebang; exclude them from SC2148 at any path.
         args: ["-x"]

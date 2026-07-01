@@ -211,8 +211,12 @@ if [ -f .gitmessage ] && git config commit.template .gitmessage; then
     log_success "Commit message template configured (.gitmessage)"
 fi
 
-if uv run pre-commit install-hooks; then
-    log_success "Pre-commit hook environments installed"
+# Pre-build the hook environments so the first commit is fast. prek (the Rust
+# runner) replaces the Python pre-commit; `prek prepare-hooks` is the analogue
+# of `pre-commit install-hooks` (the .githooks shims above already wire prek in
+# via core.hooksPath, so no shim install is needed here). Refs #778.
+if prek prepare-hooks; then
+    log_success "Pre-commit hook environments installed (prek)"
 else
     log_warning "Could not install pre-commit hook environments"
 fi

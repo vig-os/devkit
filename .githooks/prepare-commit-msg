@@ -3,4 +3,4 @@
 # Refs: #163
 set -euo pipefail
 
-uv run pre-commit run --hook-stage prepare-commit-msg --commit-msg-filename "$1"
+prek run --hook-stage prepare-commit-msg --commit-msg-filename "$1"

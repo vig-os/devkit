@@ -40,7 +40,7 @@ format:
 # Run pre-commit hooks on all files
 [group('quality')]
 precommit:
-    uv run pre-commit run --all-files
+    prek run --all-files
 
 # Show image information
 [group('info')]

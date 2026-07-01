@@ -3,4 +3,4 @@
 set -euo pipefail
 
 # Run pre-commit hooks
-uv run pre-commit run
+prek run

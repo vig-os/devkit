@@ -13,9 +13,11 @@ fi
 if [ -f "$PROJECT_ROOT/.pre-commit-config.yaml" ]; then
     echo "Setting up pre-commit hooks (this may take a few minutes)..."
     cd "$PROJECT_ROOT"
-    pre-commit install-hooks || {
+    # prek (Rust) is the hook runner shipped in the devcontainer image; its
+    # `prepare-hooks` is the analogue of `pre-commit install-hooks`. Refs #778.
+    prek prepare-hooks || {
         echo "⚠️  Pre-commit install failed"
-        echo "    You can manually run 'pre-commit install-hooks' later"
+        echo "    You can manually run 'prek prepare-hooks' later"
         exit 1
     }
     echo "Pre-commit hooks installed successfully"

@@ -3,4 +3,4 @@
 set -euo pipefail
 
 # Run pre-commit commit-msg hooks (validates commit message format)
-uv run pre-commit run --hook-stage commit-msg --commit-msg-filename "$1"
+prek run --hook-stage commit-msg --commit-msg-filename "$1"

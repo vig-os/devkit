@@ -11,4 +11,4 @@ if [ "${IN_CONTAINER:-}" != "true" ]; then
 fi
 
 # Run pre-commit prepare-commit-msg hooks
-pre-commit run --hook-stage prepare-commit-msg --commit-msg-filename "$1"
+prek run --hook-stage prepare-commit-msg --commit-msg-filename "$1"
