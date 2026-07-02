@@ -51,10 +51,10 @@ job; it focuses on validating code quality and tests inside the image.
 The test job runs `just test` (plain `pytest`) and does not upload
 coverage artifacts.
 
-## Pre-commit cache miss
+## prek cache miss
 
-The image ships a pre-commit hook cache at `/opt/pre-commit-cache`, built
+The image ships a prek hook cache at `/opt/prek-cache` (`PREK_HOME`), built
 from the template workspace's `.pre-commit-config.yaml` (which uses version
 tags as revs).  This repository pins hooks by commit hash, so the cached
-environments do not match and pre-commit downloads fresh environments at
+environments do not match and prek downloads fresh environments at
 runtime.

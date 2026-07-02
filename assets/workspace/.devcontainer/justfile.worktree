@@ -197,7 +197,9 @@ worktree-start issue prompt="" reviewer="":
     pushd "$WT_DIR" >/dev/null
     uv sync
     git config --unset-all core.hooksPath 2>/dev/null || true
-    prek install
+    # Install every hook stage the repo uses: bare `prek install` only wires the
+    # pre-commit shim, dropping the commit-msg / prepare-commit-msg hooks (#778).
+    prek install -t pre-commit -t commit-msg -t prepare-commit-msg
     git config commit.template .gitmessage
     if [ -f "$(git worktree list --porcelain | head -1 | cut -d' ' -f2-)/.env" ]; then
         cp "$(git worktree list --porcelain | head -1 | cut -d' ' -f2-)/.env" .env

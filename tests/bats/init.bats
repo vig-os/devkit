@@ -134,7 +134,7 @@ setup() {
 }
 
 @test "init.sh installs pre-commit hooks" {
-    run grep 'pre-commit install-hooks' "$INIT_SH"
+    run grep 'prek prepare-hooks' "$INIT_SH"
     assert_success
 }
 

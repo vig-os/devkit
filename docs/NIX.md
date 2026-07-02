@@ -217,8 +217,9 @@ These are decided inline in `flake.nix`; summarized here.
   `debug-statements` hook parses the file's Python AST, so its `git-hooks.nix`
   package is pinned to the 3.14 `pre-commit-hooks` build to match the runner
   interpreter (PEP 758 parenthesis-free `except A, B:`), and `check-yaml` runs
-  with `--multi` in the Nix check (a strict superset of the runner's plain
-  `check-yaml`).
+  with `--allow-multiple-documents` in **both** the Nix check (git-hooks.nix'
+  built-in hardcodes `--multi`) and the committed runner, so the two agree on
+  multi-document YAML instead of the gate being more lenient than the runner.
 
 ### `libstdc++` for C-extension pre-commit hooks (#698)
 

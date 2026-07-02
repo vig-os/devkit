@@ -27,6 +27,9 @@ repos:
       - id: check-symlinks
       - id: check-toml
       - id: check-yaml
+        # git-hooks.nix' check-yaml built-in hardcodes --multi, so match it here
+        # to keep the runner and the checks.pre-commit gate in agreement (#778).
+        args: [--allow-multiple-documents]
       - id: debug-statements
       - id: destroyed-symlinks
       - id: detect-private-key

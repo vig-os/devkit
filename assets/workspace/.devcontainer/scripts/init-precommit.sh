@@ -4,23 +4,18 @@ set -euo pipefail
 # {{SHORT_NAME}} is replaced during template initialization
 PROJECT_ROOT="/workspace/{{SHORT_NAME}}"
 
-# Run only if pre-commit hooks are not already installed
-if [ -d "$PROJECT_ROOT/.pre-commit-cache" ]; then
-	echo "Pre-commit hooks already installed, skipping"
-	exit 0
-fi
-
 if [ -f "$PROJECT_ROOT/.pre-commit-config.yaml" ]; then
-    echo "Setting up pre-commit hooks (this may take a few minutes)..."
+    echo "Setting up Git hooks (this may take a few minutes)..."
     cd "$PROJECT_ROOT"
     # prek (Rust) is the hook runner shipped in the devcontainer image; its
-    # `prepare-hooks` is the analogue of `pre-commit install-hooks`. Refs #778.
+    # `prepare-hooks` is the analogue of `pre-commit install-hooks`. It is
+    # idempotent, so it is safe to run on every container init. Refs #778.
     prek prepare-hooks || {
-        echo "⚠️  Pre-commit install failed"
+        echo "⚠️  Git hook environment setup failed"
         echo "    You can manually run 'prek prepare-hooks' later"
         exit 1
     }
-    echo "Pre-commit hooks installed successfully"
+    echo "Git hooks installed successfully"
 else
     echo "No .pre-commit-config.yaml found, skipping"
 fi
