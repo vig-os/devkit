@@ -196,6 +196,23 @@ Agent models are read from `.claude/agent-models.toml`. The worktree recipes use
 - **`autonomous` tier** for the main `claude` session (design, code, reasoning).
 - **`lightweight` tier** for the one-shot branch-naming call.
 
+#### Customizing models downstream
+
+`agent-models.toml` ships in every scaffolded workspace (from
+`assets/workspace/.claude/agent-models.toml`) and is the single source of truth
+read by `justfile.worktree` and `derive-branch-summary` — no recipe edits are
+needed to change model assignments. A downstream project overrides the defaults
+by editing its own committed copy under `.claude/`:
+
+- **Remap a tier** in `[models]` — point a tier at a different `claude` CLI model
+  alias, e.g. `autonomous = "sonnet"` to run agent sessions on a cheaper model.
+- **Reassign a skill category** in `[skill-tiers]` — move a category to a
+  different tier, e.g. `review = "autonomous"` to give code review the strongest
+  model, or `orchestration = "standard"` to economize on planning.
+
+Aliases resolve to the latest model in each family, so pins stay current. The
+next worktree or delegated skill run picks up the edited toml automatically.
+
 ## Typical Interactive Workflow
 
 ```

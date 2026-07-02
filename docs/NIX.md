@@ -124,6 +124,26 @@ template `.venv` scaffold, a sticky `/tmp`, and the `precommit`/`cc`/`cld`
 aliases. The image's interpreter is pinned via `UV_PYTHON=<nix python3.14>` and
 `UV_PYTHON_DOWNLOADS=never`.
 
+### Building and iterating the image locally
+
+Most contributors never build the image. `nix develop`/direnv gives the dev-shell
+fast path for day-to-day work, and CI publishes the image to GHCR — so `just test`
+pulls the published `dev` tag rather than building. Build locally only when you
+are changing the **image itself** (its `imageTools`/`bootstrap` contents, baked
+workspace assets, or the `flake.nix` image wiring) and want to test before pushing:
+
+```bash
+just build          # nix build .#devcontainerImage → podman load → tag <repo>:dev
+just test-image     # run tests/test_image.py against the freshly loaded dev tag
+```
+
+`just build` tags the loaded image `<repo>:dev`; `just test-image`, `just
+test-integration`, and `just test` all default to that `dev` tag (and
+auto-`just build` it if it is missing). The iterate loop for image changes is
+therefore: edit `flake.nix` → `just build` → `just test-image` → repeat. `nix
+build` is content-addressed, so an unchanged closure rebuilds instantly and the
+`no_cache` argument is a no-op.
+
 ### Host container runtime (`policy.json`)
 
 `just build` ends in `podman load -i result`, and podman's containers/image

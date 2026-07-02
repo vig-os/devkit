@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Docs: local Nix image build/iterate loop + downstream `agent-models.toml` customization** ([#717](https://github.com/vig-os/devcontainer/issues/717))
+  - `docs/NIX.md` gained a "Building and iterating the image locally" section: when to build locally vs. pull the published image, the `just build` → `just test-image` iterate loop, and that `just build` tags `<repo>:dev` (the tag the default `test`/`test-image`/`test-integration` recipes use and auto-build)
+  - `docs/SKILL_PIPELINE.md` gained a "Customizing models downstream" note under **Model Selection** explaining how a consuming project overrides the `[models]` tiers and `[skill-tiers]` assignments in its own committed `.claude/agent-models.toml` — no recipe edits needed
 - **Flake polish: treefmt-nix, deadnix/statix gates, NixOS/home-manager modules, `nix run .#install`** ([#777](https://github.com/vig-os/devcontainer/issues/777))
   - `nix fmt` now runs [`treefmt`](https://github.com/numtide/treefmt-nix) across every supported language in one pass (`nixfmt-rfc-style` for `*.nix`, `ruff format` for `*.py`, `taplo` for `*.toml`), wrapping the same formatters the pre-commit hooks already run so the editor, hooks, and CI agree on one formatting
   - Added `checks.deadnix` and `checks.statix` (dead-Nix-code + anti-pattern linters), scoped to the authored `flake.nix`; `deadnix` and `statix` also join `devTools`
