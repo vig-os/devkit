@@ -125,6 +125,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Removed the sidecar / multi-container capability** ([#799](https://github.com/vig-os/devcontainer/issues/799))
+  - Dropped the `just sidecar`/`just sidecars` recipes, the `docker-compose.project.yaml` sidecar examples, the sidecar test fixtures (`sidecar.Containerfile`, `test-build.sh`, the fixtures `justfile`, the `test-sidecar` compose service) and `TestSidecarConnectivity`, and `hadolint` from `devTools` (unused since the Containerfile lint hook was dropped in #642; the deleted sidecar Containerfile was its last Dockerfile-like artifact)
+  - Migration: use Nix devShells for toolchains and `process-compose`/`services-flake` ([#795](https://github.com/vig-os/devcontainer/issues/795)) for local services; the Docker-out-of-Docker socket for building containers is retained
 - **Retire `scripts/requirements.yaml`** ([#671](https://github.com/vig-os/devcontainer/issues/671))
   - Deleted the per-OS dependency manifest and its consumers (the `load_requirements`/`format_requirements_table`/`format_install_commands` helpers in `docs/generate.py` and their tests). `flake.nix` `devTools` is now the single source of truth for the toolchain, ending the dual-SSoT drift
 - **Decommission the Debian build path** ([#642](https://github.com/vig-os/devcontainer/issues/642))

@@ -220,6 +220,24 @@ verbs" idiom.
   ~2 services; daemon dependency like C1.
 - **Decision:** Adequate single-service stopgap only.
 
+#### Decision boundary — where each capability lives
+
+Consolidating the split so it is unambiguous:
+
+- **Toolchains** → Nix devShells: the shared `mkProjectShell` builder today, and
+  future modular `vigos.devShells.{cpp,geant4,…}` as the org grows language
+  stacks.
+- **Local software services** (MinIO, Postgres, …) → `process-compose` +
+  `services-flake` (C2), via the `mkProjectServices` helper (#795).
+- The old **`docker-compose` sidecar / multi-container capability is removed**
+  (#799). It predated this ADR and duplicated axis 3 with a daemon-bound,
+  off-lock mechanism. The residual case it nominally covered — an opaque
+  vendor/hardware image with no Nix expression — does not justify maintaining a
+  bespoke sidecar `podman exec` framework; a repo in that spot uses a plain
+  `compose.yaml` under a `just` verb (C1), gated by its already requiring a
+  container runtime. The DooD socket for **building** containers inside the
+  devcontainer is retained.
+
 ## Decision matrices
 
 ### Matrix 1 — Shell definition

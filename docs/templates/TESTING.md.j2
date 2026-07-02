@@ -10,7 +10,7 @@ This document describes the testing strategy and structure for this project.
 We use a layered testing approach:
 
 1. **Image Tests**: Verify the container image itself (installed tools, versions, environment variables, file structure)
-2. **Integration Tests**: Verify that the container works correctly as a devcontainer (template initialization, configuration files, scripts, VS Code integration, sidecar)
+2. **Integration Tests**: Verify that the container works correctly as a devcontainer (template initialization, configuration files, scripts, VS Code integration)
 3. **Utility / Script Tests**: Unit and integration tests for repo scripts and utilities (e.g. install script, version check, build helpers)
 
 The tests are organized as:
@@ -19,7 +19,7 @@ The tests are organized as:
 tests/
 ├── conftest.py              # Shared fixtures for all tests
 ├── test_image.py            # Container image verification tests
-├── test_integration.py      # Devcontainer integration tests (incl. sidecar)
+├── test_integration.py      # Devcontainer integration tests
 ├── test_release_cycle.py    # Release cycle script tests (changelog, release)
 └── test_utils.py            # Utility and install script tests
 ```
@@ -48,7 +48,6 @@ These tests run against an initialized workspace to verify that the container wo
 - `TestDevContainerGit` - git hooks/config
 - `TestDevContainerUserConf` - user configuration files
 - `TestDevContainerCLI` - devcontainer deployment and functionality
-- `TestSidecarConnectivity` - sidecar container integration with just
 
 ### Test fixtures
 
@@ -60,10 +59,8 @@ Image and integration fixtures:
 - `host`: Testinfra host connection to the container (session-scoped)
 - `initialized_workspace`: Temporary workspace initialized with `init-workspace` script (session-scoped)
 - `devcontainer_up`: Devcontainer set up using devcontainer CLI, ready for testing (session-scoped)
-- `devcontainer_with_sidecar`: Devcontainer plus sidecar container for multi-container tests (session-scoped)
-- `sidecar_image`: Built test sidecar image (session-scoped)
 
-**Note**: Session-scoped fixtures (e.g. `devcontainer_up`, `devcontainer_with_sidecar`) are set up once per test session and reused. This is important for fixtures that take time to set up (e.g. `devcontainer_up` takes about a minute). Fixtures automatically clean up after all tests complete.
+**Note**: Session-scoped fixtures (e.g. `devcontainer_up`) are set up once per test session and reused. This is important for fixtures that take time to set up (e.g. `devcontainer_up` takes about a minute). Fixtures automatically clean up after all tests complete.
 
 ## Running Tests
 
@@ -89,9 +86,6 @@ just test-integration
 # Run only utility/script tests (no container required for test_utils)
 just test-utils
 just test-version-check
-
-# Run sidecar integration tests (uses devcontainer_with_sidecar fixture)
-just test-sidecar
 
 # Run specific suite for a locally available version
 just test-image version=1.0.0
