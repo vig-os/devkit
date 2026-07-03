@@ -1,18 +1,17 @@
 # Composite action to set up the CI environment
 #
-# Installs Python, uv, and optionally syncs project dependencies and installs:
-# - Podman (for container operations)
-# - Node.js (for JS tooling)
-# - Devcontainer CLI + docker-compose wrapper (for integration tests)
-# - BATS + helper libraries (for shell script testing)
+# Provisions the toolchain from the Nix flake (the SSoT): installs Nix + Cachix,
+# builds the flake dev-shell (a warm vig-os Cachix pull), and prepends its tool
+# bin dirs to PATH so every subsequent step runs as if inside `nix develop`.
+# uv, Python, just, taplo, ripgrep, BATS, and the rest of the toolchain all come
+# from the flake — there is a single provisioning path, identical to local dev.
+# Refs #632, #720.
 #
-# Flake provisioning (provision-via-flake, Refs #632):
-# - When 'true', the toolchain comes from the Nix flake (the SSoT) via
-#   `nix develop` instead of the ad-hoc installs below: Nix + Cachix are
-#   installed, the dev-shell is built (a warm vig-os Cachix pull), and its
-#   tool bin dirs are prepended to PATH. Python/uv, just, taplo, and BATS
-#   ad-hoc steps are skipped; podman, Node.js, and the devcontainer CLI
-#   keep their dedicated steps (not flake-provided or host-integration tools).
+# A few tools are NOT taken from the flake because they need host integration:
+# - Podman (rootless podman on GitHub runners needs the host's setuid
+#   newuidmap/newgidmap and container config; the nix-store podman does not see
+#   them). Kept on the apt path; the flake's podman is filtered off PATH below.
+# - Node.js + the devcontainer CLI (npm-global install needs an FHS Node).
 #
 # IMPORTANT:
 # - This action does NOT checkout code, allowing callers to control ref, token,
@@ -21,55 +20,44 @@
 #   (for example, sync-dependencies or devcontainer CLI version lookup).
 #
 # Inputs:
-#   install-python:           Install Python (default: true)
-#   python-version:           Python version fallback when pyproject.toml is unavailable (default: '3.12')
 #   sync-dependencies:        Run uv sync to install project deps (default: false)
 #   install-podman:           Install podman (default: false)
 #   install-node:             Install Node.js (default: false)
 #   node-version:             Node.js version (default: '24')
 #   install-devcontainer-cli: Install devcontainer CLI + docker-compose wrapper (default: false)
-#   install-taplo:            Install taplo TOML linter/formatter (default: false)
-#   install-bats:             Install BATS + helper libraries (default: false)
-#
-# Outputs:
-#   uv-version: The version of uv that was installed
+#   cachix-cache:             Cachix binary cache name (warm dev-shell pull)
+#   cachix-auth-token:        Cachix auth token (optional; pulls need no token)
 #
 # Usage:
-#   # Default (Python + uv only)
+#   # Toolchain only (uv, Python, linters, … from the flake)
 #   - uses: actions/checkout@v4
 #   - uses: ./.github/actions/setup-env
-#
-#   # uv only (skip Python setup)
-#   - uses: ./.github/actions/setup-env
 #     with:
-#       install-python: 'false'
+#       cachix-cache: ${{ vars.CACHIX_CACHE }}
+#       cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 #
 #   # With project dependencies
 #   - uses: actions/checkout@v4
 #   - uses: ./.github/actions/setup-env
 #     with:
 #       sync-dependencies: 'true'
+#       cachix-cache: ${{ vars.CACHIX_CACHE }}
+#       cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 #
-#   # All tools
+#   # All tools (integration tests)
 #   - uses: actions/checkout@v4
 #   - uses: ./.github/actions/setup-env
 #     with:
 #       sync-dependencies: 'true'
 #       install-podman: 'true'
 #       install-devcontainer-cli: 'true'
+#       cachix-cache: ${{ vars.CACHIX_CACHE }}
+#       cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
 name: 'Setup Environment'
-description: 'Set up CI environment with Python, uv, and optional tools (podman, Node.js, devcontainer CLI, BATS)'
+description: 'Provision the CI toolchain from the Nix flake (uv, Python, linters, BATS) plus host-integration tools (podman, Node.js, devcontainer CLI)'
 
 inputs:
-  install-python:
-    description: 'Install Python runtime'
-    required: false
-    default: 'true'
-  python-version:
-    description: 'Python version fallback when pyproject.toml is unavailable'
-    required: false
-    default: '3.12'
   sync-dependencies:
     description: 'Run uv sync to install project dependencies'
     required: false
@@ -90,33 +78,8 @@ inputs:
     description: 'Install @devcontainers/cli and docker-compose wrapper (requires Node.js)'
     required: false
     default: 'false'
-  install-just:
-    description: 'Install just command runner for Justfile support'
-    required: false
-    default: 'true'
-  install-taplo:
-    description: 'Install taplo TOML linter/formatter'
-    required: false
-    default: 'false'
-  install-bats:
-    description: 'Install BATS and helper libraries (support, assert, file) for shell testing'
-    required: false
-    default: 'false'
-  provision-via-flake:
-    description: >-
-      Provision the toolchain from the Nix flake (the toolchain SSoT) instead of
-      ad-hoc installs. When 'true', installs Nix + Cachix, builds the flake
-      dev-shell, and prepends its tools to PATH so every subsequent step runs as
-      if inside `nix develop`. Tools provided by the flake (Python/uv, just,
-      taplo, Node.js, BATS) skip their ad-hoc install steps. podman is kept
-      on the apt path even under flake provisioning because rootless podman on
-      GitHub runners needs the host's setuid newuidmap/newgidmap and container
-      config; the devcontainer CLI is not in the flake and keeps its dedicated
-      step. Refs #632, #695.
-    required: false
-    default: 'false'
   cachix-cache:
-    description: 'Cachix binary cache name (used when provision-via-flake is true)'
+    description: 'Cachix binary cache name (warm dev-shell pull)'
     required: false
     default: ''
   cachix-auth-token:
@@ -124,24 +87,16 @@ inputs:
     required: false
     default: ''
 
-outputs:
-  uv-version:
-    description: 'Version of uv installed'
-    value: ${{ steps.setup-uv-retry.outputs.uv-version || steps.setup-uv.outputs.uv-version }}
-
 runs:
   using: composite
   steps:
     # ── Nix flake provisioning (toolchain SSoT) ─────────────────────────
-    # When provision-via-flake is true, install Nix + Cachix and build the
-    # flake dev-shell, then prepend its tool bin dirs to GITHUB_PATH so every
-    # subsequent step runs as if inside `nix develop`. The ad-hoc tool installs
-    # below (Python/uv, just, taplo, Node.js) are gated off in this
-    # mode. The Nix installer is SHA-pinned to match nix-cachix.yml and the
-    # vig-os Cachix substituter makes the dev-shell a fast binary-cache pull.
-    # Refs #632.
+    # Install Nix + Cachix and build the flake dev-shell, then prepend its tool
+    # bin dirs to GITHUB_PATH so every subsequent step runs as if inside
+    # `nix develop`. The Nix installer is SHA-pinned to match nix-cachix.yml and
+    # the vig-os Cachix substituter makes the dev-shell a fast binary-cache pull.
+    # Refs #632, #720.
     - name: Install Nix (upstream CppNix)
-      if: inputs.provision-via-flake == 'true'
       uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3  # v31.10.6
       with:
         extra_nix_config: |
@@ -149,14 +104,13 @@ runs:
           accept-flake-config = true
 
     - name: Configure Cachix
-      if: inputs.provision-via-flake == 'true' && inputs.cachix-cache != ''
+      if: inputs.cachix-cache != ''
       uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71  # v17
       with:
         name: ${{ inputs.cachix-cache }}
         authToken: ${{ inputs.cachix-auth-token }}
 
     - name: Build flake dev-shell and enter it
-      if: inputs.provision-via-flake == 'true'
       shell: bash
       run: |
         set -euo pipefail
@@ -170,7 +124,7 @@ runs:
         # on the host's setuid newuidmap/newgidmap and container config, which
         # the nix-store podman does not see, so `podman info` fails. The host's
         # preinstalled podman is kept on PATH by NOT shadowing it here (matches
-        # the apt-podman intent documented on the provision-via-flake input).
+        # the apt-podman intent documented on the install-podman input).
         # Refs #632.
         #
         # Exclude the flake's bare CPython (and pre-commit): the dev-shell now
@@ -211,47 +165,6 @@ runs:
 
         echo "Flake dev-shell provisioned; tools added to PATH:"
         printf '%s' "$SHELL_PATH" | tr ':' '\n' | grep '^/nix/store' | head -50
-
-    # ── Python ───────────────────────────────────────────────────────────
-    # Skipped under flake provisioning: uv (from the flake) manages the
-    # project interpreter via `uv sync` / `uv run`.
-    - name: "Set up Python from pyproject"
-      if: inputs.provision-via-flake != 'true' && inputs.install-python == 'true' && hashFiles('pyproject.toml') != ''
-      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
-      with:
-        python-version-file: "pyproject.toml"
-
-    - name: "Set up Python fallback"
-      if: inputs.provision-via-flake != 'true' && inputs.install-python == 'true' && hashFiles('pyproject.toml') == ''
-      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
-      with:
-        python-version: ${{ inputs.python-version }}
-
-    # ── uv ─────────────────────────────────────────────────────────────
-    # Skipped under flake provisioning: uv comes from the flake dev-shell.
-    - name: Install uv
-      id: setup-uv
-      if: inputs.provision-via-flake != 'true'
-      continue-on-error: true
-      uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
-      with:
-        enable-cache: true
-        # Install a specific version of uv.
-        version: "0.11.23"
-
-    - name: Wait before retrying uv install
-      if: steps.setup-uv.outcome == 'failure'
-      shell: bash
-      run: sleep 15
-
-    - name: Install uv (retry)
-      id: setup-uv-retry
-      if: steps.setup-uv.outcome == 'failure'
-      uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
-      with:
-        enable-cache: true
-        # Install a specific version of uv.
-        version: "0.11.23"
 
     # ── retry() shell helper ───────────────────────────────────────────
     - name: Export retry helper function
@@ -321,48 +234,6 @@ runs:
       with:
         node-version: ${{ inputs.node-version }}
 
-    # ── Just (task runner) ──────────────────────────────────────────────
-    # Skipped under flake provisioning: just comes from the flake dev-shell.
-    - name: Install just
-      if: inputs.provision-via-flake != 'true' && inputs.install-just == 'true'
-      uses: taiki-e/install-action@9cfa436698ecd30b7b47d715cbb8241e4624245a  # just
-      with:
-        tool: just
-
-    # ── taplo (TOML linter/formatter) ──────────────────────────────────
-    # Skipped under flake provisioning: taplo comes from the flake dev-shell.
-    - name: Install taplo
-      if: inputs.provision-via-flake != 'true' && inputs.install-taplo == 'true'
-      shell: bash
-      run: |
-        set -euo pipefail
-
-        case "$(uname -m)" in
-          x86_64) ARCH="x86_64" ;;
-          aarch64|arm64) ARCH="aarch64" ;;
-          *)
-            echo "Unsupported architecture: $(uname -m)"
-            exit 1
-            ;;
-        esac
-
-        TAPLO_VERSION="$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
-          curl -fsSL https://api.github.com/repos/tamasfe/taplo/releases/latest | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')"
-        if [ -z "${TAPLO_VERSION:-}" ]; then
-          echo "ERROR: Failed to resolve Taplo version from GitHub releases API"
-          exit 1
-        fi
-        BASE_URL="https://github.com/tamasfe/taplo/releases/download/${TAPLO_VERSION}"
-        BIN_FILE="taplo-linux-${ARCH}.gz"
-
-        retry --retries 3 --backoff 5 --max-backoff 60 -- \
-          curl -fsSL "${BASE_URL}/${BIN_FILE}" -o "${BIN_FILE}"
-        gunzip "${BIN_FILE}"
-        sudo install -m 0755 "taplo-linux-${ARCH}" /usr/local/bin/taplo
-        rm -f "taplo-linux-${ARCH}"
-
-        taplo --version
-
     # ── Devcontainer CLI + docker-compose wrapper ───────────────────────
     # Requires Node.js (automatically installed above when this flag is set)
     - name: Install devcontainer CLI
@@ -382,28 +253,3 @@ runs:
         echo "Installing @devcontainers/cli@${DEVCONTAINER_VERSION}..."
         npm install -g "@devcontainers/cli@${DEVCONTAINER_VERSION}"
         echo "devcontainer $(devcontainer --version)"
-
-    # ── BATS (shell testing) ─────────────────────────────────────────
-    # Under flake provisioning BATS comes from the flake (the SSoT): the
-    # bats.withLibraries wrapper is on PATH and exports BATS_LIB_PATH, so these
-    # ad-hoc steps are skipped (mirrors just/taplo). The official action remains
-    # for non-flake callers, installing BATS core + helper libraries. Refs #695.
-    - name: Setup BATS and libraries
-      id: bats
-      if: inputs.provision-via-flake != 'true' && inputs.install-bats == 'true'
-      uses: bats-core/bats-action@77d6fb60505b4d0d1d73e48bd035b55074bbfb43  # v4.0.0
-      with:
-        support-version: '0.3.0'
-        assert-version: '2.1.0'
-        file-version: '0.4.0'
-        detik-install: 'false'
-
-    - name: Export BATS_LIB_PATH
-      if: inputs.provision-via-flake != 'true' && inputs.install-bats == 'true'
-      shell: bash
-      run: |
-        # The bats-core/bats-action installs libraries to standard system paths
-        # Set BATS_LIB_PATH so bats_load_library can find them
-        BATS_LIB_PATH="/usr/lib/bats-support:/usr/lib/bats-assert:/usr/lib/bats-file"
-        echo "BATS_LIB_PATH=$BATS_LIB_PATH" >> "$GITHUB_ENV"
-        echo "Exported BATS_LIB_PATH=$BATS_LIB_PATH"

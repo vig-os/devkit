@@ -48,23 +48,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
 
-      - name: Install Nix (upstream CppNix)
-        uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3  # v31.10.6
-        with:
-          extra_nix_config: |
-            experimental-features = nix-command flakes
-            accept-flake-config = true
-
-      - name: Configure Cachix (pull-only substituter)
-        uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71  # v17
-        with:
-          name: ${{ vars.CACHIX_CACHE }}
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-
-      - name: Set up environment (uv for the gate utilities)
+      - name: Set up environment (Nix + flake toolchain for the gate utilities)
         uses: ./.github/actions/setup-env
         with:
           sync-dependencies: 'true'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Validate .vulnixignore exception expirations
         run: uv run check-expirations .vulnixignore

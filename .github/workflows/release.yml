@@ -86,8 +86,8 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/setup-env
         with:
-          install-python: 'false'
-          install-just: 'false'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Validate and prepare variables
         id: vars
@@ -502,6 +502,8 @@ jobs:
         uses: ./.github/actions/setup-env
         with:
           sync-dependencies: 'true'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Set release date in CHANGELOG
         if: needs.validate.outputs.release_kind == 'final'
@@ -824,7 +826,6 @@ jobs:
       - name: Set up environment (Nix flake + uv for the gate)
         uses: ./.github/actions/setup-env
         with:
-          provision-via-flake: 'true'
           sync-dependencies: 'true'
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
@@ -839,8 +840,8 @@ jobs:
 
       # First-class, BLOCKING push of the scan-target closure to Cachix (#776) so
       # the CVE-scan closure is cache-backed too (nightly + re-runs substitute it
-      # instead of rebuilding). setup-env (provision-via-flake) already ran
-      # cachix-action, installing `cachix` and configuring push auth. Guarded on
+      # instead of rebuilding). setup-env already ran cachix-action, installing
+      # `cachix` and configuring push auth. Guarded on
       # the cache being set; the release path always carries the auth token.
       - name: Push scan-target closure to Cachix (blocking)
         if: vars.CACHIX_CACHE != ''
@@ -900,8 +901,8 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/setup-env
         with:
-          install-python: 'false'
-          install-just: 'false'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Configure git
         env:
@@ -1354,8 +1355,8 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/setup-env
         with:
-          install-python: 'false'
-          install-just: 'false'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Trigger smoke-test repository dispatch
         env:
@@ -1468,8 +1469,8 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/setup-env
         with:
-          install-python: 'false'
-          install-just: 'false'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Rollback release branch
         id: rollback-branch

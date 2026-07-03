@@ -54,8 +54,8 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/setup-env
         with:
-          install-python: 'false'
-          install-just: 'false'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Validate version and architectures
         id: vars
@@ -303,8 +303,8 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/setup-env
         with:
-          install-python: 'false'
-          install-just: 'false'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Generate GitHub App token
         id: app-token
@@ -384,8 +384,8 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/setup-env
         with:
-          install-python: 'false'
-          install-just: 'false'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Generate GitHub App token
         id: app-token
@@ -505,8 +505,8 @@ jobs:
       - name: Set up environment
         uses: ./.github/actions/setup-env
         with:
-          install-python: 'false'
-          install-just: 'false'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Generate GitHub App token
         id: app-token

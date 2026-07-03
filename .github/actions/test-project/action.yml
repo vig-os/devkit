@@ -54,11 +54,8 @@ runs:
     - name: Set up test environment
       uses: ./.github/actions/setup-env
       with:
+        # taplo and BATS come from the flake (the toolchain SSoT). Refs #632, #720.
         sync-dependencies: 'true'
-        install-taplo: 'true'
-        install-bats: 'true'
-        # Provision the toolchain from the flake (SSoT). Refs #632.
-        provision-via-flake: 'true'
         cachix-cache: ${{ inputs.cachix-cache }}
         cachix-auth-token: ${{ inputs.cachix-auth-token }}
 

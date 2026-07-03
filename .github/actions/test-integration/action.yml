@@ -67,7 +67,6 @@ runs:
         # (SSoT). Refs #632.
         install-podman: 'true'
         install-devcontainer-cli: 'true'
-        provision-via-flake: 'true'
         cachix-cache: ${{ inputs.cachix-cache }}
         cachix-auth-token: ${{ inputs.cachix-auth-token }}
 

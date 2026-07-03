@@ -87,7 +87,6 @@ runs:
         # podman stays on the apt path (rootless host integration). uv and the
         # rest of the toolchain come from the flake (SSoT). Refs #632.
         install-podman: 'true'
-        provision-via-flake: 'true'
         cachix-cache: ${{ inputs.cachix-cache }}
         cachix-auth-token: ${{ inputs.cachix-auth-token }}
 

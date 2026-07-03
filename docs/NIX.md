@@ -89,7 +89,7 @@ there (#683). A store interpreter is patched to the store loader and runs in the
 dev-shell on both NixOS and FHS hosts. The **image** path uses the same two
 variables, baking the interpreter and toolchain from nixpkgs.
 
-**CI is the exception.** The `provision-via-flake` jobs (#632) run *outside*
+**CI is the exception.** The `setup-env` CI jobs (#632, #720) run *outside*
 `nix develop` — they only prepend the dev-shell's tool `PATH` — on an FHS runner,
 where a Nix store interpreter cannot load pre-commit's manylinux-wheel C
 extensions (`libstdc++.so.6`). So the dev-shell also keeps
