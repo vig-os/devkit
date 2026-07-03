@@ -79,6 +79,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING for consumers — this release is the Nix publish-cutover** ([#639](https://github.com/vig-os/devcontainer/issues/639), [#625](https://github.com/vig-os/devcontainer/issues/625))
+  - From this release on, the published image (`:latest` and every versioned tag) is the Nix-built image: pure-Nix userland with **no `apt`/`dpkg`**, a `docker → podman` shim (no Docker engine), and uv-managed CPython 3.14 (pin `requires-python` as a range, never an exact patch). See `docs/MIGRATION.md` for the full consumer contract
+  - The final Debian-built release is **0.3.9**; it stays pullable indefinitely but frozen (no CVE fixes). Rollback/stay-behind: pin `DEVCONTAINER_VERSION=0.3.9` in the repo-root `.vig-os`
+  - Heads-up: the next release cycle renames the project `devcontainer` → `devkit`, moving the image to a new GHCR package `ghcr.io/vig-os/devkit` ([#781](https://github.com/vig-os/devcontainer/issues/781))
 - **Scaffolded devcontainer verbs renamed `up`/`down`/… → `devc-up`/`devc-down`/…** ([#795](https://github.com/vig-os/devcontainer/issues/795))
   - The managed `.devcontainer/justfile.devc` namespaces its compose-stack verbs — `devc-up`, `devc-down`, `devc-status`, `devc-logs`, `devc-shell`, `devc-restart`, `devc-open` — so generic verb names stay free for project use (the new opt-in `services` recipe was the trigger: `up` was squatted by the devcontainer stack). The file is managed (replaced on upgrade), so consumers pick the rename up automatically on their next `devcontainer-upgrade`; muscle memory is the only breakage
   - The Rust [`prek`](https://github.com/j178/prek) (a faster, drop-in `pre-commit` replacement) is now the hook runner and joins the shared `devTools` SSoT, so it ships in both the dev-shell and the image; the standalone Python `pre-commit` is dropped from both — one fewer manylinux/FHS consumer in the image closure

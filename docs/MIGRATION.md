@@ -106,3 +106,27 @@ module rather than baking it into every consumer's image.
 - **Toolchain versions / CVEs:** advance the pinned `nixpkgs` revision
   (Renovate's `nix` manager opens the PR); `flake.lock` is the controlling
   version document.
+
+## Staying on the Debian image (rollback)
+
+The final Debian-built release is **0.3.9**; every release from 0.4.0 onward is
+Nix-built. Released images are never deleted, so a consumer can stay on — or
+roll back to — the last Debian image by pinning it in the repo-root `.vig-os`:
+
+```text
+DEVCONTAINER_VERSION=0.3.9
+```
+
+The Debian line is frozen: it receives no CVE fixes (the nightly scan already
+reports fixable HIGH/CRITICAL findings against it), so treat the pin as a
+temporary escape hatch, not a supported track.
+
+## Upcoming rename: `devcontainer` → `devkit`
+
+The repository and image are scheduled to be renamed to **`devkit`** in the
+release cycle after the Nix cutover
+([#781](https://github.com/vig-os/devcontainer/issues/781)). GitHub redirects
+the repository URL, but the image moves to a **new** GHCR package
+(`ghcr.io/vig-os/devkit`) — a one-time `install.sh --force` re-scaffold will
+migrate consumers. Existing `ghcr.io/vig-os/devcontainer` images remain
+pullable indefinitely.
