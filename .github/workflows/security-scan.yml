@@ -43,7 +43,9 @@ jobs:
   scan-nix-image:
     name: Scan Nix image (vulnix + SBOM)
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # Worst case is a cold NVD cache week plus retries against a throttled
+    # nvd.nist.gov (~25 min per attempt); warm-cache runs finish in minutes.
+    timeout-minutes: 90
     permissions:
       contents: read
 
@@ -61,6 +63,23 @@ jobs:
       - name: Validate .vulnixignore exception expirations
         run: uv run check-expirations .vulnixignore
 
+      # Weekly-keyed cache of vulnix's NVD database (~/.cache/vulnix). vulnix's
+      # freshness logic makes this cheap: a cache < 7 days old means only the
+      # ~3 MB `modified` feed is fetched; without it every run cold-fetches
+      # ~122 MB of year feeds from nvd.nist.gov, which is heavily throttled
+      # and currently unstable (nix-community/vulnix#171).
+      - name: Compute NVD cache key (ISO week)
+        id: nvd-week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the vulnix NVD database
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/vulnix
+          key: vulnix-nvd-${{ steps.nvd-week.outputs.week }}
+          restore-keys: |
+            vulnix-nvd-
+
       - name: Build the vulnix scan target (image package closure)
         run: |
           set -euo pipefail
@@ -75,11 +94,27 @@ jobs:
         # The runner's default shell is `bash -e {0}`, so a bare vulnix call dies
         # on exit 2 before the tolerant rc check runs — capture the status via
         # `|| rc=$?` (errexit-safe) instead of a follow-up `rc=$?`.
+        #
+        # The first invocation triggers the NVD update, whose feed downloads
+        # time out when nvd.nist.gov is throttled (vulnix has no retry and
+        # crashes with exit 1 — indistinguishable from its documented
+        # "only whitelisted findings" exit 1). Retry with backoff and treat a
+        # run as successful only if the findings file is valid JSON; per-feed
+        # ETag caching means retries resume rather than restart. The second
+        # (table) invocation then runs against a < 2 h-old DB and fetches
+        # nothing.
         run: |
           set -uo pipefail
           rc=0
-          nix run .#vulnix -- --closure ./result --json > vulnix-findings.json || rc=$?
-          [ "$rc" -le 2 ] || { echo "::error::vulnix scan failed (exit $rc)"; exit "$rc"; }
+          for attempt in 1 2 3; do
+            rc=0
+            nix run .#vulnix -- --closure ./result --json > vulnix-findings.json || rc=$?
+            [ "$rc" -le 2 ] && jq -e . vulnix-findings.json > /dev/null 2>&1 && break
+            echo "::warning::vulnix scan attempt ${attempt} failed (exit ${rc}); retrying in $((60 * attempt))s"
+            sleep $((60 * attempt))
+          done
+          [ "$rc" -le 2 ] && jq -e . vulnix-findings.json > /dev/null 2>&1 \
+            || { echo "::error::vulnix scan failed after 3 attempts (exit $rc)"; exit 1; }
           rc=0
           nix run .#vulnix -- --closure ./result | tee vulnix-report.txt || rc=$?
           [ "$rc" -le 2 ] || { echo "::error::vulnix report failed (exit $rc)"; exit "$rc"; }
