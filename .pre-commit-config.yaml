@@ -3,6 +3,11 @@
 
 exclude: ^.github_data/|^docs/issues/|^docs/pull-requests/
 
+# Build python-language hooks with the project interpreter (3.14) so PEP 758
+# syntax (bare except tuples) never false-flags under an older parser. Refs #803.
+default_language_version:
+  python: python3.14
+
 repos:
   # General Pre-commit Hooks (Fixes formatting issues)
   - repo: https://github.com/pre-commit/pre-commit-hooks
