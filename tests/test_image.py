@@ -964,6 +964,34 @@ class TestFileStructure:
         )
         assert activate.is_file, "venv activate script is not a regular file"
 
+    def test_placeholder_manifest_baked(self, host):
+        """The build-time placeholder manifest is baked next to init-workspace.sh.
+
+        init-workspace.sh reads ``/root/assets/.placeholder-manifest.txt`` to
+        take its fast substitution path; without it, workspace init falls back
+        to a slow runtime ``find``+``grep`` over the whole scaffold (#718). The
+        manifest lists placeholder-bearing files at their in-image runtime
+        paths, one per line.
+        """
+        manifest = host.file("/root/assets/.placeholder-manifest.txt")
+        assert manifest.exists, (
+            "placeholder manifest not found at "
+            "/root/assets/.placeholder-manifest.txt"
+        )
+        assert manifest.is_file, "placeholder manifest is not a regular file"
+
+        lines = [ln for ln in manifest.content_string.splitlines() if ln.strip()]
+        assert lines, "placeholder manifest is empty"
+        assert all(
+            ln.startswith("/root/assets/workspace/") for ln in lines
+        ), "placeholder manifest contains non-workspace paths"
+        # A known placeholder-bearing scaffold file must be listed so the fast
+        # path actually substitutes it (guards against an empty/degenerate list).
+        assert "/root/assets/workspace/pyproject.toml" in lines, (
+            "placeholder manifest missing known placeholder-bearing file "
+            "pyproject.toml"
+        )
+
     def test_manifest_files(self, host, parse_manifest):
         """Test that all files in manifest are copied to the image.
 
