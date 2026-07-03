@@ -8,6 +8,8 @@
 #
 # Triggers:
 #   - Nightly schedule: 05:00 UTC
+#   - Manual dispatch (e.g. a pre-release run on dev — scheduled runs execute
+#     from the default branch, so this workflow never runs on dev otherwise)
 #
 # Jobs:
 #   1. scan-nix-image - build the image closure, run vulnix (+ Trivy SBOM)
@@ -21,6 +23,7 @@ on:  # yamllint disable-line rule:truthy
   schedule:
     # Nightly (staggered after nightly CI at 04:00 UTC)
     - cron: '0 5 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
