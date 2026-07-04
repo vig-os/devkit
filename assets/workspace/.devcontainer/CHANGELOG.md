@@ -182,6 +182,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Release-lane Trivy scan aligned with the ratified awareness-only posture** ([#849](https://github.com/vig-os/devcontainer/issues/849))
+  - `release.yml`'s build-and-test Trivy step was the last Debian-era blocking scanner (`exit-code: 1` with only `.trivyignore`), failing the candidate on embedded language-ecosystem HIGHs already triaged into `.vulnixignore`. Per the #637 decision the Nix image's blocking CVE control is the vulnix-gate; the step is now non-blocking (`exit-code: 0`, `continue-on-error`) with its table kept in the log as awareness signal, mirroring `security-scan.yml` and `ci.yml`
 - **`setup-env` no longer flakes on a SIGPIPE race when listing the provisioned dev-shell PATH** ([#847](https://github.com/vig-os/devcontainer/issues/847))
   - The provisioning step's `grep '^/nix/store' | head -50` summary runs under the runner's `pipefail` shell; once the dev-shell PATH topped 50 nix-store entries, `head` exiting early could SIGPIPE `grep` (exit 2) and fail the step — a scheduling race that killed a release build-and-test leg. `sed -n '1,50p'` consumes the whole stream and prints the same summary
 - **Release lane fixed for the Nix stack: current runners + tolerated vulnix findings exit** ([#842](https://github.com/vig-os/devcontainer/issues/842))

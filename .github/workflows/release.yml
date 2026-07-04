@@ -800,14 +800,20 @@ jobs:
           image-tag: ${{ needs.validate.outputs.publish_version }}-${{ matrix.arch }}
           ref: ${{ needs.finalize.outputs.finalize_sha }}
 
-      - name: Scan image for vulnerabilities
+      - name: Scan image for vulnerabilities (defense in depth, awareness only)
+        # Non-blocking per the #637 posture: the Nix image's blocking CVE
+        # control is the vulnix-gate job + .vulnixignore (#639). Trivy sees
+        # language-ecosystem packages embedded in shipped binaries that vulnix
+        # cannot, so its table stays in the log as awareness signal — mirrors
+        # security-scan.yml and ci.yml (exit-code 0). Refs #849.
+        continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           version: 'v0.71.2'
           input: /tmp/image.tar
           format: 'table'
           severity: 'HIGH,CRITICAL'
-          exit-code: '1'
+          exit-code: '0'
           ignore-unfixed: true
           trivyignores: '.trivyignore'
 
