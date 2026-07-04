@@ -684,6 +684,36 @@ class TestVigOsConfig:
             "IMAGE_TAG placeholder should be replaced in .vig-os"
         )
 
+    def test_init_workspace_pins_requested_version(self, container_image, tmp_path):
+        """VIG_OS_VERSION override pins the scaffolded .vig-os (#852).
+
+        The image bakes the release it was built from into the scaffolded
+        .vig-os, which is stale for release candidates (the repo pin only
+        advances at finalize). install.sh forwards the requested --version as
+        VIG_OS_VERSION; init-workspace must honor it over the baked value.
+        """
+        from .conftest import is_running_in_container
+
+        if is_running_in_container():
+            pytest.skip("host-path mount test; covered on the CI host runner")
+
+        workspace = tmp_path / "version-pin-ws"
+        workspace.mkdir()
+        cmd = _build_podman_cmd(
+            container_image,
+            f"{workspace}:/workspace",
+            smoke_test=True,
+            extra_env={"VIG_OS_VERSION": "9.9.9-rc9"},
+        )
+        _run_noninteractive_init(cmd)
+
+        vig_os_file = workspace / ".vig-os"
+        assert vig_os_file.exists(), ".vig-os not scaffolded"
+        content = vig_os_file.read_text(encoding="utf-8")
+        assert "DEVCONTAINER_VERSION=9.9.9-rc9" in content, (
+            f".vig-os does not pin the requested version:\n{content}"
+        )
+
     def test_initialize_writes_devcontainer_version_to_env(self, initialized_workspace):
         """Test initialize.sh writes DEVCONTAINER_VERSION to .devcontainer/.env."""
         init_script = (

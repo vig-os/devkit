@@ -260,7 +260,7 @@ def host(test_container):
 # --- Helpers and fixtures for init-workspace.sh ---
 
 
-def _build_podman_cmd(container_image, workspace_mount, smoke_test):
+def _build_podman_cmd(container_image, workspace_mount, smoke_test, extra_env=None):
     """Build podman command for init-workspace script."""
     cmd = ["podman", "run", "--rm", "-v", workspace_mount]
     if smoke_test:
@@ -276,6 +276,8 @@ def _build_podman_cmd(container_image, workspace_mount, smoke_test):
         )
     else:
         cmd.append("-it")
+    for key, value in (extra_env or {}).items():
+        cmd.extend(["-e", f"{key}={value}"])
     cmd.extend([container_image, "/root/assets/init-workspace.sh"])
     if smoke_test:
         cmd.append("--smoke-test")

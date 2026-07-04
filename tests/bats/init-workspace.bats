@@ -506,3 +506,21 @@ _scaffold() {
     run grep -F "$pattern" "$INIT_WORKSPACE_SH"
     assert_success
 }
+
+# ── .vig-os version-pin override (#852) ───────────────────────────────────────
+# The image bakes the release it was built from into the scaffolded .vig-os
+# (flake bootstrap), which is correct for finals but stale for release
+# candidates: the repo-root pin only advances at finalize. install.sh forwards
+# the explicitly requested --version as VIG_OS_VERSION so the scaffold pins the
+# image actually installed.
+
+@test "init-workspace honors VIG_OS_VERSION for the scaffolded .vig-os pin (#852)" {
+    run grep -q 'VIG_OS_VERSION' "$INIT_WORKSPACE_SH"
+    assert_success
+}
+
+@test "init-workspace writes DEVCONTAINER_VERSION from the VIG_OS_VERSION override (#852)" {
+    # shellcheck disable=SC2016
+    run grep -F 'DEVCONTAINER_VERSION=${VIG_OS_VERSION}' "$INIT_WORKSPACE_SH"
+    assert_success
+}

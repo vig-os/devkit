@@ -382,3 +382,11 @@ setup() {
     run head -1 "$INSTALL_SH"
     assert_output "#!/usr/bin/env bash"
 }
+
+# ── .vig-os version-pin override (#852) ───────────────────────────────────────
+
+@test "install.sh forwards --version to init-workspace as VIG_OS_VERSION (#852)" {
+    # shellcheck disable=SC2016
+    run grep -F 'VIG_OS_VERSION=$VERSION' "$INSTALL_SH"
+    assert_success
+}
