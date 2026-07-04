@@ -137,3 +137,60 @@ CVE-2026-10846
 CVE-2025-59777
 # libmicrohttpd 1.0.2 — see CVE-2025-59777 note; specifics unverified offline.
 CVE-2025-62689
+
+# ============================================================================
+# Triage 2026-07-04 — CVEs published after the 2026-06-23 baseline triage
+# (#639 cutover readiness). Unlike the #762 batch, every entry below was
+# verified ONLINE against NVD/CERT.PL/GHSA, the upstream repos, and the
+# nixpkgs branch contents (nixos-26.05, release-26.05, staging-26.05, master,
+# unstable as of 2026-07-04). Common findings: all eight are real product
+# matches (no CPE collisions), and NONE is fixed by advancing the pinned rev
+# today — fixes sit in the nixpkgs staging pipeline or are unreleased
+# upstream. Closure provenance verified via `nix why-depends` per package.
+# ============================================================================
+
+Expiration: 2026-08-03
+# libssh2 1.11.1 — SSH client lib, in-closure via curl (sftp/scp backend);
+#   plain git uses openssh. CVE-2026-55200 client-side OOB write (public PoC)
+#   needs a dev-initiated connection to a malicious SSH server. Patch merged to
+#   staging-26.05 (nixpkgs #537259, 2026-07-01) — flip to rev-advance when it
+#   reaches release-26.05; re-check weekly.
+CVE-2026-55200
+# socat 1.8.1.1 — CLI relay, in-closure via claude-code. Overflow only when
+#   socat runs as a SOCKS5 *client* through a malicious proxy; no such usage
+#   here, no untrusted listeners. Fixed upstream 1.8.1.2; nixpkgs bump on
+#   staging (#535404/#535779).
+CVE-2026-56123
+# jq 1.8.1 — JSON processor, direct devTools member (also CI scripts). Heap
+#   OOB write needs `--rawfile` on a hostile oversized file; jq here only sees
+#   developer/CI-chosen JSON. Fix (1.8.2) merged to staging-26.05 (nixpkgs
+#   #534087) — next channel advance should fix; re-check at expiry.
+CVE-2026-49839
+
+Expiration: 2026-08-17
+# gzip 1.14 — stdenv closure member. OOB *read* in the legacy LZH decoder
+#   needs crafted LZW+LZH files decompressed in one `gzip -d` run;
+#   developer-chosen inputs only (CERT.PL CVSS4 6.9/AV:L; Debian no-dsa). Upstream
+#   fix commit unreleased; no nixpkgs patch yet — re-evaluate at expiry.
+CVE-2026-41992
+# fzf 0.72.0 — interactive fuzzy finder, in-closure via zoxide. 53432
+#   (FuzzyMatchV2 int-overflow panic) affects 32-bit Go builds only per the
+#   upstream fix commit — this image is 64-bit; 53433 is CPU-DoS of fzf's own
+#   opt-in localhost --listen server. Availability-only; fixed in 0.73.1
+#   (unstable via nixpkgs #524290; no 26.05 backport yet).
+CVE-2026-53432
+CVE-2026-53433
+
+Expiration: 2026-09-01
+# libxml2 2.15.3 — transitive lib dep (podman -> systemd -> libarchive).
+#   Stack overflow in xmlcatalog's interactive --shell mode only, not the
+#   parsing library; nothing here invokes xmlcatalog. Upstream disputes it
+#   (CERT.PL CVSS4 1.8 LOW; Debian: unimportant). Fix for 2.15.x pending in
+#   nixpkgs #537486 (staging); drop once backported.
+CVE-2026-11979
+# libssh2 1.11.1 — see CVE-2026-55200 note for provenance. Integer-overflow
+#   heap overflow in the publickey subsystem wraps only on 32-bit size_t and
+#   the subsystem is not called by curl/libgit2 — unreachable on this 64-bit
+#   image. No upstream fix published yet (verified NVD/Debian/libssh2 repo,
+#   2026-07-04).
+CVE-2026-58050
