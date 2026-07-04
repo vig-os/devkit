@@ -218,7 +218,16 @@ def test_toolchain_modules_are_exposed() -> None:
         assert info["isImportable"], f"{output}.default is not importable"
 
 
-HM_MODULES = {"default", "packages", "shell", "multiplexer", "cli", "direnv", "git"}
+HM_MODULES = {
+    "default",
+    "packages",
+    "shell",
+    "multiplexer",
+    "cli",
+    "direnv",
+    "git",
+    "claude",
+}
 HM_SYSTEMS = ("x86_64-linux", "aarch64-linux", "aarch64-darwin", "x86_64-darwin")
 
 
@@ -410,6 +419,39 @@ def test_personal_template_is_exposed() -> None:
         pytest.fail("Failed to read templates.personal:\n" + result.stderr)
     info = json.loads(result.stdout)
     assert info["hasPath"] and info["hasDescription"]
+
+
+def test_claude_module_policy() -> None:
+    """vigos.claude must honor the ADR Axis-5 policy (#823).
+
+    DISABLE_AUTOUPDATER set via sessionVariables (Nix owns updates), the
+    workspace-CLAUDE.md management option present but empty by default, and
+    no home-level skills directory managed.
+    """
+    result = subprocess.run(
+        [
+            "nix",
+            "eval",
+            "--json",
+            f'{REPO_ROOT}#homeConfigurations."ci-full-x86_64-linux".config',
+            "--apply",
+            "c: { "
+            "autoupdater = c.home.sessionVariables.DISABLE_AUTOUPDATER or null; "
+            "workspaceFiles = c.vigos.claude.claudeMd.workspaceFiles; "
+            "enabled = c.vigos.claude.enable; "
+            "}",
+        ],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=600,
+    )
+    if result.returncode != 0:
+        pytest.fail("claude policy eval failed:\n" + result.stderr)
+    cfg = json.loads(result.stdout)
+    assert cfg["enabled"] is True
+    assert cfg["autoupdater"] == "1"
+    assert cfg["workspaceFiles"] == {}
 
 
 def test_flake_check_succeeds() -> None:
