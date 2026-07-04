@@ -227,6 +227,9 @@ HM_MODULES = {
     "direnv",
     "git",
     "claude",
+    "sesh",
+    "ghdash",
+    "editor",
 }
 HM_SYSTEMS = ("x86_64-linux", "aarch64-linux", "aarch64-darwin", "x86_64-darwin")
 
@@ -452,6 +455,36 @@ def test_claude_module_policy() -> None:
     assert cfg["enabled"] is True
     assert cfg["autoupdater"] == "1"
     assert cfg["workspaceFiles"] == {}
+
+
+def test_wave3_full_profile_config() -> None:
+    """Wave-3 modules must materialize in the full ci profile (#824)."""
+    result = subprocess.run(
+        [
+            "nix",
+            "eval",
+            "--json",
+            f'{REPO_ROOT}#homeConfigurations."ci-full-x86_64-linux".config',
+            "--apply",
+            "c: { "
+            "ghdash = c.programs.gh-dash.enable; "
+            "neovim = c.programs.neovim.enable; "
+            "seshToml = c.home.file ? \".config/sesh/sesh.toml\"; "
+            "seshSessions = c.vigos.sesh.sessions; "
+            "}",
+        ],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=600,
+    )
+    if result.returncode != 0:
+        pytest.fail("wave-3 profile eval failed:\n" + result.stderr)
+    cfg = json.loads(result.stdout)
+    assert cfg["ghdash"] is True
+    assert cfg["neovim"] is True
+    assert cfg["seshToml"] is True, "sesh.toml must be generated"
+    assert cfg["seshSessions"] == [], "sesh sessions must default empty"
 
 
 def test_flake_check_succeeds() -> None:
