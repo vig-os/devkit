@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [0.4.0] - TBD
+
+### Added
+
 - **Shared `mkProjectServices` local-services helper (process-compose + services-flake)** ([#795](https://github.com/vig-os/devcontainer/issues/795))
   - New `lib.mkProjectServices` output implementing the local-services axis of [ADR-nix-devenv-strategy](docs/rfcs/ADR-nix-devenv-strategy.md): declared [`services-flake`](https://github.com/juspay/services-flake) modules become a daemonless [`process-compose`](https://github.com/F1bonacc1/process-compose) stack — `nix run .#services` boots native-process services with **no Docker/Podman daemon**, versions from the pinned `nixpkgs` lock (no out-of-lock image tags), and zero extra flake inputs downstream (both service flakes resolve from this flake's lock as dependency-free leaf entries)
   - This flake carries the validating PoC: `nix run .#services` boots **SeaweedFS (S3) + Postgres**, asserted end-to-end (boot, health probes, teardown, no container fixtures) by the new `tests/test_flake_services.py`. The issue named MinIO, but nixpkgs marks `minio` abandoned upstream with unfixed CVEs, so the PoC ships the maintained S3-compatible SeaweedFS instead (recorded in `docs/NIX.md` and on the issue)
@@ -149,8 +163,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enabled the mode in the CI build/test path (`build-image`, `test-image`, `test-integration`, `project-checks`) so jobs run inside the flake shell (the toolchain SSoT); `podman`, Node.js, BATS, and the devcontainer CLI keep their dedicated install paths
   - Set `UV_PYTHON_DOWNLOADS_JSON_URL` in the flake dev-shell so the nixpkgs `uv` (whose embedded Python-download list is stripped) can fetch the project's pinned CPython `3.14.6`, which nixpkgs does not package, letting `uv sync --frozen` succeed under flake provisioning
   - Keep `podman` off the flake-provisioned `PATH` so the runner's rootless-configured host `podman` is used (the nix-store `podman` cannot reach the host's setuid `newuidmap`/`newgidmap`, so `podman info` failed)
-
-### Deprecated
 
 ### Removed
 
