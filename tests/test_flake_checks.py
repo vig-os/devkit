@@ -331,6 +331,64 @@ def test_home_configuration_evaluates_end_to_end() -> None:
     assert result.stdout.strip() == "26.05"
 
 
+def test_wave1_full_profile_config() -> None:
+    """Wave-1 modules must materialize in the full ci profile (#821).
+
+    One eval pulls the interesting config slice: every wave-1 program
+    enabled, git signing INACTIVE by default (signingKeyPath is null on
+    fresh hosts — first commits must not fail), and the secretsEnv hook
+    present but off by default.
+    """
+    result = subprocess.run(
+        [
+            "nix",
+            "eval",
+            "--json",
+            f'{REPO_ROOT}#homeConfigurations."ci-full-x86_64-linux".config',
+            "--apply",
+            "c: { "
+            "bash = c.programs.bash.enable; "
+            "zsh = c.programs.zsh.enable; "
+            "starship = c.programs.starship.enable; "
+            "atuin = c.programs.atuin.enable; "
+            "zoxide = c.programs.zoxide.enable; "
+            "tmux = c.programs.tmux.enable; "
+            "direnv = c.programs.direnv.enable; "
+            "nixDirenv = c.programs.direnv.nix-direnv.enable; "
+            "git = c.programs.git.enable; "
+            "gh = c.programs.gh.enable; "
+            "lazygit = c.programs.lazygit.enable; "
+            "signingKey = c.programs.git.signing.key; "
+            "secretsEnvDefault = c.vigos.shell.secretsEnv.enable; "
+            "}",
+        ],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=600,
+    )
+    if result.returncode != 0:
+        pytest.fail("full-profile config does not evaluate:\n" + result.stderr)
+    cfg = json.loads(result.stdout)
+    enabled = [
+        "bash",
+        "zsh",
+        "starship",
+        "atuin",
+        "zoxide",
+        "tmux",
+        "direnv",
+        "nixDirenv",
+        "git",
+        "gh",
+        "lazygit",
+    ]
+    off = [k for k in enabled if not cfg[k]]
+    assert not off, f"wave-1 programs not enabled in full profile: {off}"
+    assert cfg["signingKey"] is None, "git signing must be inactive by default"
+    assert cfg["secretsEnvDefault"] is False, "secretsEnv must default off"
+
+
 def test_flake_check_succeeds() -> None:
     """``nix flake check`` evaluates the flake and runs the lightweight checks."""
     result = subprocess.run(
