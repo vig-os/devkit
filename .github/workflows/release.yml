@@ -757,7 +757,7 @@ jobs:
   build-and-test:
     name: Build and Test (${{ matrix.arch }})
     needs: [validate, finalize]
-    runs-on: ${{ matrix.arch == 'amd64' && 'ubuntu-22.04' || 'ubuntu-22.04-arm' }}
+    runs-on: ${{ matrix.arch == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
     timeout-minutes: 60
     strategy:
       matrix: ${{ fromJson(needs.validate.outputs.matrix) }}
@@ -871,11 +871,23 @@ jobs:
         # whitelisted (needs -s), 2=reportable advisories (the gate, not the
         # scan, decides pass/fail). Any code > 2 means the scan itself failed —
         # fail the job instead of masking the crash as an empty, clean result.
+        # The || rc=$? capture is load-bearing (#842): the runner shell is
+        # `bash -e`, so an uncaptured exit 2 (findings present) would abort
+        # the step before the vulnix-gate ever evaluates .vulnixignore.
         run: |
           set -uo pipefail
-          nix run .#vulnix -- --closure ./result --json > vulnix-findings.json
-          rc=$?
-          [ "$rc" -le 2 ] || { echo "::error::vulnix scan failed (exit $rc)"; exit "$rc"; }
+          rc=0
+          for attempt in 1 2 3; do
+            rc=0
+            nix run .#vulnix -- --closure ./result --json > vulnix-findings.json || rc=$?
+            [ "$rc" -le 2 ] && jq -e . vulnix-findings.json > /dev/null 2>&1 && break
+            if [ "$attempt" -lt 3 ]; then
+              echo "::warning::vulnix scan attempt ${attempt} failed (exit ${rc}); retrying in $((60 * attempt))s"
+              sleep $((60 * attempt))
+            fi
+          done
+          [ "$rc" -le 2 ] && jq -e . vulnix-findings.json > /dev/null 2>&1 \
+            || { echo "::error::vulnix scan failed after 3 attempts (exit $rc)"; exit 1; }
 
       - name: Gate on unexcepted HIGH/CRITICAL vulnix findings
         id: vulnix-gate
