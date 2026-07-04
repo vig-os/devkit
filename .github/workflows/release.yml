@@ -623,13 +623,27 @@ jobs:
             exit 1
           fi
 
-          cat > /tmp/release-pr-body.md <<EOF
-          # [Release $VERSION](https://github.com/${GITHUB_REPOSITORY}/releases/tag/$VERSION) - $RELEASE_DATE
+          # GitHub caps PR bodies at 65536 chars; a large finalized release
+          # changelog can overflow it (#810). Truncate at a line boundary and
+          # point to the full CHANGELOG.md on the release branch when it does.
+          MAX_BODY=65000
+          RELEASE_BRANCH="release/$VERSION"
+          HEADER="# [Release $VERSION](https://github.com/${GITHUB_REPOSITORY}/releases/tag/$VERSION) - $RELEASE_DATE
 
           This PR prepares release $VERSION for merge to main.
 
-          $CHANGELOG_CONTENT
-          EOF
+          "
+          PR_BODY="${HEADER}${CHANGELOG_CONTENT}"$'\n'
+
+          if [ "${#PR_BODY}" -gt "$MAX_BODY" ]; then
+            NOTE=$(printf '\n\n_Changelog truncated to fit GitHub'"'"'s %s-char PR-body limit; see `CHANGELOG.md` on `%s` for the full entry._' "$MAX_BODY" "$RELEASE_BRANCH")
+            budget=$(( MAX_BODY - ${#HEADER} - ${#NOTE} ))
+            TRUNCATED="${CHANGELOG_CONTENT:0:budget}"
+            TRUNCATED="${TRUNCATED%$'\n'*}"
+            PR_BODY="${HEADER}${TRUNCATED}${NOTE}"
+          fi
+
+          printf '%s' "$PR_BODY" > /tmp/release-pr-body.md
 
           retry --retries 3 --backoff 5 --max-backoff 30 -- \
             gh pr edit "$PR_NUMBER" --body-file /tmp/release-pr-body.md
@@ -1536,13 +1550,27 @@ jobs:
             exit 1
           fi
 
-          {
-            echo "# Release $VERSION"
-            echo ""
-            echo "This PR prepares release $VERSION for merge to main."
-            echo ""
-            echo "$CHANGELOG_CONTENT"
-          } > /tmp/release-pr-body.md
+          # GitHub caps PR bodies at 65536 chars; a large release changelog
+          # can overflow it (#810). Truncate at a line boundary and point to
+          # the full CHANGELOG.md on the release branch when it does.
+          MAX_BODY=65000
+          RELEASE_BRANCH="release/$VERSION"
+          HEADER="# Release $VERSION
+
+          This PR prepares release $VERSION for merge to main.
+
+          "
+          PR_BODY="${HEADER}${CHANGELOG_CONTENT}"$'\n'
+
+          if [ "${#PR_BODY}" -gt "$MAX_BODY" ]; then
+            NOTE=$(printf '\n\n_Changelog truncated to fit GitHub'"'"'s %s-char PR-body limit; see `CHANGELOG.md` on `%s` for the full entry._' "$MAX_BODY" "$RELEASE_BRANCH")
+            budget=$(( MAX_BODY - ${#HEADER} - ${#NOTE} ))
+            TRUNCATED="${CHANGELOG_CONTENT:0:budget}"
+            TRUNCATED="${TRUNCATED%$'\n'*}"
+            PR_BODY="${HEADER}${TRUNCATED}${NOTE}"
+          fi
+
+          printf '%s' "$PR_BODY" > /tmp/release-pr-body.md
 
           retry --retries 3 --backoff 5 --max-backoff 30 -- \
             gh pr edit "$PR_NUMBER" --body-file /tmp/release-pr-body.md

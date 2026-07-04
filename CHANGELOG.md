@@ -182,8 +182,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **`prepare-release` no longer fails when the release changelog exceeds GitHub's PR-body limit** ([#810](https://github.com/vig-os/devcontainer/issues/810))
+- **Release pipeline no longer fails when the release changelog exceeds GitHub's PR-body limit** ([#810](https://github.com/vig-os/devcontainer/issues/810))
   - The `Create draft PR to main` step passed the entire frozen changelog section as the PR body; GitHub caps PR bodies at 65,536 characters, so a large release (e.g. 0.4.0 at ~64k chars) overflowed with `GraphQL: Body is too long` and the release rolled back. The step now caps the body, truncating the changelog at a line boundary and pointing to the full `CHANGELOG.md` on the release branch when it would overflow; small releases still inline the whole changelog unchanged
+  - The same uncapped rebuild existed in `release.yml`: the finalize-path `Refresh release PR body from finalized changelog` step (which would have crashed the final release run mid-finalize and triggered rollback) and the rollback-path `Restore release PR body` step. Both now apply the same cap
 - **Scaffold justfile audit: worktree recipes reachable, compose docs de-stale'd** ([#806](https://github.com/vig-os/devcontainer/issues/806))
   - The scaffold root `justfile` now imports `.devcontainer/justfile.worktree` (`import?`, so direnv-mode workspaces still parse): the shipped `.claude` worktree skills invoke `just worktree-start`, but nothing imported the recipes, so they were unreachable in consumer repos
   - The shipped `.devcontainer/README.md` no longer documents the long-removed `docker-compose.override.yml(.example)` workflow; it now describes the real layering (`docker-compose.project.yaml` team-shared / `docker-compose.local.yaml` personal) that #799 deliberately kept
