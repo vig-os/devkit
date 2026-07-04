@@ -9,7 +9,7 @@
 # Refs #817.
 name: Update nixpkgs-unstable
 
-on:
+on:  # yamllint disable-line rule:truthy
   schedule:
     # Mondays 05:00 UTC — lands before the work week, CI gates the merge.
     - cron: "0 5 * * 1"
@@ -67,9 +67,8 @@ jobs:
           git push --force origin "$branch"
           # Reuse an open PR for the branch if one exists; otherwise create it.
           if ! gh pr list --head "$branch" --base dev --state open --json number --jq '.[0].number' | grep -q .; then
+            body="$(printf 'Scheduled refresh of the nixpkgs-unstable pin (uv, gh, claude-code via the fastMovers overlay). Full CI on this PR is the merge gate.\n\nRefs: #817\n')"
             gh pr create --base dev --head "$branch" \
               --title "chore(nix): bump nixpkgs-unstable (fast-movers refresh)" \
-              --body "Scheduled refresh of the nixpkgs-unstable pin (uv, gh, claude-code via the fastMovers overlay). Full CI on this PR is the merge gate.
-
-Refs: #817"
+              --body "$body"
           fi
