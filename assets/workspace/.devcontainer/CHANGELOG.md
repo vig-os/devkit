@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Scheduled nixpkgs-unstable lock bump** ([#817](https://github.com/vig-os/devcontainer/issues/817))
   - Weekly workflow refreshing the fast-movers pin (uv, gh, claude-code) via a chore PR to dev, gated by full CI.
 
+- **Home Matrix CI workflow** ([#820](https://github.com/vig-os/devcontainer/issues/820))
+  - Builds the ci homeConfigurations on aarch64-darwin (macos-latest) and aarch64-linux and pushes closures to Cachix; separate non-required workflow (fail-soft by status).
+
 ### Changed
 
 ### Deprecated
