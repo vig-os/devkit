@@ -307,6 +307,7 @@ def test_home_configurations_matrix() -> None:
         for profile in ("minimal", "full")
         for system in HM_SYSTEMS
     }
+    expected.add("demo")
     missing = expected - names
     assert not missing, f"homeConfigurations matrix is missing: {sorted(missing)}"
 
@@ -387,6 +388,28 @@ def test_wave1_full_profile_config() -> None:
     assert not off, f"wave-1 programs not enabled in full profile: {off}"
     assert cfg["signingKey"] is None, "git signing must be inactive by default"
     assert cfg["secretsEnvDefault"] is False, "secretsEnv must default off"
+
+
+def test_personal_template_is_exposed() -> None:
+    """``templates.personal`` must point at the starter flake (#827)."""
+    result = subprocess.run(
+        [
+            "nix",
+            "eval",
+            "--json",
+            f"{REPO_ROOT}#templates.personal",
+            "--apply",
+            't: { hasPath = t ? path; hasDescription = (t.description or "") != ""; }',
+        ],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=600,
+    )
+    if result.returncode != 0:
+        pytest.fail("Failed to read templates.personal:\n" + result.stderr)
+    info = json.loads(result.stdout)
+    assert info["hasPath"] and info["hasDescription"]
 
 
 def test_flake_check_succeeds() -> None:

@@ -1125,7 +1125,32 @@
       };
       homeModules = self.homeManagerModules;
 
-      # The ci matrix (+ demo later, #827). Built as per-system checks below.
-      homeConfigurations = ciHomeConfigurations;
+      # The ci matrix plus `demo` — onboarding sugar built from the same
+      # modules (full profile, synthetic user). Refs #827.
+      homeConfigurations = ciHomeConfigurations // {
+        demo = home-manager.lib.homeManagerConfiguration {
+          pkgs = mkHomePkgs "x86_64-linux";
+          modules = [
+            ./nix/home/default.nix
+            {
+              home = {
+                username = "demo";
+                homeDirectory = "/home/demo";
+                stateVersion = "26.05";
+              };
+            }
+            hmProfiles.full
+          ];
+        };
+      };
+
+      # `nix flake init -t github:vig-os/devcontainer#personal` scaffolds a
+      # ~40-line personal flake importing the vigos.* modules. NOT in the
+      # deadnix/statix scope: like the workspace scaffold, the template keeps
+      # idiomatic possibly-unused args. Refs #827.
+      templates.personal = {
+        path = ./templates/personal;
+        description = "Personal home-manager flake importing the vigOS home modules";
+      };
     };
 }
