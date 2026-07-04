@@ -303,12 +303,24 @@ jobs:
         run: |
           set -euo pipefail
 
-          PR_BODY="# Release $VERSION
+          # GitHub caps PR bodies at 65536 chars; a large frozen release
+          # changelog can overflow it (#810). Truncate at a line boundary and
+          # point to the full CHANGELOG.md on the release branch when it does.
+          MAX_BODY=65000
+          HEADER="# Release $VERSION
 
           This PR prepares release $VERSION for merge to main.
 
-          $CHANGELOG_CONTENT
           "
+          PR_BODY="${HEADER}${CHANGELOG_CONTENT}"$'\n'
+
+          if [ "${#PR_BODY}" -gt "$MAX_BODY" ]; then
+            NOTE=$(printf '\n\n_Changelog truncated to fit GitHub'"'"'s %s-char PR-body limit; see `CHANGELOG.md` on `%s` for the full entry._' "$MAX_BODY" "$RELEASE_BRANCH")
+            budget=$(( MAX_BODY - ${#HEADER} - ${#NOTE} ))
+            TRUNCATED="${CHANGELOG_CONTENT:0:budget}"
+            TRUNCATED="${TRUNCATED%$'\n'*}"
+            PR_BODY="${HEADER}${TRUNCATED}${NOTE}"
+          fi
 
           PR_URL=$(uv run retry --retries 3 --backoff 5 --max-backoff 60 -- \
             gh pr create \
