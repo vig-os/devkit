@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **templates.personal + homeConfigurations.demo** ([#827](https://github.com/vig-os/devcontainer/issues/827))
   - `nix flake init -t github:vig-os/devcontainer#personal` scaffolds a personal home-manager flake on the vigos.* modules; `demo` is the full-profile reference configuration.
 
+- **Home environment docs** ([#825](https://github.com/vig-os/devcontainer/issues/825), [#826](https://github.com/vig-os/devcontainer/issues/826))
+  - docs/home/: bootstrap guide (installer, macOS trusted-users trap, first activation), override cookbook, rollback table, best-effort Intel meaning, credential-hygiene runbook.
+
 ### Changed
 
 ### Deprecated
