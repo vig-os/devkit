@@ -255,26 +255,27 @@ def test_vigos_home_module_set_is_exposed() -> None:
 
 def test_home_modules_alias_matches() -> None:
     """``homeModules`` (newer convention) must mirror ``homeManagerModules``."""
-    result = subprocess.run(
-        [
-            "nix",
-            "eval",
-            "--json",
-            f"{REPO_ROOT}#",
-            "--apply",
-            "f: { hm = builtins.attrNames f.homeManagerModules; "
-            "alias = builtins.attrNames (f.homeModules or { }); }",
-        ],
-        capture_output=True,
-        text=True,
-        env=_nix_env(),
-        timeout=600,
-    )
-    if result.returncode != 0:
-        pytest.fail("Failed to compare homeModules alias:\n" + result.stderr)
-    info = json.loads(result.stdout)
-    assert info["alias"] == info["hm"], (
-        f"homeModules alias diverges: {info['alias']} != {info['hm']}"
+    names: dict[str, list[str]] = {}
+    for output in ("homeManagerModules", "homeModules"):
+        result = subprocess.run(
+            [
+                "nix",
+                "eval",
+                "--json",
+                f"{REPO_ROOT}#{output}",
+                "--apply",
+                "builtins.attrNames",
+            ],
+            capture_output=True,
+            text=True,
+            env=_nix_env(),
+            timeout=600,
+        )
+        if result.returncode != 0:
+            pytest.fail(f"Failed to read {output}:\n" + result.stderr)
+        names[output] = json.loads(result.stdout)
+    assert names["homeModules"] == names["homeManagerModules"], (
+        f"homeModules alias diverges: {names!r}"
     )
 
 

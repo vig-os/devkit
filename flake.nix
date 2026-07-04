@@ -102,60 +102,7 @@
       # (tests/test_flake_devshell.py) reads `devShellTools` so it can never
       # drift from this list.
       # ---------------------------------------------------------------------
-      devTools =
-        pkgs: with pkgs; [
-          # Build automation
-          just
-
-          # Git-hook runner: prek (Rust drop-in for the Python pre-commit,
-          # faster and one fewer manylinux/FHS consumer). The SSoT runner for
-          # the `.githooks` hooks and the flake's `checks.pre-commit`. Refs #778.
-          prek
-
-          # Version control & GitHub (gh from unstable via overlay)
-          git
-          gh
-          lazygit
-          delta
-
-          # Python tooling (uv from unstable via overlay)
-          uv
-
-          # Node.js (devcontainer CLI via npm)
-          nodejs
-
-          # Shell testing: bats core + helper libraries (support/assert/file).
-          # Wrapped so BATS_LIB_PATH is exported for bats_load_library. Refs #695.
-          (batsWithLibs pkgs)
-
-          # Shell & JSON utilities
-          jq
-          tmux
-          shellcheck
-
-          # Linting
-          taplo
-          nixfmt-rfc-style # nix file formatter (treefmt `nix fmt`, pre-commit hook)
-          ruff # python linter/formatter (pre-commit ruff/ruff-format hooks)
-          typos # source typo checker (pre-commit typos hook)
-          deadnix # dead-Nix-code linter (flake `checks.deadnix`)
-          statix # nix anti-pattern linter (flake `checks.statix`)
-
-          # Container runtime
-          podman
-
-          # Agent / terminal toolkit (absorbed from #545)
-          ripgrep # rg
-          fd
-          bat
-          eza
-          zoxide
-          starship
-          charm-freeze # freeze (charmbracelet terminal screenshots)
-          expect
-          neovim # nvim
-          claude-code # claude
-        ];
+      devTools = import ./nix/devtools.nix;
 
       # Binary names exposed for the parity test. Prefer the package's declared
       # `meta.mainProgram` (the canonical executable name, e.g. ripgrep -> rg,
@@ -659,7 +606,7 @@
           # `{ self, … }` output signature, whose intentionally-unused args
           # deadnix would otherwise flag. Refs #777.
           deadnix = pkgs.runCommand "deadnix-check" { nativeBuildInputs = [ pkgs.deadnix ]; } ''
-            deadnix --fail ${./flake.nix}
+            deadnix --fail ${./flake.nix} ${./nix}
             touch "$out"
           '';
 
@@ -667,6 +614,7 @@
           # `inherit`). Same authored-flake scoping rationale as deadnix. Refs #777.
           statix = pkgs.runCommand "statix-check" { nativeBuildInputs = [ pkgs.statix ]; } ''
             statix check ${./flake.nix}
+            statix check ${./nix}
             touch "$out"
           '';
 
@@ -1081,22 +1029,25 @@
           };
         };
 
-      # No `nixpkgs.overlays` here: home-manager rejects setting it when the
-      # consumer supplies an external `pkgs` (the common flake case). Fast-movers
-      # then track the consumer's channel unless they apply `overlays.default`
-      # themselves — documented in docs/NIX.md. Refs #777.
-      homeManagerModules.default =
-        {
-          config,
-          lib,
-          pkgs,
-          ...
-        }:
-        {
-          options.programs.vigos-devtools.enable = lib.mkEnableOption "the vigOS devcontainer toolchain (devTools)";
-          config = lib.mkIf config.programs.vigos-devtools.enable {
-            home.packages = devTools pkgs;
-          };
-        };
+      # ----------------------------------------------------------------------
+      # vigos.* home modules (#818) - the terminal home environment as
+      # per-concern home-manager modules (ADR-home-environment-modules).
+      # Exported as PATHS, not imported functions: the module system dedups
+      # path imports, so importing the `default` umbrella plus an individual
+      # module never double-declares options. The legacy
+      # `programs.vigos-devtools.enable` is shimmed in packages.nix
+      # (mkRenamedOptionModule, one release - docs/NIX.md policy).
+      # `homeModules` is the newer-convention alias of the same set.
+      # ----------------------------------------------------------------------
+      homeManagerModules = {
+        default = ./nix/home/default.nix;
+        packages = ./nix/home/packages.nix;
+        shell = ./nix/home/shell.nix;
+        multiplexer = ./nix/home/multiplexer.nix;
+        cli = ./nix/home/cli.nix;
+        direnv = ./nix/home/direnv.nix;
+        git = ./nix/home/git.nix;
+      };
+      homeModules = self.homeManagerModules;
     };
 }
