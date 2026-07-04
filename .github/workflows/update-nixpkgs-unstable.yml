@@ -1,0 +1,75 @@
+# Scheduled bump of the nixpkgs-unstable flake input.
+#
+# The fastMovers overlay (uv, gh, claude-code) tracks nixpkgs-unstable, so the
+# only thing standing between us and a fresh claude-code is this lock pin
+# (ADR-home-environment-modules rejects third-party claude-code flakes). This
+# workflow refreshes the pin weekly on a chore branch and opens a PR to dev —
+# the full CI pipeline on that PR is the merge gate.
+#
+# Refs #817.
+name: Update nixpkgs-unstable
+
+on:
+  schedule:
+    # Mondays 05:00 UTC — lands before the work week, CI gates the merge.
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    name: Bump nixpkgs-unstable lock
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Generate a token
+        id: generate-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
+        with:
+          client-id: ${{ secrets.COMMIT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.COMMIT_APP_PRIVATE_KEY }}
+
+      - name: Checkout dev
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          ref: dev
+          token: ${{ steps.generate-token.outputs.token }}
+
+      - name: Install Nix (upstream CppNix)
+        uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3  # v31.10.6
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Update the nixpkgs-unstable input
+        run: nix flake update nixpkgs-unstable
+
+      - name: Open PR if the lock changed
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet flake.lock; then
+            echo "flake.lock unchanged — nothing to do."
+            exit 0
+          fi
+          branch="chore/update-nixpkgs-unstable"
+          git config user.name "vigos-commit-app[bot]"
+          git config user.email "vigos-commit-app[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add flake.lock
+          git commit -m "chore(nix): bump nixpkgs-unstable (fast-movers refresh)"
+          git push --force origin "$branch"
+          # Reuse an open PR for the branch if one exists; otherwise create it.
+          if ! gh pr list --head "$branch" --base dev --state open --json number --jq '.[0].number' | grep -q .; then
+            gh pr create --base dev --head "$branch" \
+              --title "chore(nix): bump nixpkgs-unstable (fast-movers refresh)" \
+              --body "Scheduled refresh of the nixpkgs-unstable pin (uv, gh, claude-code via the fastMovers overlay). Full CI on this PR is the merge gate.
+
+Refs: #817"
+          fi

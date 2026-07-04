@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `docs/NIX.md`: modules ride the existing release train (consumers pin tags), `mkRenamedOptionModule` deprecation shims, dogfood-canary exception, and the `#### Modules` changelog sub-heading convention.
   - Workspace scaffold `vigos.url` float is now documented as deliberate, with the pin recipe.
 
+- **Scheduled nixpkgs-unstable lock bump** ([#817](https://github.com/vig-os/devcontainer/issues/817))
+  - Weekly workflow refreshing the fast-movers pin (uv, gh, claude-code) via a chore PR to dev, gated by full CI.
+
 ### Changed
 
 ### Deprecated
