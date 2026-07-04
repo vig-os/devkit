@@ -524,3 +524,12 @@ _scaffold() {
     run grep -F 'DEVCONTAINER_VERSION=${VIG_OS_VERSION}' "$INIT_WORKSPACE_SH"
     assert_success
 }
+
+@test "template ships .typos.toml alongside the typos hook (#855)" {
+    # The scaffold's .pre-commit-config.yaml runs the typos hook; without the
+    # exception config, scaffold-shipped content (version-check.sh's Nd
+    # duration syntax, the synced changelog's "unexcepted" policy term) fails
+    # every consumer's lint out of the box.
+    run test -f "$TEMPLATE_DIR/.typos.toml"
+    assert_success
+}
