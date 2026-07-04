@@ -1,0 +1,99 @@
+# Home-environment matrix: build the ci homeConfigurations on the platforms
+# the x86_64-linux Tier-0 gate cannot cover, and push their closures to
+# Cachix so colleagues never cold-build (ADR: darwin cache must exist BEFORE
+# first onboarding).
+#
+# Deliberately a SEPARATE, non-required workflow: failures stay visibly red
+# on the PR without blocking merge (fail-soft by status, never
+# continue-on-error). Promotion to a required check is an explicit follow-up
+# decision. Refs #820.
+name: Home Matrix
+
+on:  # yamllint disable-line rule:truthy
+  pull_request:
+    branches: [dev, 'release/**', main]
+    paths:
+      - flake.nix
+      - flake.lock
+      - nix/**
+      - .github/workflows/home-matrix.yml
+  push:
+    branches: [dev]
+    paths:
+      - flake.nix
+      - flake.lock
+      - nix/**
+      - .github/workflows/home-matrix.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  home-aarch64-darwin:
+    name: hm checks (aarch64-darwin) + Cachix
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Install Nix (upstream CppNix)
+        uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3  # v31.10.6
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Configure Cachix
+        uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71  # v17
+        with:
+          name: ${{ vars.CACHIX_CACHE }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Build hm-minimal + hm-full checks
+        run: |
+          set -euo pipefail
+          nix build \
+            .#checks.aarch64-darwin.hm-minimal \
+            .#checks.aarch64-darwin.hm-full \
+            -L --out-link result-hm
+
+      - name: Push closures to Cachix (belt and braces)
+        run: |
+          set -euo pipefail
+          nix path-info -r ./result-hm* | cachix push "${{ vars.CACHIX_CACHE }}"
+
+  home-aarch64-linux:
+    name: hm checks (aarch64-linux) + Cachix
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Install Nix (upstream CppNix)
+        uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3  # v31.10.6
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Configure Cachix
+        uses: cachix/cachix-action@5f2d7c5294214f71b873db4b969586b980625e71  # v17
+        with:
+          name: ${{ vars.CACHIX_CACHE }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Build hm-minimal + hm-full checks
+        run: |
+          set -euo pipefail
+          nix build \
+            .#checks.aarch64-linux.hm-minimal \
+            .#checks.aarch64-linux.hm-full \
+            -L --out-link result-hm
+
+      - name: Push closures to Cachix (belt and braces)
+        run: |
+          set -euo pipefail
+          nix path-info -r ./result-hm* | cachix push "${{ vars.CACHIX_CACHE }}"
