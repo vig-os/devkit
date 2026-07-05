@@ -107,6 +107,33 @@ module rather than baking it into every consumer's image.
   (Renovate's `nix` manager opens the PR); `flake.lock` is the controlling
   version document.
 
+## Upgrading an existing 0.3.x consumer — manual steps
+
+`install.sh --version <X> --force` refreshes the scaffold and pins `<X>` in
+`.vig-os`, but files you own are **preserved, not migrated**. Field-validated
+checklist ([#859](https://github.com/vig-os/devcontainer/issues/859)) after the
+re-scaffold:
+
+1. **`justfile.project` hook recipe** — your preserved `precommit` recipe still
+   runs `uv run pre-commit run --all-files`; `pre-commit` is gone from the
+   0.4.0 image and venv. Change it to `prek run --all-files`.
+2. **Recipe renames** — the managed base recipes are now `devc-*`-namespaced
+   and the template test recipe is `just test` (formerly `just test-pytest`).
+   Run `just --list` once and update any scripts/muscle memory.
+3. **typos config precedence** — if your repo owns a `typos.toml` or
+   `_typos.toml`, it silently **shadows** the shipped `.typos.toml`. Merge the
+   shipped `[default.extend-words]` entries (`Nd`, `unexcepted`, `ba` — needed
+   by scaffold-shipped content such as `version-check.sh` and the synced
+   `.devcontainer/CHANGELOG.md`) into your file.
+4. **Committed binary/generated artifacts** (plot exports, PDFs, golden `.bin`
+   fixtures, SVGs): add them to your typos `[files] extend-exclude` and
+   consider a global `exclude:` in `.pre-commit-config.yaml` so the autofix
+   hooks (end-of-file-fixer, trailing-whitespace) don't rewrite them.
+5. **Project name re-derivation** — the re-scaffold substitutes placeholders
+   from the current directory/`--name`; template-origin files (e.g.
+   `tests/test_example.py`) may be rewritten to a name that differs from your
+   original scaffold. Review the diff before committing.
+
 ## Staying on the Debian image (rollback)
 
 The final Debian-built release is **0.3.9**; every release from 0.4.0 onward is

@@ -288,6 +288,15 @@ if [[ -d "$WORKSPACE_DIR/.devcontainer" ]] \
     DEVCONTAINER_PREEXISTED=true
 fi
 
+# Same guard for the consumer's own nix-direnv files (#859): the
+# devcontainer-mode prune may only remove the flake stub/`.envrc` that this
+# scaffold would create, never a pre-existing setup (they are PRESERVE_FILES,
+# so rsync never overwrites them either — the prune must match).
+FLAKE_PREEXISTED=false
+[[ -f "$WORKSPACE_DIR/flake.nix" ]] && FLAKE_PREEXISTED=true
+ENVRC_PREEXISTED=false
+[[ -f "$WORKSPACE_DIR/.envrc" ]] && ENVRC_PREEXISTED=true
+
 # Copy template contents to workspace
 echo "Initializing workspace from template..."
 echo "Copying files from $TEMPLATE_DIR to $WORKSPACE_DIR..."
@@ -351,8 +360,20 @@ chmod -R u+w "$WORKSPACE_DIR"
 #   both         -> keep everything
 case "$MODE" in
     devcontainer)
-        echo "Pruning to 'devcontainer' mode: removing flake.nix and .envrc..."
-        rm -f "$WORKSPACE_DIR/flake.nix" "$WORKSPACE_DIR/.envrc"
+        # Only prune the stub files this scaffold created; a consumer's own
+        # pre-existing flake.nix/.envrc must survive (#859).
+        if [[ "$FLAKE_PREEXISTED" == "true" ]]; then
+            echo "devcontainer mode: preserving existing flake.nix (#859)"
+        else
+            echo "Pruning to 'devcontainer' mode: removing flake.nix..."
+            rm -f "$WORKSPACE_DIR/flake.nix"
+        fi
+        if [[ "$ENVRC_PREEXISTED" == "true" ]]; then
+            echo "devcontainer mode: preserving existing .envrc (#859)"
+        else
+            echo "Pruning to 'devcontainer' mode: removing .envrc..."
+            rm -f "$WORKSPACE_DIR/.envrc"
+        fi
         ;;
     direnv)
         # Only drop a .devcontainer/ that this scaffold created; never delete a
@@ -436,10 +457,18 @@ echo "Setting executable permissions on shell scripts and hooks..."
 find "$WORKSPACE_DIR" -type f -name "*.sh" -exec chmod +x {} \;
 find "$WORKSPACE_DIR/.githooks" -type f -exec chmod +x {} \; 2>/dev/null || true
 
-# Sync dependencies: resolves uv.lock for the new project name and installs the project
+# Sync dependencies: resolves uv.lock for the new project name and installs the
+# project. Non-fatal (#859): a preserved old-generation justfile.project may not
+# define `sync` yet — the scaffold itself is complete at this point, so warn and
+# let the consumer sync after migrating their recipes.
 echo "Syncing dependencies..."
 cd "$WORKSPACE_DIR"
-just sync
+if just --show sync > /dev/null 2>&1; then
+    just sync
+else
+    echo "Warning: no 'sync' recipe found (preserved pre-0.4.0 justfile.project?)." >&2
+    echo "         Run 'uv sync' manually after migrating your recipes (see MIGRATION.md)." >&2
+fi
 
 echo "Workspace initialized successfully!"
 echo ""

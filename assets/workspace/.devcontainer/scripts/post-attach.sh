@@ -12,7 +12,7 @@ set -euo pipefail
 
 echo "Running post-attach checks..."
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 PROJECT_ROOT="/workspace/{{SHORT_NAME}}"
 
 "$SCRIPT_DIR/verify-auth.sh"

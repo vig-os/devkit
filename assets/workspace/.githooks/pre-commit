@@ -1,11 +1,13 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Set error handling, fail on any error during script execution
 set -euo pipefail
 
-# Check if we're running inside the dev container
-if [ "${IN_CONTAINER:-}" != "true" ]; then
-	# Outside dev container
-	echo "Please commit your changes within the dev container."
+# Sanctioned environments: the dev container (IN_CONTAINER, set by the
+# image) or the nix-direnv dev-shell (IN_NIX_SHELL, set by nix) — direnv
+# mode has no container (#859).
+if [ "${IN_CONTAINER:-}" != "true" ] && [ -z "${IN_NIX_SHELL:-}" ]; then
+	# Outside both sanctioned environments
+	echo "Please commit your changes within the dev container or the nix dev-shell."
 	exit 1
 fi
 

@@ -7,7 +7,7 @@ set -euo pipefail
 
 echo "Initializing devcontainer setup..."
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 DEVCONTAINER_DIR="$(dirname "$SCRIPT_DIR")"
 
 # Copy host user configuration (git, ssh, gh)

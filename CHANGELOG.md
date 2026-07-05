@@ -182,6 +182,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **rc4 field-validation fix batch: direnv-mode commits, pipe-safe scripts, prune/typos/installer hardening** ([#859](https://github.com/vig-os/devcontainer/issues/859))
+  - Scaffolded `.githooks/*` now use `#!/usr/bin/env bash` (hosts without `/bin/bash`, e.g. NixOS, could not run them) and accept the nix dev-shell (`IN_NIX_SHELL`) as a sanctioned commit environment — previously direnv-mode consumers could not commit at all (the guard demanded the container)
+  - Restored the `${BASH_SOURCE[0]:-$0}` pipe-safety fallback in the scaffolded lifecycle scripts (`initialize`/`post-create`/`post-attach`/`version-check`) — a regression from the 0.3.x scaffold caught by a consumer's own regression tests
+  - `--mode devcontainer` no longer deletes a consumer's **pre-existing** `flake.nix`/`.envrc` (two real repos lost their own nix-direnv setup); the prune now only removes stub files the scaffold itself created, mirroring the #738 guard
+  - The installer's final `just sync` is non-fatal when the preserved old-generation `justfile.project` predates the `sync` recipe (warns and points to MIGRATION.md instead of failing an otherwise complete scaffold)
+  - The typos hook (repo + scaffold) passes `--force-exclude` so `[files] extend-exclude` applies to explicitly-passed staged files — three consumer repos hit garbage findings on committed binary artifacts (PDFs, SVGs, `.bin` fixtures)
+  - `docs/MIGRATION.md` gained the field-validated "Upgrading an existing 0.3.x consumer" checklist (prek recipe migration, recipe renames, typos config precedence/shadowing, artifact excludes, name re-derivation)
 - **Shipped consumer `prepare-release.yml` caps its PR body under GitHub's 65,536-char limit** ([#857](https://github.com/vig-os/devcontainer/issues/857))
   - #812 capped the PR body only in this repo's own workflow; the scaffolded consumer copy still interpolated the full frozen changelog section uncapped, so a consumer with a large release (the 0.4.0-rc3 smoke test seeds this repo's ~67k-char section) failed `Create draft PR to main` with `GraphQL: Body is too long`. The shipped workflow now applies the same line-boundary truncation with a pointer to the release branch's full `CHANGELOG.md`
 - **Scaffold ships `.typos.toml` so the shipped typos hook passes out of the box** ([#855](https://github.com/vig-os/devcontainer/issues/855))
