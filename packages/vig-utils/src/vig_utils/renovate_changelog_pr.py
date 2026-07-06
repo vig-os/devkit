@@ -153,38 +153,31 @@ def insert_renovate_changelog_entry(
         return changelog, False
 
     changed_idx: int | None = None
-    next_sec: int | None = None
     for i in range(unreleased_start, unreleased_end):
-        line = lines[i]
-        if line.startswith("### Changed"):
+        if lines[i].startswith("### Changed"):
             changed_idx = i
-            continue
-        if (
-            changed_idx is not None
-            and line.startswith("### ")
-            and not line.startswith("### Changed")
-        ):
-            next_sec = i
             break
     if changed_idx is None:
         return changelog, False
 
-    # Insert before the next ### heading, or at end of ## Unreleased if Changed is last subsection
-    insert_at = next_sec if next_sec is not None else unreleased_end
-
-    # Do not consume the first blank line after ### Changed (empty subsection): keep
-    # Keep-a-Changelog spacing between the heading and the first list item.
-    min_insert = changed_idx + 1
-    if changed_idx + 1 < len(lines) and lines[changed_idx + 1].strip() == "":
-        min_insert = changed_idx + 2
-
-    # Keep blank line between list items and the following heading (Keep-a-Changelog)
-    while insert_at > min_insert and lines[insert_at - 1].strip() == "":
-        insert_at -= 1
+    # Insert at the TOP of ### Changed, as a plain bullet above any #### sub-heading
+    # (e.g. the #### Modules convention) rather than appended at the bottom of the
+    # block. Keep the blank line after the heading for Keep-a-Changelog spacing.
+    insert_at = changed_idx + 1
+    if insert_at < len(lines) and lines[insert_at].strip() == "":
+        insert_at += 1
 
     if not entry.endswith("\n"):
         entry = entry + "\n"
-    new_lines = lines[:insert_at] + [entry] + lines[insert_at:]
+
+    # When the section opens with a heading (empty ### Changed, or a #### sub-heading
+    # as its first content), append a blank line so the new bullet keeps Keep-a-Changelog
+    # spacing before that heading.
+    addition = [entry]
+    if insert_at < len(lines) and lines[insert_at].lstrip().startswith("#"):
+        addition.append("\n")
+
+    new_lines = lines[:insert_at] + addition + lines[insert_at:]
     return "".join(new_lines), True
 
 

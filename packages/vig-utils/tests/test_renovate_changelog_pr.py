@@ -87,7 +87,8 @@ def test_format_single_missing_old() -> None:
     )
 
 
-def test_insert_appends_to_changed_section() -> None:
+def test_insert_prepends_to_changed_section() -> None:
+    """New entries go at the top of ### Changed, above existing bullets."""
     changelog = textwrap.dedent(
         """\
         ## Unreleased
@@ -104,6 +105,7 @@ def test_insert_appends_to_changed_section() -> None:
     entry = "- **New** ([#2](https://github.com/o/r/pull/2))\n"
     new_content, did = insert_renovate_changelog_entry(changelog, 2, entry)
     assert did is True
+    assert new_content.index(entry) < new_content.index("**Existing**")
     assert new_content.index(entry) < new_content.index("### Deprecated")
     assert "**Existing**" in new_content
 
