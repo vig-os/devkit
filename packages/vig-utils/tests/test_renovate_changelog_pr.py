@@ -145,6 +145,31 @@ def test_insert_idempotent() -> None:
     assert new_content == changelog
 
 
+def test_insert_above_subheading_in_changed() -> None:
+    """Renovate entries land as a plain ### Changed bullet, above any #### sub-heading."""
+    changelog = textwrap.dedent(
+        """\
+        ## Unreleased
+
+        ### Changed
+
+        #### Modules
+
+        - **Module thing** ([#1](https://github.com/o/r/pull/1))
+
+        ### Deprecated
+        """
+    )
+    entry = "- **Renovate: update `x`** ([#2](https://github.com/o/r/pull/2))\n"
+    new_content, did = insert_renovate_changelog_entry(changelog, 2, entry)
+    assert did is True
+    # Plain bullet at the top of ### Changed, not nested under #### Modules
+    assert new_content.index(entry) < new_content.index("#### Modules")
+    assert "### Changed\n\n- **Renovate" in new_content
+    # Keep-a-Changelog spacing preserved before the sub-heading
+    assert "\n\n#### Modules" in new_content
+
+
 def test_insert_changed_is_last_section_before_version() -> None:
     """### Changed with no following ### subsection still gets new bullets."""
     changelog = textwrap.dedent(
