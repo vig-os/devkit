@@ -55,6 +55,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Modules
 
 - **homeManagerModules.default is now the umbrella** importing every `vigos.*` module, each disabled by default ([#818](https://github.com/vig-os/devcontainer/issues/818)); existing imports keep working unchanged.
+- **Renovate: update `numpy` to `v2.5.1`** ([#865](https://github.com/vig-os/devcontainer/pull/865))
 
 ### Deprecated
 
