@@ -512,6 +512,50 @@ class TestPythonEnvironment:
             f"Expected uv {expected}, got: {result.stdout}"
         )
 
+    def test_sysconfig_compiler_vars_are_generic(self, host):
+        """sysconfig must expose generic PATH compiler names, not the Nix build toolchain (#879).
+
+        The baked CPython records its build-time toolchain in sysconfig
+        (``_sysconfigdata*.py``): CC='gcc', CXX='g++', and link commands
+        starting with those names. The image ships no compiler, and PEP 517
+        build backends inherit these values verbatim — scikit-build-core
+        exports CC/CXX into the environment, so CMake hard-fails on the
+        phantom 'g++' ("Could not find the compiler specified in the
+        environment variable CXX") instead of doing normal PATH discovery,
+        and setuptools invokes the literal 'gcc'. Sanitized values are the
+        generic POSIX names ('cc'/'c++'), which resolve against whatever
+        toolchain the project flake provides on PATH — and produce an honest
+        "no compiler found" when none does.
+        """
+        result = host.run(
+            'python3 -c "import json, sysconfig; '
+            "vars = ('CC', 'CXX', 'LINKCC', 'LDSHARED', 'BLDSHARED', 'LDCXXSHARED'); "
+            'print(json.dumps({k: sysconfig.get_config_var(k) for k in vars}))"'
+        )
+        assert result.rc == 0, f"sysconfig query failed: {result.stderr}"
+        config = json.loads(result.stdout)
+
+        expected_first_token = {
+            "CC": "cc",
+            "CXX": "c++",
+            "LINKCC": "cc",
+            "LDSHARED": "cc",
+            "BLDSHARED": "cc",
+            "LDCXXSHARED": "c++",
+        }
+        for var, expected in expected_first_token.items():
+            value = config[var] or ""
+            tokens = value.split()
+            first = tokens[0] if tokens else ""
+            assert first == expected, (
+                f"sysconfig {var} must start with the generic {expected!r} so "
+                f"PEP 517 backends fall back to PATH compiler discovery; "
+                f"got {value!r}"
+            )
+            assert "/nix/store/" not in first, (
+                f"sysconfig {var} leaks a Nix store compiler path: {value!r}"
+            )
+
     def test_uv_venv_workflow(self, host):
         """Test that uv sync creates venv and manages project dependencies correctly."""
         if not _pypi_reachable(host):
