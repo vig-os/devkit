@@ -645,9 +645,29 @@ class TestDevelopmentTools:
         result = host.run("prek --version")
         assert result.rc == 0, "prek --version failed"
         assert "prek" in result.stdout.lower()
-        # The Python pre-commit is intentionally dropped from the image (#778).
-        assert host.run("command -v pre-commit").rc != 0, (
-            "pre-commit should be absent from the image (prek supersedes it, #778)"
+
+    def test_pre_commit_compat_shim(self, host):
+        """One-cycle `pre-commit -> prek` compat shim (#881, remove in 0.5).
+
+        The Python pre-commit was dropped for prek (#778), but preserved
+        consumer files (justfile.project recipes, repo-managed .githooks)
+        still invoke `pre-commit` and exited 127 at commit time. The shim
+        dispatches to prek and prints a one-line deprecation notice on
+        stderr so scripts keep working while consumers migrate.
+        """
+        result = host.run("pre-commit --version")
+        assert result.rc == 0, "pre-commit compat shim failed (#881)"
+        # dispatches to prek: the version banner is prek's
+        assert "prek" in result.stdout.lower(), (
+            f"shim did not dispatch to prek: {result.stdout}"
+        )
+        # deprecation notice on stderr (not stdout, so pipelines stay clean)
+        assert "deprecated" in result.stderr.lower(), (
+            f"shim did not print the deprecation notice: {result.stderr}"
+        )
+        assert "prek" in result.stderr.lower(), "deprecation notice must point at prek"
+        assert "deprecated" not in result.stdout.lower(), (
+            "deprecation notice leaked to stdout"
         )
 
     def test_ruff_installed(self, host):

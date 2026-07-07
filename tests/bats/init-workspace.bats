@@ -823,3 +823,86 @@ EOF
     run grep -q 'SENTINEL-878' "$ws/.pre-commit-config.yaml"
     assert_success
 }
+
+# ── upgrade must flag preserved files still invoking `pre-commit` (#881) ──────
+# The 0.4.0 image ships `prek` only (#778); a one-cycle `pre-commit` shim
+# covers 0.4.x. Preserved consumer files (justfile.project recipes, extra
+# .githooks scripts, .pre-commit-config.yaml entries) that still invoke the
+# retired binary would otherwise exit 127 at first use — the upgrade must
+# scan them and warn with file:line, non-fatally (#877/#878 precedent).
+
+@test "upgrade warns file:line when preserved files still invoke pre-commit (#881)" {
+    ws="$BATS_TEST_TMPDIR/e2e-881-hit"
+    mkdir -p "$ws/.githooks"
+    # vault shape: preserved recipe calls the retired binary
+    cat > "$ws/justfile.project" <<'EOF'
+# SENTINEL-881 consumer recipes
+sync:
+    uv sync
+
+precommit:
+    uv run pre-commit run --all-files
+
+test:
+    @echo test
+EOF
+    # consumer-owned hook outside the template set survives the rsync
+    cat > "$ws/.githooks/pre-push" <<'EOF'
+#!/bin/bash
+pre-commit run --all-files
+EOF
+    chmod +x "$ws/.githooks/pre-push"
+    run _upgrade both "$ws"
+    assert_success
+    assert_output --partial "retired 'pre-commit' binary"
+    # file:line listing for both surfaces
+    assert_output --regexp 'justfile\.project:[0-9]+'
+    assert_output --regexp '\.githooks/pre-push:[0-9]+'
+    # points at the migration doc and the drop-in runner
+    assert_output --partial 'MIGRATION.md'
+    assert_output --partial 'prek'
+}
+
+@test "no pre-commit-reference warning on a stock scaffold (#881)" {
+    ws="$BATS_TEST_TMPDIR/e2e-881-stock"
+    mkdir -p "$ws"
+    run _upgrade both "$ws"
+    assert_success
+    refute_output --partial "retired 'pre-commit' binary"
+    run _upgrade both "$ws"
+    assert_success
+    refute_output --partial "retired 'pre-commit' binary"
+}
+
+@test "pre-commit scan skips filenames, repo URLs, stage names, prek (#881)" {
+    # False-positive guard: none of these are invocations of the retired
+    # binary — the config filename, pre-commit-hooks repo URLs, YAML stage
+    # names, comments, and the prek runner itself must not trip the warning.
+    ws="$BATS_TEST_TMPDIR/e2e-881-clean"
+    mkdir -p "$ws"
+    cat > "$ws/.pre-commit-config.yaml" <<'EOF'
+# SENTINEL-881 clean consumer config: mentions .pre-commit-config.yaml
+default_stages: [pre-commit]
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b  # v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+        stages:
+          - pre-commit
+EOF
+    cat > "$ws/justfile.project" <<'EOF'
+# SENTINEL-881 clean consumer recipes (see https://pre-commit.com)
+sync:
+    uv sync
+
+precommit:
+    prek run --all-files
+
+test:
+    @echo test
+EOF
+    run _upgrade both "$ws"
+    assert_success
+    refute_output --partial "retired 'pre-commit' binary"
+}

@@ -93,6 +93,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The upgrade overwrote the consumer's `.pre-commit-config.yaml` wholesale, dropping the repo-specific global `exclude:` block and per-hook `exclude:` keys — the hook suite then rewrote data files it must never touch and false-flagged PEM marker literals. The file is now preserved on upgrade (like `justfile.project`, [#877](https://github.com/vig-os/devcontainer/issues/877)).
   - Because template hook-stack evolution no longer arrives automatically, `init-workspace --force` prints a diff of the preserved file against the incoming template so consumers can fold changes in deliberately, and warns (non-fatally) when the preserved config does not parse under `prek validate-config` — a config the runner cannot load breaks every commit in the new image.
 
+- **`pre-commit` binary dropped without a compat path — preserved consumer recipes and `.githooks` calling it break** ([#881](https://github.com/vig-os/devcontainer/issues/881))
+  - The 0.4.0 image retired the Python `pre-commit` for `prek` ([#778](https://github.com/vig-os/devcontainer/issues/778)), but files preserved on upgrade still invoke it and exit 127 (field-validated on a 0.3.5 → 0.4.0 consumer: the preserved `justfile.project` `precommit` recipe and repo-managed `.githooks` scripts broke every commit). The image now ships a **deprecated one-cycle `pre-commit → prek` shim** (stderr notice, removed in 0.5) so consumer hook scripts keep working while they migrate.
+  - `init-workspace --force` scans the post-scaffold `justfile.project`, `.githooks/` scripts and `.pre-commit-config.yaml` for invocation-shaped `pre-commit` references and warns (non-fatally) with `file:line`, pointing at the MIGRATION.md rename checklist — which now also covers the NixOS `#!/bin/bash` shebang gotcha in old-scaffold `.githooks`.
+
 ### Security
 
 ## [0.4.0](https://github.com/vig-os/devcontainer/releases/tag/0.4.0) - 2026-07-06
