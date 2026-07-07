@@ -89,7 +89,7 @@ jobs:
       # `just precommit` crash deep in the log.
       - name: Verify toolchain (prek present in dev-shell)
         run: |
-          if ! nix develop -c command -v prek >/dev/null 2>&1; then
+          if ! nix develop -c bash -c 'command -v prek' >/dev/null 2>&1; then
             echo "::error::'prek' is not provided by the flake dev-shell — the vigos flake input likely predates the prek hook runner (#778), or the dev-shell failed to build (see logs above)."
             echo "Fix: 'nix flake update vigos' to a devkit generation that ships prek. See docs/MIGRATION.md."
             exit 1
