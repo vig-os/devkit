@@ -313,9 +313,7 @@ class TestZeroHooksParity:
         assert ".pre-commit-config.yaml" not in result.stdout
         assert "git-hooks.nix" not in result.stdout
 
-    def test_opted_in_shellhook_installs_config(
-        self, opted_in_shellhook: str
-    ) -> None:
+    def test_opted_in_shellhook_installs_config(self, opted_in_shellhook: str) -> None:
         """Opting in wires the config installation into the shellHook.
 
         The refuse-to-overwrite semantics (#878) must survive: a regular
