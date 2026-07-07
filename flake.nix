@@ -570,6 +570,19 @@
             pythonEnv
             bandit
 
+            # DEPRECATED — remove in 0.5 (#881): one-release-cycle
+            # `pre-commit -> prek` compat shim. #778 dropped the Python
+            # pre-commit for prek, but consumer files preserved on upgrade
+            # (justfile.project recipes, repo-managed .githooks scripts)
+            # still invoke `pre-commit` and exited 127 at commit time. prek
+            # is drop-in for run-style invocations, so the shim dispatches
+            # and prints a one-line stderr notice (stdout stays clean for
+            # pipelines) until consumers rename their invocations.
+            (writeShellScriptBin "pre-commit" ''
+              echo "pre-commit: deprecated compat shim, dispatching to prek — rename your invocation; the shim is removed in 0.5 (vig-os/devcontainer#881)" >&2
+              exec ${prek}/bin/prek "$@"
+            '')
+
             # Rust/cargo + just LSP/formatter tools. The Debian image installed
             # these via cargo-binstall; Nix-native from nixpkgs here (#666).
             cargo-binstall

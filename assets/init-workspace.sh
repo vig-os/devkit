@@ -590,6 +590,40 @@ if [[ "$PRECOMMIT_CONFIG_PREEXISTED" == "true" \
     fi
 fi
 
+# The retired `pre-commit` binary (#778) exits 127 at first use: a preserved
+# justfile.project recipe, a consumer-owned .githooks script, or a hook entry
+# in the preserved .pre-commit-config.yaml that still invokes it breaks even
+# after a clean re-scaffold — the image ships prek plus a one-cycle compat
+# shim (removed in 0.5). Scan the post-scaffold state of those surfaces for
+# invocation-shaped references and warn with file:line (#881). Non-fatal,
+# like the #877/#878 guards. The pattern only matches `pre-commit` framed as
+# a command word (start/whitespace/shell punctuation on both sides), so the
+# config FILENAME (leading `.`), pre-commit-hooks repo URLs (leading `/`),
+# pre-commit.com links (trailing `.`), and `prek` never trip it; comment
+# lines and bare YAML stage-name list items (`- pre-commit`) are filtered.
+PRECOMMIT_REF_PATTERN='(^|[[:space:]("'"'"';&|=`])pre-commit([[:space:])"'"'"';&|]|$)'
+PRECOMMIT_SCAN_TARGETS=()
+for scan_file in "$WORKSPACE_DIR/justfile.project" "$WORKSPACE_DIR/.pre-commit-config.yaml"; do
+    [[ -f "$scan_file" ]] && PRECOMMIT_SCAN_TARGETS+=("$scan_file")
+done
+while IFS= read -r scan_file; do
+    PRECOMMIT_SCAN_TARGETS+=("$scan_file")
+done < <(find "$WORKSPACE_DIR/.githooks" -type f 2>/dev/null | sort)
+PRECOMMIT_REF_HITS=""
+if [[ ${#PRECOMMIT_SCAN_TARGETS[@]} -gt 0 ]]; then
+    PRECOMMIT_REF_HITS="$(grep -nHE "$PRECOMMIT_REF_PATTERN" "${PRECOMMIT_SCAN_TARGETS[@]}" 2>/dev/null \
+        | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#' \
+        | grep -vE '^[^:]*:[0-9]+:[[:space:]]*-[[:space:]]+pre-commit[[:space:]]*$' || true)"
+fi
+if [[ -n "$PRECOMMIT_REF_HITS" ]]; then
+    echo "Warning: the retired 'pre-commit' binary is still invoked by preserved file(s) (#881):" >&2
+    printf '%s\n' "$PRECOMMIT_REF_HITS" | sed "s|^$WORKSPACE_DIR/|         |" >&2
+    echo "         The image ships 'prek' (drop-in for run-style invocations); a temporary" >&2
+    echo "         pre-commit->prek shim keeps these working through 0.4.x only — it is" >&2
+    echo "         removed in 0.5. Rename the invocations to 'prek' (see MIGRATION.md," >&2
+    echo "         'Upgrading an existing 0.3.x consumer')." >&2
+fi
+
 # Sync dependencies: resolves uv.lock for the new project name and installs the
 # project. Non-fatal (#859): a preserved old-generation justfile.project may not
 # define `sync` yet — the scaffold itself is complete at this point, so warn and
