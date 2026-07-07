@@ -187,16 +187,14 @@ The `prepare-release.yml` workflow freezes the CHANGELOG on dev and creates the 
 2. ✅ **Prepare** job (skipped if --dry-run)
    - Runs `prepare-changelog prepare` → moves Unreleased content to `## [X.Y.Z] - TBD` + creates fresh empty Unreleased section
    - Commits prepared CHANGELOG to `dev` via API (single atomic commit — dev never loses `## Unreleased`)
-   - Creates `release/X.Y.Z` branch from that dev commit
-   - Strips empty Unreleased section from release branch CHANGELOG
-   - Commits stripped CHANGELOG to release branch via API
+   - Creates `release/X.Y.Z` branch from that dev commit (the empty Unreleased is kept — see [#590](https://github.com/vig-os/devcontainer/issues/590))
    - Creates draft PR to `main` with CHANGELOG content as body
 
 **CHANGELOG state after prepare-release:**
 - `dev`: `## Unreleased` (empty) + `## [X.Y.Z] - TBD` (with content)
-- `release/X.Y.Z`: `## [X.Y.Z] - TBD` (with content, no Unreleased)
+- `release/X.Y.Z`: `## Unreleased` (empty) + `## [X.Y.Z] - TBD` (with content)
 
-This design ensures both branches share the `[X.Y.Z]` section as a common ancestor, which reduces merge conflicts when main is synced back to dev after release.
+The empty `## Unreleased` is never stripped ([#590](https://github.com/vig-os/devcontainer/issues/590)): it is present on both dev and release/main as stable common context in the freeze commit that becomes the main↔dev merge base, so the sync merge keeps `## Unreleased` instead of silently dropping it.
 
 **Output example:**
 
@@ -209,7 +207,7 @@ Release Summary:
 
 CHANGELOG state:
   dev:     ## Unreleased (empty) + ## [1.0.0] - TBD
-  release: ## [1.0.0] - TBD (no Unreleased)
+  release: ## Unreleased (empty) + ## [1.0.0] - TBD
 
 Next steps:
   1. Test release: git checkout release/1.0.0
@@ -582,9 +580,7 @@ Additional requirement:
 2. **prepare** (skipped if dry-run) - Freezes CHANGELOG and creates release branch
    - Runs `prepare-changelog prepare` (Unreleased → [X.Y.Z] - TBD + fresh empty Unreleased)
    - Commits prepared CHANGELOG to `dev` via API
-   - Creates `release/X.Y.Z` branch from that dev commit
-   - Strips empty Unreleased section from release branch CHANGELOG
-   - Commits stripped CHANGELOG to release branch via API
+   - Creates `release/X.Y.Z` branch from that dev commit (the empty Unreleased is kept, [#590](https://github.com/vig-os/devcontainer/issues/590))
    - Creates draft PR to `main` with release content
 
 **Manual trigger (for testing):**
@@ -1000,7 +996,7 @@ Follow [Semantic Versioning 2.0.0](https://semver.org/):
 - Update during development, not at release time
 - Each feature/fix PR should update CHANGELOG
 - On `dev` and feature branches: edit `## Unreleased`
-- On `release/*` branches: edit `## [X.Y.Z] - TBD` (no Unreleased section exists)
+- On `release/*` branches: edit `## [X.Y.Z] - TBD` (the empty `## Unreleased` above it belongs to the next cycle — leave it alone)
 - Use clear, user-facing language
 - Include issue references: `([#N](link))`
 - Group by type: Added, Changed, Fixed, Removed, etc.
