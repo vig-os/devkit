@@ -51,6 +51,13 @@ PRESERVE_FILES=(
     # The consumer owns its project manifest (#738): a (re)scaffold must never
     # overwrite an existing pyproject.toml with the generic template one.
     "pyproject.toml"
+    # The consumer owns its hook configuration (#878): repos carry repo-specific
+    # global/per-hook `exclude:` patterns (data tables, generated files, PEM
+    # marker literals) that a template overwrite silently destroyed — the hook
+    # suite then rewrote files it must never touch. Preserved like
+    # justfile.project; the upgrade prints a diff against the template below so
+    # hook-stack evolution stays visible.
+    ".pre-commit-config.yaml"
 )
 
 # Base recipes the shipped .github/workflows/ci.yml depends on (sync, precommit,
@@ -324,6 +331,11 @@ ENVRC_PREEXISTED=false
 JUSTFILE_PROJECT_PREEXISTED=false
 [[ -f "$WORKSPACE_DIR/justfile.project" ]] && JUSTFILE_PROJECT_PREEXISTED=true
 
+# A preserved .pre-commit-config.yaml may lag the template hook stack (#878);
+# record it so the post-scaffold guard can surface the divergence.
+PRECOMMIT_CONFIG_PREEXISTED=false
+[[ -f "$WORKSPACE_DIR/.pre-commit-config.yaml" ]] && PRECOMMIT_CONFIG_PREEXISTED=true
+
 # Copy template contents to workspace
 echo "Initializing workspace from template..."
 echo "Copying files from $TEMPLATE_DIR to $WORKSPACE_DIR..."
@@ -549,6 +561,32 @@ if [[ "$JUSTFILE_PROJECT_PREEXISTED" == "true" && -f "$WORKSPACE_DIR/justfile.pr
                 printf '%s\n' "$recipe_block"
             done
         } >> "$WORKSPACE_DIR/justfile.project"
+    fi
+fi
+
+# A preserved .pre-commit-config.yaml is the consumer's (#878) — never
+# overwritten, so their global/per-hook `exclude:` patterns survive. The cost
+# is that template hook-stack evolution (runner migrations, new hooks, compat
+# fixes) no longer arrives automatically: print the divergence from the
+# template so consumers can fold in what they need deliberately, and gate the
+# preserved file through `prek validate-config` — a config the runner cannot
+# load breaks every commit in the new image. Both are warnings, never fatal.
+if [[ "$PRECOMMIT_CONFIG_PREEXISTED" == "true" \
+    && -f "$WORKSPACE_DIR/.pre-commit-config.yaml" \
+    && -f "$TEMPLATE_DIR/.pre-commit-config.yaml" ]] \
+    && ! diff -q "$TEMPLATE_DIR/.pre-commit-config.yaml" \
+        "$WORKSPACE_DIR/.pre-commit-config.yaml" > /dev/null 2>&1; then
+    echo "Preserved .pre-commit-config.yaml differs from the template (yours was kept, #878)."
+    echo "Template changes NOT applied (fold in what you need, see MIGRATION.md):"
+    echo "─────────────────────────────────────────────────────────────"
+    diff -u "$WORKSPACE_DIR/.pre-commit-config.yaml" \
+        "$TEMPLATE_DIR/.pre-commit-config.yaml" || true
+    echo "─────────────────────────────────────────────────────────────"
+    if command -v prek > /dev/null 2>&1; then
+        if ! (cd "$WORKSPACE_DIR" && prek validate-config .pre-commit-config.yaml > /dev/null 2>&1); then
+            echo "Warning: preserved .pre-commit-config.yaml does not validate under prek (#878)." >&2
+            echo "         Every commit will fail until it parses — run 'prek validate-config .pre-commit-config.yaml' and fix it." >&2
+        fi
     fi
 fi
 

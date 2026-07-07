@@ -89,6 +89,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The baked CPython recorded its nixpkgs build compilers in `sysconfig` (`CC`/`CXX`/`LINKCC`/`LDSHARED`/`BLDSHARED`/`LDCXXSHARED`), but the image ships no compiler — PEP 517 backends inherited the phantom names verbatim: scikit-build-core exports `CC`/`CXX`, so CMake hard-failed on the missing `g++` instead of discovering the project-flake toolchain on `PATH`, and setuptools invoked the literal `gcc`.
   - The image build now sanitizes the baked `_sysconfigdata*.py` / `_sysconfig_vars*.json` / config `Makefile` first tokens to the generic POSIX `cc`/`c++`, restoring `PATH` compiler discovery. Implemented as a shadow copy in the final image layer — no CPython rebuild, dev-shell toolchain untouched, and the no-compiler-baked consumer contract stands (documented via [#882](https://github.com/vig-os/devcontainer/issues/882)).
 
+- **Scaffold upgrade replaces `.pre-commit-config.yaml`, silently clobbering repo-specific hook config** ([#878](https://github.com/vig-os/devcontainer/issues/878))
+  - The upgrade overwrote the consumer's `.pre-commit-config.yaml` wholesale, dropping the repo-specific global `exclude:` block and per-hook `exclude:` keys — the hook suite then rewrote data files it must never touch and false-flagged PEM marker literals. The file is now preserved on upgrade (like `justfile.project`, [#877](https://github.com/vig-os/devcontainer/issues/877)).
+  - Because template hook-stack evolution no longer arrives automatically, `init-workspace --force` prints a diff of the preserved file against the incoming template so consumers can fold changes in deliberately, and warns (non-fatally) when the preserved config does not parse under `prek validate-config` — a config the runner cannot load breaks every commit in the new image.
+
 ### Security
 
 ## [0.4.0](https://github.com/vig-os/devcontainer/releases/tag/0.4.0) - 2026-07-06
