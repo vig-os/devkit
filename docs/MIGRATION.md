@@ -226,9 +226,22 @@ re-scaffold:
    `default_language_version`, runner-compat fixes, new hooks). It also warns
    if the preserved config does not parse under the shipped runner; check
    with `prek validate-config .pre-commit-config.yaml`.
-3. **`justfile.project` hook recipe** — your preserved `precommit` recipe still
-   runs `uv run pre-commit run --all-files`; `pre-commit` is gone from the
-   0.4.0 image and venv. Change it to `prek run --all-files`.
+3. **`pre-commit` invocations → `prek`** — the `pre-commit` binary is gone
+   from the 0.4.0 image and venv; the hook runner is `prek` (a drop-in for
+   `run`-style invocations, [#778](https://github.com/vig-os/devcontainer/issues/778)).
+   Rename every invocation in files the upgrade preserves or your repo owns:
+   the `justfile.project` `precommit` recipe (`uv run pre-commit run
+   --all-files` → `prek run --all-files`), repo-managed `.githooks/` scripts
+   beyond the scaffold-shipped three (e.g. a `pre-push` hook), hook `entry:`
+   lines in `.pre-commit-config.yaml`, and CI configs. The installer scans
+   the preserved surfaces and warns with `file:line`
+   ([#881](https://github.com/vig-os/devcontainer/issues/881)). As a bridge,
+   0.4.x images ship a deprecated `pre-commit → prek` shim that prints a
+   stderr notice and is **removed in 0.5** — treat the notice as the
+   migration deadline, not a supported path. While editing old `.githooks`
+   scripts, also change `#!/bin/bash` shebangs to `#!/usr/bin/env bash`:
+   `/bin/bash` does not exist on NixOS hosts, so those hooks fail outside
+   the container even after the rename.
 4. **Recipe renames** — the managed base recipes are now `devc-*`-namespaced
    and the template test recipe is `just test` (formerly `just test-pytest`).
    Run `just --list` once and update any scripts/muscle memory.
