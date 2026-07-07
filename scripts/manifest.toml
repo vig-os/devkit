@@ -60,11 +60,22 @@ src = ".github/ISSUE_TEMPLATE/"
 [[entries]]
 src = ".github/actions/resolve-image/"
 
+# Consumers of the template have no assets/workspace/ mirror tree, so the
+# upstream-only lockstep copies of that mirror hard-fail under `set -euo pipefail`
+# on every consumer Renovate changelog run. Strip the mirror plumbing from the
+# template while preserving the consumer-facing CHANGELOG.md handling (#914).
 [[entries]]
 src = ".github/workflows/renovate-changelog-build.yml"
+transforms = [
+  { type = "RemoveBlock", start_pattern = '# Keep the preserved-on-upgrade mirror', end_pattern = 'cp CHANGELOG\.md assets/workspace/\.devcontainer/CHANGELOG\.md' },
+  { type = "RemoveBlock", start_pattern = 'mkdir -p changelog-artifact/assets/workspace', end_pattern = 'changelog-artifact/assets/workspace/\.devcontainer/CHANGELOG\.md' },
+]
 
 [[entries]]
 src = ".github/workflows/renovate-changelog-commit.yml"
+transforms = [
+  { type = "Sed", pattern = ',assets/workspace/\.devcontainer/CHANGELOG\.md', replace = "" },
+]
 
 [[entries]]
 src = ".github/workflows/scorecard.yml"
