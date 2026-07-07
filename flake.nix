@@ -257,12 +257,19 @@
           # (an attrset, even empty) or `hooksExcludes` composes the shared
           # base hook set (nix/hooks.nix consumer profile) with the consumer's
           # per-hook overrides / custom hooks / global excludes via
-          # git-hooks.nix, and wires its installation script into the
-          # shellHook: entering the shell installs the rendered
-          # `.pre-commit-config.yaml` (a symlink to the store — gitignore it).
-          # git-hooks.nix REFUSES to touch an existing regular file, so a
-          # preserved hand-edited config (#878) is never overwritten — the
+          # git-hooks.nix. Only the RENDERED CONFIG is consumed: entering the
+          # shell installs `.pre-commit-config.yaml` (a symlink to the store —
+          # gitignore it) via the builder's own snippet below, NOT
+          # git-hooks.nix's installation script (install.enable = false).
+          # That stock script would unset/reset `core.hooksPath` and install
+          # only the pre-commit stage into `.git/hooks`, silently bypassing
+          # the scaffold's `.githooks` entry point (sanctioned-environment
+          # guard, consumer-owned scripts) — PR #908 review. The snippet
+          # keeps git-hooks.nix's refusal semantics: a regular (non-symlink)
+          # `.pre-commit-config.yaml` (#878) is never overwritten — the
           # consumer deletes it to complete the opt-in (docs/MIGRATION.md).
+          # `.githooks/pre-commit` runs `prek run`, which reads the repo-root
+          # config, so the generated hooks execute through the existing wiring.
           # With the default `hooks = null` every fragment below is empty and
           # the shell stays byte-identical to the no-hooks builder (parity:
           # tests/test_flake_devshell.py, tests/test_flake_hooks.py).
@@ -288,11 +295,47 @@
               {
                 config.hooks = consumerHooksDefaults;
                 config.excludes = consumerHooksBase.excludes ++ hooksExcludes;
+                # Never let git-hooks.nix install into `.git/hooks` or rewire
+                # `core.hooksPath` — the config-only snippet below owns the
+                # shellHook and `.githooks` stays the entry point (#908).
+                config.install.enable = false;
               }
               { config.hooks = if hooks == null then { } else hooks; }
             ];
           };
-          hooksShellHook = pkgs.lib.optionalString hooksEnabled (hooksRun.shellHook + "\n");
+          # Config-only installation snippet (replaces hooksRun.shellHook):
+          # maintain the `.pre-commit-config.yaml` -> store symlink exactly
+          # like git-hooks.nix's installationScript — staleness check, refusal
+          # on a regular file (#878), GC root when nix-store is available —
+          # minus every `.git/hooks` / `core.hooksPath` mutation (#908).
+          hooksConfigFile = hooksRun.config.configFile;
+          hooksConfigInstall = ''
+            if ! ${pkgs.gitMinimal}/bin/git rev-parse --git-dir &> /dev/null; then
+              echo 1>&2 "WARNING: vigos hooks: .git not found; skipping generated pre-commit config installation."
+            else
+              GIT_WC=$(${pkgs.gitMinimal}/bin/git rev-parse --show-toplevel)
+              if ! readlink "$GIT_WC/.pre-commit-config.yaml" >/dev/null \
+                || [[ $(readlink "$GIT_WC/.pre-commit-config.yaml") != ${hooksConfigFile} ]]; then
+                if [ -e "$GIT_WC/.pre-commit-config.yaml" ] && [ ! -L "$GIT_WC/.pre-commit-config.yaml" ]; then
+                  echo 1>&2 "vigos hooks: WARNING: Refusing to install the generated config over an existing .pre-commit-config.yaml"
+                  echo 1>&2 ""
+                  echo 1>&2 "  To complete the flake-generated hooks opt-in (docs/MIGRATION.md):"
+                  echo 1>&2 "    1. Port your customizations into mkProjectShell's hooks/hooksExcludes."
+                  echo 1>&2 "    2. Remove .pre-commit-config.yaml"
+                  echo 1>&2 "    3. Add .pre-commit-config.yaml to .gitignore"
+                else
+                  echo 1>&2 "vigos hooks: installing generated .pre-commit-config.yaml"
+                  [ -L "$GIT_WC/.pre-commit-config.yaml" ] && unlink "$GIT_WC/.pre-commit-config.yaml"
+                  if command -v nix-store >/dev/null 2>&1; then
+                    nix-store --add-root "$GIT_WC/.pre-commit-config.yaml" --indirect --realise ${hooksConfigFile} >/dev/null
+                  else
+                    ln -fs ${hooksConfigFile} "$GIT_WC/.pre-commit-config.yaml"
+                  fi
+                fi
+              fi
+            fi
+          '';
+          hooksShellHook = pkgs.lib.optionalString hooksEnabled (hooksConfigInstall + "\n");
 
           # uv's Python-download metadata, pinned to the uv release we provision.
           # The nixpkgs build of uv ships with its embedded Python-download list
@@ -405,7 +448,7 @@
           # passthru is not part of the derivation environment. Refs #883.
           // pkgs.lib.optionalAttrs hooksEnabled {
             passthru = {
-              hooksConfigFile = hooksRun.config.configFile;
+              inherit hooksConfigFile;
             };
           }
         );
