@@ -20,9 +20,12 @@ everywhere — the dev-shell now and the image's `imageTools` set.
   `nix develop` (or `direnv`) gives you exactly that toolchain.
 - **`mkProjectShell`** is also a reusable `lib` output: downstream repos build
   their own shell as `devTools ++ extraPackages` (see the scaffolded
-  `assets/workspace/flake.nix`). For projects that compile native Python
-  extensions, `extraPackages` is where the C/C++ toolchain comes from — see
-  the [native-build contract](./MIGRATION.md#the-native-build-contract).
+  `assets/workspace/flake.nix`), optionally composing opt-in
+  [capability modules](#capability-modules-mkprojectshell-modules) via
+  `modules = [ "native" ]`. For projects that compile native Python
+  extensions, the `native` module (or a hand-rolled `extraPackages`) is where
+  the C/C++ toolchain comes from — see the
+  [native-build contract](./MIGRATION.md#the-native-build-contract).
 - **`mkProjectServices`** is the local-dev-services counterpart (#795): a `lib`
   builder that turns declared [services-flake](https://github.com/juspay/services-flake)
   modules into a daemonless `process-compose` stack (`nix run .#services`) —
@@ -58,6 +61,9 @@ access is unavailable, so the dev-shell/image parity test stays a CI pytest):
   signatures whose intentionally-unused args those linters would otherwise flag.
 - **`devShell`** — the dev-shell closure builds.
 - **`devShellTools`** — the parity-test SSoT evaluates to a non-empty list.
+- **`module-<name>`** — one devshell build per shipped capability module,
+  generated from the `nix/modules/` registry (a module cannot ship without
+  its check).
 
 ### Dev-shell ↔ image parity guard
 
@@ -68,6 +74,38 @@ straight from the flake (`nix eval .#devShellTools`, derived from each package's
 asserting it exits 0. The test list is generated *from* the SSoT, so it can never
 drift from the tool list it guards. It is skipped automatically when `nix` is not
 on `PATH` (e.g. the podman image CI lane).
+
+## Capability modules (`mkProjectShell` `modules`)
+
+`mkProjectShell` composes opt-in **capability modules**
+([#884](https://github.com/vig-os/devcontainer/issues/884); contract and
+composition rules in
+[ADR-capability-modules](rfcs/ADR-capability-modules.md)): a consumer
+declares a capability by name instead of hand-picking packages:
+
+```nix
+devShells.default = vigos.lib.mkProjectShell {
+  inherit pkgs;
+  modules = [ "native" ]; # opt-in capability modules
+  extraPackages = [ pkgs.my-extra ]; # per-repo escape hatch, unchanged
+};
+```
+
+- A module (defined in `nix/modules/`) contributes **packages, env vars, and
+  shellHook fragments only** (v1 contract). `extraPackages` wins PATH lookup
+  over module packages; the consumer `shellHook` runs last.
+- **Zero cost when unused:** `modules = [ ]` (the default) produces a shell
+  byte-identical to the pre-module builder — pure-Python consumers are
+  untouched, and the **published image stays base-only** (modules are a
+  direnv-mode/devshell feature).
+- **Shipped:** `native` — `stdenv.cc`, `cmake`, `gnumake`, `pkg-config` plus
+  generic `CC=cc`/`CXX=c++` exports; the curated form of the
+  [native-build contract](./MIGRATION.md#the-native-build-contract)'s
+  preferred tier. **Candidates (ask-gated, not shipped):** `geant4`, `rust`,
+  `fortran`/`f2py`, `root`.
+- Each shipped module gets a `checks.<system>.module-<name>` devshell build
+  and, for `native`, the uv C-extension sdist smoke test in
+  `tests/test_flake_modules.py`.
 
 ## Home-manager modules — versioning & release policy
 

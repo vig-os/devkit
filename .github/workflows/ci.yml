@@ -213,6 +213,15 @@ jobs:
           uv run pytest tests/test_flake_devshell.py \
             -k "exposes_python3_and_precommit or hook_runner_is_prek or no_nix_cxx_runtime_leak" -v
 
+      # Run the capability-module contract tests (#884): the `native` module
+      # shell exposes the C/C++ toolchain on its own PATH and exports generic
+      # CC/CXX, plus the C-extension sdist smoke. nix-fast-build above already
+      # builds `checks.*.module-native`, so `nix develop` is warm; the sdist
+      # smoke needs PyPI, which this lane already uses (setup-env runs
+      # `uv sync`), so it is included rather than deselected. Refs #884.
+      - name: Check capability-module contracts (native)
+        run: uv run pytest tests/test_flake_modules.py -v
+
       # Validate the scaffolded downstream stub (assets/workspace/flake.nix)
       # against THIS toolchain, not the published vigos, so a change to the flake
       # API (lib.mkProjectShell / overlays.default) can't silently break a

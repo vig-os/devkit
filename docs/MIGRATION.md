@@ -109,27 +109,35 @@ tiered contract:
 1. **Pure-Python / wheel-only projects — nothing to do.** Pre-compiled
    manylinux wheels load out of the box (see above); the image works as-is.
 
-2. **Native deps, `direnv` mode (preferred).** Provide the toolchain via the
-   project flake:
+2. **Native deps, `direnv` mode (preferred).** Enable the curated `native`
+   capability module in the project flake
+   ([#884](https://github.com/vig-os/devcontainer/issues/884), contract in
+   [`docs/rfcs/ADR-capability-modules.md`](rfcs/ADR-capability-modules.md)):
 
    ```nix
    devShells.default = vigos.lib.mkProjectShell {
      inherit pkgs;
-     extraPackages = [
-       pkgs.stdenv.cc # C/C++ compiler wrapper: puts cc/c++ on PATH, exports CC/CXX
-       pkgs.cmake
-       pkgs.pkg-config
-     ];
+     modules = [ "native" ]; # stdenv.cc, cmake, gnumake, pkg-config + CC/CXX
    };
    ```
 
-   Inside `nix develop` / `direnv` the stdenv compiler wrapper exports working
-   `CC`/`CXX`, so build backends find a real compiler regardless of what the
-   image's baked interpreter recorded at image-build time (the sysconfig
-   mechanics are tracked in
+   The module is the shipped, tested equivalent of the hand-rolled
+   `extraPackages = [ pkgs.stdenv.cc pkgs.cmake pkgs.gnumake pkgs.pkg-config ]`
+   list (which still works and still wins PATH lookup over module packages if
+   you need to override a tool). Inside `nix develop` / `direnv` the shell
+   puts `cc`/`c++` on PATH and exports generic `CC`/`CXX`, so build backends
+   find a real compiler regardless of what the image's baked interpreter
+   recorded at image-build time (the image's sysconfig records are sanitized
+   to the same generic names —
    [#879](https://github.com/vig-os/devcontainer/issues/879)). This path is
    field-validated by the 0.4.0 downstream runs
    ([#639](https://github.com/vig-os/devcontainer/issues/639)).
+
+   Capability modules are a **dev-shell / direnv-mode feature only**: enabling
+   one changes nothing about the published image, which stays base-only.
+   `native` is the only module shipped today; `geant4`, `rust`,
+   `fortran`/`f2py`, and `root` are named candidates gated on a concrete
+   consumer ask.
 
 3. **Native deps, `devcontainer` mode (middle path).** No direnv migration
    required: the baked Nix has flakes enabled, so run the sync *through* a Nix
@@ -160,10 +168,8 @@ project flake provides all of it, pinned:
 ```nix
 devShells.default = vigos.lib.mkProjectShell {
   inherit pkgs;
+  modules = [ "native" ]; # compiler + generic build tools
   extraPackages = [
-    pkgs.stdenv.cc
-    pkgs.cmake
-    pkgs.pkg-config
     pkgs.geant4 # headers + libs + Geant4 CMake config
     pkgs.root # ROOT, likewise
   ];

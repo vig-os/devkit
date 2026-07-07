@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Opt-in capability modules for `mkProjectShell`** ([#884](https://github.com/vig-os/devcontainer/issues/884))
+  - `modules = [ "native" ]` composes curated capability modules (packages + env vars + shellHook fragments) onto the project dev-shell; contract recorded in `docs/rfcs/ADR-capability-modules.md`.
+  - Zero-module shells are byte-identical to the previous builder and the published image stays base-only; `extraPackages` remains the per-repo escape hatch and wins PATH lookup.
+  - `native` module ships first (`stdenv.cc`, `cmake`, `gnumake`, `pkg-config`, generic `CC`/`CXX`) — the long-term [#879](https://github.com/vig-os/devcontainer/issues/879) answer; `geant4`/`rust`/`fortran`/`root` stay ask-gated candidates.
+  - Per-module flake checks (`checks.<system>.module-<name>`) plus a uv C-extension sdist smoke test (`tests/test_flake_modules.py`).
+
 ### Changed
 
 ### Deprecated

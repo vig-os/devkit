@@ -176,6 +176,12 @@
       # ---------------------------------------------------------------------
       devTools = import ./nix/devtools.nix;
 
+      # Capability-module registry (#884): name -> (pkgs -> { packages, env,
+      # shellHook }). Consumed by mkProjectShell's `modules` argument and by
+      # the generated per-module `checks.<system>.module-<name>` below. See
+      # docs/rfcs/ADR-capability-modules.md for the v1 contract.
+      capabilityModules = import ./nix/modules/default.nix;
+
       # Binary names exposed for the parity test. Prefer the package's declared
       # `meta.mainProgram` (the canonical executable name, e.g. ripgrep -> rg,
       # neovim -> nvim, claude-code -> claude); fall back to the pname.
@@ -192,15 +198,50 @@
       # extra packages:
       #   devShells.default = inputs.devcontainer.lib.mkProjectShell {
       #     inherit pkgs;
+      #     modules = [ "native" ];           # opt-in capability modules (#884)
       #     extraPackages = [ pkgs.foo ];
       #   };
       mkProjectShell =
         {
           pkgs,
+          modules ? [ ],
           extraPackages ? [ ],
           shellHook ? ''echo "devcontainer dev environment loaded (nix)"'',
         }:
         let
+          # ------------------------------------------------------------------
+          # Capability modules (#884) — resolve the requested names against the
+          # nix/modules/ registry and fold their contributions (v1 contract:
+          # packages + env + shellHook fragments only; composition rules in
+          # docs/rfcs/ADR-capability-modules.md). With `modules = [ ]` every
+          # merge below is the identity — empty list, empty attrset, empty
+          # string — so the zero-module shell stays byte-identical to the
+          # pre-#884 builder (parity: tests/test_flake_devshell.py). Kept as
+          # one self-contained block so #883's `hooks` argument can land
+          # beside it without conflict.
+          # ------------------------------------------------------------------
+          moduleDefs = map (
+            name:
+            (capabilityModules.${name} or (throw (
+              "mkProjectShell: unknown capability module '${name}'; available: "
+              + pkgs.lib.concatStringsSep ", " (builtins.attrNames capabilityModules)
+            ))
+            )
+              pkgs
+          ) modules;
+          # Appended AFTER extraPackages: earlier entries win PATH lookup, so
+          # the per-repo escape hatch overrides a module's tool choice.
+          modulePackages = pkgs.lib.concatMap (m: m.packages or [ ]) moduleDefs;
+          # Left-to-right merge (later module wins); the builder's own env
+          # pins (UV_PYTHON, UV_PYTHON_DOWNLOADS, …) always win — see the
+          # mkShell attrset merge below.
+          moduleEnv = pkgs.lib.foldl' (acc: m: acc // (m.env or { })) { } moduleDefs;
+          # Newline-terminated fragments, before the consumer shellHook (the
+          # consumer keeps the last word).
+          moduleShellHook = pkgs.lib.concatMapStrings (
+            m: pkgs.lib.optionalString ((m.shellHook or "") != "") ((m.shellHook or "") + "\n")
+          ) moduleDefs;
+
           # uv's Python-download metadata, pinned to the uv release we provision.
           # The nixpkgs build of uv ships with its embedded Python-download list
           # stripped, so it cannot fetch a managed CPython on its own. CI
@@ -264,42 +305,49 @@
             export NVIM_APPNAME="vigos-dev"
           '';
         in
-        pkgs.mkShell {
-          # The toolchain SSoT, plus a bare Python interpreter so the downstream
-          # dev-shell matches the image's PATH (`python`/`python3`). The bare
-          # interpreter is not in `devTools`: the image already provides it via
-          # `pythonEnv` in `imageTools`, and a bare interpreter in the SSoT would
-          # collide with `pythonEnv` there. The hook runner (`prek`) lives in
-          # `devTools`, so it reaches both the dev-shell and the image from one
-          # place — the former standalone `pre-commit` here is dropped (#778).
-          # Safe for CI despite the FHS pymarkdown/manylinux constraint: the
-          # dev-shell pins `UV_PYTHON` (below) to this same store CPython, and
-          # the CI PATH-forwarding (setup-env) filters this interpreter out so
-          # `uv` still builds the runner venv from a downloaded managed CPython.
-          # No new LD_LIBRARY_PATH, so the #703 FHS leak-guard is unaffected.
-          # Refs #729, #778.
-          packages =
-            (devTools pkgs)
-            ++ [
-              python
-            ]
-            ++ extraPackages;
-          shellHook = ldLibraryPathHook + "\n" + nvimIsolationHook + "\n" + shellHook;
+        pkgs.mkShell (
+          # Module env first: the builder's attrset below wins any collision,
+          # so a capability module can never break the Python bootstrap pins
+          # (UV_PYTHON, UV_PYTHON_DOWNLOADS, …). Refs #884.
+          moduleEnv
+          // {
+            # The toolchain SSoT, plus a bare Python interpreter so the downstream
+            # dev-shell matches the image's PATH (`python`/`python3`). The bare
+            # interpreter is not in `devTools`: the image already provides it via
+            # `pythonEnv` in `imageTools`, and a bare interpreter in the SSoT would
+            # collide with `pythonEnv` there. The hook runner (`prek`) lives in
+            # `devTools`, so it reaches both the dev-shell and the image from one
+            # place — the former standalone `pre-commit` here is dropped (#778).
+            # Safe for CI despite the FHS pymarkdown/manylinux constraint: the
+            # dev-shell pins `UV_PYTHON` (below) to this same store CPython, and
+            # the CI PATH-forwarding (setup-env) filters this interpreter out so
+            # `uv` still builds the runner venv from a downloaded managed CPython.
+            # No new LD_LIBRARY_PATH, so the #703 FHS leak-guard is unaffected.
+            # Refs #729, #778.
+            packages =
+              (devTools pkgs)
+              ++ [
+                python
+              ]
+              ++ extraPackages
+              ++ modulePackages;
+            shellHook = ldLibraryPathHook + "\n" + nvimIsolationHook + "\n" + moduleShellHook + shellHook;
 
-          UV_PYTHON = "${python}/bin/python3.14";
-          UV_PYTHON_DOWNLOADS = "never";
+            UV_PYTHON = "${python}/bin/python3.14";
+            UV_PYTHON_DOWNLOADS = "never";
 
-          # Resolve the bats helper libraries from the Nix store. The wrapper
-          # also sets this when `bats` runs, but exporting it in the dev-shell
-          # makes the path visible (and works for a bare `bats` too). Refs #695.
-          BATS_LIB_PATH = "${batsWithLibs pkgs}/share/bats";
+            # Resolve the bats helper libraries from the Nix store. The wrapper
+            # also sets this when `bats` runs, but exporting it in the dev-shell
+            # makes the path visible (and works for a bare `bats` too). Refs #695.
+            BATS_LIB_PATH = "${batsWithLibs pkgs}/share/bats";
 
-          # For CI only: the pin above means downloads never happen in the
-          # dev-shell, but CI forwards this URL (NOT UV_PYTHON) so its FHS runner
-          # downloads a managed CPython for pre-commit's manylinux-wheel hooks,
-          # which a Nix-store interpreter cannot load there. Refs #632, #683.
-          UV_PYTHON_DOWNLOADS_JSON_URL = uvPythonDownloadsJsonUrl;
-        };
+            # For CI only: the pin above means downloads never happen in the
+            # dev-shell, but CI forwards this URL (NOT UV_PYTHON) so its FHS runner
+            # downloads a managed CPython for pre-commit's manylinux-wheel hooks,
+            # which a Nix-store interpreter cannot load there. Refs #632, #683.
+            UV_PYTHON_DOWNLOADS_JSON_URL = uvPythonDownloadsJsonUrl;
+          }
+        );
 
       # ---------------------------------------------------------------------
       # mkProjectServices — reusable local dev-services builder (#795).
@@ -704,6 +752,19 @@
             touch "$out"
           '';
         }
+        # One devshell build per capability module (#884), generated from the
+        # nix/modules/ registry so a module cannot ship without its check —
+        # `module-<name>` evaluates and builds on every default system
+        # (x86_64-linux in Tier-0 CI; the others via `--all-systems` eval).
+        # tests/test_flake_modules.py reuses these as its `nix develop` entry
+        # points for the deeper smoke tests (toolchain on PATH, uv sdist build).
+        // pkgs.lib.mapAttrs' (
+          name: _:
+          pkgs.lib.nameValuePair "module-${name}" (mkProjectShell {
+            inherit pkgs;
+            modules = [ name ];
+          })
+        ) capabilityModules
         # The ci homeConfigurations build as Tier-0 checks. x86_64-darwin is
         # the eval-only best-effort tier (ADR platform table): it exists as a
         # homeConfiguration but gets no build leg. Refs #819.
