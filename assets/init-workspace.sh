@@ -643,7 +643,10 @@ fi
 # a command word (start/whitespace/shell punctuation on both sides), so the
 # config FILENAME (leading `.`), pre-commit-hooks repo URLs (leading `/`),
 # pre-commit.com links (trailing `.`), and `prek` never trip it; comment
-# lines and bare YAML stage-name list items (`- pre-commit`) are filtered.
+# lines, bare YAML stage-name list items (`- pre-commit`), and YAML `name:`
+# step descriptions (a workflow's "Run pre-commit hooks" step name, #916) are
+# filtered. Preserved consumer CI workflows are scanned too (#916): a workflow
+# that still runs the retired binary breaks the same way as a justfile recipe.
 PRECOMMIT_REF_PATTERN='(^|[[:space:]("'"'"';&|=`])pre-commit([[:space:])"'"'"';&|]|$)'
 PRECOMMIT_SCAN_TARGETS=()
 for scan_file in "$WORKSPACE_DIR/justfile.project" "$WORKSPACE_DIR/.pre-commit-config.yaml"; do
@@ -651,12 +654,15 @@ for scan_file in "$WORKSPACE_DIR/justfile.project" "$WORKSPACE_DIR/.pre-commit-c
 done
 while IFS= read -r scan_file; do
     PRECOMMIT_SCAN_TARGETS+=("$scan_file")
-done < <(find "$WORKSPACE_DIR/.githooks" -type f 2>/dev/null | sort)
+done < <({ find "$WORKSPACE_DIR/.githooks" -type f 2>/dev/null
+          find "$WORKSPACE_DIR/.github/workflows" -maxdepth 1 -type f \
+              \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null; } | sort)
 PRECOMMIT_REF_HITS=""
 if [[ ${#PRECOMMIT_SCAN_TARGETS[@]} -gt 0 ]]; then
     PRECOMMIT_REF_HITS="$(grep -nHE "$PRECOMMIT_REF_PATTERN" "${PRECOMMIT_SCAN_TARGETS[@]}" 2>/dev/null \
         | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#' \
-        | grep -vE '^[^:]*:[0-9]+:[[:space:]]*-[[:space:]]+pre-commit[[:space:]]*$' || true)"
+        | grep -vE '^[^:]*:[0-9]+:[[:space:]]*-[[:space:]]+pre-commit[[:space:]]*$' \
+        | grep -vE '^[^:]*:[0-9]+:[[:space:]]*(-[[:space:]]+)?name:' || true)"
 fi
 if [[ -n "$PRECOMMIT_REF_HITS" ]]; then
     echo "Warning: the retired 'pre-commit' binary is still invoked by preserved file(s) (#881):" >&2
