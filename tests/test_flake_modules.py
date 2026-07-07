@@ -124,12 +124,15 @@ def test_native_module_exports_generic_cc_cxx(current_system: str) -> None:
     image-side sysconfig sanitize (#879/#893) which rewrote the baked
     interpreter's compiler records to the same generic names.
     """
-    proc = _develop_native(current_system, 'printf "%s:%s" "$CC" "$CXX"')
+    proc = _develop_native(current_system, 'printf "\\n%s:%s" "$CC" "$CXX"')
     assert proc.returncode == 0, (
         f"failed to read CC/CXX from the native-module devshell: {proc.stderr[:300]}"
     )
-    assert proc.stdout.strip() == "cc:c++", (
-        f"native module must export CC=cc and CXX=c++; got {proc.stdout.strip()!r}"
+    # The default shellHook banner writes to stdout, so only the last line is
+    # the probe's answer.
+    got = proc.stdout.splitlines()[-1] if proc.stdout else ""
+    assert got == "cc:c++", (
+        f"native module must export CC=cc and CXX=c++; got {got!r}"
     )
 
 
