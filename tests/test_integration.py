@@ -988,30 +988,6 @@ class TestDevContainerGit:
 class TestDevContainerUserConf:
     """Test that user configuration files are set up."""
 
-    def test_project_installed_after_init(self, initialized_workspace):
-        """Regression: uv.lock must reference the actual project name after init.
-
-        init-workspace.sh runs `just sync` which calls `uv sync --all-groups`.
-        This resolves the lock file for the renamed project and installs it.
-
-        Before the fix, init did not sync, so uv.lock still referenced
-        template-project. The first `uv run pre-commit run -a` would then
-        mutate the venv and rewrite uv.lock.
-        """
-        lock_file = initialized_workspace / "uv.lock"
-        assert lock_file.exists(), "uv.lock not found after init"
-
-        content = lock_file.read_text()
-
-        assert (
-            "template-project" not in content and "template_project" not in content
-        ), "uv.lock still references template-project after init"
-
-        assert "test-project" in content or "test_project" in content, (
-            "uv.lock does not reference the project 'test_project' after init\n"
-            f"Lock file content (first 500 chars): {content[:500]}"
-        )
-
     def test_venv_prompt_name(self, devcontainer_up):
         """Test that .venv/bin/activate in the image does not contain 'template-project', but is renamed to `test_project`."""
         workspace_path = str(devcontainer_up.resolve())
@@ -2116,7 +2092,13 @@ class TestJustRecipes:
         )
 
     def test_just_test_recipe(self, devcontainer_up):
-        """Test the just test command."""
+        """`just test` no-ops (exit 0) on a language-neutral base scaffold (#929).
+
+        The scaffold ships no ``pyproject.toml``, so the guarded recipe runs
+        nothing and exits 0 — the shipped ``ci.yml`` (and the release smoke-test
+        dispatch) stay green on a project that has not added a Python package.
+        Adding one (e.g. ``nix flake init -t ...#python``, #930) activates pytest.
+        """
         workspace_path = str(devcontainer_up.resolve())
 
         just_cmd = self._just_cmd(workspace_path, ["test"])
@@ -2136,12 +2118,9 @@ class TestJustRecipes:
             f"command: {' '.join(just_cmd)}"
         )
 
-        assert (
-            "test session starts" in result.stdout
-            and "passed" in result.stdout
-            and "failed" not in result.stdout
-        ), (
-            f"Unexpected pytest output\n"
+        # No pyproject.toml -> the guard skips pytest entirely (no session).
+        assert "test session starts" not in result.stdout, (
+            f"`just test` should no-op without a pyproject.toml, but pytest ran\n"
             f"stdout: {result.stdout}\n"
             f"stderr: {result.stderr}\n"
             f"command: {' '.join(just_cmd)}"

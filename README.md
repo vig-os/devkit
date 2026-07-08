@@ -223,6 +223,8 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 - **Python 3.14** - CPython from the pinned `nixpkgs`
 - **uv** - Fast Python package installer and resolver
 
+> The image provides Python + uv, but the scaffold is **language-neutral** and ships no `pyproject.toml`. Add a Python package layout on demand with `nix flake init -t github:vig-os/devcontainer#python`.
+
 ### **Development Tools**
 
 - **pre-commit** - Git hook framework for code quality

@@ -67,7 +67,9 @@ PRESERVE_FILES=(
     "flake.nix"
     ".envrc"
     # The consumer owns its project manifest (#738): a (re)scaffold must never
-    # overwrite an existing pyproject.toml with the generic template one.
+    # overwrite an existing pyproject.toml. The scaffold is language-neutral and
+    # ships none (#929); a Python consumer brings their own (e.g. via the opt-in
+    # `nix flake init -t ...#python` template, #930), and it is preserved here.
     "pyproject.toml"
     # The consumer owns its hook configuration (#878): repos carry repo-specific
     # global/per-hook `exclude:` patterns (data tables, generated files, PEM
@@ -917,22 +919,6 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     if [[ -n "$MANIFEST_MODULES" ]]; then
         write_manifest_value DEVKIT_MODULES "\"$MANIFEST_MODULES\""
     fi
-fi
-
-# Rename template_project directory to match project short name
-if [[ -d "$WORKSPACE_DIR/src/template_project" ]]; then
-    if [[ -d "$WORKSPACE_DIR/src/${SHORT_NAME}" ]] && [[ "$SHORT_NAME" != "template_project" ]]; then
-        echo "Removing duplicate src/template_project (src/${SHORT_NAME} already exists)..."
-        rm -rf "$WORKSPACE_DIR/src/template_project"
-    else
-        echo "Renaming src/template_project to src/${SHORT_NAME}..."
-        mv "$WORKSPACE_DIR/src/template_project" "$WORKSPACE_DIR/src/${SHORT_NAME}"
-    fi
-fi
-
-# Update test imports to use actual project name (template_project -> $SHORT_NAME)
-if [[ -f "$WORKSPACE_DIR/tests/test_example.py" ]]; then
-    sed -i "s/import template_project/import ${SHORT_NAME}/g; s/template_project\.__version__/${SHORT_NAME}.__version__/g" "$WORKSPACE_DIR/tests/test_example.py"
 fi
 
 # Restore executable permissions on shell scripts and hooks (must be after sed -i)

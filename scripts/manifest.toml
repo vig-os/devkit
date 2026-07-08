@@ -1,5 +1,10 @@
 # Workspace sync manifest — declarative config for sync_manifest.py
 # Single source of truth for files copied into assets/workspace/ and their transforms.
+#
+# The scaffold is language-neutral (#929): the repo root's Python package files
+# (pyproject.toml, src/, tests/) are intentionally NOT listed here, so they are
+# never synced into assets/workspace/. Python is opt-in via the `#python` flake
+# template (#930); do not add those entries here.
 
 [[entries]]
 src = "docs/COMMIT_MESSAGE_STANDARD.md"

@@ -48,8 +48,8 @@ one of four modes:
 - **`both`** — everything above (the default).
 - **`bare`** — the standards layer only
   ([#885](https://github.com/vig-os/devcontainer/issues/885)): justfiles,
-  `.pre-commit-config.yaml`, `.github/` CI, `pyproject.toml` scaffolding, and
-  `.vig-os` — no `.devcontainer/`, no `flake.nix`/`.envrc`. The tools come from
+  `.pre-commit-config.yaml`, `.github/` CI, and `.vig-os` — no `.devcontainer/`,
+  no `flake.nix`/`.envrc`. The tools come from
   the host (`uv`, `just`, `prek`), and the shipped `ci.yml` is a host-native
   variant: no image resolution and no in-container jobs — the runner sets up
   `uv` directly and drives the same `just sync` / `just precommit` /
@@ -142,8 +142,15 @@ image:
   `docker → podman` shim. Docker-out-of-Docker works when the host container
   socket is mounted and `CONTAINER_HOST`/`DOCKER_HOST` are set (the scaffolded
   `docker-compose.yml` does this). There is no Docker engine.
-- **Python is CPython 3.14, uv-managed.** The project venv lives at
-  `/root/assets/workspace/.venv` and is populated by `just sync` (`uv sync`).
+- **Python is CPython 3.14, uv-managed — but opt-in.** The image provides
+  Python and `uv`, yet the scaffold itself is **language-neutral** and ships no
+  `pyproject.toml`
+  ([#929](https://github.com/vig-os/devcontainer/issues/929)); the `just`
+  lint/format/test recipes no-op until one exists. Add a Python package layout
+  with `nix flake init -t github:vig-os/devcontainer#python`
+  ([#930](https://github.com/vig-os/devcontainer/issues/930)) or `uv init`. Once
+  present, the project venv lives at `/root/assets/workspace/.venv` and is
+  populated by `just sync` (`uv sync`).
   Pin `requires-python` as a **range** (`>=3.14,<3.15`), never an exact patch —
   `flake.lock` is the reproducibility anchor, and an exact `==3.14.x` pin can be
   unsatisfiable against the image's interpreter.

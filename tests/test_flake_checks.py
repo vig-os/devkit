@@ -424,6 +424,28 @@ def test_personal_template_is_exposed() -> None:
     assert info["hasPath"] and info["hasDescription"]
 
 
+def test_python_template_is_exposed() -> None:
+    """``templates.python`` must expose the opt-in Python starter (#930)."""
+    result = subprocess.run(
+        [
+            "nix",
+            "eval",
+            "--json",
+            f"{REPO_ROOT}#templates.python",
+            "--apply",
+            't: { hasPath = t ? path; hasDescription = (t.description or "") != ""; }',
+        ],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=600,
+    )
+    if result.returncode != 0:
+        pytest.fail("Failed to read templates.python:\n" + result.stderr)
+    info = json.loads(result.stdout)
+    assert info["hasPath"] and info["hasDescription"]
+
+
 def test_claude_module_policy() -> None:
     """vigos.claude must honor the ADR Axis-5 policy (#823).
 

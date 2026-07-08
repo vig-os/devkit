@@ -1288,5 +1288,15 @@
         path = ./templates/personal;
         description = "Personal home-manager flake importing the vigOS home modules";
       };
+
+      # `nix flake init -t github:vig-os/devcontainer#python` restores an opt-in
+      # Python package layout (pyproject + src/ + pytest) onto the now
+      # language-neutral scaffold (#929). `nix flake init -t` does no token
+      # substitution, so the template uses a concrete `example_pkg` the user
+      # renames (see templates/python/README.md). Refs #930.
+      templates.python = {
+        path = ./templates/python;
+        description = "Opt-in Python project starter (pyproject + src/ + pytest)";
+      };
     };
 }
