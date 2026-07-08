@@ -76,6 +76,7 @@ jobs:
       actions: write
       contents: write
       pull-requests: read
+      packages: read
     with:
       version: ${{ inputs.version }}
       release_kind: ${{ inputs.release-kind }}
@@ -105,6 +106,7 @@ jobs:
     uses: ./.github/workflows/release-publish.yml
     permissions:
       contents: write
+      packages: read
     with:
       version: ${{ needs.core.outputs.version }}
       finalize_sha: ${{ needs.core.outputs.finalize_sha }}
