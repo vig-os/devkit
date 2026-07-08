@@ -20,11 +20,12 @@ def _strip_md_link(cell: str) -> str:
 def _parse_change_cell(cell: str) -> tuple[str | None, str | None]:
     """Return (old, new) from a Renovate-style change cell."""
     text = cell.strip()
-    m = re.search(r"`([^`]+)`\s*->\s*`([^`]+)`", text)
+    # Renovate renders the arrow as U+2192 (→); accept ASCII -> as well.
+    m = re.search(r"`([^`]+)`\s*(?:->|→)\s*`([^`]+)`", text)
     if m:
         return m.group(1).strip(), m.group(2).strip()
-    # Digest / unquoted: abc -> def
-    m = re.search(r"(\S+)\s*->\s*(\S+)", text)
+    # Digest / unquoted: abc → def
+    m = re.search(r"(\S+)\s*(?:->|→)\s*(\S+)", text)
     if m:
         return m.group(1).strip(), m.group(2).strip()
     return None, None

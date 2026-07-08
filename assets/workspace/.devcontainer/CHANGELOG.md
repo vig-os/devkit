@@ -57,6 +57,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Autochangelog now records grouped Renovate PRs** ([#936](https://github.com/vig-os/devcontainer/issues/936))
+  - `renovate-changelog-pr` parsed the update table only when the change cell used an ASCII `->` arrow, but Renovate renders it with the Unicode arrow `→` (U+2192). Every real Renovate PR body therefore parsed to nothing; a changelog entry only appeared when the PR *title* happened to match (digest bumps, single `update X to Y`), so grouped dependency PRs were silently skipped. The change-cell parser now accepts both arrows.
+
 - **Imageless upgrades stamp the real built tag** ([#921](https://github.com/vig-os/devcontainer/issues/921))
   - The image now bakes an authoritative built-tag record (`/root/assets/VERSION`) distinct from the template `.vig-os` pin: the release `build-image` action runs `nix build --impure` with `VIG_OS_VERSION` set to the true publish tag (RCs included), which the flake reads via `builtins.getEnv`. A plain, pure `nix build` reads `""` and falls back to the checked-in repo pin, so ordinary builds stay bit-reproducible.
   - `init-workspace.sh` reads that record when no `VIG_OS_VERSION` is forwarded, so a bare `podman run … init-workspace.sh` upgrade (no `install.sh`) now pins `.vig-os` to the image's real tag instead of the stale baked template pin ([#916](https://github.com/vig-os/devcontainer/issues/916)); an explicit `VIG_OS_VERSION` still wins, and an absent record leaves the pin untouched.
