@@ -820,6 +820,21 @@
                 if pkgs.stdenv.hostPlatform.isAarch64 then "ld-linux-aarch64.so.1" else "ld-linux-x86-64.so.2";
               fhsLoaderDir = if pkgs.stdenv.hostPlatform.isAarch64 then "lib" else "lib64";
 
+              # Authoritative built-tag record (#921). The real publish tag (RCs
+              # included) is only known at the workflow/publish layer: a plain
+              # `nix build` derives the version from the checked-in `./.vig-os`
+              # repo pin, which advances only at finalize and so is stale for
+              # release candidates. The release build-image action runs
+              # `nix build --impure` with `VIG_OS_VERSION` set to the true
+              # publish tag; that single, named, explicit env read is the ONLY
+              # impurity, and it is empty under a plain (pure) `nix build` —
+              # `builtins.getEnv` returns "" in pure eval — so the repo-pin
+              # fallback in the bootstrap below keeps `nix build` bit-
+              # reproducible. Baked as /root/assets/VERSION so init-workspace.sh
+              # can stamp a scaffolded `.vig-os` with the real tag on a raw
+              # `podman run` upgrade that forwards no env (install.sh aside).
+              imageVersionOverride = builtins.getEnv "VIG_OS_VERSION";
+
               # Bake the workspace assets, pre-commit cache dir and template
               # .venv scaffold as a normal image layer. UV_PYTHON pins the Nix
               # interpreter and UV_PYTHON_DOWNLOADS=never forbids uv from
@@ -847,13 +862,26 @@
                     cp ${./docs/MIGRATION.md} "$out/root/assets/MIGRATION.md"
                     chmod u+w "$out/root/assets/MIGRATION.md"
 
+                    # Resolve the built tag: the explicit VIG_OS_VERSION override
+                    # (release build, via --impure) when present, else the repo's
+                    # pinned DEVCONTAINER_VERSION. Empty override => pure/plain
+                    # `nix build`, so this is the reproducible repo pin (#921/#642).
+                    dcver="$(sed -n 's/^DEVCONTAINER_VERSION=//p' ${./.vig-os})"
+                    imageVersion="${imageVersionOverride}"
+                    [ -n "$imageVersion" ] || imageVersion="$dcver"
+
+                    # Authoritative built-tag record (#921): a distinct, machine-
+                    # readable copy of the true tag that init-workspace.sh reads to
+                    # stamp a scaffolded `.vig-os` when no VIG_OS_VERSION env is
+                    # forwarded (raw `podman run ... init-workspace.sh` upgrade).
+                    printf '%s\n' "$imageVersion" > "$out/root/assets/VERSION"
+
                     # Bake the devcontainer version into the scaffolded `.vig-os`,
                     # replacing the {{IMAGE_TAG}} placeholder. The Debian build
                     # relied on the IMAGE_TAG build-arg; the reproducible Nix image
                     # reads the repo's pinned DEVCONTAINER_VERSION, so a scaffolded
                     # workspace pins the devcontainer release it was built from. #642.
-                    dcver="$(sed -n 's/^DEVCONTAINER_VERSION=//p' ${./.vig-os})"
-                    sed -i "s/{{IMAGE_TAG}}/$dcver/g" "$out/root/assets/workspace/.vig-os"
+                    sed -i "s/{{IMAGE_TAG}}/$imageVersion/g" "$out/root/assets/workspace/.vig-os"
 
                     # Bake the build-time placeholder manifest so
                     # init-workspace.sh takes its fast substitution path instead

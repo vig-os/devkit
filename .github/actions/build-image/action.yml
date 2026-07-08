@@ -6,6 +6,8 @@
 #
 # Inputs:
 #   version: Semantic version (e.g., 1.0.0, dev-abc123) — used for the image tag
+#     and baked into the image as the authoritative built-tag record
+#     (/root/assets/VERSION) via `nix build --impure` + VIG_OS_VERSION (#921)
 #   arch: Target architecture (amd64, arm64) — used for the image tag
 #   release-date / release-url / build-timestamp / vcs-ref: release metadata
 #     (kept for caller compatibility; the Nix image stamps its own static,
@@ -101,12 +103,22 @@ runs:
 
     - name: Build the devcontainer image with Nix
       shell: bash
+      env:
+        # Bake the true built tag into the image's authoritative version record
+        # (/root/assets/VERSION) so imageless `podman run ... init-workspace.sh`
+        # upgrades stamp the real tag, not the stale repo-root pin (#921). The
+        # flake reads this via `builtins.getEnv`, which requires `--impure`; it
+        # is the ONLY env the build reads, and a plain `nix build` (no --impure,
+        # unset var) still falls back to the reproducible repo pin.
+        VIG_OS_VERSION: ${{ inputs.version }}
       run: |
         set -euo pipefail
         # Native per-arch: `nix build` resolves to the runner's own architecture
         # (x86_64-linux / aarch64-linux). buildLayeredImage emits a gzipped OCI
         # tar; docker/podman load handles gzip. The flake sets the OCI labels.
-        nix build .#devcontainerImage --print-build-logs
+        # `--impure` lets the flake read VIG_OS_VERSION (the true build tag);
+        # see the env note above and the flake's imageVersionOverride (#921).
+        nix build .#devcontainerImage --impure --print-build-logs
         cp -L result "${{ inputs.output-file }}"
         ls -lL "${{ inputs.output-file }}"
 

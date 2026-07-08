@@ -57,6 +57,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Imageless upgrades stamp the real built tag** ([#921](https://github.com/vig-os/devcontainer/issues/921))
+  - The image now bakes an authoritative built-tag record (`/root/assets/VERSION`) distinct from the template `.vig-os` pin: the release `build-image` action runs `nix build --impure` with `VIG_OS_VERSION` set to the true publish tag (RCs included), which the flake reads via `builtins.getEnv`. A plain, pure `nix build` reads `""` and falls back to the checked-in repo pin, so ordinary builds stay bit-reproducible.
+  - `init-workspace.sh` reads that record when no `VIG_OS_VERSION` is forwarded, so a bare `podman run … init-workspace.sh` upgrade (no `install.sh`) now pins `.vig-os` to the image's real tag instead of the stale baked template pin ([#916](https://github.com/vig-os/devcontainer/issues/916)); an explicit `VIG_OS_VERSION` still wins, and an absent record leaves the pin untouched.
+
 - **Template `sync` recipe no longer forces `--all-extras`** ([#892](https://github.com/vig-os/devcontainer/issues/892))
   - The shipped `justfile.project` `sync` recipe used `uv sync --all-extras --all-groups`, which forced every optional extra to install. Repos that quarantine platform-limited dependencies (e.g. cp312/cp313-only wheels) in extras got a hard `just sync` failure on the cp314 image.
   - The recipe is now parameterized (`sync *args="--all-groups"`) and defaults to `--all-groups`: dev groups stay synced while extras become opt-in via `just sync --all-extras`. The `update` recipe (which calls `just sync`) uses the new default unchanged.

@@ -39,6 +39,10 @@ set -euo pipefail
 # exercised end-to-end from tests against temporary directories.
 TEMPLATE_DIR="${TEMPLATE_DIR:-/root/assets/workspace}"
 WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
+# Authoritative built-tag record baked into the image by the flake (#921): the
+# fallback pin source when VIG_OS_VERSION is unset (a raw `podman run ...
+# init-workspace.sh` upgrade forwards no env). Overridable for tests.
+VERSION_FILE="${VERSION_FILE:-/root/assets/VERSION}"
 FORCE=false
 NO_PROMPTS=false
 SMOKE_TEST=false
@@ -760,6 +764,20 @@ fi
 # which is correct for finals but stale for release candidates: the repo-root
 # pin only advances at finalize. install.sh forwards its --version here so the
 # scaffold pins the image actually installed.
+#
+# Fall back to the image's authoritative built-tag record when no explicit
+# override was forwarded (#921): a raw `podman run ... init-workspace.sh`
+# upgrade (no install.sh) sets no VIG_OS_VERSION, so read the baked $VERSION_FILE
+# to stamp the image's real tag instead of the stale baked template pin. When
+# the record is absent (older image) or empty, VIG_OS_VERSION stays unset and
+# the pin is left untouched — unchanged behavior. An explicit env override wins.
+if [[ -z "${VIG_OS_VERSION:-}" && -f "$VERSION_FILE" ]]; then
+    VIG_OS_VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
+    if [[ -n "$VIG_OS_VERSION" ]]; then
+        echo "Using image built-tag record: $VIG_OS_VERSION"
+    fi
+fi
+
 if [[ -n "${VIG_OS_VERSION:-}" && -f "$WORKSPACE_DIR/.vig-os" ]]; then
     if [[ ! "$VIG_OS_VERSION" =~ ^[A-Za-z0-9._-]+$ ]]; then
         echo "Error: invalid VIG_OS_VERSION: $VIG_OS_VERSION" >&2

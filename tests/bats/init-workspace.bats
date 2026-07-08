@@ -528,6 +528,74 @@ _scaffold() {
     assert_success
 }
 
+# ── .vig-os pin from the image built-tag record (#921) ────────────────────────
+# A raw `podman run ... init-workspace.sh` upgrade forwards no VIG_OS_VERSION
+# (only install.sh does), so without a fallback the scaffold stays pinned to the
+# baked template pin — stale for RC images. The image bakes its true built tag as
+# an authoritative record (/root/assets/VERSION, VERSION_FILE); init reads it when
+# no explicit override is present. VERSION_FILE/TEMPLATE_DIR/WORKSPACE_DIR are
+# overridden to host paths and `just` is stubbed so `just sync` is a no-op.
+
+# Scaffold in $mode into $ws with VERSION_FILE=$verfile and no VIG_OS_VERSION.
+_scaffold_with_version_file() {
+    local mode="$1" ws="$2" verfile="$3"
+    local stub="$BATS_TEST_TMPDIR/stub-bin"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+    env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace" \
+        WORKSPACE_DIR="$ws" \
+        VERSION_FILE="$verfile" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode "$mode"
+}
+
+@test "init-workspace stamps .vig-os from the image VERSION record when no override is set (#921)" {
+    ws="$BATS_TEST_TMPDIR/e2e-921-record"
+    mkdir -p "$ws"
+    verfile="$BATS_TEST_TMPDIR/VERSION-record"
+    printf '0.5.0-rc3\n' >"$verfile"
+    run _scaffold_with_version_file bare "$ws" "$verfile"
+    assert_success
+    run grep '^DEVCONTAINER_VERSION=' "$ws/.vig-os"
+    assert_output "DEVCONTAINER_VERSION=0.5.0-rc3"
+}
+
+@test "init-workspace leaves the baked pin untouched when no VERSION record exists (#921)" {
+    ws="$BATS_TEST_TMPDIR/e2e-921-absent"
+    mkdir -p "$ws"
+    # A non-existent record must not trigger stamping — behavior unchanged, so
+    # the template's baked placeholder survives (no image build happened here).
+    run _scaffold_with_version_file bare "$ws" "$BATS_TEST_TMPDIR/does-not-exist"
+    assert_success
+    run grep '^DEVCONTAINER_VERSION=' "$ws/.vig-os"
+    assert_output "DEVCONTAINER_VERSION={{IMAGE_TAG}}"
+}
+
+@test "init-workspace prefers an explicit VIG_OS_VERSION over the VERSION record (#921)" {
+    ws="$BATS_TEST_TMPDIR/e2e-921-override-wins"
+    mkdir -p "$ws"
+    verfile="$BATS_TEST_TMPDIR/VERSION-loser"
+    printf '0.5.0-rc3\n' >"$verfile"
+    stub="$BATS_TEST_TMPDIR/stub-bin"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+    run env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace" \
+        WORKSPACE_DIR="$ws" \
+        VERSION_FILE="$verfile" \
+        VIG_OS_VERSION="1.2.3" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode bare
+    assert_success
+    run grep '^DEVCONTAINER_VERSION=' "$ws/.vig-os"
+    assert_output "DEVCONTAINER_VERSION=1.2.3"
+}
+
 @test "template ships .typos.toml alongside the typos hook (#855)" {
     # The scaffold's .pre-commit-config.yaml runs the typos hook; without the
     # exception config, scaffold-shipped content (version-check.sh's Nd
