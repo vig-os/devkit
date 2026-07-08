@@ -347,14 +347,22 @@ _scaffold() {
     assert_success
 }
 
-# ── idempotent rename guard (#197) ───────────────────────────────────────────
+# ── language-neutral scaffold (#929) ─────────────────────────────────────────
 
-@test "init-workspace.sh guards against nested template_project on re-run" {
-    run grep -A4 'if \[\[ -d.*src/template_project' "$INIT_WORKSPACE_SH"
-    assert_success
-    # shellcheck disable=SC2016
-    assert_output --partial 'src/${SHORT_NAME}'
-    assert_output --partial 'rm -rf'
+@test "template ships no Python package starter (#929)" {
+    # The copied scaffold is language-neutral: no pyproject.toml, src/ or
+    # tests/. Python is opt-in via `nix flake init -t ...#python` (#930).
+    run test -e "$TEMPLATE_DIR/pyproject.toml"
+    assert_failure
+    run test -e "$TEMPLATE_DIR/src"
+    assert_failure
+    run test -e "$TEMPLATE_DIR/tests"
+    assert_failure
+}
+
+@test "init-workspace.sh no longer renames a template Python package (#929)" {
+    run grep -q 'template_project' "$INIT_WORKSPACE_SH"
+    assert_failure
 }
 
 @test "init-workspace.sh uses rsync without fallback" {
@@ -1144,7 +1152,7 @@ _upgrade_no_flags() {
     assert_failure
     run test -e "$ws/.envrc"
     assert_failure
-    run test -d "$ws/src/testproj"
+    run test -f "$ws/justfile.project"
     assert_success
     run grep -x 'DEVKIT_MODE=devcontainer' "$ws/.vig-os"
     assert_success
@@ -1162,7 +1170,7 @@ _upgrade_no_flags() {
     assert_failure
     run test -f "$ws/flake.nix"
     assert_success
-    run test -d "$ws/src/testproj"
+    run test -f "$ws/justfile.project"
     assert_success
     run grep -x 'DEVKIT_MODE=direnv' "$ws/.vig-os"
     assert_success
@@ -1181,7 +1189,7 @@ _upgrade_no_flags() {
     assert_success
     run test -f "$ws/flake.nix"
     assert_success
-    run test -d "$ws/src/testproj"
+    run test -f "$ws/justfile.project"
     assert_success
     run grep -x 'DEVKIT_MODE=both' "$ws/.vig-os"
     assert_success
@@ -1405,7 +1413,7 @@ _upgrade_legacy() {
 
 # ── bare delivery mode (#885) ─────────────────────────────────────────────────
 # `bare` ships the standards layer only — justfiles, hooks config, .github CI,
-# pyproject scaffolding, .vig-os — and prunes every container/flake artifact
+# .vig-os — and prunes every container/flake artifact
 # (.devcontainer/, flake.nix, .envrc) with the same #738/#859 pre-existence
 # guards as the other modes. The shipped ci.yml is replaced by a host-native
 # variant: no resolve-image, no container jobs — the runner sets up uv
@@ -1425,7 +1433,7 @@ _upgrade_legacy() {
     assert_failure
     # shipped: the standards layer
     for f in justfile justfile.project justfile.local .pre-commit-config.yaml \
-        .github/workflows/ci.yml pyproject.toml .vig-os; do
+        .github/workflows/ci.yml .vig-os; do
         run test -e "$ws/$f"
         assert_success
     done
@@ -1495,7 +1503,7 @@ _upgrade_legacy() {
     assert_failure
     run test -e "$ws/flake.nix"
     assert_failure
-    run test -d "$ws/src/testproj"
+    run test -f "$ws/justfile.project"
     assert_success
     run grep -x 'DEVKIT_MODE=bare' "$ws/.vig-os"
     assert_success
