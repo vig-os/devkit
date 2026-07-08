@@ -49,9 +49,10 @@ on:  # yamllint disable-line rule:truthy
       - '.github/workflows/nix-image.yml'
   workflow_dispatch:
 
+# Least-privilege default (Scorecard TokenPermissions): top-level is read-only;
+# each job escalates `packages: write` for itself where it pushes to GHCR.
 permissions:
   contents: read
-  packages: write   # push per-arch discovery tags + assemble the multi-arch index
 
 env:
   REGISTRY: ghcr.io/vig-os/devcontainer
@@ -63,6 +64,10 @@ jobs:
     name: Build Nix image & run portable testinfra (${{ matrix.arch }})
     runs-on: ${{ matrix.arch == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
     timeout-minutes: 45
+    # Job-scoped write: the GHCR login + per-arch discovery-tag push need it.
+    permissions:
+      contents: read
+      packages: write
     # Gating (#666): the Nix image now passes the full portable testinfra suite,
     # so a regression here fails CI. (The per-arch push step below stays
     # continue-on-error — a registry hiccup must not fail the build/test gate.)
