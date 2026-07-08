@@ -991,7 +991,7 @@ class TestDevContainerUserConf:
     def test_project_installed_after_init(self, initialized_workspace):
         """Regression: uv.lock must reference the actual project name after init.
 
-        init-workspace.sh runs `just sync` which calls `uv sync --all-extras`.
+        init-workspace.sh runs `just sync` which calls `uv sync --all-groups`.
         This resolves the lock file for the renamed project and installs it.
 
         Before the fix, init did not sync, so uv.lock still referenced
@@ -3254,7 +3254,7 @@ class TestVersionCheckJustIntegration:
             pytest.skip("justfile.devc not found")
 
         content = justfile_devc.read_text()
-        for recipe_name in ["lint:", "format:", "precommit:", "sync:", "update:"]:
+        for recipe_name in ["lint:", "format:", "precommit:", "sync ", "update:"]:
             assert recipe_name not in content, (
                 f"{recipe_name.rstrip(':')} should not exist in justfile.devc"
             )
@@ -3269,7 +3269,7 @@ class TestVersionCheckJustIntegration:
             pytest.skip("justfile.project not found")
 
         content = justfile_project.read_text()
-        for recipe_name in ["lint:", "format:", "precommit:", "sync:", "update:"]:
+        for recipe_name in ["lint:", "format:", "precommit:", "sync ", "update:"]:
             assert recipe_name in content, (
                 f"{recipe_name.rstrip(':')} should exist in justfile.project"
             )

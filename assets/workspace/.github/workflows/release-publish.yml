@@ -58,6 +58,7 @@ on:  # yamllint disable-line rule:truthy
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   resolve-image:
@@ -78,6 +79,9 @@ jobs:
       - name: Resolve container image
         id: resolve
         uses: ./.github/actions/resolve-image
+        with:
+          registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
+          registry-username: ${{ github.actor }}
 
   publish:
     name: Publish Release
@@ -85,12 +89,16 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
     timeout-minutes: 10
     defaults:
       run:
         shell: bash
     permissions:
       contents: write
+      packages: read
     outputs:
       tag: ${{ steps.out.outputs.tag }}
       release_url: ${{ steps.out.outputs.release_url }}

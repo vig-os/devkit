@@ -25,6 +25,7 @@ on:  # yamllint disable-line rule:truthy
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   validate:
@@ -66,6 +67,9 @@ jobs:
       - name: Resolve container image
         id: resolve_image
         uses: ./.github/actions/resolve-image
+        with:
+          registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
+          registry-username: ${{ github.actor }}
 
       - name: Verify release branch does not exist
         env:
@@ -131,6 +135,9 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.validate.outputs.image_tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
       env:
         UV_PROJECT_ENVIRONMENT: /root/assets/workspace/.venv
     timeout-minutes: 15
@@ -141,6 +148,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      packages: read
 
     steps:
       - name: Generate Commit App Token

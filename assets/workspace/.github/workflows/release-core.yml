@@ -70,6 +70,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   resolve-image:
@@ -90,6 +91,9 @@ jobs:
       - name: Resolve container image
         id: resolve
         uses: ./.github/actions/resolve-image
+        with:
+          registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
+          registry-username: ${{ github.actor }}
 
   validate:
     name: Validate Release Core
@@ -98,8 +102,12 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      packages: read
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
     timeout-minutes: 10
     defaults:
       run:
@@ -330,8 +338,12 @@ jobs:
     permissions:
       actions: write
       contents: write
+      packages: read
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.validate.outputs.image_tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
       env:
         UV_PROJECT_ENVIRONMENT: /root/assets/workspace/.venv
     timeout-minutes: 15
@@ -519,6 +531,9 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.validate.outputs.image_tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
       env:
         UV_PROJECT_ENVIRONMENT: /root/assets/workspace/.venv
     timeout-minutes: 20

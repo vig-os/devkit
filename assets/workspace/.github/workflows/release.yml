@@ -44,6 +44,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   resolve-image:
@@ -64,6 +65,9 @@ jobs:
       - name: Resolve container image
         id: resolve
         uses: ./.github/actions/resolve-image
+        with:
+          registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
+          registry-username: ${{ github.actor }}
 
   core:
     name: Release Core
@@ -119,6 +123,9 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
     timeout-minutes: 10
     defaults:
       run:
@@ -137,6 +144,7 @@ jobs:
     permissions:
       contents: write
       issues: write
+      packages: read
     steps:
       - name: Generate release app token
         id: release_app_token

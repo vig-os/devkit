@@ -40,6 +40,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   resolve-image:
@@ -60,6 +61,9 @@ jobs:
       - name: Resolve container image
         id: resolve
         uses: ./.github/actions/resolve-image
+        with:
+          registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
+          registry-username: ${{ github.actor }}
 
   check:
     name: Check if dev is up to date
@@ -67,6 +71,9 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
     timeout-minutes: 5
     defaults:
       run:
@@ -112,6 +119,9 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
     timeout-minutes: 10
     defaults:
       run:
@@ -122,6 +132,7 @@ jobs:
       contents: write
       pull-requests: write
       issues: write
+      packages: read
 
     steps:
       - name: Generate Commit App Token

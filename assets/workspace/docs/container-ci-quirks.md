@@ -61,22 +61,53 @@ tags as revs).  This repository pins hooks by commit hash, so the cached
 environments do not match and prek downloads fresh environments at
 runtime.
 
-## Public-image assumption (private / rate-limited registries)
+## Authenticated pulls (private / rate-limited registries)
 
-**Limitation (tracked, not yet fixed):** the shipped container workflows assume
-`ghcr.io/vig-os/devcontainer` is **publicly pullable and unauthenticated**.
+The shipped container workflows support **authenticated** GHCR pulls, so a
+**private** (or anonymous-rate-limited) `ghcr.io/vig-os/devcontainer` image works
+without any per-repo YAML edits ([#920](https://github.com/vig-os/devcontainer/issues/920)).
+Public consumers are unaffected: the automatic `GITHUB_TOKEN` performs an
+authenticated pull of a public image, which succeeds unchanged.
 
-- The `resolve-image` action validates the tag with an unauthenticated
-  `docker manifest inspect` and swallows its stderr, so an auth or rate-limit
-  failure surfaces only as the generic "Cannot access image manifest" error.
-- The in-container jobs (`ci.yml`, `prepare-release.yml`, …) declare
-  `container: { image: … }` with **no `credentials:` block**, so a private
-  image (or an anonymous pull throttled by GHCR) fails opaquely at the job's
-  container-pull step.
+### The `GHCR_PULL_TOKEN` secret contract
 
-If you pin a **private** devkit image, add a `credentials:` block to each
-container job (`username`/`password` from a registry PAT secret) yourself for
-now. A first-class fix (authenticated probe + templated `credentials:`) is
-tracked in [#920](https://github.com/vig-os/devcontainer/issues/920) and rides
-the devkit rename cycle
-([#781](https://github.com/vig-os/devcontainer/issues/781)).
+Every container job declares:
+
+```yaml
+credentials:
+  username: ${{ github.actor }}
+  password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
+```
+
+- **Public image (default):** leave `GHCR_PULL_TOKEN` unset. The expression
+  falls back to `github.token` (the automatic `GITHUB_TOKEN`) — never an empty
+  password — and an authenticated pull of a public image succeeds.
+- **Private image:** set a repository/org secret `GHCR_PULL_TOKEN` to a token
+  (PAT or fine-grained token) with `read:packages` / `packages: read` scope for
+  the package. It overrides the fallback and authenticates the pull. This is
+  also the path when the automatic `GITHUB_TOKEN` lacks cross-org package
+  access.
+
+### `packages: read` permission
+
+Each container job (and the `resolve-image` job) grants `packages: read` — at the
+workflow level where the jobs inherit the default, or in the job's own
+`permissions:` block otherwise. This is what lets the `github.token` fallback
+read the package; without it the automatic token cannot pull even a public image
+when other permission scopes are narrowed.
+
+### Authenticated probe in `resolve-image`
+
+The `resolve-image` action logs in to `ghcr.io` before probing the tag when a
+token is supplied (it is passed
+`registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}` and
+`registry-username: ${{ github.actor }}`), and no longer swallows the probe's
+stderr. A failure is classified into an actionable `::error::` annotation that
+distinguishes an **auth/denied** failure ("authentication required or denied —
+set the GHCR_PULL_TOKEN secret / grant packages:read") from a **missing tag**
+("the tag does not exist or is not readable"). The anonymous path is kept for
+public images when no token is provided.
+
+The broader workflow audit that this fix rides is tracked in
+[#781](https://github.com/vig-os/devcontainer/issues/781) and
+[#854](https://github.com/vig-os/devcontainer/issues/854).

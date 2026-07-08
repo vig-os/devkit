@@ -751,7 +751,7 @@ EOF
     run bash -c "cd '$ws' && '$real_just' --show test"
     assert_output --partial 'SENTINEL-877-custom-test'
     # ...and each appended recipe appears exactly once
-    run bash -c "grep -c '^sync:' '$ws/justfile.project'"
+    run bash -c "grep -Ec '^sync[ :]' '$ws/justfile.project'"
     assert_output "1"
 }
 
@@ -776,7 +776,7 @@ EOF
     run _upgrade both "$ws"
     assert_success
     # nothing was appended: sync still defined exactly once, no repair banner
-    run bash -c "grep -c '^sync:' '$ws/justfile.project'"
+    run bash -c "grep -Ec '^sync[ :]' '$ws/justfile.project'"
     assert_output "1"
     run grep -q 'BASE RECIPES appended' "$ws/justfile.project"
     assert_failure
