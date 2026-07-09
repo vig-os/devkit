@@ -1317,8 +1317,9 @@ _upgrade_no_flags() {
     assert_success
     run grep -x 'DEVKIT_PROJECT=testproj' "$ws/.vig-os"
     assert_success
-    # _scaffold sets no ORG_NAME, so the --no-prompts default is persisted
-    run grep -x 'DEVKIT_ORG=vigOS/devc' "$ws/.vig-os"
+    # _scaffold sets no ORG_NAME, so the org is derived from the
+    # GITHUB_REPOSITORY owner segment (test/repo -> test), #954.
+    run grep -x 'DEVKIT_ORG=test' "$ws/.vig-os"
     assert_success
     run grep -x 'DEVKIT_REPO=test/repo' "$ws/.vig-os"
     assert_success
