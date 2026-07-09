@@ -22,7 +22,8 @@
 #   SHORT_NAME           - Project short name (required unless the workspace
 #                          .vig-os persists DEVKIT_PROJECT, #885)
 #   ORG_NAME             - Organization name (optional, defaults to DEVKIT_ORG
-#                          from .vig-os, else "vigOS/devc")
+#                          from .vig-os, else the GITHUB_REPOSITORY owner
+#                          segment, else the literal "vigOS")
 #   GITHUB_REPOSITORY    - owner/repo for Renovate preset extends (optional if
 #                          persisted as DEVKIT_REPO or origin is github.com)
 #   VIG_OS_VERSION       - Override the DEVCONTAINER_VERSION pinned in the scaffolded
@@ -317,8 +318,22 @@ if [[ -z "${ORG_NAME:-}" && -n "$MANIFEST_ORG" ]]; then
     echo "Organization name from .vig-os manifest: $ORG_NAME"
 fi
 if [[ "$NO_PROMPTS" == "true" ]]; then
-    # Non-interactive mode: use env var/manifest or default
-    ORG_NAME="${ORG_NAME:-vigOS/devc}"
+    # Non-interactive mode: env var/manifest, else derive the org from the
+    # repo owner already in hand (#954). A hardcoded "vigOS/devc" default is a
+    # bogus org — it contains a '/', which sed-substitutes into {{ORG_NAME}} in
+    # generated files (e.g. the LICENSE copyright). GITHUB_REPOSITORY (owner/repo)
+    # is available on this path (DEVKIT_REPO uses it), so take its owner segment;
+    # fall back to a sane literal only when no usable owner/repo is present.
+    if [[ -z "${ORG_NAME:-}" ]]; then
+        _repo_owner="${GITHUB_REPOSITORY:-}"
+        _repo_owner="${_repo_owner%%/*}"
+        if [[ -n "$_repo_owner" && "${GITHUB_REPOSITORY:-}" != "OWNER/REPO" ]]; then
+            ORG_NAME="$_repo_owner"
+        else
+            ORG_NAME="vigOS"
+        fi
+        unset _repo_owner
+    fi
 elif [[ -z "${ORG_NAME:-}" ]]; then
     # Interactive mode: prompt user
     read -rp "Enter the name of your organization, e.g. 'vigOS': " ORG_NAME
@@ -689,10 +704,17 @@ if [[ "$SMOKE_TEST" == "true" ]]; then
     fi
 else
     # Build exclude list for preserved files that already exist
+    # Root-anchor each exclude (leading slash) so it matches the exact
+    # transfer-root path, not the basename at every depth (#953). Bare names
+    # like README.md/CHANGELOG.md protect the consumer's ROOT docs only;
+    # without the anchor rsync also skipped devkit-authored NESTED docs
+    # (.devcontainer/README.md, .claude/skills/*/README.md), which the preview
+    # (is_preserved_file, exact rel-path) still promised as ADDED. The anchor
+    # matches is_preserved_file's exact-path semantics.
     EXCLUDE_ARGS=()
     for preserved in "${PRESERVE_FILES[@]}"; do
         if [[ -e "$WORKSPACE_DIR/$preserved" ]]; then
-            EXCLUDE_ARGS+=("--exclude=$preserved")
+            EXCLUDE_ARGS+=("--exclude=/$preserved")
         fi
     done
 

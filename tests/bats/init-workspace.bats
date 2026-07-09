@@ -380,7 +380,39 @@ _scaffold() {
     # shellcheck disable=SC2016
     assert_output --partial 'if [[ -e "$WORKSPACE_DIR/$preserved" ]]; then'
     # shellcheck disable=SC2016
-    assert_output --partial 'EXCLUDE_ARGS+=("--exclude=$preserved")'
+    assert_output --partial 'EXCLUDE_ARGS+=("--exclude=/$preserved")'
+}
+
+# ── preserve excludes must be root-anchored, not basename-matched (#953) ──────
+# PRESERVE_FILES lists bare names (README.md/CHANGELOG.md) to protect the
+# consumer's ROOT docs. Built as `--exclude=$preserved` (no leading slash),
+# rsync matches by basename at EVERY depth, silently dropping devkit-authored
+# NESTED docs (.devcontainer/README.md, .claude/skills/*/README.md). The preview
+# classifies via the exact rel-path is_preserved_file, so it promised those
+# nested docs as ADDED while the copy never wrote them. Root-anchoring the
+# excludes (--exclude=/$preserved) restores the exact-path semantics.
+
+@test "upgrade copies devkit-authored nested docs while preserving root docs (#953)" {
+    ws="$BATS_TEST_TMPDIR/e2e-953-nested"
+    mkdir -p "$ws"
+    # consumer's pre-existing ROOT docs: must survive the upgrade untouched
+    printf '# SENTINEL-953 consumer root readme\n' >"$ws/README.md"
+    printf '# SENTINEL-953 consumer root changelog\n' >"$ws/CHANGELOG.md"
+    run _upgrade both "$ws"
+    assert_success
+    # root docs preserved (PRESERVE_FILES, exact root-relative match)
+    run grep -q 'SENTINEL-953 consumer root readme' "$ws/README.md"
+    assert_success
+    run grep -q 'SENTINEL-953 consumer root changelog' "$ws/CHANGELOG.md"
+    assert_success
+    # devkit-authored NESTED docs are copied, not dropped by an unanchored
+    # basename exclude that matched the root docs' names at every depth
+    run test -f "$ws/.devcontainer/README.md"
+    assert_success
+    run test -f "$ws/.devcontainer/CHANGELOG.md"
+    assert_success
+    run test -f "$ws/.claude/skills/inception_explore/README.md"
+    assert_success
 }
 
 @test "init-workspace.sh accepts --smoke-test flag" {
@@ -1285,11 +1317,47 @@ _upgrade_no_flags() {
     assert_success
     run grep -x 'DEVKIT_PROJECT=testproj' "$ws/.vig-os"
     assert_success
-    # _scaffold sets no ORG_NAME, so the --no-prompts default is persisted
-    run grep -x 'DEVKIT_ORG=vigOS/devc' "$ws/.vig-os"
+    # _scaffold sets no ORG_NAME, so the org is derived from the
+    # GITHUB_REPOSITORY owner segment (test/repo -> test), #954.
+    run grep -x 'DEVKIT_ORG=test' "$ws/.vig-os"
     assert_success
     run grep -x 'DEVKIT_REPO=test/repo' "$ws/.vig-os"
     assert_success
+}
+
+# ── imageless --no-prompts must not default the org to a bogus literal (#954) ─
+# On --no-prompts with no ORG_NAME env and no manifest DEVKIT_ORG, ORG_NAME
+# defaulted to the hardcoded literal "vigOS/devc" — a bogus org (contains '/')
+# that gets sed-substituted into {{ORG_NAME}} in generated files (e.g. the
+# LICENSE copyright line). GITHUB_REPOSITORY (owner/repo) is available on this
+# path (DEVKIT_REPO uses it), so derive the org from its owner segment instead.
+
+@test "no-prompts derives DEVKIT_ORG from the repo owner, not a bogus literal (#954)" {
+    ws="$BATS_TEST_TMPDIR/e2e-954-org"
+    mkdir -p "$ws"
+    stub="$BATS_TEST_TMPDIR/stub-bin-954"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+    # no ORG_NAME env, no manifest DEVKIT_ORG: the org must come from the owner
+    # segment of GITHUB_REPOSITORY, not the hardcoded slash-bearing literal.
+    run env -u ORG_NAME PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=some-org/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode both
+    assert_success
+    # persisted org is the owner segment, never the bogus '/'-bearing literal
+    run grep -x 'DEVKIT_ORG=some-org' "$ws/.vig-os"
+    assert_success
+    run grep -q 'vigOS/devc' "$ws/.vig-os"
+    assert_failure
+    # the org substitution into generated files carries no '/'-bearing org
+    run grep -q 'Copyright 2025 some-org' "$ws/LICENSE"
+    assert_success
+    run grep -q 'vigOS/devc' "$ws/LICENSE"
+    assert_failure
 }
 
 @test "manifest-bearing upgrade keeps devcontainer shape and names, no flags (#885)" {
