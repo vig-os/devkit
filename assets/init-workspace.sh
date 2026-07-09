@@ -531,7 +531,9 @@ if [[ "$FORCE" == "true" ]]; then
         else
             ADDED+=("$rel_path")
         fi
-    done < <(find -L "$TEMPLATE_DIR" -type f ! -path "*/.git/*" -print0)
+    done < <(find -L "$TEMPLATE_DIR" -type f \
+        ! -path "*/.git/*" ! -path "*/.venv/*" \
+        ! -path "*/docs/issues/*" ! -path "*/docs/pull-requests/*" -print0)
 
     # Mode-prune deletions (#886): paths that exist right now and the upgrade
     # would remove. Mirrors the prune guards further down (#738/#859/#877).
