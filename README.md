@@ -131,8 +131,8 @@ Available recipes:
     clean-test-containers                      # Clean up lingering test containers
 
     [git]
-    branch                                     # Show current branch + list recent branches
-    log                                        # Pretty one-line git log (last 20 commits)
+    gh-branch                                  # Show current branch + list recent branches
+    gh-log                                     # Pretty one-line git log (last 20 commits)
 
     [github]
     gh-issues                                  # List open issues and PRs grouped by milestone [alias: gh-i]
@@ -199,7 +199,7 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 - **Registry**: `ghcr.io/vig-os/devcontainer`
 - **Architecture**: Multi-platform support (AMD64, ARM64)
 - **License**: Apache
-- **Latest Version**: [0.4.0](https://github.com/vig-os/devcontainer/releases/tag/0.4.0) - 2026-07-06
+- **Latest Version**: [0.4.1](https://github.com/vig-os/devcontainer/releases/tag/0.4.1) - 2026-07-08
 - **Image tags**: bare semver (`0.2.1`, `latest`) — git tags use `v` prefix (`v0.2.1`) but image tags do not
 
 ## Features
@@ -222,6 +222,8 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 
 - **Python 3.14** - CPython from the pinned `nixpkgs`
 - **uv** - Fast Python package installer and resolver
+
+> The image provides Python + uv, but the scaffold is **language-neutral** and ships no `pyproject.toml`. Add a Python package layout on demand with `nix flake init -t github:vig-os/devcontainer#python`.
 
 ### **Development Tools**
 

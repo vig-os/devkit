@@ -6,6 +6,17 @@ inputs:
     description: Optional image tag override
     required: false
     default: ''
+  registry-token:
+    description: >-
+      Optional GHCR token for authenticated manifest probes (private or
+      rate-limited images). When empty, the probe runs anonymously (public
+      images).
+    required: false
+    default: ''
+  registry-username:
+    description: Username paired with registry-token for docker login
+    required: false
+    default: ''
 
 outputs:
   image-tag:
@@ -63,12 +74,32 @@ runs:
       shell: bash
       env:
         IMAGE_TAG: ${{ steps.resolve.outputs.tag }}
+        REGISTRY_TOKEN: ${{ inputs.registry-token }}
+        REGISTRY_USERNAME: ${{ inputs.registry-username }}
       run: |
         set -euo pipefail
         IMAGE="ghcr.io/vig-os/devcontainer:${IMAGE_TAG}"
         echo "Validating image availability: $IMAGE"
-        if ! docker manifest inspect "$IMAGE" > /dev/null 2>&1; then
-          echo "ERROR: Cannot access image manifest: $IMAGE"
-          echo "Check whether the tag exists and whether this workflow has access to GHCR."
+
+        # Authenticate before the probe when a token is supplied, so private or
+        # rate-limited images resolve. The anonymous path is kept for public
+        # images (empty token).
+        if [[ -n "$REGISTRY_TOKEN" ]]; then
+          echo "Authenticating to ghcr.io as '${REGISTRY_USERNAME}'"
+          if ! echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_USERNAME" --password-stdin; then
+            echo "::error::Failed to authenticate to ghcr.io as '${REGISTRY_USERNAME}'. Check the GHCR_PULL_TOKEN secret and that it grants packages:read."
+            exit 1
+          fi
+        fi
+
+        # Do not swallow stderr: capture it so an auth/denied failure can be
+        # distinguished from a genuinely missing tag.
+        if ! PROBE_ERR="$(docker manifest inspect "$IMAGE" 2>&1 >/dev/null)"; then
+          echo "$PROBE_ERR"
+          if echo "$PROBE_ERR" | grep -qiE 'unauthorized|denied|authentication|forbidden|toomanyrequests|rate limit'; then
+            echo "::error::Cannot access image manifest: ${IMAGE} — authentication required or denied. Set the GHCR_PULL_TOKEN secret (or grant the workflow token packages:read) and pass it to this action."
+          else
+            echo "::error::Cannot access image manifest: ${IMAGE} — the tag does not exist or is not readable. Check that DEVCONTAINER_VERSION in .vig-os points at a published image tag."
+          fi
           exit 1
         fi

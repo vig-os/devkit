@@ -194,3 +194,24 @@ CVE-2026-11979
 #   image. No upstream fix published yet (verified NVD/Debian/libssh2 repo,
 #   2026-07-04).
 CVE-2026-58050
+
+# ============================================================================
+# Triage 2026-07-07 — podman host-env-var leak (release-cycle fix, #905).
+# Verified ONLINE against NVD/GHSA and the nixpkgs branch contents
+# (release-26.05, staging-26.05, staging, master, nixpkgs-unstable) on
+# 2026-07-07. Real product match (no CPE collision).
+# ============================================================================
+
+Expiration: 2026-08-06
+# podman 5.8.2 — container engine, a direct devTools member (nix/devtools.nix)
+#   and the binary backing the docker->podman shim (flake.nix). CVE-2026-57231
+#   (CVSS 7.5 HIGH): a malicious image manifest with malformed `Env` entries (a
+#   key with no value, exploitable via the `*` glob) makes podman leak matching
+#   HOST env vars into the container — a supply-chain risk only when running
+#   UNTRUSTED images. Here podman is a rootless CLI running developer/CI-chosen
+#   images, so exposure is bounded by the single-user dev model. Fixed upstream
+#   in 5.8.4 (2026-06-26) and 6.0.0; in nixpkgs the fix is on
+#   master/staging/unstable (5.8.4) but NOT in the pinned release-26.05 (still
+#   5.8.2) — backport PR NixOS/nixpkgs#536367 is open (draft, base
+#   release-26.05). Flip to a nixpkgs rev-advance when it lands; re-check weekly.
+CVE-2026-57231

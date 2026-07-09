@@ -15,6 +15,37 @@ setup() {
     assert_output --partial "Available recipes"
 }
 
+@test "justfile.gh namespaces git helpers to avoid consumer recipe collisions" {
+    # The scaffold justfile.gh must not define bare `log`/`branch` recipes:
+    # a consumer justfile.project defining its own `log`/`branch` would then
+    # collide on import and break `just` entirely. Only gh-namespaced names.
+    run bash -lc "! grep -qE '^(log|branch):' justfile.gh"
+    assert_success
+    run bash -lc "grep -qE '^gh-log:' justfile.gh && grep -qE '^gh-branch:' justfile.gh"
+    assert_success
+}
+
+@test "justfile.gh imports alongside a consumer log/branch justfile without redefinition errors" {
+    collision_dir="$BATS_TEST_TMPDIR/collision"
+    mkdir -p "$collision_dir"
+    cp "$PROJECT_ROOT/justfile.gh" "$collision_dir/justfile.gh"
+    cat > "$collision_dir/justfile.project" <<'EOF'
+log:
+    @echo consumer-log
+
+branch:
+    @echo consumer-branch
+EOF
+    cat > "$collision_dir/justfile" <<'EOF'
+import 'justfile.gh'
+import 'justfile.project'
+EOF
+    run just -f "$collision_dir/justfile" -d "$collision_dir" --list
+    assert_success
+    assert_output --partial "gh-log"
+    assert_output --partial "gh-branch"
+}
+
 # ── pipefail shell in the root justfile (#854) ────────────────────────────────
 # `set shell := ["bash","-euo","pipefail","-c"]` used to live only in the
 # devc-managed justfile.devc, so in direnv/bare mode (no .devcontainer/) the

@@ -44,6 +44,7 @@ jobs:
     timeout-minutes: 2
     permissions:
       contents: read
+      packages: read
     outputs:
       image-tag: ${{ steps.resolve.outputs.image-tag }}
     steps:
@@ -58,12 +59,18 @@ jobs:
       - name: Resolve container image
         id: resolve
         uses: ./.github/actions/resolve-image
+        with:
+          registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
+          registry-username: ${{ github.actor }}
 
   sync:
     needs: [resolve-image]
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
     timeout-minutes: 10
     # Prevent concurrent runs to avoid race conditions when committing and cache collisions
     concurrency:
@@ -74,6 +81,7 @@ jobs:
       issues: read
       pull-requests: read
       actions: write  # Required for cache deletion
+      packages: read
 
     steps:
       - name: Generate a token

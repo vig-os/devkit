@@ -1033,8 +1033,8 @@ class TestFileStructure:
         )
         # A known placeholder-bearing scaffold file must be listed so the fast
         # path actually substitutes it (guards against an empty/degenerate list).
-        assert "/root/assets/workspace/pyproject.toml" in lines, (
-            "placeholder manifest missing known placeholder-bearing file pyproject.toml"
+        assert "/root/assets/workspace/justfile.project" in lines, (
+            "placeholder manifest missing known placeholder-bearing file justfile.project"
         )
 
     def test_manifest_files(self, host, parse_manifest):

@@ -30,6 +30,12 @@
       "semanticCommitScope": "pip"
     },
     {
+      "description": "requires-python is a deliberate range: the Nix toolchain pins the exact interpreter via flake.lock, so an == pin is redundant and unsatisfiable against nixpkgs. Exempt it from the pin rule above. Refs #666.",
+      "matchManagers": ["pep621"],
+      "matchDepTypes": ["requires-python"],
+      "enabled": false
+    },
+    {
       "description": "Python — group minor/patch",
       "matchManagers": ["pep621"],
       "matchUpdateTypes": ["minor", "patch"],

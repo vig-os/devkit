@@ -20,12 +20,12 @@ gh-issues:
 
 # Pretty one-line git log (last 20 commits)
 [group('git')]
-log:
+gh-log:
     git log --oneline -20
 
 # Show current branch + list recent branches
 [group('git')]
-branch:
+gh-branch:
     #!/usr/bin/env bash
     echo "Current: $(git branch --show-current)"
     echo ""

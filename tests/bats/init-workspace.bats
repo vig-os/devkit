@@ -347,14 +347,22 @@ _scaffold() {
     assert_success
 }
 
-# ── idempotent rename guard (#197) ───────────────────────────────────────────
+# ── language-neutral scaffold (#929) ─────────────────────────────────────────
 
-@test "init-workspace.sh guards against nested template_project on re-run" {
-    run grep -A4 'if \[\[ -d.*src/template_project' "$INIT_WORKSPACE_SH"
-    assert_success
-    # shellcheck disable=SC2016
-    assert_output --partial 'src/${SHORT_NAME}'
-    assert_output --partial 'rm -rf'
+@test "template ships no Python package starter (#929)" {
+    # The copied scaffold is language-neutral: no pyproject.toml, src/ or
+    # tests/. Python is opt-in via `nix flake init -t ...#python` (#930).
+    run test -e "$TEMPLATE_DIR/pyproject.toml"
+    assert_failure
+    run test -e "$TEMPLATE_DIR/src"
+    assert_failure
+    run test -e "$TEMPLATE_DIR/tests"
+    assert_failure
+}
+
+@test "init-workspace.sh no longer renames a template Python package (#929)" {
+    run grep -q 'template_project' "$INIT_WORKSPACE_SH"
+    assert_failure
 }
 
 @test "init-workspace.sh uses rsync without fallback" {
@@ -528,6 +536,74 @@ _scaffold() {
     assert_success
 }
 
+# ── .vig-os pin from the image built-tag record (#921) ────────────────────────
+# A raw `podman run ... init-workspace.sh` upgrade forwards no VIG_OS_VERSION
+# (only install.sh does), so without a fallback the scaffold stays pinned to the
+# baked template pin — stale for RC images. The image bakes its true built tag as
+# an authoritative record (/root/assets/VERSION, VERSION_FILE); init reads it when
+# no explicit override is present. VERSION_FILE/TEMPLATE_DIR/WORKSPACE_DIR are
+# overridden to host paths and `just` is stubbed so `just sync` is a no-op.
+
+# Scaffold in $mode into $ws with VERSION_FILE=$verfile and no VIG_OS_VERSION.
+_scaffold_with_version_file() {
+    local mode="$1" ws="$2" verfile="$3"
+    local stub="$BATS_TEST_TMPDIR/stub-bin"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+    env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace" \
+        WORKSPACE_DIR="$ws" \
+        VERSION_FILE="$verfile" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode "$mode"
+}
+
+@test "init-workspace stamps .vig-os from the image VERSION record when no override is set (#921)" {
+    ws="$BATS_TEST_TMPDIR/e2e-921-record"
+    mkdir -p "$ws"
+    verfile="$BATS_TEST_TMPDIR/VERSION-record"
+    printf '0.5.0-rc3\n' >"$verfile"
+    run _scaffold_with_version_file bare "$ws" "$verfile"
+    assert_success
+    run grep '^DEVCONTAINER_VERSION=' "$ws/.vig-os"
+    assert_output "DEVCONTAINER_VERSION=0.5.0-rc3"
+}
+
+@test "init-workspace leaves the baked pin untouched when no VERSION record exists (#921)" {
+    ws="$BATS_TEST_TMPDIR/e2e-921-absent"
+    mkdir -p "$ws"
+    # A non-existent record must not trigger stamping — behavior unchanged, so
+    # the template's baked placeholder survives (no image build happened here).
+    run _scaffold_with_version_file bare "$ws" "$BATS_TEST_TMPDIR/does-not-exist"
+    assert_success
+    run grep '^DEVCONTAINER_VERSION=' "$ws/.vig-os"
+    assert_output "DEVCONTAINER_VERSION={{IMAGE_TAG}}"
+}
+
+@test "init-workspace prefers an explicit VIG_OS_VERSION over the VERSION record (#921)" {
+    ws="$BATS_TEST_TMPDIR/e2e-921-override-wins"
+    mkdir -p "$ws"
+    verfile="$BATS_TEST_TMPDIR/VERSION-loser"
+    printf '0.5.0-rc3\n' >"$verfile"
+    stub="$BATS_TEST_TMPDIR/stub-bin"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+    run env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace" \
+        WORKSPACE_DIR="$ws" \
+        VERSION_FILE="$verfile" \
+        VIG_OS_VERSION="1.2.3" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode bare
+    assert_success
+    run grep '^DEVCONTAINER_VERSION=' "$ws/.vig-os"
+    assert_output "DEVCONTAINER_VERSION=1.2.3"
+}
+
 @test "template ships .typos.toml alongside the typos hook (#855)" {
     # The scaffold's .pre-commit-config.yaml runs the typos hook; without the
     # exception config, scaffold-shipped content (version-check.sh's Nd
@@ -683,7 +759,7 @@ EOF
     run bash -c "cd '$ws' && '$real_just' --show test"
     assert_output --partial 'SENTINEL-877-custom-test'
     # ...and each appended recipe appears exactly once
-    run bash -c "grep -c '^sync:' '$ws/justfile.project'"
+    run bash -c "grep -Ec '^sync[ :]' '$ws/justfile.project'"
     assert_output "1"
 }
 
@@ -708,7 +784,7 @@ EOF
     run _upgrade both "$ws"
     assert_success
     # nothing was appended: sync still defined exactly once, no repair banner
-    run bash -c "grep -c '^sync:' '$ws/justfile.project'"
+    run bash -c "grep -Ec '^sync[ :]' '$ws/justfile.project'"
     assert_output "1"
     run grep -q 'BASE RECIPES appended' "$ws/justfile.project"
     assert_failure
@@ -907,6 +983,160 @@ EOF
     refute_output --partial "retired 'pre-commit' binary"
 }
 
+# ── preserved-file diff preview must use git, not diff(1) (#916) ──────────────
+# The image ships git but no diff(1)/cmp(1); the #878 preview called `diff`,
+# which prints "diff: command not found" and an empty box in-container. Render
+# the divergence with `git diff --no-index` (its --quiet form gates the block;
+# --no-index exits 1 when files differ, which is the expected signal).
+
+@test "preserved-file diff preview uses git diff --no-index, not diff(1)/cmp(1) (#916)" {
+    run grep -nE 'git diff --no-index' "$INIT_WORKSPACE_SH"
+    assert_success
+    # no bare diff(1) short-flag or cmp(1) invocation survives (both absent from
+    # the image); `git diff --no-index` (long flags) is the sanctioned form.
+    run grep -nE '(^|[[:space:]])diff -[a-z]|(^|[[:space:]])cmp[[:space:]]' "$INIT_WORKSPACE_SH"
+    assert_failure
+}
+
+@test "preserved .pre-commit-config.yaml diff preview renders real content, not 'command not found' (#916)" {
+    ws="$BATS_TEST_TMPDIR/e2e-916-gitdiff"
+    mkdir -p "$ws"
+    _custom_precommit_config "$ws"
+    run _upgrade both "$ws"
+    assert_success
+    refute_output --partial 'command not found'
+    assert_output --partial 'Preserved .pre-commit-config.yaml differs from the template'
+    # a real hunk line from the template the preserved file lacks
+    assert_output --partial 'default_language_version'
+}
+
+# ── upgrade must preserve a customized .typos.toml, no dual configs (#913) ────
+# The typos hook reads a project's spell-check exceptions; a consumer curates
+# repo-specific extend-words/extend-exclude that a template overwrite silently
+# destroyed (their lint then flags legitimate domain terms). Preserve it like
+# .pre-commit-config.yaml (#878) and print the template diff. The `typos` tool
+# also reads the legacy `_typos.toml`, so a consumer carrying that must NOT also
+# receive the template `.typos.toml` — two active configs would collide.
+
+@test ".typos.toml is preserved on --force upgrade (#913)" {
+    # shellcheck disable=SC2016
+    run grep -E '"\.typos\.toml"' "$INIT_WORKSPACE_SH"
+    assert_success
+}
+
+@test "upgrade preserves a customized .typos.toml (#913)" {
+    ws="$BATS_TEST_TMPDIR/e2e-913-preserve"
+    mkdir -p "$ws"
+    printf '# SENTINEL-913 consumer typos config\n[default.extend-words]\nfoo = "foo"\n' \
+        >"$ws/.typos.toml"
+    run _upgrade both "$ws"
+    assert_success
+    run grep -q 'SENTINEL-913' "$ws/.typos.toml"
+    assert_success
+}
+
+@test "upgrade prints a template diff hint for a preserved .typos.toml (#913)" {
+    ws="$BATS_TEST_TMPDIR/e2e-913-diff"
+    mkdir -p "$ws"
+    # a config lacking the template's exception words
+    printf '# SENTINEL-913 minimal consumer typos config\n' >"$ws/.typos.toml"
+    run _upgrade both "$ws"
+    assert_success
+    refute_output --partial 'command not found'
+    assert_output --partial 'Preserved .typos.toml differs from the template'
+    # a template exception word the preserved file lacks shows in the diff
+    assert_output --partial 'unexcepted'
+}
+
+@test "upgrade with a legacy _typos.toml does not leave dual typos configs (#913)" {
+    # vault scenario: consumer carries _typos.toml and no .typos.toml. Shipping
+    # the template .typos.toml alongside it would give two active configs.
+    ws="$BATS_TEST_TMPDIR/e2e-913-legacy"
+    mkdir -p "$ws"
+    printf '# SENTINEL-913 legacy typos config\n[default.extend-words]\nmyterm = "myterm"\n' \
+        >"$ws/_typos.toml"
+    run _upgrade both "$ws"
+    assert_success
+    # legacy config preserved verbatim
+    run grep -q 'SENTINEL-913' "$ws/_typos.toml"
+    assert_success
+    # template .typos.toml NOT shipped -> single active config
+    run test -e "$ws/.typos.toml"
+    assert_failure
+}
+
+# ── pre-commit reference scan must cover preserved workflows (#916) ────────────
+# The #881 scan only looked at justfile.project and .githooks/, but a consumer
+# CI workflow that still invokes the retired `pre-commit` binary breaks the same
+# way. Extend the scan to preserved .github/workflows/*.yml. A YAML `name:` step
+# description or a comment mention must NOT be flagged; only real invocations.
+
+@test "pre-commit scan flags a real invocation in a consumer workflow (#916)" {
+    ws="$BATS_TEST_TMPDIR/e2e-916-workflow-hit"
+    mkdir -p "$ws/.github/workflows"
+    # consumer-owned workflow (not in the template set) survives the rsync
+    cat > "$ws/.github/workflows/consumer-ci.yml" <<'EOF'
+name: Consumer CI
+on: [push]
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      # pre-commit MENTIONONLY: migrate to prek before 0.5
+      - name: Run pre-commit hooks
+        run: uv run pre-commit run --all-files
+EOF
+    run _upgrade both "$ws"
+    assert_success
+    assert_output --partial "retired 'pre-commit' binary"
+    # the real invocation line is flagged with file:line
+    assert_output --regexp '\.github/workflows/consumer-ci\.yml:[0-9]+'
+    # neither the comment mention nor the step `name:` description is flagged
+    refute_output --partial 'MENTIONONLY'
+    refute_output --partial 'Run pre-commit hooks'
+}
+
+@test "no pre-commit warning for a workflow that only mentions it (#916)" {
+    ws="$BATS_TEST_TMPDIR/e2e-916-workflow-clean"
+    mkdir -p "$ws/.github/workflows"
+    cat > "$ws/.github/workflows/consumer-clean.yml" <<'EOF'
+name: Consumer CI
+on: [push]
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      # pre-commit was replaced by prek
+      - name: Run pre-commit hooks
+        run: uv run prek run --all-files
+EOF
+    run _upgrade both "$ws"
+    assert_success
+    refute_output --partial "retired 'pre-commit' binary"
+}
+
+# ── origin must resolve before any filesystem mutation (#916) ─────────────────
+# Under --no-prompts, the GITHUB_REPOSITORY resolution ran AFTER the rsync copy,
+# so an abort left a half-scaffolded tree behind. Resolve (and validate) the
+# origin BEFORE the first filesystem mutation so a failure leaves the workspace
+# untouched.
+
+@test "no-prompts without a derivable origin aborts before mutating the workspace (#916)" {
+    ws="$BATS_TEST_TMPDIR/e2e-916-no-origin"
+    mkdir -p "$ws"
+    # no .git origin and GITHUB_REPOSITORY unset (cleared: CI may export it)
+    run env -u GITHUB_REPOSITORY \
+        TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=probe \
+        bash "$INIT_WORKSPACE_SH" --no-prompts --mode both
+    assert_failure
+    assert_output --partial 'GITHUB_REPOSITORY is required'
+    # the workspace was never scaffolded: still empty (no template files copied)
+    run bash -c "ls -A '$ws'"
+    assert_output ""
+}
+
 # ── --preview: report-only upgrade preview (#886) ─────────────────────────────
 # `--preview` runs the existing conflict-report machinery (OVERWRITTEN /
 # PRESERVED), extended with the mode-prune DELETED listing and the ADDED
@@ -1076,7 +1306,7 @@ _upgrade_no_flags() {
     assert_failure
     run test -e "$ws/.envrc"
     assert_failure
-    run test -d "$ws/src/testproj"
+    run test -f "$ws/justfile.project"
     assert_success
     run grep -x 'DEVKIT_MODE=devcontainer' "$ws/.vig-os"
     assert_success
@@ -1094,7 +1324,7 @@ _upgrade_no_flags() {
     assert_failure
     run test -f "$ws/flake.nix"
     assert_success
-    run test -d "$ws/src/testproj"
+    run test -f "$ws/justfile.project"
     assert_success
     run grep -x 'DEVKIT_MODE=direnv' "$ws/.vig-os"
     assert_success
@@ -1113,7 +1343,7 @@ _upgrade_no_flags() {
     assert_success
     run test -f "$ws/flake.nix"
     assert_success
-    run test -d "$ws/src/testproj"
+    run test -f "$ws/justfile.project"
     assert_success
     run grep -x 'DEVKIT_MODE=both' "$ws/.vig-os"
     assert_success
@@ -1337,7 +1567,7 @@ _upgrade_legacy() {
 
 # ── bare delivery mode (#885) ─────────────────────────────────────────────────
 # `bare` ships the standards layer only — justfiles, hooks config, .github CI,
-# pyproject scaffolding, .vig-os — and prunes every container/flake artifact
+# .vig-os — and prunes every container/flake artifact
 # (.devcontainer/, flake.nix, .envrc) with the same #738/#859 pre-existence
 # guards as the other modes. The shipped ci.yml is replaced by a host-native
 # variant: no resolve-image, no container jobs — the runner sets up uv
@@ -1357,7 +1587,7 @@ _upgrade_legacy() {
     assert_failure
     # shipped: the standards layer
     for f in justfile justfile.project justfile.local .pre-commit-config.yaml \
-        .github/workflows/ci.yml pyproject.toml .vig-os; do
+        .github/workflows/ci.yml .vig-os; do
         run test -e "$ws/$f"
         assert_success
     done
@@ -1427,7 +1657,7 @@ _upgrade_legacy() {
     assert_failure
     run test -e "$ws/flake.nix"
     assert_failure
-    run test -d "$ws/src/testproj"
+    run test -f "$ws/justfile.project"
     assert_success
     run grep -x 'DEVKIT_MODE=bare' "$ws/.vig-os"
     assert_success

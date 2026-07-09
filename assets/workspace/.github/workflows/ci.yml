@@ -40,6 +40,7 @@ on:  # yamllint disable-line rule:truthy
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   resolve-image:
@@ -62,6 +63,8 @@ jobs:
         id: resolve
         uses: ./.github/actions/resolve-image
         with:
+          registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
+          registry-username: ${{ github.actor }}
           image-tag: ${{ inputs.image-tag }}
 
   lint:
@@ -70,6 +73,9 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
       env:
         # Image-baked prek cache; may miss if repo pins hooks by hash (see docs/container-ci-quirks.md)
         PREK_HOME: /opt/prek-cache
@@ -113,6 +119,9 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
       env:
         # Reuse the venv already present in the image instead of creating a new one
         UV_PROJECT_ENVIRONMENT: /root/assets/workspace/.venv

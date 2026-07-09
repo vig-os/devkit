@@ -1,5 +1,10 @@
 # Workspace sync manifest — declarative config for sync_manifest.py
 # Single source of truth for files copied into assets/workspace/ and their transforms.
+#
+# The scaffold is language-neutral (#929): the repo root's Python package files
+# (pyproject.toml, src/, tests/) are intentionally NOT listed here, so they are
+# never synced into assets/workspace/. Python is opt-in via the `#python` flake
+# template (#930); do not add those entries here.
 
 [[entries]]
 src = "docs/COMMIT_MESSAGE_STANDARD.md"
@@ -60,11 +65,22 @@ src = ".github/ISSUE_TEMPLATE/"
 [[entries]]
 src = ".github/actions/resolve-image/"
 
+# Consumers of the template have no assets/workspace/ mirror tree, so the
+# upstream-only lockstep copies of that mirror hard-fail under `set -euo pipefail`
+# on every consumer Renovate changelog run. Strip the mirror plumbing from the
+# template while preserving the consumer-facing CHANGELOG.md handling (#914).
 [[entries]]
 src = ".github/workflows/renovate-changelog-build.yml"
+transforms = [
+  { type = "RemoveBlock", start_pattern = '# Keep the preserved-on-upgrade mirror', end_pattern = 'cp CHANGELOG\.md assets/workspace/\.devcontainer/CHANGELOG\.md' },
+  { type = "RemoveBlock", start_pattern = 'mkdir -p changelog-artifact/assets/workspace', end_pattern = 'changelog-artifact/assets/workspace/\.devcontainer/CHANGELOG\.md' },
+]
 
 [[entries]]
 src = ".github/workflows/renovate-changelog-commit.yml"
+transforms = [
+  { type = "Sed", pattern = ',assets/workspace/\.devcontainer/CHANGELOG\.md', replace = "" },
+]
 
 [[entries]]
 src = ".github/workflows/scorecard.yml"

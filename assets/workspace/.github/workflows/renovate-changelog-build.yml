@@ -22,6 +22,7 @@ jobs:
     timeout-minutes: 2
     permissions:
       contents: read
+      packages: read
     outputs:
       image-tag: ${{ steps.resolve.outputs.image-tag }}
 
@@ -38,6 +39,9 @@ jobs:
       - name: Resolve container image
         id: resolve
         uses: ./.github/actions/resolve-image
+        with:
+          registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
+          registry-username: ${{ github.actor }}
 
   build:
     name: Build changelog artifact
@@ -49,12 +53,16 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
     timeout-minutes: 10
     concurrency:
       group: renovate-changelog-${{ github.repository }}-${{ github.event.pull_request.number }}
       cancel-in-progress: true
     permissions:
       contents: read
+      packages: read
 
     steps:
       - name: Checkout PR head
@@ -77,10 +85,6 @@ jobs:
           if git diff --quiet CHANGELOG.md 2>/dev/null; then
             echo "modified=false" >> "$GITHUB_OUTPUT"
           else
-            # Keep the preserved-on-upgrade mirror in lockstep with root CHANGELOG.md
-            # so the sync-manifest gate stays green. The scripts/manifest.toml entry
-            # for CHANGELOG.md is a verbatim copy (no transform), so cp == sync output.
-            cp CHANGELOG.md assets/workspace/.devcontainer/CHANGELOG.md
             echo "modified=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -103,9 +107,6 @@ jobs:
           } > changelog-artifact/metadata.env
           if [[ "${MODIFIED}" == "true" ]]; then
             cp CHANGELOG.md changelog-artifact/
-            mkdir -p changelog-artifact/assets/workspace/.devcontainer
-            cp assets/workspace/.devcontainer/CHANGELOG.md \
-              changelog-artifact/assets/workspace/.devcontainer/CHANGELOG.md
           fi
 
       - name: Upload changelog artifact

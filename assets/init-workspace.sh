@@ -39,6 +39,10 @@ set -euo pipefail
 # exercised end-to-end from tests against temporary directories.
 TEMPLATE_DIR="${TEMPLATE_DIR:-/root/assets/workspace}"
 WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
+# Authoritative built-tag record baked into the image by the flake (#921): the
+# fallback pin source when VIG_OS_VERSION is unset (a raw `podman run ...
+# init-workspace.sh` upgrade forwards no env). Overridable for tests.
+VERSION_FILE="${VERSION_FILE:-/root/assets/VERSION}"
 FORCE=false
 NO_PROMPTS=false
 SMOKE_TEST=false
@@ -63,7 +67,9 @@ PRESERVE_FILES=(
     "flake.nix"
     ".envrc"
     # The consumer owns its project manifest (#738): a (re)scaffold must never
-    # overwrite an existing pyproject.toml with the generic template one.
+    # overwrite an existing pyproject.toml. The scaffold is language-neutral and
+    # ships none (#929); a Python consumer brings their own (e.g. via the opt-in
+    # `nix flake init -t ...#python` template, #930), and it is preserved here.
     "pyproject.toml"
     # The consumer owns its hook configuration (#878): repos carry repo-specific
     # global/per-hook `exclude:` patterns (data tables, generated files, PEM
@@ -72,6 +78,12 @@ PRESERVE_FILES=(
     # justfile.project; the upgrade prints a diff against the template below so
     # hook-stack evolution stays visible.
     ".pre-commit-config.yaml"
+    # The consumer owns its spell-check exceptions (#913): repos curate
+    # repo-specific extend-words/extend-exclude that a template overwrite
+    # silently destroyed, so the typos hook then flagged legitimate domain
+    # terms. Preserved like .pre-commit-config.yaml; the upgrade prints a diff
+    # against the template below. (Legacy `_typos.toml` handled at copy time.)
+    ".typos.toml"
 )
 
 # Base recipes the shipped .github/workflows/ci.yml depends on (sync, precommit,
@@ -423,6 +435,29 @@ is_preserved_file() {
     return 1
 }
 
+# Preview the template-vs-preserved divergence for a preserved consumer file
+# (#878, #913). A preserved file never receives template evolution
+# automatically, so surface the diff for the consumer to fold in deliberately.
+# The image ships git but no diff(1)/cmp(1) (#916): use `git diff --no-index`,
+# whose --quiet form gates the block and which exits 1 (the expected "they
+# diverged" signal, not an error) when the files differ. Returns 0 when a diff
+# was printed (files differ), 1 when identical or either file is missing.
+print_preserved_template_diff() {
+    local rel="$1"
+    local preserved="$WORKSPACE_DIR/$rel"
+    local template="$TEMPLATE_DIR/$rel"
+    [[ -f "$preserved" && -f "$template" ]] || return 1
+    if git diff --no-index --quiet -- "$template" "$preserved" > /dev/null 2>&1; then
+        return 1  # identical: nothing to surface
+    fi
+    echo "Preserved $rel differs from the template (yours was kept)."
+    echo "Template changes NOT applied (fold in what you need, see MIGRATION.md):"
+    echo "─────────────────────────────────────────────────────────────"
+    git diff --no-index -- "$template" "$preserved" || true
+    echo "─────────────────────────────────────────────────────────────"
+    return 0
+}
+
 # Record whether the consumer already had a populated .devcontainer/ before the
 # scaffold (#738). In direnv mode we must neither overwrite nor delete it.
 # Recorded before the file report below so the DELETED listing (#886) can
@@ -451,6 +486,11 @@ JUSTFILE_PROJECT_PREEXISTED=false
 # record it so the post-scaffold guard can surface the divergence.
 PRECOMMIT_CONFIG_PREEXISTED=false
 [[ -f "$WORKSPACE_DIR/.pre-commit-config.yaml" ]] && PRECOMMIT_CONFIG_PREEXISTED=true
+
+# A preserved .typos.toml is the consumer's spell-check exception set (#913);
+# record it so the post-scaffold guard can surface template divergence.
+TYPOS_CONFIG_PREEXISTED=false
+[[ -f "$WORKSPACE_DIR/.typos.toml" ]] && TYPOS_CONFIG_PREEXISTED=true
 
 # Warn if forcing (prompt user) - show which files would be overwritten
 if [[ "$FORCE" == "true" ]]; then
@@ -584,6 +624,39 @@ if [[ "$FORCE" == "true" ]]; then
     fi
 fi
 
+# Land the resolved mode/identity into a PRE-EXISTING manifest before the early
+# --no-prompts resolution below can abort (#885 + #916). The abort now fires
+# before the rsync copy, so the post-copy early write-back would never run on an
+# aborted upgrade — a torn legacy upgrade must still leave a truthful DEVKIT_MODE
+# (never the template's) so the next --force run does not re-add pruned artifacts.
+# A fresh scaffold has no .vig-os yet, so this writes nothing and the workspace
+# stays pristine on abort. DEVKIT_REPO is only known after resolution and stays
+# in the late write-back.
+if [[ -f "$VIG_OS_MANIFEST" ]]; then
+    write_manifest_value DEVKIT_MODE "$MODE"
+    write_manifest_value DEVKIT_PROJECT "$SHORT_NAME"
+    write_manifest_value DEVKIT_ORG "$ORG_NAME"
+fi
+
+# Persisted DEVKIT_REPO fills GITHUB_REPOSITORY when the env var is absent or
+# still the OWNER/REPO placeholder (#885); an explicit env value wins. This runs
+# before the early --no-prompts resolution below (#916) so a manifest-bearing
+# upgrade resolves from its own .vig-os instead of aborting for a missing origin.
+if [[ -z "${GITHUB_REPOSITORY:-}" || "${GITHUB_REPOSITORY:-}" == "OWNER/REPO" ]] \
+    && [[ -n "$MANIFEST_REPO" ]]; then
+    GITHUB_REPOSITORY="$MANIFEST_REPO"
+    echo "GitHub repository from .vig-os manifest: $GITHUB_REPOSITORY"
+fi
+
+# Under --no-prompts, resolve (and validate) the GitHub origin for renovate.json
+# BEFORE the first filesystem mutation (#916): a missing/underivable origin must
+# abort while the workspace is still pristine, not after rsync has left a
+# half-scaffolded tree. In interactive mode the resolution (which prompts) stays
+# after the copy, at its original call site below, to preserve prompt ordering.
+if [[ "$NO_PROMPTS" == "true" ]]; then
+    resolve_github_repository
+fi
+
 # Copy template contents to workspace
 echo "Initializing workspace from template..."
 echo "Copying files from $TEMPLATE_DIR to $WORKSPACE_DIR..."
@@ -629,6 +702,16 @@ else
     # .devcontainer/ intact.
     if [[ "$MODE" == "direnv" || "$MODE" == "bare" ]]; then
         EXCLUDE_ARGS+=("--exclude=.devcontainer")
+    fi
+
+    # Legacy typos config (#913): the `typos` tool reads .typos.toml, typos.toml
+    # AND _typos.toml. A consumer still carrying _typos.toml (and no .typos.toml)
+    # must not also receive the template .typos.toml, or two active configs
+    # collide. Skip shipping the template one; their _typos.toml stands as the
+    # single config (a preserved .typos.toml is already excluded above).
+    if [[ -f "$WORKSPACE_DIR/_typos.toml" && ! -f "$WORKSPACE_DIR/.typos.toml" ]]; then
+        echo "Consumer carries legacy _typos.toml; not shipping template .typos.toml (#913)."
+        EXCLUDE_ARGS+=("--exclude=.typos.toml")
     fi
 
     rsync -avL --exclude='.git' --exclude='.venv' "${EXCLUDE_ARGS[@]}" "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
@@ -760,6 +843,20 @@ fi
 # which is correct for finals but stale for release candidates: the repo-root
 # pin only advances at finalize. install.sh forwards its --version here so the
 # scaffold pins the image actually installed.
+#
+# Fall back to the image's authoritative built-tag record when no explicit
+# override was forwarded (#921): a raw `podman run ... init-workspace.sh`
+# upgrade (no install.sh) sets no VIG_OS_VERSION, so read the baked $VERSION_FILE
+# to stamp the image's real tag instead of the stale baked template pin. When
+# the record is absent (older image) or empty, VIG_OS_VERSION stays unset and
+# the pin is left untouched — unchanged behavior. An explicit env override wins.
+if [[ -z "${VIG_OS_VERSION:-}" && -f "$VERSION_FILE" ]]; then
+    VIG_OS_VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
+    if [[ -n "$VIG_OS_VERSION" ]]; then
+        echo "Using image built-tag record: $VIG_OS_VERSION"
+    fi
+fi
+
 if [[ -n "${VIG_OS_VERSION:-}" && -f "$WORKSPACE_DIR/.vig-os" ]]; then
     if [[ ! "$VIG_OS_VERSION" =~ ^[A-Za-z0-9._-]+$ ]]; then
         echo "Error: invalid VIG_OS_VERSION: $VIG_OS_VERSION" >&2
@@ -769,15 +866,14 @@ if [[ -n "${VIG_OS_VERSION:-}" && -f "$WORKSPACE_DIR/.vig-os" ]]; then
     sed -i "s/^DEVCONTAINER_VERSION=.*/DEVCONTAINER_VERSION=${VIG_OS_VERSION}/" "$WORKSPACE_DIR/.vig-os"
 fi
 
-# Persisted DEVKIT_REPO fills GITHUB_REPOSITORY when the env var is absent or
-# still the OWNER/REPO placeholder (#885); an explicit env value wins.
-if [[ -z "${GITHUB_REPOSITORY:-}" || "${GITHUB_REPOSITORY:-}" == "OWNER/REPO" ]] \
-    && [[ -n "$MANIFEST_REPO" ]]; then
-    GITHUB_REPOSITORY="$MANIFEST_REPO"
-    echo "GitHub repository from .vig-os manifest: $GITHUB_REPOSITORY"
+# Interactive origin resolution (the renovate.json owner/repo prompt) runs here,
+# after the copy, to keep the prompt ordering consumers and the integration
+# tests expect. Under --no-prompts this already resolved before the copy (#916),
+# so this call is a no-op then (GITHUB_REPOSITORY is set, possibly from the
+# .vig-os manifest fallback applied before the copy, #885).
+if [[ "$NO_PROMPTS" != "true" ]]; then
+    resolve_github_repository
 fi
-
-resolve_github_repository
 
 # Replace placeholders in files (using pre-built manifest from image)
 echo "Replacing placeholders in files..."
@@ -823,22 +919,6 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     if [[ -n "$MANIFEST_MODULES" ]]; then
         write_manifest_value DEVKIT_MODULES "\"$MANIFEST_MODULES\""
     fi
-fi
-
-# Rename template_project directory to match project short name
-if [[ -d "$WORKSPACE_DIR/src/template_project" ]]; then
-    if [[ -d "$WORKSPACE_DIR/src/${SHORT_NAME}" ]] && [[ "$SHORT_NAME" != "template_project" ]]; then
-        echo "Removing duplicate src/template_project (src/${SHORT_NAME} already exists)..."
-        rm -rf "$WORKSPACE_DIR/src/template_project"
-    else
-        echo "Renaming src/template_project to src/${SHORT_NAME}..."
-        mv "$WORKSPACE_DIR/src/template_project" "$WORKSPACE_DIR/src/${SHORT_NAME}"
-    fi
-fi
-
-# Update test imports to use actual project name (template_project -> $SHORT_NAME)
-if [[ -f "$WORKSPACE_DIR/tests/test_example.py" ]]; then
-    sed -i "s/import template_project/import ${SHORT_NAME}/g; s/template_project\.__version__/${SHORT_NAME}.__version__/g" "$WORKSPACE_DIR/tests/test_example.py"
 fi
 
 # Restore executable permissions on shell scripts and hooks (must be after sed -i)
@@ -911,23 +991,22 @@ fi
 # template so consumers can fold in what they need deliberately, and gate the
 # preserved file through `prek validate-config` — a config the runner cannot
 # load breaks every commit in the new image. Both are warnings, never fatal.
-if [[ "$PRECOMMIT_CONFIG_PREEXISTED" == "true" \
-    && -f "$WORKSPACE_DIR/.pre-commit-config.yaml" \
-    && -f "$TEMPLATE_DIR/.pre-commit-config.yaml" ]] \
-    && ! diff -q "$TEMPLATE_DIR/.pre-commit-config.yaml" \
-        "$WORKSPACE_DIR/.pre-commit-config.yaml" > /dev/null 2>&1; then
-    echo "Preserved .pre-commit-config.yaml differs from the template (yours was kept, #878)."
-    echo "Template changes NOT applied (fold in what you need, see MIGRATION.md):"
-    echo "─────────────────────────────────────────────────────────────"
-    diff -u "$WORKSPACE_DIR/.pre-commit-config.yaml" \
-        "$TEMPLATE_DIR/.pre-commit-config.yaml" || true
-    echo "─────────────────────────────────────────────────────────────"
+if [[ "$PRECOMMIT_CONFIG_PREEXISTED" == "true" ]] \
+    && print_preserved_template_diff ".pre-commit-config.yaml"; then
     if command -v prek > /dev/null 2>&1; then
         if ! (cd "$WORKSPACE_DIR" && prek validate-config .pre-commit-config.yaml > /dev/null 2>&1); then
             echo "Warning: preserved .pre-commit-config.yaml does not validate under prek (#878)." >&2
             echo "         Every commit will fail until it parses — run 'prek validate-config .pre-commit-config.yaml' and fix it." >&2
         fi
     fi
+fi
+
+# A preserved .typos.toml is the consumer's (#913) — never overwritten, so
+# their spell-check exceptions survive; the cost is that template exception
+# evolution no longer arrives automatically. Print the divergence so consumers
+# can fold in what they need deliberately. Non-fatal, like the #878 guard.
+if [[ "$TYPOS_CONFIG_PREEXISTED" == "true" ]]; then
+    print_preserved_template_diff ".typos.toml" || true
 fi
 
 # The retired `pre-commit` binary (#778) exits 127 at first use: a preserved
@@ -940,7 +1019,10 @@ fi
 # a command word (start/whitespace/shell punctuation on both sides), so the
 # config FILENAME (leading `.`), pre-commit-hooks repo URLs (leading `/`),
 # pre-commit.com links (trailing `.`), and `prek` never trip it; comment
-# lines and bare YAML stage-name list items (`- pre-commit`) are filtered.
+# lines, bare YAML stage-name list items (`- pre-commit`), and YAML `name:`
+# step descriptions (a workflow's "Run pre-commit hooks" step name, #916) are
+# filtered. Preserved consumer CI workflows are scanned too (#916): a workflow
+# that still runs the retired binary breaks the same way as a justfile recipe.
 PRECOMMIT_REF_PATTERN='(^|[[:space:]("'"'"';&|=`])pre-commit([[:space:])"'"'"';&|]|$)'
 PRECOMMIT_SCAN_TARGETS=()
 for scan_file in "$WORKSPACE_DIR/justfile.project" "$WORKSPACE_DIR/.pre-commit-config.yaml"; do
@@ -948,12 +1030,15 @@ for scan_file in "$WORKSPACE_DIR/justfile.project" "$WORKSPACE_DIR/.pre-commit-c
 done
 while IFS= read -r scan_file; do
     PRECOMMIT_SCAN_TARGETS+=("$scan_file")
-done < <(find "$WORKSPACE_DIR/.githooks" -type f 2>/dev/null | sort)
+done < <({ find "$WORKSPACE_DIR/.githooks" -type f 2>/dev/null
+          find "$WORKSPACE_DIR/.github/workflows" -maxdepth 1 -type f \
+              \( -name '*.yml' -o -name '*.yaml' \) 2>/dev/null; } | sort)
 PRECOMMIT_REF_HITS=""
 if [[ ${#PRECOMMIT_SCAN_TARGETS[@]} -gt 0 ]]; then
     PRECOMMIT_REF_HITS="$(grep -nHE "$PRECOMMIT_REF_PATTERN" "${PRECOMMIT_SCAN_TARGETS[@]}" 2>/dev/null \
         | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#' \
-        | grep -vE '^[^:]*:[0-9]+:[[:space:]]*-[[:space:]]+pre-commit[[:space:]]*$' || true)"
+        | grep -vE '^[^:]*:[0-9]+:[[:space:]]*-[[:space:]]+pre-commit[[:space:]]*$' \
+        | grep -vE '^[^:]*:[0-9]+:[[:space:]]*(-[[:space:]]+)?name:' || true)"
 fi
 if [[ -n "$PRECOMMIT_REF_HITS" ]]; then
     echo "Warning: the retired 'pre-commit' binary is still invoked by preserved file(s) (#881):" >&2

@@ -24,12 +24,12 @@ info:
 # Run all linters
 [group('quality')]
 lint:
-    uv run ruff check .
+    @if [ -f pyproject.toml ]; then uv run ruff check .; fi
 
 # Format code
 [group('quality')]
 format:
-    uv run ruff format .
+    @if [ -f pyproject.toml ]; then uv run ruff format .; fi
 
 # Run pre-commit hooks on all files
 [group('quality')]
@@ -43,21 +43,21 @@ precommit:
 # Run tests with pytest
 [group('test')]
 test *args:
-    uv run pytest {{ args }}
+    @if [ -f pyproject.toml ]; then uv run pytest {{ args }}; fi
 
 # Run tests with coverage
 [group('test')]
 test-cov *args:
-    uv run pytest --cov --cov-report=term-missing {{ args }}
+    @if [ -f pyproject.toml ]; then uv run pytest --cov --cov-report=term-missing {{ args }}; fi
 
 # -------------------------------------------------------------------------------
 # DEPENDENCIES
 # -------------------------------------------------------------------------------
 
-# Sync all dependencies (idempotent, fast if nothing changed)
+# Sync dependencies (all groups; extras are opt-in, e.g. `just sync --all-extras`)
 [group('deps')]
-sync:
-    @if [ -f pyproject.toml ]; then uv sync --all-extras --all-groups; fi
+sync *args="--all-groups":
+    @if [ -f pyproject.toml ]; then uv sync {{ args }}; fi
 
 # Update all dependencies
 [group('deps')]

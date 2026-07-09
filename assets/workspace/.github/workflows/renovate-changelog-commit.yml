@@ -64,4 +64,4 @@ jobs:
             docs(changelog): add unreleased entry for renovate PR ${{ steps.metadata.outputs.pr_number }}
 
             Refs: #${{ steps.metadata.outputs.pr_number }}
-          FILE_PATHS: CHANGELOG.md,assets/workspace/.devcontainer/CHANGELOG.md
+          FILE_PATHS: CHANGELOG.md
