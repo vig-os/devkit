@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renovate: update `github-backup` from `==0.63.0` to `==0.64.0`** ([#960](https://github.com/vig-os/devcontainer/pull/960))
 - **Renovate dependency update** ([#866](https://github.com/vig-os/devcontainer/pull/866))
   - Update `aquasecurity/trivy` from `v0.71.2` to `v0.72.0`
   - Update `astral-sh/setup-uv` from `v8.3.1` to `v8.3.2`
