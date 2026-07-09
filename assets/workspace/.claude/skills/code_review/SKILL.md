@@ -109,7 +109,7 @@ Task tool parameters:
 
 This reduces token consumption on the primary model while maintaining review quality, as the review checklist is well-defined and the subagent has all necessary context.
 
-Reference: [subagent-delegation rule](../../rules/subagent-delegation.mdc)
+Reference: [subagent-delegation rule](../subagent-delegation/SKILL.md)
 
 ## Important Notes
 

@@ -13,7 +13,7 @@ Poll CI pipeline status and react **without user interaction**. This is the work
 ## Precondition: Issue Branch Required
 
 1. Run: `git branch --show-current`
-2. The branch name **must** match `<type>/<issue_number>-<summary>` (e.g. `feature/79-declarative-sync-manifest`). See [branch-naming.mdc](../../rules/branch-naming.mdc) for the full convention.
+2. The branch name **must** match `<type>/<issue_number>-<summary>` (e.g. `feature/79-declarative-sync-manifest`). See [branch-naming.mdc](../branch-naming/SKILL.md) for the full convention.
 3. Extract the `<issue_number>` from the branch name.
 4. If the branch does not match, **stop** and log the error.
 
@@ -76,7 +76,7 @@ The following steps SHOULD be delegated to reduce token consumption:
 
 Step 3 (handle failure) should remain in the main agent as it requires log analysis and invoking the ci-fix skill with context.
 
-Reference: [subagent-delegation rule](../../rules/subagent-delegation.mdc)
+Reference: [subagent-delegation rule](../subagent-delegation/SKILL.md)
 
 ## Important Notes
 

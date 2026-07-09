@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Broken links, duplicate sections, and name/title mismatches in agent skills** ([#912](https://github.com/vig-os/devcontainer/issues/912))
+  - All `../../rules/*.mdc` links in `.claude/skills/` now point to the correct skill files or `CLAUDE.md` (`.claude/rules/` was removed in #626).
+  - `../docs/RELEASE_CYCLE.md` links in `pr_create` and `pr_post-merge` corrected to `../../../docs/RELEASE_CYCLE.md`.
+  - Duplicate `## Delegation` sections removed from `ci_check`, `worktree_ci-fix`, and `worktree_verify`.
+  - `solve-and-pr` skill now launches `/worktree_solve-and-pr` (underscore, matching the real skill name).
+  - `worktree_pr` PR title format aligned with `pr_create`: no manual issue number in title.
+  - Obsolete `.claude/commands/` wrappers deleted (superseded by skills providing `/X` directly).
+
 ### Security
 
 ## [0.5.0] - TBD

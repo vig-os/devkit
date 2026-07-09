@@ -49,10 +49,10 @@ Returns: confirmation of each step (file deleted, branch switched, branch update
 
 This entire workflow is data-gathering and CLI execution, making it ideal for lightweight delegation.
 
-Reference: [subagent-delegation rule](../../rules/subagent-delegation.mdc)
+Reference: [subagent-delegation rule](../subagent-delegation/SKILL.md)
 
 ## Notes
 
 - Confirm which PR file, base branch, and feature branch to use from the user's message or ask if ambiguous.
 - If the user says "delete branch 34 locally", the feature branch is the one for issue 34 (e.g. `feature/34-rename-venv-container-creation`).
-- This workflow applies to both feature branches (to `dev`) and fix branches (to `release/X.Y.Z`). For the full release workflow, see [../docs/RELEASE_CYCLE.md](../docs/RELEASE_CYCLE.md).
+- This workflow applies to both feature branches (to `dev`) and fix branches (to `release/X.Y.Z`). For the full release workflow, see [../../../docs/RELEASE_CYCLE.md](../../../docs/RELEASE_CYCLE.md).

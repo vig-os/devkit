@@ -15,7 +15,7 @@ Each phase is committed separately so the git history proves TDD compliance to a
 
 - Read the issue's acceptance criteria or the current task from the plan.
 - Identify the behavior to implement and the expected outcomes.
-- Use the [tdd.mdc](../../rules/tdd.mdc) scenario checklist to decide which test categories apply.
+- Use the [tdd.mdc](../tdd/SKILL.md) scenario checklist to decide which test categories apply.
 
 ### 2. Verify the suite is green
 

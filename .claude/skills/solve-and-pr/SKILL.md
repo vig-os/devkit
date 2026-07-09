@@ -20,7 +20,7 @@ Launch the autonomous worktree pipeline for an issue. This skill acts as a bridg
 ### 2. Launch the worktree
 
 ```bash
-just worktree-start <issue_number> "/worktree-solve-and-pr"
+just worktree-start <issue_number> "/worktree_solve-and-pr"
 ```
 
 This command:
@@ -30,7 +30,7 @@ This command:
 - Sets up the environment (`uv sync`, `prek install`)
 - Captures the local gh user as the reviewer (`gh api user --jq '.login'`)
 - Launches a tmux session running `claude --dangerously-skip-permissions`
-- Passes `/worktree-solve-and-pr` as the initial prompt
+- Passes `/worktree_solve-and-pr` as the initial prompt
 
 ### 3. Report back to the user
 

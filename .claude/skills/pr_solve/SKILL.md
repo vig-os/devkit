@@ -133,7 +133,7 @@ Returns: structured data for each category (CI failures with error logs, review 
 
 Steps 3-6 (diagnosis presentation, planning, execution, verification) remain in the main agent as they require user interaction and code changes.
 
-Reference: [subagent-delegation rule](../../rules/subagent-delegation.mdc)
+Reference: [subagent-delegation rule](../subagent-delegation/SKILL.md)
 
 ## Stop If
 

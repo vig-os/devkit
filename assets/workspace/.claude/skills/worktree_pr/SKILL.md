@@ -13,7 +13,7 @@ Create a pull request **without user interaction**. This is the worktree variant
 ## Precondition: Issue Branch Required
 
 1. Run: `git branch --show-current`
-2. The branch name **must** match `<type>/<issue_number>-<summary>` (e.g. `feature/79-declarative-sync-manifest`). See [branch-naming.mdc](../../rules/branch-naming.mdc) for the full convention.
+2. The branch name **must** match `<type>/<issue_number>-<summary>` (e.g. `feature/79-declarative-sync-manifest`). See [branch-naming.mdc](../branch-naming/SKILL.md) for the full convention.
 3. Extract the `<issue_number>` from the branch name.
 
 ## Workflow Steps
@@ -98,7 +98,7 @@ if [ -n "${PR_REVIEWER:-}" ]; then
   REVIEWER_ARG="--reviewer $PR_REVIEWER"
 fi
 
-gh pr create --base <base_branch> --title "<type>: <description> (#<issue_number>)" \
+gh pr create --base <base_branch> --title "<type>: <description>" \
   --body-file .github/pr-draft-<issue_number>.md \
   --assignee @me $REVIEWER_ARG
 ```
@@ -106,7 +106,7 @@ gh pr create --base <base_branch> --title "<type>: <description> (#<issue_number
 If the `WORKTREE_REVIEWER` environment variable is set (populated by `just worktree-start`), add the reviewer:
 
 ```bash
-gh pr create --base <base_branch> --title "<type>: <description> (#<issue_number>)" \
+gh pr create --base <base_branch> --title "<type>: <description>" \
   --body-file .github/pr-draft-<issue_number>.md \
   --assignee @me \
   --reviewer "$WORKTREE_REVIEWER"
@@ -129,11 +129,11 @@ The following steps SHOULD be delegated to reduce token consumption:
 
 Steps 4-5 (ensure CHANGELOG updated, generate PR text) should remain in the main agent as they require understanding changes and writing structured content.
 
-Reference: [subagent-delegation rule](../../rules/subagent-delegation.mdc)
+Reference: [subagent-delegation rule](../subagent-delegation/SKILL.md)
 
 ## Important Notes
 
 - Never block for user review of the PR text. Generate the best text from available context.
 - Base branch is auto-detected: parent issue's branch for sub-issues, `dev` otherwise.
-- The PR title should follow commit message conventions: `type(scope): description (#issue)`.
+- The PR title should follow commit message conventions: `type(scope): description`. Do NOT include the issue number in the title — GitHub appends `(#PR)` automatically, and the issue is traceable via `Refs:` in the body.
 - Never add Co-authored-by trailers. Never set git author/committer to an AI agent identity. Never mention AI agent names in commit messages or PR descriptions. The pre-commit hooks will reject violations.

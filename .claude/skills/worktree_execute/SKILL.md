@@ -13,7 +13,7 @@ Work through an implementation plan **without user checkpoints**. This is the wo
 ## Precondition: Issue Branch Required
 
 1. Run: `git branch --show-current`
-2. The branch name **must** match `<type>/<issue_number>-<summary>` (e.g. `feature/79-declarative-sync-manifest`). See [branch-naming.mdc](../../rules/branch-naming.mdc) for the full convention.
+2. The branch name **must** match `<type>/<issue_number>-<summary>` (e.g. `feature/79-declarative-sync-manifest`). See [branch-naming.mdc](../branch-naming/SKILL.md) for the full convention.
 3. Extract the `<issue_number>` from the branch name.
 4. If the branch does not match, **stop** and log the error.
 
@@ -38,7 +38,7 @@ Work through an implementation plan **without user checkpoints**. This is the wo
 For each unchecked task:
 
 1. Read the task description, files, and verification command.
-2. Implement the change following [coding-principles](../../rules/coding-principles.mdc) and [tdd.mdc](../../rules/tdd.mdc):
+2. Implement the change following [coding-principles](../../../CLAUDE.md) and [tdd.mdc](../tdd/SKILL.md):
    - **RED**: Write failing test, run it, confirm failure, commit via [git_commit](../git_commit/SKILL.md) (`test: ...`).
    - **GREEN**: Write minimal code to pass, run test, confirm pass, commit via [git_commit](../git_commit/SKILL.md) (`feat: ...` or `fix: ...`).
    - **REFACTOR**: Clean up if needed, run tests, commit via [git_commit](../git_commit/SKILL.md) (`refactor: ...`).
@@ -83,7 +83,7 @@ The following steps SHOULD be delegated to reduce token consumption:
 
 Steps 2 and 4 (execute tasks, handle failures) should remain in the main agent as they require code generation, TDD discipline, and debugging.
 
-Reference: [subagent-delegation rule](../../rules/subagent-delegation.mdc)
+Reference: [subagent-delegation rule](../subagent-delegation/SKILL.md)
 
 ## Important Notes
 

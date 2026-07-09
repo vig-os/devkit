@@ -2,39 +2,39 @@
 
 ## Custom Commands
 
-Available slash commands (SSoT: `.claude/skills/`, mapped via `.claude/commands/`):
+Available slash commands (SSoT: `.claude/skills/`):
 
 | Command | Description |
 |---------|-------------|
-| `/project:ci_check` | Check CI pipeline status for current branch/PR |
-| `/project:ci_fix` | Diagnose and fix failing CI runs |
-| `/project:code_debug` | Systematic debugging: root cause first, fix second |
-| `/project:code_execute` | Work through implementation plan in batches with checkpoints |
-| `/project:code_review` | Structured self-review before submitting a PR |
-| `/project:code_tdd` | Strict RED-GREEN-REFACTOR discipline |
-| `/project:code_verify` | Run verification and provide evidence before claiming done |
-| `/project:design_brainstorm` | Explore requirements and design before writing code |
-| `/project:design_plan` | Break approved design into implementation tasks |
-| `/project:git_commit` | Commit workflow following project conventions |
-| `/project:inception_explore` | Divergent exploration -- understand the problem space |
-| `/project:inception_scope` | Convergent scoping -- define what to build and what not to build |
-| `/project:inception_architect` | Architecture evaluation -- validate design against established patterns |
-| `/project:inception_plan` | Decomposition -- turn scoped design into actionable GitHub issues |
-| `/project:issue_claim` | Set up local environment to work on a GitHub issue |
-| `/project:issue_create` | Create a new GitHub issue using templates |
-| `/project:issue_triage` | Triage and label GitHub issues |
-| `/project:pr_create` | Prepare and submit a pull request |
-| `/project:pr_post-merge` | Cleanup after PR merge |
-| `/project:pr_solve` | Diagnose PR failures, plan fixes, execute them |
-| `/project:worktree_ci-check` | Autonomous CI check -- polls until completion, triggers fix on failure |
-| `/project:worktree_ci-fix` | Autonomous CI fix -- diagnose, post diagnosis, fix, push, re-check |
-| `/project:worktree_brainstorm` | Autonomous design -- reads issue, posts design, never blocks |
-| `/project:worktree_plan` | Autonomous planning -- posts implementation plan, never blocks |
-| `/project:worktree_execute` | Autonomous TDD implementation -- no user checkpoints |
-| `/project:worktree_verify` | Autonomous verification -- evidence only, loops on failure |
-| `/project:worktree_pr` | Autonomous PR creation from worktree branch |
-| `/project:worktree_ask` | Post question to issue when autonomous agent is stuck |
-| `/project:worktree_solve-and-pr` | Full autonomous pipeline: detect state, design, plan, execute, verify, PR |
+| `/ci_check` | Check CI pipeline status for current branch/PR |
+| `/ci_fix` | Diagnose and fix failing CI runs |
+| `/code_debug` | Systematic debugging: root cause first, fix second |
+| `/code_execute` | Work through implementation plan in batches with checkpoints |
+| `/code_review` | Structured self-review before submitting a PR |
+| `/code_tdd` | Strict RED-GREEN-REFACTOR discipline |
+| `/code_verify` | Run verification and provide evidence before claiming done |
+| `/design_brainstorm` | Explore requirements and design before writing code |
+| `/design_plan` | Break approved design into implementation tasks |
+| `/git_commit` | Commit workflow following project conventions |
+| `/inception_explore` | Divergent exploration -- understand the problem space |
+| `/inception_scope` | Convergent scoping -- define what to build and what not to build |
+| `/inception_architect` | Architecture evaluation -- validate design against established patterns |
+| `/inception_plan` | Decomposition -- turn scoped design into actionable GitHub issues |
+| `/issue_claim` | Set up local environment to work on a GitHub issue |
+| `/issue_create` | Create a new GitHub issue using templates |
+| `/issue_triage` | Triage and label GitHub issues |
+| `/pr_create` | Prepare and submit a pull request |
+| `/pr_post-merge` | Cleanup after PR merge |
+| `/pr_solve` | Diagnose PR failures, plan fixes, execute them |
+| `/worktree_ci-check` | Autonomous CI check -- polls until completion, triggers fix on failure |
+| `/worktree_ci-fix` | Autonomous CI fix -- diagnose, post diagnosis, fix, push, re-check |
+| `/worktree_brainstorm` | Autonomous design -- reads issue, posts design, never blocks |
+| `/worktree_plan` | Autonomous planning -- posts implementation plan, never blocks |
+| `/worktree_execute` | Autonomous TDD implementation -- no user checkpoints |
+| `/worktree_verify` | Autonomous verification -- evidence only, loops on failure |
+| `/worktree_pr` | Autonomous PR creation from worktree branch |
+| `/worktree_ask` | Post question to issue when autonomous agent is stuck |
+| `/worktree_solve-and-pr` | Full autonomous pipeline: detect state, design, plan, execute, verify, PR |
 
 ---
 

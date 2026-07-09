@@ -13,7 +13,7 @@ Explore requirements and produce a design **without user interaction**. This is 
 ## Precondition: Issue Branch Required
 
 1. Run: `git branch --show-current`
-2. The branch name **must** match `<type>/<issue_number>-<summary>` (e.g. `feature/79-declarative-sync-manifest`). See [branch-naming.mdc](../../rules/branch-naming.mdc) for the full convention.
+2. The branch name **must** match `<type>/<issue_number>-<summary>` (e.g. `feature/79-declarative-sync-manifest`). See [branch-naming.mdc](../branch-naming/SKILL.md) for the full convention.
 3. Extract the `<issue_number>` from the branch name.
 4. If the branch does not match, **stop** and log the error.
 
@@ -73,7 +73,7 @@ The following steps SHOULD be delegated to reduce token consumption:
 
 Steps 2-3 (explore context, make design decisions) should remain in the main agent as they require architectural reasoning and decision-making.
 
-Reference: [subagent-delegation rule](../../rules/subagent-delegation.mdc)
+Reference: [subagent-delegation rule](../subagent-delegation/SKILL.md)
 
 ## When stuck
 

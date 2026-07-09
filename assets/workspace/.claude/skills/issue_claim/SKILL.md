@@ -34,7 +34,7 @@ Set up the local environment to begin working on a GitHub issue, and ensure the 
    - If no parent exists, use `dev` as `<base_branch>`.
 
 6. **Follow the branch naming rule**
-   - Apply the workflow in [branch-naming.mdc](../../rules/branch-naming.mdc): infer type, derive short summary, propose branch name, wait for user confirmation.
+   - Apply the workflow in [branch-naming.mdc](../branch-naming/SKILL.md): infer type, derive short summary, propose branch name, wait for user confirmation.
    - Pass the detected `<base_branch>` to the branch creation step.
 
 7. **Create and link the branch**

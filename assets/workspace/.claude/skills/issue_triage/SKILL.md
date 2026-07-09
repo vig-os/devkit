@@ -285,7 +285,7 @@ The following phases SHOULD be delegated to reduce token consumption:
 
 Phase 3 (analyze and build decision matrix) should remain in the main agent as it requires multi-dimensional analysis, clustering logic, and dependency inference.
 
-Reference: [subagent-delegation rule](../../rules/subagent-delegation.mdc)
+Reference: [subagent-delegation rule](../subagent-delegation/SKILL.md)
 
 ## Error Handling
 

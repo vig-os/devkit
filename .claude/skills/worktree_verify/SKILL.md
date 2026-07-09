@@ -13,7 +13,7 @@ Run full verification and provide evidence **without user interaction**. This is
 ## Precondition: Issue Branch Required
 
 1. Run: `git branch --show-current`
-2. The branch name **must** match `<type>/<issue_number>-<summary>` (e.g. `feature/79-declarative-sync-manifest`). See [branch-naming.mdc](../../rules/branch-naming.mdc) for the full convention.
+2. The branch name **must** match `<type>/<issue_number>-<summary>` (e.g. `feature/79-declarative-sync-manifest`). See [branch-naming.mdc](../branch-naming/SKILL.md) for the full convention.
 3. Extract the `<issue_number>` from the branch name.
 
 ## Workflow Steps
@@ -68,19 +68,7 @@ The following steps SHOULD be delegated to reduce token consumption:
 
 Step 3 (handle failures) should remain in the main agent as it requires debugging and code fixes.
 
-Reference: [subagent-delegation rule](../../rules/subagent-delegation.mdc)
-
-## Delegation
-
-The following steps SHOULD be delegated to reduce token consumption:
-
-- **Step 1** (precondition check, run verification): Spawn a Task subagent with `model: "fast"` that validates the branch name and executes `just test`, `just lint`, `just precommit`. Returns: exit codes, stdout/stderr for each command.
-- **Step 2** (analyze results): Spawn a Task subagent with `model: "fast"` that parses the command outputs, counts failures/warnings, and formats the structured verification report. Returns: pass/fail status per check, formatted report.
-- **Step 4** (invoke next skill): Can remain in main agent (simple skill invocation).
-
-Step 3 (handle failures) should remain in the main agent as it requires debugging and code fixes.
-
-Reference: [subagent-delegation rule](../../rules/subagent-delegation.mdc)
+Reference: [subagent-delegation rule](../subagent-delegation/SKILL.md)
 
 ## Important Notes
 
