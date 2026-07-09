@@ -50,6 +50,37 @@ def test_parse_body_markdown_table() -> None:
     assert updates[1][0] == "actions/cache"
 
 
+def test_parse_body_markdown_table_unicode_arrow() -> None:
+    # Renovate renders the change cell with a Unicode arrow (U+2192), not ASCII "->".
+    body = textwrap.dedent(
+        """
+        This PR contains the following updates:
+
+        | Package | Type | Update | Change |
+        |---------|------|--------|--------|
+        | [docker/login-action](https://github.com/docker/login-action) | action | minor | `v4.2.0` → `v4.4.0` |
+        | [aquasecurity/trivy](https://github.com/aquasecurity/trivy) | uses-with | minor | `v0.71.2` → `v0.72.0` |
+        """
+    ).strip()
+    updates = parse_renovate_pr_updates("ci(actions): update github-actions", body)
+    assert len(updates) == 2
+    assert updates[0] == ("docker/login-action", "v4.2.0", "v4.4.0")
+    assert updates[1] == ("aquasecurity/trivy", "v0.71.2", "v0.72.0")
+
+
+def test_parse_change_cell_unicode_arrow_digest() -> None:
+    # Unquoted digest cell with a Unicode arrow must also parse.
+    body = textwrap.dedent(
+        """
+        | Package | Type | Update | Change |
+        |---------|------|--------|--------|
+        | [actions/checkout](https://github.com/actions/checkout) | action | digest | abc1234 → def5678 |
+        """
+    ).strip()
+    updates = parse_renovate_pr_updates("chore(deps): update all", body)
+    assert updates == [("actions/checkout", "abc1234", "def5678")]
+
+
 def test_format_single_with_old_new() -> None:
     entry = format_changelog_entry(
         42,

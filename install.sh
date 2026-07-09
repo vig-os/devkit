@@ -13,9 +13,12 @@
 #   --name NAME       Override project name (SHORT_NAME)
 #   --org ORG         Override organization name (default: vigOS)
 #   --repo OWNER/REPO GitHub repo for Renovate preset (default: detect from origin or OWNER/REPO)
-#   --mode MODE       Delivery mode: devcontainer | direnv | both (default: prompt, both non-interactively)
+#   --mode MODE       Delivery mode: devcontainer | direnv | both | bare (default: .vig-os manifest, prompt, or both)
 #   --smoke-test      Deploy smoke-test-specific assets
-#   --dry-run         Show what would be done without executing
+#   --preview         Print the add/overwrite/preserve/delete file report for an
+#                     upgrade and exit without changing anything
+#   --skip-preflight  Bypass the upgrade preflight guard (branch + clean-tree checks)
+#   --dry-run         Show the container command that would run without executing
 #   -h, --help        Show this help message
 #
 # Examples:
@@ -35,10 +38,13 @@ DRY_RUN=false
 SKIP_PULL=false
 PROJECT_PATH=""
 PROJECT_NAME=""
-ORG_NAME="vigOS"
+# Resolved after arg parsing: --org > .vig-os DEVKIT_ORG > "vigOS" (#885)
+ORG_NAME=""
 GITHUB_REPO_OVERRIDE=""
 MODE=""
 SMOKE_TEST=""
+PREVIEW=""
+SKIP_PREFLIGHT=false
 
 # Colors (disabled if not a tty)
 if [ -t 1 ]; then
@@ -72,10 +78,16 @@ OPTIONS:
     --name NAME       Override project name (SHORT_NAME, used for module name)
     --org ORG         Override organization name (default: vigOS)
     --repo OWNER/REPO GitHub repository for Renovate (default: git origin or OWNER/REPO)
-    --mode MODE       Delivery mode: devcontainer | direnv | both
-                      (default: prompt interactively; "both" non-interactively)
+    --mode MODE       Delivery mode: devcontainer | direnv | both | bare
+                      (default: DEVKIT_MODE from the target's .vig-os manifest,
+                      else prompt interactively / "both" non-interactively)
     --smoke-test      Deploy smoke-test-specific assets
-    --dry-run         Show what would be done
+    --preview         Preview an upgrade: print the add/overwrite/preserve/delete
+                      file report and exit without changing any files
+    --skip-preflight  Bypass the upgrade preflight guard (--force refuses on
+                      main/dev/release/*/detached HEAD and on a dirty tree)
+    --dry-run         Show the container command that would run (unlike
+                      --preview, no file report is computed)
     -h, --help        Show this help
 
 EXAMPLES:
@@ -283,6 +295,102 @@ run_user_conf() {
     fi
 }
 
+# ── Upgrade preflight guard (#886) ────────────────────────────────────────────
+# An upgrade (`--force`) rewrites and deletes files across the consumer tree,
+# so it must land on a dedicated working branch with a clean tree, where it
+# stays a single reviewable, revertible diff. The guard runs host-side because
+# only the host reliably sees git state: the container mounts $PROJECT_PATH
+# alone, so in a git worktree (where .git is a file pointing at an unmounted
+# gitdir) git is unusable inside the container.
+
+# Read a yes/no confirmation for the preflight guard.
+# Returns 0 on yes, 1 on no or when no interactive input is available.
+# stdin is used when it is a terminal or a redirected pipe/file; in the
+# curl | bash form the script itself occupies stdin, so the prompt goes to
+# /dev/tty and the reply never consumes script text.
+preflight_confirm() {
+    local prompt="$1" reply="" invoked
+    invoked="$(basename -- "${0#-}")"
+    if [ -t 0 ]; then
+        read -rp "$prompt" reply
+    elif [ "$invoked" = "bash" ] || [ "$invoked" = "sh" ]; then
+        if [ -e /dev/tty ]; then
+            read -rp "$prompt" reply </dev/tty || return 1
+        else
+            return 1
+        fi
+    else
+        read -rp "$prompt" reply || return 1
+    fi
+    [[ "$reply" =~ ^[Yy]$ ]]
+}
+
+# Gate the --force (upgrade) path on git state. Refuses (exit != 0) on a dirty
+# tree, on a detached HEAD, and on protected branches (main, dev, release/*
+# by prefix) — on the latter, with a clean tree, it offers to create and
+# switch to chore/devkit-upgrade-<version> and proceed there. A non-git
+# directory gets a loud warning plus an explicit confirmation. Every refusal
+# prints the --skip-preflight bypass. Under --dry-run nothing is mutated (the
+# branch offer only reports what it would do).
+run_preflight_guard() {
+    local path="$1"
+    local skip_hint="Re-run with --skip-preflight to bypass the upgrade preflight guard."
+    local branch upgrade_branch dirty
+
+    if ! command -v git >/dev/null 2>&1 \
+        || ! git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
+        warn "preflight: $path is not a git repository (or git is unavailable)."
+        warn "There is no VCS safety net here: a bad upgrade cannot be reviewed or reverted."
+        if preflight_confirm "Continue the upgrade anyway? (y/N): "; then
+            return 0
+        fi
+        err "preflight: upgrade refused (no git repository, not confirmed)."
+        echo "  Put the project under version control first, or:"
+        echo "  $skip_hint"
+        exit 1
+    fi
+
+    dirty="$(git -C "$path" status --porcelain 2>/dev/null || true)"
+    if [ -n "$dirty" ]; then
+        err "preflight: refusing to upgrade on a dirty tree."
+        echo "  An upgrade must be the only change in its diff — commit or stash this first:"
+        printf '%s\n' "$dirty" | head -10 | sed 's/^/    /'
+        echo "  $skip_hint"
+        exit 1
+    fi
+
+    upgrade_branch="chore/devkit-upgrade-$VERSION"
+    if ! branch="$(git -C "$path" symbolic-ref --quiet --short HEAD)"; then
+        err "preflight: refusing to upgrade on a detached HEAD."
+        echo "  Check out a working branch first, e.g.:"
+        echo "    git -C \"$path\" switch -c $upgrade_branch"
+        echo "  $skip_hint"
+        exit 1
+    fi
+
+    case "$branch" in
+        main|dev|release/*)
+            warn "preflight: '$branch' is a protected branch — upgrades need a dedicated branch."
+            if preflight_confirm "Create and switch to '$upgrade_branch' now? (y/N): "; then
+                if [ "$DRY_RUN" = true ]; then
+                    info "dry-run: would create and switch to '$upgrade_branch'"
+                elif git -C "$path" checkout -b "$upgrade_branch"; then
+                    info "Switched to new branch '$upgrade_branch'"
+                else
+                    err "preflight: could not create branch '$upgrade_branch'."
+                    exit 1
+                fi
+            else
+                err "preflight: refusing to upgrade on protected branch '$branch'."
+                echo "  Create a dedicated branch and re-run:"
+                echo "    git -C \"$path\" checkout -b $upgrade_branch"
+                echo "  $skip_hint"
+                exit 1
+            fi
+            ;;
+    esac
+}
+
 # Parse arguments
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -330,6 +438,14 @@ while [ $# -gt 0 ]; do
             SMOKE_TEST="--smoke-test"
             shift
             ;;
+        --preview)
+            PREVIEW="--preview"
+            shift
+            ;;
+        --skip-preflight)
+            SKIP_PREFLIGHT=true
+            shift
+            ;;
         --skip-pull)
             SKIP_PULL=true
             shift
@@ -350,11 +466,11 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# Validate delivery mode (empty = let init-workspace.sh prompt / default to both)
+# Validate delivery mode (empty = .vig-os manifest, else init-workspace.sh prompt/default)
 case "$MODE" in
-    ""|devcontainer|direnv|both) ;;
+    ""|devcontainer|direnv|both|bare) ;;
     *)
-        err "Invalid --mode: $MODE (expected: devcontainer | direnv | both)"
+        err "Invalid --mode: $MODE (expected: devcontainer | direnv | both | bare)"
         usage
         exit 1
         ;;
@@ -368,17 +484,97 @@ if [ ! -d "$PROJECT_PATH" ]; then
 fi
 PROJECT_PATH="$(cd "$PROJECT_PATH" && pwd)"
 
-# Derive project name from folder if not provided
+# ── .vig-os project manifest (#885) ───────────────────────────────────────────
+# The target's .vig-os persists the delivery mode and identity, so upgrades
+# need no mode/identity flags. Precedence per key: explicit flag > .vig-os >
+# detection/default. Same tolerant line-based parsing as every other consumer.
+
+# Print the value of manifest key $2 in file $1; return 1 when absent.
+read_manifest_value() {
+    local file="$1" key="$2" line value
+    [ -f "$file" ] || return 1
+    while IFS= read -r line || [ -n "${line:-}" ]; do
+        [ -z "${line//[[:space:]]/}" ] && continue
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        case "$line" in
+            "$key"=*)
+                value="${line#*=}"
+                value="${value#"${value%%[![:space:]]*}"}"
+                value="${value%"${value##*[![:space:]]}"}"
+                case "$value" in
+                    \"*\") value="${value#\"}"; value="${value%\"}" ;;
+                    \'*\') value="${value#\'}"; value="${value%\'}" ;;
+                esac
+                [ -n "$value" ] || return 1
+                echo "$value"
+                return 0
+                ;;
+        esac
+    done < "$file"
+    return 1
+}
+
+MANIFEST_MODE="$(read_manifest_value "$PROJECT_PATH/.vig-os" DEVKIT_MODE || true)"
+MANIFEST_PROJECT="$(read_manifest_value "$PROJECT_PATH/.vig-os" DEVKIT_PROJECT || true)"
+MANIFEST_ORG="$(read_manifest_value "$PROJECT_PATH/.vig-os" DEVKIT_ORG || true)"
+MANIFEST_REPO="$(read_manifest_value "$PROJECT_PATH/.vig-os" DEVKIT_REPO || true)"
+# The OWNER/REPO placeholder (persisted when no origin was resolvable) must
+# not mask a now-detectable git origin.
+[ "$MANIFEST_REPO" = "OWNER/REPO" ] && MANIFEST_REPO=""
+
+case "$MANIFEST_MODE" in
+    ""|devcontainer|direnv|both|bare) ;;
+    *)
+        err "Invalid DEVKIT_MODE in $PROJECT_PATH/.vig-os: $MANIFEST_MODE"
+        exit 1
+        ;;
+esac
+
+# Mode switching is destructive and never happens implicitly (#885): an
+# explicit --mode contradicting the persisted DEVKIT_MODE refuses. --preview
+# (report-only) stays available to inspect the would-be switch first.
+if [ -n "$MODE" ] && [ -n "$MANIFEST_MODE" ] && [ "$MODE" != "$MANIFEST_MODE" ] \
+    && [ -z "$PREVIEW" ] && [ -z "$SMOKE_TEST" ]; then
+    err "requested --mode $MODE contradicts the persisted DEVKIT_MODE=$MANIFEST_MODE in $PROJECT_PATH/.vig-os"
+    echo "  Mode switching reshapes the workspace and must be deliberate:"
+    echo "  1. Inspect the would-be change first:  install.sh --preview --mode $MODE $PROJECT_PATH"
+    echo "  2. Keep the persisted mode by omitting --mode, or"
+    echo "  3. Switch deliberately: set DEVKIT_MODE=$MODE in .vig-os on a dedicated,"
+    echo "     clean upgrade branch (the preflight guard flow) and re-run."
+    exit 1
+fi
+
+if [ -z "$MODE" ] && [ -n "$MANIFEST_MODE" ] && [ -z "$SMOKE_TEST" ]; then
+    MODE="$MANIFEST_MODE"
+    info "Delivery mode from .vig-os manifest: $MODE"
+fi
+
+# Derive project name: --name > persisted DEVKIT_PROJECT > folder name (#885)
+if [ -z "$PROJECT_NAME" ] && [ -n "$MANIFEST_PROJECT" ]; then
+    PROJECT_NAME="$MANIFEST_PROJECT"
+    info "Project name from .vig-os manifest: $PROJECT_NAME"
+fi
 if [ -z "$PROJECT_NAME" ]; then
     PROJECT_NAME="$(basename "$PROJECT_PATH")"
 fi
 PROJECT_NAME=$(sanitize_name "$PROJECT_NAME")
 
+# Organization: --org > persisted DEVKIT_ORG > default (#885)
+if [ -z "$ORG_NAME" ] && [ -n "$MANIFEST_ORG" ]; then
+    ORG_NAME="$MANIFEST_ORG"
+    info "Organization name from .vig-os manifest: $ORG_NAME"
+fi
+ORG_NAME="${ORG_NAME:-vigOS}"
 # Sanitize ORG_NAME for security (remove shell metacharacters) but preserve capitalization
 ORG_NAME=$(sanitize_for_security "$ORG_NAME")
 
-# GITHUB_REPOSITORY for init-workspace --no-prompts (Renovate extends in renovate.json)
+# GITHUB_REPOSITORY for init-workspace --no-prompts (Renovate extends in
+# renovate.json): --repo > persisted DEVKIT_REPO > git origin > OWNER/REPO
 GITHUB_REPOSITORY="$GITHUB_REPO_OVERRIDE"
+if [ -z "$GITHUB_REPOSITORY" ] && [ -n "$MANIFEST_REPO" ]; then
+    GITHUB_REPOSITORY="$MANIFEST_REPO"
+    info "GitHub repository from .vig-os manifest: $GITHUB_REPOSITORY"
+fi
 GITHUB_REPOSITORY=$(sanitize_for_security "$GITHUB_REPOSITORY")
 if [ -z "$GITHUB_REPOSITORY" ] && [ -d "$PROJECT_PATH/.git" ]; then
     url=$(git -C "$PROJECT_PATH" remote get-url origin 2>/dev/null || true)
@@ -390,6 +586,18 @@ if [ -z "$GITHUB_REPOSITORY" ] && [ -d "$PROJECT_PATH/.git" ]; then
 fi
 if [ -z "$GITHUB_REPOSITORY" ]; then
     GITHUB_REPOSITORY="OWNER/REPO"
+fi
+
+# Preflight-gate --force upgrades (#886). Exemptions:
+# - --smoke-test: the downstream release gate runs `install.sh --version <tag>
+#   --smoke-test --force --docker .` headless on a CI checkout;
+# - --preview: report-only, exits before mutating anything (#885 mode switches
+#   point users at it first, so it must work from any branch/tree state);
+# - fresh installs (no --force): the "workspace not empty" refusal in
+#   init-workspace.sh already covers accidental re-runs.
+if [ -n "$FORCE" ] && [ -z "$SMOKE_TEST" ] && [ -z "$PREVIEW" ] \
+    && [ "$SKIP_PREFLIGHT" = false ]; then
+    run_preflight_guard "$PROJECT_PATH"
 fi
 
 # Detect container runtime
@@ -483,6 +691,10 @@ if [ -n "$SMOKE_TEST" ]; then
     CMD+=(--smoke-test)
 fi
 
+if [ -n "$PREVIEW" ]; then
+    CMD+=(--preview)
+fi
+
 if [ -n "$MODE" ]; then
     CMD+=(--mode "$MODE")
 fi
@@ -540,13 +752,25 @@ else
 fi
 
 # Run the initialization
-info "Initializing workspace..."
+if [ -n "$PREVIEW" ]; then
+    info "Previewing upgrade (no files will be changed)..."
+else
+    info "Initializing workspace..."
+fi
 echo ""
 
 # Execute the container using array expansion (safe from shell injection)
 if ! "${CMD[@]}"; then
     err "Failed to initialize workspace"
     exit 1
+fi
+
+# Preview mode: init-workspace.sh printed the file report and exited before
+# mutating anything — skip all post-initialization (user conf, git setup).
+if [ -n "$PREVIEW" ]; then
+    echo ""
+    success "Preview complete — no files were changed in $PROJECT_PATH"
+    exit 0
 fi
 
 # ── Post-initialization: host-side setup ──────────────────────────────────────
@@ -556,11 +780,11 @@ info "Running post-initialization setup..."
 
 # 1. Copy host user configuration (git, ssh, gh) into .devcontainer/.conf/
 # Non-fatal: warnings about missing SSH keys or GH CLI are expected on CI/fresh machines.
-# direnv mode scaffolds no .devcontainer/, so the host-user-conf step (a
-# devcontainer-only concern) does not apply — skip it rather than emit a
-# misleading "script not found" warning (#738).
-if [ "$MODE" = "direnv" ]; then
-    info "direnv mode: skipping host user-conf copy (no .devcontainer/)"
+# direnv and bare modes scaffold no .devcontainer/, so the host-user-conf step
+# (a devcontainer-only concern) does not apply — skip it rather than emit a
+# misleading "script not found" warning (#738, #885).
+if [ "$MODE" = "direnv" ] || [ "$MODE" = "bare" ]; then
+    info "$MODE mode: skipping host user-conf copy (no .devcontainer/)"
 else
     run_user_conf "$PROJECT_PATH" || true
 fi
@@ -646,5 +870,9 @@ success "Devcontainer deployed to $PROJECT_PATH"
 echo ""
 echo "Next steps:"
 echo "  1. cd $PROJECT_PATH"
-echo "  2. Open in VS Code - it will detect .devcontainer/ and offer to reopen in container"
+if [ "$MODE" = "bare" ]; then
+    echo "  2. Run 'just help' to list the shipped recipes (host-native: no container)"
+else
+    echo "  2. Open in VS Code - it will detect .devcontainer/ and offer to reopen in container"
+fi
 echo ""

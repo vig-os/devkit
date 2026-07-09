@@ -2,6 +2,12 @@
 # MAIN JUSTFILE - Orchestrates all recipe sources
 # ===============================================================================
 
+# Run every recipe under a strict bash so pipelines fail on the first error.
+# Lives here (not justfile.devc) so it applies in ALL delivery modes — direnv
+# and bare have no .devcontainer/justfile.devc, yet their justfile.project
+# recipes must still get pipefail (#854).
+set shell := ["bash", "-euo", "pipefail", "-c"]
+
 # Show available commands
 [group('info')]
 help:

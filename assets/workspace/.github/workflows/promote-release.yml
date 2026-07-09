@@ -23,6 +23,7 @@ concurrency:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   resolve-image:
@@ -43,6 +44,9 @@ jobs:
       - name: Resolve container image
         id: resolve
         uses: ./.github/actions/resolve-image
+        with:
+          registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
+          registry-username: ${{ github.actor }}
 
   validate:
     name: Validate promote prerequisites
@@ -50,12 +54,16 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
     timeout-minutes: 15
     outputs:
       version: ${{ steps.vars.outputs.version }}
     permissions:
       contents: write
       pull-requests: read
+      packages: read
     defaults:
       run:
         shell: bash
@@ -223,9 +231,13 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
     timeout-minutes: 10
     permissions:
       contents: write
+      packages: read
     defaults:
       run:
         shell: bash
@@ -262,10 +274,14 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
     timeout-minutes: 10
     permissions:
       contents: write
       pull-requests: write
+      packages: read
     defaults:
       run:
         shell: bash
@@ -379,11 +395,15 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
     timeout-minutes: 15
     if: ${{ needs.merge.result == 'success' }}
     continue-on-error: true
     permissions:
       contents: write
+      packages: read
     defaults:
       run:
         shell: bash

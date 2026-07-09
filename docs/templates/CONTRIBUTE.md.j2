@@ -182,7 +182,10 @@ reference, see [docs/RELEASE_CYCLE.md](docs/RELEASE_CYCLE.md).
 3. **Review and test the release**
    - Monitor CI on the draft PR
    - Fix any issues via bugfix PRs to `release/X.Y.Z`
-   - Mark PR as ready for review and get approval
+   - Publish candidates to verify: `just publish-candidate X.Y.Z` (gates on CI
+     only; the PR may stay a draft — repeat as needed)
+   - Mark PR as ready for review and get approval (required only for the final
+     release, once the candidate is verified)
 
 4. **Finalize and publish** (validates, finalizes CHANGELOG, builds, tests, signs, and publishes)
 

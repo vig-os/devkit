@@ -55,6 +55,28 @@
         devShells.default = vigos.lib.mkProjectShell {
           inherit pkgs;
           extraPackages = extraPackages pkgs;
+
+          # Opt-in: let the flake GENERATE .pre-commit-config.yaml from the
+          # shared base hook set instead of hand-managing the scaffolded
+          # YAML — toggle base hooks, add per-hook/global excludes, or add
+          # fully custom hooks; hook updates then flow with `nix flake
+          # update vigos`, and your customization lives HERE (preserved).
+          # Contract + migration steps: docs/MIGRATION.md ("Customizing
+          # pre-commit hooks from the project flake"). Uncomment to opt in,
+          # then delete .pre-commit-config.yaml and add it to .gitignore
+          # (the generated config refuses to overwrite an existing file).
+          #
+          #   hooks = {
+          #     typos.enable = false;                    # toggle a base hook
+          #     detect-private-keys.excludes = [ "worker/src/index\\.ts" ];
+          #     my-data-check = {                        # fully custom hook
+          #       enable = true;
+          #       entry = "./scripts/check-dat.sh";
+          #       files = "\\.dat$";
+          #       language = "system";
+          #     };
+          #   };
+          #   hooksExcludes = [ "^data/stopping/" "\\.dat$" ]; # global excludes
         };
 
         # Opt-in local dev services (#795): a daemonless process-compose stack

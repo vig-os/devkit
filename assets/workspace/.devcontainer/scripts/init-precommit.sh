@@ -1,8 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
-# {{SHORT_NAME}} is replaced during template initialization
-PROJECT_ROOT="/workspace/{{SHORT_NAME}}"
+# Derive the project root from this script's own location
+# (<project-root>/.devcontainer/scripts/init-precommit.sh) rather than a
+# hard-coded /workspace/<name>, so it works regardless of the mount point (#854).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 if [ -f "$PROJECT_ROOT/.pre-commit-config.yaml" ]; then
     echo "Setting up Git hooks (this may take a few minutes)..."

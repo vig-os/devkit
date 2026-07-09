@@ -38,8 +38,10 @@ using `devcontainer up`) are not supported in this workflow.
 
 ## Security scope
 
-`bandit` can still run via the `pre-commit` lint hook (`uv run bandit`), but
-there is no separate CI security-report job with JSON artifact uploads.
+`bandit` can still run as a `prek` lint hook (add it to
+`.pre-commit-config.yaml`; the hook runner is `prek`, not the removed
+`pre-commit` binary — see docs/MIGRATION.md), but there is no separate CI
+security-report job with JSON artifact uploads.
 
 ## Dependency review scope
 
@@ -58,3 +60,54 @@ from the template workspace's `.pre-commit-config.yaml` (which uses version
 tags as revs).  This repository pins hooks by commit hash, so the cached
 environments do not match and prek downloads fresh environments at
 runtime.
+
+## Authenticated pulls (private / rate-limited registries)
+
+The shipped container workflows support **authenticated** GHCR pulls, so a
+**private** (or anonymous-rate-limited) `ghcr.io/vig-os/devcontainer` image works
+without any per-repo YAML edits ([#920](https://github.com/vig-os/devcontainer/issues/920)).
+Public consumers are unaffected: the automatic `GITHUB_TOKEN` performs an
+authenticated pull of a public image, which succeeds unchanged.
+
+### The `GHCR_PULL_TOKEN` secret contract
+
+Every container job declares:
+
+```yaml
+credentials:
+  username: ${{ github.actor }}
+  password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
+```
+
+- **Public image (default):** leave `GHCR_PULL_TOKEN` unset. The expression
+  falls back to `github.token` (the automatic `GITHUB_TOKEN`) — never an empty
+  password — and an authenticated pull of a public image succeeds.
+- **Private image:** set a repository/org secret `GHCR_PULL_TOKEN` to a token
+  (PAT or fine-grained token) with `read:packages` / `packages: read` scope for
+  the package. It overrides the fallback and authenticates the pull. This is
+  also the path when the automatic `GITHUB_TOKEN` lacks cross-org package
+  access.
+
+### `packages: read` permission
+
+Each container job (and the `resolve-image` job) grants `packages: read` — at the
+workflow level where the jobs inherit the default, or in the job's own
+`permissions:` block otherwise. This is what lets the `github.token` fallback
+read the package; without it the automatic token cannot pull even a public image
+when other permission scopes are narrowed.
+
+### Authenticated probe in `resolve-image`
+
+The `resolve-image` action logs in to `ghcr.io` before probing the tag when a
+token is supplied (it is passed
+`registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}` and
+`registry-username: ${{ github.actor }}`), and no longer swallows the probe's
+stderr. A failure is classified into an actionable `::error::` annotation that
+distinguishes an **auth/denied** failure ("authentication required or denied —
+set the GHCR_PULL_TOKEN secret / grant packages:read") from a **missing tag**
+("the tag does not exist or is not readable"). The anonymous path is kept for
+public images when no token is provided.
+
+The broader workflow audit that this fix rides is tracked in
+[#781](https://github.com/vig-os/devcontainer/issues/781) and
+[#854](https://github.com/vig-os/devcontainer/issues/854).

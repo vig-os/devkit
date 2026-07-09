@@ -25,6 +25,7 @@ on:  # yamllint disable-line rule:truthy
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   validate:
@@ -34,7 +35,7 @@ jobs:
     outputs:
       version: ${{ steps.vars.outputs.version }}
       release_branch: ${{ steps.vars.outputs.release_branch }}
-      image_tag: ${{ steps.resolve_image.outputs.image_tag }}
+      image_tag: ${{ steps.resolve_image.outputs.image-tag }}
 
     steps:
       - name: Checkout repository
@@ -59,29 +60,16 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "release_branch=$RELEASE_BRANCH" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve container image tag
+      # Resolve + validate the pinned devcontainer image via the shared
+      # resolve-image action (#854): hard-fails on a missing/unreadable
+      # DEVCONTAINER_VERSION instead of silently falling back to `latest`, so
+      # this workflow can no longer diverge from ci.yml's resolver semantics.
+      - name: Resolve container image
         id: resolve_image
-        run: |
-          set -euo pipefail
-          TAG=""
-          if [ -f ".vig-os" ]; then
-            TAG=$(awk -F= '/^DEVCONTAINER_VERSION=/{gsub(/^[ \t"]+|[ \t"]+$/, "", $2); print $2; exit}' .vig-os || true)
-          fi
-          if [ -z "${TAG:-}" ]; then
-            TAG="latest"
-          fi
-          echo "image_tag=$TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Validate image accessibility
-        env:
-          IMAGE_TAG: ${{ steps.resolve_image.outputs.image_tag }}
-        run: |
-          set -euo pipefail
-          IMAGE="ghcr.io/vig-os/devcontainer:${IMAGE_TAG}"
-          if ! docker manifest inspect "$IMAGE" > /dev/null 2>&1; then
-            echo "ERROR: Cannot access image manifest: $IMAGE"
-            exit 1
-          fi
+        uses: ./.github/actions/resolve-image
+        with:
+          registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
+          registry-username: ${{ github.actor }}
 
       - name: Verify release branch does not exist
         env:
@@ -132,7 +120,7 @@ jobs:
         env:
           VERSION: ${{ steps.vars.outputs.version }}
           RELEASE_BRANCH: ${{ steps.vars.outputs.release_branch }}
-          IMAGE_TAG: ${{ steps.resolve_image.outputs.image_tag }}
+          IMAGE_TAG: ${{ steps.resolve_image.outputs.image-tag }}
           DRY_RUN: ${{ inputs.dry-run }}
         run: |
           echo "Validation passed"
@@ -147,6 +135,9 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ghcr.io/vig-os/devcontainer:${{ needs.validate.outputs.image_tag }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
       env:
         UV_PROJECT_ENVIRONMENT: /root/assets/workspace/.venv
     timeout-minutes: 15
@@ -157,6 +148,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      packages: read
 
     steps:
       - name: Generate Commit App Token

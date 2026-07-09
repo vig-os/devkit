@@ -3,7 +3,9 @@
 # Managed by vigOS devcontainer. Customizations go in root justfile.
 # ===============================================================================
 
-set shell := ["bash", "-euo", "pipefail", "-c"]
+# Note: `set shell := [...pipefail...]` lives in the root justfile (the SSoT) so
+# it applies in every delivery mode, including direnv/bare which have no
+# justfile.devc (#854).
 
 # -------------------------------------------------------------------------------
 # VERSION CHECK
@@ -30,10 +32,28 @@ devc-check *args:
     "$SCRIPT_DIR/version-check.sh" {{ if args == '' { 'check' } else { args } }}
 
 # Upgrade devcontainer to latest version (host-side only)
-# This recipe MUST be run from a host terminal, not inside the container
+# This recipe MUST be run from a host terminal, not inside the container.
+# The installer preflight (#886) refuses upgrades on main/dev/release/* or a
+# dirty tree; use the curl form to pass --preview (file report, no changes)
+# or --skip-preflight (bypass the guard) when needed.
 [group('info')]
 devc-upgrade:
     #!/usr/bin/env bash
+    # Honor the consumer's pinned devkit generation (#854): read
+    # DEVCONTAINER_VERSION from .vig-os and upgrade to THAT tag (both the
+    # install.sh script ref and the pinned image version), not whatever
+    # `main`/`latest` happens to be. An unpinned or `latest` manifest keeps the
+    # floating `main`/`latest` behavior.
+    REF="main"
+    PIN_ARGS=()
+    if [[ -f .vig-os ]]; then
+        PINNED="$(awk -F= '/^DEVCONTAINER_VERSION=/{gsub(/^[ \t"]+|[ \t"]+$/, "", $2); print $2; exit}' .vig-os || true)"
+        if [[ -n "${PINNED:-}" && "$PINNED" != "latest" ]]; then
+            REF="$PINNED"
+            PIN_ARGS=(--version "$PINNED")
+        fi
+    fi
+
     # Detect if running inside a container
     if [[ -f "/.dockerenv" ]] || [[ -n "${container:-}" ]]; then
         echo ""
@@ -47,13 +67,13 @@ devc-upgrade:
         echo ""
         echo "Or use the curl method:"
         echo ""
-        echo "    curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --force ."
+        echo "    curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/${REF}/install.sh | bash -s -- --force ${PIN_ARGS[*]} ."
         echo ""
         exit 1
     fi
 
     # We're on the host - proceed with upgrade
-    echo "🚀 Upgrading devcontainer to latest version..."
+    echo "🚀 Upgrading devcontainer (target: $REF)..."
     echo ""
 
     # Check if podman or docker is available
@@ -73,8 +93,12 @@ devc-upgrade:
 
     echo "✓ Using $RUNTIME"
     echo ""
+    echo "Note: the installer refuses upgrades on main/dev/release/* or a dirty tree."
+    echo "      Preview first:  curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/${REF}/install.sh | bash -s -- --force ${PIN_ARGS[*]} --preview ."
+    echo "      Bypass guard:   curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/${REF}/install.sh | bash -s -- --force ${PIN_ARGS[*]} --skip-preflight ."
+    echo ""
     echo "Downloading and running install script..."
-    curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --force .
+    curl -sSf "https://raw.githubusercontent.com/vig-os/devcontainer/${REF}/install.sh" | bash -s -- --force "${PIN_ARGS[@]}" .
 
 # -------------------------------------------------------------------------------
 # DEVCONTAINER (host-side only)

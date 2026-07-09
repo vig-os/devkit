@@ -484,7 +484,40 @@ class TestInstallScriptUnit:
         assert "1.2.3" in result.stdout
 
     def test_force_flag_in_dry_run(self, install_script, tmp_path):
-        """Test --force flag is passed to init-workspace.sh."""
+        """Test --force flag is passed to init-workspace.sh.
+
+        Uses a clean feature-branch git fixture: the upgrade preflight guard
+        (#886) refuses --force on non-git directories, protected branches,
+        and dirty trees.
+        """
+        git_env = [
+            "git",
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "user.name=T",
+            "-c",
+            "commit.gpgsign=false",
+        ]
+        subprocess.run(
+            [*git_env, "init", "-q", "-b", "feature/886-fixture", str(tmp_path)],
+            check=True,
+            timeout=10,
+        )
+        subprocess.run(
+            [
+                *git_env,
+                "-C",
+                str(tmp_path),
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "chore: init",
+            ],
+            check=True,
+            timeout=10,
+        )
         result = subprocess.run(
             [str(install_script), "--dry-run", "--force", str(tmp_path)],
             capture_output=True,

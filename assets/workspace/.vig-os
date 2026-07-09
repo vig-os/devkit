@@ -1,2 +1,25 @@
-# vig-os devcontainer configuration
+# vig-os devcontainer configuration — declarative project manifest (#885).
+# Flat KEY=VALUE lines with '#' comments; consumers parse line-based and
+# ignore unknown keys. init-workspace.sh resolves every value on (re)scaffold
+# (flag/env > .vig-os > prompt/default) and writes the result back here, so
+# upgrades need no mode/identity flags. Future per-project devkit flags
+# (e.g. the #883 hook opt-out) live in this file too.
+
+# Scaffold/image version pin (managed by release automation; kept under the
+# legacy name until the devkit rename, #781).
 DEVCONTAINER_VERSION={{IMAGE_TAG}}
+
+# Delivery mode: devcontainer | direnv | both | bare. Ships empty (= unset:
+# resolved and written back on scaffold) so an aborted upgrade can never
+# persist a mode this repo did not choose.
+DEVKIT_MODE=
+
+# Project identity (persisted SHORT_NAME / ORG_NAME / GITHUB_REPOSITORY);
+# written back by init-workspace.sh — edit only to deliberately rename.
+DEVKIT_PROJECT=
+DEVKIT_ORG=
+DEVKIT_REPO=
+
+# Reserved: space-separated capability modules for the project dev-shell,
+# mirroring mkProjectShell's `modules = [ ... ]` in flake.nix (#884).
+DEVKIT_MODULES=""

@@ -1,5 +1,10 @@
 # Workspace sync manifest — declarative config for sync_manifest.py
 # Single source of truth for files copied into assets/workspace/ and their transforms.
+#
+# The scaffold is language-neutral (#929): the repo root's Python package files
+# (pyproject.toml, src/, tests/) are intentionally NOT listed here, so they are
+# never synced into assets/workspace/. Python is opt-in via the `#python` flake
+# template (#930); do not add those entries here.
 
 [[entries]]
 src = "docs/COMMIT_MESSAGE_STANDARD.md"
@@ -106,40 +111,8 @@ transforms = [
   { type = "Sed", pattern = "uv run derive-branch-summary", replace = "derive-branch-summary" },
 ]
 
-[[entries]]
-src = ".pre-commit-config.yaml"
-transforms = [
-  # ruff/ruff-format/typos stay as repo-local language:system hooks in the
-  # scaffold too, resolved from the toolchain baked into the devcontainer image
-  # (devTools SSoT). The #697 decoupling shipped self-contained upstream hooks
-  # because the integration suite still ran the published Debian image, whose
-  # PATH lacked those tools; that workaround is dropped now that the suite runs
-  # the freshly-built Nix image — whose non-FHS userland cannot even execute the
-  # upstream manylinux hook binaries. #701.
-  { type = "RemovePrecommitHooks", hook_ids = [
-    "generate-docs",
-    "sync-manifest",
-    "pip-licenses",
-    "check-action-pins",
-    "bandit",
-    "check-skill-names",
-    "prepare-commit-msg-strip-trailers",
-    "check-agent-identity",
-    "validate-commit-msg",
-    "taplo-format",
-    "taplo-lint",
-  ] },
-  { type = "Sed", pattern = "bandit -r packages/vig-utils/src/ assets/workspace/", replace = "bandit -r src/" },
-  { type = "StripTrailingBlankLines" },
-  { type = "ReplaceBlock", start_pattern = "^\\s+args: \\[$", end_pattern = "^\\s+\\]$", replacement = """
-        # Optional: customize commit types, scopes, or refs-optional types via CLI arguments.
-        # By default, scopes are not enforced. Set --scopes to require specific scopes.
-        # Examples (choose one args line):
-        #   args: ["--types", "feat,fix,docs,chore"]
-        #   args: ["--scopes", "api,cli,utils"]
-        #   args: ["--refs-optional-types", "chore"]
-        #   args: ["--types", "feat,fix,docs", "--scopes", "api,cli,utils", "--refs-optional-types", "chore"]
-""" },
-  { type = "Sed", pattern = "-r packages/vig-utils/src/ assets/workspace/ ", replace = "-r src/ " },
-  { type = "StripTrailingBlankLines" },
-]
+# NOTE (#883): the scaffold's .pre-commit-config.yaml is no longer derived
+# from the root config by manifest transforms. Both files are PATH-portable
+# renders of the ONE hook-set definition in nix/hooks.nix; drift between
+# either committed YAML and that definition is CI-gated by
+# tests/test_flake_hooks.py (nix eval .#lib.hooksPortable).

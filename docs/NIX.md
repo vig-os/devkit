@@ -20,9 +20,12 @@ everywhere — the dev-shell now and the image's `imageTools` set.
   `nix develop` (or `direnv`) gives you exactly that toolchain.
 - **`mkProjectShell`** is also a reusable `lib` output: downstream repos build
   their own shell as `devTools ++ extraPackages` (see the scaffolded
-  `assets/workspace/flake.nix`). For projects that compile native Python
-  extensions, `extraPackages` is where the C/C++ toolchain comes from — see
-  the [native-build contract](./MIGRATION.md#the-native-build-contract).
+  `assets/workspace/flake.nix`), optionally composing opt-in
+  [capability modules](#capability-modules-mkprojectshell-modules) via
+  `modules = [ "native" ]`. For projects that compile native Python
+  extensions, the `native` module (or a hand-rolled `extraPackages`) is where
+  the C/C++ toolchain comes from — see the
+  [native-build contract](./MIGRATION.md#the-native-build-contract).
 - **`mkProjectServices`** is the local-dev-services counterpart (#795): a `lib`
   builder that turns declared [services-flake](https://github.com/juspay/services-flake)
   modules into a daemonless `process-compose` stack (`nix run .#services`) —
@@ -58,6 +61,9 @@ access is unavailable, so the dev-shell/image parity test stays a CI pytest):
   signatures whose intentionally-unused args those linters would otherwise flag.
 - **`devShell`** — the dev-shell closure builds.
 - **`devShellTools`** — the parity-test SSoT evaluates to a non-empty list.
+- **`module-<name>`** — one devshell build per shipped capability module,
+  generated from the `nix/modules/` registry (a module cannot ship without
+  its check).
 
 ### Dev-shell ↔ image parity guard
 
@@ -68,6 +74,38 @@ straight from the flake (`nix eval .#devShellTools`, derived from each package's
 asserting it exits 0. The test list is generated *from* the SSoT, so it can never
 drift from the tool list it guards. It is skipped automatically when `nix` is not
 on `PATH` (e.g. the podman image CI lane).
+
+## Capability modules (`mkProjectShell` `modules`)
+
+`mkProjectShell` composes opt-in **capability modules**
+([#884](https://github.com/vig-os/devcontainer/issues/884); contract and
+composition rules in
+[ADR-capability-modules](rfcs/ADR-capability-modules.md)): a consumer
+declares a capability by name instead of hand-picking packages:
+
+```nix
+devShells.default = vigos.lib.mkProjectShell {
+  inherit pkgs;
+  modules = [ "native" ]; # opt-in capability modules
+  extraPackages = [ pkgs.my-extra ]; # per-repo escape hatch, unchanged
+};
+```
+
+- A module (defined in `nix/modules/`) contributes **packages, env vars, and
+  shellHook fragments only** (v1 contract). `extraPackages` wins PATH lookup
+  over module packages; the consumer `shellHook` runs last.
+- **Zero cost when unused:** `modules = [ ]` (the default) produces a shell
+  byte-identical to the pre-module builder — pure-Python consumers are
+  untouched, and the **published image stays base-only** (modules are a
+  direnv-mode/devshell feature).
+- **Shipped:** `native` — `stdenv.cc`, `cmake`, `gnumake`, `pkg-config` plus
+  generic `CC=cc`/`CXX=c++` exports; the curated form of the
+  [native-build contract](./MIGRATION.md#the-native-build-contract)'s
+  preferred tier. **Candidates (ask-gated, not shipped):** `geant4`, `rust`,
+  `fortran`/`f2py`, `root`.
+- Each shipped module gets a `checks.<system>.module-<name>` devshell build
+  and, for `native`, the uv C-extension sdist smoke test in
+  `tests/test_flake_modules.py`.
 
 ## Home-manager modules — versioning & release policy
 
@@ -288,35 +326,51 @@ These are decided inline in `flake.nix`; summarized here.
   `just precommit` runs `prek run --all-files`, and the baked hook cache is
   `PREK_HOME=/opt/prek-cache`.
 
-  **Two hook artifacts, kept in agreement.** The flake is the SSoT for the hook
-  *toolchain* and exposes a Nix-verified gate, but the runner still reads a
-  committed config, so there are two artifacts that must agree:
+  **One hook definition, three renders (#883; supersedes the former
+  "two hook artifacts" model).** `nix/hooks.nix` defines every pre-commit hook
+  exactly once, and the flake renders it three ways:
 
-  1. The committed **`.pre-commit-config.yaml`** is the hand-maintained,
-     PATH-based **runner** config that `prek` executes locally, in the image, and
-     in the downstream scaffold (`assets/workspace/`, which has no flake and whose
-     `language: system` hooks resolve from the image toolchain). It is *not*
-     generated from Nix: a store-path-bound generated file would not be portable
-     to the scaffold and would churn on every nixpkgs bump. The scaffold copy is
-     mirrored from it by the `sync-manifest` hook.
-  2. The flake's **`checks.pre-commit`** (built by `git-hooks.nix` with
-     `package = pkgs.prek`) runs the **sandbox-pure subset** of those hooks under
-     `nix flake check` — no network, no project venv. It reuses `treefmtEval` for
-     the single formatting hook (nixfmt + ruff-format + taplo), the nix-provided
-     pure linters (ruff, shellcheck, yamllint, typos, `taplo lint`), the
-     `just --fmt --check` justfile-format check (the committed `just-fmt` hook,
-     mirrored in check mode since the sandbox is read-only), the
-     `pre-commit-hooks` meta hooks, and the `vig-utils`/`bandit` hooks wired to
-     hermetic Nix binaries (`${vigUtils}/bin/…`, `${pkgs.bandit}/bin/bandit`).
+  1. The flake's **`checks.pre-commit`** (built by `git-hooks.nix` with
+     `package = pkgs.prek`) evaluates the definition's **sandbox-pure
+     profile** under `nix flake check` — no network, no project venv. It
+     reuses `treefmtEval` for the single formatting hook (nixfmt +
+     ruff-format + taplo), the nix-provided pure linters (ruff, shellcheck,
+     yamllint, typos, `taplo lint`), the `just --fmt --check`
+     justfile-format check (the runner hook mirrored in check mode since the
+     sandbox is read-only), the `pre-commit-hooks` meta hooks, and the
+     `vig-utils`/`bandit` hooks wired to hermetic Nix binaries
+     (`${vigUtils}/bin/…`, `${pkgs.bandit}/bin/bandit`).
+  2. The committed **`.pre-commit-config.yaml`** (and its scaffold copy in
+     `assets/workspace/`) is the definition's **PATH-portable render** — the
+     runner config `prek` executes locally, in the image, and in the
+     downstream scaffold. It stays a committed file rather than a gitignored
+     store artifact so it is portable and does not churn on nixpkgs bumps,
+     but it is no longer hand-maintained in parallel:
+     `tests/test_flake_hooks.py` diffs the render
+     (`nix eval .#lib.hooksPortable`) against both committed files
+     (normalized, every hook id/args/files/excludes/stages) and fails CI on
+     any drift. The former `sync-manifest` transform chain for the scaffold
+     copy is retired — the fidelity test is the single agreement mechanism.
+  3. The **consumer generation surface**: `mkProjectShell`'s opt-in
+     `hooks`/`hooksExcludes` arguments compose the definition's consumer
+     profile with per-repo overrides, and git-hooks.nix's installation
+     script (in the `shellHook`) installs the rendered
+     `.pre-commit-config.yaml` — gitignored and regenerated on shell entry,
+     upstream's recommended model. See `docs/MIGRATION.md` ("Customizing
+     pre-commit hooks from the project flake") for the consumer contract,
+     including the guarantee that a preserved hand-edited YAML is never
+     overwritten (#878) and the planned `.vig-os` manifest opt-out flag
+     (#885).
 
   Hooks that cannot run in the sandbox stay **runner-only** in the committed
-  config and are deliberately excluded from `checks.pre-commit`: the generators
+  render and carry no gate profile in `nix/hooks.nix`: the generators
   `generate-docs`/`sync-manifest`, `pip-licenses` (reads `uv.lock`), `pymarkdown`
-  (not in nixpkgs), `no-commit-to-branch` and `destroyed-symlinks`
+  (not in nixpkgs — also the one residual missing from the consumer generation
+  profile), `no-commit-to-branch` and `destroyed-symlinks`
   (git-state-dependent), `check-agent-identity` (inspects the commit
   author/committer), and the `commit-msg`/`prepare-commit-msg`-stage hooks (never
   run by `--all-files`). `checks.pre-commit` is thus a Nix-verified guarantee that
-  the pure hooks in the committed config stay correct; the impure ones remain
+  the pure hooks stay correct; the impure ones remain
   covered by CI's `prek run --all-files`. One fidelity note: the meta
   `debug-statements` hook parses the file's Python AST, so its `git-hooks.nix`
   package is pinned to the 3.14 `pre-commit-hooks` build to match the runner

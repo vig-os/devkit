@@ -212,16 +212,18 @@ test version="dev":
 # Process:
 #   1. just prepare-release X.Y.Z    - Create release/X.Y.Z branch, draft PR
 #   2. Test release branch, fix bugs as needed via PRs to release branch
-#   3. Mark PR ready for review (gh pr ready PR_NUMBER)
-#   4. Get PR approval from reviewer
-#   5. just finalize-release X.Y.Z   - Triggers release.yml (final) that:
-#      - Validates PR status and all prerequisites
+#   3. just publish-candidate X.Y.Z  - Build/test/publish X.Y.Z-rcN to verify
+#                                       (gates on CI only; PR may stay draft); repeat as needed
+#   4. Mark PR ready for review (gh pr ready PR_NUMBER)
+#   5. Get PR approval from reviewer
+#   6. just finalize-release X.Y.Z   - Triggers release.yml (final) that:
+#      - Validates PR status and all prerequisites (requires an RC published in step 3)
 #      - Sets release date in CHANGELOG, syncs PR docs
 #      - Builds and tests container images; creates X.Y.Z tag; pushes versioned GHCR images
 #      - Creates draft GitHub Release; dispatches smoke-test (not :latest yet)
 #      - On failure: automatic rollback and issue creation
-#   6. Wait for devcontainer-smoke-test to publish its final release for X.Y.Z
-#   7. just promote-release X.Y.Z    - Triggers promote-release.yml that:
+#   7. Wait for devcontainer-smoke-test to publish its final release for X.Y.Z
+#   8. just promote-release X.Y.Z    - Triggers promote-release.yml that:
 #      - Updates GHCR :latest, publishes the draft GitHub Release, merges release PR to main
 #      - Merging to main triggers sync-main-to-dev.yml (PR main -> dev, auto-merge if clean)
 # ===============================================================================

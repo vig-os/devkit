@@ -176,6 +176,19 @@
       # ---------------------------------------------------------------------
       devTools = import ./nix/devtools.nix;
 
+      # Capability-module registry (#884): name -> (pkgs -> { packages, env,
+      # shellHook }). Consumed by mkProjectShell's `modules` argument and by
+      # the generated per-module `checks.<system>.module-<name>` below. See
+      # docs/rfcs/ADR-capability-modules.md for the v1 contract.
+      capabilityModules = import ./nix/modules/default.nix;
+
+      # One definition of the pre-commit hook set (#883): nix/hooks.nix
+      # renders the sandbox-pure `checks.pre-commit` gate, the PATH-portable
+      # committed `.pre-commit-config.yaml` + scaffold copy (drift-gated by
+      # tests/test_flake_hooks.py via `lib.hooksPortable`), and the consumer
+      # generation surface (mkProjectShell's `hooks`/`hooksExcludes`).
+      hooksModule = import ./nix/hooks.nix { inherit (nixpkgs) lib; };
+
       # Binary names exposed for the parity test. Prefer the package's declared
       # `meta.mainProgram` (the canonical executable name, e.g. ripgrep -> rg,
       # neovim -> nvim, claude-code -> claude); fall back to the pname.
@@ -192,15 +205,140 @@
       # extra packages:
       #   devShells.default = inputs.devcontainer.lib.mkProjectShell {
       #     inherit pkgs;
+      #     modules = [ "native" ];           # opt-in capability modules (#884)
       #     extraPackages = [ pkgs.foo ];
+      #     hooks = { pymarkdown.enable = false; };  # opt-in generated hooks (#883)
       #   };
       mkProjectShell =
         {
           pkgs,
+          modules ? [ ],
           extraPackages ? [ ],
+          hooks ? null,
+          hooksExcludes ? [ ],
           shellHook ? ''echo "devcontainer dev environment loaded (nix)"'',
         }:
         let
+          # ------------------------------------------------------------------
+          # Capability modules (#884) — resolve the requested names against the
+          # nix/modules/ registry and fold their contributions (v1 contract:
+          # packages + env + shellHook fragments only; composition rules in
+          # docs/rfcs/ADR-capability-modules.md). With `modules = [ ]` every
+          # merge below is the identity — empty list, empty attrset, empty
+          # string — so the zero-module shell stays byte-identical to the
+          # pre-#884 builder (parity: tests/test_flake_devshell.py). Kept as
+          # one self-contained block so #883's `hooks` argument can land
+          # beside it without conflict.
+          # ------------------------------------------------------------------
+          moduleDefs = map (
+            name:
+            (capabilityModules.${name} or (throw (
+              "mkProjectShell: unknown capability module '${name}'; available: "
+              + pkgs.lib.concatStringsSep ", " (builtins.attrNames capabilityModules)
+            ))
+            )
+              pkgs
+          ) modules;
+          # Appended AFTER extraPackages: earlier entries win PATH lookup, so
+          # the per-repo escape hatch overrides a module's tool choice.
+          modulePackages = pkgs.lib.concatMap (m: m.packages or [ ]) moduleDefs;
+          # Left-to-right merge (later module wins); the builder's own env
+          # pins (UV_PYTHON, UV_PYTHON_DOWNLOADS, …) always win — see the
+          # mkShell attrset merge below.
+          moduleEnv = pkgs.lib.foldl' (acc: m: acc // (m.env or { })) { } moduleDefs;
+          # Newline-terminated fragments, before the consumer shellHook (the
+          # consumer keeps the last word).
+          moduleShellHook = pkgs.lib.concatMapStrings (
+            m: pkgs.lib.optionalString ((m.shellHook or "") != "") ((m.shellHook or "") + "\n")
+          ) moduleDefs;
+
+          # ------------------------------------------------------------------
+          # Flake-generated pre-commit config (#883) — OPT-IN. Passing `hooks`
+          # (an attrset, even empty) or `hooksExcludes` composes the shared
+          # base hook set (nix/hooks.nix consumer profile) with the consumer's
+          # per-hook overrides / custom hooks / global excludes via
+          # git-hooks.nix. Only the RENDERED CONFIG is consumed: entering the
+          # shell installs `.pre-commit-config.yaml` (a symlink to the store —
+          # gitignore it) via the builder's own snippet below, NOT
+          # git-hooks.nix's installation script (install.enable = false).
+          # That stock script would unset/reset `core.hooksPath` and install
+          # only the pre-commit stage into `.git/hooks`, silently bypassing
+          # the scaffold's `.githooks` entry point (sanctioned-environment
+          # guard, consumer-owned scripts) — PR #908 review. The snippet
+          # keeps git-hooks.nix's refusal semantics: a regular (non-symlink)
+          # `.pre-commit-config.yaml` (#878) is never overwritten — the
+          # consumer deletes it to complete the opt-in (docs/MIGRATION.md).
+          # `.githooks/pre-commit` runs `prek run`, which reads the repo-root
+          # config, so the generated hooks execute through the existing wiring.
+          # With the default `hooks = null` every fragment below is empty and
+          # the shell stays byte-identical to the no-hooks builder (parity:
+          # tests/test_flake_devshell.py, tests/test_flake_hooks.py).
+          # ------------------------------------------------------------------
+          hooksEnabled = hooks != null || hooksExcludes != [ ];
+          consumerHooksBase = hooksModule.consumer pkgs;
+          # Base values at priority 999: they beat git-hooks.nix's own
+          # built-in hook defaults (mkDefault, 1000 — equal priorities would
+          # conflict, e.g. the built-in nixfmt entry vs the base one) and
+          # lose to any consumer fragment (plain assignment, 100), so e.g.
+          # `typos.enable = false` wins while untouched fields keep their
+          # base value (module-system merge).
+          consumerHooksDefaults = pkgs.lib.mapAttrs (
+            _: hook: pkgs.lib.mapAttrs (_: pkgs.lib.mkOverride 999) hook
+          ) consumerHooksBase.hooks;
+          hooksRun = git-hooks-nix.lib.${pkgs.stdenv.hostPlatform.system}.run {
+            # Only the rendered config + installation script are consumed; the
+            # sandbox check derivation (which would need the project tree) is
+            # never built, so a placeholder src suffices.
+            src = pkgs.emptyDirectory;
+            package = pkgs.prek;
+            imports = [
+              {
+                config = {
+                  hooks = consumerHooksDefaults;
+                  excludes = consumerHooksBase.excludes ++ hooksExcludes;
+                  # Never let git-hooks.nix install into `.git/hooks` or rewire
+                  # `core.hooksPath` — the config-only snippet below owns the
+                  # shellHook and `.githooks` stays the entry point (#908).
+                  install.enable = false;
+                };
+              }
+              { config.hooks = if hooks == null then { } else hooks; }
+            ];
+          };
+          # Config-only installation snippet (replaces hooksRun.shellHook):
+          # maintain the `.pre-commit-config.yaml` -> store symlink exactly
+          # like git-hooks.nix's installationScript — staleness check, refusal
+          # on a regular file (#878), GC root when nix-store is available —
+          # minus every `.git/hooks` / `core.hooksPath` mutation (#908).
+          hooksConfigFile = hooksRun.config.configFile;
+          hooksConfigInstall = ''
+            if ! ${pkgs.gitMinimal}/bin/git rev-parse --git-dir &> /dev/null; then
+              echo 1>&2 "WARNING: vigos hooks: .git not found; skipping generated pre-commit config installation."
+            else
+              GIT_WC=$(${pkgs.gitMinimal}/bin/git rev-parse --show-toplevel)
+              if ! readlink "$GIT_WC/.pre-commit-config.yaml" >/dev/null \
+                || [[ $(readlink "$GIT_WC/.pre-commit-config.yaml") != ${hooksConfigFile} ]]; then
+                if [ -e "$GIT_WC/.pre-commit-config.yaml" ] && [ ! -L "$GIT_WC/.pre-commit-config.yaml" ]; then
+                  echo 1>&2 "vigos hooks: WARNING: Refusing to install the generated config over an existing .pre-commit-config.yaml"
+                  echo 1>&2 ""
+                  echo 1>&2 "  To complete the flake-generated hooks opt-in (docs/MIGRATION.md):"
+                  echo 1>&2 "    1. Port your customizations into mkProjectShell's hooks/hooksExcludes."
+                  echo 1>&2 "    2. Remove .pre-commit-config.yaml"
+                  echo 1>&2 "    3. Add .pre-commit-config.yaml to .gitignore"
+                else
+                  echo 1>&2 "vigos hooks: installing generated .pre-commit-config.yaml"
+                  [ -L "$GIT_WC/.pre-commit-config.yaml" ] && unlink "$GIT_WC/.pre-commit-config.yaml"
+                  if command -v nix-store >/dev/null 2>&1; then
+                    nix-store --add-root "$GIT_WC/.pre-commit-config.yaml" --indirect --realise ${hooksConfigFile} >/dev/null
+                  else
+                    ln -fs ${hooksConfigFile} "$GIT_WC/.pre-commit-config.yaml"
+                  fi
+                fi
+              fi
+            fi
+          '';
+          hooksShellHook = pkgs.lib.optionalString hooksEnabled (hooksConfigInstall + "\n");
+
           # uv's Python-download metadata, pinned to the uv release we provision.
           # The nixpkgs build of uv ships with its embedded Python-download list
           # stripped, so it cannot fetch a managed CPython on its own. CI
@@ -264,42 +402,58 @@
             export NVIM_APPNAME="vigos-dev"
           '';
         in
-        pkgs.mkShell {
-          # The toolchain SSoT, plus a bare Python interpreter so the downstream
-          # dev-shell matches the image's PATH (`python`/`python3`). The bare
-          # interpreter is not in `devTools`: the image already provides it via
-          # `pythonEnv` in `imageTools`, and a bare interpreter in the SSoT would
-          # collide with `pythonEnv` there. The hook runner (`prek`) lives in
-          # `devTools`, so it reaches both the dev-shell and the image from one
-          # place — the former standalone `pre-commit` here is dropped (#778).
-          # Safe for CI despite the FHS pymarkdown/manylinux constraint: the
-          # dev-shell pins `UV_PYTHON` (below) to this same store CPython, and
-          # the CI PATH-forwarding (setup-env) filters this interpreter out so
-          # `uv` still builds the runner venv from a downloaded managed CPython.
-          # No new LD_LIBRARY_PATH, so the #703 FHS leak-guard is unaffected.
-          # Refs #729, #778.
-          packages =
-            (devTools pkgs)
-            ++ [
-              python
-            ]
-            ++ extraPackages;
-          shellHook = ldLibraryPathHook + "\n" + nvimIsolationHook + "\n" + shellHook;
+        pkgs.mkShell (
+          # Module env first: the builder's attrset below wins any collision,
+          # so a capability module can never break the Python bootstrap pins
+          # (UV_PYTHON, UV_PYTHON_DOWNLOADS, …). Refs #884.
+          moduleEnv
+          // {
+            # The toolchain SSoT, plus a bare Python interpreter so the downstream
+            # dev-shell matches the image's PATH (`python`/`python3`). The bare
+            # interpreter is not in `devTools`: the image already provides it via
+            # `pythonEnv` in `imageTools`, and a bare interpreter in the SSoT would
+            # collide with `pythonEnv` there. The hook runner (`prek`) lives in
+            # `devTools`, so it reaches both the dev-shell and the image from one
+            # place — the former standalone `pre-commit` here is dropped (#778).
+            # Safe for CI despite the FHS pymarkdown/manylinux constraint: the
+            # dev-shell pins `UV_PYTHON` (below) to this same store CPython, and
+            # the CI PATH-forwarding (setup-env) filters this interpreter out so
+            # `uv` still builds the runner venv from a downloaded managed CPython.
+            # No new LD_LIBRARY_PATH, so the #703 FHS leak-guard is unaffected.
+            # Refs #729, #778.
+            packages =
+              (devTools pkgs)
+              ++ [
+                python
+              ]
+              ++ extraPackages
+              ++ modulePackages;
+            shellHook =
+              ldLibraryPathHook + "\n" + nvimIsolationHook + "\n" + moduleShellHook + hooksShellHook + shellHook;
 
-          UV_PYTHON = "${python}/bin/python3.14";
-          UV_PYTHON_DOWNLOADS = "never";
+            UV_PYTHON = "${python}/bin/python3.14";
+            UV_PYTHON_DOWNLOADS = "never";
 
-          # Resolve the bats helper libraries from the Nix store. The wrapper
-          # also sets this when `bats` runs, but exporting it in the dev-shell
-          # makes the path visible (and works for a bare `bats` too). Refs #695.
-          BATS_LIB_PATH = "${batsWithLibs pkgs}/share/bats";
+            # Resolve the bats helper libraries from the Nix store. The wrapper
+            # also sets this when `bats` runs, but exporting it in the dev-shell
+            # makes the path visible (and works for a bare `bats` too). Refs #695.
+            BATS_LIB_PATH = "${batsWithLibs pkgs}/share/bats";
 
-          # For CI only: the pin above means downloads never happen in the
-          # dev-shell, but CI forwards this URL (NOT UV_PYTHON) so its FHS runner
-          # downloads a managed CPython for pre-commit's manylinux-wheel hooks,
-          # which a Nix-store interpreter cannot load there. Refs #632, #683.
-          UV_PYTHON_DOWNLOADS_JSON_URL = uvPythonDownloadsJsonUrl;
-        };
+            # For CI only: the pin above means downloads never happen in the
+            # dev-shell, but CI forwards this URL (NOT UV_PYTHON) so its FHS runner
+            # downloads a managed CPython for pre-commit's manylinux-wheel hooks,
+            # which a Nix-store interpreter cannot load there. Refs #632, #683.
+            UV_PYTHON_DOWNLOADS_JSON_URL = uvPythonDownloadsJsonUrl;
+          }
+          # Expose the rendered hook config for tests/tooling ONLY when the
+          # consumer opted in, so the zero-hooks derivation is untouched.
+          # passthru is not part of the derivation environment. Refs #883.
+          // pkgs.lib.optionalAttrs hooksEnabled {
+            passthru = {
+              inherit hooksConfigFile;
+            };
+          }
+        );
 
       # ---------------------------------------------------------------------
       # mkProjectServices — reusable local dev-services builder (#795).
@@ -400,151 +554,30 @@
         ]);
 
         # ------------------------------------------------------------------
-        # preCommitCheck — the sandbox-pure subset of the committed
-        # `.pre-commit-config.yaml`, run by the `prek` runner as
+        # preCommitCheck — the sandbox-pure profile of the ONE hook-set
+        # definition (nix/hooks.nix, #883), run by the `prek` runner as
         # `checks.pre-commit` under `nix flake check`. Refs #778 (supersedes #40).
         #
         # `checks.pre-commit` builds in the Nix sandbox: NO network, NO project
-        # venv. Only hooks that are pure under those constraints are enabled
-        # here. Impure / generator / stage-gated hooks stay RUNNER-ONLY in the
-        # committed config (which prek runs from the toolchain PATH): generate-docs
-        # + sync-manifest (repo scripts needing python+repo), pip-licenses (reads
-        # uv.lock), pymarkdown (not in nixpkgs), no-commit-to-branch +
-        # check-agent-identity (inspect git state/identity, absent in the
-        # sandbox), and the commit-msg / prepare-commit-msg stage hooks (never run
-        # by `--all-files`).
-        #
-        # The committed `.pre-commit-config.yaml` stays the hand-maintained,
-        # PATH-based runner SSoT (it must stay portable to the downstream scaffold,
-        # which has no flake). This check is the Nix-verified guarantee that the
-        # pure hooks agree with it. See docs/NIX.md for the two-artifact model.
-        preCommitCheck = git-hooks-nix.lib.${system}.run {
-          src = ./.;
-          # Run the hooks with prek (Rust) instead of the Python pre-commit.
-          package = pkgs.prek;
-          # Mirror the committed config's top-level `exclude`.
-          excludes = [
-            "^\\.github_data/"
-            "^docs/issues/"
-            "^docs/pull-requests/"
-          ];
-          hooks = {
-            # Formatting: ONE treefmt hook (nixfmt-rfc-style + ruff-format +
-            # taplo) reusing the flake's treefmtEval — the same wrapper `nix fmt`
-            # and `checks.formatting` use. Replaces the individual nixfmt /
-            # ruff-format / taplo-format hooks with the same formatters. #777,#778.
-            treefmt = {
-              enable = true;
-              packageOverrides.treefmt = treefmtEval.config.build.wrapper;
-            };
-
-            # Pure linters, resolved from nix-provided tools (no venv).
-            ruff.enable = true;
-            shellcheck = {
-              enable = true;
-              args = [ "-x" ];
-              excludes = [ "(^|/)\\.envrc$" ];
-            };
-            yamllint = {
-              enable = true;
-              args = [
-                "--format"
-                "parsable"
-                "--strict"
-              ];
-            };
-            typos.enable = true;
-
-            # taplo semantic lint (formatting is covered by treefmt above). The
-            # built-in `taplo` hook formats, so define lint explicitly to mirror
-            # the committed `taplo-lint` hook.
-            taplo-lint = {
-              enable = true;
-              name = "taplo-lint";
-              entry = "${pkgs.taplo}/bin/taplo lint --config .taplo.toml";
-              language = "system";
-              types = [ "toml" ];
-            };
-
-            # just formats justfiles; `just` is in devTools so this pure hook can
-            # run in the sandbox. The committed `just-fmt` runner hook rewrites in
-            # place (`just --fmt --unstable`); the Nix check must not mutate the
-            # source, so mirror it in check mode (`--check`) — justfile-format
-            # drift is thus caught by `checks.pre-commit` like every other pure
-            # hook. Refs #778.
-            just-fmt = {
-              enable = true;
-              name = "just-fmt";
-              entry = "${pkgs.just}/bin/just --fmt --check --unstable";
-              language = "system";
-              files = "^justfile(\\..*)?$";
-              pass_filenames = false;
-            };
-
-            # pre-commit-hooks meta hooks (git-hooks.nix built-ins, sandbox-pure).
-            # Attr names follow git-hooks.nix (some pluralised vs the raw
-            # pre-commit-hooks ids). `destroyed-symlinks` has no git-hooks.nix
-            # built-in and is git-state-dependent, so it stays runner-only in the
-            # committed config (like no-commit-to-branch).
-            check-added-large-files.enable = true;
-            check-case-conflicts.enable = true;
-            check-json.enable = true;
-            check-merge-conflicts.enable = true;
-            check-symlinks.enable = true;
-            check-toml.enable = true;
-            check-yaml.enable = true;
-            # debug-statements parses the file's Python AST, so it must run under
-            # the project's interpreter (3.14): nixpkgs' default pre-commit-hooks
-            # is built for 3.13, which rejects the parenthesis-free multi-type
-            # `except A, B:` (PEP 758, valid in 3.14) the repo uses. Pin the hook's
-            # package to the 3.14 build so it matches the committed-config runner
-            # (which runs under the image/dev-shell 3.14). Refs #778.
-            python-debug-statements = {
-              enable = true;
-              package = python.pkgs.pre-commit-hooks;
-            };
-            detect-private-keys.enable = true;
-            end-of-file-fixer.enable = true;
-            mixed-line-endings.enable = true;
-            trim-trailing-whitespace.enable = true;
-
-            # vig-utils / bandit hooks wired to the hermetic Nix binaries
-            # (${vigUtils}/bin/… + ${pkgs.bandit}/bin/bandit) — sandbox-pure, no
-            # `uv run`. They mirror the committed config's file filters/args.
-            check-action-pins = {
-              enable = true;
-              name = "check-action-pins";
-              entry = "${vigUtils}/bin/check-action-pins";
-              language = "system";
-              files = "^\\.github/(workflows/.*\\.ya?ml|actions/.*/action\\.ya?ml)$";
-              pass_filenames = false;
-            };
-            check-skill-names = {
-              enable = true;
-              name = "check-skill-names";
-              entry = "${vigUtils}/bin/check-skill-names .claude/skills";
-              language = "system";
-              files = "^\\.claude/skills/";
-              pass_filenames = false;
-            };
-            check-expirations = {
-              enable = true;
-              name = "check-expirations";
-              entry = "${vigUtils}/bin/check-expirations .trivyignore .vulnixignore";
-              language = "system";
-              files = "^\\.(trivyignore|vulnixignore)$";
-              pass_filenames = false;
-            };
-            bandit = {
-              enable = true;
-              name = "bandit";
-              entry = "${pkgs.bandit}/bin/bandit -r packages/vig-utils/src/ assets/workspace/ -ll";
-              language = "system";
-              types = [ "python" ];
-              pass_filenames = false;
-            };
-          };
-        };
+        # venv. nix/hooks.nix marks which hooks are pure under those
+        # constraints (`check` fragments, wired here to the hermetic Nix
+        # binaries: treefmtEval's wrapper, ${vigUtils}/bin/…, the 3.14
+        # pre-commit-hooks build for debug-statements); the impure /
+        # generator / stage-gated hooks stay RUNNER-ONLY in the committed
+        # `.pre-commit-config.yaml`, which the SAME definition renders and
+        # tests/test_flake_hooks.py drift-gates. See docs/NIX.md
+        # ("One hook definition, three renders").
+        preCommitCheck = git-hooks-nix.lib.${system}.run (
+          {
+            src = ./.;
+            # Run the hooks with prek (Rust) instead of the Python pre-commit.
+            package = pkgs.prek;
+          }
+          // hooksModule.checkArgs {
+            inherit pkgs vigUtils python;
+            treefmtWrapper = treefmtEval.config.build.wrapper;
+          }
+        );
 
         # The toolchain SSoT plus the runtime substrate a bare layered image
         # lacks (an FHS base distro would provide these; here we add them
@@ -569,19 +602,6 @@
             # Python `pre-commit` that used to sit here is dropped (#778).
             pythonEnv
             bandit
-
-            # DEPRECATED — remove in 0.5 (#881): one-release-cycle
-            # `pre-commit -> prek` compat shim. #778 dropped the Python
-            # pre-commit for prek, but consumer files preserved on upgrade
-            # (justfile.project recipes, repo-managed .githooks scripts)
-            # still invoke `pre-commit` and exited 127 at commit time. prek
-            # is drop-in for run-style invocations, so the shim dispatches
-            # and prints a one-line stderr notice (stdout stays clean for
-            # pipelines) until consumers rename their invocations.
-            (writeShellScriptBin "pre-commit" ''
-              echo "pre-commit: deprecated compat shim, dispatching to prek — rename your invocation; the shim is removed in 0.5 (vig-os/devcontainer#881)" >&2
-              exec ${prek}/bin/prek "$@"
-            '')
 
             # Rust/cargo + just LSP/formatter tools. The Debian image installed
             # these via cargo-binstall; Nix-native from nixpkgs here (#666).
@@ -717,6 +737,19 @@
             touch "$out"
           '';
         }
+        # One devshell build per capability module (#884), generated from the
+        # nix/modules/ registry so a module cannot ship without its check —
+        # `module-<name>` evaluates and builds on every default system
+        # (x86_64-linux in Tier-0 CI; the others via `--all-systems` eval).
+        # tests/test_flake_modules.py reuses these as its `nix develop` entry
+        # points for the deeper smoke tests (toolchain on PATH, uv sdist build).
+        // pkgs.lib.mapAttrs' (
+          name: _:
+          pkgs.lib.nameValuePair "module-${name}" (mkProjectShell {
+            inherit pkgs;
+            modules = [ name ];
+          })
+        ) capabilityModules
         # The ci homeConfigurations build as Tier-0 checks. x86_64-darwin is
         # the eval-only best-effort tier (ADR platform table): it exists as a
         # homeConfiguration but gets no build leg. Refs #819.
@@ -787,6 +820,21 @@
                 if pkgs.stdenv.hostPlatform.isAarch64 then "ld-linux-aarch64.so.1" else "ld-linux-x86-64.so.2";
               fhsLoaderDir = if pkgs.stdenv.hostPlatform.isAarch64 then "lib" else "lib64";
 
+              # Authoritative built-tag record (#921). The real publish tag (RCs
+              # included) is only known at the workflow/publish layer: a plain
+              # `nix build` derives the version from the checked-in `./.vig-os`
+              # repo pin, which advances only at finalize and so is stale for
+              # release candidates. The release build-image action runs
+              # `nix build --impure` with `VIG_OS_VERSION` set to the true
+              # publish tag; that single, named, explicit env read is the ONLY
+              # impurity, and it is empty under a plain (pure) `nix build` —
+              # `builtins.getEnv` returns "" in pure eval — so the repo-pin
+              # fallback in the bootstrap below keeps `nix build` bit-
+              # reproducible. Baked as /root/assets/VERSION so init-workspace.sh
+              # can stamp a scaffolded `.vig-os` with the real tag on a raw
+              # `podman run` upgrade that forwards no env (install.sh aside).
+              imageVersionOverride = builtins.getEnv "VIG_OS_VERSION";
+
               # Bake the workspace assets, pre-commit cache dir and template
               # .venv scaffold as a normal image layer. UV_PYTHON pins the Nix
               # interpreter and UV_PYTHON_DOWNLOADS=never forbids uv from
@@ -814,13 +862,26 @@
                     cp ${./docs/MIGRATION.md} "$out/root/assets/MIGRATION.md"
                     chmod u+w "$out/root/assets/MIGRATION.md"
 
+                    # Resolve the built tag: the explicit VIG_OS_VERSION override
+                    # (release build, via --impure) when present, else the repo's
+                    # pinned DEVCONTAINER_VERSION. Empty override => pure/plain
+                    # `nix build`, so this is the reproducible repo pin (#921/#642).
+                    dcver="$(sed -n 's/^DEVCONTAINER_VERSION=//p' ${./.vig-os})"
+                    imageVersion="${imageVersionOverride}"
+                    [ -n "$imageVersion" ] || imageVersion="$dcver"
+
+                    # Authoritative built-tag record (#921): a distinct, machine-
+                    # readable copy of the true tag that init-workspace.sh reads to
+                    # stamp a scaffolded `.vig-os` when no VIG_OS_VERSION env is
+                    # forwarded (raw `podman run ... init-workspace.sh` upgrade).
+                    printf '%s\n' "$imageVersion" > "$out/root/assets/VERSION"
+
                     # Bake the devcontainer version into the scaffolded `.vig-os`,
                     # replacing the {{IMAGE_TAG}} placeholder. The Debian build
                     # relied on the IMAGE_TAG build-arg; the reproducible Nix image
                     # reads the repo's pinned DEVCONTAINER_VERSION, so a scaffolded
                     # workspace pins the devcontainer release it was built from. #642.
-                    dcver="$(sed -n 's/^DEVCONTAINER_VERSION=//p' ${./.vig-os})"
-                    sed -i "s/{{IMAGE_TAG}}/$dcver/g" "$out/root/assets/workspace/.vig-os"
+                    sed -i "s/{{IMAGE_TAG}}/$imageVersion/g" "$out/root/assets/workspace/.vig-os"
 
                     # Bake the build-time placeholder manifest so
                     # init-workspace.sh takes its fast substitution path instead
@@ -1143,6 +1204,10 @@
           mkProjectServices
           devTools
           ;
+        # PATH-portable renders of the one hook-set definition (#883):
+        # `runner` must match the committed .pre-commit-config.yaml,
+        # `scaffold` the assets/workspace copy (tests/test_flake_hooks.py).
+        hooksPortable = hooksModule.portable;
       };
       overlays.default = overlay;
 
@@ -1222,6 +1287,16 @@
       templates.personal = {
         path = ./templates/personal;
         description = "Personal home-manager flake importing the vigOS home modules";
+      };
+
+      # `nix flake init -t github:vig-os/devcontainer#python` restores an opt-in
+      # Python package layout (pyproject + src/ + pytest) onto the now
+      # language-neutral scaffold (#929). `nix flake init -t` does no token
+      # substitution, so the template uses a concrete `example_pkg` the user
+      # renames (see templates/python/README.md). Refs #930.
+      templates.python = {
+        path = ./templates/python;
+        description = "Opt-in Python project starter (pyproject + src/ + pytest)";
       };
     };
 }

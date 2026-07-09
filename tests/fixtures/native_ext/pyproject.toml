@@ -1,0 +1,12 @@
+# Trivial C-extension fixture for the `native` capability-module smoke test
+# (tests/test_flake_modules.py). Built as an sdist and compiled by uv inside
+# the module devshell — the pycatima-class scenario from #639/#879. Refs #884.
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "native-ext"
+version = "0.1.0"
+description = "Trivial C extension exercising the native capability module"
+requires-python = ">=3.12"

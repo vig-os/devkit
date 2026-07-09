@@ -149,25 +149,32 @@ class TestInstallScriptIntegration:
         devcontainer_json = install_workspace / ".devcontainer" / "devcontainer.json"
         assert devcontainer_json.exists(), "devcontainer.json not created"
 
-    def test_install_creates_pyproject(self, install_workspace):
-        """Test install.sh creates pyproject.toml."""
+    def test_install_does_not_scaffold_pyproject(self, install_workspace):
+        """The scaffold is language-neutral (#929): no pyproject.toml is shipped.
+
+        Python is opt-in via `nix flake init -t ...#python` (#930).
+        """
         pyproject = install_workspace / "pyproject.toml"
-        assert pyproject.exists(), "pyproject.toml not created"
+        assert not pyproject.exists(), (
+            "pyproject.toml should not be scaffolded by a language-neutral template"
+        )
 
     def test_install_derives_short_name_from_directory(self, install_workspace):
         """Test SHORT_NAME is correctly derived from directory name.
 
         Directory name starts with "Install-Test-Project-" which should
-        become "install_test_project_..." (lowercase, underscores).
+        become "install_test_project_..." (lowercase, underscores). Read it
+        back from justfile.project (`project := "{{SHORT_NAME}}"`), a
+        placeholder-bearing file the language-neutral scaffold still ships.
         """
-        pyproject = install_workspace / "pyproject.toml"
-        content = pyproject.read_text()
+        justfile_project = install_workspace / "justfile.project"
+        content = justfile_project.read_text()
 
         # The directory name is "Install-Test-Project-XXXXX"
         # SHORT_NAME should be sanitized to lowercase with underscores
         assert "install_test_project" in content.lower(), (
             f"SHORT_NAME not derived correctly from directory name.\n"
-            f"Expected 'install_test_project' in pyproject.toml, got:\n{content[:500]}"
+            f"Expected 'install_test_project' in justfile.project, got:\n{content[:500]}"
         )
 
     def test_install_uses_default_org_name(self, install_workspace):
@@ -206,26 +213,22 @@ class TestInstallScriptIntegration:
                 except UnicodeDecodeError:
                     continue
 
-    def test_install_creates_src_directory(self, install_workspace):
-        """Test src directory is created with correct package name."""
+    def test_install_does_not_scaffold_src(self, install_workspace):
+        """The language-neutral scaffold ships no src/ package dir (#929).
+
+        Python is opt-in via `nix flake init -t ...#python` (#930).
+        """
         src_dir = install_workspace / "src"
-        assert src_dir.exists(), "src directory not created"
-
-        # Should have a subdirectory named after the project
-        subdirs = list(src_dir.iterdir())
-        assert len(subdirs) == 1, f"Expected 1 package directory, found: {subdirs}"
-
-        # Directory name should be sanitized project name
-        pkg_name = subdirs[0].name
-        assert pkg_name.startswith("install_test_project"), (
-            f"Package directory should start with 'install_test_project', got: {pkg_name}"
+        assert not src_dir.exists(), (
+            "src/ should not be scaffolded by a language-neutral template"
         )
 
-    def test_install_creates_tests_directory(self, install_workspace):
-        """Test tests directory is created."""
+    def test_install_does_not_scaffold_tests(self, install_workspace):
+        """The language-neutral scaffold ships no tests/ dir (#929)."""
         tests_dir = install_workspace / "tests"
-        assert tests_dir.exists(), "tests directory not created"
-        assert (tests_dir / "__init__.py").exists(), "tests/__init__.py not created"
+        assert not tests_dir.exists(), (
+            "tests/ should not be scaffolded by a language-neutral template"
+        )
 
     def test_install_creates_githooks(self, install_workspace):
         """Test .githooks directory is created."""

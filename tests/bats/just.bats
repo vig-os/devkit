@@ -46,6 +46,56 @@ EOF
     assert_output --partial "gh-branch"
 }
 
+# ── pipefail shell in the root justfile (#854) ────────────────────────────────
+# `set shell := ["bash","-euo","pipefail","-c"]` used to live only in the
+# devc-managed justfile.devc, so in direnv/bare mode (no .devcontainer/) the
+# identical justfile.project recipes ran under just's default `sh -cu` without
+# pipefail. The setting belongs in the root justfile, which ships in every mode.
+
+@test "root justfile template sets the pipefail shell (#854)" {
+    run grep -qF 'set shell := ["bash", "-euo", "pipefail", "-c"]' \
+        assets/workspace/justfile
+    assert_success
+}
+
+@test "justfile.devc no longer duplicates the shell setting (SSoT, #854)" {
+    run grep -qE '^[[:space:]]*set shell' assets/workspace/.devcontainer/justfile.devc
+    assert_failure
+}
+
+@test "scaffolded root justfile loads with the pipefail shell set (#854)" {
+    run bash -c "cd assets/workspace && just --summary >/dev/null"
+    assert_success
+}
+
+# ── devc-upgrade honors the .vig-os pin (#854) ────────────────────────────────
+# The scaffolded devc-upgrade recipe used to always curl install.sh from `main`,
+# silently moving a pinned consumer to HEAD. It must read DEVCONTAINER_VERSION
+# from .vig-os and upgrade to THAT generation instead.
+
+@test "devc-upgrade reads DEVCONTAINER_VERSION from .vig-os (#854)" {
+    run grep -q 'DEVCONTAINER_VERSION' \
+        assets/workspace/.devcontainer/justfile.devc
+    assert_success
+}
+
+@test "devc-upgrade curls install.sh from the pinned ref, not hard-wired main (#854)" {
+    # The functional upgrade curl must interpolate the resolved ref (${REF}),
+    # and no install.sh curl in the recipe may be pinned literally to /main/.
+    # shellcheck disable=SC2016  # grepping for the LITERAL '${REF}' in the recipe
+    run grep -q 'githubusercontent.com/vig-os/devcontainer/${REF}/install.sh' \
+        assets/workspace/.devcontainer/justfile.devc
+    assert_success
+    run grep -F 'vig-os/devcontainer/main/install.sh' \
+        assets/workspace/.devcontainer/justfile.devc
+    assert_failure
+}
+
+@test "devc-upgrade forwards --version for a pinned consumer (#854)" {
+    run grep -q -- '--version' assets/workspace/.devcontainer/justfile.devc
+    assert_success
+}
+
 @test "prepare-release dispatches workflow from dev ref" {
     run bash -lc "awk '/^prepare-release version ref=\"\" \\*flags:/{flag=1; next} /^$/{if(flag){exit}} flag' justfile.gh | grep -Fq -- 'REF=\"dev\"'"
     assert_success

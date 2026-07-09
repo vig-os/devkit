@@ -215,3 +215,43 @@ Expiration: 2026-08-06
 #   5.8.2) — backport PR NixOS/nixpkgs#536367 is open (draft, base
 #   release-26.05). Flip to a nixpkgs rev-advance when it lands; re-check weekly.
 CVE-2026-57231
+
+# ============================================================================
+# Triage 2026-07-08 — curl 8.20.0 advisory batch (release-cycle fix, #941).
+# Fresh disclosure published 2026-06-24; surfaced in the vulnix feed 2026-07-08
+# (nightly security-scan went red that morning) and blocks the 0.5.0-rc1
+# publish at the vulnix gate. Real product match (curl the CLI/library, no CPE
+# collision). NO fixed release exists to bump to: curl is 8.20.0 in the pinned
+# rev, latest nixos-26.05, AND nixpkgs-unstable, and upstream curl has no
+# release newer than 8.20.0. The "advance the rev" lever has nowhere to land,
+# so these are accepted as awaiting-upstream with a short expiry pending a
+# patched curl. Renovate's nix manager should surface the bump; drop this block
+# and advance the pin once it does. curl is reachable (https/git-over-https,
+# the docker->podman shim, flake fetches), so exposure is NOT theoretical —
+# this is a time-boxed risk acceptance, not a dismissal.
+# ============================================================================
+
+Expiration: 2026-07-22
+# curl 8.20.0 — CVE-2026-10536 (9.8) HTTP/2 stream-dependency-tree UAF;
+#   CVE-2026-11856 (9.8) cross-origin Digest auth-state leak; CVE-2026-8925
+#   (9.8) SASL double-free; CVE-2026-9079 (9.8) stale proxy-password leak.
+CVE-2026-10536
+CVE-2026-11856
+CVE-2026-8925
+CVE-2026-9079
+# curl 8.20.0 — CVSS 9.1 batch (parser/state-handling advisories in the same
+#   2026-06-24 disclosure); no fixed release upstream or in nixpkgs yet.
+CVE-2026-11564
+CVE-2026-8924
+CVE-2026-8926
+CVE-2026-8927
+# curl 8.20.0 — CVE-2026-8286 (8.1); remaining HIGH advisories from the batch.
+CVE-2026-8286
+CVE-2026-11352
+CVE-2026-11586
+CVE-2026-12064
+CVE-2026-8932
+CVE-2026-9545
+CVE-2026-9546
+CVE-2026-9547
+CVE-2026-9080

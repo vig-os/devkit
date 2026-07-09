@@ -213,6 +213,15 @@ jobs:
           uv run pytest tests/test_flake_devshell.py \
             -k "exposes_python3_and_precommit or hook_runner_is_prek or no_nix_cxx_runtime_leak" -v
 
+      # Run the capability-module contract tests (#884): the `native` module
+      # shell exposes the C/C++ toolchain on its own PATH and exports generic
+      # CC/CXX, plus the C-extension sdist smoke. nix-fast-build above already
+      # builds `checks.*.module-native`, so `nix develop` is warm; the sdist
+      # smoke needs PyPI, which this lane already uses (setup-env runs
+      # `uv sync`), so it is included rather than deselected. Refs #884.
+      - name: Check capability-module contracts (native)
+        run: uv run pytest tests/test_flake_modules.py -v
+
       # Validate the scaffolded downstream stub (assets/workspace/flake.nix)
       # against THIS toolchain, not the published vigos, so a change to the flake
       # API (lib.mkProjectShell / overlays.default) can't silently break a
@@ -313,34 +322,41 @@ jobs:
           name: container-image-${{ needs.build-image.outputs.version }}-amd64
           path: /tmp
 
-      - name: Report HIGH/CRITICAL vulnerabilities (non-blocking)
+      # One Trivy pass for every reported severity (was two separate runs, one
+      # per tier). Each trivy-action invocation re-installs Trivy, re-parses the
+      # image tar and cold-pulls the vuln DB, so collapsing HIGH/CRITICAL + MEDIUM
+      # into a single `severity` list drops a whole ~3 min run. Still
+      # non-blocking (exit-code 0) — the authoritative CVE gate is the nightly
+      # vulnix scan (security-scan.yml). `.trivyignore` now also filters MEDIUM;
+      # harmless (awareness only, no MEDIUM-specific entries). trivy-action caches
+      # the DB in $GITHUB_WORKSPACE/.cache/trivy (cache: true default), so this
+      # step populates the cache the SBOM step below reuses. Refs #109, #642.
+      - name: Report HIGH/CRITICAL/MEDIUM vulnerabilities (non-blocking)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           version: 'v0.71.2'
           input: /tmp/image.tar
           format: 'table'
-          severity: 'HIGH,CRITICAL'
-          exit-code: '0'
+          severity: 'HIGH,CRITICAL,MEDIUM'
+          exit-code: '0'  # Non-blocking report
           trivyignores: '.trivyignore'
 
-      - name: Report MEDIUM severity vulnerabilities (non-blocking)
-        if: always()
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
-        with:
-          version: 'v0.71.2'
-          input: /tmp/image.tar
-          format: 'table'
-          severity: 'MEDIUM'
-          exit-code: '0'  # Non-blocking report
-
+      # SBOM is a package-inventory pass; it does not need the vuln DB the scan
+      # above already fetched, nor a second Trivy install. Reuse the warm state
+      # (skip-setup-trivy + TRIVY_SKIP_*_DB_UPDATE) so this stops cold-pulling
+      # ~ again on every run. Refs #109.
       - name: Generate container SBOM (CycloneDX)
         if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        env:
+          TRIVY_SKIP_DB_UPDATE: 'true'
+          TRIVY_SKIP_JAVA_DB_UPDATE: 'true'
         with:
           version: 'v0.71.2'
           input: /tmp/image.tar
           format: 'cyclonedx'
           output: 'sbom-cyclonedx.json'
+          skip-setup-trivy: 'true'
 
       - name: Upload SBOM artifact
         if: always()

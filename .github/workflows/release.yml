@@ -309,6 +309,7 @@ jobs:
         id: pr
         env:
           VERSION: ${{ steps.vars.outputs.version }}
+          RELEASE_KIND: ${{ steps.vars.outputs.release_kind }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -339,28 +340,39 @@ jobs:
 
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
 
-          if [ "$IS_DRAFT" = "true" ]; then
-            echo "ERROR: PR #$PR_NUMBER is still in draft status"
-            echo "Mark it ready for review first: gh pr ready $PR_NUMBER"
-            exit 1
-          fi
-
-          if [ "$REVIEW_DECISION" = "APPROVED" ]; then
-            echo "PR #$PR_NUMBER is approved"
-          elif [ "$REVIEW_DECISION" = "null" ] || [ -z "$REVIEW_DECISION" ]; then
-            # Bot approval fallback when gh pr list leaves reviewDecision empty (#438)
-            APPROVED_COUNT=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh api \
-              --paginate --slurp \
-              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews" \
-              | jq 'add | map(select(.state == "APPROVED")) | length')
-            if [ "$APPROVED_COUNT" -eq 0 ]; then
-              echo "ERROR: PR #$PR_NUMBER does not have approvals (reviewDecision: $REVIEW_DECISION, approved reviews: 0)"
+          # The draft + approval gate applies only to the final release, which
+          # burns the immutable X.Y.Z tag. Release candidates are disposable
+          # verification artifacts (auto-incrementing rcN tags, never touch
+          # :latest, no GitHub Release, pruned at promote), so they gate on CI
+          # only and may run against a still-draft, not-yet-approved PR. The
+          # approval that protects `main` is re-enforced by promote-release's
+          # merge job regardless. See #902.
+          if [ "$RELEASE_KIND" = "final" ]; then
+            if [ "$IS_DRAFT" = "true" ]; then
+              echo "ERROR: PR #$PR_NUMBER is still in draft status"
+              echo "Mark it ready for review first: gh pr ready $PR_NUMBER"
               exit 1
             fi
-            echo "reviewDecision='$REVIEW_DECISION' but $APPROVED_COUNT approved review(s) found"
+
+            if [ "$REVIEW_DECISION" = "APPROVED" ]; then
+              echo "PR #$PR_NUMBER is approved"
+            elif [ "$REVIEW_DECISION" = "null" ] || [ -z "$REVIEW_DECISION" ]; then
+              # Bot approval fallback when gh pr list leaves reviewDecision empty (#438)
+              APPROVED_COUNT=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh api \
+                --paginate --slurp \
+                "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews" \
+                | jq 'add | map(select(.state == "APPROVED")) | length')
+              if [ "$APPROVED_COUNT" -eq 0 ]; then
+                echo "ERROR: PR #$PR_NUMBER does not have approvals (reviewDecision: $REVIEW_DECISION, approved reviews: 0)"
+                exit 1
+              fi
+              echo "reviewDecision='$REVIEW_DECISION' but $APPROVED_COUNT approved review(s) found"
+            else
+              echo "ERROR: PR #$PR_NUMBER does not have approvals (status: $REVIEW_DECISION)"
+              exit 1
+            fi
           else
-            echo "ERROR: PR #$PR_NUMBER does not have approvals (status: $REVIEW_DECISION)"
-            exit 1
+            echo "Release kind '$RELEASE_KIND': deferring draft/approval gate to the final release (CI checks still enforced below)"
           fi
 
           # Check CI status
@@ -390,7 +402,11 @@ jobs:
             exit 1
           fi
 
-          echo "✓ PR #$PR_NUMBER verified: ready and approved"
+          if [ "$RELEASE_KIND" = "final" ]; then
+            echo "✓ PR #$PR_NUMBER verified: ready, approved, CI green"
+          else
+            echo "✓ PR #$PR_NUMBER verified: CI green (draft/approval gate deferred to final)"
+          fi
 
       - name: Validate and parse architectures
         id: matrix
