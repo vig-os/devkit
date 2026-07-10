@@ -1,9 +1,9 @@
 # ADR: Secrets-management pattern — sops-nix/age + OIDC
 
 - **Status:** Accepted (pattern / design record; not a migration)
-- **Issue:** [#780](https://github.com/vig-os/devcontainer/issues/780)
-- **Source:** PR [#670](https://github.com/vig-os/devcontainer/pull/670) roadmap, thread D
-- **Related:** [#786](https://github.com/vig-os/devcontainer/issues/786) — agent
+- **Issue:** [#780](https://github.com/vig-os/devkit/issues/780)
+- **Source:** PR [#670](https://github.com/vig-os/devkit/pull/670) roadmap, thread D
+- **Related:** [#786](https://github.com/vig-os/devkit/issues/786) — agent
   secret-management *behaviour* standard (complementary, see
   [Relationship to #786](#relationship-to-786))
 
@@ -148,7 +148,7 @@ image, or any release path and must never be. See its
 ## Relationship to #786
 
 This ADR is the **plumbing** layer (how secrets are stored/delivered);
-[#786](https://github.com/vig-os/devcontainer/issues/786) is the **agent-behaviour
+[#786](https://github.com/vig-os/devkit/issues/786) is the **agent-behaviour
 / governance** layer (how an agent must behave around a secret once it exists —
 discovery, redaction, exfiltration guardrails, never committing key material).
 They **compose and do not overlap**:

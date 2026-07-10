@@ -193,8 +193,8 @@ Examples:
 
 ```bash
 setup-labels --dry-run
-setup-labels --repo vig-os/devcontainer
-setup-labels --repo vig-os/devcontainer --prune
+setup-labels --repo vig-os/devkit
+setup-labels --repo vig-os/devkit --prune
 ```
 
 ### `vig-utils` (utility helper)

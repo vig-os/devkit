@@ -31,7 +31,7 @@
      If no changelog update is needed, write "No changelog needed" and explain why.
      Example:
      ### Added
-     - **SSH agent forwarding** ([#42](https://github.com/vig-os/devcontainer/issues/42))
+     - **SSH agent forwarding** ([#42](https://github.com/vig-os/devkit/issues/42))
        - Forward host SSH agent into devcontainer for seamless git authentication
 -->
 

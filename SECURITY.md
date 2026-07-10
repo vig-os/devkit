@@ -15,7 +15,7 @@ Older versions are not maintained.
 **Do not open a public GitHub issue for security vulnerabilities.**
 
 To report a vulnerability, use
-[GitHub Private Vulnerability Reporting](https://github.com/vig-os/devcontainer/security/advisories/new).
+[GitHub Private Vulnerability Reporting](https://github.com/vig-os/devkit/security/advisories/new).
 
 When reporting, please include:
 

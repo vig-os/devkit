@@ -2,7 +2,7 @@
 
 > **This is an illustrative, non-functional example.** It is documentation for
 > the pattern recorded in [`../../ADR-secrets-management.md`](../../ADR-secrets-management.md)
-> (issue [#780](https://github.com/vig-os/devcontainer/issues/780)). It is **not**
+> (issue [#780](https://github.com/vig-os/devkit/issues/780)). It is **not**
 > imported by `flake.nix`, the image build, or any release/CI path, and it must
 > **never** be wired into a live path.
 >

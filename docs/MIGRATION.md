@@ -40,14 +40,14 @@ one of four modes:
   `nix develop`) drops you into the shared toolchain on the host, no container.
   The stub is never overwritten on re-scaffold; update with `nix flake update`.
   The shipped `ci.yml` is a **nix-direct** variant
-  ([#854](https://github.com/vig-os/devcontainer/issues/854)): no image
+  ([#854](https://github.com/vig-os/devkit/issues/854)): no image
   resolution and no in-container jobs — the runner installs Nix (with the vig-os
   Cachix substituter) and drives the same `just sync` / `just precommit` /
   `just test` contract inside the flake dev-shell via `nix develop -c`. See
   [direnv-mode CI](#direnv-mode-ci) for the supported boundary.
 - **`both`** — everything above (the default).
 - **`bare`** — the standards layer only
-  ([#885](https://github.com/vig-os/devcontainer/issues/885)): justfiles,
+  ([#885](https://github.com/vig-os/devkit/issues/885)): justfiles,
   `.pre-commit-config.yaml`, `.github/` CI, and `.vig-os` — no `.devcontainer/`,
   no `flake.nix`/`.envrc`. The tools come from
   the host (`uv`, `just`, `prek`), and the shipped `ci.yml` is a host-native
@@ -64,12 +64,12 @@ so upgrades never need `--mode` again.
 `.devcontainer/`, a `.vig-os`-driven `resolve-image` job hard-fails and bricks
 every workflow that runs `container: ghcr.io/vig-os/devcontainer:<pin>`. To keep
 the main lane working, `direnv` mode ships a **nix-direct `ci.yml`** overlay
-([#854](https://github.com/vig-os/devcontainer/issues/854)) that runs on the host
+([#854](https://github.com/vig-os/devkit/issues/854)) that runs on the host
 runner (`install-nix` + Cachix → `nix develop -c just sync|precommit|test`),
 mirroring this repo's own project-checks job.
 
 **Supported boundary (until the devkit rename cycle,
-[#781](https://github.com/vig-os/devcontainer/issues/781), completes the full
+[#781](https://github.com/vig-os/devkit/issues/781), completes the full
 workflow audit):** only `ci.yml` is converted for direnv mode. These shipped
 workflows stay **container-based and devcontainer-mode-only**, so a direnv-only
 consumer should delete or disable them (they still work unchanged in
@@ -84,19 +84,19 @@ Container-independent workflows keep working in every mode: `codeql.yml`,
 
 ## The `.vig-os` project manifest
 
-Since [#885](https://github.com/vig-os/devcontainer/issues/885), `.vig-os` is
+Since [#885](https://github.com/vig-os/devkit/issues/885), `.vig-os` is
 the project's declarative manifest, not just a version pin. Flat `KEY=VALUE`
 lines with `#` comments; every consumer parses it line-based and ignores
 unknown keys:
 
 | Key | Meaning |
 |-----|---------|
-| `DEVCONTAINER_VERSION` | Scaffold/image version pin (managed by release automation; keeps its legacy name until the devkit rename, [#781](https://github.com/vig-os/devcontainer/issues/781)) |
+| `DEVCONTAINER_VERSION` | Scaffold/image version pin (managed by release automation; keeps its legacy name until the devkit rename, [#781](https://github.com/vig-os/devkit/issues/781)) |
 | `DEVKIT_MODE` | Delivery mode: `devcontainer` \| `direnv` \| `both` \| `bare` |
 | `DEVKIT_PROJECT` | Persisted project short name (`SHORT_NAME`) |
 | `DEVKIT_ORG` | Persisted organization name (`ORG_NAME`) |
 | `DEVKIT_REPO` | Persisted GitHub `owner/repo` (Renovate preset) |
-| `DEVKIT_MODULES` | Reserved: space-separated capability modules mirroring `mkProjectShell`'s `modules = [ … ]` ([#884](https://github.com/vig-os/devcontainer/issues/884)) |
+| `DEVKIT_MODULES` | Reserved: space-separated capability modules mirroring `mkProjectShell`'s `modules = [ … ]` ([#884](https://github.com/vig-os/devkit/issues/884)) |
 
 How it behaves:
 
@@ -120,7 +120,7 @@ How it behaves:
   preflight-guard flow below) and re-run the upgrade.
 - **Future flags live here.** The manifest is the home for upcoming per-project
   devkit switches (e.g. the raw-YAML hook opt-out planned in
-  [#883](https://github.com/vig-os/devcontainer/issues/883)). `.vig-os` is a
+  [#883](https://github.com/vig-os/devkit/issues/883)). `.vig-os` is a
   managed file: the devkit-known keys are re-read and written back on upgrade —
   do not park unrelated custom keys in it.
 
@@ -145,10 +145,10 @@ image:
 - **Python is CPython 3.14, uv-managed — but opt-in.** The image provides
   Python and `uv`, yet the scaffold itself is **language-neutral** and ships no
   `pyproject.toml`
-  ([#929](https://github.com/vig-os/devcontainer/issues/929)); the `just`
+  ([#929](https://github.com/vig-os/devkit/issues/929)); the `just`
   lint/format/test recipes no-op until one exists. Add a Python package layout
   with `nix flake init -t github:vig-os/devcontainer#python`
-  ([#930](https://github.com/vig-os/devcontainer/issues/930)) or `uv init`. Once
+  ([#930](https://github.com/vig-os/devkit/issues/930)) or `uv init`. Once
   present, the project venv lives at `/root/assets/workspace/.venv` and is
   populated by `just sync` (`uv sync`).
   Pin `requires-python` as a **range** (`>=3.14,<3.15`), never an exact patch —
@@ -202,7 +202,7 @@ tiered contract:
 
 2. **Native deps, `direnv` mode (preferred).** Enable the curated `native`
    capability module in the project flake
-   ([#884](https://github.com/vig-os/devcontainer/issues/884), contract in
+   ([#884](https://github.com/vig-os/devkit/issues/884), contract in
    [`docs/rfcs/ADR-capability-modules.md`](rfcs/ADR-capability-modules.md)):
 
    ```nix
@@ -220,9 +220,9 @@ tiered contract:
    find a real compiler regardless of what the image's baked interpreter
    recorded at image-build time (the image's sysconfig records are sanitized
    to the same generic names —
-   [#879](https://github.com/vig-os/devcontainer/issues/879)). This path is
+   [#879](https://github.com/vig-os/devkit/issues/879)). This path is
    field-validated by the 0.4.0 downstream runs
-   ([#639](https://github.com/vig-os/devcontainer/issues/639)).
+   ([#639](https://github.com/vig-os/devkit/issues/639)).
 
    Capability modules are a **dev-shell / direnv-mode feature only**: enabling
    one changes nothing about the published image, which stays base-only.
@@ -245,7 +245,7 @@ tiered contract:
    This is the supported interim answer for devcontainer-mode repos whose
    dependencies lack `cp314` wheels. The pinned `nix develop -c` form also
    works in CI until the nix-direct CI lane
-   ([#854](https://github.com/vig-os/devcontainer/issues/854)) lands; #854
+   ([#854](https://github.com/vig-os/devkit/issues/854)) lands; #854
    tracks running consumer CI inside the project devshell so the contract is
    enforced in CI, not just locally.
 
@@ -284,12 +284,12 @@ The published image will **not** ship gcc/cmake:
   only a pinned project flake provides reproducibly.
 
 The in-image behavior when no toolchain is provided is tracked in
-[#879](https://github.com/vig-os/devcontainer/issues/879); the toolchain
+[#879](https://github.com/vig-os/devkit/issues/879); the toolchain
 itself always comes from one of the tiers above.
 
 ## Customizing pre-commit hooks from the project flake (opt-in)
 
-Since [#883](https://github.com/vig-os/devcontainer/issues/883) the shared
+Since [#883](https://github.com/vig-os/devkit/issues/883) the shared
 hook set is defined once in the vigOS flake, and a consumer can compose it
 from the **preserved** project `flake.nix` instead of hand-editing the
 scaffolded `.pre-commit-config.yaml`:
@@ -316,7 +316,7 @@ The contract:
 
 - **Opt-in only.** Without a `hooks`/`hooksExcludes` argument nothing changes:
   the dev-shell is byte-identical to before and your (preserved,
-  [#878](https://github.com/vig-os/devcontainer/issues/878))
+  [#878](https://github.com/vig-os/devkit/issues/878))
   `.pre-commit-config.yaml` stays the runner config, hand-managed by you.
 - **Opting in makes the flake the generator.** On shell entry (a
   config-only snippet inside the `shellHook`) the rendered
@@ -342,7 +342,7 @@ The contract:
   base set does not include it (the scaffolded YAML runs it from its upstream
   pre-commit repo). Add it as a custom hook if you need it under generation.
 - The planned declarative `.vig-os` manifest
-  ([#885](https://github.com/vig-os/devcontainer/issues/885)) will carry an
+  ([#885](https://github.com/vig-os/devkit/issues/885)) will carry an
   explicit raw-YAML opt-out flag so the choice is recorded per-repo rather
   than inferred from the file state.
 
@@ -360,7 +360,7 @@ The contract:
 An upgrade (`just devc-upgrade`, or `install.sh --force`) rewrites and deletes
 files across the consumer tree, so the installer requires it to land on a
 dedicated working branch as a single reviewable, revertible diff
-([#886](https://github.com/vig-os/devcontainer/issues/886)):
+([#886](https://github.com/vig-os/devkit/issues/886)):
 
 - **Protected branches refuse** — `main`, `dev`, `release/*` (prefix), and a
   detached `HEAD`. On a protected branch with a clean tree the installer
@@ -377,7 +377,7 @@ dedicated working branch as a single reviewable, revertible diff
 To see what an upgrade would change before running it, use `--preview`:
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh \
+curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh \
   | bash -s -- --force --preview .
 ```
 
@@ -389,7 +389,7 @@ and computes no file report).
 
 `install.sh --version <X> --force` refreshes the scaffold and pins `<X>` in
 `.vig-os`, but files you own are **preserved, not migrated**. Field-validated
-checklist ([#859](https://github.com/vig-os/devcontainer/issues/859)) after the
+checklist ([#859](https://github.com/vig-os/devkit/issues/859)) after the
 re-scaffold:
 
 1. **Base recipes moved into `justfile.project`** — 0.4.0 retired
@@ -398,7 +398,7 @@ re-scaffold:
    preserved on upgrade. The shipped `ci.yml` calls `just sync` /
    `just precommit` / `just test`, so the installer appends any of these
    recipes your preserved file does not already resolve (a clearly marked
-   block, [#877](https://github.com/vig-os/devcontainer/issues/877)) and
+   block, [#877](https://github.com/vig-os/devkit/issues/877)) and
    removes the stale `.devcontainer/justfile.base`. Review the appended
    block and fold it into your own recipes; also verify the root `justfile`
    still carries the scaffold `import?` lines — without them no layered
@@ -406,7 +406,7 @@ re-scaffold:
 2. **`.pre-commit-config.yaml` is preserved on upgrade** — earlier upgrades
    replaced it wholesale, silently dropping repo-specific global and per-hook
    `exclude:` patterns (the autofix hooks then rewrote data files they must
-   never touch, [#878](https://github.com/vig-os/devcontainer/issues/878)).
+   never touch, [#878](https://github.com/vig-os/devkit/issues/878)).
    The installer now keeps your file and prints a diff against the incoming
    template — review it and fold in the template evolution you want (e.g.
    `default_language_version`, runner-compat fixes, new hooks). It also warns
@@ -414,17 +414,17 @@ re-scaffold:
    with `prek validate-config .pre-commit-config.yaml`.
 3. **`pre-commit` invocations → `prek`** — the `pre-commit` binary is gone
    from the 0.4.0 image and venv; the hook runner is `prek` (a drop-in for
-   `run`-style invocations, [#778](https://github.com/vig-os/devcontainer/issues/778)).
+   `run`-style invocations, [#778](https://github.com/vig-os/devkit/issues/778)).
    Rename every invocation in files the upgrade preserves or your repo owns:
    the `justfile.project` `precommit` recipe (`uv run pre-commit run
    --all-files` → `prek run --all-files`), repo-managed `.githooks/` scripts
    beyond the scaffold-shipped three (e.g. a `pre-push` hook), hook `entry:`
    lines in `.pre-commit-config.yaml`, and CI configs. The installer scans
    the preserved surfaces and warns with `file:line`
-   ([#881](https://github.com/vig-os/devcontainer/issues/881)). As a bridge,
+   ([#881](https://github.com/vig-os/devkit/issues/881)). As a bridge,
    0.4.x images shipped a deprecated `pre-commit → prek` shim that printed a
    stderr notice; the one-cycle window is over and **0.5 images carry no
-   `pre-commit` binary at all** ([#897](https://github.com/vig-os/devcontainer/issues/897))
+   `pre-commit` binary at all** ([#897](https://github.com/vig-os/devkit/issues/897))
    — unrenamed invocations now fail with exit 127, so act on the installer's
    scan warnings before committing. While editing old `.githooks`
    scripts, also change `#!/bin/bash` shebangs to `#!/usr/bin/env bash`:
@@ -433,7 +433,7 @@ re-scaffold:
    still calling `pre-commit` against a new image, or a new scaffold on an image
    too old to ship `prek`) now surfaces as a one-line `::error::` from the
    `Verify toolchain (prek present)` guard step in the shipped `ci.yml` lint job
-   ([#854](https://github.com/vig-os/devcontainer/issues/854)), instead of an
+   ([#854](https://github.com/vig-os/devkit/issues/854)), instead of an
    opaque `exit 127` deep in the `just precommit` log.
 4. **Recipe renames** — the managed base recipes are now `devc-*`-namespaced
    and the template test recipe is `just test` (formerly `just test-pytest`).
@@ -455,7 +455,7 @@ re-scaffold:
 ## The retired Debian line (historical)
 
 The Debian build path was decommissioned in
-[#642](https://github.com/vig-os/devcontainer/issues/642): the final
+[#642](https://github.com/vig-os/devkit/issues/642): the final
 Debian-built release is **0.3.9**, and every release from 0.4.0 onward is
 Nix-built. Released images are never deleted, so 0.3.9 remains pullable
 (`DEVCONTAINER_VERSION=0.3.9` in the repo-root `.vig-os`), but the line is
@@ -465,7 +465,7 @@ frozen — it receives no CVE fixes and is not a supported rollback track.
 
 The **repository** is scheduled to be renamed to **`devkit`** in the release
 cycle after the Nix cutover
-([#781](https://github.com/vig-os/devcontainer/issues/781)). GitHub redirects the
+([#781](https://github.com/vig-os/devkit/issues/781)). GitHub redirects the
 old repository URL. The **published image is unchanged** — it stays
 `ghcr.io/vig-os/devcontainer` (the artifact is a dev container; `devkit` is the
 project that builds and ships it), so existing `.vig-os` pins and `podman pull`

@@ -22,7 +22,7 @@ That's it! All development tools (Python, git, pre-commit, just, etc.) are inclu
 ### One-Line Install
 
 ```bash
-curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- ~/my-project
+curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- ~/my-project
 ```
 
 This will:
@@ -42,26 +42,26 @@ also `both`. `devcontainer` scaffolds `.devcontainer/` only; `direnv` scaffolds
 
 ```bash
 # Use specific version
-curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --version 0.2.1 ~/my-project
+curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --version 0.2.1 ~/my-project
 
 # Upgrade existing project (overwrites template files)
-curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --force ~/my-project
+curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --force ~/my-project
 
 # Override project name
-curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --name my_custom_name ~/my-project
+curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --name my_custom_name ~/my-project
 
 # Override organization name (default: vigOS)
-curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --org MyOrg ~/my-project
+curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --org MyOrg ~/my-project
 
 # Choose the delivery mode: devcontainer | direnv | both (default: both)
-curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --mode direnv ~/my-project
+curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --mode direnv ~/my-project
 
 # Preview without executing
-curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --dry-run ~/my-project
+curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --dry-run ~/my-project
 
 # Force specific runtime
-curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --docker ~/my-project
-curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --podman ~/my-project
+curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --docker ~/my-project
+curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --podman ~/my-project
 ```
 
 > **Note:** If podman or docker is not installed, the script provides OS-specific installation instructions for macOS, Ubuntu/Debian, Fedora, Arch Linux, and Windows.
@@ -199,7 +199,7 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 - **Registry**: `ghcr.io/vig-os/devcontainer`
 - **Architecture**: Multi-platform support (AMD64, ARM64)
 - **License**: Apache
-- **Latest Version**: [1.0.0](https://github.com/vig-os/devcontainer/releases/tag/1.0.0) - 2026-07-10
+- **Latest Version**: [1.0.0](https://github.com/vig-os/devkit/releases/tag/1.0.0) - 2026-07-10
 - **Image tags**: bare semver (`0.2.1`, `latest`) — git tags use `v` prefix (`v0.2.1`) but image tags do not
 
 ## Features

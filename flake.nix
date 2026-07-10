@@ -1138,7 +1138,7 @@
                 ];
                 Labels = {
                   "org.opencontainers.image.title" = "vigOS development environment";
-                  "org.opencontainers.image.source" = "https://github.com/vig-os/devcontainer";
+                  "org.opencontainers.image.source" = "https://github.com/vig-os/devkit";
                   "org.opencontainers.image.licenses" = "MIT";
                 };
               };

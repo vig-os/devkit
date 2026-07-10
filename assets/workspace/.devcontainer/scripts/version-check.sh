@@ -37,7 +37,7 @@ MUTED_UNTIL_FILE="$LOCAL_DIR/.muted-until"
 CACHE_FILE="$LOCAL_DIR/.latest-version"
 
 # API endpoint
-GITHUB_API="https://api.github.com/repos/vig-os/devcontainer/releases/latest"
+GITHUB_API="https://api.github.com/repos/vig-os/devkit/releases/latest"
 
 # Defaults
 DEFAULT_CHECK_INTERVAL=86400  # 24 hours in seconds
@@ -297,7 +297,7 @@ notify_update() {
     echo ""
     echo -e "  Or without just:"
     echo ""
-    echo -e "    curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --force ."
+    echo -e "    curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --force ."
     echo ""
     echo -e "  After upgrading, rebuild the container in VS Code."
     echo ""

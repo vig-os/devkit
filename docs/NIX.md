@@ -78,7 +78,7 @@ on `PATH` (e.g. the podman image CI lane).
 ## Capability modules (`mkProjectShell` `modules`)
 
 `mkProjectShell` composes opt-in **capability modules**
-([#884](https://github.com/vig-os/devcontainer/issues/884); contract and
+([#884](https://github.com/vig-os/devkit/issues/884); contract and
 composition rules in
 [ADR-capability-modules](rfcs/ADR-capability-modules.md)): a consumer
 declares a capability by name instead of hand-picking packages:
@@ -418,7 +418,7 @@ Pulling from the public `vig-os` cache needs no token (`cachix use vig-os` write
 the same lines). Then:
 
 ```bash
-git clone git@github.com:vig-os/devcontainer.git
+git clone git@github.com:vig-os/devkit.git
 cd devcontainer
 direnv allow        # first allow fetches the closure from Cachix
 ```

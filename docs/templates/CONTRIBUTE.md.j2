@@ -53,7 +53,7 @@ build, so the first `direnv allow` completes in seconds.
 3. **Clone and allow direnv:**
 
    ```bash
-   git clone git@github.com:vig-os/devcontainer.git
+   git clone git@github.com:vig-os/devkit.git
    cd devcontainer
    direnv allow        # first allow fetches the closure from Cachix (seconds on a warm cache)
    ```
@@ -85,7 +85,7 @@ the two (or both) via the delivery mode: `--mode devcontainer|direnv|both`
 Clone this repository, enter the Nix dev shell, then bootstrap the project:
 
 ```bash
-git clone git@github.com:vig-os/devcontainer.git
+git clone git@github.com:vig-os/devkit.git
 cd devcontainer
 direnv allow        # (recommended) loads the flake toolchain — or run `nix develop`
 just init           # Gate prerequisites and bootstrap the project (venv, git hooks, pre-commit)
@@ -100,7 +100,7 @@ template, pre-commit). It is safe to re-run.
 When contributing to this project, follow this workflow:
 
 1. **Create an issue** to report a bug or request a feature
-   - Use [GitHub Issues](https://github.com/vig-os/devcontainer/issues) to document the problem or feature request
+   - Use [GitHub Issues](https://github.com/vig-os/devkit/issues) to document the problem or feature request
    - This helps track work and provides context for reviewers
 
 2. **Create a branch from `dev` branch**
@@ -126,7 +126,7 @@ When contributing to this project, follow this workflow:
    - Update the [CHANGELOG](CHANGELOG.md) with your changes in the `[Unreleased]` section
      - Add entries under appropriate categories (Added, Changed, Fixed, etc.)
      - Use clear, concise descriptions
-     - Reference related [issues](https://github.com/vig-os/devcontainer/issues) and [PRs](https://github.com/vig-os/devcontainer/pulls) when applicable
+     - Reference related [issues](https://github.com/vig-os/devkit/issues) and [PRs](https://github.com/vig-os/devkit/pulls) when applicable
    - Keep documentation in sync with code changes
 
 5. **Verify tests pass**
@@ -143,8 +143,8 @@ When contributing to this project, follow this workflow:
    ```
 
 6. **Create a pull request**
-   - Create a [pull request](https://github.com/vig-os/devcontainer/pulls) targeting the `dev` branch
-   - Link the PR to the related [issue(s)](https://github.com/vig-os/devcontainer/issues)
+   - Create a [pull request](https://github.com/vig-os/devkit/pulls) targeting the `dev` branch
+   - Link the PR to the related [issue(s)](https://github.com/vig-os/devkit/issues)
    - Provide a clear description of your changes
 
 7. **Accepted contributions will be merged into `dev` branch**

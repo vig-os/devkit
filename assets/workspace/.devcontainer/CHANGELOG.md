@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Repository renamed `vig-os/devcontainer` → `vig-os/devkit`** ([#781](https://github.com/vig-os/devkit/issues/781))
+  - The source repository is renamed to `devkit`; GitHub redirects the old URLs.
+    All source-repo references now point at `vig-os/devkit`: clone/raw/API URLs,
+    the documented `install.sh` one-liners, the `devc-upgrade` recipe, the release
+    workflow's cosign signing identity (`--certificate-identity-regexp`), and the
+    image's OCI `source` label. The **published image is unchanged** —
+    `ghcr.io/vig-os/devcontainer` — so existing pins and `podman pull` commands
+    keep working with no change; a re-scaffold only refreshes the source URLs.
+
 ### Deprecated
 
 ### Removed

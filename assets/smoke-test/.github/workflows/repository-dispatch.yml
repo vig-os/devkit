@@ -198,7 +198,7 @@ jobs:
           TAG: ${{ needs.validate.outputs.tag }}
         run: |
           set -euo pipefail
-          INSTALL_URL="https://raw.githubusercontent.com/vig-os/devcontainer/${TAG}/install.sh"
+          INSTALL_URL="https://raw.githubusercontent.com/vig-os/devkit/${TAG}/install.sh"
           ATTEMPT=1
           MAX_ATTEMPTS=3
           until [ "${ATTEMPT}" -gt "${MAX_ATTEMPTS}" ]; do
@@ -1069,7 +1069,7 @@ jobs:
           )"
 
           gh issue create \
-            --repo vig-os/devcontainer \
+            --repo vig-os/devkit \
             --title "Smoke-test dispatch failed for ${TAG:-unknown}" \
             --label bug \
             --body "${ISSUE_BODY}"

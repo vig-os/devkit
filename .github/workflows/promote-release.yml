@@ -147,7 +147,7 @@ jobs:
           REPO="ghcr.io/vig-os/devcontainer"
           retry --retries 3 --backoff 10 --max-backoff 30 -- \
             cosign verify "$REPO:$VERSION" \
-              --certificate-identity-regexp='https://github.com/vig-os/devcontainer/.github/workflows/release.yml@refs/heads/release/' \
+              --certificate-identity-regexp='https://github.com/vig-os/devkit/.github/workflows/release.yml@refs/heads/release/' \
               --certificate-oidc-issuer='https://token.actions.githubusercontent.com'
           echo "✓ Cosign verification passed for $REPO:$VERSION"
 
@@ -593,7 +593,7 @@ jobs:
             if [ ${#UNIQUE_LEFT[@]} -gt 0 ]; then
               echo "ERROR: RC tags still present for $VERSION: ${UNIQUE_LEFT[*]}"
             fi
-            echo "See https://github.com/vig-os/devcontainer/issues/583"
+            echo "See https://github.com/vig-os/devkit/issues/583"
             exit 1
           fi
 

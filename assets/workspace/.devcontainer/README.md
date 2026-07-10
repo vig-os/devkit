@@ -1,7 +1,7 @@
 # Devcontainer Reference
 
 This folder contains everything VS Code needs to launch the
-[vigOS development container](https://github.com/vig-os/devcontainer) inside your project.
+[vigOS development container](https://github.com/vig-os/devkit) inside your project.
 
 - **Version**: This is an unreleased development version
 

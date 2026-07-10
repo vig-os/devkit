@@ -5,7 +5,7 @@
 # 3. Have acceptable risk for devcontainer usage
 #
 # Each entry requires an Expiration date. Expired entries cause CI to fail,
-# forcing periodic review. Tracking: https://github.com/vig-os/devcontainer/issues/512
+# forcing periodic review. Tracking: https://github.com/vig-os/devkit/issues/512
 
 # CVE-2026-42504: Go stdlib MIME header DoS in gh binary
 # Risk Assessment: LOW (devcontainer context)
@@ -13,7 +13,7 @@
 # - Requires maliciously-crafted MIME headers; gh validates GitHub API responses only
 # - Latest gh v2.93.0 (2026-05-27) still embeds Go 1.26.3; fix requires Go 1.26.4 rebuild
 # - Fresh image build (gh 2.93.0, uv 0.11.19) cleared all other bundled-tool HIGH findings
-# - Tracking: https://github.com/vig-os/devcontainer/issues/512, #564
+# - Tracking: https://github.com/vig-os/devkit/issues/512, #564
 Expiration: 2026-09-01
 CVE-2026-42504
 
@@ -21,7 +21,7 @@ CVE-2026-42504
 # Risk Assessment: N/A (not a vulnerability)
 # - JWT-like string in typos crate test fixtures under /opt/pre-commit-cache
 # - Not a live credential; embedded test data only
-# - Tracking: https://github.com/vig-os/devcontainer/issues/512
+# - Tracking: https://github.com/vig-os/devkit/issues/512
 Expiration: 2026-09-01
 jwt-token
 
@@ -32,7 +32,7 @@ jwt-token
 #   path was decommissioned (#642), so :latest cannot be rebuilt to pull deb12u2.
 #   Time-box the ignore until the Nix image ships.
 # - jq processes trusted local JSON in devcontainer workflows, not untrusted input
-# - Tracking: https://github.com/vig-os/devcontainer/issues/805, #512
+# - Tracking: https://github.com/vig-os/devkit/issues/805, #512
 Expiration: 2026-09-01
 CVE-2026-32316
 CVE-2026-40164

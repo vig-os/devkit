@@ -136,7 +136,7 @@ graph TB
 3. **Candidate Publish** (`publish-candidate`): Build/test/publish `X.Y.Z-rcN` and dispatch cross-repo validation workflow
 4. **Cross-Repo Validation**: Smoke-test runs asynchronously after candidate and final publish; see `docs/CROSS_REPO_RELEASE_GATE.md`. Before promotion, **`promote-release.yml`** requires a published **final** (non-draft, non-prerelease) GitHub Release for the version tag on `devkit-smoke-test` so human acceptance downstream is reflected before `:latest` and the draft release are published.
 5. **Finalization & Post-Release**: Publish final image/tag, open a **draft** GitHub Release for human review, then merge PR to `main` and let sync automation update `dev`
-6. **Promote & cleanup**: `promote-release.yml` updates `:latest`, publishes the draft release, merges the release PR, then runs a **best-effort** cleanup job (Refs [#463](https://github.com/vig-os/devcontainer/issues/463), [#583](https://github.com/vig-os/devcontainer/issues/583)): deletes GHCR RC image versions for `${VERSION}-rc*` (per-arch tags included) and matching RC cosign signatures, and deletes remote git RC tags for that base version when **no** GitHub Release is linked. GHCR deletes use **`GITHUB_TOKEN`** with **repo Admin** on the `devcontainer` package (see [Registry and cleanup tokens](#registry-and-cleanup-tokens-upstream)); the cleanup step fails loudly when RC tags remain. The cleanup job uses `continue-on-error`, so promote still completes. **Before this cleanup runs, migrate any consumers still pinned to an RC tag** (via `DEVCONTAINER_VERSION` in their `.vig-os` file) **to the final tag** — see [Phase 5](#phase-5-post-release-cleanup) ([#880](https://github.com/vig-os/devcontainer/issues/880)).
+6. **Promote & cleanup**: `promote-release.yml` updates `:latest`, publishes the draft release, merges the release PR, then runs a **best-effort** cleanup job (Refs [#463](https://github.com/vig-os/devkit/issues/463), [#583](https://github.com/vig-os/devkit/issues/583)): deletes GHCR RC image versions for `${VERSION}-rc*` (per-arch tags included) and matching RC cosign signatures, and deletes remote git RC tags for that base version when **no** GitHub Release is linked. GHCR deletes use **`GITHUB_TOKEN`** with **repo Admin** on the `devcontainer` package (see [Registry and cleanup tokens](#registry-and-cleanup-tokens-upstream)); the cleanup step fails loudly when RC tags remain. The cleanup job uses `continue-on-error`, so promote still completes. **Before this cleanup runs, migrate any consumers still pinned to an RC tag** (via `DEVCONTAINER_VERSION` in their `.vig-os` file) **to the final tag** — see [Phase 5](#phase-5-post-release-cleanup) ([#880](https://github.com/vig-os/devkit/issues/880)).
 
 ## Immutable releases, tag rulesets, and forward-fix policy
 
@@ -187,14 +187,14 @@ The `prepare-release.yml` workflow freezes the CHANGELOG on dev and creates the 
 2. ✅ **Prepare** job (skipped if --dry-run)
    - Runs `prepare-changelog prepare` → moves Unreleased content to `## [X.Y.Z] - TBD` + creates fresh empty Unreleased section
    - Commits prepared CHANGELOG to `dev` via API (single atomic commit — dev never loses `## Unreleased`)
-   - Creates `release/X.Y.Z` branch from that dev commit (the empty Unreleased is kept — see [#590](https://github.com/vig-os/devcontainer/issues/590))
+   - Creates `release/X.Y.Z` branch from that dev commit (the empty Unreleased is kept — see [#590](https://github.com/vig-os/devkit/issues/590))
    - Creates draft PR to `main` with CHANGELOG content as body
 
 **CHANGELOG state after prepare-release:**
 - `dev`: `## Unreleased` (empty) + `## [X.Y.Z] - TBD` (with content)
 - `release/X.Y.Z`: `## Unreleased` (empty) + `## [X.Y.Z] - TBD` (with content)
 
-The empty `## Unreleased` is never stripped ([#590](https://github.com/vig-os/devcontainer/issues/590)): it is present on both dev and release/main as stable common context in the freeze commit that becomes the main↔dev merge base, so the sync merge keeps `## Unreleased` instead of silently dropping it.
+The empty `## Unreleased` is never stripped ([#590](https://github.com/vig-os/devkit/issues/590)): it is present on both dev and release/main as stable common context in the freeze commit that becomes the main↔dev merge base, so the sync merge keeps `## Unreleased` instead of silently dropping it.
 
 **Output example:**
 
@@ -272,7 +272,7 @@ This is the main quality gate. The release branch and draft PR serve as the coor
    ```
 
    Candidate dispatch gates on **CI only** — the PR may stay a draft and need
-   not be approved yet ([#902](https://github.com/vig-os/devcontainer/issues/902)).
+   not be approved yet ([#902](https://github.com/vig-os/devkit/issues/902)).
    RCs are disposable: auto-incrementing `rcN` tags that never touch `:latest`,
    create no GitHub Release, and are pruned at promote. Iterate freely until the
    image behaves as intended.
@@ -371,7 +371,7 @@ The `release.yml` workflow performs the entire remaining release process. Behavi
    - Checks release branch exists
    - Verifies CHANGELOG has `## [X.Y.Z] - TBD`
    - For **final**: allows an existing **draft** GitHub Release for the publish tag (retry path); rejects a **published** (non-draft) release for the same tag
-   - Confirms PR exists and CI passed; for **final** also requires it to be not draft and approved (candidates skip the draft/approval gate — [#902](https://github.com/vig-os/devcontainer/issues/902))
+   - Confirms PR exists and CI passed; for **final** also requires it to be not draft and approved (candidates skip the draft/approval gate — [#902](https://github.com/vig-os/devkit/issues/902))
    - Records pre-finalization commit for rollback
 
 2. ✅ **Finalize** job (skipped if --dry-run)
@@ -439,7 +439,7 @@ Cross-repository validation gate rationale, mechanics, payload contract, and pas
 **This repository (`vig-os/devcontainer`) — manual promote path:**
 
 1. Verify the workflow run succeeded and smoke-test dispatch completed as expected.
-2. **Migrate RC-pinned consumers to the final tag** ([#880](https://github.com/vig-os/devcontainer/issues/880)): consumers pin the devcontainer image via their `.vig-os` file (`DEVCONTAINER_VERSION=X.Y.Z-rcN`). The **`cleanup`** job ("Cleanup RC artifacts") in `promote-release.yml` deletes all `X.Y.Z-rc*` git tags and GHCR image versions, so any consumer still pinned to an RC (e.g. field-validation repos) can no longer pull its image. Bump those pins to `DEVCONTAINER_VERSION=X.Y.Z` before running promote (preferred), or immediately after — the RC images and tags are gone once the cleanup job has run.
+2. **Migrate RC-pinned consumers to the final tag** ([#880](https://github.com/vig-os/devkit/issues/880)): consumers pin the devcontainer image via their `.vig-os` file (`DEVCONTAINER_VERSION=X.Y.Z-rcN`). The **`cleanup`** job ("Cleanup RC artifacts") in `promote-release.yml` deletes all `X.Y.Z-rc*` git tags and GHCR image versions, so any consumer still pinned to an RC (e.g. field-validation repos) can no longer pull its image. Bump those pins to `DEVCONTAINER_VERSION=X.Y.Z` before running promote (preferred), or immediately after — the RC images and tags are gone once the cleanup job has run.
 3. After smoke-test has published its **final** GitHub Release for `X.Y.Z`, run **`promote-release.yml`** (e.g. `just promote-release X.Y.Z`), which updates GHCR `:latest`, publishes the draft release, merges the release PR, and runs best-effort RC cleanup. See [Release Phases](#release-phases) step 6 and [`docs/CROSS_REPO_RELEASE_GATE.md`](CROSS_REPO_RELEASE_GATE.md).
 
 **Consumer projects** using templates from `assets/workspace/` follow [Downstream release workflows](DOWNSTREAM_RELEASE.md): final `release.yml` leaves a **draft** GitHub Release; run **`promote-release.yml`** (or `just promote-release X.Y.Z`) to publish the release and merge to `main` (no upstream GHCR/smoke-test gate in that template).
@@ -596,7 +596,7 @@ Additional requirement:
 2. **prepare** (skipped if dry-run) - Freezes CHANGELOG and creates release branch
    - Runs `prepare-changelog prepare` (Unreleased → [X.Y.Z] - TBD + fresh empty Unreleased)
    - Commits prepared CHANGELOG to `dev` via API
-   - Creates `release/X.Y.Z` branch from that dev commit (the empty Unreleased is kept, [#590](https://github.com/vig-os/devcontainer/issues/590))
+   - Creates `release/X.Y.Z` branch from that dev commit (the empty Unreleased is kept, [#590](https://github.com/vig-os/devkit/issues/590))
    - Creates draft PR to `main` with release content
 
 **Manual trigger (for testing):**
@@ -631,7 +631,7 @@ gh workflow run prepare-release.yml --ref dev -f "version=1.0.0" -f "dry-run=tru
    - Verifies release branch exists
    - Checks CHANGELOG has `[X.Y.Z] - TBD`
    - For **final**: rejects a **published** GitHub Release for the publish tag; allows an existing **draft** (retry path)
-   - Verifies PR: CI passed (both kinds); for **final** also not draft and approved (candidates defer the draft/approval gate — [#902](https://github.com/vig-os/devcontainer/issues/902))
+   - Verifies PR: CI passed (both kinds); for **final** also not draft and approved (candidates defer the draft/approval gate — [#902](https://github.com/vig-os/devkit/issues/902))
    - Records pre-finalization commit for rollback
    - Outputs: PR number, release date, pre-finalization SHA, publish tag metadata
 
@@ -832,7 +832,7 @@ just finalize-release X.Y.Z
 
 #### "PR is still in draft status"
 
-**Cause:** The **final** release PR hasn't been marked as ready for review. (Candidates don't hit this — they defer the draft/approval gate; see [#902](https://github.com/vig-os/devcontainer/issues/902).)
+**Cause:** The **final** release PR hasn't been marked as ready for review. (Candidates don't hit this — they defer the draft/approval gate; see [#902](https://github.com/vig-os/devkit/issues/902).)
 
 **Solution:**
 
@@ -846,7 +846,7 @@ gh pr ready <PR_NUMBER>
 
 #### "PR has not been approved"
 
-**Cause:** The **final** release PR needs at least one approval. (Candidates don't require approval; see [#902](https://github.com/vig-os/devcontainer/issues/902).)
+**Cause:** The **final** release PR needs at least one approval. (Candidates don't require approval; see [#902](https://github.com/vig-os/devkit/issues/902).)
 
 **Solution:**
 

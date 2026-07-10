@@ -197,7 +197,7 @@ def generate_docs() -> bool:
         "just_help_output": get_just_help(),
         "version": get_version_from_changelog(),
         "release_date": get_release_date_from_changelog(),
-        "release_url": f"https://github.com/vig-os/devcontainer/releases/tag/{get_version_from_changelog()}",
+        "release_url": f"https://github.com/vig-os/devkit/releases/tag/{get_version_from_changelog()}",
         # Skill data
         "skill_groups": group_skills(skills),
     }

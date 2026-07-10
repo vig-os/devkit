@@ -20,7 +20,7 @@
 # Each accepted entry should record WHY (patched-in-nixpkgs / not-exploitable /
 # awaiting-upstream) per docs/CONTAINER_SECURITY.md.
 #
-# Tracking: https://github.com/vig-os/devcontainer/issues/637
+# Tracking: https://github.com/vig-os/devkit/issues/637
 
 # ============================================================================
 # Triage for the nixos-26.05 baseline (#639 publish-cutover prep), 2026-06-23.

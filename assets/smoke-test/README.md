@@ -1,7 +1,7 @@
 # devcontainer Smoke Test
 
 This repository is a smoke-test workspace for the
-[vig-os/devcontainer](https://github.com/vig-os/devcontainer) project.
+[vig-os/devcontainer](https://github.com/vig-os/devkit) project.
 
 Its purpose is to verify that the devcontainer template and the shipped CI
 workflow run successfully on real GitHub-hosted runners, not only in local or
@@ -35,7 +35,7 @@ This repository is intentionally minimal. It is used to:
 - **Execution/verification target**: this repository
 
 Template or workflow changes should be made in
-[`vig-os/devcontainer`](https://github.com/vig-os/devcontainer), then validated
+[`vig-os/devcontainer`](https://github.com/vig-os/devkit), then validated
 here through a normal PR run.
 
 ## Automated deploy-and-test flow
@@ -89,7 +89,7 @@ If this repository is lost or needs to be rebuilt, recreate it from the
 2. Clone it locally and run the installer with smoke-test assets enabled:
 
    ```bash
-   curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --smoke-test .
+   curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --smoke-test .
    ```
 
 3. Commit the generated files and push to `main`.

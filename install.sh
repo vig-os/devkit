@@ -2,8 +2,8 @@
 # vigOS devcontainer quick install script
 #
 # Usage:
-#   curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash
-#   curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- [OPTIONS] [PATH]
+#   curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash
+#   curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- [OPTIONS] [PATH]
 #
 # Options:
 #   --force           Overwrite existing files (for upgrades)
@@ -22,7 +22,7 @@
 #   -h, --help        Show this help message
 #
 # Examples:
-#   curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash
+#   curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash
 #   curl -sSfL ... | bash -s -- ~/Projects/my-project
 #   curl -sSfL ... | bash -s -- --version 0.2.1 --force ./my-project
 #   curl -sSfL ... | bash -s -- --org MyOrg ./my-project
@@ -67,7 +67,7 @@ usage() {
 vigOS Devcontainer Install Script
 
 USAGE:
-    curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash
+    curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash
     curl -sSfL ... | bash -s -- [OPTIONS] [PATH]
 
 OPTIONS:
@@ -92,7 +92,7 @@ OPTIONS:
 
 EXAMPLES:
     # Initialize current directory with latest version
-    curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash
+    curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash
 
     # Initialize specific directory
     curl -sSfL ... | bash -s -- ~/Projects/my-new-project
@@ -726,7 +726,7 @@ if [ ! -t 0 ]; then
         err "This script requires an interactive terminal"
         echo ""
         echo "Try running directly instead of piping:"
-        echo "  curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh -o install.sh"
+        echo "  curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh -o install.sh"
         echo "  bash install.sh $PROJECT_PATH"
         exit 1
     fi

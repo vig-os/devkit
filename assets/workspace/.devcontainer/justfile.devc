@@ -67,7 +67,7 @@ devc-upgrade:
         echo ""
         echo "Or use the curl method:"
         echo ""
-        echo "    curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/${REF}/install.sh | bash -s -- --force ${PIN_ARGS[*]} ."
+        echo "    curl -sSf https://raw.githubusercontent.com/vig-os/devkit/${REF}/install.sh | bash -s -- --force ${PIN_ARGS[*]} ."
         echo ""
         exit 1
     fi
@@ -94,11 +94,11 @@ devc-upgrade:
     echo "✓ Using $RUNTIME"
     echo ""
     echo "Note: the installer refuses upgrades on main/dev/release/* or a dirty tree."
-    echo "      Preview first:  curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/${REF}/install.sh | bash -s -- --force ${PIN_ARGS[*]} --preview ."
-    echo "      Bypass guard:   curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/${REF}/install.sh | bash -s -- --force ${PIN_ARGS[*]} --skip-preflight ."
+    echo "      Preview first:  curl -sSf https://raw.githubusercontent.com/vig-os/devkit/${REF}/install.sh | bash -s -- --force ${PIN_ARGS[*]} --preview ."
+    echo "      Bypass guard:   curl -sSf https://raw.githubusercontent.com/vig-os/devkit/${REF}/install.sh | bash -s -- --force ${PIN_ARGS[*]} --skip-preflight ."
     echo ""
     echo "Downloading and running install script..."
-    curl -sSf "https://raw.githubusercontent.com/vig-os/devcontainer/${REF}/install.sh" | bash -s -- --force "${PIN_ARGS[@]}" .
+    curl -sSf "https://raw.githubusercontent.com/vig-os/devkit/${REF}/install.sh" | bash -s -- --force "${PIN_ARGS[@]}" .
 
 # -------------------------------------------------------------------------------
 # DEVCONTAINER (host-side only)

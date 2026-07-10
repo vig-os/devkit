@@ -90,7 +90,7 @@ EOF
     # The functional upgrade curl must interpolate the resolved ref (${REF}),
     # and no install.sh curl in the recipe may be pinned literally to /main/.
     # shellcheck disable=SC2016  # grepping for the LITERAL '${REF}' in the recipe
-    run grep -q 'githubusercontent.com/vig-os/devcontainer/${REF}/install.sh' \
+    run grep -q 'githubusercontent.com/vig-os/devkit/${REF}/install.sh' \
         assets/workspace/.devcontainer/justfile.devc
     assert_success
     run grep -F 'vig-os/devcontainer/main/install.sh' \
@@ -234,7 +234,7 @@ EOF
 }
 
 @test "smoke-test dispatch notifies upstream on orchestration failure" {
-    run bash -lc "grep -Fq -- 'notify-failure:' assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- 'gh issue create \\' assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- '--repo vig-os/devcontainer' assets/smoke-test/.github/workflows/repository-dispatch.yml"
+    run bash -lc "grep -Fq -- 'notify-failure:' assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- 'gh issue create \\' assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- '--repo vig-os/devkit' assets/smoke-test/.github/workflows/repository-dispatch.yml"
     assert_success
 }
 

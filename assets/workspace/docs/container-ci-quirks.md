@@ -65,7 +65,7 @@ runtime.
 
 The shipped container workflows support **authenticated** GHCR pulls, so a
 **private** (or anonymous-rate-limited) `ghcr.io/vig-os/devcontainer` image works
-without any per-repo YAML edits ([#920](https://github.com/vig-os/devcontainer/issues/920)).
+without any per-repo YAML edits ([#920](https://github.com/vig-os/devkit/issues/920)).
 Public consumers are unaffected: the automatic `GITHUB_TOKEN` performs an
 authenticated pull of a public image, which succeeds unchanged.
 
@@ -109,5 +109,5 @@ set the GHCR_PULL_TOKEN secret / grant packages:read") from a **missing tag**
 public images when no token is provided.
 
 The broader workflow audit that this fix rides is tracked in
-[#781](https://github.com/vig-os/devcontainer/issues/781) and
-[#854](https://github.com/vig-os/devcontainer/issues/854).
+[#781](https://github.com/vig-os/devkit/issues/781) and
+[#854](https://github.com/vig-os/devkit/issues/854).
