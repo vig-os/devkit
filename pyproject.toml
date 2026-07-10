@@ -1,5 +1,5 @@
 [project]
-name = "devcontainer"
+name = "devkit"
 version = "0.1.1"
 description = "vigOS development environment"
 # Range, not an exact pin: the Nix toolchain pins the exact interpreter via
@@ -18,11 +18,11 @@ dependencies = [
 [dependency-groups]
 dev = [
   "vig-utils",
-  { include-group = "devcontainer" },
+  { include-group = "devkit" },
   { include-group = "lint" },
   { include-group = "test" },
 ]
-devcontainer = ["rich==15.0.0", "pip-licenses==5.5.5", "bandit[toml]==1.9.4"]
+devkit = ["rich==15.0.0", "pip-licenses==5.5.5", "bandit[toml]==1.9.4"]
 lint = ["pip-licenses==5.5.5", "bandit[toml]==1.9.4"]
 test = [
   "pytest==9.1.1",
