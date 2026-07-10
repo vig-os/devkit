@@ -104,7 +104,7 @@ jobs:
       pull-requests: read
       packages: read
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      image: ghcr.io/vig-os/devkit:${{ needs.resolve-image.outputs.image-tag }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
@@ -340,7 +340,7 @@ jobs:
       contents: write
       packages: read
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.validate.outputs.image_tag }}
+      image: ghcr.io/vig-os/devkit:${{ needs.validate.outputs.image_tag }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
@@ -530,7 +530,7 @@ jobs:
     needs: [validate, finalize]
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.validate.outputs.image_tag }}
+      image: ghcr.io/vig-os/devkit:${{ needs.validate.outputs.image_tag }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}

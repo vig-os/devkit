@@ -63,7 +63,7 @@ jobs:
     needs: [resolve-image]
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      image: ghcr.io/vig-os/devkit:${{ needs.resolve-image.outputs.image-tag }}
     timeout-minutes: 5
     defaults:
       run:
@@ -108,7 +108,7 @@ jobs:
     if: needs.check.outputs.up_to_date != 'true'
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      image: ghcr.io/vig-os/devkit:${{ needs.resolve-image.outputs.image-tag }}
     timeout-minutes: 10
     defaults:
       run:

@@ -111,7 +111,7 @@ jobs:
           ARCHS: ${{ steps.vars.outputs.architectures }}
         run: |
           set -euo pipefail
-          REPO="ghcr.io/vig-os/devcontainer"
+          REPO="ghcr.io/vig-os/devkit"
           IFS=' ' read -ra ARCH_ARRAY <<< "$ARCHS"
           for arch in "${ARCH_ARRAY[@]}"; do
             echo "Verifying image: $REPO:$VERSION-$arch"
@@ -144,7 +144,7 @@ jobs:
           VERSION: ${{ steps.vars.outputs.version }}
         run: |
           set -euo pipefail
-          REPO="ghcr.io/vig-os/devcontainer"
+          REPO="ghcr.io/vig-os/devkit"
           retry --retries 3 --backoff 10 --max-backoff 30 -- \
             cosign verify "$REPO:$VERSION" \
               --certificate-identity-regexp='https://github.com/vig-os/devcontainer/.github/workflows/release.yml@refs/heads/release/' \
@@ -326,7 +326,7 @@ jobs:
           ARCHS: ${{ needs.validate.outputs.architectures }}
         run: |
           set -euo pipefail
-          REPO="ghcr.io/vig-os/devcontainer"
+          REPO="ghcr.io/vig-os/devkit"
           IFS=' ' read -ra ARCH_ARRAY <<< "$ARCHS"
           ARCH_IMAGES=()
           for arch in "${ARCH_ARRAY[@]}"; do

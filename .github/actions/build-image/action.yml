@@ -1,6 +1,6 @@
 # Composite action to build the Nix-built devcontainer image to a tar.
 #
-# Builds `packages.devcontainerImage` (flake `dockerTools.buildLayeredImage`)
+# Builds `packages.devkitImage` (flake `dockerTools.buildLayeredImage`)
 # natively for the runner's architecture and writes a gzipped OCI tar. Nix is
 # the only build path (the Debian Containerfile was decommissioned in #642).
 #
@@ -12,7 +12,7 @@
 #   release-date / release-url / build-timestamp / vcs-ref: release metadata
 #     (kept for caller compatibility; the Nix image stamps its own static,
 #     reproducible OCI labels in flake.nix, so these are not baked into it)
-#   registry: Container registry URL (default: ghcr.io/vig-os/devcontainer)
+#   registry: Container registry URL (default: ghcr.io/vig-os/devkit)
 #   output-file: Path for the tar output
 #   cachix-cache / cachix-auth-token: passed to flake provisioning (setup-env)
 #   push-image-closure: when 'true', push the built image closure to Cachix as a
@@ -21,11 +21,11 @@
 #     guarded on the auth token so fork PRs (no secret) never fail.
 #
 # Outputs:
-#   image-tag: Full image tag (e.g., ghcr.io/vig-os/devcontainer:1.0.0-amd64)
+#   image-tag: Full image tag (e.g., ghcr.io/vig-os/devkit:1.0.0-amd64)
 #   tar-file: Path to the saved tar file
 
 name: 'Build Container Image'
-description: 'Build the Nix-built devcontainer image (flake devcontainerImage) for an architecture'
+description: 'Build the Nix-built devcontainer image (flake devkitImage) for an architecture'
 
 inputs:
   version:
@@ -53,7 +53,7 @@ inputs:
   registry:
     description: 'Container registry URL'
     required: false
-    default: 'ghcr.io/vig-os/devcontainer'
+    default: 'ghcr.io/vig-os/devkit'
   output-file:
     description: 'Path for the tar output'
     required: false
@@ -118,7 +118,7 @@ runs:
         # tar; docker/podman load handles gzip. The flake sets the OCI labels.
         # `--impure` lets the flake read VIG_OS_VERSION (the true build tag);
         # see the env note above and the flake's imageVersionOverride (#921).
-        nix build .#devcontainerImage --impure --print-build-logs
+        nix build .#devkitImage --impure --print-build-logs
         cp -L result "${{ inputs.output-file }}"
         ls -lL "${{ inputs.output-file }}"
 

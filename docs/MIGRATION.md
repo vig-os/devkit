@@ -18,7 +18,7 @@ two ways:
 
 - **Container image** — assembled by `dockerTools.buildLayeredImage` (no base
   distro, no `Dockerfile FROM`), bit-reproducible, and built natively for
-  `amd64` and `arm64`. Published as `ghcr.io/vig-os/devcontainer`.
+  `amd64` and `arm64`. Published as `ghcr.io/vig-os/devkit`.
 - **Bare-nix dev-shell** — the same toolchain via `nix develop` / `direnv`,
   consumed as a flake input (`vigos.url = "github:vig-os/devcontainer"`).
 
@@ -62,7 +62,7 @@ so upgrades never need `--mode` again.
 
 `direnv` (and `bare`) consumers cannot run the container-based CI: with no
 `.devcontainer/`, a `.vig-os`-driven `resolve-image` job hard-fails and bricks
-every workflow that runs `container: ghcr.io/vig-os/devcontainer:<pin>`. To keep
+every workflow that runs `container: ghcr.io/vig-os/devkit:<pin>`. To keep
 the main lane working, `direnv` mode ships a **nix-direct `ci.yml`** overlay
 ([#854](https://github.com/vig-os/devcontainer/issues/854)) that runs on the host
 runner (`install-nix` + Cachix → `nix develop -c just sync|precommit|test`),

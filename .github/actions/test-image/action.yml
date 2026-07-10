@@ -29,7 +29,7 @@
 #     with:
 #       image-tag: '1.0.0-amd64'
 #       image-source: 'registry'
-#       registry: 'ghcr.io/vig-os/devcontainer'
+#       registry: 'ghcr.io/vig-os/devkit'
 
 name: 'Test Container Image'
 description: 'Set up test environment and run container tests'
@@ -41,7 +41,7 @@ inputs:
   registry:
     description: 'Container registry URL'
     required: false
-    default: 'ghcr.io/vig-os/devcontainer'
+    default: 'ghcr.io/vig-os/devkit'
   image-source:
     description: 'Image source: "tar" (load from file), "registry" (pull), or "local" (already loaded)'
     required: false

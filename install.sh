@@ -30,7 +30,7 @@
 set -euo pipefail
 
 # Configuration
-REGISTRY="ghcr.io/vig-os/devcontainer"
+REGISTRY="ghcr.io/vig-os/devkit"
 VERSION="latest"
 RUNTIME=""
 FORCE=""

@@ -24,7 +24,7 @@
 # `nix`/`direnv` are live inside the container.
 #
 # Multi-arch: each leg builds natively on its own runner (no QEMU /
-# cross-compilation) — `nix build .#devcontainerImage` resolves to x86_64-linux
+# cross-compilation) — `nix build .#devkitImage` resolves to x86_64-linux
 # on the amd64 runner and aarch64-linux on the arm64 runner, so the per-arch
 # image config carries the correct `architecture`. The index is then assembled
 # with `docker buildx imagetools create`, mirroring the proven release.yml flow.
@@ -55,7 +55,7 @@ permissions:
   contents: read
 
 env:
-  REGISTRY: ghcr.io/vig-os/devcontainer
+  REGISTRY: ghcr.io/vig-os/devkit
   # Disposable discovery index tag. NOT a cutover tag (versioned/:latest is #639).
   INDEX_TAG: nix-dev
 
@@ -101,7 +101,7 @@ jobs:
           set -euo pipefail
           # buildLayeredImage emits a gzipped OCI tarball at ./result. Built
           # natively for ${{ matrix.arch }} on this runner's own architecture.
-          nix build .#devcontainerImage --print-build-logs
+          nix build .#devkitImage --print-build-logs
           # Stage it where the test-image composite action expects a tar file.
           cp -L result /tmp/nix-devcontainer-image.tar.gz
           ls -lL /tmp/nix-devcontainer-image.tar.gz
@@ -128,7 +128,7 @@ jobs:
           du -h /tmp/nix-devcontainer-image.tar.gz
 
       # Reuse the shared composite action: it loads the tar into podman, retags
-      # it to ghcr.io/vig-os/devcontainer:nix-image (local only, never pushed),
+      # it to ghcr.io/vig-os/devkit:nix-image (local only, never pushed),
       # and runs tests/test_image.py via TEST_CONTAINER_TAG. Gating now (#666):
       # the Nix image passes the full suite, so a failure here fails CI.
       - name: Load image and run portable testinfra

@@ -1,7 +1,7 @@
 # Container CI Notes
 
 Behavioral notes for the workspace CI workflow (`.github/workflows/ci.yml`)
-when jobs run inside `ghcr.io/vig-os/devcontainer:*` via GitHub Actions
+when jobs run inside `ghcr.io/vig-os/devkit:*` via GitHub Actions
 `container:`.
 
 ## Tool bootstrap model
@@ -64,7 +64,7 @@ runtime.
 ## Authenticated pulls (private / rate-limited registries)
 
 The shipped container workflows support **authenticated** GHCR pulls, so a
-**private** (or anonymous-rate-limited) `ghcr.io/vig-os/devcontainer` image works
+**private** (or anonymous-rate-limited) `ghcr.io/vig-os/devkit` image works
 without any per-repo YAML edits ([#920](https://github.com/vig-os/devcontainer/issues/920)).
 Public consumers are unaffected: the automatic `GITHUB_TOKEN` performs an
 authenticated pull of a public image, which succeeds unchanged.

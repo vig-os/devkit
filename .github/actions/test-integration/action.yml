@@ -11,7 +11,7 @@
 #
 # Inputs:
 #   image-tag: Image tag to test (e.g., 1.0.0-amd64)
-#   registry: Container registry URL (default: ghcr.io/vig-os/devcontainer)
+#   registry: Container registry URL (default: ghcr.io/vig-os/devkit)
 #
 # Outputs:
 #   test-result: Test exit code (0=pass, non-zero=fail)
@@ -31,7 +31,7 @@ inputs:
   registry:
     description: 'Container registry URL'
     required: false
-    default: 'ghcr.io/vig-os/devcontainer'
+    default: 'ghcr.io/vig-os/devkit'
   ref:
     description: 'Git ref to checkout (e.g., commit SHA, branch, tag)'
     required: false

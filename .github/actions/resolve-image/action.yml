@@ -90,7 +90,7 @@ runs:
         REGISTRY_USERNAME: ${{ inputs.registry-username }}
       run: |
         set -euo pipefail
-        IMAGE="ghcr.io/vig-os/devcontainer:${IMAGE_TAG}"
+        IMAGE="ghcr.io/vig-os/devkit:${IMAGE_TAG}"
         echo "Validating image availability: $IMAGE"
 
         # Authenticate before the probe when a token is supplied, so private or

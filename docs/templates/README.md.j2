@@ -72,25 +72,25 @@ curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh
 1. **Pull the latest image**
 
    ```bash
-   podman pull ghcr.io/vig-os/devcontainer:latest
+   podman pull ghcr.io/vig-os/devkit:latest
    # or
-   docker pull ghcr.io/vig-os/devcontainer:latest
+   docker pull ghcr.io/vig-os/devkit:latest
    ```
 
    To pull a specific version, use the bare semver tag (without `v` prefix):
 
    ```bash
-   podman pull ghcr.io/vig-os/devcontainer:0.2.1
+   podman pull ghcr.io/vig-os/devkit:0.2.1
    ```
 
 2. **Initialize a workspace inside `PATH_TO_PROJECT`**
 
    ```bash
    podman run -it --rm -v "PATH_TO_PROJECT:/workspace" \
-     ghcr.io/vig-os/devcontainer:latest /root/assets/init-workspace.sh
+     ghcr.io/vig-os/devkit:latest /root/assets/init-workspace.sh
    # or with Docker:
    docker run -it --rm -v "PATH_TO_PROJECT:/workspace" \
-     ghcr.io/vig-os/devcontainer:latest /root/assets/init-workspace.sh
+     ghcr.io/vig-os/devkit:latest /root/assets/init-workspace.sh
    ```
 
    The script copies the devcontainer template (`.devcontainer/`), git hooks, README/CHANGELOG, and auth helpers into your project.
@@ -104,7 +104,7 @@ curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh
 
    ```bash
    podman run -it --rm -v "PATH_TO_PROJECT:/workspace" \
-     ghcr.io/vig-os/devcontainer:latest /root/assets/init-workspace.sh --force
+     ghcr.io/vig-os/devkit:latest /root/assets/init-workspace.sh --force
    ```
 
    You will be prompted to confirm before files are replaced.
@@ -130,7 +130,7 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 ## Image Details
 
 - **Build**: Nix flake via `dockerTools.buildLayeredImage` (no Debian/Docker base image); bit-reproducible
-- **Registry**: `ghcr.io/vig-os/devcontainer`
+- **Registry**: `ghcr.io/vig-os/devkit`
 - **Architecture**: Multi-platform support (AMD64, ARM64)
 - **License**: Apache
 - **Latest Version**: [{{ version }}]({{ release_url }}) - {{ release_date }}

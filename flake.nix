@@ -582,8 +582,8 @@
         # The toolchain SSoT plus the runtime substrate a bare layered image
         # lacks (an FHS base distro would provide these; here we add them
         # explicitly — this is the discovery surface for FHS gaps). Shared by
-        # the image (`devcontainerImage`) and its vulnix scan target
-        # (`devcontainerImageEnv`, #637).
+        # the image (`devkitImage`) and its vulnix scan target
+        # (`devkitImageEnv`, #637).
         imageTools =
           (devTools pkgs)
           ++ (with pkgs; [
@@ -773,7 +773,7 @@
         # darwin eval. The dev-shell and services stay cross-platform. Refs #774.
         // pkgs.lib.optionalAttrs (pkgs.lib.hasSuffix "-linux" system) {
           # -----------------------------------------------------------------
-          # devcontainerImage — Nix-built devcontainer image (T2.1, #634).
+          # devkitImage — Nix-built devcontainer image (T2.1, #634).
           #
           # Assembled entirely by Nix via `dockerTools.buildLayeredImage` (NOT
           # a Dockerfile `FROM`) so the build is bit-reproducible — the epic's
@@ -793,7 +793,7 @@
           # `pre-commit` — one fewer manylinux/FHS consumer. prek runs the
           # committed `.pre-commit-config.yaml`; the flake's `checks.pre-commit`
           # runs the sandbox-pure subset under `nix flake check`.
-          devcontainerImage =
+          devkitImage =
             let
               # Nix C++/compression runtime exposed on the loader path so
               # runtime-installed manylinux wheels resolve their NEEDED libs.
@@ -842,7 +842,7 @@
               # venv/pre-commit population needs network, so it is best-effort
               # here and the directories are created unconditionally.
               bootstrap =
-                pkgs.runCommand "devcontainer-bootstrap"
+                pkgs.runCommand "devkit-bootstrap"
                   {
                     nativeBuildInputs = [
                       pkgs.coreutils
@@ -1031,9 +1031,9 @@
             in
             pkgs.dockerTools.buildLayeredImage {
               # Name matches the published repo so the portable testinfra
-              # (#635), which targets ghcr.io/vig-os/devcontainer:<tag>, runs
+              # (#635), which targets ghcr.io/vig-os/devkit:<tag>, runs
               # unchanged against the loaded image under a unique tag.
-              name = "ghcr.io/vig-os/devcontainer";
+              name = "ghcr.io/vig-os/devkit";
               # Disposable discovery tag, matching the CI workflow's
               # INDEX_TAG (.github/workflows/nix-image.yml). The versioned
               # / :latest cutover is handled separately (#639).
@@ -1144,12 +1144,12 @@
               };
             };
 
-          # devcontainerImageEnv — vulnix scan target (T3.1, #637). A buildEnv
+          # devkitImageEnv — vulnix scan target (T3.1, #637). A buildEnv
           # whose runtime closure equals the image's package set (imageTools),
           # so `vulnix --closure` sees exactly what ships in the image. The OCI
           # tarball itself is gzipped and exposes no scannable store references,
           # hence this dedicated env rather than scanning the image output.
-          devcontainerImageEnv = pkgs.buildEnv {
+          devkitImageEnv = pkgs.buildEnv {
             name = "devcontainer-image-env";
             paths = imageTools;
             ignoreCollisions = true;

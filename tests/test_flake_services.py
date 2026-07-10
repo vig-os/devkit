@@ -148,7 +148,7 @@ def test_services_package_exposed_without_clobbering_linux_packages() -> None:
     ``packages`` used to live entirely inside a Linux-only ``optionalAttrs``
     shallow merge; adding a cross-platform ``services`` package means
     restructuring that guard. Guard the restructure: on ``*-linux`` the image
-    attrs (``devcontainerImage``/``devcontainerImageEnv``/``vulnix``/
+    attrs (``devkitImage``/``devkitImageEnv``/``vulnix``/
     ``nix-fast-build``) must still be present alongside ``services``.
     """
     system = _current_system()
@@ -172,8 +172,8 @@ def test_services_package_exposed_without_clobbering_linux_packages() -> None:
     assert "services" in names, f"packages.{system} has no services package: {names}"
     if system.endswith("-linux"):
         required = {
-            "devcontainerImage",
-            "devcontainerImageEnv",
+            "devkitImage",
+            "devkitImageEnv",
             "vulnix",
             "nix-fast-build",
         }

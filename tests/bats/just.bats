@@ -244,7 +244,7 @@ EOF
 }
 
 @test "release workflow rollback resolves container image independently of core outputs" {
-    run bash -lc "grep -Fq -- 'resolve-image:' assets/workspace/.github/workflows/release.yml && grep -Fq -- 'needs: [resolve-image, core, extension, publish]' assets/workspace/.github/workflows/release.yml && grep -Fq -- 'image: ghcr.io/vig-os/devcontainer:\${{ needs.resolve-image.outputs.image-tag }}' assets/workspace/.github/workflows/release.yml"
+    run bash -lc "grep -Fq -- 'resolve-image:' assets/workspace/.github/workflows/release.yml && grep -Fq -- 'needs: [resolve-image, core, extension, publish]' assets/workspace/.github/workflows/release.yml && grep -Fq -- 'image: ghcr.io/vig-os/devkit:\${{ needs.resolve-image.outputs.image-tag }}' assets/workspace/.github/workflows/release.yml"
     assert_success
 }
 

@@ -1,7 +1,7 @@
 """
 Integration tests for install.sh — full deployment workflow.
 
-These tests require a built container image (ghcr.io/vig-os/devcontainer:<tag>)
+These tests require a built container image (ghcr.io/vig-os/devkit:<tag>)
 and are run by the test-integration CI job, NOT project-checks.
 
 Tests the full install.sh workflow which:
@@ -60,7 +60,7 @@ class TestInstallScriptIntegration:
 
         atexit.register(cleanup)
 
-        # Extract version from container_image (e.g., "ghcr.io/vig-os/devcontainer:dev" -> "dev")
+        # Extract version from container_image (e.g., "ghcr.io/vig-os/devkit:dev" -> "dev")
         version = container_image.split(":")[-1]
 
         # Run install.sh

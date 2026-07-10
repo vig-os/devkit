@@ -393,8 +393,8 @@ The `release.yml` workflow performs the entire remaining release process. Behavi
    - Downloads tested images from artifacts
    - Logs in to GitHub Container Registry
    - Pushes images to GHCR with architecture-specific tags
-   - Creates multi-architecture manifest `ghcr.io/vig-os/devcontainer:<publish-tag>`
-   - Creates/updates `ghcr.io/vig-os/devcontainer:latest` only in final mode (and only when both architectures are built)
+   - Creates multi-architecture manifest `ghcr.io/vig-os/devkit:<publish-tag>`
+   - Creates/updates `ghcr.io/vig-os/devkit:latest` only in final mode (and only when both architectures are built)
    - Verifies manifests exist
    - Candidate and final modes: trigger cross-repository validation dispatch with `client_payload[tag]` plus source metadata (`source_repo`, `source_workflow`, `source_run_id`, `source_run_url`, `source_sha`, `correlation_id`)
 
@@ -418,8 +418,8 @@ Release Summary:
   Release Kind: final
   Tag: 1.0.0
   Images:
-    - ghcr.io/vig-os/devcontainer:1.0.0
-    - ghcr.io/vig-os/devcontainer:latest
+    - ghcr.io/vig-os/devkit:1.0.0
+    - ghcr.io/vig-os/devkit:latest
 ```
 
 **Key characteristics:**
@@ -479,11 +479,11 @@ No CHANGELOG reset is needed -- dev already has `## Unreleased` from the prepare
 git tag | grep 1.0.0
 
 # Verify images in registry
-docker pull ghcr.io/vig-os/devcontainer:1.0.0
-docker pull ghcr.io/vig-os/devcontainer:latest
+docker pull ghcr.io/vig-os/devkit:1.0.0
+docker pull ghcr.io/vig-os/devkit:latest
 
 # Check manifests
-docker buildx imagetools inspect ghcr.io/vig-os/devcontainer:1.0.0
+docker buildx imagetools inspect ghcr.io/vig-os/devkit:1.0.0
 ```
 
 ---

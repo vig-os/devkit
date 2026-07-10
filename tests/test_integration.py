@@ -550,7 +550,7 @@ class TestDevContainerDockerCompose:
         assert "image" in service, "devcontainer service missing 'image' field"
 
         # docker-compose now references version from .env / .vig-os
-        expected_image = "ghcr.io/vig-os/devcontainer:${DEVCONTAINER_VERSION:-latest}"
+        expected_image = "ghcr.io/vig-os/devkit:${DEVCONTAINER_VERSION:-latest}"
         assert service["image"] == expected_image, (
             f"Expected image to be {expected_image}, got: {service['image']}"
         )
@@ -1449,7 +1449,7 @@ class TestDevContainerCLI:
         """The running devcontainer must use the freshly-built image under test.
 
         The scaffolded docker-compose.yml pins the runtime image as
-        ``ghcr.io/vig-os/devcontainer:${DEVCONTAINER_VERSION:-latest}`` and
+        ``ghcr.io/vig-os/devkit:${DEVCONTAINER_VERSION:-latest}`` and
         ``initialize.sh`` writes the pinned ``DEVCONTAINER_VERSION`` (from the
         scaffolded ``.vig-os``) into ``.env``. Without an override the suite
         would validate fresh scaffolding running inside an old *published*
@@ -1480,7 +1480,7 @@ class TestDevContainerCLI:
             f"No running devcontainer found for workspace {workspace_path.name}"
         )
 
-        expected_image = f"ghcr.io/vig-os/devcontainer:{container_tag}"
+        expected_image = f"ghcr.io/vig-os/devkit:{container_tag}"
         assert any(expected_image in image for image in images), (
             f"Devcontainer is running from {images}, but the suite must validate "
             f"the image under test ({expected_image}). DEVCONTAINER_VERSION is not "
@@ -2159,7 +2159,7 @@ class TestJustRecipes:
         assert "build/test images" not in content
         assert "GHCR :latest" not in content
         assert 'pull version="latest"' not in content
-        assert "ghcr.io/vig-os/devcontainer" not in content
+        assert "ghcr.io/vig-os/devkit" not in content
 
 
 class TestDockerComposeProjectOverrides:
@@ -3042,7 +3042,7 @@ class TestVersionComparison:
         if compose_file.exists():
             content = compose_file.read_text()
             # Just verify it contains the image reference
-            assert "ghcr.io/vig-os/devcontainer:" in content
+            assert "ghcr.io/vig-os/devkit:" in content
 
 
 class TestVersionCheckJustIntegration:

@@ -53,7 +53,7 @@ jobs:
     needs: [resolve-image]
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      image: ghcr.io/vig-os/devkit:${{ needs.resolve-image.outputs.image-tag }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
@@ -230,7 +230,7 @@ jobs:
     needs: [resolve-image, validate]
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      image: ghcr.io/vig-os/devkit:${{ needs.resolve-image.outputs.image-tag }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
@@ -273,7 +273,7 @@ jobs:
     needs: [resolve-image, validate, promote]
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      image: ghcr.io/vig-os/devkit:${{ needs.resolve-image.outputs.image-tag }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
@@ -394,7 +394,7 @@ jobs:
     needs: [resolve-image, validate, promote, merge]
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      image: ghcr.io/vig-os/devkit:${{ needs.resolve-image.outputs.image-tag }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}

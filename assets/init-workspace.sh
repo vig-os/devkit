@@ -165,8 +165,8 @@ if [[ "$NO_PROMPTS" != "true" ]] && [[ ! -t 0 ]]; then
     echo "Error: This script requires an interactive terminal." >&2
     echo "" >&2
     echo "Please run with the -it flags:" >&2
-    echo "  podman run -it --rm -v \"./:/workspace\" ghcr.io/vig-os/devcontainer:latest /root/assets/init-workspace.sh" >&2
-    echo "  docker run -it --rm -v \"./:/workspace\" ghcr.io/vig-os/devcontainer:latest /root/assets/init-workspace.sh" >&2
+    echo "  podman run -it --rm -v \"./:/workspace\" ghcr.io/vig-os/devkit:latest /root/assets/init-workspace.sh" >&2
+    echo "  docker run -it --rm -v \"./:/workspace\" ghcr.io/vig-os/devkit:latest /root/assets/init-workspace.sh" >&2
     exit 1
 fi
 

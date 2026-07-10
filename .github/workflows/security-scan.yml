@@ -38,7 +38,7 @@ jobs:
   #
   # A Nix image has no apt/dpkg DB, so Trivy's OS-package scanner goes dark.
   # vulnix (nixpkgs-native) becomes the PRIMARY CVE signal here, scanning the
-  # image's package closure (flake `devcontainerImageEnv`); Trivy stays on for a
+  # image's package closure (flake `devkitImageEnv`); Trivy stays on for a
   # CycloneDX SBOM + an SBOM-mode vuln view (defense in depth). The vulnix-gate
   # step is BLOCKING (#639): the nixpkgs baseline was advanced to 26.05 and the
   # residual findings triaged into .vulnixignore (see docs/security/
@@ -89,7 +89,7 @@ jobs:
       - name: Build the vulnix scan target (image package closure)
         run: |
           set -euo pipefail
-          nix build .#devcontainerImageEnv --print-build-logs
+          nix build .#devkitImageEnv --print-build-logs
 
       - name: Run vulnix (primary CVE scanner)
         # NOTE: no blanket `|| true`. vulnix exit codes: 0 = clean, 1 = only
@@ -142,7 +142,7 @@ jobs:
       - name: Build the Nix image for SBOM generation
         run: |
           set -euo pipefail
-          nix build .#devcontainerImage --print-build-logs
+          nix build .#devkitImage --print-build-logs
           cp -L result /tmp/nix-image.tar.gz
 
       - name: Generate Nix image SBOM (CycloneDX)
@@ -183,7 +183,7 @@ jobs:
           {
             echo "## Nix image CVE scan (vulnix + SBOM)"
             echo ""
-            echo "- **Scan target:** flake \`devcontainerImageEnv\` (image package closure)"
+            echo "- **Scan target:** flake \`devkitImageEnv\` (image package closure)"
             echo "- **Primary scanner:** vulnix (nixpkgs-native)"
             echo "- **Date (UTC):** $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "- **Gate:** ${{ steps.vulnix-gate.outcome }} (blocking: fails on unexcepted HIGH/CRITICAL findings)"
@@ -224,7 +224,7 @@ jobs:
           BODY="$(cat <<EOF
           The nightly vulnix gate found **unexcepted HIGH/CRITICAL** CVEs in the Nix image closure (after \`.vulnixignore\`).
 
-          - **Scan target:** flake \`devcontainerImageEnv\` (image package closure)
+          - **Scan target:** flake \`devkitImageEnv\` (image package closure)
           - **Scan date (UTC):** $(date -u +%Y-%m-%dT%H:%M:%SZ)
           - **Workflow run:** ${RUN_URL}
           - **Findings artifact:** \`nix-image-cve-scan\` on the run above (\`vulnix-findings.json\`, \`vulnix-report.txt\`)

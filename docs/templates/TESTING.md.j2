@@ -54,7 +54,7 @@ These tests run against an initialized workspace to verify that the container wo
 Image and integration fixtures:
 
 - `container_tag`: Container tag from `TEST_CONTAINER_TAG` environment variable (defaults to "dev")
-- `container_image`: Full image name (e.g. `ghcr.io/vig-os/devcontainer:dev`)
+- `container_image`: Full image name (e.g. `ghcr.io/vig-os/devkit:dev`)
 - `test_container`: Running container instance for testing (session-scoped)
 - `host`: Testinfra host connection to the container (session-scoped)
 - `initialized_workspace`: Temporary workspace initialized with `init-workspace` script (session-scoped)

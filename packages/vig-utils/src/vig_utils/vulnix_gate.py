@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Gate HIGH/CRITICAL vulnix findings against an expiry-validated register.
 
-`vulnix` scans the Nix image's package closure (the flake `devcontainerImageEnv`
+`vulnix` scans the Nix image's package closure (the flake `devkitImageEnv`
 target) and emits JSON findings. This gate fails (exit 1) when any HIGH/CRITICAL
 CVE — CVSS v3 base score >= threshold (default 7.0) — is *not* covered by a
 non-expired entry in the exception register (`.vulnixignore`, the same

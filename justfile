@@ -7,7 +7,7 @@
 # ===============================================================================
 # Allow TEST_REGISTRY to override REPO for testing (e.g., localhost:5000/test/)
 
-repo := env("TEST_REGISTRY", "ghcr.io/vig-os/devcontainer")
+repo := env("TEST_REGISTRY", "ghcr.io/vig-os/devkit")
 
 # ===============================================================================
 # INFO
@@ -53,7 +53,7 @@ info:
         NATIVE_ARCH="linux/amd64"
     fi
     echo "Image: {{ repo }}"
-    echo "Image builder: Nix flake (.#devcontainerImage)"
+    echo "Image builder: Nix flake (.#devkitImage)"
     echo "Native arch: $NATIVE_ARCH"
 
 # Gate Nix prerequisites and bootstrap the project (venv, git hooks, pre-commit)
@@ -91,8 +91,8 @@ build no_cache="":
     # podman under the local `dev` tag. Builds natively for the host arch.
     # `no_cache` is accepted for compatibility but is a no-op — Nix builds are
     # content-addressed (there is no Docker layer cache to bust).
-    echo "Building the Nix devcontainer image (.#devcontainerImage)..."
-    nix build .#devcontainerImage --accept-flake-config --print-build-logs
+    echo "Building the Nix devcontainer image (.#devkitImage)..."
+    nix build .#devkitImage --accept-flake-config --print-build-logs
     loaded=$(podman load -i result | sed -n 's/^Loaded image: //p' | head -n1)
     podman tag "${loaded}" "{{ repo }}:dev"
     echo "Loaded and tagged {{ repo }}:dev (from ${loaded})"

@@ -105,4 +105,4 @@ reset-changelog:
 # Pull image from registry (default: latest)
 [group('release')]
 pull version="latest":
-    podman pull "ghcr.io/vig-os/devcontainer:{{ version }}"
+    podman pull "ghcr.io/vig-os/devkit:{{ version }}"

@@ -63,8 +63,8 @@ setup() {
     assert_success
 }
 
-@test "clean.sh defaults to ghcr.io/vig-os/devcontainer registry" {
-    run grep 'ghcr.io/vig-os/devcontainer' "$CLEAN_SH"
+@test "clean.sh defaults to ghcr.io/vig-os/devkit registry" {
+    run grep 'ghcr.io/vig-os/devkit' "$CLEAN_SH"
     assert_success
 }
 

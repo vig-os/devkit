@@ -872,7 +872,7 @@ jobs:
       - name: Build the vulnix scan target (image package closure)
         run: |
           set -euo pipefail
-          nix build .#devcontainerImageEnv --print-build-logs
+          nix build .#devkitImageEnv --print-build-logs
 
       # First-class, BLOCKING push of the scan-target closure to Cachix (#776) so
       # the CVE-scan closure is cache-backed too (nightly + re-runs substitute it
@@ -1055,7 +1055,7 @@ jobs:
           ARCHS: ${{ needs.validate.outputs.architectures }}
         run: |
           set -euo pipefail
-          REPO="ghcr.io/vig-os/devcontainer"
+          REPO="ghcr.io/vig-os/devkit"
 
           IFS=' ' read -ra ARCH_ARRAY <<< "$ARCHS"
 
@@ -1088,7 +1088,7 @@ jobs:
           ARCHS: ${{ needs.validate.outputs.architectures }}
         run: |
           set -euo pipefail
-          REPO="ghcr.io/vig-os/devcontainer"
+          REPO="ghcr.io/vig-os/devkit"
 
           IFS=' ' read -ra ARCH_ARRAY <<< "$ARCHS"
 
@@ -1112,7 +1112,7 @@ jobs:
           ARCHS: ${{ needs.validate.outputs.architectures }}
         run: |
           set -euo pipefail
-          REPO="ghcr.io/vig-os/devcontainer"
+          REPO="ghcr.io/vig-os/devkit"
 
           IFS=' ' read -ra ARCH_ARRAY <<< "$ARCHS"
 
@@ -1138,7 +1138,7 @@ jobs:
         continue-on-error: true
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610  # v0.24.0
         with:
-          image: ghcr.io/vig-os/devcontainer:${{ needs.validate.outputs.publish_version }}
+          image: ghcr.io/vig-os/devkit:${{ needs.validate.outputs.publish_version }}
           artifact-name: sbom-${{ needs.validate.outputs.publish_version }}.spdx.json
           output-file: /tmp/sbom.spdx.json
           format: spdx-json
@@ -1151,7 +1151,7 @@ jobs:
         if: steps.sbom_generate.outcome == 'failure'
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610  # v0.24.0
         with:
-          image: ghcr.io/vig-os/devcontainer:${{ needs.validate.outputs.publish_version }}
+          image: ghcr.io/vig-os/devkit:${{ needs.validate.outputs.publish_version }}
           artifact-name: sbom-${{ needs.validate.outputs.publish_version }}.spdx.json
           output-file: /tmp/sbom.spdx.json
           format: spdx-json
@@ -1168,7 +1168,7 @@ jobs:
           PUBLISH_VERSION: ${{ needs.validate.outputs.publish_version }}
         run: |
           set -euo pipefail
-          REPO="ghcr.io/vig-os/devcontainer"
+          REPO="ghcr.io/vig-os/devkit"
 
           # Get the digest for the multi-arch manifest
           DIGEST=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
@@ -1186,7 +1186,7 @@ jobs:
           PUBLISH_VERSION: ${{ needs.validate.outputs.publish_version }}
         run: |
           set -euo pipefail
-          REPO="ghcr.io/vig-os/devcontainer"
+          REPO="ghcr.io/vig-os/devkit"
           DIGEST=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
             docker buildx imagetools inspect "$REPO:$PUBLISH_VERSION" --format '{{json .Manifest.Digest}}' | tr -d '"')
           echo "digest=$DIGEST" >> $GITHUB_OUTPUT
@@ -1197,7 +1197,7 @@ jobs:
         continue-on-error: true
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
         with:
-          subject-name: ghcr.io/vig-os/devcontainer
+          subject-name: ghcr.io/vig-os/devkit
           subject-digest: ${{ steps.digest.outputs.digest }}
           push-to-registry: true
 
@@ -1209,7 +1209,7 @@ jobs:
         if: steps.attest_provenance.outcome == 'failure'
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
         with:
-          subject-name: ghcr.io/vig-os/devcontainer
+          subject-name: ghcr.io/vig-os/devkit
           subject-digest: ${{ steps.digest.outputs.digest }}
           push-to-registry: true
 
@@ -1218,7 +1218,7 @@ jobs:
         continue-on-error: true
         uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763  # v4.1.1
         with:
-          subject-name: ghcr.io/vig-os/devcontainer
+          subject-name: ghcr.io/vig-os/devkit
           subject-digest: ${{ steps.digest.outputs.digest }}
           sbom-path: /tmp/sbom.spdx.json
           push-to-registry: true
@@ -1231,7 +1231,7 @@ jobs:
         if: steps.attest_sbom.outcome == 'failure'
         uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763  # v4.1.1
         with:
-          subject-name: ghcr.io/vig-os/devcontainer
+          subject-name: ghcr.io/vig-os/devkit
           subject-digest: ${{ steps.digest.outputs.digest }}
           sbom-path: /tmp/sbom.spdx.json
           push-to-registry: true
@@ -1364,9 +1364,9 @@ jobs:
           echo "  Release Kind: $RELEASE_KIND"
           echo "  Tag: $PUBLISH_VERSION"
           echo "  Images:"
-          echo "    - ghcr.io/vig-os/devcontainer:$PUBLISH_VERSION"
+          echo "    - ghcr.io/vig-os/devkit:$PUBLISH_VERSION"
           if [ "$RELEASE_KIND" = "final" ]; then
-            echo "    - ghcr.io/vig-os/devcontainer:latest (after just promote-release $BASE_VERSION)"
+            echo "    - ghcr.io/vig-os/devkit:latest (after just promote-release $BASE_VERSION)"
           fi
           echo "  Security:"
           echo "    - Cosign signature attached"
@@ -1657,7 +1657,7 @@ jobs:
             - This issue created for investigation
 
             **Manual Cleanup May Be Needed:**
-            - If images were pushed to GHCR before the failure, they are **not** automatically deleted. Check \`ghcr.io/vig-os/devcontainer:${publishVersion}-*\` and remove any orphaned images manually.
+            - If images were pushed to GHCR before the failure, they are **not** automatically deleted. Check \`ghcr.io/vig-os/devkit:${publishVersion}-*\` and remove any orphaned images manually.
             - If a **draft** GitHub Release exists for this tag, edit or manage it from the Releases UI (**publishing** locks the linked tag and assets when **immutable releases** are enabled).
 
             **Next Steps:**

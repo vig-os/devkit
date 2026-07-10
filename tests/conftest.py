@@ -182,7 +182,7 @@ def container_image(container_tag):
     """
     Construct the full container image name and verify it exists.
     """
-    image_name = f"ghcr.io/vig-os/devcontainer:{container_tag}"
+    image_name = f"ghcr.io/vig-os/devkit:{container_tag}"
 
     # Check if image exists
     result = subprocess.run(
@@ -793,7 +793,7 @@ def devcontainer_up(initialized_workspace, container_tag):
     # Run the devcontainer from the image *under test*, not the published
     # DEVCONTAINER_VERSION baked into the scaffolded .vig-os/.env. The
     # scaffolded docker-compose.yml resolves the runtime image as
-    # ghcr.io/vig-os/devcontainer:${DEVCONTAINER_VERSION:-latest}; compose reads
+    # ghcr.io/vig-os/devkit:${DEVCONTAINER_VERSION:-latest}; compose reads
     # the shell environment over the .env file, so exporting DEVCONTAINER_VERSION
     # here pins compose -- and every `devcontainer exec` below, which inherits
     # os.environ -- to TEST_CONTAINER_TAG. Refs #701.

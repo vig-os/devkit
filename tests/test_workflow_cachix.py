@@ -96,7 +96,7 @@ def test_release_vulnix_gate_pushes_scan_target_closure() -> None:
     """The release CVE gate pushes the scan-target closure so scans are cache-backed."""
     wf = _load(RELEASE_WF)
     push_steps = [s for s in _steps_of_job(wf, "vulnix-gate") if _is_closure_push(s)]
-    assert push_steps, "vulnix-gate must push the devcontainerImageEnv closure"
+    assert push_steps, "vulnix-gate must push the devkitImageEnv closure"
     for step in push_steps:
         assert step.get("continue-on-error") is not True, (
             "the scan-target closure push must be blocking"
