@@ -177,7 +177,7 @@ wheels = [
 ]
 
 [[package]]
-name = "devcontainer"
+name = "devkit"
 version = "0.1.1"
 source = { virtual = "." }
 dependencies = [
@@ -203,7 +203,7 @@ dev = [
     { name = "testcontainers" },
     { name = "vig-utils" },
 ]
-devcontainer = [
+devkit = [
     { name = "bandit" },
     { name = "pip-licenses" },
     { name = "rich" },
@@ -246,7 +246,7 @@ dev = [
     { name = "testcontainers", specifier = "==4.14.2" },
     { name = "vig-utils", editable = "packages/vig-utils" },
 ]
-devcontainer = [
+devkit = [
     { name = "bandit", extras = ["toml"], specifier = "==1.9.4" },
     { name = "pip-licenses", specifier = "==5.5.5" },
     { name = "rich", specifier = "==15.0.0" },

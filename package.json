@@ -1,5 +1,5 @@
 {
-  "name": "devcontainer-ci-deps",
+  "name": "devkit-ci-deps",
   "private": true,
   "description": "CI-only npm dependencies tracked by Dependabot",
   "dependencies": {
