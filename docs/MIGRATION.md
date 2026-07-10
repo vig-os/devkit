@@ -377,7 +377,7 @@ dedicated working branch as a single reviewable, revertible diff
 To see what an upgrade would change before running it, use `--preview`:
 
 ```bash
-curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh \
+curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh \
   | bash -s -- --force --preview .
 ```
 

@@ -89,7 +89,7 @@ If this repository is lost or needs to be rebuilt, recreate it from the
 2. Clone it locally and run the installer with smoke-test assets enabled:
 
    ```bash
-   curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --smoke-test .
+   curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --smoke-test .
    ```
 
 3. Commit the generated files and push to `main`.

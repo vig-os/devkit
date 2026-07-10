@@ -2,8 +2,8 @@
 # vigOS devcontainer quick install script
 #
 # Usage:
-#   curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash
-#   curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- [OPTIONS] [PATH]
+#   curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash
+#   curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- [OPTIONS] [PATH]
 #
 # Options:
 #   --force           Overwrite existing files (for upgrades)
@@ -22,10 +22,10 @@
 #   -h, --help        Show this help message
 #
 # Examples:
-#   curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash
-#   curl -sSf ... | bash -s -- ~/Projects/my-project
-#   curl -sSf ... | bash -s -- --version 0.2.1 --force ./my-project
-#   curl -sSf ... | bash -s -- --org MyOrg ./my-project
+#   curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash
+#   curl -sSfL ... | bash -s -- ~/Projects/my-project
+#   curl -sSfL ... | bash -s -- --version 0.2.1 --force ./my-project
+#   curl -sSfL ... | bash -s -- --org MyOrg ./my-project
 
 set -euo pipefail
 
@@ -67,8 +67,8 @@ usage() {
 vigOS Devcontainer Install Script
 
 USAGE:
-    curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash
-    curl -sSf ... | bash -s -- [OPTIONS] [PATH]
+    curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash
+    curl -sSfL ... | bash -s -- [OPTIONS] [PATH]
 
 OPTIONS:
     --force           Overwrite existing files (for upgrades)
@@ -92,25 +92,25 @@ OPTIONS:
 
 EXAMPLES:
     # Initialize current directory with latest version
-    curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash
+    curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash
 
     # Initialize specific directory
-    curl -sSf ... | bash -s -- ~/Projects/my-new-project
+    curl -sSfL ... | bash -s -- ~/Projects/my-new-project
 
     # Upgrade existing project
-    curl -sSf ... | bash -s -- --force ./my-project
+    curl -sSfL ... | bash -s -- --force ./my-project
 
     # Use specific version
-    curl -sSf ... | bash -s -- --version 0.2.1 ./my-project
+    curl -sSfL ... | bash -s -- --version 0.2.1 ./my-project
 
     # Override project name
-    curl -sSf ... | bash -s -- --name my_custom_name ./my-project
+    curl -sSfL ... | bash -s -- --name my_custom_name ./my-project
 
     # Use custom organization name
-    curl -sSf ... | bash -s -- --org MyOrg ./my-project
+    curl -sSfL ... | bash -s -- --org MyOrg ./my-project
 
     # Scaffold only the Nix/direnv stub (no .devcontainer/)
-    curl -sSf ... | bash -s -- --mode direnv ./my-project
+    curl -sSfL ... | bash -s -- --mode direnv ./my-project
 EOF
 }
 
@@ -726,7 +726,7 @@ if [ ! -t 0 ]; then
         err "This script requires an interactive terminal"
         echo ""
         echo "Try running directly instead of piping:"
-        echo "  curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh -o install.sh"
+        echo "  curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh -o install.sh"
         echo "  bash install.sh $PROJECT_PATH"
         exit 1
     fi

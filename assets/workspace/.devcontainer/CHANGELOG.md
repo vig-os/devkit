@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Documented `install.sh` one-liners follow redirects (`curl -sSfL`)** ([#781](https://github.com/vig-os/devcontainer/issues/781))
+  - Pre-rename hardening: every documented `curl … | bash` install/upgrade
+    one-liner (README, `install.sh` help text, `MIGRATION.md`, the smoke-test
+    template, and the in-container upgrade hint) now passes `-L` so the fetch
+    follows HTTP redirects, keeping the bootstrap working across the upcoming
+    `devcontainer` → `devkit` repository rename. Repository and image URLs are
+    unchanged in this slice.
+
 ### Deprecated
 
 ### Removed

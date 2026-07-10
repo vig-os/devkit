@@ -297,7 +297,7 @@ notify_update() {
     echo ""
     echo -e "  Or without just:"
     echo ""
-    echo -e "    curl -sSf https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --force ."
+    echo -e "    curl -sSfL https://raw.githubusercontent.com/vig-os/devcontainer/main/install.sh | bash -s -- --force ."
     echo ""
     echo -e "  After upgrading, rebuild the container in VS Code."
     echo ""
