@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.0.0] - TBD
+
+### Added
+
 - **Version-pin parsers accept the renamed `DEVKIT_VERSION` key** ([#781](https://github.com/vig-os/devcontainer/issues/781))
   - As the first step of the `devcontainer` → `devkit` rename, every `.vig-os`
     version-pin reader now prefers a `DEVKIT_VERSION` key and falls back to the
@@ -53,14 +67,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     follows HTTP redirects, keeping the bootstrap working across the upcoming
     `devcontainer` → `devkit` repository rename. Repository and image URLs are
     unchanged in this slice.
-
-### Deprecated
-
-### Removed
-
-### Fixed
-
-### Security
 
 ## [0.5.1](https://github.com/vig-os/devcontainer/releases/tag/0.5.1) - 2026-07-10
 
