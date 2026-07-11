@@ -26,6 +26,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`sync-issues` no longer full-re-syncs on a cache miss** ([#980](https://github.com/vig-os/devkit/issues/980))
+  - The scaffolded `sync-issues` workflow keyed its incremental-state cache by
+    repository name, so a repository rename (or the routine 7-day cache eviction)
+    orphaned the state and made it re-fetch the **entire** issue/PR history from
+    epoch — exhausting the GitHub API rate limit before it could save state, so it
+    failed every run. On a cache miss it now falls back to a bounded **14-day
+    look-back** (safely covering the eviction gap; older items already live in the
+    committed archives), then saves state and self-heals to incremental.
+    `force-update` still performs a full rebuild.
+
 ### Security
 
 ## [1.0.0](https://github.com/vig-os/devcontainer/releases/tag/1.0.0) - 2026-07-10

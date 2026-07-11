@@ -123,6 +123,29 @@ jobs:
             echo "No cache found with key: $CACHE_KEY (this is OK for first run)"
           fi
 
+      - name: Compute incremental cutoff (self-heal on cache miss)
+        id: cutoff
+        if: github.event.inputs.force-update != 'true'
+        env:
+          CACHE_HIT: ${{ steps.restore-state.outputs.cache-hit }}
+        run: |
+          set -euo pipefail
+          if [ "$CACHE_HIT" = "true" ]; then
+            # State restored from cache: let the action read the state file.
+            echo "updated-since=" >> "$GITHUB_OUTPUT"
+            echo "Cache hit: incremental sync from the restored state file."
+          else
+            # Cache miss (a repository rename, or the routine 7-day cache
+            # eviction). Without state the action would re-sync the entire
+            # issue/PR history from epoch and exhaust the GitHub API rate limit
+            # (#980). Fall back to a bounded look-back that safely covers the
+            # eviction gap; older items are already in the committed archives,
+            # and force-update still forces a full rebuild.
+            SINCE="$(date -u -d '14 days ago' '+%Y-%m-%dT%H:%M:%SZ')"
+            echo "updated-since=$SINCE" >> "$GITHUB_OUTPUT"
+            echo "Cache miss: bounded incremental sync since $SINCE (14-day look-back)."
+          fi
+
       - name: Sync Issues and PRs
         id: sync
         uses: vig-os/sync-issues-action@bad447d330526a7313ffddae084010c39b335fc1  # v0.2.2
@@ -134,7 +157,7 @@ jobs:
           sync-prs: 'true'
           include-closed: 'true'
           state-file: '.sync-state/last-sync.txt'
-          updated-since: ${{ (github.event.inputs.force-update == 'true' && '1970-01-01T00:00:00Z') || '' }}
+          updated-since: ${{ (github.event.inputs.force-update == 'true' && '1970-01-01T00:00:00Z') || steps.cutoff.outputs.updated-since }}
 
       - name: Commit and push changes via API
         id: commit
