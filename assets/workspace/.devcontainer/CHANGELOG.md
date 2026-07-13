@@ -22,6 +22,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     runs prompt once (`Prune existing .devcontainer/? (y/N)`, default No) when a
     populated pre-existing `.devcontainer/` is detected in a container-less mode.
     `docs/MIGRATION.md` documents the preview-then-apply cleanup runbook.
+- **Mode-aware toolchain composite actions** ([#994](https://github.com/vig-os/devkit/issues/994))
+  - New scaffolded `resolve-toolchain` composite action (evolves
+    `resolve-image`): reads `.vig-os` and emits `mode`, `image`, and `image-tag`.
+    Container-ish modes (`devcontainer`/`both`) get the `ghcr.io/vig-os/devcontainer`
+    image and keep the `docker manifest inspect` accessibility probe; the host
+    modes (`direnv`/`bare`) get an explicit empty `image` so the downstream job
+    runs on the host runner (Option A, `docs/rfcs/ADR-conditional-container-toolchain.md`).
+  - New scaffolded `setup-devkit-toolchain` composite action: the single
+    step-level toolchain preamble for every mode. Branches on `DEVKIT_MODE` —
+    in-container jobs export the image-relative env (`UV_PROJECT_ENVIRONMENT`,
+    `PREK_HOME`) + `safe.directory` fix; `direnv` provisions the repo flake
+    dev-shell via Nix + Cachix; `bare` installs the pinned toolchain (`just`,
+    `prek`, `vig-utils`) with `uv`. Both host modes install a self-contained
+    `retry` shim. Preserves the per-mode `prek` version-skew guards (#854).
 - **`vig-utils` console scripts available in the dev-shell** ([#993](https://github.com/vig-os/devkit/issues/993))
   - `prepare-changelog`, `renovate-changelog-pr`, and the other
     `packages/vig-utils` console scripts are now on the toolchain SSoT

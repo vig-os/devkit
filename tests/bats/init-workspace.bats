@@ -2105,3 +2105,125 @@ _actionlint_rendered() {
         "$PROJECT_ROOT/assets/smoke-test/.github/workflows/repository-dispatch.yml"
     assert_success
 }
+
+# ── #994: shared resolve-toolchain + setup-devkit-toolchain composites ─────────
+# Two mode-aware composite actions ship (managed) in
+# assets/workspace/.github/actions/ for EVERY delivery mode. resolve-toolchain
+# evolves resolve-image: it emits `mode` + `image` (empty string for the host
+# modes per the Option-A ADR) + `image-tag`. setup-devkit-toolchain is the
+# step-level toolchain preamble branching on DEVKIT_MODE. These are structural
+# render assertions only — the host branches are exercised on real runners by
+# #991; here we prove the files ship, are SHA-pinned, and wire each mode branch.
+
+@test "resolve-toolchain and setup-devkit-toolchain ship in every mode (#994)" {
+    for mode in devcontainer direnv both bare; do
+        ws="$BATS_TEST_TMPDIR/e2e-994-$mode"
+        mkdir -p "$ws"
+        run _scaffold "$mode" "$ws"
+        assert_success
+        run test -f "$ws/.github/actions/resolve-toolchain/action.yml"
+        assert_success
+        run test -f "$ws/.github/actions/setup-devkit-toolchain/action.yml"
+        assert_success
+    done
+}
+
+@test "composite toolchain actions SHA-pin every action reference (#994)" {
+    # scorecard/check-action-pins conform: no floating `uses:` in either file.
+    for f in resolve-toolchain setup-devkit-toolchain; do
+        af="$TEMPLATE_DIR/.github/actions/$f/action.yml"
+        run bash -c "grep 'uses:' '$af' | grep -vE '@[0-9a-f]{40}'"
+        assert_failure
+    done
+}
+
+@test "resolve-toolchain emits an explicit empty image for direnv/bare (#994)" {
+    f="$TEMPLATE_DIR/.github/actions/resolve-toolchain/action.yml"
+    # host modes get an explicit empty-string image (ADR Option A: always emit,
+    # never omit — an empty container image makes the job run on the host).
+    run grep -Eq 'IMAGE=""' "$f"
+    assert_success
+    # container-ish modes get the ghcr devcontainer image.
+    run grep -q 'ghcr.io/vig-os/devcontainer:' "$f"
+    assert_success
+    # emits mode + image + image-tag outputs.
+    for o in 'mode:' 'image:' 'image-tag:'; do
+        run grep -q "$o" "$f"
+        assert_success
+    done
+}
+
+@test "resolve-toolchain retains the manifest-inspect accessibility probe (#994)" {
+    f="$TEMPLATE_DIR/.github/actions/resolve-toolchain/action.yml"
+    run grep -q 'docker manifest inspect' "$f"
+    assert_success
+    # tolerant .vig-os parsing preserved: DEVKIT_VERSION with legacy fallback.
+    run grep -q 'DEVCONTAINER_VERSION' "$f"
+    assert_success
+}
+
+@test "setup-devkit-toolchain gates every branch on the mode input (#994)" {
+    f="$TEMPLATE_DIR/.github/actions/setup-devkit-toolchain/action.yml"
+    run grep -q "inputs.mode == 'devcontainer'" "$f"
+    assert_success
+    run grep -q "inputs.mode == 'direnv'" "$f"
+    assert_success
+    run grep -q "inputs.mode == 'bare'" "$f"
+    assert_success
+}
+
+@test "setup-devkit-toolchain container branch reproduces the in-image env (#994)" {
+    f="$TEMPLATE_DIR/.github/actions/setup-devkit-toolchain/action.yml"
+    run grep -q 'PREK_HOME' "$f"
+    assert_success
+    run grep -q 'UV_PROJECT_ENVIRONMENT' "$f"
+    assert_success
+    run grep -q 'safe.directory' "$f"
+    assert_success
+}
+
+@test "setup-devkit-toolchain direnv branch uses Nix + the repo dev-shell (#994)" {
+    f="$TEMPLATE_DIR/.github/actions/setup-devkit-toolchain/action.yml"
+    run grep -q 'cachix/install-nix-action' "$f"
+    assert_success
+    run grep -q 'nix develop' "$f"
+    assert_success
+    # host-side prek version-skew guard points at `nix flake update vigos` (#854).
+    run grep -q 'nix flake update vigos' "$f"
+    assert_success
+}
+
+@test "setup-devkit-toolchain bare branch installs the host toolchain incl vig-utils (#994)" {
+    f="$TEMPLATE_DIR/.github/actions/setup-devkit-toolchain/action.yml"
+    run grep -q 'astral-sh/setup-uv' "$f"
+    assert_success
+    run grep -q 'uv tool install' "$f"
+    assert_success
+    run grep -q 'vig-utils' "$f"
+    assert_success
+}
+
+@test "setup-devkit-toolchain embeds a self-contained retry shim for host modes (#994)" {
+    f="$TEMPLATE_DIR/.github/actions/setup-devkit-toolchain/action.yml"
+    # BASH_ENV mechanism replicated inline (the scaffold cannot source a
+    # devkit-internal script), gated to the host modes only.
+    run grep -q 'BASH_ENV' "$f"
+    assert_success
+    run grep -q 'retry()' "$f"
+    assert_success
+}
+
+@test "resolve-toolchain rejects an unknown DEVKIT_MODE loudly (#994)" {
+    # A typo'd manifest value (e.g. a misspelled `container`) must fail the
+    # resolve step, not
+    # silently fall through to the host branch (empty image) and flip a
+    # container repo's CI onto host runners. Mirrors the init-workspace.sh
+    # corrupt-persisted-mode guard.
+    f="$TEMPLATE_DIR/.github/actions/resolve-toolchain/action.yml"
+    run grep -q 'Invalid DEVKIT_MODE' "$f"
+    assert_success
+    # the image case statement is closed: an explicit direnv|bare arm, no
+    # catch-all that would classify unknown modes as host.
+    run grep -q 'direnv|bare)' "$f"
+    assert_success
+}
