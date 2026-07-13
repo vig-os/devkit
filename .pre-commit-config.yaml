@@ -96,16 +96,16 @@ repos:
         exclude: (^|/)\.envrc$
 
   # GitHub Actions workflow linting (actionlint from the flake dev-shell). Lints
-  # THIS repo's own .github/workflows/ via auto-discovery; shellcheck integration
-  # is disabled (its run-block findings are a separate concern, and the
-  # shellcheck hook above covers .sh scripts). Devkit-only: not scaffolded to
-  # consumers — the per-mode rendered templates are validated in tests/bats.
+  # THIS repo's own .github/workflows/ via auto-discovery; actionlint's bundled
+  # shellcheck pass over run-block scripts is enabled (#1003, the standalone
+  # shellcheck hook above still covers .sh scripts). Devkit-only: not scaffolded
+  # to consumers — the per-mode rendered templates are validated in tests/bats.
   # Refs #995.
   - repo: local
     hooks:
       - id: actionlint
         name: actionlint (lint GitHub Actions workflows)
-        entry: actionlint -shellcheck=
+        entry: actionlint
         language: system
         files: ^\.github/workflows/.*\.ya?ml$
         pass_filenames: false

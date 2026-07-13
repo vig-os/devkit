@@ -2035,12 +2035,10 @@ _upgrade_legacy() {
 # reusable release files do not exist); the faithful check is over the fully
 # rendered tree, which is what these fixtures do.
 #
-# The invocation disables actionlint's bundled shellcheck (`-shellcheck=`): its
-# run-block findings on the authored templates are pre-existing info/style/
-# warning noise, tracked for a separate hardening pass — the dedicated
-# shell-lint hook already covers `.sh` scripts. The reusable release workflows
-# read secrets (GHCR_PULL_TOKEN, *_APP_CLIENT_ID/PRIVATE_KEY) passed by the
-# caller via `secrets: inherit`, which actionlint cannot see statically; those
+# The invocation runs actionlint's bundled shellcheck over the run-block scripts
+# (#1003); the template run blocks are hardened to pass it. The reusable release
+# workflows read secrets (GHCR_PULL_TOKEN, *_APP_CLIENT_ID/PRIVATE_KEY) passed by
+# the caller via `secrets: inherit`, which actionlint cannot see statically; those
 # false positives are ignored by message.
 ACTIONLINT_INHERITED_SECRETS='property "(ghcr_pull_token|release_app_client_id|release_app_private_key|commit_app_client_id|commit_app_private_key)" is not defined'
 
@@ -2053,7 +2051,7 @@ _actionlint_rendered() {
     (
         cd "$ws" &&
             git init -q &&
-            actionlint -shellcheck= -ignore "$ACTIONLINT_INHERITED_SECRETS"
+            actionlint -ignore "$ACTIONLINT_INHERITED_SECRETS"
     )
 }
 
@@ -2080,7 +2078,7 @@ _actionlint_rendered() {
 @test "actionlint passes over the smoke-test workflow template (#995)" {
     # The smoke-test template ships a single, standalone workflow (no reusable
     # siblings), so it is linted in-place by explicit path from the repo root.
-    run actionlint -shellcheck= \
+    run actionlint \
         "$PROJECT_ROOT/assets/smoke-test/.github/workflows/repository-dispatch.yml"
     assert_success
 }

@@ -379,14 +379,12 @@ let
     # sandbox gate — the per-mode RENDERED consumer templates are validated in
     # tests/bats instead, because linting them in-place resolves the
     # reusable-workflow siblings against the wrong root (the devkit itself).
-    # shellcheck integration
-    # is disabled (-shellcheck=): its run-block findings on the authored
-    # workflows are a separate hardening concern, and the shellcheck hook above
-    # already covers .sh scripts.
+    # actionlint's bundled shellcheck pass over run-block scripts is enabled
+    # (#1003); the standalone shellcheck hook above still covers .sh scripts.
     actionlint = {
       yaml = {
         name = "actionlint (lint GitHub Actions workflows)";
-        entry = "actionlint -shellcheck=";
+        entry = "actionlint";
         language = "system";
         files = "^\\.github/workflows/.*\\.ya?ml$";
         pass_filenames = false;
