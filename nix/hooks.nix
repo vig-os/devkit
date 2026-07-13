@@ -450,7 +450,7 @@ let
       consumer = pkgs: {
         enable = true;
         name = "nixfmt";
-        entry = "${pkgs.nixfmt-rfc-style}/bin/nixfmt --check";
+        entry = "${pkgs.nixfmt}/bin/nixfmt --check";
         language = "system";
         files = "\\.nix$";
       };

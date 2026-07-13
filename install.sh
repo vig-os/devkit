@@ -889,9 +889,22 @@ success "Devcontainer deployed to $PROJECT_PATH"
 echo ""
 echo "Next steps:"
 echo "  1. cd $PROJECT_PATH"
-if [ "$MODE" = "bare" ]; then
-    echo "  2. Run 'just help' to list the shipped recipes (host-native: no container)"
-else
-    echo "  2. Open in VS Code - it will detect .devcontainer/ and offer to reopen in container"
-fi
+# The next step is mode-specific: only the container modes scaffold a
+# .devcontainer/ for VS Code to detect, so direnv (which scaffolds only the
+# flake + .envrc) must be pointed at its own entrypoint instead (#1015).
+case "$MODE" in
+    bare)
+        echo "  2. Run 'just help' to list the shipped recipes (host-native: no container)"
+        ;;
+    direnv)
+        echo "  2. Run 'direnv allow' to load the flake dev-shell (or 'nix develop' without direnv)"
+        ;;
+    both)
+        echo "  2. Open in VS Code - it will detect .devcontainer/ and offer to reopen in container"
+        echo "     (or run 'direnv allow' on the host to load the flake dev-shell)"
+        ;;
+    *)
+        echo "  2. Open in VS Code - it will detect .devcontainer/ and offer to reopen in container"
+        ;;
+esac
 echo ""

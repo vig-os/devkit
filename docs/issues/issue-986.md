@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-13T05:45:00Z
-updated: 2026-07-13T05:45:00Z
+updated: 2026-07-13T10:58:37Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/986
-comments: 0
+comments: 1
 labels: bug, area:ci, effort:small
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-13T05:45:36.743Z
+synced: 2026-07-13T15:17:56.157Z
 ---
 
 # [Issue 986]: [[BUG] Renovate cannot resolve digest for sigstore/cosign-installer (comment names nonexistent v4 tag)](https://github.com/vig-os/devkit/issues/986)
@@ -53,3 +53,11 @@ uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1
 ```
 
 All other digest-pinned actions in the repo use comments that resolve to real tags (verified against upstream), so this is the only affected dependency.
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 13, 2026 at 10:58 AM_
+
+Resolved by #987 (merged to `dev`). Closing.
+

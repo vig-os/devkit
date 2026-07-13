@@ -772,3 +772,48 @@ MANIFEST
     assert_success
     assert_output --partial "--skip-pull"
 }
+
+# ── mode-aware "Next steps" (#1015) ───────────────────────────────────────────
+# The printed next step must match the delivery mode: only the container modes
+# scaffold a .devcontainer/ for VS Code to detect, so direnv must be pointed at
+# the direnv entrypoint instead. Exercised end to end against a stub runtime
+# (`docker` on PATH, exit 0 for info/inspect/run) so nothing is pulled or
+# scaffolded and the run still reaches the final message.
+_run_install_stubbed() {
+    local dir="$1" mode="$2"
+    local stub="$BATS_TEST_TMPDIR/stub-bin"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/docker"
+    chmod +x "$stub/docker"
+    _make_repo "$dir"
+    run env PATH="$stub:$PATH" bash "$INSTALL_SH" \
+        --docker --skip-pull --mode "$mode" "$dir" </dev/null
+}
+
+@test "direnv install points at the direnv entrypoint, not VS Code (#1015)" {
+    _run_install_stubbed "$BATS_TEST_TMPDIR/next-direnv" direnv
+    assert_success
+    refute_output --partial "Open in VS Code"
+    assert_output --partial "direnv allow"
+    assert_output --partial "nix develop"
+}
+
+@test "bare install still points at 'just help' (#1015)" {
+    _run_install_stubbed "$BATS_TEST_TMPDIR/next-bare" bare
+    assert_success
+    refute_output --partial "Open in VS Code"
+    assert_output --partial "just help"
+}
+
+@test "devcontainer install still points at VS Code (#1015)" {
+    _run_install_stubbed "$BATS_TEST_TMPDIR/next-devcontainer" devcontainer
+    assert_success
+    assert_output --partial "Open in VS Code"
+}
+
+@test "both install points at VS Code and mentions direnv (#1015)" {
+    _run_install_stubbed "$BATS_TEST_TMPDIR/next-both" both
+    assert_success
+    assert_output --partial "Open in VS Code"
+    assert_output --partial "direnv allow"
+}

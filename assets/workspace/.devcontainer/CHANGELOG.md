@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-## [1.1.0] - TBD
+## [1.1.0](https://github.com/vig-os/devkit/releases/tag/1.1.0) - 2026-07-13
 
 ### Added
 
@@ -102,6 +102,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     word-splitting) carry justified `# shellcheck disable` directives.
 
 ### Fixed
+
+- **`install.sh` next-steps message is mode-aware** ([#1015](https://github.com/vig-os/devkit/issues/1015))
+  - A `direnv` deploy printed *"Open in VS Code — it will detect `.devcontainer/`"*,
+    pointing at a directory the direnv scaffold never creates (and that
+    `--prune-devcontainer` may have just removed). The message now branches over
+    every validated mode: `direnv` points at `direnv allow` (with `nix develop` as
+    the hook-free fallback), `both` offers each entrypoint, and `bare`/`devcontainer`
+    are unchanged.
+
+- **Scaffolded `workflow_call` workflows declare the secrets they inherit** ([#1016](https://github.com/vig-os/devkit/issues/1016))
+  - `release-core.yml` and `release-publish.yml` read `GHCR_PULL_TOKEN`,
+    `RELEASE_APP_*` and `COMMIT_APP_*` without declaring them in their
+    `workflow_call: secrets:` block. A reusable workflow has a *closed* secrets set,
+    so `actionlint` correctly reported each one as undefined and every scaffolded
+    consumer inherited a dirty lint run. The secrets are now declared (`required:`
+    set from real usage), and the bats suite no longer suppresses the diagnostic —
+    it asserts that every referenced secret is declared.
+
+- **Dev-shell entry is warning-free** ([#1017](https://github.com/vig-os/devkit/issues/1017))
+  - `nix develop` emitted two upstream rename warnings (`nixfmt-rfc-style` →
+    `nixfmt`, and home-manager's `programs.neovim.extraLuaConfig` → `initLua`).
+    Both are pure aliases: the dev-shell and home-manager activation derivations
+    are byte-identical before and after.
+
+- **A scaffolded consumer's `nix develop` is warning-free too** ([#1021](https://github.com/vig-os/devkit/issues/1021))
+  - The shared consumer overlay (`vigos.overlays.default`) still read the
+    renamed-away `final.system`, so every consumer that applied it and forced a
+    fast-mover package saw the `'system' has been renamed to/replaced by
+    'stdenv.hostPlatform.system'` warning that [#1017](https://github.com/vig-os/devkit/issues/1017)
+    had already cleared from the devkit's own dev-shell. The overlay now reads
+    `final.stdenv.hostPlatform.system`; the resolved derivations are unchanged.
 
 - **Scaffolded flake stub references the renamed `github:vig-os/devkit` input** ([#1009](https://github.com/vig-os/devkit/issues/1009))
   - The preserved `assets/workspace/flake.nix` stub (active input and pin-example

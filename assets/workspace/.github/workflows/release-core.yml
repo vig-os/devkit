@@ -49,6 +49,23 @@ on:  # yamllint disable-line rule:truthy
     secrets:
       token:
         required: false
+      # Passed by the caller via `secrets: inherit`; a workflow_call workflow has
+      # a closed secrets set, so every secret it reads must be declared here.
+      GHCR_PULL_TOKEN:
+        description: "GHCR read token for the container image (falls back to github.token)"
+        required: false
+      RELEASE_APP_CLIENT_ID:
+        description: "GitHub App client ID used to mint the release token"
+        required: true
+      RELEASE_APP_PRIVATE_KEY:
+        description: "GitHub App private key used to mint the release token"
+        required: true
+      COMMIT_APP_CLIENT_ID:
+        description: "GitHub App client ID used to mint the verified-commit token"
+        required: true
+      COMMIT_APP_PRIVATE_KEY:
+        description: "GitHub App private key used to mint the verified-commit token"
+        required: true
     outputs:
       version:
         description: "Resolved release version"

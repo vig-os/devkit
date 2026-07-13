@@ -2048,12 +2048,11 @@ _upgrade_legacy() {
 # rendered tree, which is what these fixtures do.
 #
 # The invocation runs actionlint's bundled shellcheck over the run-block scripts
-# (#1003); the template run blocks are hardened to pass it. The reusable release
-# workflows read secrets (GHCR_PULL_TOKEN, *_APP_CLIENT_ID/PRIVATE_KEY) passed by
-# the caller via `secrets: inherit`, which actionlint cannot see statically; those
-# false positives are ignored by message.
-ACTIONLINT_INHERITED_SECRETS='property "(ghcr_pull_token|release_app_client_id|release_app_private_key|commit_app_client_id|commit_app_private_key)" is not defined'
-
+# (#1003); the template run blocks are hardened to pass it. A `workflow_call`
+# workflow has a CLOSED secrets set: every `secrets.X` it reads must appear in
+# its `on.workflow_call.secrets:` block, otherwise actionlint reports
+# `property "x" is not defined` — and a scaffolded consumer inherits that dirty
+# lint. So the run is unsuppressed (#1016): no `-ignore`.
 _actionlint_rendered() {
     local mode="$1" ws="$2"
     mkdir -p "$ws"
@@ -2063,8 +2062,39 @@ _actionlint_rendered() {
     (
         cd "$ws" &&
             git init -q &&
-            actionlint -ignore "$ACTIONLINT_INHERITED_SECRETS"
+            actionlint
     )
+}
+
+# Secret names declared under a workflow's `on.workflow_call.secrets:` block.
+_declared_call_secrets() {
+    awk '
+        /^    secrets:[[:space:]]*$/ { in_s = 1; next }
+        in_s && /^      [A-Za-z_][A-Za-z0-9_-]*:[[:space:]]*$/ {
+            sub(/:[[:space:]]*$/, ""); gsub(/^[[:space:]]+/, ""); print; next
+        }
+        in_s && /^    [A-Za-z]/ { in_s = 0 }
+    ' "$1"
+}
+
+# Secret names a workflow reads via ${{ secrets.X }} (GITHUB_TOKEN is automatic).
+_referenced_secrets() {
+    grep -oE 'secrets\.[A-Za-z_][A-Za-z0-9_-]*' "$1" |
+        sed 's/^secrets\.//' | grep -vx 'GITHUB_TOKEN' | sort -u
+}
+
+@test "scaffolded workflow_call workflows declare every secret they reference (#1016)" {
+    local wf declared ref missing=""
+    for wf in "$TEMPLATE_DIR"/.github/workflows/*.yml; do
+        grep -qE '^  workflow_call:[[:space:]]*$' "$wf" || continue
+        declared="$(_declared_call_secrets "$wf")"
+        while IFS= read -r ref; do
+            [ -n "$ref" ] || continue
+            printf '%s\n' "$declared" | grep -Fqx -- "$ref" ||
+                missing+="  $(basename "$wf"): secrets.$ref is read but not declared"$'\n'
+        done < <(_referenced_secrets "$wf")
+    done
+    [ -z "$missing" ] || fail "undeclared workflow_call secrets:"$'\n'"$missing"
 }
 
 @test "actionlint passes over the devcontainer-mode rendered workflows (#995)" {

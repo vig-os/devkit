@@ -18,7 +18,7 @@
       viAlias = lib.mkDefault true;
       vimAlias = lib.mkDefault true;
       plugins = [ pkgs.vimPlugins.claudecode-nvim ];
-      extraLuaConfig = lib.mkAfter ''
+      initLua = lib.mkAfter ''
         -- claudecode.nvim: :ClaudeCode toggles a Claude terminal; visual
         -- selections go over with :ClaudeCodeSend.
         require("claudecode").setup({})
