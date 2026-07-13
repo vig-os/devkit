@@ -49,7 +49,7 @@ with pkgs;
 
   # Linting
   taplo
-  nixfmt-rfc-style # nix file formatter (treefmt `nix fmt`, pre-commit hook)
+  nixfmt # nix file formatter, RFC style (treefmt `nix fmt`, pre-commit hook)
   ruff # python linter/formatter (pre-commit ruff/ruff-format hooks)
   typos # source typo checker (pre-commit typos hook)
   deadnix # dead-Nix-code linter (flake `checks.deadnix`)

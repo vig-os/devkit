@@ -525,7 +525,7 @@
 
         # treefmt-nix: one `nix fmt` entrypoint + a `checks.formatting` gate over
         # the whole repo. The enabled programs mirror the pre-commit formatters —
-        # nixfmt-rfc-style (same package as devTools/the hook), ruff-format, and
+        # nixfmt (same package as devTools/the hook), ruff-format, and
         # taplo — so the editor `nix fmt`, the hooks, and the flake check all
         # agree on one formatting. Refs #777.
         treefmtEval = treefmt-nix.lib.evalModule pkgs {
@@ -533,7 +533,7 @@
           programs = {
             nixfmt = {
               enable = true;
-              package = pkgs.nixfmt-rfc-style;
+              package = pkgs.nixfmt;
             };
             ruff-format.enable = true;
             taplo.enable = true;
