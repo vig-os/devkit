@@ -1,2 +1,4 @@
 # vig-os devkit configuration
 DEVKIT_VERSION=1.0.1
+# The devkit itself develops via its own flake + .envrc (no .devcontainer/) — #989.
+DEVKIT_MODE=direnv

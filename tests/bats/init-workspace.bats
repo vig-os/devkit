@@ -2313,3 +2313,61 @@ _RELEASE_RESOLVERS_991=(
         done
     done
 }
+
+# ── #989: container-only artifacts are mode-filtered out of direnv/bare ────────
+# docs/container-ci-quirks.md documents in-image CI behavior (PREK_HOME cache,
+# GHCR credential quirks) and is dead weight in the container-less modes. The
+# scaffold filters it exactly like .devcontainer/: excluded from the copy,
+# pruned on upgrade, and reflected truthfully in the preview report.
+
+@test "container-ci-quirks.md ships in devcontainer/both but not direnv/bare (#989)" {
+    for mode in devcontainer both; do
+        ws="$BATS_TEST_TMPDIR/e2e-989-$mode"
+        mkdir -p "$ws"
+        run _scaffold "$mode" "$ws"
+        assert_success
+        run test -f "$ws/docs/container-ci-quirks.md"
+        assert_success
+    done
+    for mode in direnv bare; do
+        ws="$BATS_TEST_TMPDIR/e2e-989-$mode"
+        mkdir -p "$ws"
+        run _scaffold "$mode" "$ws"
+        assert_success
+        run test -f "$ws/docs/container-ci-quirks.md"
+        assert_failure
+    done
+}
+
+@test "direnv/bare upgrade prunes a previously scaffolded container-ci-quirks.md (#989)" {
+    for mode in direnv bare; do
+        ws="$BATS_TEST_TMPDIR/e2e-989-prune-$mode"
+        mkdir -p "$ws/docs"
+        printf '# stale container notes\n' >"$ws/docs/container-ci-quirks.md"
+        run _scaffold "$mode" "$ws"
+        assert_success
+        run test -f "$ws/docs/container-ci-quirks.md"
+        assert_failure
+    done
+}
+
+@test "preview lists container-ci-quirks.md as DELETED on a direnv upgrade (#989)" {
+    ws="$BATS_TEST_TMPDIR/e2e-989-preview-del"
+    mkdir -p "$ws/docs"
+    printf '# stale container notes\n' >"$ws/docs/container-ci-quirks.md"
+    run _preview "$ws" --mode direnv
+    assert_success
+    assert_output --partial "DELETED"
+    assert_output --partial "docs/container-ci-quirks.md"
+    # side-effect-free: the preview left the file in place
+    run test -f "$ws/docs/container-ci-quirks.md"
+    assert_success
+}
+
+@test "preview does not list container-ci-quirks.md as ADDED on a fresh direnv scaffold (#989)" {
+    ws="$BATS_TEST_TMPDIR/e2e-989-preview-add"
+    mkdir -p "$ws"
+    run _preview "$ws" --mode direnv
+    assert_success
+    refute_output --partial "docs/container-ci-quirks.md"
+}

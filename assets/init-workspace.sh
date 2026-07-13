@@ -568,6 +568,14 @@ if [[ "$FORCE" == "true" ]]; then
             && "$rel_path" == .devcontainer/* ]]; then
             continue
         fi
+        # Container-only documentation (#989): in-image CI notes are dead
+        # weight (and misleading) in the container-less modes. Devkit-managed
+        # (not in PRESERVE_FILES), so filtered unconditionally — same class as
+        # the .devcontainer/ skip above.
+        if [[ ("$MODE" == "direnv" || "$MODE" == "bare") \
+            && "$rel_path" == "docs/container-ci-quirks.md" ]]; then
+            continue
+        fi
         if [[ "$MODE" == "devcontainer" || "$MODE" == "bare" ]] \
             && [[ "$rel_path" == "flake.nix" || "$rel_path" == ".envrc" ]] \
             && [[ ! -e "$workspace_file" ]]; then
@@ -601,6 +609,12 @@ if [[ "$FORCE" == "true" ]]; then
             # The #738 guard keeps a populated consumer .devcontainer/; say so
             # explicitly instead of leaving it silently absent from the report.
             PRESERVED+=(".devcontainer/ (pre-existing, kept — #738)")
+        fi
+        # Container-only documentation is pruned in the container-less modes
+        # (#989): devkit-managed, so no pre-existence guard — mirrors the copy
+        # filter above.
+        if [[ -f "$WORKSPACE_DIR/docs/container-ci-quirks.md" ]]; then
+            DELETIONS+=("docs/container-ci-quirks.md")
         fi
     else
         # The devcontainer-mode flake.nix/.envrc prune only removes stubs this
@@ -767,6 +781,9 @@ else
     # .devcontainer/ intact.
     if [[ "$MODE" == "direnv" || "$MODE" == "bare" ]]; then
         EXCLUDE_ARGS+=("--exclude=.devcontainer")
+        # Container-only documentation stays out of the container-less modes
+        # (#989); a previously scaffolded copy is pruned after the copy below.
+        EXCLUDE_ARGS+=("--exclude=/docs/container-ci-quirks.md")
     fi
 
     # Legacy typos config (#913): the `typos` tool reads .typos.toml, typos.toml
@@ -874,6 +891,16 @@ case "$MODE" in
         : # keep everything
         ;;
 esac
+
+# Container-only documentation (#989): prune a previously scaffolded
+# docs/container-ci-quirks.md from the container-less modes. Devkit-managed
+# (never in PRESERVE_FILES), so no pre-existence guard — the rsync above
+# already excludes the template copy; this removes an old scaffold's leftover.
+if [[ ("$MODE" == "direnv" || "$MODE" == "bare") \
+    && -f "$WORKSPACE_DIR/docs/container-ci-quirks.md" ]]; then
+    echo "Pruning container-only docs/container-ci-quirks.md (#989)..."
+    rm -f "$WORKSPACE_DIR/docs/container-ci-quirks.md"
+fi
 
 # 0.4.0 retired .devcontainer/justfile.base (recipes relocated to
 # justfile.project), so drop the stale copy an upgraded 0.3.x repo carries —

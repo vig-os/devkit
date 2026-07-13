@@ -83,6 +83,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **direnv/bare scaffolds no longer ship container-only artifacts** ([#989](https://github.com/vig-os/devkit/issues/989))
+  - `docs/container-ci-quirks.md` (in-image CI notes) is now mode-filtered like
+    `.devcontainer/`: excluded from container-less scaffolds, pruned from a
+    previously scaffolded tree on upgrade, and reflected truthfully in the
+    `--preview` report. The `resolve-image` action and `container:` workflow
+    coupling were already retired by the mode-aware toolchain work
+    ([#991](https://github.com/vig-os/devkit/issues/991)).
+  - The devkit's own `.vig-os` now declares its delivery mode (`direnv`).
+
 - **Pin `sigstore/cosign-installer` to `v4.1.2` so Renovate can resolve its digest** ([#986](https://github.com/vig-os/devkit/issues/986))
   - The previous pin's `# v4` comment named a floating tag that `sigstore/cosign-installer` never published, so Renovate's digest lookup failed on the dependency dashboard
 
