@@ -39,48 +39,83 @@ one of four modes:
 - **`direnv`** — a minimal `flake.nix` + `.envrc` stub. `direnv allow` (or
   `nix develop`) drops you into the shared toolchain on the host, no container.
   The stub is never overwritten on re-scaffold; update with `nix flake update`.
-  The shipped `ci.yml` is a **nix-direct** variant
-  ([#854](https://github.com/vig-os/devkit/issues/854)): no image
-  resolution and no in-container jobs — the runner installs Nix (with the vig-os
-  Cachix substituter) and drives the same `just sync` / `just precommit` /
-  `just test` contract inside the flake dev-shell via `nix develop -c`. See
-  [direnv-mode CI](#direnv-mode-ci) for the supported boundary.
+  The shipped `ci.yml` is the single **mode-aware** workflow
+  ([#991](https://github.com/vig-os/devkit/issues/991)): in `direnv` mode it runs
+  on the host runner, and the `setup-devkit-toolchain` composite installs Nix
+  (with the vig-os Cachix substituter) and drives the same `just sync` /
+  `just precommit` / `just test` contract inside the flake dev-shell. See
+  [mode-aware CI](#mode-aware-ci) for how one file serves every mode.
 - **`both`** — everything above (the default).
 - **`bare`** — the standards layer only
   ([#885](https://github.com/vig-os/devkit/issues/885)): justfiles,
   `.pre-commit-config.yaml`, `.github/` CI, and `.vig-os` — no `.devcontainer/`,
   no `flake.nix`/`.envrc`. The tools come from
-  the host (`uv`, `just`, `prek`), and the shipped `ci.yml` is a host-native
-  variant: no image resolution and no in-container jobs — the runner sets up
-  `uv` directly and drives the same `just sync` / `just precommit` /
-  `just test` contract.
+  the host (`uv`, `just`, `prek`), and the same mode-aware `ci.yml`
+  ([#991](https://github.com/vig-os/devkit/issues/991)) runs on the host runner:
+  the `setup-devkit-toolchain` composite sets up `uv` directly and drives the
+  same `just sync` / `just precommit` / `just test` contract.
 
 The chosen mode is persisted as `DEVKIT_MODE` in the `.vig-os` manifest (below),
 so upgrades never need `--mode` again.
 
-### direnv-mode CI
+### Bare mode: `vig-utils` release console scripts
 
-`direnv` (and `bare`) consumers cannot run the container-based CI: with no
-`.devcontainer/`, a `.vig-os`-driven `resolve-image` job hard-fails and bricks
-every workflow that runs `container: ghcr.io/vig-os/devcontainer:<pin>`. To keep
-the main lane working, `direnv` mode ships a **nix-direct `ci.yml`** overlay
-([#854](https://github.com/vig-os/devkit/issues/854)) that runs on the host
-runner (`install-nix` + Cachix → `nix develop -c just sync|precommit|test`),
-mirroring this repo's own project-checks job.
+The release workflows invoke `prepare-changelog` and `renovate-changelog-pr`
+(console scripts of `packages/vig-utils`). In `devcontainer`/`both` mode they
+ship in the image; in `direnv` mode the flake dev-shell provides them (they are
+on the toolchain SSoT, [#993](https://github.com/vig-os/devkit/issues/993)).
+Bare mode has no flake and no image, so install them host-native with `uv`,
+pinned to the same devkit version as `.vig-os`
+(`DEVKIT_VERSION`/`DEVCONTAINER_VERSION`):
 
-**Supported boundary (until the devkit rename cycle,
-[#781](https://github.com/vig-os/devkit/issues/781), completes the full
-workflow audit):** only `ci.yml` is converted for direnv mode. These shipped
-workflows stay **container-based and devcontainer-mode-only**, so a direnv-only
-consumer should delete or disable them (they still work unchanged in
-`both`/`devcontainer` mode):
+```bash
+uv tool install "vig-utils @ git+https://github.com/vig-os/devkit@<DEVKIT_VERSION>#subdirectory=packages/vig-utils"
+```
 
-- `prepare-release.yml`, `promote-release.yml`, `release*.yml`,
+This puts `prepare-changelog`, `renovate-changelog-pr`, and the other
+`vig-utils` scripts on PATH. Pin `<DEVKIT_VERSION>` to a release tag so the
+tooling matches your `.vig-os` pin; the `setup-devkit-toolchain` composite
+([#994](https://github.com/vig-os/devkit/issues/994)) runs this step for you in
+bare-mode CI.
+
+### Mode-aware CI
+
+`ci.yml` is a single **mode-aware** workflow
+([#991](https://github.com/vig-os/devkit/issues/991)) shipped identically to
+every mode. A leading `resolve-toolchain` job reads `.vig-os` and outputs the
+delivery `mode` and container `image` — the devcontainer image for
+`devcontainer`/`both`, an **empty string** for `direnv`/`bare` (which makes the
+downstream job run directly on the host runner, per
+[the Option A ADR](rfcs/ADR-conditional-container-toolchain.md)). Each job then
+declares `container: image: ${{ needs.resolve-toolchain.outputs.image }}` (with
+an inert-on-host GHCR `credentials:` block) and calls the shared
+`setup-devkit-toolchain` composite
+([#994](https://github.com/vig-os/devkit/issues/994)) as its first step: the
+in-image env + prek skew guard in container mode, `install-nix` + Cachix + the
+flake dev-shell in `direnv`, or a `uv` host install in `bare`. After that
+preamble the same `just sync|precommit|test` contract runs in every mode — no
+per-mode overlay.
+
+**Release/automation set is now mode-aware
+([#991](https://github.com/vig-os/devkit/issues/991)):** the release and
+automation workflows provision their toolchain the same way `ci.yml` does — a
+leading `resolve-toolchain` job (or, in `prepare-release.yml`, the composite used
+inline in the host `validate` job) selects the container image, **empty in the
+`direnv`/`bare` modes so the job runs on the runner** (ADR Option A), and every
+job runs the `setup-devkit-toolchain` composite as its toolchain preamble. They
+are **no longer devcontainer-mode-only** — a host-mode consumer keeps them as-is,
+with no per-mode deletion or disabling:
+
+- `release.yml` (orchestrator) and its reusable `release-core.yml` /
+  `release-publish.yml`, plus `prepare-release.yml`, `promote-release.yml`,
   `sync-issues.yml`, `renovate-changelog-build.yml`, `sync-main-to-dev.yml`
-  — all resolve/consume the pinned image via `.vig-os`.
+  — mode-aware via `resolve-toolchain` + `setup-devkit-toolchain`. The release
+  choreography (step logic, ordering, inputs/outputs, rollback semantics) is
+  unchanged; only toolchain provisioning became mode-aware.
 
 Container-independent workflows keep working in every mode: `codeql.yml`,
-`scorecard.yml`, `renovate-changelog-commit.yml`, `release-extension.yml`.
+`scorecard.yml`, `renovate-changelog-commit.yml`, and the project-owned,
+host-native `release-extension.yml`.
 
 ## The `.vig-os` project manifest
 
@@ -384,6 +419,41 @@ curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh \
 It prints the add/overwrite/preserve/delete file report and exits without
 touching the tree (unlike `--dry-run`, which only prints the container command
 and computes no file report).
+
+### Migrating a `devcontainer`/`both` repo to `direnv` or `bare`
+
+By default a mode switch is **non-destructive** toward a populated pre-existing
+`.devcontainer/`: switching a container repo to `direnv`/`bare` keeps the old
+container next to the new flake ([#738](https://github.com/vig-os/devkit/issues/738)).
+That is right for coexistence, but on a genuine **container → direnv/bare
+migration** it strands a now-stale container. `--prune-devcontainer` opts into
+removing it (`direnv`/`bare` modes only; rejected in `devcontainer`/`both`).
+
+Because a mode switch never happens implicitly (see
+[the `.vig-os` manifest](#the-vig-os-project-manifest) above), the migration is a
+deliberate, reviewable branch:
+
+1. On a clean upgrade branch, set `DEVKIT_MODE=direnv` (or `bare`) in `.vig-os`
+   and commit it.
+2. **Preview the cleanup first** — confirm the `.devcontainer/` moves into the
+   `DELETED` listing (and nothing else you rely on does):
+
+   ```bash
+   curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh \
+     | bash -s -- --force --preview --mode direnv --prune-devcontainer .
+   ```
+
+3. Run the upgrade with the flag to apply it:
+
+   ```bash
+   curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh \
+     | bash -s -- --force --mode direnv --prune-devcontainer .
+   ```
+
+Interactive runs (no `--no-prompts`) that detect a populated pre-existing
+`.devcontainer/` in a container-less mode prompt once
+(`Prune existing .devcontainer/? (y/N)`, default No). Omit the flag entirely to
+keep the #738 default and preserve the container.
 
 ## Upgrading an existing 0.3.x consumer — manual steps
 

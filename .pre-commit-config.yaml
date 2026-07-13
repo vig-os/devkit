@@ -95,6 +95,21 @@ repos:
         args: ["-x"]
         exclude: (^|/)\.envrc$
 
+  # GitHub Actions workflow linting (actionlint from the flake dev-shell). Lints
+  # THIS repo's own .github/workflows/ via auto-discovery; shellcheck integration
+  # is disabled (its run-block findings are a separate concern, and the
+  # shellcheck hook above covers .sh scripts). Devkit-only: not scaffolded to
+  # consumers — the per-mode rendered templates are validated in tests/bats.
+  # Refs #995.
+  - repo: local
+    hooks:
+      - id: actionlint
+        name: actionlint (lint GitHub Actions workflows)
+        entry: actionlint -shellcheck=
+        language: system
+        files: ^\.github/workflows/.*\.ya?ml$
+        pass_filenames: false
+
   # Markdown Linting (excludes auto-generated docs)
   - repo: https://github.com/jackdewinter/pymarkdown
     rev: f93643d339dfee2a1022e7b05e8b5a281bfac553  # v0.9.23

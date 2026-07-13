@@ -750,3 +750,19 @@ MANIFEST
     run grep -E 'MODE" = "direnv" \] \|\| \[ "\$MODE" = "bare"' "$INSTALL_SH"
     assert_success
 }
+
+# ── opt-in .devcontainer/ prune forwarding (#990) ─────────────────────────────
+
+@test "install.sh forwards --prune-devcontainer to init-workspace.sh (#990)" {
+    repo="$BATS_TEST_TMPDIR/prune-forward"
+    _make_manifest_repo "$repo" direnv
+    run bash "$INSTALL_SH" --dry-run --force --prune-devcontainer "$repo" </dev/null
+    assert_success
+    assert_output --partial "--prune-devcontainer"
+}
+
+@test "help lists --prune-devcontainer (#990)" {
+    run bash "$INSTALL_SH" --help
+    assert_success
+    assert_output --partial "--prune-devcontainer"
+}

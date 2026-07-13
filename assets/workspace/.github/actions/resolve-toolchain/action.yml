@@ -1,0 +1,178 @@
+# Resolve devkit toolchain (mode + image)
+#
+# Evolves resolve-image (#994): reads the `.vig-os` manifest and emits the
+# delivery mode alongside the container image, so a leading `resolve-toolchain`
+# job can drive the Option-A conditional-`container:` pattern
+# (docs/rfcs/ADR-conditional-container-toolchain.md). The `resolve-image` action
+# stays in place for now; it is retired by #991/#989.
+#
+# Outputs:
+#   mode       devcontainer | direnv | both | bare. A manifest-bearing repo with
+#              no DEVKIT_MODE key defaults to `both` — today's container
+#              behavior — so un-migrated pins keep resolving.
+#   image      ghcr.io/vig-os/devcontainer:<tag> for the container-ish modes
+#              (devcontainer/both); an EXPLICIT EMPTY STRING for the host modes
+#              (direnv/bare). Per the ADR the output is ALWAYS emitted, never
+#              omitted: an empty container image makes the downstream job run on
+#              the host runner.
+#   image-tag  the bare resolved version tag (for logging/compat, and doubles as
+#              the devkit-version to plumb into setup-devkit-toolchain's bare
+#              branch).
+
+name: Resolve devkit toolchain
+description: Resolve the delivery mode + devcontainer image tag from .vig-os for mode-aware CI jobs
+
+inputs:
+  image-tag:
+    description: Optional image tag override
+    required: false
+    default: ''
+  registry-token:
+    description: >-
+      Optional GHCR token for authenticated manifest probes (private or
+      rate-limited images). When empty, the probe runs anonymously (public
+      images). Only used for the container-ish modes.
+    required: false
+    default: ''
+  registry-username:
+    description: Username paired with registry-token for docker login
+    required: false
+    default: ''
+
+outputs:
+  mode:
+    description: Delivery mode (devcontainer|direnv|both|bare)
+    value: ${{ steps.resolve.outputs.mode }}
+  image:
+    description: Container image (ghcr.io/... for container modes, empty string for host modes)
+    value: ${{ steps.resolve.outputs.image }}
+  image-tag:
+    description: Resolved image/version tag
+    value: ${{ steps.resolve.outputs.tag }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve mode + image tag
+      id: resolve
+      shell: bash
+      env:
+        INPUT_IMAGE_TAG: ${{ inputs.image-tag }}
+      run: |
+        set -euo pipefail
+
+        MODE=""
+        DEVKIT_VERSION=""
+        LEGACY_VERSION=""
+
+        if [[ -f .vig-os ]]; then
+          # Tolerant KEY=VALUE parsing shared with resolve-image (#781): capture
+          # DEVKIT_MODE and both version keys, preferring the renamed
+          # DEVKIT_VERSION over the legacy DEVCONTAINER_VERSION after the read so
+          # line order never matters.
+          while IFS= read -r line || [[ -n "${line:-}" ]]; do
+            [[ -z "${line//[[:space:]]/}" ]] && continue
+            [[ "$line" =~ ^[[:space:]]*# ]] && continue
+
+            case "$line" in
+              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*)
+                key="${line%%=*}"
+                value="${line#*=}"
+                value="${value#"${value%%[![:space:]]*}"}"
+                value="${value%"${value##*[![:space:]]}"}"
+
+                if [[ "$value" =~ ^\".*\"$ ]]; then
+                  value="${value:1:-1}"
+                elif [[ "$value" =~ ^\'.*\'$ ]]; then
+                  value="${value:1:-1}"
+                fi
+
+                case "$key" in
+                  DEVKIT_MODE) MODE="$value" ;;
+                  DEVKIT_VERSION) DEVKIT_VERSION="$value" ;;
+                  DEVCONTAINER_VERSION) LEGACY_VERSION="$value" ;;
+                esac
+                ;;
+            esac
+          done < .vig-os
+        fi
+
+        # Missing DEVKIT_MODE defaults to `both` (today's container behavior).
+        MODE="${MODE:-both}"
+
+        # Refuse an unknown/corrupt mode loudly (mirrors the init-workspace.sh
+        # persisted-mode guard): a typo'd value must never be silently
+        # classified as a host mode and flip a container repo's CI onto host
+        # runners.
+        case "$MODE" in
+          devcontainer|direnv|both|bare) ;;
+          *)
+            echo "::error::Invalid DEVKIT_MODE in .vig-os: $MODE (expected: devcontainer | direnv | both | bare)"
+            exit 1
+            ;;
+        esac
+        echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+
+        # Resolve the version tag: explicit override wins, else DEVKIT_VERSION,
+        # else the legacy DEVCONTAINER_VERSION.
+        TAG="$INPUT_IMAGE_TAG"
+        if [[ -z "$TAG" ]]; then
+          TAG="${DEVKIT_VERSION:-$LEGACY_VERSION}"
+        fi
+        echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+        case "$MODE" in
+          devcontainer|both)
+            # Container-ish modes need a resolvable tag to build the image ref.
+            if [[ -z "$TAG" ]]; then
+              echo "::error::Could not resolve DEVKIT_VERSION (or legacy DEVCONTAINER_VERSION) from .vig-os and no image-tag override was provided (mode=$MODE)."
+              exit 1
+            fi
+            IMAGE="ghcr.io/vig-os/devcontainer:${TAG}"
+            ;;
+          direnv|bare)
+            # Host modes: no container image. Emit an EXPLICIT empty string
+            # (never omit) so the downstream `container:` runs on the host
+            # (ADR Option A). Explicit arm — unknown modes were rejected above,
+            # so the statement is closed.
+            IMAGE=""
+            ;;
+        esac
+        echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+        echo "Resolved mode=$MODE tag=${TAG:-<none>} image=${IMAGE:-<host>}"
+
+    - name: Validate image accessibility
+      # Only the container-ish modes emit a non-empty image; host modes skip the
+      # probe entirely (no image needed).
+      if: steps.resolve.outputs.image != ''
+      shell: bash
+      env:
+        IMAGE: ${{ steps.resolve.outputs.image }}
+        REGISTRY_TOKEN: ${{ inputs.registry-token }}
+        REGISTRY_USERNAME: ${{ inputs.registry-username }}
+      run: |
+        set -euo pipefail
+        echo "Validating image availability: $IMAGE"
+
+        # Authenticate before the probe when a token is supplied, so private or
+        # rate-limited images resolve. The anonymous path is kept for public
+        # images (empty token).
+        if [[ -n "$REGISTRY_TOKEN" ]]; then
+          echo "Authenticating to ghcr.io as '${REGISTRY_USERNAME}'"
+          if ! echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_USERNAME" --password-stdin; then
+            echo "::error::Failed to authenticate to ghcr.io as '${REGISTRY_USERNAME}'. Check the GHCR_PULL_TOKEN secret and that it grants packages:read."
+            exit 1
+          fi
+        fi
+
+        # Do not swallow stderr: capture it so an auth/denied failure can be
+        # distinguished from a genuinely missing tag.
+        if ! PROBE_ERR="$(docker manifest inspect "$IMAGE" 2>&1 >/dev/null)"; then
+          echo "$PROBE_ERR"
+          if echo "$PROBE_ERR" | grep -qiE 'unauthorized|denied|authentication|forbidden|toomanyrequests|rate limit'; then
+            echo "::error::Cannot access image manifest: ${IMAGE} — authentication required or denied. Set the GHCR_PULL_TOKEN secret (or grant the workflow token packages:read) and pass it to this action."
+          else
+            echo "::error::Cannot access image manifest: ${IMAGE} — the tag does not exist or is not readable. Check that DEVKIT_VERSION (or legacy DEVCONTAINER_VERSION) in .vig-os points at a published image tag."
+          fi
+          exit 1
+        fi

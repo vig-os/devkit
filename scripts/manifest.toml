@@ -62,8 +62,11 @@ src = ".github/pull_request_template.md"
 [[entries]]
 src = ".github/ISSUE_TEMPLATE/"
 
-[[entries]]
-src = ".github/actions/resolve-image/"
+# The retired `resolve-image` action is NOT synced into the scaffold: consumers
+# get the mode-aware `resolve-toolchain` + `setup-devkit-toolchain` composites
+# (authored directly under assets/workspace/.github/actions/, #994/#991) instead.
+# The devkit's own root `.github/actions/resolve-image/` stays in place for the
+# repo's own (container-mode) release/automation CI.
 
 # Consumers of the template have no assets/workspace/ mirror tree, so the
 # upstream-only lockstep copies of that mirror hard-fail under `set -euo pipefail`
@@ -71,10 +74,89 @@ src = ".github/actions/resolve-image/"
 # template while preserving the consumer-facing CHANGELOG.md handling (#914).
 [[entries]]
 src = ".github/workflows/renovate-changelog-build.yml"
-transforms = [
-  { type = "RemoveBlock", start_pattern = '# Keep the preserved-on-upgrade mirror', end_pattern = 'cp CHANGELOG\.md assets/workspace/\.devcontainer/CHANGELOG\.md' },
-  { type = "RemoveBlock", start_pattern = 'mkdir -p changelog-artifact/assets/workspace', end_pattern = 'changelog-artifact/assets/workspace/\.devcontainer/CHANGELOG\.md' },
-]
+
+# Strip the upstream-only assets/workspace mirror plumbing (#914).
+[[entries.transforms]]
+type = "RemoveBlock"
+start_pattern = '# Keep the preserved-on-upgrade mirror'
+end_pattern = 'cp CHANGELOG\.md assets/workspace/\.devcontainer/CHANGELOG\.md'
+
+[[entries.transforms]]
+type = "RemoveBlock"
+start_pattern = 'mkdir -p changelog-artifact/assets/workspace'
+end_pattern = 'changelog-artifact/assets/workspace/\.devcontainer/CHANGELOG\.md'
+
+# Generalize the container-only root workflow into the mode-aware scaffold
+# variant (#991): the devkit's own root CI keeps `resolve-image` + `container:`,
+# but consumers get the `resolve-toolchain` job (empty image => host runner in
+# direnv/bare) plus the `setup-devkit-toolchain` composite. Root behavior is
+# unchanged; these transforms only rewrite the copied scaffold output.
+[[entries.transforms]]
+type = "ReplaceBlock"
+start_pattern = '^  resolve-image:'
+end_pattern = '^          registry-username:'
+replacement = '''
+  resolve-toolchain:
+    name: Resolve toolchain
+    if: >-
+      github.event.pull_request.user.login == 'renovate[bot]' &&
+      github.event.sender.login != 'commit-action-bot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      mode: ${{ steps.resolve.outputs.mode }}
+      image: ${{ steps.resolve.outputs.image }}
+      image-tag: ${{ steps.resolve.outputs.image-tag }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          sparse-checkout: |
+            .vig-os
+            .github/actions/resolve-toolchain
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve toolchain
+        id: resolve
+        uses: ./.github/actions/resolve-toolchain
+        with:
+          registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
+          registry-username: ${{ github.actor }}
+'''
+
+[[entries.transforms]]
+type = "Sed"
+pattern = 'needs: \[resolve-image\]'
+replace = "needs: [resolve-toolchain]"
+
+[[entries.transforms]]
+type = "Sed"
+pattern = 'image: ghcr\.io/vig-os/devcontainer:\$\{\{ needs\.resolve-image\.outputs\.image-tag \}\}'
+replace = "image: ${{ needs.resolve-toolchain.outputs.image }}"
+
+[[entries.transforms]]
+type = "ReplaceBlock"
+start_pattern = '^      - name: Checkout PR head'
+end_pattern = '^          persist-credentials: false'
+replacement = '''
+      - name: Checkout PR head
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: ${{ needs.resolve-toolchain.outputs.mode }}
+          devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+'''
 
 [[entries]]
 src = ".github/workflows/renovate-changelog-commit.yml"

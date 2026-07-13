@@ -45,6 +45,20 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: false
         type: boolean
+      toolchain_mode:
+        description: "Delivery mode resolved by the orchestrator (devcontainer|direnv|both|bare)"
+        required: true
+        type: string
+      toolchain_image:
+        description: "Container image resolved by the orchestrator (empty string => host runner)"
+        required: false
+        default: ""
+        type: string
+      devkit_version:
+        description: "Resolved devkit/image version pin (bare-mode vig-utils install; logging)"
+        required: false
+        default: ""
+        type: string
     secrets:
       token:
         required: false
@@ -61,34 +75,13 @@ permissions:
   packages: read
 
 jobs:
-  resolve-image:
-    name: Resolve image tag
-    runs-on: ubuntu-24.04
-    timeout-minutes: 2
-    outputs:
-      image-tag: ${{ steps.resolve.outputs.image-tag }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-        with:
-          sparse-checkout: |
-            .vig-os
-            .github/actions/resolve-image
-          sparse-checkout-cone-mode: false
-
-      - name: Resolve container image
-        id: resolve
-        uses: ./.github/actions/resolve-image
-        with:
-          registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
-          registry-username: ${{ github.actor }}
-
   publish:
     name: Publish Release
-    needs: [resolve-image]
     runs-on: ubuntu-24.04
+    # Conditional container (ADR Option A): empty image => host runner; the GHCR
+    # credentials block is inert on an empty image.
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      image: ${{ inputs.toolchain_image }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
@@ -142,8 +135,11 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.auth.outputs.token }}
 
-      - name: Fix git safe.directory
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: ${{ inputs.toolchain_mode }}
+          devkit-version: ${{ inputs.devkit_version }}
 
       - name: Configure git
         env:

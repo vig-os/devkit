@@ -32,6 +32,20 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: ""
         type: string
+      toolchain_mode:
+        description: "Delivery mode resolved by the orchestrator (devcontainer|direnv|both|bare)"
+        required: true
+        type: string
+      toolchain_image:
+        description: "Container image resolved by the orchestrator (empty string => host runner)"
+        required: false
+        default: ""
+        type: string
+      devkit_version:
+        description: "Resolved devkit/image version pin (bare-mode vig-utils install; logging)"
+        required: false
+        default: ""
+        type: string
     secrets:
       token:
         required: false
@@ -62,7 +76,7 @@ on:  # yamllint disable-line rule:truthy
         value: ${{ jobs.finalize.outputs.tag_already_exists }}
       image_tag:
         description: "Resolved devcontainer image tag"
-        value: ${{ jobs.validate.outputs.image_tag }}
+        value: ${{ inputs.devkit_version }}
 
 concurrency:
   group: release-core
@@ -73,38 +87,18 @@ permissions:
   packages: read
 
 jobs:
-  resolve-image:
-    name: Resolve image tag
-    runs-on: ubuntu-24.04
-    timeout-minutes: 2
-    outputs:
-      image-tag: ${{ steps.resolve.outputs.image-tag }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
-        with:
-          sparse-checkout: |
-            .vig-os
-            .github/actions/resolve-image
-          sparse-checkout-cone-mode: false
-
-      - name: Resolve container image
-        id: resolve
-        uses: ./.github/actions/resolve-image
-        with:
-          registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
-          registry-username: ${{ github.actor }}
-
   validate:
     name: Validate Release Core
-    needs: [resolve-image]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: read
       packages: read
+    # Conditional container (ADR Option A): the orchestrator-resolved image is
+    # empty in the host modes, so this job runs on the runner there; the GHCR
+    # credentials block is inert on an empty image.
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      image: ${{ inputs.toolchain_image }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
@@ -119,7 +113,6 @@ jobs:
       pre_finalize_sha: ${{ steps.pre_sha.outputs.pre_finalize_sha }}
       release_kind: ${{ steps.vars.outputs.release_kind }}
       publish_version: ${{ steps.publish_meta.outputs.publish_version }}
-      image_tag: ${{ needs.resolve-image.outputs.image-tag }}
 
     steps:
       - name: Generate release app token
@@ -175,8 +168,11 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.auth.outputs.token }}
 
-      - name: Fix git safe.directory
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: ${{ inputs.toolchain_mode }}
+          devkit-version: ${{ inputs.devkit_version }}
 
       - name: Record pre-finalization SHA
         id: pre_sha
@@ -315,7 +311,7 @@ jobs:
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           RELEASE_DATE: ${{ steps.vars.outputs.release_date }}
           DRY_RUN: ${{ inputs.dry_run }}
-          IMAGE_TAG: ${{ needs.resolve-image.outputs.image-tag }}
+          IMAGE_TAG: ${{ inputs.devkit_version }}
         run: |
           echo "Validation passed"
           echo ""
@@ -340,12 +336,10 @@ jobs:
       contents: write
       packages: read
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.validate.outputs.image_tag }}
+      image: ${{ inputs.toolchain_image }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
-      env:
-        UV_PROJECT_ENVIRONMENT: /root/assets/workspace/.venv
     timeout-minutes: 15
     defaults:
       run:
@@ -390,8 +384,11 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.auth.outputs.token }}
 
-      - name: Fix git safe.directory
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: ${{ inputs.toolchain_mode }}
+          devkit-version: ${{ inputs.devkit_version }}
 
       - name: Finalize CHANGELOG date
         if: ${{ inputs.release_kind == 'final' }}
@@ -530,12 +527,10 @@ jobs:
     needs: [validate, finalize]
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.validate.outputs.image_tag }}
+      image: ${{ inputs.toolchain_image }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
-      env:
-        UV_PROJECT_ENVIRONMENT: /root/assets/workspace/.venv
     timeout-minutes: 20
     defaults:
       run:
@@ -569,8 +564,11 @@ jobs:
           ref: ${{ needs.finalize.outputs.finalize_sha }}
           token: ${{ steps.auth.outputs.token }}
 
-      - name: Fix git safe.directory
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: ${{ inputs.toolchain_mode }}
+          devkit-version: ${{ inputs.devkit_version }}
 
       - name: Sync Python dependencies
         run: just sync

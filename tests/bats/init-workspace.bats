@@ -330,6 +330,109 @@ _scaffold() {
     assert_success
 }
 
+# ── opt-in .devcontainer/ prune on container-less mode upgrade (#990) ──────────
+# The #738 default is non-destructive: a container→direnv/bare re-scaffold keeps
+# a populated pre-existing .devcontainer/. On a real container→direnv migration
+# that strands a stale container next to the new flake, so `--prune-devcontainer`
+# opts into removing it. The flag applies only to direnv/bare modes; in
+# devcontainer/both it is rejected loudly. The default (no flag) stays #738.
+
+# Like _scaffold, but forwards extra args (e.g. --prune-devcontainer).
+_scaffold_ex() {
+    local mode="$1" ws="$2"
+    shift 2
+    local stub="$BATS_TEST_TMPDIR/stub-bin"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+    env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode "$mode" "$@"
+}
+
+@test "init-workspace --mode=direnv --prune-devcontainer removes a pre-existing .devcontainer/ (#990)" {
+    ws="$BATS_TEST_TMPDIR/e2e-990-direnv-prune"
+    mkdir -p "$ws/.devcontainer"
+    printf '{ "name": "stale devcontainer" }\n' >"$ws/.devcontainer/devcontainer.json"
+    run _scaffold_ex direnv "$ws" --prune-devcontainer
+    assert_success
+    run test -e "$ws/.devcontainer"
+    assert_failure
+    # ...and the direnv stub was still scaffolded.
+    run test -f "$ws/flake.nix"
+    assert_success
+}
+
+@test "init-workspace --mode=bare --prune-devcontainer removes a pre-existing .devcontainer/ (#990)" {
+    ws="$BATS_TEST_TMPDIR/e2e-990-bare-prune"
+    mkdir -p "$ws/.devcontainer"
+    printf '{ "name": "stale devcontainer" }\n' >"$ws/.devcontainer/devcontainer.json"
+    run _scaffold_ex bare "$ws" --prune-devcontainer
+    assert_success
+    run test -e "$ws/.devcontainer"
+    assert_failure
+}
+
+@test "init-workspace --mode=direnv without the flag still preserves .devcontainer/ (#990 keeps #738)" {
+    ws="$BATS_TEST_TMPDIR/e2e-990-direnv-keep"
+    mkdir -p "$ws/.devcontainer"
+    printf '{ "name": "SENTINEL-990 kept" }\n' >"$ws/.devcontainer/devcontainer.json"
+    run _scaffold direnv "$ws"
+    assert_success
+    run grep -q 'SENTINEL-990 kept' "$ws/.devcontainer/devcontainer.json"
+    assert_success
+}
+
+@test "init-workspace --prune-devcontainer is rejected in devcontainer mode (#990)" {
+    ws="$BATS_TEST_TMPDIR/e2e-990-reject-devc"
+    mkdir -p "$ws"
+    run _scaffold_ex devcontainer "$ws" --prune-devcontainer
+    assert_failure
+    assert_output --partial "--prune-devcontainer only applies to direnv/bare modes"
+}
+
+@test "init-workspace --prune-devcontainer is rejected in both mode (#990)" {
+    ws="$BATS_TEST_TMPDIR/e2e-990-reject-both"
+    mkdir -p "$ws"
+    run _scaffold_ex both "$ws" --prune-devcontainer
+    assert_failure
+    assert_output --partial "--prune-devcontainer only applies to direnv/bare modes"
+}
+
+@test "init-workspace prompts to prune a pre-existing .devcontainer/ in a container-less mode (#990)" {
+    # Interactive runs (no --no-prompts) prompt once, default No = preserve; the
+    # prompt is guarded to direnv/bare, a pre-existing .devcontainer/, and no
+    # explicit flag. Asserted structurally (the suite has no pty harness).
+    run grep -q 'Prune existing .devcontainer/? (y/N)' "$INIT_WORKSPACE_SH"
+    assert_success
+}
+
+@test "init-workspace --preview --prune-devcontainer lists .devcontainer/ as DELETED without deleting (#990)" {
+    ws="$BATS_TEST_TMPDIR/e2e-990-preview-prune"
+    mkdir -p "$ws/.devcontainer"
+    printf '{ "name": "stale devcontainer" }\n' >"$ws/.devcontainer/devcontainer.json"
+    run _preview "$ws" --mode direnv --prune-devcontainer
+    assert_success
+    assert_output --partial "DELETED"
+    assert_output --partial ".devcontainer/"
+    # side-effect-free: the preview left the dir in place
+    run test -d "$ws/.devcontainer"
+    assert_success
+}
+
+@test "init-workspace --preview without the flag lists a pre-existing .devcontainer/ as PRESERVED (#990)" {
+    ws="$BATS_TEST_TMPDIR/e2e-990-preview-keep"
+    mkdir -p "$ws/.devcontainer"
+    printf '{ "name": "stale devcontainer" }\n' >"$ws/.devcontainer/devcontainer.json"
+    run _preview "$ws" --mode direnv
+    assert_success
+    assert_output --partial "PRESERVED"
+    assert_output --partial "pre-existing, kept"
+}
+
 # ── upgrade preview/report follows template symlinks (#949) ───────────────────
 # The Nix image bakes assets/workspace as a tree of symlinks into the nix store,
 # so the --preview/--force classifier's `find -type f` matched ZERO files and the
@@ -1802,17 +1905,54 @@ _upgrade_legacy() {
     done
 }
 
-@test "bare-mode ci.yml is host-native: no image resolution, no container jobs (#885)" {
-    ws="$BATS_TEST_TMPDIR/e2e-bare-ci"
-    mkdir -p "$ws"
-    run _scaffold bare "$ws"
-    assert_success
-    run grep -E 'resolve-image|container:' "$ws/.github/workflows/ci.yml"
-    assert_failure
-    run grep -q 'astral-sh/setup-uv' "$ws/.github/workflows/ci.yml"
-    assert_success
-    # scorecard-conform: every action reference is SHA-pinned
-    run bash -c "grep 'uses:' '$ws/.github/workflows/ci.yml' | grep -vE '@[0-9a-f]{40}'"
+# ── mode-aware unified ci.yml (#991) ──────────────────────────────────────────
+# #991 collapsed the three per-mode ci.yml overlays (container / direnv / bare)
+# into ONE managed file that selects its toolchain at runtime: a leading
+# `resolve-toolchain` job outputs the delivery mode + image, every job runs
+# `container: image: ${{ needs.resolve-toolchain.outputs.image }}` (inert on the
+# host when empty, ADR Option A), and the `setup-devkit-toolchain` composite is
+# each job's first step. The rendered ci.yml is therefore IDENTICAL across every
+# mode — the per-mode overlay dirs are gone.
+
+@test "rendered ci.yml is mode-aware and identical across modes (#991)" {
+    for mode in devcontainer direnv bare both; do
+        ws="$BATS_TEST_TMPDIR/e2e-ci-$mode"
+        mkdir -p "$ws"
+        run _scaffold "$mode" "$ws"
+        assert_success
+        f="$ws/.github/workflows/ci.yml"
+        # both mode-aware composites are wired
+        run grep -q './.github/actions/resolve-toolchain' "$f"
+        assert_success
+        run grep -q './.github/actions/setup-devkit-toolchain' "$f"
+        assert_success
+        # the container is selected by the resolved-image expression
+        # shellcheck disable=SC2016  # literal GitHub expression, not a shell one
+        run grep -Fq 'image: ${{ needs.resolve-toolchain.outputs.image }}' "$f"
+        assert_success
+        # no hardcoded devcontainer image literal anywhere (only the expression)
+        run grep -q 'ghcr.io/vig-os/devcontainer' "$f"
+        assert_failure
+        # the retired resolve-image action is gone from ci.yml
+        run grep -q 'resolve-image' "$f"
+        assert_failure
+        # provisioning is delegated to the composite: no inline nix develop, no
+        # job-level container-only env, no inline prek skew guard
+        run grep -q 'nix develop' "$f"
+        assert_failure
+        run grep -E 'PREK_HOME|UV_PROJECT_ENVIRONMENT' "$f"
+        assert_failure
+        run grep -q 'command -v prek' "$f"
+        assert_failure
+        # scorecard-conform: every EXTERNAL action reference is SHA-pinned
+        # (local ./ composite refs are exempt, like check-action-pins)
+        run bash -c "grep -E '^[[:space:]]*uses:' '$f' | grep -vE 'uses:[[:space:]]*\\./' | grep -vE '@[0-9a-f]{40}'"
+        assert_failure
+    done
+}
+
+@test "init-workspace no longer deploys per-mode ci.yml overlays (#991)" {
+    run grep -E 'workspace-direnv|workspace-bare' "$INIT_WORKSPACE_SH"
     assert_failure
 }
 
@@ -1850,7 +1990,11 @@ _upgrade_legacy() {
     assert_success
     run grep -x 'DEVKIT_MODE=bare' "$ws/.vig-os"
     assert_success
-    run grep -E 'resolve-image|container:' "$ws/.github/workflows/ci.yml"
+    # the upgraded ci.yml stays mode-aware: resolve-toolchain wired, no
+    # hardcoded devcontainer image literal (#991)
+    run grep -q 'resolve-toolchain' "$ws/.github/workflows/ci.yml"
+    assert_success
+    run grep -q 'ghcr.io/vig-os/devcontainer' "$ws/.github/workflows/ci.yml"
     assert_failure
 }
 
@@ -1866,79 +2010,364 @@ _upgrade_legacy() {
     assert_output --partial ".devcontainer/ (pre-existing"
 }
 
-# ── direnv nix-direct CI lane (#854) ──────────────────────────────────────────
-# `direnv` ships the flake + .envrc but no .devcontainer/, so its CI cannot run
-# in the container. init-workspace overlays a nix-direct ci.yml variant (like the
-# bare overlay): no resolve-image, no container jobs — the runner installs Nix
-# and drives `nix develop -c just sync|precommit|test`.
-
-@test "direnv-mode ci.yml is nix-direct: no image resolution, no container jobs (#854)" {
-    ws="$BATS_TEST_TMPDIR/e2e-direnv-ci"
-    mkdir -p "$ws"
-    run _scaffold direnv "$ws"
-    assert_success
-    # no container/resolve-image machinery (ignore explanatory comment lines)
-    run bash -c "grep -vE '^[[:space:]]*#' '$ws/.github/workflows/ci.yml' | grep -E 'resolve-image|container:'"
-    assert_failure
-    # nix-direct: install-nix + nix develop drive the just contract
-    run grep -q 'cachix/install-nix-action' "$ws/.github/workflows/ci.yml"
-    assert_success
-    run grep -q 'nix develop -c just' "$ws/.github/workflows/ci.yml"
-    assert_success
-    # scorecard-conform: every action reference is SHA-pinned
-    run bash -c "grep 'uses:' '$ws/.github/workflows/ci.yml' | grep -vE '@[0-9a-f]{40}'"
-    assert_failure
-}
-
-@test "direnv-mode ci.yml drops the container-only env (#854)" {
-    ws="$BATS_TEST_TMPDIR/e2e-direnv-ci-env"
-    mkdir -p "$ws"
-    run _scaffold direnv "$ws"
-    assert_success
-    run bash -c "grep -vE '^[[:space:]]*#' '$ws/.github/workflows/ci.yml' | grep -E 'PREK_HOME|UV_PROJECT_ENVIRONMENT'"
-    assert_failure
-}
-
-@test "direnv-mode ci.yml wires the prek version-skew guard (#854)" {
-    ws="$BATS_TEST_TMPDIR/e2e-direnv-ci-guard"
-    mkdir -p "$ws"
-    run _scaffold direnv "$ws"
-    assert_success
-    run grep -q 'command -v prek' "$ws/.github/workflows/ci.yml"
-    assert_success
-}
-
-@test "prepare-release.yml uses the shared resolve-image action, no latest fallback (#854)" {
+@test "prepare-release.yml resolves the toolchain inline, no latest fallback (#854, #991)" {
     wf="$TEMPLATE_DIR/.github/workflows/prepare-release.yml"
-    run grep -q 'uses: ./.github/actions/resolve-image' "$wf"
+    # #991 converts the resolve-image ACTION to the mode-aware resolve-toolchain
+    # composite, used inline in the host `validate` job (it is a composite action
+    # usable as a step). The #854 no-silent-`latest` guarantee is retained by the
+    # resolve-toolchain action itself.
+    run grep -q 'uses: ./.github/actions/resolve-toolchain' "$wf"
     assert_success
+    run grep -q 'resolve-image' "$wf"
+    assert_failure
     # the forked inline awk resolver + silent `latest` fallback is gone
     run grep -q 'TAG="latest"' "$wf"
     assert_failure
 }
 
-@test "container-mode ci.yml wires the prek version-skew guard (#854)" {
-    # The devcontainer-mode lint job must fail fast with an actionable message
-    # when the pinned image predates prek, rather than an opaque exit 127.
-    ws="$BATS_TEST_TMPDIR/e2e-container-guard"
+# ── actionlint over the per-mode RENDERED workflows (#995) ─────────────────────
+# Each mode scaffolds a full .github/workflows/ tree (reusable release
+# choreography + the mode-specific ci.yml). actionlint validates the rendered
+# YAML semantically — job/needs/outputs wiring, expression syntax, action
+# inputs — so a broken render fails here in the devkit, not silently in a
+# consumer repo. Linting the templates in-place is impossible (actionlint
+# resolves `./.github/workflows/<reusable>` against the devkit root, where the
+# reusable release files do not exist); the faithful check is over the fully
+# rendered tree, which is what these fixtures do.
+#
+# The invocation disables actionlint's bundled shellcheck (`-shellcheck=`): its
+# run-block findings on the authored templates are pre-existing info/style/
+# warning noise, tracked for a separate hardening pass — the dedicated
+# shell-lint hook already covers `.sh` scripts. The reusable release workflows
+# read secrets (GHCR_PULL_TOKEN, *_APP_CLIENT_ID/PRIVATE_KEY) passed by the
+# caller via `secrets: inherit`, which actionlint cannot see statically; those
+# false positives are ignored by message.
+ACTIONLINT_INHERITED_SECRETS='property "(ghcr_pull_token|release_app_client_id|release_app_private_key|commit_app_client_id|commit_app_private_key)" is not defined'
+
+_actionlint_rendered() {
+    local mode="$1" ws="$2"
     mkdir -p "$ws"
-    run _scaffold devcontainer "$ws"
-    assert_success
-    run grep -q 'command -v prek' "$ws/.github/workflows/ci.yml"
+    _scaffold "$mode" "$ws" || return 1
+    # actionlint locates the project root (for reusable-workflow resolution)
+    # via git; a scaffolded consumer repo is a git repo, so mirror that.
+    (
+        cd "$ws" &&
+            git init -q &&
+            actionlint -shellcheck= -ignore "$ACTIONLINT_INHERITED_SECRETS"
+    )
+}
+
+@test "actionlint passes over the devcontainer-mode rendered workflows (#995)" {
+    run _actionlint_rendered devcontainer "$BATS_TEST_TMPDIR/al-devcontainer"
     assert_success
 }
 
-@test "direnv overlay leaves devcontainer + bare + both modes container-based (#854)" {
-    # The overlay is direnv-only: the other modes keep the container ci.yml
-    # (devcontainer/both) or the bare host-native one.
-    for mode in devcontainer both; do
-        ws="$BATS_TEST_TMPDIR/e2e-direnv-neg-$mode"
+@test "actionlint passes over the direnv-mode rendered workflows (#995)" {
+    run _actionlint_rendered direnv "$BATS_TEST_TMPDIR/al-direnv"
+    assert_success
+}
+
+@test "actionlint passes over the bare-mode rendered workflows (#995)" {
+    run _actionlint_rendered bare "$BATS_TEST_TMPDIR/al-bare"
+    assert_success
+}
+
+@test "actionlint passes over the both-mode rendered workflows (#995)" {
+    run _actionlint_rendered both "$BATS_TEST_TMPDIR/al-both"
+    assert_success
+}
+
+@test "actionlint passes over the smoke-test workflow template (#995)" {
+    # The smoke-test template ships a single, standalone workflow (no reusable
+    # siblings), so it is linted in-place by explicit path from the repo root.
+    run actionlint -shellcheck= \
+        "$PROJECT_ROOT/assets/smoke-test/.github/workflows/repository-dispatch.yml"
+    assert_success
+}
+
+# ── #994: shared resolve-toolchain + setup-devkit-toolchain composites ─────────
+# Two mode-aware composite actions ship (managed) in
+# assets/workspace/.github/actions/ for EVERY delivery mode. resolve-toolchain
+# evolves resolve-image: it emits `mode` + `image` (empty string for the host
+# modes per the Option-A ADR) + `image-tag`. setup-devkit-toolchain is the
+# step-level toolchain preamble branching on DEVKIT_MODE. These are structural
+# render assertions only — the host branches are exercised on real runners by
+# #991; here we prove the files ship, are SHA-pinned, and wire each mode branch.
+
+@test "resolve-toolchain and setup-devkit-toolchain ship in every mode (#994)" {
+    for mode in devcontainer direnv both bare; do
+        ws="$BATS_TEST_TMPDIR/e2e-994-$mode"
         mkdir -p "$ws"
         run _scaffold "$mode" "$ws"
         assert_success
-        run grep -q 'resolve-image' "$ws/.github/workflows/ci.yml"
+        run test -f "$ws/.github/actions/resolve-toolchain/action.yml"
         assert_success
-        run grep -q 'nix develop -c just' "$ws/.github/workflows/ci.yml"
+        run test -f "$ws/.github/actions/setup-devkit-toolchain/action.yml"
+        assert_success
+    done
+}
+
+@test "composite toolchain actions SHA-pin every action reference (#994)" {
+    # scorecard/check-action-pins conform: no floating `uses:` in either file.
+    for f in resolve-toolchain setup-devkit-toolchain; do
+        af="$TEMPLATE_DIR/.github/actions/$f/action.yml"
+        run bash -c "grep 'uses:' '$af' | grep -vE '@[0-9a-f]{40}'"
         assert_failure
     done
+}
+
+@test "resolve-toolchain emits an explicit empty image for direnv/bare (#994)" {
+    f="$TEMPLATE_DIR/.github/actions/resolve-toolchain/action.yml"
+    # host modes get an explicit empty-string image (ADR Option A: always emit,
+    # never omit — an empty container image makes the job run on the host).
+    run grep -Eq 'IMAGE=""' "$f"
+    assert_success
+    # container-ish modes get the ghcr devcontainer image.
+    run grep -q 'ghcr.io/vig-os/devcontainer:' "$f"
+    assert_success
+    # emits mode + image + image-tag outputs.
+    for o in 'mode:' 'image:' 'image-tag:'; do
+        run grep -q "$o" "$f"
+        assert_success
+    done
+}
+
+@test "resolve-toolchain retains the manifest-inspect accessibility probe (#994)" {
+    f="$TEMPLATE_DIR/.github/actions/resolve-toolchain/action.yml"
+    run grep -q 'docker manifest inspect' "$f"
+    assert_success
+    # tolerant .vig-os parsing preserved: DEVKIT_VERSION with legacy fallback.
+    run grep -q 'DEVCONTAINER_VERSION' "$f"
+    assert_success
+}
+
+@test "setup-devkit-toolchain gates every branch on the mode input (#994)" {
+    f="$TEMPLATE_DIR/.github/actions/setup-devkit-toolchain/action.yml"
+    run grep -q "inputs.mode == 'devcontainer'" "$f"
+    assert_success
+    run grep -q "inputs.mode == 'direnv'" "$f"
+    assert_success
+    run grep -q "inputs.mode == 'bare'" "$f"
+    assert_success
+}
+
+@test "setup-devkit-toolchain container branch reproduces the in-image env (#994)" {
+    f="$TEMPLATE_DIR/.github/actions/setup-devkit-toolchain/action.yml"
+    run grep -q 'PREK_HOME' "$f"
+    assert_success
+    run grep -q 'UV_PROJECT_ENVIRONMENT' "$f"
+    assert_success
+    run grep -q 'safe.directory' "$f"
+    assert_success
+}
+
+@test "setup-devkit-toolchain direnv branch uses Nix + the repo dev-shell (#994)" {
+    f="$TEMPLATE_DIR/.github/actions/setup-devkit-toolchain/action.yml"
+    run grep -q 'cachix/install-nix-action' "$f"
+    assert_success
+    run grep -q 'nix develop' "$f"
+    assert_success
+    # host-side prek version-skew guard points at `nix flake update vigos` (#854).
+    run grep -q 'nix flake update vigos' "$f"
+    assert_success
+}
+
+@test "setup-devkit-toolchain bare branch installs the host toolchain incl vig-utils (#994)" {
+    f="$TEMPLATE_DIR/.github/actions/setup-devkit-toolchain/action.yml"
+    run grep -q 'astral-sh/setup-uv' "$f"
+    assert_success
+    run grep -q 'uv tool install' "$f"
+    assert_success
+    run grep -q 'vig-utils' "$f"
+    assert_success
+}
+
+@test "setup-devkit-toolchain embeds a self-contained retry shim for host modes (#994)" {
+    f="$TEMPLATE_DIR/.github/actions/setup-devkit-toolchain/action.yml"
+    # BASH_ENV mechanism replicated inline (the scaffold cannot source a
+    # devkit-internal script), gated to the host modes only.
+    run grep -q 'BASH_ENV' "$f"
+    assert_success
+    run grep -q 'retry()' "$f"
+    assert_success
+}
+
+@test "resolve-toolchain rejects an unknown DEVKIT_MODE loudly (#994)" {
+    # A typo'd manifest value (e.g. a misspelled `container`) must fail the
+    # resolve step, not
+    # silently fall through to the host branch (empty image) and flip a
+    # container repo's CI onto host runners. Mirrors the init-workspace.sh
+    # corrupt-persisted-mode guard.
+    f="$TEMPLATE_DIR/.github/actions/resolve-toolchain/action.yml"
+    run grep -q 'Invalid DEVKIT_MODE' "$f"
+    assert_success
+    # the image case statement is closed: an explicit direnv|bare arm, no
+    # catch-all that would classify unknown modes as host.
+    run grep -q 'direnv|bare)' "$f"
+    assert_success
+}
+
+# ── #991: release/automation workflow set converted to the mode-aware pattern ──
+# The release/automation workflows (orchestrator, reusable core/publish, and the
+# standalone automation set) are converted off the container-only `resolve-image`
+# job onto the Option-A mode-aware pattern (ADR-conditional-container-toolchain):
+# a leading `resolve-toolchain` job (or inline composite step) selects the image
+# — empty in host modes so the job runs on the runner — and every job runs the
+# `setup-devkit-toolchain` composite as its toolchain preamble. release-extension
+# stays project-owned/host-native and is intentionally NOT converted. This is a
+# toolchain-provisioning refactor only: the release choreography is unchanged.
+
+# The converted set (release-extension.yml is deliberately excluded).
+_RELEASE_SET_991=(
+    release.yml
+    release-core.yml
+    release-publish.yml
+    prepare-release.yml
+    promote-release.yml
+    sync-main-to-dev.yml
+    renovate-changelog-build.yml
+    sync-issues.yml
+)
+
+# The subset that resolves the toolchain itself (a `resolve-toolchain` job, or —
+# for prepare-release — the composite used inline in the host validate job). The
+# reusable workflows (release-core/publish) receive the resolved values as
+# workflow_call inputs instead and must NOT run their own resolve job.
+_RELEASE_RESOLVERS_991=(
+    release.yml
+    prepare-release.yml
+    promote-release.yml
+    sync-main-to-dev.yml
+    renovate-changelog-build.yml
+    sync-issues.yml
+)
+
+@test "release/automation workflows carry no hardcoded devcontainer job image (#991)" {
+    # Only the resolve-toolchain composite may build the ghcr devcontainer ref;
+    # no converted workflow may pin `container: ghcr.io/vig-os/devcontainer:<tag>`.
+    for wf in "${_RELEASE_SET_991[@]}"; do
+        run grep -q 'ghcr.io/vig-os/devcontainer:' "$TEMPLATE_DIR/.github/workflows/$wf"
+        assert_failure
+    done
+}
+
+@test "release/automation workflows drop the resolve-image action (#991)" {
+    for wf in "${_RELEASE_SET_991[@]}"; do
+        run grep -q 'resolve-image' "$TEMPLATE_DIR/.github/workflows/$wf"
+        assert_failure
+    done
+}
+
+@test "release/automation workflows provision via setup-devkit-toolchain (#991)" {
+    for wf in "${_RELEASE_SET_991[@]}"; do
+        run grep -q 'setup-devkit-toolchain' "$TEMPLATE_DIR/.github/workflows/$wf"
+        assert_success
+    done
+}
+
+@test "release/automation resolvers use the resolve-toolchain composite (#991)" {
+    for wf in "${_RELEASE_RESOLVERS_991[@]}"; do
+        run grep -q 'uses: ./.github/actions/resolve-toolchain' "$TEMPLATE_DIR/.github/workflows/$wf"
+        assert_success
+    done
+}
+
+@test "reusable release workflows declare the toolchain_* inputs (#991)" {
+    # release-core/publish are workflow_call reusables: the orchestrator resolves
+    # ONCE and threads mode/image/version in; they must not re-resolve.
+    for wf in release-core.yml release-publish.yml; do
+        f="$TEMPLATE_DIR/.github/workflows/$wf"
+        for input in 'toolchain_mode:' 'toolchain_image:' 'devkit_version:'; do
+            run grep -q "$input" "$f"
+            assert_success
+        done
+        # no own resolve-toolchain job in a reusable workflow.
+        run grep -q 'resolve-toolchain' "$f"
+        assert_failure
+    done
+}
+
+@test "release orchestrator threads toolchain_* into the reusable calls (#991)" {
+    f="$TEMPLATE_DIR/.github/workflows/release.yml"
+    run grep -q 'uses: ./.github/actions/resolve-toolchain' "$f"
+    assert_success
+    for input in 'toolchain_mode:' 'toolchain_image:' 'devkit_version:'; do
+        run grep -q "$input" "$f"
+        assert_success
+    done
+}
+
+@test "resolve-image action is removed from every rendered mode tree (#991)" {
+    for mode in devcontainer direnv both bare; do
+        ws="$BATS_TEST_TMPDIR/e2e-991-$mode"
+        mkdir -p "$ws"
+        run _scaffold "$mode" "$ws"
+        assert_success
+        # the retired action directory must not be scaffolded into consumers.
+        run test -d "$ws/.github/actions/resolve-image"
+        assert_failure
+        # and no converted workflow in the rendered tree references it.
+        for wf in "${_RELEASE_SET_991[@]}"; do
+            run grep -q 'resolve-image' "$ws/.github/workflows/$wf"
+            assert_failure
+        done
+    done
+}
+
+# ── #989: container-only artifacts are mode-filtered out of direnv/bare ────────
+# docs/container-ci-quirks.md documents in-image CI behavior (PREK_HOME cache,
+# GHCR credential quirks) and is dead weight in the container-less modes. The
+# scaffold filters it exactly like .devcontainer/: excluded from the copy,
+# pruned on upgrade, and reflected truthfully in the preview report.
+
+@test "container-ci-quirks.md ships in devcontainer/both but not direnv/bare (#989)" {
+    for mode in devcontainer both; do
+        ws="$BATS_TEST_TMPDIR/e2e-989-$mode"
+        mkdir -p "$ws"
+        run _scaffold "$mode" "$ws"
+        assert_success
+        run test -f "$ws/docs/container-ci-quirks.md"
+        assert_success
+    done
+    for mode in direnv bare; do
+        ws="$BATS_TEST_TMPDIR/e2e-989-$mode"
+        mkdir -p "$ws"
+        run _scaffold "$mode" "$ws"
+        assert_success
+        run test -f "$ws/docs/container-ci-quirks.md"
+        assert_failure
+    done
+}
+
+@test "direnv/bare upgrade prunes a previously scaffolded container-ci-quirks.md (#989)" {
+    for mode in direnv bare; do
+        ws="$BATS_TEST_TMPDIR/e2e-989-prune-$mode"
+        mkdir -p "$ws/docs"
+        printf '# stale container notes\n' >"$ws/docs/container-ci-quirks.md"
+        run _scaffold "$mode" "$ws"
+        assert_success
+        run test -f "$ws/docs/container-ci-quirks.md"
+        assert_failure
+    done
+}
+
+@test "preview lists container-ci-quirks.md as DELETED on a direnv upgrade (#989)" {
+    ws="$BATS_TEST_TMPDIR/e2e-989-preview-del"
+    mkdir -p "$ws/docs"
+    printf '# stale container notes\n' >"$ws/docs/container-ci-quirks.md"
+    run _preview "$ws" --mode direnv
+    assert_success
+    assert_output --partial "DELETED"
+    assert_output --partial "docs/container-ci-quirks.md"
+    # side-effect-free: the preview left the file in place
+    run test -f "$ws/docs/container-ci-quirks.md"
+    assert_success
+}
+
+@test "preview does not list container-ci-quirks.md as ADDED on a fresh direnv scaffold (#989)" {
+    ws="$BATS_TEST_TMPDIR/e2e-989-preview-add"
+    mkdir -p "$ws"
+    run _preview "$ws" --mode direnv
+    assert_success
+    refute_output --partial "docs/container-ci-quirks.md"
 }

@@ -1,7 +1,7 @@
 #!/bin/bash
 # Initialize workspace by copying template files
 #
-# Usage: init-workspace [--force] [--no-prompts] [--smoke-test] [--preview] [--mode MODE]
+# Usage: init-workspace [--force] [--no-prompts] [--smoke-test] [--preview] [--mode MODE] [--prune-devcontainer]
 #
 # Options:
 #   --force       Overwrite existing files (for upgrades)
@@ -9,6 +9,12 @@
 #   --smoke-test  Deploy smoke-test-specific assets
 #   --preview     Print the add/overwrite/preserve/delete report an upgrade
 #                 would produce, then exit 0 without touching the tree (#886)
+#   --prune-devcontainer
+#                 In direnv/bare mode, also remove a PRE-EXISTING .devcontainer/
+#                 (a container→direnv/bare migration cleanup, #990). Without it
+#                 the #738 default is non-destructive and keeps it. Interactive
+#                 runs prompt once when a populated .devcontainer/ is detected.
+#                 Rejected in devcontainer/both modes.
 #   --mode MODE   Delivery mode: devcontainer | direnv | both | bare
 #                 devcontainer  scaffold .devcontainer/ only (no flake.nix/.envrc)
 #                 direnv        scaffold flake.nix + .envrc only (no .devcontainer/)
@@ -48,6 +54,8 @@ FORCE=false
 NO_PROMPTS=false
 SMOKE_TEST=false
 PREVIEW=false
+# Opt-in removal of a PRE-EXISTING .devcontainer/ in direnv/bare mode (#990).
+PRUNE_DEVCONTAINER=false
 # Delivery mode: devcontainer | direnv | both | bare. Empty = manifest, prompt, or "both".
 MODE=""
 
@@ -121,6 +129,10 @@ while [[ $# -gt 0 ]]; do
             PREVIEW=true
             shift
             ;;
+        --prune-devcontainer)
+            PRUNE_DEVCONTAINER=true
+            shift
+            ;;
         --mode)
             MODE="$2"
             shift 2
@@ -131,7 +143,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         *)
             echo "Unknown option: $1" >&2
-            echo "Usage: init-workspace [--force] [--no-prompts] [--smoke-test] [--preview] [--mode MODE]" >&2
+            echo "Usage: init-workspace [--force] [--no-prompts] [--smoke-test] [--preview] [--mode MODE] [--prune-devcontainer]" >&2
             exit 1
             ;;
     esac
@@ -424,6 +436,15 @@ if [[ -z "$MODE" ]]; then
 fi
 echo "Delivery mode set to: $MODE"
 
+# --prune-devcontainer is only meaningful where the scaffold owns no container
+# (#990). In devcontainer/both mode a .devcontainer/ is a first-class deliverable,
+# so reject the flag loudly rather than silently ignore it — same failure shape
+# as an invalid --mode above.
+if [[ "$PRUNE_DEVCONTAINER" == "true" && "$MODE" != "direnv" && "$MODE" != "bare" ]]; then
+    echo "Error: --prune-devcontainer only applies to direnv/bare modes (got: $MODE)" >&2
+    exit 1
+fi
+
 # Print one recipe block from the template justfile.project: the immediately
 # preceding comment/attribute lines, the recipe header, and the indented body.
 # Used to repair a preserved pre-0.4.0 justfile.project that lacks the
@@ -483,6 +504,22 @@ if [[ -d "$WORKSPACE_DIR/.devcontainer" ]] \
     DEVCONTAINER_PREEXISTED=true
 fi
 
+# Interactive prune offer (#990): on a container→direnv/bare (re)scaffold a
+# populated pre-existing .devcontainer/ is kept by default (#738). When the
+# operator did not pass --prune-devcontainer, ask once — default No preserves
+# the #738 behavior. Resolved here (before the file report below) so the DELETED
+# listing mirrors the choice. Skipped under --no-prompts and --preview (a preview
+# must stay side-effect-free and decide purely from the flag).
+if [[ "$PRUNE_DEVCONTAINER" != "true" && "$DEVCONTAINER_PREEXISTED" == "true" \
+    && ( "$MODE" == "direnv" || "$MODE" == "bare" ) \
+    && "$NO_PROMPTS" != "true" && "$PREVIEW" != "true" ]]; then
+    read -rp "Prune existing .devcontainer/? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        PRUNE_DEVCONTAINER=true
+    fi
+fi
+
 # Same guard for the consumer's own nix-direnv files (#859): the
 # devcontainer-mode prune may only remove the flake stub/`.envrc` that this
 # scaffold would create, never a pre-existing setup (they are PRESERVE_FILES,
@@ -531,6 +568,14 @@ if [[ "$FORCE" == "true" ]]; then
             && "$rel_path" == .devcontainer/* ]]; then
             continue
         fi
+        # Container-only documentation (#989): in-image CI notes are dead
+        # weight (and misleading) in the container-less modes. Devkit-managed
+        # (not in PRESERVE_FILES), so filtered unconditionally — same class as
+        # the .devcontainer/ skip above.
+        if [[ ("$MODE" == "direnv" || "$MODE" == "bare") \
+            && "$rel_path" == "docs/container-ci-quirks.md" ]]; then
+            continue
+        fi
         if [[ "$MODE" == "devcontainer" || "$MODE" == "bare" ]] \
             && [[ "$rel_path" == "flake.nix" || "$rel_path" == ".envrc" ]] \
             && [[ ! -e "$workspace_file" ]]; then
@@ -556,10 +601,20 @@ if [[ "$FORCE" == "true" ]]; then
     if [[ "$MODE" == "direnv" || "$MODE" == "bare" ]]; then
         if [[ -e "$WORKSPACE_DIR/.devcontainer" && "$DEVCONTAINER_PREEXISTED" != "true" ]]; then
             DELETIONS+=(".devcontainer/")
+        elif [[ "$DEVCONTAINER_PREEXISTED" == "true" && "$PRUNE_DEVCONTAINER" == "true" ]]; then
+            # --prune-devcontainer opts into removing a pre-existing container
+            # on a container→direnv/bare migration (#990).
+            DELETIONS+=(".devcontainer/ (pre-existing, pruned — #990)")
         elif [[ "$DEVCONTAINER_PREEXISTED" == "true" ]]; then
             # The #738 guard keeps a populated consumer .devcontainer/; say so
             # explicitly instead of leaving it silently absent from the report.
             PRESERVED+=(".devcontainer/ (pre-existing, kept — #738)")
+        fi
+        # Container-only documentation is pruned in the container-less modes
+        # (#989): devkit-managed, so no pre-existence guard — mirrors the copy
+        # filter above.
+        if [[ -f "$WORKSPACE_DIR/docs/container-ci-quirks.md" ]]; then
+            DELETIONS+=("docs/container-ci-quirks.md")
         fi
     else
         # The devcontainer-mode flake.nix/.envrc prune only removes stubs this
@@ -726,6 +781,9 @@ else
     # .devcontainer/ intact.
     if [[ "$MODE" == "direnv" || "$MODE" == "bare" ]]; then
         EXCLUDE_ARGS+=("--exclude=.devcontainer")
+        # Container-only documentation stays out of the container-less modes
+        # (#989); a previously scaffolded copy is pruned after the copy below.
+        EXCLUDE_ARGS+=("--exclude=/docs/container-ci-quirks.md")
     fi
 
     # Legacy typos config (#913): the `typos` tool reads .typos.toml, typos.toml
@@ -740,34 +798,9 @@ else
 
     rsync -avL --exclude='.git' --exclude='.venv' "${EXCLUDE_ARGS[@]}" "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
 
-    # bare mode runs CI on the host, not in the image: overlay the host-native
-    # ci.yml variant over the container-based template one (#885). ci.yml is a
-    # managed file, so upgrades of a bare workspace re-apply the overlay too.
-    if [[ "$MODE" == "bare" ]]; then
-        BARE_OVERLAY_DIR="$SCRIPT_DIR/workspace-bare"
-        if [[ -d "$BARE_OVERLAY_DIR" ]]; then
-            echo "Deploying bare-mode overlay (host-native CI)..."
-            rsync -avL "$BARE_OVERLAY_DIR/" "$WORKSPACE_DIR/"
-        else
-            echo "Warning: bare-mode overlay not found at $BARE_OVERLAY_DIR; the scaffolded ci.yml is container-based." >&2
-        fi
-    fi
-
-    # direnv mode runs CI on the host via the flake dev-shell (nix develop), not
-    # in the image: overlay the nix-direct ci.yml variant over the container-based
-    # template one (#854). Same managed-file semantics as the bare overlay above,
-    # so upgrades of a direnv workspace re-apply the overlay too. The other
-    # scaffolded workflows stay container-based and are devcontainer-mode-only
-    # (documented in docs/MIGRATION.md).
-    if [[ "$MODE" == "direnv" ]]; then
-        DIRENV_OVERLAY_DIR="$SCRIPT_DIR/workspace-direnv"
-        if [[ -d "$DIRENV_OVERLAY_DIR" ]]; then
-            echo "Deploying direnv-mode overlay (nix-direct CI)..."
-            rsync -avL "$DIRENV_OVERLAY_DIR/" "$WORKSPACE_DIR/"
-        else
-            echo "Warning: direnv-mode overlay not found at $DIRENV_OVERLAY_DIR; the scaffolded ci.yml is container-based." >&2
-        fi
-    fi
+    # ci.yml is a single mode-aware workflow (#991): it resolves DEVKIT_MODE at
+    # run time via the resolve-toolchain job + setup-devkit-toolchain composite,
+    # so every mode ships the same file — no per-mode overlay to re-apply.
 fi
 
 # The Nix-built image stores the baked template as read-only symlinks into the
@@ -801,10 +834,14 @@ case "$MODE" in
         # Standards-only scaffold (#885): prune every container/flake
         # artifact, with the same pre-existence guards as the other modes —
         # consumer-owned files always survive (#738/#859).
-        if [[ "$DEVCONTAINER_PREEXISTED" == "true" ]]; then
+        if [[ "$DEVCONTAINER_PREEXISTED" == "true" && "$PRUNE_DEVCONTAINER" != "true" ]]; then
             echo "bare mode: preserving existing .devcontainer/ (#738)"
         else
-            echo "Pruning to 'bare' mode: removing .devcontainer/..."
+            if [[ "$DEVCONTAINER_PREEXISTED" == "true" ]]; then
+                echo "bare mode: pruning pre-existing .devcontainer/ (--prune-devcontainer, #990)..."
+            else
+                echo "Pruning to 'bare' mode: removing .devcontainer/..."
+            fi
             rm -rf "$WORKSPACE_DIR/.devcontainer"
         fi
         if [[ "$FLAKE_PREEXISTED" == "true" ]]; then
@@ -839,10 +876,14 @@ case "$MODE" in
     direnv)
         # Only drop a .devcontainer/ that this scaffold created; never delete a
         # populated consumer .devcontainer/ that predates the (re)scaffold (#738).
-        if [[ "$DEVCONTAINER_PREEXISTED" == "true" ]]; then
+        if [[ "$DEVCONTAINER_PREEXISTED" == "true" && "$PRUNE_DEVCONTAINER" != "true" ]]; then
             echo "direnv mode: preserving existing .devcontainer/ (#738)"
         else
-            echo "Pruning to 'direnv' mode: removing .devcontainer/..."
+            if [[ "$DEVCONTAINER_PREEXISTED" == "true" ]]; then
+                echo "direnv mode: pruning pre-existing .devcontainer/ (--prune-devcontainer, #990)..."
+            else
+                echo "Pruning to 'direnv' mode: removing .devcontainer/..."
+            fi
             rm -rf "$WORKSPACE_DIR/.devcontainer"
         fi
         ;;
@@ -850,6 +891,16 @@ case "$MODE" in
         : # keep everything
         ;;
 esac
+
+# Container-only documentation (#989): prune a previously scaffolded
+# docs/container-ci-quirks.md from the container-less modes. Devkit-managed
+# (never in PRESERVE_FILES), so no pre-existence guard — the rsync above
+# already excludes the template copy; this removes an old scaffold's leftover.
+if [[ ("$MODE" == "direnv" || "$MODE" == "bare") \
+    && -f "$WORKSPACE_DIR/docs/container-ci-quirks.md" ]]; then
+    echo "Pruning container-only docs/container-ci-quirks.md (#989)..."
+    rm -f "$WORKSPACE_DIR/docs/container-ci-quirks.md"
+fi
 
 # 0.4.0 retired .devcontainer/justfile.base (recipes relocated to
 # justfile.project), so drop the stale copy an upgraded 0.3.x repo carries —
