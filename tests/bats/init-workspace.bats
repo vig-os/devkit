@@ -330,6 +330,109 @@ _scaffold() {
     assert_success
 }
 
+# ── opt-in .devcontainer/ prune on container-less mode upgrade (#990) ──────────
+# The #738 default is non-destructive: a container→direnv/bare re-scaffold keeps
+# a populated pre-existing .devcontainer/. On a real container→direnv migration
+# that strands a stale container next to the new flake, so `--prune-devcontainer`
+# opts into removing it. The flag applies only to direnv/bare modes; in
+# devcontainer/both it is rejected loudly. The default (no flag) stays #738.
+
+# Like _scaffold, but forwards extra args (e.g. --prune-devcontainer).
+_scaffold_ex() {
+    local mode="$1" ws="$2"
+    shift 2
+    local stub="$BATS_TEST_TMPDIR/stub-bin"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+    env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode "$mode" "$@"
+}
+
+@test "init-workspace --mode=direnv --prune-devcontainer removes a pre-existing .devcontainer/ (#990)" {
+    ws="$BATS_TEST_TMPDIR/e2e-990-direnv-prune"
+    mkdir -p "$ws/.devcontainer"
+    printf '{ "name": "stale devcontainer" }\n' >"$ws/.devcontainer/devcontainer.json"
+    run _scaffold_ex direnv "$ws" --prune-devcontainer
+    assert_success
+    run test -e "$ws/.devcontainer"
+    assert_failure
+    # ...and the direnv stub was still scaffolded.
+    run test -f "$ws/flake.nix"
+    assert_success
+}
+
+@test "init-workspace --mode=bare --prune-devcontainer removes a pre-existing .devcontainer/ (#990)" {
+    ws="$BATS_TEST_TMPDIR/e2e-990-bare-prune"
+    mkdir -p "$ws/.devcontainer"
+    printf '{ "name": "stale devcontainer" }\n' >"$ws/.devcontainer/devcontainer.json"
+    run _scaffold_ex bare "$ws" --prune-devcontainer
+    assert_success
+    run test -e "$ws/.devcontainer"
+    assert_failure
+}
+
+@test "init-workspace --mode=direnv without the flag still preserves .devcontainer/ (#990 keeps #738)" {
+    ws="$BATS_TEST_TMPDIR/e2e-990-direnv-keep"
+    mkdir -p "$ws/.devcontainer"
+    printf '{ "name": "SENTINEL-990 kept" }\n' >"$ws/.devcontainer/devcontainer.json"
+    run _scaffold direnv "$ws"
+    assert_success
+    run grep -q 'SENTINEL-990 kept' "$ws/.devcontainer/devcontainer.json"
+    assert_success
+}
+
+@test "init-workspace --prune-devcontainer is rejected in devcontainer mode (#990)" {
+    ws="$BATS_TEST_TMPDIR/e2e-990-reject-devc"
+    mkdir -p "$ws"
+    run _scaffold_ex devcontainer "$ws" --prune-devcontainer
+    assert_failure
+    assert_output --partial "--prune-devcontainer only applies to direnv/bare modes"
+}
+
+@test "init-workspace --prune-devcontainer is rejected in both mode (#990)" {
+    ws="$BATS_TEST_TMPDIR/e2e-990-reject-both"
+    mkdir -p "$ws"
+    run _scaffold_ex both "$ws" --prune-devcontainer
+    assert_failure
+    assert_output --partial "--prune-devcontainer only applies to direnv/bare modes"
+}
+
+@test "init-workspace prompts to prune a pre-existing .devcontainer/ in a container-less mode (#990)" {
+    # Interactive runs (no --no-prompts) prompt once, default No = preserve; the
+    # prompt is guarded to direnv/bare, a pre-existing .devcontainer/, and no
+    # explicit flag. Asserted structurally (the suite has no pty harness).
+    run grep -q 'Prune existing .devcontainer/? (y/N)' "$INIT_WORKSPACE_SH"
+    assert_success
+}
+
+@test "init-workspace --preview --prune-devcontainer lists .devcontainer/ as DELETED without deleting (#990)" {
+    ws="$BATS_TEST_TMPDIR/e2e-990-preview-prune"
+    mkdir -p "$ws/.devcontainer"
+    printf '{ "name": "stale devcontainer" }\n' >"$ws/.devcontainer/devcontainer.json"
+    run _preview "$ws" --mode direnv --prune-devcontainer
+    assert_success
+    assert_output --partial "DELETED"
+    assert_output --partial ".devcontainer/"
+    # side-effect-free: the preview left the dir in place
+    run test -d "$ws/.devcontainer"
+    assert_success
+}
+
+@test "init-workspace --preview without the flag lists a pre-existing .devcontainer/ as PRESERVED (#990)" {
+    ws="$BATS_TEST_TMPDIR/e2e-990-preview-keep"
+    mkdir -p "$ws/.devcontainer"
+    printf '{ "name": "stale devcontainer" }\n' >"$ws/.devcontainer/devcontainer.json"
+    run _preview "$ws" --mode direnv
+    assert_success
+    assert_output --partial "PRESERVED"
+    assert_output --partial "pre-existing, kept"
+}
+
 # ── upgrade preview/report follows template symlinks (#949) ───────────────────
 # The Nix image bakes assets/workspace as a tree of symlinks into the nix store,
 # so the --preview/--force classifier's `find -type f` matched ZERO files and the
