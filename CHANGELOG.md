@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renovate: update `cachix/install-nix-action` from `v31.10.6` to `v31.10.7`** ([#984](https://github.com/vig-os/devkit/pull/984))
+
 ### Deprecated
 
 ### Removed
