@@ -39,21 +39,21 @@ one of four modes:
 - **`direnv`** — a minimal `flake.nix` + `.envrc` stub. `direnv allow` (or
   `nix develop`) drops you into the shared toolchain on the host, no container.
   The stub is never overwritten on re-scaffold; update with `nix flake update`.
-  The shipped `ci.yml` is a **nix-direct** variant
-  ([#854](https://github.com/vig-os/devkit/issues/854)): no image
-  resolution and no in-container jobs — the runner installs Nix (with the vig-os
-  Cachix substituter) and drives the same `just sync` / `just precommit` /
-  `just test` contract inside the flake dev-shell via `nix develop -c`. See
-  [direnv-mode CI](#direnv-mode-ci) for the supported boundary.
+  The shipped `ci.yml` is the single **mode-aware** workflow
+  ([#991](https://github.com/vig-os/devkit/issues/991)): in `direnv` mode it runs
+  on the host runner, and the `setup-devkit-toolchain` composite installs Nix
+  (with the vig-os Cachix substituter) and drives the same `just sync` /
+  `just precommit` / `just test` contract inside the flake dev-shell. See
+  [mode-aware CI](#mode-aware-ci) for how one file serves every mode.
 - **`both`** — everything above (the default).
 - **`bare`** — the standards layer only
   ([#885](https://github.com/vig-os/devkit/issues/885)): justfiles,
   `.pre-commit-config.yaml`, `.github/` CI, and `.vig-os` — no `.devcontainer/`,
   no `flake.nix`/`.envrc`. The tools come from
-  the host (`uv`, `just`, `prek`), and the shipped `ci.yml` is a host-native
-  variant: no image resolution and no in-container jobs — the runner sets up
-  `uv` directly and drives the same `just sync` / `just precommit` /
-  `just test` contract.
+  the host (`uv`, `just`, `prek`), and the same mode-aware `ci.yml`
+  ([#991](https://github.com/vig-os/devkit/issues/991)) runs on the host runner:
+  the `setup-devkit-toolchain` composite sets up `uv` directly and drives the
+  same `just sync` / `just precommit` / `just test` contract.
 
 The chosen mode is persisted as `DEVKIT_MODE` in the `.vig-os` manifest (below),
 so upgrades never need `--mode` again.
@@ -78,15 +78,23 @@ tooling matches your `.vig-os` pin; the `setup-devkit-toolchain` composite
 ([#994](https://github.com/vig-os/devkit/issues/994)) runs this step for you in
 bare-mode CI.
 
-### direnv-mode CI
+### Mode-aware CI
 
-`direnv` (and `bare`) consumers cannot run the container-based CI: with no
-`.devcontainer/`, a `.vig-os`-driven `resolve-image` job hard-fails and bricks
-every workflow that runs `container: ghcr.io/vig-os/devcontainer:<pin>`. To keep
-the main lane working, `direnv` mode ships a **nix-direct `ci.yml`** overlay
-([#854](https://github.com/vig-os/devkit/issues/854)) that runs on the host
-runner (`install-nix` + Cachix → `nix develop -c just sync|precommit|test`),
-mirroring this repo's own project-checks job.
+`ci.yml` is a single **mode-aware** workflow
+([#991](https://github.com/vig-os/devkit/issues/991)) shipped identically to
+every mode. A leading `resolve-toolchain` job reads `.vig-os` and outputs the
+delivery `mode` and container `image` — the devcontainer image for
+`devcontainer`/`both`, an **empty string** for `direnv`/`bare` (which makes the
+downstream job run directly on the host runner, per
+[the Option A ADR](rfcs/ADR-conditional-container-toolchain.md)). Each job then
+declares `container: image: ${{ needs.resolve-toolchain.outputs.image }}` (with
+an inert-on-host GHCR `credentials:` block) and calls the shared
+`setup-devkit-toolchain` composite
+([#994](https://github.com/vig-os/devkit/issues/994)) as its first step: the
+in-image env + prek skew guard in container mode, `install-nix` + Cachix + the
+flake dev-shell in `direnv`, or a `uv` host install in `bare`. After that
+preamble the same `just sync|precommit|test` contract runs in every mode — no
+per-mode overlay.
 
 **Release/automation set is now mode-aware
 ([#991](https://github.com/vig-os/devkit/issues/991)):** the release and

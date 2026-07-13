@@ -1905,17 +1905,54 @@ _upgrade_legacy() {
     done
 }
 
-@test "bare-mode ci.yml is host-native: no image resolution, no container jobs (#885)" {
-    ws="$BATS_TEST_TMPDIR/e2e-bare-ci"
-    mkdir -p "$ws"
-    run _scaffold bare "$ws"
-    assert_success
-    run grep -E 'resolve-image|container:' "$ws/.github/workflows/ci.yml"
-    assert_failure
-    run grep -q 'astral-sh/setup-uv' "$ws/.github/workflows/ci.yml"
-    assert_success
-    # scorecard-conform: every action reference is SHA-pinned
-    run bash -c "grep 'uses:' '$ws/.github/workflows/ci.yml' | grep -vE '@[0-9a-f]{40}'"
+# ── mode-aware unified ci.yml (#991) ──────────────────────────────────────────
+# #991 collapsed the three per-mode ci.yml overlays (container / direnv / bare)
+# into ONE managed file that selects its toolchain at runtime: a leading
+# `resolve-toolchain` job outputs the delivery mode + image, every job runs
+# `container: image: ${{ needs.resolve-toolchain.outputs.image }}` (inert on the
+# host when empty, ADR Option A), and the `setup-devkit-toolchain` composite is
+# each job's first step. The rendered ci.yml is therefore IDENTICAL across every
+# mode — the per-mode overlay dirs are gone.
+
+@test "rendered ci.yml is mode-aware and identical across modes (#991)" {
+    for mode in devcontainer direnv bare both; do
+        ws="$BATS_TEST_TMPDIR/e2e-ci-$mode"
+        mkdir -p "$ws"
+        run _scaffold "$mode" "$ws"
+        assert_success
+        f="$ws/.github/workflows/ci.yml"
+        # both mode-aware composites are wired
+        run grep -q './.github/actions/resolve-toolchain' "$f"
+        assert_success
+        run grep -q './.github/actions/setup-devkit-toolchain' "$f"
+        assert_success
+        # the container is selected by the resolved-image expression
+        # shellcheck disable=SC2016  # literal GitHub expression, not a shell one
+        run grep -Fq 'image: ${{ needs.resolve-toolchain.outputs.image }}' "$f"
+        assert_success
+        # no hardcoded devcontainer image literal anywhere (only the expression)
+        run grep -q 'ghcr.io/vig-os/devcontainer' "$f"
+        assert_failure
+        # the retired resolve-image action is gone from ci.yml
+        run grep -q 'resolve-image' "$f"
+        assert_failure
+        # provisioning is delegated to the composite: no inline nix develop, no
+        # job-level container-only env, no inline prek skew guard
+        run grep -q 'nix develop' "$f"
+        assert_failure
+        run grep -E 'PREK_HOME|UV_PROJECT_ENVIRONMENT' "$f"
+        assert_failure
+        run grep -q 'command -v prek' "$f"
+        assert_failure
+        # scorecard-conform: every EXTERNAL action reference is SHA-pinned
+        # (local ./ composite refs are exempt, like check-action-pins)
+        run bash -c "grep -E '^[[:space:]]*uses:' '$f' | grep -vE 'uses:[[:space:]]*\\./' | grep -vE '@[0-9a-f]{40}'"
+        assert_failure
+    done
+}
+
+@test "init-workspace no longer deploys per-mode ci.yml overlays (#991)" {
+    run grep -E 'workspace-direnv|workspace-bare' "$INIT_WORKSPACE_SH"
     assert_failure
 }
 
@@ -1953,7 +1990,11 @@ _upgrade_legacy() {
     assert_success
     run grep -x 'DEVKIT_MODE=bare' "$ws/.vig-os"
     assert_success
-    run grep -E 'resolve-image|container:' "$ws/.github/workflows/ci.yml"
+    # the upgraded ci.yml stays mode-aware: resolve-toolchain wired, no
+    # hardcoded devcontainer image literal (#991)
+    run grep -q 'resolve-toolchain' "$ws/.github/workflows/ci.yml"
+    assert_success
+    run grep -q 'ghcr.io/vig-os/devcontainer' "$ws/.github/workflows/ci.yml"
     assert_failure
 }
 
@@ -1969,48 +2010,6 @@ _upgrade_legacy() {
     assert_output --partial ".devcontainer/ (pre-existing"
 }
 
-# ── direnv nix-direct CI lane (#854) ──────────────────────────────────────────
-# `direnv` ships the flake + .envrc but no .devcontainer/, so its CI cannot run
-# in the container. init-workspace overlays a nix-direct ci.yml variant (like the
-# bare overlay): no resolve-image, no container jobs — the runner installs Nix
-# and drives `nix develop -c just sync|precommit|test`.
-
-@test "direnv-mode ci.yml is nix-direct: no image resolution, no container jobs (#854)" {
-    ws="$BATS_TEST_TMPDIR/e2e-direnv-ci"
-    mkdir -p "$ws"
-    run _scaffold direnv "$ws"
-    assert_success
-    # no container/resolve-image machinery (ignore explanatory comment lines)
-    run bash -c "grep -vE '^[[:space:]]*#' '$ws/.github/workflows/ci.yml' | grep -E 'resolve-image|container:'"
-    assert_failure
-    # nix-direct: install-nix + nix develop drive the just contract
-    run grep -q 'cachix/install-nix-action' "$ws/.github/workflows/ci.yml"
-    assert_success
-    run grep -q 'nix develop -c just' "$ws/.github/workflows/ci.yml"
-    assert_success
-    # scorecard-conform: every action reference is SHA-pinned
-    run bash -c "grep 'uses:' '$ws/.github/workflows/ci.yml' | grep -vE '@[0-9a-f]{40}'"
-    assert_failure
-}
-
-@test "direnv-mode ci.yml drops the container-only env (#854)" {
-    ws="$BATS_TEST_TMPDIR/e2e-direnv-ci-env"
-    mkdir -p "$ws"
-    run _scaffold direnv "$ws"
-    assert_success
-    run bash -c "grep -vE '^[[:space:]]*#' '$ws/.github/workflows/ci.yml' | grep -E 'PREK_HOME|UV_PROJECT_ENVIRONMENT'"
-    assert_failure
-}
-
-@test "direnv-mode ci.yml wires the prek version-skew guard (#854)" {
-    ws="$BATS_TEST_TMPDIR/e2e-direnv-ci-guard"
-    mkdir -p "$ws"
-    run _scaffold direnv "$ws"
-    assert_success
-    run grep -q 'command -v prek' "$ws/.github/workflows/ci.yml"
-    assert_success
-}
-
 @test "prepare-release.yml resolves the toolchain inline, no latest fallback (#854, #991)" {
     wf="$TEMPLATE_DIR/.github/workflows/prepare-release.yml"
     # #991 converts the resolve-image ACTION to the mode-aware resolve-toolchain
@@ -2024,32 +2023,6 @@ _upgrade_legacy() {
     # the forked inline awk resolver + silent `latest` fallback is gone
     run grep -q 'TAG="latest"' "$wf"
     assert_failure
-}
-
-@test "container-mode ci.yml wires the prek version-skew guard (#854)" {
-    # The devcontainer-mode lint job must fail fast with an actionable message
-    # when the pinned image predates prek, rather than an opaque exit 127.
-    ws="$BATS_TEST_TMPDIR/e2e-container-guard"
-    mkdir -p "$ws"
-    run _scaffold devcontainer "$ws"
-    assert_success
-    run grep -q 'command -v prek' "$ws/.github/workflows/ci.yml"
-    assert_success
-}
-
-@test "direnv overlay leaves devcontainer + bare + both modes container-based (#854)" {
-    # The overlay is direnv-only: the other modes keep the container ci.yml
-    # (devcontainer/both) or the bare host-native one.
-    for mode in devcontainer both; do
-        ws="$BATS_TEST_TMPDIR/e2e-direnv-neg-$mode"
-        mkdir -p "$ws"
-        run _scaffold "$mode" "$ws"
-        assert_success
-        run grep -q 'resolve-image' "$ws/.github/workflows/ci.yml"
-        assert_success
-        run grep -q 'nix develop -c just' "$ws/.github/workflows/ci.yml"
-        assert_failure
-    done
 }
 
 # ── actionlint over the per-mode RENDERED workflows (#995) ─────────────────────

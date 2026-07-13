@@ -781,34 +781,9 @@ else
 
     rsync -avL --exclude='.git' --exclude='.venv' "${EXCLUDE_ARGS[@]}" "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
 
-    # bare mode runs CI on the host, not in the image: overlay the host-native
-    # ci.yml variant over the container-based template one (#885). ci.yml is a
-    # managed file, so upgrades of a bare workspace re-apply the overlay too.
-    if [[ "$MODE" == "bare" ]]; then
-        BARE_OVERLAY_DIR="$SCRIPT_DIR/workspace-bare"
-        if [[ -d "$BARE_OVERLAY_DIR" ]]; then
-            echo "Deploying bare-mode overlay (host-native CI)..."
-            rsync -avL "$BARE_OVERLAY_DIR/" "$WORKSPACE_DIR/"
-        else
-            echo "Warning: bare-mode overlay not found at $BARE_OVERLAY_DIR; the scaffolded ci.yml is container-based." >&2
-        fi
-    fi
-
-    # direnv mode runs CI on the host via the flake dev-shell (nix develop), not
-    # in the image: overlay the nix-direct ci.yml variant over the container-based
-    # template one (#854). Same managed-file semantics as the bare overlay above,
-    # so upgrades of a direnv workspace re-apply the overlay too. The other
-    # scaffolded workflows stay container-based and are devcontainer-mode-only
-    # (documented in docs/MIGRATION.md).
-    if [[ "$MODE" == "direnv" ]]; then
-        DIRENV_OVERLAY_DIR="$SCRIPT_DIR/workspace-direnv"
-        if [[ -d "$DIRENV_OVERLAY_DIR" ]]; then
-            echo "Deploying direnv-mode overlay (nix-direct CI)..."
-            rsync -avL "$DIRENV_OVERLAY_DIR/" "$WORKSPACE_DIR/"
-        else
-            echo "Warning: direnv-mode overlay not found at $DIRENV_OVERLAY_DIR; the scaffolded ci.yml is container-based." >&2
-        fi
-    fi
+    # ci.yml is a single mode-aware workflow (#991): it resolves DEVKIT_MODE at
+    # run time via the resolve-toolchain job + setup-devkit-toolchain composite,
+    # so every mode ships the same file — no per-mode overlay to re-apply.
 fi
 
 # The Nix-built image stores the baked template as read-only symlinks into the

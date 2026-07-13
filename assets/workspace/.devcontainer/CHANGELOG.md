@@ -49,6 +49,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Single mode-aware `ci.yml` replaces the per-mode overlays** ([#991](https://github.com/vig-os/devkit/issues/991))
+  - The container-based `ci.yml` and the separate `direnv`/`bare` overlay
+    variants collapse into one managed workflow. A leading `resolve-toolchain`
+    job resolves `DEVKIT_MODE` + image from `.vig-os`; every job runs
+    `container: image: ${{ needs.resolve-toolchain.outputs.image }}` (empty ⇒
+    host runner, per the Option A ADR) and calls the `setup-devkit-toolchain`
+    composite to provision its toolchain, so `just sync|precommit|test` runs
+    identically in every mode. The `assets/workspace-direnv/` and
+    `assets/workspace-bare/` overlay trees and their `init-workspace.sh`
+    deployment blocks are removed.
 - **Mode-aware release & automation workflows** ([#991](https://github.com/vig-os/devkit/issues/991))
   - The scaffolded release/automation set (`release.yml` + reusable
     `release-core.yml` / `release-publish.yml`, `prepare-release.yml`,
