@@ -90,10 +90,33 @@
           }) fastMovers
         );
 
+      # vig-utils exposed on the overlay so `pkgs.vig-utils` resolves for the
+      # toolchain SSoT (nix/devtools.nix) and for downstream consumers that
+      # apply `overlays.default`. A pure-Python hatchling package (single
+      # runtime dep `rich`) built from THIS flake's `packages/vig-utils`, so its
+      # console scripts (prepare-changelog, renovate-changelog-pr, …) reach the
+      # dev-shell, the image, and the home module from one list. The devkit pin
+      # in a consumer's `.vig-os` governs the version. Refs #993, #666.
+      vigUtilsOverlay = final: _prev: {
+        vig-utils = final.python314.pkgs.buildPythonPackage {
+          pname = "vig-utils";
+          version = "0.1.0";
+          pyproject = true;
+          src = ./packages/vig-utils;
+          build-system = [ final.python314.pkgs.hatchling ];
+          dependencies = [ final.python314.pkgs.rich ];
+          pythonImportsCheck = [ "vig_utils" ];
+          # The package's own tests need pytest + the repo; CI covers them.
+          doCheck = false;
+        };
+      };
+
       # System-independent overlay for downstream consumers (overlays.default).
       # No concrete system is known here, so it imports unstable inside the
       # fixpoint; the in-flake path below uses the hoisted importUnstable.
-      overlay = final: prev: mkFastMoverOverlay (importUnstable final.system) final prev;
+      overlay =
+        final: prev:
+        (mkFastMoverOverlay (importUnstable final.system) final prev) // (vigUtilsOverlay final prev);
 
       # ---------------------------------------------------------------------
       # vigos home environment (#819): self-pkgs + the ci homeConfigurations.
@@ -106,7 +129,10 @@
         system:
         import nixpkgs {
           inherit system;
-          overlays = [ (mkFastMoverOverlay (importUnstable system)) ];
+          overlays = [
+            (mkFastMoverOverlay (importUnstable system))
+            vigUtilsOverlay
+          ];
           config.allowUnfree = true;
         };
 
@@ -490,7 +516,10 @@
         unstable = importUnstable system;
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [ (mkFastMoverOverlay unstable) ];
+          overlays = [
+            (mkFastMoverOverlay unstable)
+            vigUtilsOverlay
+          ];
           config.allowUnfree = true;
         };
 
@@ -517,17 +546,10 @@
         # package (single runtime dep `rich`) built by Nix, so `import vig_utils`
         # and its console scripts (check-expirations, vulnix-gate, …) are present
         # without a network-populated uv venv (impossible in a hermetic build).
-        vigUtils = python.pkgs.buildPythonPackage {
-          pname = "vig-utils";
-          version = "0.1.0";
-          pyproject = true;
-          src = ./packages/vig-utils;
-          build-system = [ python.pkgs.hatchling ];
-          dependencies = [ python.pkgs.rich ];
-          pythonImportsCheck = [ "vig_utils" ];
-          # The package's own tests need pytest + the repo; CI covers them.
-          doCheck = false;
-        };
+        # Defined once on the overlay (`vigUtilsOverlay`) and consumed here for
+        # `pythonEnv` and the sandbox-pure hook check; the same `pkgs.vig-utils`
+        # reaches the dev-shell/image/home module via `devTools`. Refs #993, #666.
+        vigUtils = pkgs.vig-utils;
 
         # pip-licenses is not packaged in nixpkgs, so install it from its PyPI
         # wheel (pinned to the project's locked version + hash). Using the wheel

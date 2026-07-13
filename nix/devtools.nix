@@ -25,6 +25,16 @@ with pkgs;
   # Python tooling (uv from unstable via overlay)
   uv
 
+  # vig-utils console scripts (prepare-changelog, renovate-changelog-pr,
+  # validate-commit-msg, …) from THIS flake's packages/vig-utils, exposed on
+  # the overlay (vigUtilsOverlay in flake.nix). Delivered here so the dev-shell
+  # — including a consumer mkProjectShell (direnv-mode CI) — has them on PATH,
+  # matching the image, which also bakes them via `pythonEnv`. lowPrio so this
+  # devTools copy yields to `pythonEnv`'s identical console scripts in the image
+  # buildEnv (the same collision-avoidance the wrapped neovim uses below).
+  # Refs #993.
+  (pkgs.lib.lowPrio vig-utils)
+
   # Node.js (devcontainer CLI via npm)
   nodejs
 
