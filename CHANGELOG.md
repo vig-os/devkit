@@ -12,6 +12,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`actionlint` GitHub Actions workflow linter adopted** ([#995](https://github.com/vig-os/devkit/issues/995))
   - `actionlint` joins the vigOS toolchain (dev-shell, image, and `vigos.packages` home module), so it is available in every consumer environment.
   - The devkit lints its own `.github/workflows/` through a pre-commit hook, and its bats suite runs `actionlint` over the per-mode scaffold output (devcontainer, direnv, bare, both) plus the smoke-test template — a semantically broken rendered workflow now fails in the devkit instead of silently in a consumer repo.
+- **Opt-in `--prune-devcontainer` for container → direnv/bare migrations** ([#990](https://github.com/vig-os/devkit/issues/990))
+  - Switching a container repo to `direnv`/`bare` keeps a populated pre-existing
+    `.devcontainer/` by default (non-destructive, [#738](https://github.com/vig-os/devkit/issues/738)).
+    On a real migration that strands the stale container next to the new flake,
+    so `install.sh` / `init-workspace.sh` now accept `--prune-devcontainer` to
+    remove it. The flag is rejected in `devcontainer`/`both` modes; `--preview`
+    lists the `.devcontainer/` under `DELETED` when it is set; and interactive
+    runs prompt once (`Prune existing .devcontainer/? (y/N)`, default No) when a
+    populated pre-existing `.devcontainer/` is detected in a container-less mode.
+    `docs/MIGRATION.md` documents the preview-then-apply cleanup runbook.
+- **`vig-utils` console scripts available in the dev-shell** ([#993](https://github.com/vig-os/devkit/issues/993))
+  - `prepare-changelog`, `renovate-changelog-pr`, and the other
+    `packages/vig-utils` console scripts are now on the toolchain SSoT
+    (`nix/devtools.nix`), so every `nix develop` shell — the devkit's own and any
+    consumer `mkProjectShell` (direnv mode) — exposes them on PATH, matching the
+    image. This unblocks mode-aware release workflows for the container-less
+    modes.
+  - Bare mode (no flake) gets a documented, version-pinned host-native install
+    path: `uv tool install "vig-utils @ git+https://github.com/vig-os/devkit@<DEVKIT_VERSION>#subdirectory=packages/vig-utils"`
+    (see `docs/MIGRATION.md`).
 
 ### Changed
 
