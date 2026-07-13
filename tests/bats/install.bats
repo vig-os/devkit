@@ -766,3 +766,9 @@ MANIFEST
     assert_success
     assert_output --partial "--prune-devcontainer"
 }
+
+@test "help lists --skip-pull (#1008)" {
+    run bash "$INSTALL_SH" --help
+    assert_success
+    assert_output --partial "--skip-pull"
+}

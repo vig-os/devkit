@@ -20,6 +20,8 @@
 #   --prune-devcontainer  In direnv/bare mode, remove a pre-existing .devcontainer/
 #                     (container->direnv/bare migration cleanup; default keeps it)
 #   --skip-preflight  Bypass the upgrade preflight guard (branch + clean-tree checks)
+#   --skip-pull       Use the already-present local image for --version (skip the
+#                     registry pull); e.g. a locally built :dev tag
 #   --dry-run         Show the container command that would run without executing
 #   -h, --help        Show this help message
 #
@@ -93,6 +95,8 @@ OPTIONS:
                       The default is non-destructive and keeps it (#738).
     --skip-preflight  Bypass the upgrade preflight guard (--force refuses on
                       main/dev/release/*/detached HEAD and on a dirty tree)
+    --skip-pull       Use the already-present local image for --version (skip the
+                      registry pull); e.g. a locally built :dev tag
     --dry-run         Show the container command that would run (unlike
                       --preview, no file report is computed)
     -h, --help        Show this help
