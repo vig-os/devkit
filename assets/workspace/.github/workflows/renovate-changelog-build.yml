@@ -12,8 +12,8 @@ on:  # yamllint disable-line rule:truthy
 permissions: {}
 
 jobs:
-  resolve-image:
-    name: Resolve image tag
+  resolve-toolchain:
+    name: Resolve toolchain
     if: >-
       github.event.pull_request.user.login == 'renovate[bot]' &&
       github.event.sender.login != 'commit-action-bot[bot]' &&
@@ -24,6 +24,8 @@ jobs:
       contents: read
       packages: read
     outputs:
+      mode: ${{ steps.resolve.outputs.mode }}
+      image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
 
     steps:
@@ -33,12 +35,12 @@ jobs:
           ref: ${{ github.event.pull_request.base.ref }}
           sparse-checkout: |
             .vig-os
-            .github/actions/resolve-image
+            .github/actions/resolve-toolchain
           sparse-checkout-cone-mode: false
 
-      - name: Resolve container image
+      - name: Resolve toolchain
         id: resolve
-        uses: ./.github/actions/resolve-image
+        uses: ./.github/actions/resolve-toolchain
         with:
           registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
           registry-username: ${{ github.actor }}
@@ -49,10 +51,10 @@ jobs:
       github.event.pull_request.user.login == 'renovate[bot]' &&
       github.event.sender.login != 'commit-action-bot[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    needs: [resolve-image]
+    needs: [resolve-toolchain]
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
@@ -70,6 +72,12 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
+
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: ${{ needs.resolve-toolchain.outputs.mode }}
+          devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
 
       - name: Update CHANGELOG.md from Renovate PR metadata
         id: update

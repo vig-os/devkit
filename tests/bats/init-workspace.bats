@@ -2010,10 +2010,16 @@ _upgrade_legacy() {
     assert_output --partial ".devcontainer/ (pre-existing"
 }
 
-@test "prepare-release.yml uses the shared resolve-image action, no latest fallback (#854)" {
+@test "prepare-release.yml resolves the toolchain inline, no latest fallback (#854, #991)" {
     wf="$TEMPLATE_DIR/.github/workflows/prepare-release.yml"
-    run grep -q 'uses: ./.github/actions/resolve-image' "$wf"
+    # #991 converts the resolve-image ACTION to the mode-aware resolve-toolchain
+    # composite, used inline in the host `validate` job (it is a composite action
+    # usable as a step). The #854 no-silent-`latest` guarantee is retained by the
+    # resolve-toolchain action itself.
+    run grep -q 'uses: ./.github/actions/resolve-toolchain' "$wf"
     assert_success
+    run grep -q 'resolve-image' "$wf"
+    assert_failure
     # the forked inline awk resolver + silent `latest` fallback is gone
     run grep -q 'TAG="latest"' "$wf"
     assert_failure
@@ -2199,4 +2205,111 @@ _actionlint_rendered() {
     # catch-all that would classify unknown modes as host.
     run grep -q 'direnv|bare)' "$f"
     assert_success
+}
+
+# ── #991: release/automation workflow set converted to the mode-aware pattern ──
+# The release/automation workflows (orchestrator, reusable core/publish, and the
+# standalone automation set) are converted off the container-only `resolve-image`
+# job onto the Option-A mode-aware pattern (ADR-conditional-container-toolchain):
+# a leading `resolve-toolchain` job (or inline composite step) selects the image
+# — empty in host modes so the job runs on the runner — and every job runs the
+# `setup-devkit-toolchain` composite as its toolchain preamble. release-extension
+# stays project-owned/host-native and is intentionally NOT converted. This is a
+# toolchain-provisioning refactor only: the release choreography is unchanged.
+
+# The converted set (release-extension.yml is deliberately excluded).
+_RELEASE_SET_991=(
+    release.yml
+    release-core.yml
+    release-publish.yml
+    prepare-release.yml
+    promote-release.yml
+    sync-main-to-dev.yml
+    renovate-changelog-build.yml
+    sync-issues.yml
+)
+
+# The subset that resolves the toolchain itself (a `resolve-toolchain` job, or —
+# for prepare-release — the composite used inline in the host validate job). The
+# reusable workflows (release-core/publish) receive the resolved values as
+# workflow_call inputs instead and must NOT run their own resolve job.
+_RELEASE_RESOLVERS_991=(
+    release.yml
+    prepare-release.yml
+    promote-release.yml
+    sync-main-to-dev.yml
+    renovate-changelog-build.yml
+    sync-issues.yml
+)
+
+@test "release/automation workflows carry no hardcoded devcontainer job image (#991)" {
+    # Only the resolve-toolchain composite may build the ghcr devcontainer ref;
+    # no converted workflow may pin `container: ghcr.io/vig-os/devcontainer:<tag>`.
+    for wf in "${_RELEASE_SET_991[@]}"; do
+        run grep -q 'ghcr.io/vig-os/devcontainer:' "$TEMPLATE_DIR/.github/workflows/$wf"
+        assert_failure
+    done
+}
+
+@test "release/automation workflows drop the resolve-image action (#991)" {
+    for wf in "${_RELEASE_SET_991[@]}"; do
+        run grep -q 'resolve-image' "$TEMPLATE_DIR/.github/workflows/$wf"
+        assert_failure
+    done
+}
+
+@test "release/automation workflows provision via setup-devkit-toolchain (#991)" {
+    for wf in "${_RELEASE_SET_991[@]}"; do
+        run grep -q 'setup-devkit-toolchain' "$TEMPLATE_DIR/.github/workflows/$wf"
+        assert_success
+    done
+}
+
+@test "release/automation resolvers use the resolve-toolchain composite (#991)" {
+    for wf in "${_RELEASE_RESOLVERS_991[@]}"; do
+        run grep -q 'uses: ./.github/actions/resolve-toolchain' "$TEMPLATE_DIR/.github/workflows/$wf"
+        assert_success
+    done
+}
+
+@test "reusable release workflows declare the toolchain_* inputs (#991)" {
+    # release-core/publish are workflow_call reusables: the orchestrator resolves
+    # ONCE and threads mode/image/version in; they must not re-resolve.
+    for wf in release-core.yml release-publish.yml; do
+        f="$TEMPLATE_DIR/.github/workflows/$wf"
+        for input in 'toolchain_mode:' 'toolchain_image:' 'devkit_version:'; do
+            run grep -q "$input" "$f"
+            assert_success
+        done
+        # no own resolve-toolchain job in a reusable workflow.
+        run grep -q 'resolve-toolchain' "$f"
+        assert_failure
+    done
+}
+
+@test "release orchestrator threads toolchain_* into the reusable calls (#991)" {
+    f="$TEMPLATE_DIR/.github/workflows/release.yml"
+    run grep -q 'uses: ./.github/actions/resolve-toolchain' "$f"
+    assert_success
+    for input in 'toolchain_mode:' 'toolchain_image:' 'devkit_version:'; do
+        run grep -q "$input" "$f"
+        assert_success
+    done
+}
+
+@test "resolve-image action is removed from every rendered mode tree (#991)" {
+    for mode in devcontainer direnv both bare; do
+        ws="$BATS_TEST_TMPDIR/e2e-991-$mode"
+        mkdir -p "$ws"
+        run _scaffold "$mode" "$ws"
+        assert_success
+        # the retired action directory must not be scaffolded into consumers.
+        run test -d "$ws/.github/actions/resolve-image"
+        assert_failure
+        # and no converted workflow in the rendered tree references it.
+        for wf in "${_RELEASE_SET_991[@]}"; do
+            run grep -q 'resolve-image' "$ws/.github/workflows/$wf"
+            assert_failure
+        done
+    done
 }

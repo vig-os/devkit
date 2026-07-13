@@ -47,11 +47,16 @@ permissions:
   packages: read
 
 jobs:
-  resolve-image:
-    name: Resolve image tag
+  # Resolve the delivery mode + image ONCE for the whole release; every reusable
+  # workflow and the rollback job is threaded these outputs (ADR Option A). Empty
+  # `image` in the host modes makes the container jobs run on the runner.
+  resolve-toolchain:
+    name: Resolve toolchain
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     outputs:
+      mode: ${{ steps.resolve.outputs.mode }}
+      image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
     steps:
       - name: Checkout repository
@@ -59,18 +64,19 @@ jobs:
         with:
           sparse-checkout: |
             .vig-os
-            .github/actions/resolve-image
+            .github/actions/resolve-toolchain
           sparse-checkout-cone-mode: false
 
-      - name: Resolve container image
+      - name: Resolve toolchain
         id: resolve
-        uses: ./.github/actions/resolve-image
+        uses: ./.github/actions/resolve-toolchain
         with:
           registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
           registry-username: ${{ github.actor }}
 
   core:
     name: Release Core
+    needs: [resolve-toolchain]
     uses: ./.github/workflows/release-core.yml
     permissions:
       actions: write
@@ -84,6 +90,9 @@ jobs:
       git_user_name: ${{ inputs.git-user-name }}
       git_user_email: ${{ inputs.git-user-email }}
       rc_number: ${{ inputs.rc-number || '' }}
+      toolchain_mode: ${{ needs.resolve-toolchain.outputs.mode }}
+      toolchain_image: ${{ needs.resolve-toolchain.outputs.image }}
+      devkit_version: ${{ needs.resolve-toolchain.outputs.image-tag }}
     secrets: inherit
 
   extension:
@@ -101,7 +110,7 @@ jobs:
 
   publish:
     name: Publish Release
-    needs: [core, extension]
+    needs: [resolve-toolchain, core, extension]
     if: ${{ inputs.dry-run != true }}
     uses: ./.github/workflows/release-publish.yml
     permissions:
@@ -117,14 +126,17 @@ jobs:
       git_user_email: ${{ inputs.git-user-email }}
       tag_already_exists: ${{ needs.core.outputs.tag_already_exists == 'true' }}
       create_release: ${{ inputs.create-release }}
+      toolchain_mode: ${{ needs.resolve-toolchain.outputs.mode }}
+      toolchain_image: ${{ needs.resolve-toolchain.outputs.image }}
+      devkit_version: ${{ needs.resolve-toolchain.outputs.image-tag }}
     secrets: inherit
 
   rollback:
     name: Rollback on Failure
-    needs: [resolve-image, core, extension, publish]
+    needs: [resolve-toolchain, core, extension, publish]
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
@@ -136,7 +148,7 @@ jobs:
       ${{
         always() &&
         inputs.dry-run != true &&
-        needs.resolve-image.result == 'success' &&
+        needs.resolve-toolchain.result == 'success' &&
         (
           needs.core.result == 'failure' ||
           needs.extension.result == 'failure' ||
@@ -148,6 +160,22 @@ jobs:
       issues: write
       packages: read
     steps:
+      # Provision the toolchain unconditionally: the failure-issue and
+      # branch-rollback steps below run independently (on different guards) and
+      # both need `retry`/`gh`/`git` — in the host modes those come from the
+      # composite, so it must run even when the guarded release-branch checkout
+      # is skipped. Checkout the workflow ref first so the local composite (and,
+      # in direnv mode, the repo flake) resolves; the guarded checkout below
+      # re-checks out the release branch with the commit token when needed.
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: ${{ needs.resolve-toolchain.outputs.mode }}
+          devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+
       - name: Generate release app token
         id: release_app_token
         if: ${{ needs.core.outputs.version != '' }}
@@ -164,16 +192,12 @@ jobs:
           client-id: ${{ secrets.COMMIT_APP_CLIENT_ID }}
           private-key: ${{ secrets.COMMIT_APP_PRIVATE_KEY }}
 
-      - name: Checkout repository
+      - name: Checkout release branch
         if: ${{ needs.core.outputs.pre_finalize_sha != '' }}
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           fetch-depth: 0
           token: ${{ steps.commit_app_token.outputs.token }}
-
-      - name: Fix git safe.directory
-        if: ${{ needs.core.outputs.pre_finalize_sha != '' }}
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Configure git
         if: ${{ needs.core.outputs.pre_finalize_sha != '' }}

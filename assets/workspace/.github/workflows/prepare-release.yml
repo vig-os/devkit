@@ -35,7 +35,9 @@ jobs:
     outputs:
       version: ${{ steps.vars.outputs.version }}
       release_branch: ${{ steps.vars.outputs.release_branch }}
-      image_tag: ${{ steps.resolve_image.outputs.image-tag }}
+      mode: ${{ steps.resolve.outputs.mode }}
+      image: ${{ steps.resolve.outputs.image }}
+      image-tag: ${{ steps.resolve.outputs.image-tag }}
 
     steps:
       - name: Checkout repository
@@ -60,14 +62,15 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "release_branch=$RELEASE_BRANCH" >> "$GITHUB_OUTPUT"
 
-      # Resolve + validate the pinned devcontainer image via the shared
-      # resolve-image action (#854): hard-fails on a missing/unreadable
-      # DEVKIT_VERSION (or legacy DEVCONTAINER_VERSION) instead of silently
-      # falling back to `latest`, so this workflow can no longer diverge from
-      # ci.yml's resolver semantics.
-      - name: Resolve container image
-        id: resolve_image
-        uses: ./.github/actions/resolve-image
+      # Resolve the delivery mode + image via the shared resolve-toolchain
+      # composite, used inline in this host job (#991). Still hard-fails on a
+      # missing/unreadable DEVKIT_VERSION (or legacy DEVCONTAINER_VERSION) in the
+      # container-ish modes instead of silently falling back to `latest`; emits an
+      # explicit empty image in the host modes so the `prepare` job runs on the
+      # runner (ADR Option A).
+      - name: Resolve toolchain
+        id: resolve
+        uses: ./.github/actions/resolve-toolchain
         with:
           registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
           registry-username: ${{ github.actor }}
@@ -121,7 +124,7 @@ jobs:
         env:
           VERSION: ${{ steps.vars.outputs.version }}
           RELEASE_BRANCH: ${{ steps.vars.outputs.release_branch }}
-          IMAGE_TAG: ${{ steps.resolve_image.outputs.image-tag }}
+          IMAGE_TAG: ${{ steps.resolve.outputs.image-tag }}
           DRY_RUN: ${{ inputs.dry-run }}
         run: |
           echo "Validation passed"
@@ -135,12 +138,10 @@ jobs:
     needs: validate
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.validate.outputs.image_tag }}
+      image: ${{ needs.validate.outputs.image }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
-      env:
-        UV_PROJECT_ENVIRONMENT: /root/assets/workspace/.venv
     timeout-minutes: 15
     defaults:
       run:
@@ -172,8 +173,11 @@ jobs:
           ref: dev
           fetch-depth: 0
 
-      - name: Fix git safe.directory
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: ${{ needs.validate.outputs.mode }}
+          devkit-version: ${{ needs.validate.outputs.image-tag }}
 
       - name: Capture pre-prepare dev SHA
         id: pre_state

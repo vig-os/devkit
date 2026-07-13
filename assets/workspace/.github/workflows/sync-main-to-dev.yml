@@ -43,11 +43,13 @@ permissions:
   packages: read
 
 jobs:
-  resolve-image:
-    name: Resolve image tag
+  resolve-toolchain:
+    name: Resolve toolchain
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     outputs:
+      mode: ${{ steps.resolve.outputs.mode }}
+      image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
     steps:
       - name: Checkout repository
@@ -55,22 +57,22 @@ jobs:
         with:
           sparse-checkout: |
             .vig-os
-            .github/actions/resolve-image
+            .github/actions/resolve-toolchain
           sparse-checkout-cone-mode: false
 
-      - name: Resolve container image
+      - name: Resolve toolchain
         id: resolve
-        uses: ./.github/actions/resolve-image
+        uses: ./.github/actions/resolve-toolchain
         with:
           registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
           registry-username: ${{ github.actor }}
 
   check:
     name: Check if dev is up to date
-    needs: [resolve-image]
+    needs: [resolve-toolchain]
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
@@ -87,8 +89,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Fix git safe.directory
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: ${{ needs.resolve-toolchain.outputs.mode }}
+          devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
 
       - name: Check if dev is up to date with main
         id: check
@@ -114,11 +119,11 @@ jobs:
 
   sync:
     name: Merge main into dev via PR
-    needs: [resolve-image, check]
+    needs: [resolve-toolchain, check]
     if: needs.check.outputs.up_to_date != 'true'
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
@@ -149,8 +154,11 @@ jobs:
           fetch-depth: 0
           token: ${{ steps.commit-app-token.outputs.token }}
 
-      - name: Fix git safe.directory
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: ${{ needs.resolve-toolchain.outputs.mode }}
+          devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
 
       - name: Re-check if dev is still behind main
         id: recheck

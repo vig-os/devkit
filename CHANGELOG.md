@@ -59,6 +59,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     identically in every mode. The `assets/workspace-direnv/` and
     `assets/workspace-bare/` overlay trees and their `init-workspace.sh`
     deployment blocks are removed.
+- **Mode-aware release & automation workflows** ([#991](https://github.com/vig-os/devkit/issues/991))
+  - The scaffolded release/automation set (`release.yml` + reusable
+    `release-core.yml` / `release-publish.yml`, `prepare-release.yml`,
+    `promote-release.yml`, `sync-main-to-dev.yml`, `renovate-changelog-build.yml`,
+    `sync-issues.yml`) is converted off the container-only `resolve-image` job
+    onto the mode-aware pattern: a leading `resolve-toolchain` job (used inline in
+    `prepare-release.yml`'s host `validate` job) selects the image — empty in the
+    `direnv`/`bare` modes so jobs run on the runner (ADR Option A) — and every job
+    runs the `setup-devkit-toolchain` composite as its toolchain preamble. A
+    `direnv`/`bare` consumer no longer needs to delete or disable these workflows.
+  - The orchestrator resolves the toolchain **once** and threads it into the
+    reusable workflows via new `toolchain_mode` / `toolchain_image` /
+    `devkit_version` `workflow_call` inputs; `release-core.yml` /
+    `release-publish.yml` no longer run their own resolve jobs. Release
+    choreography (step logic, ordering, inputs/outputs, rollback semantics) is
+    unchanged.
 - **Renovate: update `cachix/install-nix-action` from `v31.10.6` to `v31.10.7`** ([#984](https://github.com/vig-os/devkit/pull/984))
 
 ### Deprecated

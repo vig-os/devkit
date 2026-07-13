@@ -96,19 +96,26 @@ flake dev-shell in `direnv`, or a `uv` host install in `bare`. After that
 preamble the same `just sync|precommit|test` contract runs in every mode — no
 per-mode overlay.
 
-**Supported boundary (until the devkit rename cycle,
-[#781](https://github.com/vig-os/devkit/issues/781), completes the full
-workflow audit):** only `ci.yml` is converted for direnv mode. These shipped
-workflows stay **container-based and devcontainer-mode-only**, so a direnv-only
-consumer should delete or disable them (they still work unchanged in
-`both`/`devcontainer` mode):
+**Release/automation set is now mode-aware
+([#991](https://github.com/vig-os/devkit/issues/991)):** the release and
+automation workflows provision their toolchain the same way `ci.yml` does — a
+leading `resolve-toolchain` job (or, in `prepare-release.yml`, the composite used
+inline in the host `validate` job) selects the container image, **empty in the
+`direnv`/`bare` modes so the job runs on the runner** (ADR Option A), and every
+job runs the `setup-devkit-toolchain` composite as its toolchain preamble. They
+are **no longer devcontainer-mode-only** — a host-mode consumer keeps them as-is,
+with no per-mode deletion or disabling:
 
-- `prepare-release.yml`, `promote-release.yml`, `release*.yml`,
+- `release.yml` (orchestrator) and its reusable `release-core.yml` /
+  `release-publish.yml`, plus `prepare-release.yml`, `promote-release.yml`,
   `sync-issues.yml`, `renovate-changelog-build.yml`, `sync-main-to-dev.yml`
-  — all resolve/consume the pinned image via `.vig-os`.
+  — mode-aware via `resolve-toolchain` + `setup-devkit-toolchain`. The release
+  choreography (step logic, ordering, inputs/outputs, rollback semantics) is
+  unchanged; only toolchain provisioning became mode-aware.
 
 Container-independent workflows keep working in every mode: `codeql.yml`,
-`scorecard.yml`, `renovate-changelog-commit.yml`, `release-extension.yml`.
+`scorecard.yml`, `renovate-changelog-commit.yml`, and the project-owned,
+host-native `release-extension.yml`.
 
 ## The `.vig-os` project manifest
 

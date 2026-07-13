@@ -243,18 +243,20 @@ EOF
     assert_success
 }
 
-@test "release workflow rollback resolves container image independently of core outputs" {
-    run bash -lc "grep -Fq -- 'resolve-image:' assets/workspace/.github/workflows/release.yml && grep -Fq -- 'needs: [resolve-image, core, extension, publish]' assets/workspace/.github/workflows/release.yml && grep -Fq -- 'image: ghcr.io/vig-os/devcontainer:\${{ needs.resolve-image.outputs.image-tag }}' assets/workspace/.github/workflows/release.yml"
+@test "release workflow rollback resolves the toolchain independently of core outputs (#991)" {
+    run bash -lc "grep -Fq -- 'resolve-toolchain:' assets/workspace/.github/workflows/release.yml && grep -Fq -- 'needs: [resolve-toolchain, core, extension, publish]' assets/workspace/.github/workflows/release.yml && grep -Fq -- 'image: \${{ needs.resolve-toolchain.outputs.image }}' assets/workspace/.github/workflows/release.yml"
     assert_success
 }
 
-@test "workspace promote-release resolves devcontainer image and gates on draft release" {
-    run bash -lc "grep -Fq -- 'resolve-image:' assets/workspace/.github/workflows/promote-release.yml && grep -Fq -- 'group: publish-release' assets/workspace/.github/workflows/promote-release.yml && grep -Fq -- 'workflow_dispatch:' assets/workspace/.github/workflows/promote-release.yml && grep -Fq -- 'Verify draft GitHub Release exists' assets/workspace/.github/workflows/promote-release.yml && grep -Fq -- 'gh release edit' assets/workspace/.github/workflows/promote-release.yml"
+@test "workspace promote-release resolves the toolchain and gates on draft release (#991)" {
+    run bash -lc "grep -Fq -- 'resolve-toolchain:' assets/workspace/.github/workflows/promote-release.yml && grep -Fq -- 'group: publish-release' assets/workspace/.github/workflows/promote-release.yml && grep -Fq -- 'workflow_dispatch:' assets/workspace/.github/workflows/promote-release.yml && grep -Fq -- 'Verify draft GitHub Release exists' assets/workspace/.github/workflows/promote-release.yml && grep -Fq -- 'gh release edit' assets/workspace/.github/workflows/promote-release.yml"
     assert_success
 }
 
-@test "release workflows configure safe.directory in container jobs that run git" {
-    run bash -lc "awk '/^  validate:/{flag=1} /^  finalize:/{flag=0} flag {print}' assets/workspace/.github/workflows/release-core.yml | grep -Fq -- 'name: Fix git safe.directory' && grep -Fq -- 'name: Fix git safe.directory' assets/workspace/.github/workflows/release-publish.yml && [ \"$(grep -Fc -- 'name: Fix git safe.directory' assets/workspace/.github/workflows/sync-main-to-dev.yml)\" -ge 2 ] && grep -Fq -- 'name: Fix git safe.directory' assets/workspace/.github/workflows/release.yml"
+@test "release workflows provision the toolchain in container jobs that run git (#991)" {
+    # safe.directory (container mode) is now owned by the setup-devkit-toolchain
+    # composite, run as the first step after checkout in every job.
+    run bash -lc "awk '/^  validate:/{flag=1} /^  finalize:/{flag=0} flag {print}' assets/workspace/.github/workflows/release-core.yml | grep -Fq -- 'uses: ./.github/actions/setup-devkit-toolchain' && grep -Fq -- 'uses: ./.github/actions/setup-devkit-toolchain' assets/workspace/.github/workflows/release-publish.yml && [ \"$(grep -Fc -- 'uses: ./.github/actions/setup-devkit-toolchain' assets/workspace/.github/workflows/sync-main-to-dev.yml)\" -ge 2 ] && grep -Fq -- 'uses: ./.github/actions/setup-devkit-toolchain' assets/workspace/.github/workflows/release.yml"
     assert_success
 }
 

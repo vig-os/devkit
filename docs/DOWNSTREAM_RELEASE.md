@@ -57,6 +57,42 @@ There is no separate contract-version handshake; compatibility is defined by the
 
 `promote-release.yml` is a standalone `workflow_dispatch` workflow (input: `version`); it does not call the reusable workflows above.
 
+## Toolchain provisioning is mode-aware
+
+Since [#991](https://github.com/vig-os/devkit/issues/991), the whole
+release/automation set provisions its toolchain per `DEVKIT_MODE`
+(`.vig-os`), following the conditional-`container:` pattern in
+[`docs/rfcs/ADR-conditional-container-toolchain.md`](rfcs/ADR-conditional-container-toolchain.md):
+
+- Each `workflow_dispatch`/event-triggered workflow (`release.yml`,
+  `prepare-release.yml`, `promote-release.yml`, `sync-issues.yml`,
+  `renovate-changelog-build.yml`, `sync-main-to-dev.yml`) runs a leading
+  **`resolve-toolchain`** job that reads `.vig-os` and emits `mode`, `image`, and
+  `image-tag`. The `image` is the devcontainer image in the container modes
+  (`devcontainer`/`both`) and an **explicit empty string** in the host modes
+  (`direnv`/`bare`), which makes each downstream `container:` job run directly on
+  the runner. `prepare-release.yml` runs the same composite **inline** in its host
+  `validate` job and exposes the outputs to the `prepare` job.
+- Every job then runs the **`setup-devkit-toolchain`** composite as its first
+  step after checkout: it is a no-op-friendly preamble that exports the in-image
+  env in the container modes, builds the repo's flake dev-shell in `direnv`, or
+  `uv tool install`s the pinned host toolchain (incl. `vig-utils`) in `bare`.
+- The orchestrator `release.yml` **resolves once** and threads the result into
+  the reusable workflows via the `toolchain_mode`, `toolchain_image`, and
+  `devkit_version` `workflow_call` inputs; `release-core.yml` /
+  `release-publish.yml` do **not** re-resolve.
+
+This is a toolchain-provisioning change only — the release **choreography** (step
+logic, ordering, `workflow_call` inputs/outputs, and rollback semantics) is
+unchanged across all modes. Host-mode runners already provide `git`, `gh`, and
+`jq`; `just`, `uv`, `prek`, `retry`, and the `vig-utils` release scripts
+(`prepare-changelog`, `renovate-changelog-pr`) come from the composite, so the
+choreography's bare `run:` invocations are identical in every mode. In `bare`
+mode the composite pins `vig-utils` to the `.vig-os` `DEVKIT_VERSION`
+(`renovate-changelog-pr` in `renovate-changelog-build.yml`, `prepare-changelog`
+in `prepare-release.yml` / `release-core.yml`); see
+[`docs/MIGRATION.md`](MIGRATION.md#bare-mode-vig-utils-release-console-scripts).
+
 ## Required App Secrets
 
 Downstream repositories are expected to provide both app credentials:
