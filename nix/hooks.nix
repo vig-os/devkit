@@ -373,6 +373,25 @@ let
         excludes = [ shellcheckExclude ];
       };
     };
+    # GitHub Actions workflow linter (#995). Runner-only and devkit-only: it
+    # lints THIS repo's own .github/workflows/ via actionlint's auto-discovery
+    # (pass_filenames = false). Not scaffolded to consumers and not in the
+    # sandbox gate — the per-mode RENDERED consumer templates are validated in
+    # tests/bats instead, because linting them in-place resolves the
+    # reusable-workflow siblings against the wrong root (the devkit itself).
+    # shellcheck integration
+    # is disabled (-shellcheck=): its run-block findings on the authored
+    # workflows are a separate hardening concern, and the shellcheck hook above
+    # already covers .sh scripts.
+    actionlint = {
+      yaml = {
+        name = "actionlint (lint GitHub Actions workflows)";
+        entry = "actionlint -shellcheck=";
+        language = "system";
+        files = "^\\.github/workflows/.*\\.ya?ml$";
+        pass_filenames = false;
+      };
+    };
     # Markdown lint — runner-only everywhere: pymarkdown is not in nixpkgs,
     # so neither the sandbox gate nor the consumer generation can resolve
     # it (documented residual, docs/NIX.md).

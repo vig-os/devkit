@@ -2045,3 +2045,63 @@ _upgrade_legacy() {
         assert_failure
     done
 }
+
+# ── actionlint over the per-mode RENDERED workflows (#995) ─────────────────────
+# Each mode scaffolds a full .github/workflows/ tree (reusable release
+# choreography + the mode-specific ci.yml). actionlint validates the rendered
+# YAML semantically — job/needs/outputs wiring, expression syntax, action
+# inputs — so a broken render fails here in the devkit, not silently in a
+# consumer repo. Linting the templates in-place is impossible (actionlint
+# resolves `./.github/workflows/<reusable>` against the devkit root, where the
+# reusable release files do not exist); the faithful check is over the fully
+# rendered tree, which is what these fixtures do.
+#
+# The invocation disables actionlint's bundled shellcheck (`-shellcheck=`): its
+# run-block findings on the authored templates are pre-existing info/style/
+# warning noise, tracked for a separate hardening pass — the dedicated
+# shell-lint hook already covers `.sh` scripts. The reusable release workflows
+# read secrets (GHCR_PULL_TOKEN, *_APP_CLIENT_ID/PRIVATE_KEY) passed by the
+# caller via `secrets: inherit`, which actionlint cannot see statically; those
+# false positives are ignored by message.
+ACTIONLINT_INHERITED_SECRETS='property "(ghcr_pull_token|release_app_client_id|release_app_private_key|commit_app_client_id|commit_app_private_key)" is not defined'
+
+_actionlint_rendered() {
+    local mode="$1" ws="$2"
+    mkdir -p "$ws"
+    _scaffold "$mode" "$ws" || return 1
+    # actionlint locates the project root (for reusable-workflow resolution)
+    # via git; a scaffolded consumer repo is a git repo, so mirror that.
+    (
+        cd "$ws" &&
+            git init -q &&
+            actionlint -shellcheck= -ignore "$ACTIONLINT_INHERITED_SECRETS"
+    )
+}
+
+@test "actionlint passes over the devcontainer-mode rendered workflows (#995)" {
+    run _actionlint_rendered devcontainer "$BATS_TEST_TMPDIR/al-devcontainer"
+    assert_success
+}
+
+@test "actionlint passes over the direnv-mode rendered workflows (#995)" {
+    run _actionlint_rendered direnv "$BATS_TEST_TMPDIR/al-direnv"
+    assert_success
+}
+
+@test "actionlint passes over the bare-mode rendered workflows (#995)" {
+    run _actionlint_rendered bare "$BATS_TEST_TMPDIR/al-bare"
+    assert_success
+}
+
+@test "actionlint passes over the both-mode rendered workflows (#995)" {
+    run _actionlint_rendered both "$BATS_TEST_TMPDIR/al-both"
+    assert_success
+}
+
+@test "actionlint passes over the smoke-test workflow template (#995)" {
+    # The smoke-test template ships a single, standalone workflow (no reusable
+    # siblings), so it is linted in-place by explicit path from the repo root.
+    run actionlint -shellcheck= \
+        "$PROJECT_ROOT/assets/smoke-test/.github/workflows/repository-dispatch.yml"
+    assert_success
+}

@@ -54,6 +54,7 @@ with pkgs;
   typos # source typo checker (pre-commit typos hook)
   deadnix # dead-Nix-code linter (flake `checks.deadnix`)
   statix # nix anti-pattern linter (flake `checks.statix`)
+  actionlint # GitHub Actions workflow linter (pre-commit hook, #995)
 
   # Container runtime
   podman
