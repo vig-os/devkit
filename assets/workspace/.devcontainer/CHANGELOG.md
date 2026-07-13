@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`vig-utils` console scripts available in the dev-shell** ([#993](https://github.com/vig-os/devkit/issues/993))
+  - `prepare-changelog`, `renovate-changelog-pr`, and the other
+    `packages/vig-utils` console scripts are now on the toolchain SSoT
+    (`nix/devtools.nix`), so every `nix develop` shell — the devkit's own and any
+    consumer `mkProjectShell` (direnv mode) — exposes them on PATH, matching the
+    image. This unblocks mode-aware release workflows for the container-less
+    modes.
+  - Bare mode (no flake) gets a documented, version-pinned host-native install
+    path: `uv tool install "vig-utils @ git+https://github.com/vig-os/devkit@<DEVKIT_VERSION>#subdirectory=packages/vig-utils"`
+    (see `docs/MIGRATION.md`).
+
 ### Changed
 
 - **Renovate: update `cachix/install-nix-action` from `v31.10.6` to `v31.10.7`** ([#984](https://github.com/vig-os/devkit/pull/984))

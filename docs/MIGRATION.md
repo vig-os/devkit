@@ -58,6 +58,26 @@ one of four modes:
 The chosen mode is persisted as `DEVKIT_MODE` in the `.vig-os` manifest (below),
 so upgrades never need `--mode` again.
 
+### Bare mode: `vig-utils` release console scripts
+
+The release workflows invoke `prepare-changelog` and `renovate-changelog-pr`
+(console scripts of `packages/vig-utils`). In `devcontainer`/`both` mode they
+ship in the image; in `direnv` mode the flake dev-shell provides them (they are
+on the toolchain SSoT, [#993](https://github.com/vig-os/devkit/issues/993)).
+Bare mode has no flake and no image, so install them host-native with `uv`,
+pinned to the same devkit version as `.vig-os`
+(`DEVKIT_VERSION`/`DEVCONTAINER_VERSION`):
+
+```bash
+uv tool install "vig-utils @ git+https://github.com/vig-os/devkit@<DEVKIT_VERSION>#subdirectory=packages/vig-utils"
+```
+
+This puts `prepare-changelog`, `renovate-changelog-pr`, and the other
+`vig-utils` scripts on PATH. Pin `<DEVKIT_VERSION>` to a release tag so the
+tooling matches your `.vig-os` pin; the `setup-devkit-toolchain` composite
+([#994](https://github.com/vig-os/devkit/issues/994)) runs this step for you in
+bare-mode CI.
+
 ### direnv-mode CI
 
 `direnv` (and `bare`) consumers cannot run the container-based CI: with no

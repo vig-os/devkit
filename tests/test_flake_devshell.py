@@ -48,6 +48,11 @@ VERSION_FLAG_OVERRIDES: dict[str, list[str]] = {
     # argument"); it is a subcommand CLI. `--help` exits 0 and proves the binary
     # is runnable in the dev-shell, which is what this parity check asserts.
     "statix": ["--help"],
+    # vig-utils is a subcommand CLI (its `main` requires a subcommand, so
+    # `--version` exits 2); `--help` exits 0 and proves the binary runs. The
+    # release console scripts it ships (prepare-changelog,
+    # renovate-changelog-pr) get their own dedicated PATH test above. Refs #993.
+    "vig-utils": ["--help"],
 }
 
 pytestmark = pytest.mark.skipif(
@@ -411,6 +416,47 @@ def test_devshell_exposes_python3_and_precommit(binary: str) -> None:
     # (the shellHook's banner pollutes stdout, so it is not a presence signal).
     assert proc.returncode == 0, (
         f"{binary} must be on the dev-shell's own PATH (#729): "
+        f"rc={proc.returncode} stdout={proc.stdout.strip()!r} "
+        f"stderr={proc.stderr.strip()[:200]}"
+    )
+
+
+@pytest.mark.parametrize("script", ["prepare-changelog", "renovate-changelog-pr"])
+def test_devshell_exposes_vig_utils_console_scripts(script: str) -> None:
+    """The dev-shell must expose vig-utils' release console scripts on PATH (#993).
+
+    ``prepare-changelog`` and ``renovate-changelog-pr`` are console scripts of
+    ``packages/vig-utils``. They are baked into the image's Python env
+    (``pythonEnv``) but were historically absent from the ``devTools`` SSoT, so a
+    consumer ``mkProjectShell`` dev-shell (direnv mode) lacked them — blocking
+    the mode-aware release workflows (#991) for the container-less modes. Adding
+    ``vig-utils`` to ``devTools`` delivers the scripts to the dev-shell as well.
+
+    The check runs under ``nix develop --ignore-environment`` so it asserts the
+    dev-shell's *own* PATH contribution and is not satisfied by a host script
+    leaking through the inherited environment.
+    """
+    cmd = [
+        "nix",
+        "develop",
+        "--ignore-environment",
+        "--keep",
+        "HOME",
+        str(REPO_ROOT),
+        "-c",
+        "bash",
+        "-c",
+        f"command -v {script}",
+    ]
+    proc = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=900,
+    )
+    assert proc.returncode == 0, (
+        f"{script} must be on the dev-shell's own PATH (#993): "
         f"rc={proc.returncode} stdout={proc.stdout.strip()!r} "
         f"stderr={proc.stderr.strip()[:200]}"
     )
