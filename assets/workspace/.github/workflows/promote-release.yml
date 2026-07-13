@@ -26,11 +26,13 @@ permissions:
   packages: read
 
 jobs:
-  resolve-image:
-    name: Resolve image tag
+  resolve-toolchain:
+    name: Resolve toolchain
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     outputs:
+      mode: ${{ steps.resolve.outputs.mode }}
+      image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
     steps:
       - name: Checkout repository
@@ -38,22 +40,22 @@ jobs:
         with:
           sparse-checkout: |
             .vig-os
-            .github/actions/resolve-image
+            .github/actions/resolve-toolchain
           sparse-checkout-cone-mode: false
 
-      - name: Resolve container image
+      - name: Resolve toolchain
         id: resolve
-        uses: ./.github/actions/resolve-image
+        uses: ./.github/actions/resolve-toolchain
         with:
           registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
           registry-username: ${{ github.actor }}
 
   validate:
     name: Validate promote prerequisites
-    needs: [resolve-image]
+    needs: [resolve-toolchain]
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
@@ -71,6 +73,15 @@ jobs:
       GH_REPO: ${{ github.repository }}
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: ${{ needs.resolve-toolchain.outputs.mode }}
+          devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+
       - name: Generate release app token
         id: release_app_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
@@ -227,10 +238,10 @@ jobs:
 
   promote:
     name: Publish GitHub Release
-    needs: [resolve-image, validate]
+    needs: [resolve-toolchain, validate]
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
@@ -245,6 +256,15 @@ jobs:
       GH_REPO: ${{ github.repository }}
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: ${{ needs.resolve-toolchain.outputs.mode }}
+          devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+
       - name: Generate release app token
         id: release_app_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
@@ -270,10 +290,10 @@ jobs:
 
   merge:
     name: Merge release PR to main
-    needs: [resolve-image, validate, promote]
+    needs: [resolve-toolchain, validate, promote]
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
@@ -289,6 +309,15 @@ jobs:
       GH_REPO: ${{ github.repository }}
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: ${{ needs.resolve-toolchain.outputs.mode }}
+          devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+
       - name: Generate release app token
         id: release_app_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
@@ -391,10 +420,10 @@ jobs:
 
   cleanup:
     name: Cleanup git RC tags
-    needs: [resolve-image, validate, promote, merge]
+    needs: [resolve-toolchain, validate, promote, merge]
     runs-on: ubuntu-24.04
     container:
-      image: ghcr.io/vig-os/devcontainer:${{ needs.resolve-image.outputs.image-tag }}
+      image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
@@ -409,6 +438,15 @@ jobs:
         shell: bash
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: ${{ needs.resolve-toolchain.outputs.mode }}
+          devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+
       - name: Generate release app token
         id: release_app_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
