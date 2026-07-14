@@ -13,8 +13,8 @@
 # as `pkgs -> options -> contribution`, where `options` is the attrset entry's
 # fields minus `name`. The only recognized option is `version` (a Node major,
 # e.g. 20), mapping to `pkgs.nodejs_<major>`; omitted, it uses the nixpkgs
-# default `pkgs.nodejs`. Unknown option keys and unavailable versions fail at
-# eval time with a clear message.
+# default `pkgs.nodejs`. Unknown option keys, non-integer versions and
+# unavailable versions fail at eval time with a clear message.
 pkgs:
 {
   version ? null,
@@ -27,12 +27,20 @@ let
   unknownOptions = builtins.filter (k: !builtins.elem k knownOptions) (builtins.attrNames options);
 
   # Resolve the Node package: a `version` major selects `pkgs.nodejs_<major>`;
-  # null uses the nixpkgs default. An unavailable major (not packaged in the
-  # pinned nixpkgs) fails at eval time rather than silently degrading.
+  # null uses the nixpkgs default. A non-integer `version` (string, path,
+  # derivation, …) is rejected before the interpolation below so the eval error
+  # is this module's own message, not Nix's generic "cannot coerce to string".
+  # An unavailable major (not packaged in the pinned nixpkgs) likewise fails at
+  # eval time rather than silently degrading.
   nodeAttr = "nodejs_${toString version}";
   nodePkg =
     if version == null then
       pkgs.nodejs
+    else if !builtins.isInt version then
+      throw (
+        "node module: invalid Node version of type '${builtins.typeOf version}' "
+        + "(the 'version' option must be an integer major, e.g. 22)"
+      )
     else
       pkgs.${nodeAttr} or (throw (
         "node module: unavailable Node version '${toString version}' "
