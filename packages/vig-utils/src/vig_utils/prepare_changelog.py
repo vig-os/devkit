@@ -422,6 +422,11 @@ def finalize_release_date(
     - TBD`` placeholder matched in the file stays bare; only the emitted tag name
     and URL carry the prefix. An empty prefix reproduces today's output byte-for-byte.
 
+    Re-run idempotency holds only for an unchanged ``tag_prefix``: re-running
+    against a heading this tool already finalized is a no-op when the prefix is
+    the same, and raises :class:`ValueError` when the prefix differs (#1073).
+    The tag prefix must be stable across re-runs on a reused release branch.
+
     Args:
         version: Semantic version (e.g., "1.0.0")
         release_date: Release date in ISO format (YYYY-MM-DD)
@@ -460,6 +465,24 @@ def finalize_release_date(
     finalized_pattern = rf"## \[{re.escape(tag)}\]\([^)]*\) - \d{{4}}-\d{{2}}-\d{{2}}"
     if re.search(finalized_pattern, content):
         return
+
+    # A heading already finalized for this version but under a *different* tag
+    # prefix (#1073): the re-run no-op above only covers an unchanged prefix, so
+    # name the offending heading instead of falling through to the generic
+    # "TBD not found" error. The lookbehind keeps a longer version (e.g. 11.0.0)
+    # from being mistaken for a prefixed 1.0.0.
+    mismatched_pattern = (
+        rf"## \[[^\]]*?(?<![\d.]){re.escape(version)}\]\([^)]*\) - "
+        rf"\d{{4}}-\d{{2}}-\d{{2}}"
+    )
+    mismatch = re.search(mismatched_pattern, content)
+    if mismatch:
+        raise ValueError(
+            f"Version {version} is already finalized with a different tag prefix: "
+            f"found heading '{mismatch.group(0)}', but tag prefix {tag_prefix!r} "
+            f"expects '## [{tag}](...)'. The tag prefix must be stable across "
+            f"finalize re-runs; re-run with the prefix used originally."
+        )
 
     # Check if version with TBD exists (the placeholder heading stays bare).
     version_pattern = rf"## \[{re.escape(version)}\] - TBD"

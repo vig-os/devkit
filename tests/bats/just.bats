@@ -123,11 +123,13 @@ EOF
     assert_success
 }
 
-@test "prepare-release workflow defines rollback job on failure" {
+@test "prepare-release workflow defines rollback job on failure or cancellation" {
     # #1059 moved the inline `if: failure()` rollback step into a dedicated
     # `rollback` job so it also covers the extension and open-pr jobs. Same
     # guard, new shape: the rollback exists and triggers on any phase failure.
-    run bash -lc "grep -Eq -- '^  rollback:' .github/workflows/prepare-release.yml && grep -Fq -- 'name: Roll back prepare-release side effects' .github/workflows/prepare-release.yml && grep -Fq -- \"needs.prepare.result == 'failure'\" .github/workflows/prepare-release.yml && grep -Fq -- \"needs.extension.result == 'failure'\" .github/workflows/prepare-release.yml && grep -Fq -- \"needs.open-pr.result == 'failure'\" .github/workflows/prepare-release.yml"
+    # #1078: a run cancelled after the freeze commit must roll back too, so
+    # each phase's guard also matches `result == 'cancelled'`.
+    run bash -lc "grep -Eq -- '^  rollback:' .github/workflows/prepare-release.yml && grep -Fq -- 'name: Roll back prepare-release side effects' .github/workflows/prepare-release.yml && grep -Fq -- \"needs.prepare.result == 'failure'\" .github/workflows/prepare-release.yml && grep -Fq -- \"needs.extension.result == 'failure'\" .github/workflows/prepare-release.yml && grep -Fq -- \"needs.open-pr.result == 'failure'\" .github/workflows/prepare-release.yml && grep -Fq -- \"needs.prepare.result == 'cancelled'\" .github/workflows/prepare-release.yml && grep -Fq -- \"needs.extension.result == 'cancelled'\" .github/workflows/prepare-release.yml && grep -Fq -- \"needs.open-pr.result == 'cancelled'\" .github/workflows/prepare-release.yml"
     assert_success
 }
 

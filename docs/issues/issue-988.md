@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-13T06:13:58Z
-updated: 2026-07-13T10:11:02Z
+updated: 2026-07-14T14:06:16Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/988
-comments: 5
+comments: 6
 labels: feature, priority:high, area:ci, area:workspace, effort:large, semver:minor
 assignees: none
 milestone: Backlog
 projects: none
 parent: none
 children: 989, 990, 991, 992, 993, 994, 995
-synced: 2026-07-13T15:17:55.799Z
+synced: 2026-07-14T20:06:35.790Z
 ---
 
 # [Issue 988]: [[EPIC] Mode-aware scaffold: CI/release toolchain per deployment mode](https://github.com/vig-os/devkit/issues/988)
@@ -58,7 +58,7 @@ the release choreography single-source.
 
 ### Acceptance Criteria
 
-- [ ] A `direnv`/`bare` consumer's CI and release run container-free (no forced
+- [x] A `direnv`/`bare` consumer's CI and release run container-free (no forced
       `ghcr.io/vig-os/devcontainer` pull).
 - [x] Release choreography remains single-source (no per-mode pipeline copies).
 - [x] Scaffold stops shipping container-only artifacts into container-less modes (#D1).
@@ -76,6 +76,7 @@ the release choreography single-source.
 Surfaced by the devkit rollout pilot; blocks resuming deployment to `commit-action`
 (vig-os/commit-action#29, also closes #30) and the other `vig-os` code repos.
 Pilot preview was read-only — no consumer repos were modified.
+
 
 
 ---
@@ -286,4 +287,19 @@ Green light from local validation: ready for #997 review → merge → 1.0.x→1
 _Posted on July 13, 2026 at 10:08 AM_
 
 Additional evidence: a real **container→direnv migration dry-run on the pilot repo** (`commit-action`, throwaway branch, host-side scaffold from the epic checkout with `--mode direnv --prune-devcontainer --force`) passed every epic check — old `.devcontainer/` (incl. the broken post-create.sh, commit-action#30) pruned, quirks doc excluded, composites scaffolded, mode-aware ci.yml actionlint-clean, `.vig-os` persisted, #738 preserves intact, and the scaffolded flake evaluates against the epic devkit. Pilot-side prerequisites unchanged (node in `extraPackages`, npm recipes — commit-action#29). One leftover surfaced outside epic scope: the flake stub still references `github:vig-os/devcontainer` post-rename → filed #1009.
+
+---
+
+# [Comment #6]() by [c-vigo]()
+
+_Posted on July 14, 2026 at 02:06 PM_
+
+## Closing — all acceptance criteria met
+
+The last open criterion (container-free CI **and release** for a direnv/bare consumer) is now checked:
+
+- **CI: proven live.** `vig-os/commit-action` (direnv mode, devkit 1.1.0) has been running scaffolded CI on plain runners in production since adoption — the entire 2026-07-14 issue batch (#1028, #1029, #1034, #1041, #1047) came from those real container-free runs. #1028's fix specifically exercised the direnv branch of `setup-devkit-toolchain` (nix-develop provisioning, no `ghcr.io/vig-os/devcontainer` pull) and is merged.
+- **Release: container-free by construction, dry-run validated.** The release workflows consume the same mode-aware toolchain composite; the epic's own container→direnv migration dry-run on the pilot passed every check (comment above), and the release lane has since been hardened for the pilot's first production run (#1029 bundle step, #1044 tag prefix, #1045 floating tags, #1059 prepare-extension hook — landed or in flight on dev).
+
+The residual — commit-action's first *production* release through the pipeline — is rollout validation, tracked by the pilot and the #1040 onboarding epic, not engineering on this epic. Sub-issues D1/D2/D3 closed long since; shipped in 1.1.0.
 

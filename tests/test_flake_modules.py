@@ -326,3 +326,49 @@ def test_node_module_rejects_unknown_option(current_system: str) -> None:
     assert "channel" in result.stderr and "node" in result.stderr, (
         f"error must name the offending option and module; got: {result.stderr[-500:]}"
     )
+
+
+@pytest.mark.parametrize(
+    "bad_version",
+    ['"22"', "{ }"],
+    ids=["string", "attrset"],
+)
+def test_node_module_rejects_non_int_version(
+    current_system: str, bad_version: str
+) -> None:
+    """A non-integer ``version`` fails at eval time with a clear message (#1080).
+
+    ``version`` must be an integer Node major. Before the ``builtins.isInt``
+    guard, a non-int slipped into the ``nodejs_${toString version}``
+    interpolation: a string was silently accepted and a set/path/derivation
+    surfaced Nix's generic "cannot coerce to string" error instead of the
+    module-scoped throw the other invalid inputs (unknown option keys,
+    unavailable majors) already get.
+    """
+    expr = f"""
+    let
+      flake = builtins.getFlake "path:{REPO_ROOT}";
+      system = builtins.currentSystem;
+      pkgs = import flake.inputs.nixpkgs {{
+        inherit system;
+        overlays = [ flake.overlays.default ];
+        config.allowUnfree = true;
+      }};
+    in (flake.lib.mkProjectShell {{
+      inherit pkgs;
+      modules = [ {{ name = "node"; version = {bad_version}; }} ];
+    }}).drvPath
+    """
+    result = subprocess.run(
+        ["nix", "eval", "--impure", "--expr", expr],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=300,
+    )
+    assert result.returncode != 0, "non-int node version must fail eval, not pass"
+    assert (
+        "invalid Node version" in result.stderr and "integer major" in result.stderr
+    ), (
+        f"error must be the module-scoped invalid-version throw; got: {result.stderr[-500:]}"
+    )

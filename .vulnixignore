@@ -280,3 +280,41 @@ CVE-2026-9080
 #   force near-term re-check.
 Expiration: 2026-07-24
 CVE-2026-60002
+
+# ============================================================================
+# Triage 2026-07-14 — gawk 5.4.0 CERT-PL batch (release-cycle fix, #1071).
+# Published 2026-07-13 (https://cert.pl/en/posts/2026/07/CVE-2026-40467/);
+# surfaced in the vulnix feed 2026-07-14 and failed the 1.2.0-rc1 publish at
+# the vulnix gate (run 29346662524). Verified ONLINE against CERT-PL, NVD, the
+# upstream gawk release, and the nixpkgs branch contents (nixos-26.05,
+# release-26.05, staging-26.05, master, nixpkgs-unstable) on 2026-07-14. Real
+# product match (GNU gawk, no CPE collision). All four are fixed upstream in
+# gawk 5.4.1; the nixpkgs bump (NixOS/nixpkgs#540158) merged to *staging* on
+# 2026-07-12 (gawk is a stdenv mass-rebuild) and has NOT reached nixos-26.05 —
+# every release branch and even master/unstable still ship 5.4.0 — so the
+# "advance the rev" lever has nowhere to land today. gawk is a stdenv closure
+# member; it processes developer/CI-chosen awk programs and inputs only (no
+# untrusted-input path in the single-user dev model). Flip to a nixpkgs
+# rev-advance once 5.4.1 lands in the pinned channel; short expiry to force
+# near-term re-check.
+# ============================================================================
+
+Expiration: 2026-07-28
+# gawk 5.4.0 — CVE-2026-40468 (9.1): integer overflow in builtin.c; memory
+#   exhaustion / heap-metadata overwrite with attacker-controlled bytes.
+#   Requires gawk to run a crafted awk program or input — developer-chosen
+#   inputs only here.
+CVE-2026-40468
+# gawk 5.4.0 — CVE-2026-40469 (9.1): integer overflow in builtin.c do_sub();
+#   heap corruption -> crash. Affects 32-BIT builds only per the CERT-PL
+#   advisory — this image is 64-bit, so effectively not applicable (kept
+#   short-dated with the batch rather than yearly, pending NVD settling).
+CVE-2026-40469
+# gawk 5.4.0 — CVE-2026-40467 (7.5): use-after-free in io.c
+#   do_getline_redir(); crash (availability only).
+CVE-2026-40467
+# gawk 5.4.0 — CVE-2026-40553 (7.5): stack buffer overflow in
+#   extension/readdir.c ftype(); crash, code execution unconfirmed. Only
+#   reachable when the opt-in readdir extension is loaded (`-l readdir`) on a
+#   crafted directory tree — not used by any tooling here.
+CVE-2026-40553

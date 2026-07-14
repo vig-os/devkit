@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-13T16:43:13Z
-updated: 2026-07-13T16:43:13Z
+updated: 2026-07-14T08:14:38Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1024
-comments: 0
+comments: 1
 labels: bug, priority:medium, area:workspace, effort:medium, semver:minor
 assignees: none
 milestone: Backlog
 projects: none
 parent: none
 children: none
-synced: 2026-07-14T04:57:27.093Z
+synced: 2026-07-14T20:06:34.913Z
 ---
 
 # [Issue 1024]: [[BUG] Scaffold .gitignore is Python-only: blanket dist/ breaks JS Action repos, Node ignores dropped, not upgrade-persistent](https://github.com/vig-os/devkit/issues/1024)
@@ -64,4 +64,12 @@ git check-ignore dist/index.js  # -> IGNORED (should be tracked for a JS action)
 
 Non-blocking for 1.1.0; found during the pilot rollout. Workaround applied in
 commit-action: removed `dist/`, restored the Node/Action ignore section.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 14, 2026 at 08:14 AM_
+
+Fixed in #1035 (merged to dev): language-neutral base + per-language fragments assembled by init-workspace.sh on every (re)scaffold — Node consumers get Node ignores and no blanket dist/; upgrade-persistent.
 

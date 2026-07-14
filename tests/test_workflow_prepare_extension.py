@@ -200,9 +200,83 @@ def test_extension_failure_is_covered_by_rollback(path: Path) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    "path", CALLER_WORKFLOWS, ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
+def test_rollback_fires_on_phase_cancellation(path: Path) -> None:
+    """Cancelling a run after the freeze commit rolls back like a failure (#1078).
+
+    ``needs.<job>.result == 'failure'`` alone skips the rollback when the run is
+    CANCELLED mid-phase, stranding the partial ``release/X.Y.Z`` branch and the
+    freeze commit on dev. The guard must (a) keep ``always()`` so GitHub even
+    evaluates the job after a cancellation, and (b) match
+    ``result == 'cancelled'`` for every phase job it watches.
+    """
+    doc = _load(path)
+    ext_name, _ = _extension_job(doc)
+    branch_name, _ = _job_with_step_run(doc, "git/refs")
+    pr_name, _ = _job_with_step_run(doc, "gh pr create")
+    assert ext_name and branch_name and pr_name
+
+    rollback_ifs = [
+        str(job.get("if", ""))
+        for job in _jobs(doc).values()
+        if isinstance(job, dict)
+        and ext_name in _needs(job)
+        and "failure" in str(job.get("if", ""))
+    ]
+    assert rollback_ifs, "could not locate the rollback job"
+    cond = rollback_ifs[0]
+    assert "always()" in cond, (
+        "the rollback guard needs always() to be evaluated at all after a "
+        "workflow cancellation"
+    )
+    for phase in (branch_name, ext_name, pr_name):
+        assert f"needs.{phase}.result == 'cancelled'" in cond, (
+            f"the rollback guard must also fire when the `{phase}` job is "
+            "cancelled, or a cancelled run strands the partial release branch "
+            "and the freeze commit on dev (#1078)"
+        )
+
+
 # --------------------------------------------------------------------------- #
 # Devkit dogfooding: the sync_manifest step moves into devkit's own hook
 # --------------------------------------------------------------------------- #
+
+
+def test_devkit_open_pr_needs_no_toolchain() -> None:
+    """Devkit's open-pr job runs on a bare checkout — no setup-env (#1079).
+
+    The job's only real work is `gh pr create` (gh ships preinstalled on
+    GitHub-hosted runners), yet it stood up the full setup-env composite
+    (Nix + `uv sync`) on the release critical path just to reach the
+    `uv run retry` wrapper. Retries come from sourcing the canonical bash
+    helper (.github/scripts/retry.sh) instead, so the job must invoke no
+    local action and no `uv run`.
+    """
+    doc = _load(DEVKIT_PREPARE)
+    pr_name, pr_job = _job_with_step_run(doc, "gh pr create")
+    assert pr_name is not None, "could not locate the draft-PR-opening job"
+
+    local_actions = [
+        str(s.get("uses"))
+        for s in (pr_job.get("steps") or [])
+        if isinstance(s, dict) and str(s.get("uses", "")).startswith("./")
+    ]
+    assert not local_actions, (
+        f"devkit's `{pr_name}` job must not invoke local composite actions "
+        f"(found {local_actions}): a bare checkout plus the preinstalled gh "
+        "CLI suffices to open the draft PR (#1079)"
+    )
+    steps_text = _job_steps_text(pr_job)
+    assert "uv run" not in steps_text, (
+        f"devkit's `{pr_name}` job must not depend on the uv environment; "
+        "source .github/scripts/retry.sh for retries instead (#1079)"
+    )
+    assert "retry" in steps_text, (
+        f"devkit's `{pr_name}` job must keep retrying the gh call "
+        "(canonical bash retry helper)"
+    )
 
 
 def test_devkit_prepare_release_no_longer_syncs_manifest_inline() -> None:

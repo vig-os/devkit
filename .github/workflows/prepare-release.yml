@@ -324,18 +324,15 @@ jobs:
           client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
 
+      # Bare shallow checkout only (#1079): the job's single piece of work is
+      # `gh pr create` — gh ships preinstalled on GitHub-hosted runners, and
+      # retries come from sourcing the canonical bash helper below, so the full
+      # setup-env composite (Nix + uv sync) has nothing to contribute here and
+      # only stretched the release critical path.
       - name: Checkout dev branch
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:
           ref: dev
-          fetch-depth: 0
-
-      - name: Set up environment
-        uses: ./.github/actions/setup-env
-        with:
-          sync-dependencies: 'true'
-          cachix-cache: ${{ vars.CACHIX_CACHE }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
       - name: Create draft PR to main
         id: pr
@@ -346,6 +343,8 @@ jobs:
           CHANGELOG_CONTENT: ${{ needs.prepare.outputs.changelog }}
         run: |
           set -euo pipefail
+          # shellcheck source=/dev/null  # canonical retry() helper from the checkout
+          source .github/scripts/retry.sh
 
           # GitHub caps PR bodies at 65536 chars; a large frozen release
           # changelog can overflow it (#810). Truncate at a line boundary and
@@ -367,7 +366,7 @@ jobs:
             PR_BODY="${HEADER}${TRUNCATED}${NOTE}"
           fi
 
-          PR_URL=$(uv run retry --retries 3 --backoff 5 --max-backoff 60 -- \
+          PR_URL=$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
             gh pr create \
             --base main \
             --head "$RELEASE_BRANCH" \
@@ -412,10 +411,14 @@ jobs:
   # pre-prepare state, and every commit the extension makes lives on the branch
   # this job deletes.
   rollback:
-    name: Roll Back Prepare Release on Failure
+    name: Roll Back Prepare Release on Failure or Cancellation
     needs: [validate, prepare, extension, open-pr]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # `always()` (not `!cancelled()`) is load-bearing: it is what keeps this job
+    # eligible to run after the run itself is cancelled, and each phase guard
+    # also matches `cancelled` so a cancellation after the freeze commit rolls
+    # back exactly like a failure (#1078).
     if: >-
       ${{
         always() &&
@@ -423,8 +426,11 @@ jobs:
         needs.validate.result == 'success' &&
         (
           needs.prepare.result == 'failure' ||
+          needs.prepare.result == 'cancelled' ||
           needs.extension.result == 'failure' ||
-          needs.open-pr.result == 'failure'
+          needs.extension.result == 'cancelled' ||
+          needs.open-pr.result == 'failure' ||
+          needs.open-pr.result == 'cancelled'
         )
       }}
     permissions:

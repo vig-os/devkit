@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-13T12:48:05Z
-updated: 2026-07-13T12:48:05Z
+updated: 2026-07-14T06:59:25Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1019
-comments: 0
+comments: 1
 labels: chore
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-13T15:17:50.755Z
+synced: 2026-07-14T20:06:35.348Z
 ---
 
 # [Issue 1019]: [chore(ci): allowed commit scope list is stale — rejects ~49% of the scopes actually in use](https://github.com/vig-os/devkit/issues/1019)
@@ -88,3 +88,23 @@ Worth deciding alongside it:
 Do not rewrite existing history. The commits are fine; the list is wrong.
 
 Refs: #988
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 14, 2026 at 06:59 AM_
+
+Fixed in #1026 (merged as `41269657`).
+
+**What shipped**
+- The five-scope allowlist is gone — scope is free-form `[a-z0-9-]`, matching what `docs/COMMIT_MESSAGE_STANDARD.md` already documented. Type, `Refs:` and the agent blocklist stay enforced.
+- New `commit-checks` CI job (devkit + scaffold) validates every commit a PR adds *and* the PR title, via a new `validate-commit-range` entry point. The gate ran green on its own PR.
+- Bot-authored (`…[bot]`) and merge commits are exempt. This was a hard blocker the issue didn't name: **18 of the 94 bot commits** in a recent 150-commit window carry no `Refs:` line, so enabling CI without the exemption would have reddened every Renovate/Dependabot PR. The docs claimed this exemption existed; it did not.
+- Scaffolded repos now actually enforce the standard — their `.githooks/commit-msg` shim had **zero** `commit-msg`-stage hooks to run, so it was a no-op in every consumer repo.
+
+Existing history was not rewritten, as specified.
+
+**Two follow-ups deliberately not bundled** (see #1026):
+1. `perf` is not an approved *type*, but `perf(image): …` exists in history — the type vocabulary has drifted too. Needs a decision: add `perf`, or leave it rejected.
+2. `check-agent-identity` (#163) is still not scaffolded — it guards the git author/committer, a distinct concern from message validation.
+

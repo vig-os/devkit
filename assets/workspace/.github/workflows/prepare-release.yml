@@ -407,7 +407,7 @@ jobs:
   # erases the extension's work too, so an extension failure needs no new
   # machinery beyond listing `extension` in `needs`.
   rollback:
-    name: Roll Back Prepare Release on Failure
+    name: Roll Back Prepare Release on Failure or Cancellation
     needs: [validate, prepare, extension, open-pr]
     runs-on: ubuntu-24.04
     container:
@@ -419,6 +419,10 @@ jobs:
     defaults:
       run:
         shell: bash
+    # `always()` (not `!cancelled()`) is load-bearing: it is what keeps this job
+    # eligible to run after the run itself is cancelled, and each phase guard
+    # also matches `cancelled` so a cancellation after the freeze commit rolls
+    # back exactly like a failure (#1078).
     if: >-
       ${{
         always() &&
@@ -426,8 +430,11 @@ jobs:
         needs.validate.result == 'success' &&
         (
           needs.prepare.result == 'failure' ||
+          needs.prepare.result == 'cancelled' ||
           needs.extension.result == 'failure' ||
-          needs.open-pr.result == 'failure'
+          needs.extension.result == 'cancelled' ||
+          needs.open-pr.result == 'failure' ||
+          needs.open-pr.result == 'cancelled'
         )
       }}
     permissions:

@@ -1492,6 +1492,67 @@ class TestFinalizeTagPrefix:
         )
         assert f.read_text() == after_first
 
+    def test_rerun_with_different_prefix_raises_clear_error(self, tmp_path):
+        """Re-running with a changed prefix raises a specific error, not a generic one (#1073)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(CHANGELOG_WITH_TBD)
+        finalize_release_date(
+            "1.0.0",
+            "2026-02-11",
+            str(f),
+            github_repository=_FINALIZE_TEST_REPO,
+            tag_prefix="",
+        )
+        after_first = f.read_text()
+        with pytest.raises(ValueError) as excinfo:
+            finalize_release_date(
+                "1.0.0",
+                "2026-02-11",
+                str(f),
+                github_repository=_FINALIZE_TEST_REPO,
+                tag_prefix="v",
+            )
+        msg = str(excinfo.value)
+        # Names the heading actually found in the file.
+        assert (
+            f"## [1.0.0](https://github.com/{_FINALIZE_TEST_REPO}/releases/tag/1.0.0) - 2026-02-11"
+            in msg
+        )
+        # Names the expected prefix and states the stability invariant.
+        assert "'v'" in msg
+        assert "stable" in msg
+        # The file is left untouched.
+        assert f.read_text() == after_first
+
+    def test_rerun_dropping_prefix_raises_clear_error(self, tmp_path):
+        """The reverse direction (first 'v', then '') is detected too (#1073)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(CHANGELOG_WITH_TBD)
+        finalize_release_date(
+            "1.0.0",
+            "2026-02-11",
+            str(f),
+            github_repository=_FINALIZE_TEST_REPO,
+            tag_prefix="v",
+        )
+        after_first = f.read_text()
+        with pytest.raises(ValueError) as excinfo:
+            finalize_release_date(
+                "1.0.0",
+                "2026-02-11",
+                str(f),
+                github_repository=_FINALIZE_TEST_REPO,
+                tag_prefix="",
+            )
+        msg = str(excinfo.value)
+        assert (
+            f"## [v1.0.0](https://github.com/{_FINALIZE_TEST_REPO}/releases/tag/v1.0.0) - 2026-02-11"
+            in msg
+        )
+        assert "''" in msg
+        assert "stable" in msg
+        assert f.read_text() == after_first
+
 
 # ═════════════════════════════════════════════════════════════════════════════
 # Full prepare → finalize cycle

@@ -102,7 +102,7 @@ def _strip_banner_block(rest: list[str]) -> list[str]:
     return rest[i:]
 
 
-def strip_banner(text: str, style: str = "html") -> str:
+def strip_banner(text: str, style: str) -> str:
     """Return ``text`` with any provenance banner (either variant) removed.
 
     The inverse of :class:`Banner`: it locates the banner after the same leading
@@ -137,6 +137,10 @@ class Banner:
         original = path.read_text()
         header, rest = _split_header(original.splitlines(keepends=True), self.style)
         rest = _strip_banner_block(rest)
+        # Intentional one-shot normalization (#1077): drop the source's leading
+        # blank lines so the banner is always followed by exactly one blank
+        # line. Only visible when diffing the initial sync of a source that
+        # opens with blanks; idempotent thereafter (no ongoing drift).
         while rest and rest[0].strip() == "":
             rest.pop(0)
 

@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-07-13T10:45:59Z
+updated: 2026-07-14T18:10:40Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-13T15:17:56.455Z
+synced: 2026-07-14T20:06:36.193Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -24,18 +24,21 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
+ - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update actions/setup-node action to v6.5.0
+ - [ ] <!-- unschedule-branch=renovate/actions-setup-node-7.x -->ci(actions): update actions/setup-node action to v7
  - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
+ - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
 
 ## Detected Dependencies
 
-<details><summary>github-actions (35)</summary>
+<details><summary>github-actions (37)</summary>
 <blockquote>
 
 <details><summary>.github/actions/setup-env/action.yml (3)</summary>
 
  - `cachix/install-nix-action v31.10.7@a49548c11d9846ad46ecc0115273879b045f001c`
  - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
- - `actions/setup-node v6.4.0@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e`
+ - `actions/setup-node v6.4.0@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e` → [Updates: `v6.5.0`, `v7.0.0`]
 
 </details>
 
@@ -59,7 +62,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 </details>
 
-<details><summary>.github/workflows/ci.yml (27)</summary>
+<details><summary>.github/workflows/ci.yml (29)</summary>
 
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
@@ -70,6 +73,7 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
+ - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
  - `actions/download-artifact v8.0.1@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`
@@ -78,6 +82,7 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
  - `actions/dependency-review-action v5.0.0@a1d282b36b6f3519aa1f3fc636f609c47dddb294`
+ - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -132,14 +137,29 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 </details>
 
-<details><summary>.github/workflows/prepare-release.yml (8)</summary>
+<details><summary>.github/workflows/prepare-release-extension.yml (5)</summary>
+
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
+ - `vig-os/commit-action v0.2.0@1bc004353d08d9332a0cb54920b148256220c8e0`
+ - `vig-os/commit-action v0.2.0@1bc004353d08d9332a0cb54920b148256220c8e0`
+ - `ubuntu 24.04`
+
+</details>
+
+<details><summary>.github/workflows/prepare-release.yml (13)</summary>
 
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
+ - `vig-os/commit-action v0.2.0@1bc004353d08d9332a0cb54920b148256220c8e0`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
  - `vig-os/commit-action v0.2.0@1bc004353d08d9332a0cb54920b148256220c8e0`
- - `vig-os/commit-action v0.2.0@1bc004353d08d9332a0cb54920b148256220c8e0`
+ - `ubuntu 24.04`
+ - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
 
@@ -225,7 +245,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>.github/workflows/renovate-validate.yml (4)</summary>
 
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
- - `actions/setup-node v6.4.0@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e`
+ - `actions/setup-node v6.4.0@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e` → [Updates: `v6.5.0`, `v7.0.0`]
  - `ubuntu 24.04`
  - `node 24`
 
@@ -322,11 +342,13 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/ci.yml (7)</summary>
+<details><summary>assets/workspace/.github/workflows/ci.yml (9)</summary>
 
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
+ - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
+ - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -343,20 +365,31 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/prepare-release.yml (8)</summary>
+<details><summary>assets/workspace/.github/workflows/prepare-release-extension.yml (1)</summary>
+
+ - `ubuntu 24.04`
+
+</details>
+
+<details><summary>assets/workspace/.github/workflows/prepare-release.yml (13)</summary>
 
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
+ - `vig-os/commit-action v0.2.0@1bc004353d08d9332a0cb54920b148256220c8e0`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
  - `vig-os/commit-action v0.2.0@1bc004353d08d9332a0cb54920b148256220c8e0`
- - `vig-os/commit-action v0.2.0@1bc004353d08d9332a0cb54920b148256220c8e0`
+ - `ubuntu 24.04`
+ - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/promote-release.yml (14)</summary>
+<details><summary>assets/workspace/.github/workflows/promote-release.yml (17)</summary>
 
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
@@ -367,6 +400,9 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
