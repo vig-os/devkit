@@ -281,6 +281,17 @@ jobs:
             --title "${PR_TITLE}" \
             --blocked-patterns .github/agent-blocklist.toml
 
+      # The PR title and body are attacker-controlled text visible in the UI and
+      # notifications even though the body never enters git history, so they reach
+      # the guard as environment variables — never interpolated into the shell
+      # command. validate-commit-range already covers the title; this adds the
+      # body as cheap defense-in-depth against the agent blocklist.
+      - name: Check PR title and body for agent fingerprints
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: uv run check-pr-agent-fingerprints
+
   python-security:
     name: Python Security Scan
     runs-on: ubuntu-24.04

@@ -128,6 +128,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **PR body guarded against AI agent fingerprints** ([#1052](https://github.com/vig-os/devkit/issues/1052))
+  - The `commit-checks` job (both ci.yml copies) now runs `check-pr-agent-fingerprints`, wiring a previously dead entry point into CI. After [#1026](https://github.com/vig-os/devkit/issues/1026) the job already validated the PR **title** via `validate-commit-range --title`; this closes the remaining gap by greping the PR **body** against `.github/agent-blocklist.toml` ([#163](https://github.com/vig-os/devkit/issues/163)). The body is attacker-controlled text visible in the UI and notifications even though it never enters git history, so title and body reach the guard via `env:` (`PR_TITLE`/`PR_BODY`), never interpolated into the shell command.
 - **Scaffolded repos reject AI-authored commits** ([#1031](https://github.com/vig-os/devkit/issues/1031))
   - `check-agent-identity` now reaches the consumer pre-commit config. It is the only hook of the agent-identity pipeline ([#163](https://github.com/vig-os/devkit/issues/163)) that guards the commit **author/committer** — the one that catches `git commit --author="Claude <...>"`. After [#1026](https://github.com/vig-os/devkit/issues/1026) scaffolded repos rejected an AI-attributed commit *message* while accepting an AI-authored *commit*; the `COMMIT_MESSAGE_STANDARD.md` they ship promised the opposite. It runs at the pre-commit stage, so `prek run --all-files` enforces it in the scaffold's lint job too.
 
