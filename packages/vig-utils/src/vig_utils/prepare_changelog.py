@@ -407,6 +407,7 @@ def finalize_release_date(
     filepath="CHANGELOG.md",
     *,
     github_repository: str | None = None,
+    tag_prefix: str = "",
 ):
     """
     Replace TBD date with actual release date for a version.
@@ -415,11 +416,18 @@ def finalize_release_date(
     for this repository (``owner/repo`` from ``github_repository`` or the
     ``GITHUB_REPOSITORY`` environment variable).
 
+    ``tag_prefix`` composes the published tag name onto the ``version`` for the
+    displayed heading and the release link (e.g. ``v`` → ``## [v0.3.0](…/tag/v0.3.0)``),
+    matching ``DEVKIT_TAG_PREFIX`` in the release pipeline (#1044). The ``## [X.Y.Z]
+    - TBD`` placeholder matched in the file stays bare; only the emitted tag name
+    and URL carry the prefix. An empty prefix reproduces today's output byte-for-byte.
+
     Args:
         version: Semantic version (e.g., "1.0.0")
         release_date: Release date in ISO format (YYYY-MM-DD)
         filepath: Path to CHANGELOG.md
         github_repository: ``owner/repo`` slug; when omitted, ``GITHUB_REPOSITORY`` is used
+        tag_prefix: Optional tag-name prefix (default empty = bare ``X.Y.Z`` tags)
 
     Raises:
         ValueError: If version format is invalid, date format is invalid,
@@ -441,18 +449,19 @@ def finalize_release_date(
 
     content = path.read_text()
 
+    # Published tag name = prefix + bare version (empty prefix ⇒ bare tag).
+    tag = f"{tag_prefix}{version}"
+
     # Idempotency (#612): a reused release branch can re-run finalize against a
     # heading this tool already dated. Detect the linked-and-dated form finalize
-    # itself writes (## [X.Y.Z](…) - YYYY-MM-DD) and treat a re-run as a no-op so
+    # itself writes (## [<tag>](…) - YYYY-MM-DD) and treat a re-run as a no-op so
     # candidate→final on one base version stays idempotent. A plain dated heading
     # with no release link (a historical entry) is still rejected below.
-    finalized_pattern = (
-        rf"## \[{re.escape(version)}\]\([^)]*\) - \d{{4}}-\d{{2}}-\d{{2}}"
-    )
+    finalized_pattern = rf"## \[{re.escape(tag)}\]\([^)]*\) - \d{{4}}-\d{{2}}-\d{{2}}"
     if re.search(finalized_pattern, content):
         return
 
-    # Check if version with TBD exists
+    # Check if version with TBD exists (the placeholder heading stays bare).
     version_pattern = rf"## \[{re.escape(version)}\] - TBD"
     if not re.search(version_pattern, content):
         raise ValueError(
@@ -460,8 +469,8 @@ def finalize_release_date(
         )
 
     repo_slug = _resolve_github_repository(github_repository)
-    tag_url = f"https://github.com/{repo_slug}/releases/tag/{version}"
-    replacement = f"## [{version}]({tag_url}) - {release_date}"
+    tag_url = f"https://github.com/{repo_slug}/releases/tag/{tag}"
+    replacement = f"## [{tag}]({tag_url}) - {release_date}"
     new_content = re.sub(version_pattern, replacement, content)
 
     # Write back
@@ -525,6 +534,7 @@ def cmd_finalize(args):
         args.date,
         args.file,
         github_repository=args.github_repository,
+        tag_prefix=args.tag_prefix,
     )
 
     print(f"✓ Set release date for version {args.version}")
@@ -666,6 +676,16 @@ Examples:
         help=(
             "Repository slug for the release tag link "
             "(default: GITHUB_REPOSITORY environment variable)"
+        ),
+    )
+    finalize_parser.add_argument(
+        "--tag-prefix",
+        dest="tag_prefix",
+        default="",
+        metavar="PREFIX",
+        help=(
+            "Tag-name prefix composed onto the release heading and link "
+            "(e.g. 'v'; default empty = bare X.Y.Z tags)"
         ),
     )
     finalize_parser.set_defaults(func=cmd_finalize)

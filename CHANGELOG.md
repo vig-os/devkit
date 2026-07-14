@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Per-repo release tag prefix (`DEVKIT_TAG_PREFIX`)** ([#1044](https://github.com/vig-os/devkit/issues/1044))
+  - New optional `.vig-os` key threads a tag prefix through the scaffolded release
+    pipeline, applied **only at the publishing edge** — the pushed git tag name and
+    the changelog release link. Absent/empty reproduces today's bare `X.Y.Z` tags
+    byte-for-byte (no change for devkit or existing consumers); Action-publishing
+    repos set `v` for the `actions/checkout@v5` ecosystem convention.
+  - `resolve-toolchain` reads the key and emits a `tag-prefix` output; `release.yml`
+    threads it into `release-core.yml`/`release-publish.yml`, and it composes into
+    the RC-discovery pattern, publish tag, `tag_state` check, `gh release create`,
+    the `prepare-release` tag-existence guard, and the `promote-release` release/RC
+    validation and cleanup. The `version` input, `release/X.Y.Z` branch name, and
+    `## [X.Y.Z]` freeze heading stay bare everywhere.
+  - `prepare-changelog finalize` gains `--tag-prefix`, prefixing both the release
+    link URL and the displayed heading (`## [v0.3.0](…/tag/v0.3.0) - DATE`); an
+    empty prefix is byte-identical to prior output.
 - **`mkProjectShell` accepts an overridable Python interpreter** ([#1038](https://github.com/vig-os/devkit/issues/1038))
   - New opt-in `python ? pkgs.python314` argument: `UV_PYTHON` and the bare
     `python`/`python3` on PATH now follow the override, so a consumer whose

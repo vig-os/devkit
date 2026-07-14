@@ -59,6 +59,11 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: ""
         type: string
+      tag_prefix:
+        description: "Release tag prefix (DEVKIT_TAG_PREFIX); empty => bare X.Y.Z tags"
+        required: false
+        default: ""
+        type: string
     secrets:
       token:
         required: false
@@ -164,29 +169,32 @@ jobs:
         if: ${{ !inputs.tag_already_exists }}
         env:
           PUBLISH_VERSION: ${{ inputs.publish_version }}
+          TAG_PREFIX: ${{ inputs.tag_prefix }}
         run: |
           set -euo pipefail
-          git tag -a "$PUBLISH_VERSION" -m "Release $PUBLISH_VERSION"
-          if ! retry --retries 3 --backoff 5 --max-backoff 30 -- git push origin "$PUBLISH_VERSION"; then
-            if retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags --refs origin "$PUBLISH_VERSION" | grep -q "refs/tags/$PUBLISH_VERSION$"; then
-              LOCAL_TAG_TARGET_SHA=$(git rev-parse "$PUBLISH_VERSION^{}")
-              REMOTE_TAG_TARGET_SHA=$(retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags origin "refs/tags/$PUBLISH_VERSION^{}" | awk '{print $1}')
+          # Compose the actual tag name (prefix + bare publish version) (#1044).
+          PUBLISH_TAG="${TAG_PREFIX}${PUBLISH_VERSION}"
+          git tag -a "$PUBLISH_TAG" -m "Release $PUBLISH_TAG"
+          if ! retry --retries 3 --backoff 5 --max-backoff 30 -- git push origin "$PUBLISH_TAG"; then
+            if retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags --refs origin "$PUBLISH_TAG" | grep -q "refs/tags/$PUBLISH_TAG$"; then
+              LOCAL_TAG_TARGET_SHA=$(git rev-parse "$PUBLISH_TAG^{}")
+              REMOTE_TAG_TARGET_SHA=$(retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags origin "refs/tags/$PUBLISH_TAG^{}" | awk '{print $1}')
               if [ -z "$REMOTE_TAG_TARGET_SHA" ]; then
-                REMOTE_TAG_TARGET_SHA=$(retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags origin "refs/tags/$PUBLISH_VERSION" | awk '{print $1}')
+                REMOTE_TAG_TARGET_SHA=$(retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags origin "refs/tags/$PUBLISH_TAG" | awk '{print $1}')
               fi
               if [ -z "$REMOTE_TAG_TARGET_SHA" ]; then
-                echo "ERROR: Remote tag exists but target SHA could not be resolved: $PUBLISH_VERSION"
+                echo "ERROR: Remote tag exists but target SHA could not be resolved: $PUBLISH_TAG"
                 exit 1
               fi
               if [ "$REMOTE_TAG_TARGET_SHA" != "$LOCAL_TAG_TARGET_SHA" ]; then
-                echo "ERROR: Remote tag target SHA mismatch for $PUBLISH_VERSION"
+                echo "ERROR: Remote tag target SHA mismatch for $PUBLISH_TAG"
                 echo "Local tag target:  $LOCAL_TAG_TARGET_SHA"
                 echo "Remote tag target: $REMOTE_TAG_TARGET_SHA"
                 exit 1
               fi
-              echo "Tag already present on origin with matching target SHA: $PUBLISH_VERSION"
+              echo "Tag already present on origin with matching target SHA: $PUBLISH_TAG"
             else
-              echo "ERROR: Failed to push tag $PUBLISH_VERSION"
+              echo "ERROR: Failed to push tag $PUBLISH_TAG"
               exit 1
             fi
           fi
@@ -209,36 +217,39 @@ jobs:
         if: ${{ inputs.release_kind == 'final' || (inputs.release_kind == 'candidate' && inputs.create_release) }}
         env:
           PUBLISH_VERSION: ${{ inputs.publish_version }}
+          TAG_PREFIX: ${{ inputs.tag_prefix }}
           RELEASE_KIND: ${{ inputs.release_kind }}
           GH_TOKEN: ${{ steps.auth.outputs.token }}
         run: |
           set -euo pipefail
-          if RELEASE_JSON=$(retry --retries 2 --backoff 5 --max-backoff 20 -- gh release view "$PUBLISH_VERSION" --json isDraft,isPrerelease 2>/dev/null); then
+          # Release object is keyed on the actual (prefixed) tag name (#1044).
+          PUBLISH_TAG="${TAG_PREFIX}${PUBLISH_VERSION}"
+          if RELEASE_JSON=$(retry --retries 2 --backoff 5 --max-backoff 20 -- gh release view "$PUBLISH_TAG" --json isDraft,isPrerelease 2>/dev/null); then
             IS_DRAFT=$(printf '%s' "$RELEASE_JSON" | jq -r '.isDraft')
             if [ "$IS_DRAFT" = "true" ]; then
-              echo "Draft GitHub Release already exists for $PUBLISH_VERSION; skipping create (retry path)."
+              echo "Draft GitHub Release already exists for $PUBLISH_TAG; skipping create (retry path)."
               exit 0
             fi
             if [ "$RELEASE_KIND" = "candidate" ]; then
               IS_PRERELEASE=$(printf '%s' "$RELEASE_JSON" | jq -r '.isPrerelease')
               if [ "$IS_PRERELEASE" = "true" ]; then
-                echo "Pre-release already exists for $PUBLISH_VERSION; skipping create (candidate retry path)."
+                echo "Pre-release already exists for $PUBLISH_TAG; skipping create (candidate retry path)."
                 exit 0
               fi
             fi
-            echo "ERROR: Published (non-draft) GitHub Release already exists for tag $PUBLISH_VERSION"
+            echo "ERROR: Published (non-draft) GitHub Release already exists for tag $PUBLISH_TAG"
             exit 1
           fi
           if [ "$RELEASE_KIND" = "candidate" ]; then
-            retry --retries 3 --backoff 5 --max-backoff 30 -- gh release create "$PUBLISH_VERSION" \
-              --title "$PUBLISH_VERSION" \
+            retry --retries 3 --backoff 5 --max-backoff 30 -- gh release create "$PUBLISH_TAG" \
+              --title "$PUBLISH_TAG" \
               --notes-file /tmp/release-notes.md \
               --verify-tag \
               --draft \
               --prerelease
           else
-            retry --retries 3 --backoff 5 --max-backoff 30 -- gh release create "$PUBLISH_VERSION" \
-              --title "$PUBLISH_VERSION" \
+            retry --retries 3 --backoff 5 --max-backoff 30 -- gh release create "$PUBLISH_TAG" \
+              --title "$PUBLISH_TAG" \
               --notes-file /tmp/release-notes.md \
               --verify-tag \
               --draft
@@ -249,7 +260,10 @@ jobs:
         id: out
         env:
           PUBLISH_VERSION: ${{ inputs.publish_version }}
-          RELEASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ inputs.publish_version }}
+          TAG_PREFIX: ${{ inputs.tag_prefix }}
+          RELEASE_BASE: ${{ github.server_url }}/${{ github.repository }}
         run: |
-          echo "tag=$PUBLISH_VERSION" >> "$GITHUB_OUTPUT"
-          echo "release_url=$RELEASE_URL" >> "$GITHUB_OUTPUT"
+          # Published tag and its release URL both carry the prefix (#1044).
+          PUBLISH_TAG="${TAG_PREFIX}${PUBLISH_VERSION}"
+          echo "tag=$PUBLISH_TAG" >> "$GITHUB_OUTPUT"
+          echo "release_url=${RELEASE_BASE}/releases/tag/${PUBLISH_TAG}" >> "$GITHUB_OUTPUT"

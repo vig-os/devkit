@@ -23,3 +23,10 @@ DEVKIT_REPO=
 # Reserved: space-separated capability modules for the project dev-shell,
 # mirroring mkProjectShell's `modules = [ ... ]` in flake.nix (#884).
 DEVKIT_MODULES=""
+
+# Release tag prefix applied ONLY at the publishing edge — the pushed tag name
+# and the changelog release link. Empty (default) => bare X.Y.Z tags (no change
+# for devkit or existing consumers). Action-publishing repos set `v` for the
+# `actions/checkout@v5` ecosystem convention (#1044). The `version` input, the
+# `release/X.Y.Z` branch name, and the `## [X.Y.Z]` freeze heading stay bare.
+DEVKIT_TAG_PREFIX=

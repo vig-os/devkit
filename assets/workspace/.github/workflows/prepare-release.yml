@@ -92,14 +92,18 @@ jobs:
       - name: Verify tag does not exist
         env:
           VERSION: ${{ steps.vars.outputs.version }}
+          TAG_PREFIX: ${{ steps.resolve.outputs.tag-prefix }}
         run: |
           set -euo pipefail
-          if git rev-parse -q --verify "refs/tags/$VERSION" > /dev/null; then
-            echo "ERROR: Tag $VERSION already exists"
+          # The release will publish the prefixed tag name (#1044); validate that,
+          # not the bare version. Empty prefix => bare tag (today's behavior).
+          PUBLISH_TAG="${TAG_PREFIX}${VERSION}"
+          if git rev-parse -q --verify "refs/tags/$PUBLISH_TAG" > /dev/null; then
+            echo "ERROR: Tag $PUBLISH_TAG already exists"
             exit 1
           fi
-          if git ls-remote --exit-code --tags --refs origin "refs/tags/$VERSION" > /dev/null 2>&1; then
-            echo "ERROR: Tag $VERSION already exists on remote"
+          if git ls-remote --exit-code --tags --refs origin "refs/tags/$PUBLISH_TAG" > /dev/null 2>&1; then
+            echo "ERROR: Tag $PUBLISH_TAG already exists on remote"
             exit 1
           fi
 

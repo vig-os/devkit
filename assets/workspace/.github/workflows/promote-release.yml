@@ -34,6 +34,7 @@ jobs:
       mode: ${{ steps.resolve.outputs.mode }}
       image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
+      tag-prefix: ${{ steps.resolve.outputs.tag-prefix }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
@@ -109,8 +110,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.vars.outputs.version }}
+          TAG_PREFIX: ${{ needs.resolve-toolchain.outputs.tag-prefix }}
         run: |
           set -euo pipefail
+          # The Release/tag published by release.yml carries the prefix (#1044).
+          PROMOTE_TAG="${TAG_PREFIX}${VERSION}"
           RETRIES=5
           LAST_ERROR=""
           RELEASE_JSON=""
@@ -118,12 +122,12 @@ jobs:
             API_OUTPUT=""
             if API_OUTPUT=$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate 2>&1); then
               MATCHED=$(printf '%s' "$API_OUTPUT" | \
-                jq -s --arg tag "$VERSION" 'flatten | map(select(.tag_name == $tag)) | .[0] // empty' 2>/dev/null)
+                jq -s --arg tag "$PROMOTE_TAG" 'flatten | map(select(.tag_name == $tag)) | .[0] // empty' 2>/dev/null)
               if printf '%s' "$MATCHED" | jq -e 'type == "object"' >/dev/null 2>&1; then
                 RELEASE_JSON="$MATCHED"
                 break
               fi
-              LAST_ERROR="No release found for tag $VERSION (not in releases list yet)"
+              LAST_ERROR="No release found for tag $PROMOTE_TAG (not in releases list yet)"
               if [ "$i" -lt "$RETRIES" ]; then
                 sleep $((i * 5))
                 continue
@@ -148,12 +152,12 @@ jobs:
                 continue
               fi
             fi
-            echo "ERROR: Unexpected response querying release for tag $VERSION"
+            echo "ERROR: Unexpected response querying release for tag $PROMOTE_TAG"
             echo "$API_OUTPUT"
             exit 1
           done
           if [ -z "$RELEASE_JSON" ]; then
-            echo "ERROR: No GitHub Release for tag $VERSION"
+            echo "ERROR: No GitHub Release for tag $PROMOTE_TAG"
             if [ -n "$LAST_ERROR" ]; then
               echo "$LAST_ERROR"
             fi
@@ -161,10 +165,10 @@ jobs:
           fi
           IS_DRAFT=$(printf '%s' "$RELEASE_JSON" | jq -r '.draft')
           if [ "$IS_DRAFT" != "true" ]; then
-            echo "ERROR: GitHub Release for $VERSION must still be a draft (got draft=$IS_DRAFT)"
+            echo "ERROR: GitHub Release for $PROMOTE_TAG must still be a draft (got draft=$IS_DRAFT)"
             exit 1
           fi
-          echo "✓ Draft GitHub Release exists for $VERSION"
+          echo "✓ Draft GitHub Release exists for $PROMOTE_TAG"
 
       - name: Find and verify release PR
         env:
@@ -276,11 +280,14 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.release_app_token.outputs.token }}
           VERSION: ${{ needs.validate.outputs.version }}
+          TAG_PREFIX: ${{ needs.resolve-toolchain.outputs.tag-prefix }}
         run: |
           set -euo pipefail
+          # The GitHub Release is keyed on the prefixed tag name (#1044).
+          PROMOTE_TAG="${TAG_PREFIX}${VERSION}"
           retry --retries 3 --backoff 5 --max-backoff 30 -- \
-            gh release edit "$VERSION" --draft=false
-          echo "✓ GitHub Release $VERSION published (no longer draft)"
+            gh release edit "$PROMOTE_TAG" --draft=false
+          echo "✓ GitHub Release $PROMOTE_TAG published (no longer draft)"
 
       - name: Summary
         env:
@@ -458,9 +465,13 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.release_app_token.outputs.token }}
           VERSION: ${{ needs.validate.outputs.version }}
+          TAG_PREFIX: ${{ needs.resolve-toolchain.outputs.tag-prefix }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # RC tags carry the prefix (#1044): <prefix>X.Y.Z-rcN. Empty prefix
+          # reproduces the bare X.Y.Z-rc* pattern (today's behavior).
+          RC_BASE="${TAG_PREFIX}${VERSION}"
           TMP=$(mktemp)
           trap 'rm -f "$TMP"' EXIT
 
@@ -470,7 +481,7 @@ jobs:
           # releases — not git tags — reclaims drafts whose RC tag was already
           # removed by an earlier partial run.
           select_rc_draft_releases() {
-            jq -r -s --arg base "$VERSION" '
+            jq -r -s --arg base "$RC_BASE" '
               ( "^" + ($base | gsub("\\.";"\\.")) + "-rc[0-9]+$" ) as $rc
               | (add // [])[]
               | select(.draft == true and .prerelease == true and (.tag_name | test($rc)))
@@ -501,7 +512,7 @@ jobs:
           # tag that still has a GitHub Release attached — a published pre-release,
           # or a draft whose deletion failed above so it stays discoverable.
           TAGS=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
-            git ls-remote --tags --refs "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "${VERSION}-rc*" \
+            git ls-remote --tags --refs "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "${RC_BASE}-rc*" \
             | awk '{print $2}' | sed 's#refs/tags/##' || true)
           while IFS= read -r tag; do
             [ -z "$tag" ] && continue
