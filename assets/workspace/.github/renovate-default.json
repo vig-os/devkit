@@ -6,7 +6,7 @@
   "baseBranchPatterns": ["dev"],
   "rebaseWhen": "conflicted",
   "lockFileMaintenance": {
-    "description": "Interim mechanism for transitive npm vulnerability coverage: a weekly lockfile regeneration picks up in-range fixes for indirect dependencies that never appear in package.json. Alert-driven transitive remediation is unimplemented upstream (renovatebot/renovate#41825) and the former transitiveRemediation option was removed from Renovate. Refs #1041.",
+    "description": "Interim mechanism for transitive npm vulnerability coverage: a weekly lockfile regeneration picks up in-range fixes for indirect dependencies that never appear in package.json. Alert-driven transitive remediation is unimplemented upstream (open idea thread: https://github.com/renovatebot/renovate/discussions/41825) and the former transitiveRemediation option was removed from Renovate. Refs https://github.com/vig-os/devkit/issues/1041.",
     "enabled": true,
     "schedule": ["before 9am on monday"]
   },
