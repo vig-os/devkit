@@ -5,7 +5,8 @@
 # - Sets up the environment (uv, Python deps, BATS) via setup-env
 # - Runs pre-commit linters (ruff, shellcheck, pymarkdown, etc.)
 # - Runs BATS shell script tests
-# - Runs project-level tests (utils, commit-msg, action-pins, prepare-changelog)
+# - Runs the lightweight project tests (all of tests/ except the Nix/image-heavy
+#   modules, which have their own targeted jobs) plus the vig-utils package tests
 # - Generates code coverage report and GitHub Actions job summary (suite: all)
 #
 # Inputs:
@@ -107,8 +108,23 @@ runs:
       env:
         TEST_ARGS: ${{ inputs.test-args }}
       run: |
+        # Run every lightweight shape test under tests/ by default (#1061):
+        # `tests/` minus an explicit, slow-changing deny-list of the heavy
+        # modules that need Nix (flake* / downstream_flake) or a built image +
+        # podman (image / install / integration) and are covered by their own
+        # targeted jobs (nix-checks, test-image, test-integration). New shape-test
+        # files are picked up automatically — no edit to this list required.
         uv run pytest \
-          tests/test_utils.py \
+          tests/ \
+          --ignore=tests/test_downstream_flake.py \
+          --ignore=tests/test_flake_checks.py \
+          --ignore=tests/test_flake_devshell.py \
+          --ignore=tests/test_flake_hooks.py \
+          --ignore=tests/test_flake_modules.py \
+          --ignore=tests/test_flake_services.py \
+          --ignore=tests/test_image.py \
+          --ignore=tests/test_install_script.py \
+          --ignore=tests/test_integration.py \
           packages/vig-utils/tests \
           --cov --cov-report=term-missing --cov-report=xml \
           $TEST_ARGS
