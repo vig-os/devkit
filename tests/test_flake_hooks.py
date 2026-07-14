@@ -187,6 +187,40 @@ class TestPortableRenderFidelity:
             )
 
 
+class TestCommitMsgHookContract:
+    """The commit-message validator's shipped argv (Refs #1019).
+
+    Scope vocabulary is deliberately *not* an allowlist: the standard
+    (``docs/COMMIT_MESSAGE_STANDARD.md``) defines a scope as free-form
+    "alphanumeric and hyphens only", which the validator's subject regex
+    already enforces. Pinning ``--scopes`` here re-introduces the drift that
+    rejected ~49% of the scopes actually in use, and would break the bots the
+    moment Renovate learns a new ecosystem.
+    """
+
+    def test_validate_commit_msg_pins_no_scope_allowlist(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        args = _normalize(rendered_portable["runner"])["hooks"]["validate-commit-msg"][
+            "args"
+        ]
+        assert "--scopes" not in args, (
+            "validate-commit-msg pins a --scopes allowlist; scope is free-form "
+            "per docs/COMMIT_MESSAGE_STANDARD.md (Refs #1019)"
+        )
+
+    def test_validate_commit_msg_still_enforces_types_and_refs(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """Dropping the scope allowlist must not weaken the rest of the rule."""
+        args = _normalize(rendered_portable["runner"])["hooks"]["validate-commit-msg"][
+            "args"
+        ]
+        assert "--types" in args
+        assert "--refs-optional-types" in args
+        assert "--blocked-patterns" in args
+
+
 @pytest.fixture(scope="module")
 def consumer_config() -> dict[str, Any]:
     """Build the generated config for a customized consumer shell."""
