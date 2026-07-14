@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`mkProjectShell` accepts an overridable Python interpreter** ([#1038](https://github.com/vig-os/devkit/issues/1038))
+  - New opt-in `python ? pkgs.python314` argument: `UV_PYTHON` and the bare
+    `python`/`python3` on PATH now follow the override, so a consumer whose
+    nixpkgs C-extension dependency is built against a different CPython ABI
+    (e.g. `pkgs.freecad`, built against the nixpkgs default 3.13) can align the
+    interpreter `uv` pins — `mkProjectShell { python = pkgs.python313; extraPackages = [ pkgs.freecad ]; }`.
+    Omitting the argument is byte-identical to the pinned-3.14 default.
 - **`node` capability module with selectable Node version** ([#1027](https://github.com/vig-os/devkit/issues/1027))
   - `mkProjectShell` gains a `node` capability module: `modules = [ "node" ]`
     puts `nodejs` (which bundles `npm`) in the dev-shell, replacing the
