@@ -46,7 +46,9 @@ from vig_utils.validate_commit_msg import (
 BOT_AUTHOR_SUFFIX = "[bot]"
 
 # Unit/record separators: `git log` field data may contain newlines (a commit
-# body does), so neither delimiter can be a newline.
+# body does), so neither delimiter can be a newline. Assumption: git does not
+# escape these bytes, so a commit body containing a raw \x1f/\x1e would
+# silently misparse -- accepted, as no real-world commit message carries them.
 _FIELD_SEP = "\x1f"
 _RECORD_SEP = "\x1e"
 _GIT_LOG_FORMAT = f"%H{_FIELD_SEP}%an{_FIELD_SEP}%P{_FIELD_SEP}%B{_RECORD_SEP}"
