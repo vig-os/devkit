@@ -9,6 +9,16 @@
 #   - Pull requests to dev, release/**, and main
 #   - Pushes to main (post-merge analysis)
 #   - Weekly schedule (catch newly disclosed patterns)
+#
+# NOTE — GitHub default code-scanning setup: this is an *advanced* CodeQL
+# configuration. GitHub rejects its SARIF uploads while the repository's
+# *default* code-scanning setup is enabled ("CodeQL analyses from advanced
+# configurations cannot be processed when the default setup is enabled").
+# To adopt this workflow, disable the default code-scanning setup
+# (Settings -> Code security -> Code scanning). In a scaffolded consumer the
+# devkit renders the `language:` matrix below to match the repo (Python ->
+# python, Node -> javascript-typescript, Rust omits its leg; `actions` is
+# always analyzed) but never changes the code-scanning API setting for you.
 
 name: CodeQL
 

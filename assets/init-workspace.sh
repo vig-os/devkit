@@ -544,6 +544,72 @@ PRECOMMIT_CONFIG_PREEXISTED=false
 TYPOS_CONFIG_PREEXISTED=false
 [[ -f "$WORKSPACE_DIR/.typos.toml" ]] && TYPOS_CONFIG_PREEXISTED=true
 
+# ── consumer language detection (#1024/#1025) ─────────────────────────────────
+# Managed scaffold statics (.gitignore, .github/workflows/codeql.yml) are
+# Python-shaped by default, which is wrong for Node/Rust consumers and does not
+# survive an upgrade (both files are overwritten). Detect the consumer's
+# language(s) from marker files present in the workspace BEFORE the template
+# copy (rsync never removes them: pyproject.toml is preserved, package.json and
+# Cargo.toml are not in the template), then render those statics per-language
+# after the copy. Detection re-runs on every (re)scaffold, so the result is
+# upgrade-persistent. Empty when no marker is present (language-neutral repo).
+DETECTED_LANGUAGES=()
+[[ -f "$WORKSPACE_DIR/pyproject.toml" ]] && DETECTED_LANGUAGES+=("python")
+[[ -f "$WORKSPACE_DIR/package.json" ]] && DETECTED_LANGUAGES+=("node")
+[[ -f "$WORKSPACE_DIR/Cargo.toml" ]] && DETECTED_LANGUAGES+=("rust")
+
+# Render the managed .gitignore as the language-neutral base (already copied
+# from the template) plus one appended fragment per detected language (#1024).
+# The fragments live beside init-workspace.sh in the image ($SCRIPT_DIR), never
+# under the template, so they are install-time inputs and never leak into the
+# consumer tree. No-op when the base or a fragment is absent.
+render_gitignore() {
+    local gi="$WORKSPACE_DIR/.gitignore"
+    [[ -f "$gi" ]] || return 0
+    local lang frag
+    for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
+        frag="$SCRIPT_DIR/gitignore.d/$lang.gitignore"
+        if [[ -f "$frag" ]]; then
+            printf '\n' >>"$gi"
+            cat "$frag" >>"$gi"
+        fi
+    done
+}
+
+# Rewrite the managed CodeQL language matrix to the detected language(s) (#1025):
+# python -> 'python', node -> 'javascript-typescript', rust -> omitted (CodeQL
+# ships no first-class Rust analyzer). 'actions' is always analyzed, so the
+# matrix is never empty (a marker-less repo analyzes just actions). No-op when
+# the workflow is absent (e.g. it was never scaffolded or was pruned).
+render_codeql_matrix() {
+    local cq="$WORKSPACE_DIR/.github/workflows/codeql.yml"
+    [[ -f "$cq" ]] || return 0
+    local -a langs=()
+    local lang
+    for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
+        case "$lang" in
+            python) langs+=("'python'") ;;
+            node) langs+=("'javascript-typescript'") ;;
+            rust) : ;; # CodeQL rust support caveat (#1025): omit the leg
+        esac
+    done
+    langs+=("'actions'")
+    local joined=""
+    for lang in "${langs[@]}"; do
+        joined="${joined:+$joined, }$lang"
+    done
+    sed -i -E "s|^([[:space:]]*language:).*|\1 [${joined}]|" "$cq"
+    echo "Rendered CodeQL language matrix: [${joined}]"
+    # Preflight note (#1025): the advanced CodeQL config the scaffold ships
+    # cannot coexist with GitHub's *default* code-scanning setup — its uploads
+    # are rejected while default setup is enabled. We never flip that API
+    # setting; the consumer disables default setup deliberately.
+    echo "Note: this advanced CodeQL config conflicts with GitHub's default"
+    echo "      code-scanning setup — disable default setup (Settings -> Code"
+    echo "      security -> Code scanning) or the uploads reject (#1025). This"
+    echo "      scaffold does not change your repo's code-scanning API setting."
+}
+
 # Warn if forcing (prompt user) - show which files would be overwritten
 if [[ "$FORCE" == "true" ]]; then
     echo ""
@@ -982,6 +1048,14 @@ else
         fi
     done
 fi
+
+# Render the language-aware managed statics (#1024/#1025) from the freshly
+# copied template, keyed on the languages detected before the copy. Runs on
+# every (re)scaffold, so the correct .gitignore / codeql matrix is
+# upgrade-persistent. These files carry no placeholders, so ordering after the
+# substitution above is incidental.
+render_gitignore
+render_codeql_matrix
 
 # Persist the resolved manifest (#885). The scaffolded .vig-os is a managed
 # file (template-overwritten on upgrade), so the resolved delivery mode and

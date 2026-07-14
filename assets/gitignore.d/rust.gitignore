@@ -1,0 +1,10 @@
+# ── Rust ──────────────────────────────────────────────────────────────────────
+# Appended to the language-neutral base by init-workspace.sh when a Cargo.toml
+# marks the repo as Rust. Cargo.lock is intentionally NOT ignored (commit it for
+# binaries; libraries may choose to ignore it).
+
+# Cargo build output
+/target/
+
+# Backup files from rustfmt
+**/*.rs.bk

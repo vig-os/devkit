@@ -1,0 +1,17 @@
+# ── Node / TypeScript ─────────────────────────────────────────────────────────
+# Appended to the language-neutral base by init-workspace.sh when a package.json
+# marks the repo as Node/TypeScript.
+#
+# NOTE: no blanket `dist/` ignore — a JS GitHub Action commits its bundled
+# entrypoint (dist/index.js, referenced by action.yml `runs.main`), so ignoring
+# dist/ would silently drop the committed bundle (#1024).
+
+# Dependencies
+node_modules/
+
+# TypeScript incremental build info
+*.tsbuildinfo
+
+# Coverage reports
+coverage/
+.nyc_output/
