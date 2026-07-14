@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.2.0] - TBD
+
+### Added
+
 - **Prepare-release extension hook (`prepare-release-extension.yml`)** ([#1059](https://github.com/vig-os/devkit/issues/1059))
   - New scaffolded reusable workflow (`on: workflow_call`, default no-op) — the *mutating* counterpart to `release-extension.yml`. `prepare-release.yml` calls it after the `release/X.Y.Z` branch is created and before the draft PR to `main` opens, so any commits a consumer's extension pushes to the fresh release branch are in the PR diff from the start. It is a preserved, consumer-owned file (upgrades never clobber it) and receives `version`, `release_branch`, `branch_sha`, `dry_run`, and the git user name/email, with `secrets: inherit` so it can mint the `COMMIT_APP` token to push to the write-protected release branch.
   - The prepare phase is split into jobs (`prepare` → `extension` → `open-pr`) with a single `rollback` job across all of them; an extension failure deletes the partial release branch (erasing its commits) and restores `CHANGELOG.md` on `dev`, reusing the existing rollback logic. The hook contract, dry-run, and rollback semantics are documented in [`docs/DOWNSTREAM_RELEASE.md`](https://github.com/vig-os/devkit/blob/main/docs/DOWNSTREAM_RELEASE.md).
@@ -93,10 +107,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `perf` joins the approved commit-type allowlist in `nix/hooks.nix` (both rendered `.pre-commit-config.yaml` files), `DEFAULT_APPROVED_TYPES` (the default CI's `validate-commit-range` uses), and `docs/COMMIT_MESSAGE_STANDARD.md`. It is a standard [Conventional Commits](https://www.conventionalcommits.org/) type and was already used once in history; before this the live `commit-checks` job would reject the next `perf(...)` commit.
 - **Commit scopes are free-form** ([#1019](https://github.com/vig-os/devkit/issues/1019))
   - The `validate-commit-msg` hook no longer pins an allowlist of commit scopes. The previous five-scope list (`agent,ci,setup,image,vigutils`) rejected 594 of the 1206 scoped commits in history (~49%), including the scopes used by our own bots, and contradicted `docs/COMMIT_MESSAGE_STANDARD.md`, which defines a scope as free-form "alphanumeric and hyphens only". The commit **type**, the `Refs:` line and the agent blocklist remain enforced; only the scope vocabulary is open.
-
-### Deprecated
-
-### Removed
 
 ### Fixed
 
