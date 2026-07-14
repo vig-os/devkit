@@ -28,6 +28,10 @@ repos:
       - id: check-added-large-files
       - id: check-case-conflict
       - id: check-json
+        # The three JSONC scaffold files carry a `//` provenance banner (#1053)
+        # that check-json's strict parser rejects; VS Code / the devcontainer
+        # CLI accept it. Strict-JSON files (renovate.json etc.) stay checked.
+        exclude: (^|/)(\.devcontainer/devcontainer\.json|\.vscode/settings\.json|\.devcontainer/workspace\.code-workspace\.example)$
       - id: check-merge-conflict
       - id: check-symlinks
       - id: check-toml

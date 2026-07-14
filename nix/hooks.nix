@@ -57,6 +57,11 @@ let
 
   # Shared per-hook filters used by more than one artifact of the same hook.
   shellcheckExclude = "(^|/)\\.envrc$";
+  # The three JSONC scaffold files carry a `//` provenance banner (#1053) that
+  # VS Code and the devcontainer CLI accept but check-json's strict parser
+  # rejects. Exclude them from every check-json surface (matched at repo root or
+  # under assets/workspace/); strict-JSON files (renovate.json etc.) stay checked.
+  checkJsonExclude = "(^|/)(\\.devcontainer/devcontainer\\.json|\\.vscode/settings\\.json|\\.devcontainer/workspace\\.code-workspace\\.example)$";
   yamllintArgs = [
     "--format"
     "parsable"
@@ -134,12 +139,16 @@ let
     check-json = {
       repo = "pre-commit-hooks";
       scaffold = true;
-      yaml = { };
+      yaml = {
+        exclude = checkJsonExclude;
+      };
       check = _: {
         enable = true;
+        excludes = [ checkJsonExclude ];
       };
       consumer = _: {
         enable = true;
+        excludes = [ checkJsonExclude ];
       };
     };
     check-merge-conflict = {

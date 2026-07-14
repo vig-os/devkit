@@ -43,6 +43,10 @@ PRESERVED_BANNER: tuple[str, str] = (
 _COMMENT_STYLES: dict[str, tuple[str, str]] = {
     "hash": ("# ", ""),
     "html": ("<!-- ", " -->"),
+    # JSONC (#1053): VS Code and the devcontainer CLI accept `//` line comments
+    # in these config files. The banner sits above the root object; the strict
+    # check-json hook is given an exclude for these paths (nix/hooks.nix).
+    "jsonc": ("// ", ""),
 }
 
 # Every banner sentence, style-independent — used to recognise (and strip) an

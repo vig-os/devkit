@@ -139,14 +139,10 @@ _BANNER_SKIP: frozenset[str] = frozenset(
         ".github/renovate-default.json",
         ".claude/worktrees.json",
         ".pymarkdown",
-        # JSONC: VS Code / the devcontainer CLI accept `//`, but the repo's own
-        # (and the scaffolded) `check-json` hook uses a strict parser with no
-        # exclude for these paths, so a `//` banner would fail check-json both
-        # upstream and downstream. Excluding them means editing the drift-gated
-        # nix/hooks.nix hook set — out of scope for a comment-only change.
-        ".devcontainer/devcontainer.json",
-        ".vscode/settings.json",
-        ".devcontainer/workspace.code-workspace.example",
+        # The three JSONC scaffold files (.devcontainer/devcontainer.json,
+        # .vscode/settings.json, .devcontainer/workspace.code-workspace.example)
+        # DO carry a `//` banner now (#1053): check-json excludes them in
+        # nix/hooks.nix, so they are handled by _banner_style, not skip-listed.
         # Rendered from nix/hooks.nix and drift-gated by tests/test_flake_hooks.py;
         # a post-sync banner would have to be threaded through the Nix render.
         ".pre-commit-config.yaml",
@@ -199,6 +195,11 @@ def _banner_style(rel_path: str) -> str | None:
     name = rel_path.rsplit("/", 1)[-1]
     if name.endswith(".md"):
         return "html"
+    # JSONC scaffold files (#1053): strict-JSON files (renovate.json etc.) are
+    # skip-listed above and never reach here, so any remaining .json / VS Code
+    # workspace file is comment-tolerant and gets the `//` banner.
+    if name.endswith((".json", ".code-workspace", ".code-workspace.example")):
+        return "jsonc"
     if (
         name.endswith((".yml", ".yaml", ".toml", ".sh"))
         or name == ".yamllint"
