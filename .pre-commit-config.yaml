@@ -245,7 +245,6 @@ repos:
         stages: [commit-msg]
         args: [
           "--types", "feat,fix,docs,chore,refactor,test,ci,build,revert,style",
-          "--scopes", "agent,ci,setup,image,vigutils",
           "--refs-optional-types", "chore",
           "--blocked-patterns", ".github/agent-blocklist.toml",
         ]

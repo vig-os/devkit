@@ -610,6 +610,11 @@ let
         pass_filenames = false;
       };
     };
+    # No `--scopes` allowlist: a scope is free-form "alphanumeric and hyphens
+    # only" per docs/COMMIT_MESSAGE_STANDARD.md, which the validator's subject
+    # regex already enforces. The old five-scope pin rejected ~49% of the
+    # scopes in actual use and would break the bots (Renovate invents a scope
+    # per ecosystem) the moment enforcement went live. Refs #1019.
     validate-commit-msg = {
       yaml = {
         name = "validate commit message";
@@ -619,8 +624,6 @@ let
         args = [
           "--types"
           "feat,fix,docs,chore,refactor,test,ci,build,revert,style"
-          "--scopes"
-          "agent,ci,setup,image,vigutils"
           "--refs-optional-types"
           "chore"
           "--blocked-patterns"
