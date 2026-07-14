@@ -5,6 +5,11 @@
   "schedule": ["before 9am on monday"],
   "baseBranchPatterns": ["dev"],
   "rebaseWhen": "conflicted",
+  "lockFileMaintenance": {
+    "description": "Interim mechanism for transitive npm vulnerability coverage: a weekly lockfile regeneration picks up in-range fixes for indirect dependencies that never appear in package.json. Alert-driven transitive remediation is unimplemented upstream (renovatebot/renovate#41825) and the former transitiveRemediation option was removed from Renovate. Refs #1041.",
+    "enabled": true,
+    "schedule": ["before 9am on monday"]
+  },
   "gitIgnoredAuthors": ["41898282+github-actions[bot]@users.noreply.github.com"],
   "packageRules": [
     {

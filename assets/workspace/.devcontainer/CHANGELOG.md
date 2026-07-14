@@ -45,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Interim transitive npm vulnerability coverage via weekly lockfile maintenance** ([#1041](https://github.com/vig-os/devkit/issues/1041))
+  - The Renovate preset never touched transitive npm dependencies, so vulnerabilities in packages only reachable through a parent (12 of 21 alerts in the `commit-action` pilot, including the only critical) were neither reported nor remediated. The preset now enables `lockFileMaintenance` (weekly, same Monday cadence), which regenerates the lockfile and picks up in-range fixes for indirect dependencies. This is an **interim** mechanism, not a full fix: alert-driven transitive remediation is unimplemented upstream ([renovatebot/renovate#41825](https://github.com/renovatebot/renovate/discussions/41825)) and the former `transitiveRemediation` option was removed from Renovate. devkit's own `renovate.json` drops its now-duplicated `lockFileMaintenance` block and inherits it from the preset.
+
 - **Renovate preset groups npm updates instead of one PR per package** ([#1047](https://github.com/vig-os/devkit/issues/1047))
   - The scaffolded `renovate-default.json` gave `github-actions` and `pep621` a `groupName` but left `npm` ungrouped, so npm consumers got one PR per package — each touching `package-lock.json` and `CHANGELOG.md`, so they conflicted pairwise and were effectively unlandable serially. npm now gets two grouping rules matching the other managers' style: `devDependencies` group across all update types ("npm dev dependencies"), and runtime `dependencies` minor/patch ("npm (minor and patch)") with majors staying as individual PRs. The existing `build(npm)` semantic-commit rule still applies to every npm PR (Renovate merges matching `packageRules` in order).
 
