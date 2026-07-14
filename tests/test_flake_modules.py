@@ -4,10 +4,12 @@
 (see ``docs/rfcs/ADR-capability-modules.md``). Each shipped module is exposed
 as a per-system flake check ``checks.<system>.module-<name>`` (generated from
 the ``nix/modules/`` registry), which doubles as the entry point here: these
-tests ``nix develop`` the ``native`` module's shell and assert its contract —
-the C/C++ toolchain is on the shell's own PATH, generic ``CC``/``CXX`` are
-exported, and a trivial setuptools C-extension sdist builds and installs with
-``uv`` (the pycatima-class scenario from #639/#879 that motivated the module).
+tests ``nix develop`` a module's shell and assert its contract. For ``native``
+(#884): the C/C++ toolchain is on the shell's own PATH, generic ``CC``/``CXX``
+are exported, and a trivial setuptools C-extension sdist builds and installs
+with ``uv`` (the pycatima-class scenario from #639/#879). For ``node`` (#1027):
+``node`` + bundled ``npm`` resolve, and the ``{ name = "node"; version = …; }``
+per-module-options form pins the Node major (the mechanism the ADR deferred).
 
 The zero-module parity guarantee (the default dev-shell is byte-identical to
 the pre-module builder) is covered by ``tests/test_flake_devshell.py`` staying
@@ -162,4 +164,160 @@ def test_native_module_builds_c_extension_sdist_with_uv(
     assert proc.returncode == 0 and "sdist-ok" in proc.stdout, (
         "uv sdist build/install failed inside the native-module devshell: "
         f"rc={proc.returncode}\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr[-2000:]}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# node module (#1027) — the Node/TypeScript capability. v1 contract (packages
+# only): `nodejs` (which bundles npm) in the dev-shell, with a selectable major
+# version via the ADR's per-module-options migration path — a `modules` entry
+# may be `{ name = "node"; version = 20; }` (attrset) alongside the plain
+# `"node"` string (nixpkgs default). See docs/rfcs/ADR-capability-modules.md.
+# ---------------------------------------------------------------------------
+
+
+def _develop_module(
+    current_system: str, module: str, script: str, *, timeout: int = 1800
+) -> subprocess.CompletedProcess[str]:
+    """Run a bash script inside the generated ``module-<module>`` devshell.
+
+    Purity guard (``--ignore-environment``, keeping only HOME) as in
+    ``_develop_native``: the assertions must exercise the module's OWN PATH
+    contribution and never be satisfied by a host toolchain leaking through.
+    """
+    return subprocess.run(
+        [
+            "nix",
+            "develop",
+            "--ignore-environment",
+            "--keep",
+            "HOME",
+            f"{REPO_ROOT}#checks.{current_system}.module-{module}",
+            "-c",
+            "bash",
+            "-c",
+            script,
+        ],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=timeout,
+    )
+
+
+def _develop_expr(
+    expr: str, script: str, *, timeout: int = 1800
+) -> subprocess.CompletedProcess[str]:
+    """Run a bash script inside an ad-hoc devshell built from a Nix expression.
+
+    Used for the versioned module form, which the registry-generated
+    ``module-node`` check (plain-string default) cannot express: it builds
+    ``flake.lib.mkProjectShell`` directly with an attrset ``modules`` entry.
+    ``--impure`` is required for ``builtins.getFlake`` on the local path.
+    """
+    return subprocess.run(
+        [
+            "nix",
+            "develop",
+            "--impure",
+            "--ignore-environment",
+            "--keep",
+            "HOME",
+            "--expr",
+            expr,
+            "-c",
+            "bash",
+            "-c",
+            script,
+        ],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=timeout,
+    )
+
+
+def test_node_module_provides_node_and_npm(current_system: str) -> None:
+    """The ``node`` module puts ``node`` and its bundled ``npm`` on PATH (#1027).
+
+    The plain-string ``modules = [ "node" ]`` form (exercised through the
+    registry-generated ``module-node`` check) contributes the nixpkgs-default
+    ``nodejs``, which bundles ``npm`` — both must resolve from the shell's own
+    PATH, not the host's.
+    """
+    proc = _develop_module(
+        current_system,
+        "node",
+        "command -v node && command -v npm && node --version && npm --version",
+    )
+    assert proc.returncode == 0, (
+        "node-module devshell is missing node/npm: "
+        f"rc={proc.returncode} stdout={proc.stdout.strip()!r} "
+        f"stderr={proc.stderr.strip()[:300]}"
+    )
+
+
+def test_node_module_version_option_pins_major(current_system: str) -> None:
+    """``{ name = "node"; version = 20; }`` selects ``pkgs.nodejs_20`` (#1027).
+
+    The per-module-options migration path the ADR deferred: an attrset entry
+    carries a ``version`` that maps to ``pkgs.nodejs_<major>``. Build that shell
+    directly (the registry check only covers the default form) and assert the
+    running interpreter is the pinned major.
+    """
+    expr = f"""
+    let
+      flake = builtins.getFlake "path:{REPO_ROOT}";
+      system = builtins.currentSystem;
+      pkgs = import flake.inputs.nixpkgs {{
+        inherit system;
+        overlays = [ flake.overlays.default ];
+        config.allowUnfree = true;
+      }};
+    in flake.lib.mkProjectShell {{
+      inherit pkgs;
+      modules = [ {{ name = "node"; version = 20; }} ];
+    }}
+    """
+    proc = _develop_expr(expr, "node --version")
+    assert proc.returncode == 0, (
+        f"failed to build/enter the versioned node devshell: {proc.stderr[-500:]}"
+    )
+    got = proc.stdout.strip().splitlines()[-1] if proc.stdout else ""
+    assert got.startswith("v20."), (
+        f"node module version=20 must run Node 20.x; got {got!r}"
+    )
+
+
+def test_node_module_rejects_unknown_option(current_system: str) -> None:
+    """An unrecognized module option fails at eval time with a clear message (#1027).
+
+    The options mechanism is intentionally strict: only keys the module declares
+    are accepted, so a mistyped or unsupported knob (here ``channel``) is a hard
+    eval error, never a silently-ignored no-op.
+    """
+    expr = f"""
+    let
+      flake = builtins.getFlake "path:{REPO_ROOT}";
+      system = builtins.currentSystem;
+      pkgs = import flake.inputs.nixpkgs {{
+        inherit system;
+        overlays = [ flake.overlays.default ];
+        config.allowUnfree = true;
+      }};
+    in (flake.lib.mkProjectShell {{
+      inherit pkgs;
+      modules = [ {{ name = "node"; channel = 20; }} ];
+    }}).drvPath
+    """
+    result = subprocess.run(
+        ["nix", "eval", "--impure", "--expr", expr],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=300,
+    )
+    assert result.returncode != 0, "unknown node option must fail eval, not pass"
+    assert "channel" in result.stderr and "node" in result.stderr, (
+        f"error must name the offending option and module; got: {result.stderr[-500:]}"
     )
