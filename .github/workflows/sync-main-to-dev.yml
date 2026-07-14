@@ -107,6 +107,8 @@ jobs:
           client-id: ${{ secrets.COMMIT_APP_CLIENT_ID }}
           private-key: ${{ secrets.COMMIT_APP_PRIVATE_KEY }}
 
+      # No `ref:` needed — checkout only resolves ./.github/actions/setup-env;
+      # every later git op targets origin/main / origin/dev explicitly (#1081).
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
         with:

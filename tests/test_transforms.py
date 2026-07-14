@@ -7,6 +7,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 scripts_dir = Path(__file__).parent.parent / "scripts"
 project_root = scripts_dir.parent
 sys.path.insert(0, str(project_root))
@@ -277,6 +279,20 @@ class TestBannerTransform:
         # The old preserved banner must be gone, not stacked.
         assert transforms.PRESERVED_BANNER[0] not in text
         assert text.count("vig-os/devkit/issues") == 1
+
+
+class TestStripBanner:
+    """``strip_banner`` (#1076): header splitting depends on the comment style.
+
+    A defaulted ``style="html"`` would silently split hash-style files wrong
+    (no shebang / YAML doc-start handling) for callers that forget the kwarg,
+    so the argument must be explicit.
+    """
+
+    def test_style_argument_is_required(self):
+        transforms = _load_transforms()
+        with pytest.raises(TypeError):
+            transforms.strip_banner("<!-- banner -->\n\nbody\n")
 
 
 class TestRemovePrecommitHooks:

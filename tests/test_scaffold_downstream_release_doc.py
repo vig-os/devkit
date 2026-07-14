@@ -58,4 +58,4 @@ def test_scaffold_doc_matches_root_sssot() -> None:
     root = (REPO_ROOT / DOC_RELPATH).read_text(encoding="utf-8")
     scaffold = (WORKSPACE / DOC_RELPATH).read_text(encoding="utf-8")
     strip_banner = _load_transforms().strip_banner
-    assert strip_banner(scaffold) == root
+    assert strip_banner(scaffold, style="html") == root

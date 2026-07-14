@@ -154,6 +154,21 @@ class TestValidateTitle:
     def test_title_does_not_require_refs(self) -> None:
         assert validate_title("feat(ci): add a lane") is None
 
+    def test_refs_requiring_type_is_exempt_end_to_end(self) -> None:
+        """A Refs-requiring type is safe as a title (#1074).
+
+        ``docs`` is not in DEFAULT_REFS_OPTIONAL_TYPES, yet a bare ``docs:``
+        title must pass: the --no-ff merge commit it becomes on dev is skipped
+        by validate_commits (``is_merge``), so it never faces the Refs rule.
+        The same subject as a plain human commit still fails -- the exemption
+        reaches merge commits only.
+        """
+        title = "docs: update readme"
+        assert validate_title(title) is None
+        merge = _commit(message=title, parents=("b" * 40, "c" * 40))
+        assert validate_commits([merge]) == []
+        assert len(validate_commits([_commit(message=title)])) == 1
+
 
 class TestParseGitLog:
     """The %H/%an/%P/%B record parser feeding validate_commits from CI."""

@@ -46,7 +46,9 @@ from vig_utils.validate_commit_msg import (
 BOT_AUTHOR_SUFFIX = "[bot]"
 
 # Unit/record separators: `git log` field data may contain newlines (a commit
-# body does), so neither delimiter can be a newline.
+# body does), so neither delimiter can be a newline. Assumption: git does not
+# escape these bytes, so a commit body containing a raw \x1f/\x1e would
+# silently misparse -- accepted, as no real-world commit message carries them.
 _FIELD_SEP = "\x1f"
 _RECORD_SEP = "\x1e"
 _GIT_LOG_FORMAT = f"%H{_FIELD_SEP}%an{_FIELD_SEP}%P{_FIELD_SEP}%B{_RECORD_SEP}"
@@ -145,6 +147,13 @@ def validate_title(
     valid, error = validate_commit_message(
         title,
         approved_types=approved_types,
+        # Deliberately looser than full commit validation, where only
+        # DEFAULT_REFS_OPTIONAL_TYPES ({chore}) may omit Refs: every approved
+        # type is Refs-optional for a title. This is safe because the merge
+        # commit the title becomes on dev is exempt from Refs enforcement
+        # downstream -- validate_commits() skips merges (`commit.is_merge`),
+        # CI's commit-checks job is the only re-validator of history, and the
+        # commit-msg hook never fires on GitHub's server-side merges.
         refs_optional_types=approved_types,
         blocked_patterns=blocked_patterns,
     )
