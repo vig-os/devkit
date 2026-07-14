@@ -239,6 +239,44 @@ def apply_banners(dest_base: Path, preserve_files: set[str]) -> None:
         Banner(preserved=rel_path in preserve_files, style=style).apply(path)
 
 
+# ── Seed inputs outside assets/workspace/ (issue #1055) ───────────────────────
+#
+# init-workspace.sh copies a few INSTALL-TIME inputs that live beside it (not
+# under assets/workspace/, so apply_banners never walks them) into a consumer's
+# tree on a first scaffold. They must carry the same generated banner as the
+# file they seed. Each entry maps the seed's repo-relative path to the
+# PRESERVE_FILES target it feeds, so the managed/preserved variant is DERIVED
+# from that target (never hand-typed) and cannot drift from every other file.
+#
+# gitignore fragments (assets/gitignore.d/*.gitignore) are deliberately NOT
+# here: they are APPENDED into the managed `.gitignore`, whose base already
+# opens with the managed banner (apply_banners stamps it), so a per-fragment
+# banner would only inject a stray comment block into the middle of the
+# assembled file. The assembled `.gitignore` is banner-covered; the fragments
+# need none.
+_SEED_BANNERS: dict[str, tuple[str, str]] = {
+    # node.justfile.project seeds a Node consumer's first-scaffold
+    # justfile.project (a PRESERVE_FILE), replacing the uv template that already
+    # carries the preserved banner — so this seed must carry it too (#1055).
+    "assets/justfile.d/node.justfile.project": ("justfile.project", "hash"),
+}
+
+
+def apply_seed_banners(project_root: Path, preserve_files: set[str]) -> None:
+    """Stamp banners onto seed inputs outside assets/workspace/ (#1055).
+
+    The variant is derived from the PRESERVE_FILES target each seed feeds, the
+    same SSoT apply_banners uses, so the two never diverge. Stamped in place in
+    the repo (the seed is a committed install-time input) and idempotent, so the
+    sync-manifest hook regenerates it and fails on any hand-edit or omission.
+    """
+    for rel, (target, style) in _SEED_BANNERS.items():
+        path = project_root / rel
+        if not path.is_file():
+            continue
+        Banner(preserved=target in preserve_files, style=style).apply(path)
+
+
 # ── Sync logic ───────────────────────────────────────────────────────────────
 
 
@@ -285,7 +323,10 @@ def sync(project_root: Path, dest_base: Path) -> None:
 
     # Stamp provenance banners over the whole tree (manifest-synced and
     # directly-authored assets alike), variant driven by PRESERVE_FILES (#1036).
-    apply_banners(dest_base, load_preserve_files(project_root / _INIT_WORKSPACE))
+    preserve_files = load_preserve_files(project_root / _INIT_WORKSPACE)
+    apply_banners(dest_base, preserve_files)
+    # Seed inputs live outside assets/workspace/, so stamp them separately (#1055).
+    apply_seed_banners(project_root, preserve_files)
 
     print("All manifest entries synced successfully.")
 
