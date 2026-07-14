@@ -240,6 +240,21 @@ class TestCommitMsgHookContract:
         assert "prepare-commit-msg-strip-trailers" in scaffold
         assert scaffold["validate-commit-msg"]["stages"] == ["commit-msg"]
 
+    def test_agent_identity_hook_is_scaffolded(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """Consumers guard the commit *author*, not only the message. Refs #1031.
+
+        ``check-agent-identity`` is the only hook of the #163 pipeline that
+        catches ``git commit --author="Claude <...>"``; the two commit-msg
+        hooks scaffolded in #1026 guard the message text alone. Without this
+        hook in the consumer render, a scaffolded repo rejects an
+        AI-attributed *message* while accepting an AI-authored *commit* — the
+        exact false guarantee its COMMIT_MESSAGE_STANDARD.md promises against.
+        """
+        scaffold = _normalize(rendered_portable["scaffold"])["hooks"]
+        assert "check-agent-identity" in scaffold
+
 
 @pytest.fixture(scope="module")
 def consumer_config() -> dict[str, Any]:
