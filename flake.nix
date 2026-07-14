@@ -235,6 +235,7 @@
       #     modules = [ "native" ];           # opt-in capability modules (#884)
       #     extraPackages = [ pkgs.foo ];
       #     hooks = { pymarkdown.enable = false; };  # opt-in generated hooks (#883)
+      #     python = pkgs.python313;          # override the pinned interpreter (#1038)
       #   };
       mkProjectShell =
         {
@@ -244,6 +245,14 @@
           hooks ? null,
           hooksExcludes ? [ ],
           shellHook ? ''echo "devcontainer dev environment loaded (nix)"'',
+          # Overridable CPython (#1038). Defaults to the pinned 3.14 so the
+          # zero-argument shell is byte-identical to the pre-#1038 builder
+          # (parity: tests/test_flake_devshell.py). A consumer whose nixpkgs
+          # C-extension dependency is built against a different CPython ABI
+          # (e.g. `pkgs.freecad`, built against the nixpkgs default Python 3.13)
+          # overrides it so uv pins the matching interpreter — see the UV_PYTHON
+          # derivation below, which follows this argument.
+          python ? pkgs.python314,
         }:
         let
           # ------------------------------------------------------------------
@@ -408,16 +417,17 @@
           # uv and cannot drift from a literal pin. Refs #632, #666, #683, #774.
           uvPythonDownloadsJsonUrl = "https://raw.githubusercontent.com/astral-sh/uv/${pkgs.uv.version}/crates/uv-python/download-metadata.json";
 
-          # CPython matching `requires-python` (>=3.14,<3.15). The dev-shell
-          # carries no Python on PATH (the project venv is uv-managed). Pin a
-          # Nix store CPython via UV_PYTHON and forbid downloads
-          # (UV_PYTHON_DOWNLOADS=never): the nixpkgs uv would otherwise fetch a
-          # generic, dynamically-linked managed CPython a NixOS host cannot
-          # execute out of the box (no FHS ld-linux), so `uv sync` (`just init`)
-          # aborted there (#683). A store interpreter is patched to the store
-          # loader and runs in the dev-shell on both NixOS and FHS hosts. The
-          # IMAGE path sets the same two vars (baking pythonEnv). Refs #666, #683.
-          python = pkgs.python314;
+          # The interpreter (default 3.14, matching `requires-python`
+          # >=3.14,<3.15; overridable via the `python` argument, #1038) is
+          # pinned into the shell: the dev-shell carries no Python on PATH other
+          # than this one (the project venv is uv-managed). Pin the store CPython
+          # via UV_PYTHON and forbid downloads (UV_PYTHON_DOWNLOADS=never): the
+          # nixpkgs uv would otherwise fetch a generic, dynamically-linked
+          # managed CPython a NixOS host cannot execute out of the box (no FHS
+          # ld-linux), so `uv sync` (`just init`) aborted there (#683). A store
+          # interpreter is patched to the store loader and runs in the dev-shell
+          # on both NixOS and FHS hosts. The IMAGE path sets the same two vars
+          # (baking pythonEnv). Refs #666, #683.
 
           # The C++ runtime (libstdc++.so.6). The `pymarkdown` pre-commit hook
           # runs from pre-commit's OWN manylinux-wheel Python env (not the project
@@ -459,6 +469,20 @@
           nvimIsolationHook = ''
             export NVIM_APPNAME="vigos-dev"
           '';
+
+          # When the interpreter is overridden (#1038), prepend it to PATH so the
+          # bare `python`/`python3` follow the override too — not just uv's
+          # `UV_PYTHON` pin. `vig-utils` (a devTools entry) is built against the
+          # devkit's own pinned 3.14 and propagates that interpreter onto PATH,
+          # which would otherwise shadow the overridden `python3`. `vig-utils`
+          # must stay on 3.14 (its own code targets the pinned interpreter), so
+          # the override wins by PATH order rather than by rebuilding the tool.
+          # Empty for the default interpreter, so the zero-override shellHook is
+          # byte-identical to the pre-#1038 builder (parity:
+          # tests/test_flake_devshell.py).
+          pythonOverrideHook = pkgs.lib.optionalString (python != pkgs.python314) ''
+            export PATH="${python}/bin:$PATH"
+          '';
         in
         pkgs.mkShell (
           # Module env first: the builder's attrset below wins any collision,
@@ -487,9 +511,20 @@
               ++ extraPackages
               ++ modulePackages;
             shellHook =
-              ldLibraryPathHook + "\n" + nvimIsolationHook + "\n" + moduleShellHook + hooksShellHook + shellHook;
+              ldLibraryPathHook
+              + "\n"
+              + nvimIsolationHook
+              + "\n"
+              + pythonOverrideHook
+              + moduleShellHook
+              + hooksShellHook
+              + shellHook;
 
-            UV_PYTHON = "${python}/bin/python3.14";
+            # `python.executable` is the interpreter's own binary name
+            # (`python3.14` for the default, `python3.13` under an override), so
+            # UV_PYTHON follows the `python` argument (#1038) instead of a
+            # hardcoded 3.14 string.
+            UV_PYTHON = "${python}/bin/${python.executable}";
             UV_PYTHON_DOWNLOADS = "never";
 
             # Resolve the bats helper libraries from the Nix store. The wrapper
