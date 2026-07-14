@@ -162,11 +162,6 @@ _BANNER_SKIP: frozenset[str] = frozenset(
         # flake.nix is consumer-owned/preserved and deferred to avoid nix-format
         # churn on re-sync.
         "flake.nix",
-        # Personal, gitignored starter whose own header already claims (wrongly)
-        # to be preserved even though it is absent from PRESERVE_FILES;
-        # reclassifying it is a separate decision, so it is skipped rather than
-        # handed a contradictory managed banner.
-        "justfile.local",
     }
 )
 

@@ -1,5 +1,8 @@
+# Seeded by vigOS devkit — yours to edit; upgrades never overwrite this file.
+# Bugs / missing tools: https://github.com/vig-os/devkit/issues
+
 # ===============================================================================
 # LOCAL RECIPES - Personal customizations
-# This file is gitignored and preserved during devcontainer upgrades.
+# This file is gitignored (personal, per-machine).
 # Add personal recipes here that only you need on your machine.
 # ===============================================================================

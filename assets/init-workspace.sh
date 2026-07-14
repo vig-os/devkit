@@ -70,6 +70,11 @@ PRESERVE_FILES=(
     ".github/CODEOWNERS"
     ".github/workflows/release-extension.yml"
     "justfile.project"
+    # Personal, gitignored recipes (#1054): the file's own header promises it is
+    # preserved on upgrade, but it was absent here — so a re-scaffold silently
+    # overwrote personal recipes. Align the mechanism with the promise (same
+    # silent-clobber class as justfile.project/#878/#913).
+    "justfile.local"
     "renovate.json"
     # direnv/flake stub (#640): the user owns the extraPackages block, so a
     # dev-env upgrade must never clobber it — same class as justfile.project.

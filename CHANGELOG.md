@@ -94,6 +94,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`justfile.local` is now preserved on upgrade** ([#1054](https://github.com/vig-os/devkit/issues/1054))
+  - The scaffolded `justfile.local` (personal, gitignored recipes) shipped a header claiming it was preserved during upgrades, but it was absent from `PRESERVE_FILES` — so a re-scaffold silently overwrote personal recipes (same silent-clobber class as #878/#913). It is now in `PRESERVE_FILES`, receives the **preserved** banner variant, and its hand-written header no longer restates the provenance claim the banner owns.
 - **Scaffold ships `docs/DOWNSTREAM_RELEASE.md`** ([#1046](https://github.com/vig-os/devkit/issues/1046))
   - The scaffolded `promote-release.yml` header points at `docs/DOWNSTREAM_RELEASE.md` — the consumer's primary release-process documentation — but the scaffold never shipped it, leaving every consumer with a dangling reference. The doc is now a manifest-synced managed file (root copy is the SSoT), so the reference resolves inside consumer repos and refreshes on scaffold upgrades.
 - **Interim transitive npm vulnerability coverage via weekly lockfile maintenance** ([#1041](https://github.com/vig-os/devkit/issues/1041))
