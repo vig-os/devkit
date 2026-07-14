@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-13T12:24:25Z
-updated: 2026-07-13T12:24:25Z
+updated: 2026-07-13T16:17:34Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1016
-comments: 0
+comments: 1
 labels: bug
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-13T15:17:51.271Z
+synced: 2026-07-14T04:57:29.069Z
 ---
 
 # [Issue 1016]: [fix(ci): scaffolded workflow_call workflows do not declare inherited secrets](https://github.com/vig-os/devkit/issues/1016)
@@ -39,3 +39,13 @@ block of both files so a scaffolded consumer lints clean.
 secrets are ambient and need no declaration.
 
 Refs: #988
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 13, 2026 at 04:17 PM_
+
+Fixed by #1018 (commit `cf9f473e` — `fix(ci): declare inherited secrets in scaffolded workflow_call workflows`), released in [1.1.0](https://github.com/vig-os/devkit/releases/tag/1.1.0).
+
+`release-publish.yml` and `release-core.yml` now declare their inherited secrets in the `workflow_call: secrets:` block, so a scaffolded consumer gets a clean `actionlint` run out of the box. Covered by the RED test in `9ac584c2`.
+

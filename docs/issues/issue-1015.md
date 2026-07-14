@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-13T12:24:24Z
-updated: 2026-07-13T12:24:24Z
+updated: 2026-07-13T16:17:31Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1015
-comments: 0
+comments: 1
 labels: bug
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-13T15:17:51.531Z
+synced: 2026-07-14T04:57:29.449Z
 ---
 
 # [Issue 1015]: [fix(workspace): install.sh "Next steps" message is not mode-filtered for direnv](https://github.com/vig-os/devkit/issues/1015)
@@ -41,3 +41,13 @@ Cosmetic (nothing breaks), but the upcoming `commit-action` pilot runs in
 direnv mode and will hit this on first install.
 
 Refs: #988
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 13, 2026 at 04:17 PM_
+
+Fixed by #1018 (commit `e129112f` — `fix(workspace): mode-filter the install.sh next-steps message`), released in [1.1.0](https://github.com/vig-os/devkit/releases/tag/1.1.0).
+
+A `direnv` install now prints the direnv entrypoint (`direnv allow` / `nix develop`) instead of pointing at a `.devcontainer/` the scaffold never created. Covered by the RED test in `0778aa8d`.
+
