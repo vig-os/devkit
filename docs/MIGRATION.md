@@ -117,6 +117,14 @@ Container-independent workflows keep working in every mode: `codeql.yml`,
 `scorecard.yml`, `renovate-changelog-commit.yml`, and the project-owned,
 host-native `release-extension.yml`.
 
+`codeql.yml` and `scorecard.yml` additionally guard their analysis job with
+`if: ${{ !github.event.repository.private }}`
+([#1039](https://github.com/vig-os/devkit/issues/1039)): neither scan can succeed
+on a private repo (CodeQL needs GitHub Advanced Security, unavailable on
+Free-plan private repos; OpenSSF Scorecard is public-only), so private consumers
+get a skipped (neutral) run instead of a permanently red one. A repo later
+flipped public starts scanning automatically, with no re-scaffold.
+
 ## The `.vig-os` project manifest
 
 Since [#885](https://github.com/vig-os/devkit/issues/885), `.vig-os` is
@@ -307,6 +315,31 @@ packages, so the build backend compiles against the exact Geant4/ROOT revision
 pinned by the project's `flake.lock`. This is why the answer to "the build
 needs gcc" is the flake, not the image: the same mechanism scales from a bare
 compiler to a full scientific stack.
+
+#### Overriding the Python interpreter for ABI alignment
+
+`mkProjectShell` pins CPython 3.14 by default. A nixpkgs-provided package with a
+compiled Python binding is built against **nixpkgs' own default CPython**, not
+the devkit's 3.14 — so importing it from the 3.14 interpreter fails with an ABI
+mismatch, and `extraPackages` alone cannot fix it (it adds the package to the
+shell but cannot change the interpreter `uv` pins). Pass the matching
+interpreter as `python` to align them
+([#1038](https://github.com/vig-os/devkit/issues/1038)):
+
+```nix
+devShells.default = vigos.lib.mkProjectShell {
+  inherit pkgs;
+  python = pkgs.python313; # match freecad's ABI (nixpkgs default CPython)
+  extraPackages = [ pkgs.freecad ];
+};
+```
+
+The override flows through the whole shell: `UV_PYTHON` (so `uv sync` builds the
+venv against 3.13), and the bare `python`/`python3` on PATH. `pkgs.freecad`'s
+`import FreeCAD` then works from the project venv. Omit the argument and the
+shell is byte-identical to the pinned-3.14 default — this is a per-project escape
+hatch for compiled nixpkgs bindings (FreeCAD today; Geant4/ROOT Python bindings
+later), not a general downgrade knob.
 
 #### Non-goal: a C/C++ toolchain in the base image
 

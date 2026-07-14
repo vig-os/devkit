@@ -61,6 +61,7 @@ jobs:
       mode: ${{ steps.resolve.outputs.mode }}
       image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
+      tag-prefix: ${{ steps.resolve.outputs.tag-prefix }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
@@ -96,6 +97,7 @@ jobs:
       toolchain_mode: ${{ needs.resolve-toolchain.outputs.mode }}
       toolchain_image: ${{ needs.resolve-toolchain.outputs.image }}
       devkit_version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+      tag_prefix: ${{ needs.resolve-toolchain.outputs.tag-prefix }}
     secrets: inherit
 
   extension:
@@ -132,6 +134,7 @@ jobs:
       toolchain_mode: ${{ needs.resolve-toolchain.outputs.mode }}
       toolchain_image: ${{ needs.resolve-toolchain.outputs.image }}
       devkit_version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+      tag_prefix: ${{ needs.resolve-toolchain.outputs.tag-prefix }}
     secrets: inherit
 
   rollback:

@@ -13,6 +13,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Every comment-capable file scaffolded into a downstream repo now carries a two-line banner stating that devkit manages the file, whether an upgrade overwrites it, and where to file bugs / missing tools. The banner comes in two variants — **managed** (regenerated on upgrade) and **preserved** (seeded once, yours to edit) — chosen automatically from `PRESERVE_FILES` (the SSoT in `init-workspace.sh`) by a new `Banner` transform wired into `sync_manifest.py`, so the classification cannot drift from a hand-typed copy. The `sync-manifest` pre-commit hook regenerates the banners on every commit and fails on any hand-edited or missing one.
   - The banner carries **no version string** (`.vig-os` remains the version SSoT), so it stays byte-stable across releases and never floods upgrade diffs. Strict-JSON files (`renovate.json`, `.github/renovate-default.json`, `.claude/worktrees.json`, `.pymarkdown`) and a small documented set of other files (JSONC under the strict `check-json` hook, the render-gated `.pre-commit-config.yaml`, changelogs, `.vig-os`, `LICENSE`) are explicitly skipped; coverage is knowingly partial.
   - The stale `justfile.devc` banner — which pointed at the root `justfile` that an upgrade overwrites — is corrected to point at `justfile.project`.
+- **Opt-in floating major/minor tags at promote (`DEVKIT_FLOATING_TAGS`)** ([#1045](https://github.com/vig-os/devkit/issues/1045))
+  - New optional `.vig-os` key (comma-separated subset of `major,minor`; empty =
+    off) makes the scaffolded `promote-release.yml` force-move `<prefix>X` and/or
+    `<prefix>X.Y` to the promoted final-release commit, giving Action consumers the
+    standard `uses: owner/repo@v0` pinning contract with promote-gated moves.
+  - A new `floating-tags` job runs only after the Release is published and the
+    release PR is merged (the post-acceptance gate); it is idempotent (skips when a
+    tag already points at the release commit), final-only, composes with
+    `DEVKIT_TAG_PREFIX`, and pushes with the RELEASE_APP token so a tag ruleset can
+    make floating-tag moves app-exclusive. Off by default — no change for devkit or
+    existing consumers.
+- **Per-repo release tag prefix (`DEVKIT_TAG_PREFIX`)** ([#1044](https://github.com/vig-os/devkit/issues/1044))
+  - New optional `.vig-os` key threads a tag prefix through the scaffolded release
+    pipeline, applied **only at the publishing edge** — the pushed git tag name and
+    the changelog release link. Absent/empty reproduces today's bare `X.Y.Z` tags
+    byte-for-byte (no change for devkit or existing consumers); Action-publishing
+    repos set `v` for the `actions/checkout@v5` ecosystem convention.
+  - `resolve-toolchain` reads the key and emits a `tag-prefix` output; `release.yml`
+    threads it into `release-core.yml`/`release-publish.yml`, and it composes into
+    the RC-discovery pattern, publish tag, `tag_state` check, `gh release create`,
+    the `prepare-release` tag-existence guard, and the `promote-release` release/RC
+    validation and cleanup. The `version` input, `release/X.Y.Z` branch name, and
+    `## [X.Y.Z]` freeze heading stay bare everywhere.
+  - `prepare-changelog finalize` gains `--tag-prefix`, prefixing both the release
+    link URL and the displayed heading (`## [v0.3.0](…/tag/v0.3.0) - DATE`); an
+    empty prefix is byte-identical to prior output.
+- **Scaffolded security-scan workflows skip on private repos** ([#1039](https://github.com/vig-os/devkit/issues/1039))
+  - `codeql.yml` and `scorecard.yml` now guard their analysis job with
+    `if: ${{ !github.event.repository.private }}`. Neither scan can ever succeed
+    on a private repo — CodeQL needs GitHub Advanced Security (unavailable on
+    Free-plan private repos) and OpenSSF Scorecard is public-only — so a private
+    consumer previously scaffolded two permanently red workflows. Private repos
+    now get a skipped (neutral) run; a repo later flipped public starts scanning
+    automatically with no re-scaffold. Public consumers are unaffected. The guard
+    is valid on every declared trigger (`pull_request`, `push`, `schedule`).
+- **`mkProjectShell` accepts an overridable Python interpreter** ([#1038](https://github.com/vig-os/devkit/issues/1038))
+  - New opt-in `python ? pkgs.python314` argument: `UV_PYTHON` and the bare
+    `python`/`python3` on PATH now follow the override, so a consumer whose
+    nixpkgs C-extension dependency is built against a different CPython ABI
+    (e.g. `pkgs.freecad`, built against the nixpkgs default 3.13) can align the
+    interpreter `uv` pins — `mkProjectShell { python = pkgs.python313; extraPackages = [ pkgs.freecad ]; }`.
+    Omitting the argument is byte-identical to the pinned-3.14 default.
 - **`node` capability module with selectable Node version** ([#1027](https://github.com/vig-os/devkit/issues/1027))
   - `mkProjectShell` gains a `node` capability module: `modules = [ "node" ]`
     puts `nodejs` (which bundles `npm`) in the dev-shell, replacing the
@@ -48,6 +90,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 ### Fixed
+
+- **Scaffold ships `docs/DOWNSTREAM_RELEASE.md`** ([#1046](https://github.com/vig-os/devkit/issues/1046))
+  - The scaffolded `promote-release.yml` header points at `docs/DOWNSTREAM_RELEASE.md` — the consumer's primary release-process documentation — but the scaffold never shipped it, leaving every consumer with a dangling reference. The doc is now a manifest-synced managed file (root copy is the SSoT), so the reference resolves inside consumer repos and refreshes on scaffold upgrades.
+- **Interim transitive npm vulnerability coverage via weekly lockfile maintenance** ([#1041](https://github.com/vig-os/devkit/issues/1041))
+  - The Renovate preset never touched transitive npm dependencies, so vulnerabilities in packages only reachable through a parent (12 of 21 alerts in the `commit-action` pilot, including the only critical) were neither reported nor remediated. The preset now enables `lockFileMaintenance` (weekly, same Monday cadence), which regenerates the lockfile and picks up in-range fixes for indirect dependencies. This is an **interim** mechanism, not a full fix: alert-driven transitive remediation is unimplemented upstream ([renovatebot/renovate#41825](https://github.com/renovatebot/renovate/discussions/41825)) and the former `transitiveRemediation` option was removed from Renovate. devkit's own `renovate.json` drops its now-duplicated `lockFileMaintenance` block and inherits it from the preset.
+
+- **Renovate preset groups npm updates instead of one PR per package** ([#1047](https://github.com/vig-os/devkit/issues/1047))
+  - The scaffolded `renovate-default.json` gave `github-actions` and `pep621` a `groupName` but left `npm` ungrouped, so npm consumers got one PR per package — each touching `package-lock.json` and `CHANGELOG.md`, so they conflicted pairwise and were effectively unlandable serially. npm now gets two grouping rules matching the other managers' style: `devDependencies` group across all update types ("npm dev dependencies"), and runtime `dependencies` minor/patch ("npm (minor and patch)") with majors staying as individual PRs. The existing `build(npm)` semantic-commit rule still applies to every npm PR (Renovate merges matching `packageRules` in order).
 
 - **`sync-main-to-dev` no longer deadlocks on new local actions** ([#1034](https://github.com/vig-os/devkit/issues/1034))
   - The `sync` job checked out `ref: dev` and then invoked a local `uses: ./.github/actions/...` composite, which GitHub resolves against the checked-out workspace. When `main` added or renamed a local action absent from `dev`, the job died on its first run — and the only PR that would carry the action onto `dev` was the very sync PR the job could no longer open. Dropping `ref: dev` builds against the triggering `main` SHA, where the action is guaranteed to exist; every downstream step already operates on `origin/main`/`origin/dev` or the API, so behavior is otherwise unchanged.

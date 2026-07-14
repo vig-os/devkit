@@ -52,6 +52,12 @@ outputs:
   image-tag:
     description: Resolved image/version tag
     value: ${{ steps.resolve.outputs.tag }}
+  tag-prefix:
+    description: Release tag prefix from DEVKIT_TAG_PREFIX (empty string => bare tags)
+    value: ${{ steps.resolve.outputs.tag-prefix }}
+  floating-tags:
+    description: Floating tag levels from DEVKIT_FLOATING_TAGS (subset of major,minor; empty => off)
+    value: ${{ steps.resolve.outputs.floating-tags }}
 
 runs:
   using: composite
@@ -67,6 +73,8 @@ runs:
         MODE=""
         DEVKIT_VERSION=""
         LEGACY_VERSION=""
+        TAG_PREFIX=""
+        FLOATING_TAGS=""
 
         if [[ -f .vig-os ]]; then
           # Tolerant KEY=VALUE parsing shared with resolve-image (#781): capture
@@ -78,7 +86,7 @@ runs:
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
 
             case "$line" in
-              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*)
+              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_FLOATING_TAGS=*)
                 key="${line%%=*}"
                 value="${line#*=}"
                 value="${value#"${value%%[![:space:]]*}"}"
@@ -94,6 +102,8 @@ runs:
                   DEVKIT_MODE) MODE="$value" ;;
                   DEVKIT_VERSION) DEVKIT_VERSION="$value" ;;
                   DEVCONTAINER_VERSION) LEGACY_VERSION="$value" ;;
+                  DEVKIT_TAG_PREFIX) TAG_PREFIX="$value" ;;
+                  DEVKIT_FLOATING_TAGS) FLOATING_TAGS="$value" ;;
                 esac
                 ;;
             esac
@@ -115,6 +125,16 @@ runs:
             ;;
         esac
         echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+
+        # Release tag prefix (#1044): freeform, empty by default (= bare tags).
+        # Emitted for every mode; only the release/promote workflows consume it,
+        # composing it onto tag names/URLs at the publishing edge.
+        echo "tag-prefix=$TAG_PREFIX" >> "$GITHUB_OUTPUT"
+
+        # Floating tag levels (#1045): comma-separated subset of major,minor;
+        # empty by default (= off). Only promote-release consumes it, force-moving
+        # <prefix>X / <prefix>X.Y at the final release commit.
+        echo "floating-tags=$FLOATING_TAGS" >> "$GITHUB_OUTPUT"
 
         # Resolve the version tag: explicit override wins, else DEVKIT_VERSION,
         # else the legacy DEVCONTAINER_VERSION.

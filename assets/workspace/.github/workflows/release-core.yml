@@ -49,6 +49,11 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: ""
         type: string
+      tag_prefix:
+        description: "Release tag prefix (DEVKIT_TAG_PREFIX); empty => bare X.Y.Z tags"
+        required: false
+        default: ""
+        type: string
     secrets:
       token:
         required: false
@@ -218,8 +223,11 @@ jobs:
           VERSION: ${{ steps.vars.outputs.version }}
           RELEASE_KIND: ${{ steps.vars.outputs.release_kind }}
           INPUT_RC_NUMBER: ${{ inputs.rc_number }}
+          TAG_PREFIX: ${{ inputs.tag_prefix }}
         run: |
           set -euo pipefail
+          # publish_version stays BARE (X.Y.Z / X.Y.Z-rcN); the tag prefix is
+          # composed only when discovering/emitting a tag NAME (#1044).
           NEXT_RC=""
           if [ "$RELEASE_KIND" = "candidate" ]; then
             if [ -n "${INPUT_RC_NUMBER}" ]; then
@@ -235,22 +243,23 @@ jobs:
               PUBLISH_VERSION="${VERSION}-rc${NEXT_RC}"
               echo "Using explicit rc_number=$NEXT_RC -> publish_version=$PUBLISH_VERSION"
             else
-              TAG_PATTERN="${VERSION}-rc*"
+              # Discover existing RC tags under the prefixed tag name, e.g. v1.2.3-rc*.
+              TAG_PATTERN="${TAG_PREFIX}${VERSION}-rc*"
               EXISTING_TAGS=$(git ls-remote --tags --refs origin "$TAG_PATTERN" | awk '{print $2}' | sed 's#refs/tags/##')
 
               MAX_RC=0
               if [ -n "$EXISTING_TAGS" ]; then
                 while IFS= read -r tag; do
                   [ -z "$tag" ] && continue
-                  if [ "${tag#"${VERSION}"-rc}" = "$tag" ]; then
+                  if [ "${tag#"${TAG_PREFIX}${VERSION}"-rc}" = "$tag" ]; then
                     echo "ERROR: Malformed candidate tag detected: $tag"
-                    echo "Expected format: ${VERSION}-rcN"
+                    echo "Expected format: ${TAG_PREFIX}${VERSION}-rcN"
                     exit 1
                   fi
-                  rc_num="${tag#"${VERSION}"-rc}"
+                  rc_num="${tag#"${TAG_PREFIX}${VERSION}"-rc}"
                   if ! echo "$rc_num" | grep -qE '^[0-9]+$'; then
                     echo "ERROR: Malformed candidate tag detected: $tag"
-                    echo "Expected format: ${VERSION}-rcN"
+                    echo "Expected format: ${TAG_PREFIX}${VERSION}-rcN"
                     exit 1
                   fi
                   if [ "$rc_num" -gt "$MAX_RC" ]; then
@@ -417,9 +426,12 @@ jobs:
         env:
           VERSION: ${{ needs.validate.outputs.version }}
           RELEASE_DATE: ${{ needs.validate.outputs.release_date }}
+          TAG_PREFIX: ${{ inputs.tag_prefix }}
         run: |
           set -euo pipefail
-          prepare-changelog finalize "$VERSION" "$RELEASE_DATE" CHANGELOG.md
+          # Prefix composes into the release heading + link only; an empty
+          # prefix reproduces today's bare heading byte-for-byte (#1044).
+          prepare-changelog finalize "$VERSION" "$RELEASE_DATE" CHANGELOG.md --tag-prefix "$TAG_PREFIX"
 
       # Language-neutral, opt-in release artifact. A repo that ships a committed
       # build artifact (e.g. a JS Action's @vercel/ncc `dist/`) exposes a
@@ -549,16 +561,19 @@ jobs:
         id: tag_state
         env:
           PUBLISH_VERSION: ${{ needs.validate.outputs.publish_version }}
+          TAG_PREFIX: ${{ inputs.tag_prefix }}
           FINALIZE_SHA: ${{ steps.finalize.outputs.finalize_sha }}
         run: |
           set -euo pipefail
-          REMOTE_LINE=$(git ls-remote origin "refs/tags/${PUBLISH_VERSION}^{}" || true)
+          # Compose the actual tag name (prefix + bare publish version) (#1044).
+          PUBLISH_TAG="${TAG_PREFIX}${PUBLISH_VERSION}"
+          REMOTE_LINE=$(git ls-remote origin "refs/tags/${PUBLISH_TAG}^{}" || true)
           if [ -z "$REMOTE_LINE" ]; then
-            REMOTE_LINE=$(git ls-remote origin "refs/tags/${PUBLISH_VERSION}" || true)
+            REMOTE_LINE=$(git ls-remote origin "refs/tags/${PUBLISH_TAG}" || true)
           fi
           if [ -z "$REMOTE_LINE" ]; then
             echo "tag_already_exists=false" >> "$GITHUB_OUTPUT"
-            echo "No remote tag ${PUBLISH_VERSION} yet"
+            echo "No remote tag ${PUBLISH_TAG} yet"
             exit 0
           fi
           REMOTE_TARGET_SHA=$(printf '%s\n' "$REMOTE_LINE" | awk '{print $1}')
@@ -567,11 +582,11 @@ jobs:
             exit 0
           fi
           if [ "$REMOTE_TARGET_SHA" != "$FINALIZE_SHA" ]; then
-            echo "ERROR: Tag $PUBLISH_VERSION exists but target commit is $REMOTE_TARGET_SHA; expected $FINALIZE_SHA (finalize SHA)"
+            echo "ERROR: Tag $PUBLISH_TAG exists but target commit is $REMOTE_TARGET_SHA; expected $FINALIZE_SHA (finalize SHA)"
             exit 1
           fi
           echo "tag_already_exists=true" >> "$GITHUB_OUTPUT"
-          echo "Remote tag $PUBLISH_VERSION already points to finalize SHA; publish will skip tag create/push"
+          echo "Remote tag $PUBLISH_TAG already points to finalize SHA; publish will skip tag create/push"
 
   test:
     name: Test Finalized Release

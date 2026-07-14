@@ -1410,6 +1410,90 @@ class TestFinalizeReleaseDate:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# Tag prefix (#1044): finalize composes DEVKIT_TAG_PREFIX into the heading + URL
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestFinalizeTagPrefix:
+    """finalize_release_date(..., tag_prefix=...) for Action-publishing repos."""
+
+    def test_empty_prefix_is_byte_identical(self, tmp_path):
+        """An explicit empty prefix reproduces today's output byte-for-byte."""
+        default = tmp_path / "default.md"
+        empty = tmp_path / "empty.md"
+        default.write_text(CHANGELOG_WITH_TBD)
+        empty.write_text(CHANGELOG_WITH_TBD)
+        finalize_release_date(
+            "1.0.0", "2026-02-11", str(default), github_repository=_FINALIZE_TEST_REPO
+        )
+        finalize_release_date(
+            "1.0.0",
+            "2026-02-11",
+            str(empty),
+            github_repository=_FINALIZE_TEST_REPO,
+            tag_prefix="",
+        )
+        assert empty.read_text() == default.read_text()
+
+    def test_prefix_applies_to_heading_and_url(self, tmp_path):
+        """A non-empty prefix prefixes both the displayed heading and the tag URL."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(CHANGELOG_WITH_TBD)
+        finalize_release_date(
+            "1.0.0",
+            "2026-02-11",
+            str(f),
+            github_repository=_FINALIZE_TEST_REPO,
+            tag_prefix="v",
+        )
+        content = f.read_text()
+        assert (
+            f"## [v1.0.0](https://github.com/{_FINALIZE_TEST_REPO}/releases/tag/v1.0.0) - 2026-02-11"
+            in content
+        )
+        # The bare TBD heading is consumed; no bare release link is emitted.
+        assert "## [1.0.0] - TBD" not in content
+        assert "releases/tag/1.0.0)" not in content
+
+    def test_version_input_stays_bare(self, tmp_path):
+        """Only the tag name/URL is prefixed; other version headings are untouched."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(CHANGELOG_WITH_TBD)
+        finalize_release_date(
+            "1.0.0",
+            "2026-02-11",
+            str(f),
+            github_repository=_FINALIZE_TEST_REPO,
+            tag_prefix="v",
+        )
+        content = f.read_text()
+        # A historical release heading is not rewritten by the prefix.
+        assert "## [0.2.0] - 2026-01-01" in content
+        assert "## Unreleased" in content
+
+    def test_idempotent_with_prefix(self, tmp_path):
+        """Re-running finalize with the same prefix is a no-op on the dated heading."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(CHANGELOG_WITH_TBD)
+        finalize_release_date(
+            "1.0.0",
+            "2026-02-11",
+            str(f),
+            github_repository=_FINALIZE_TEST_REPO,
+            tag_prefix="v",
+        )
+        after_first = f.read_text()
+        finalize_release_date(
+            "1.0.0",
+            "2026-03-01",
+            str(f),
+            github_repository=_FINALIZE_TEST_REPO,
+            tag_prefix="v",
+        )
+        assert f.read_text() == after_first
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # Full prepare → finalize cycle
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -1583,7 +1667,12 @@ class TestCmdFinalize:
     """Tests for cmd_finalize handler."""
 
     def _make_args(
-        self, version, date, filepath, github_repository=_FINALIZE_TEST_REPO
+        self,
+        version,
+        date,
+        filepath,
+        github_repository=_FINALIZE_TEST_REPO,
+        tag_prefix="",
     ):
         from argparse import Namespace
 
@@ -1592,6 +1681,7 @@ class TestCmdFinalize:
             date=date,
             file=filepath,
             github_repository=github_repository,
+            tag_prefix=tag_prefix,
         )
 
     def test_success_output(self, tmp_path, capsys):
@@ -1602,6 +1692,16 @@ class TestCmdFinalize:
         out = capsys.readouterr().out
         assert "1.0.0" in out
         assert "2026-02-11" in out
+
+    def test_applies_tag_prefix(self, tmp_path):
+        """cmd_finalize threads the tag prefix into the heading/URL."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(CHANGELOG_WITH_TBD)
+        cmd_finalize(self._make_args("1.0.0", "2026-02-11", str(f), tag_prefix="v"))
+        assert (
+            f"## [v1.0.0](https://github.com/{_FINALIZE_TEST_REPO}/releases/tag/v1.0.0) - 2026-02-11"
+            in f.read_text()
+        )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1669,6 +1769,30 @@ class TestMainCLI:
             main()
         assert (
             f"## [1.0.0](https://github.com/{_FINALIZE_TEST_REPO}/releases/tag/1.0.0) - 2026-02-11"
+            in f.read_text()
+        )
+
+    def test_finalize_tag_prefix_via_main(self, tmp_path):
+        """main() 'finalize --tag-prefix v' prefixes the heading and release link."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(CHANGELOG_WITH_TBD)
+        with patch(
+            "sys.argv",
+            [
+                "prog",
+                "finalize",
+                "1.0.0",
+                "2026-02-11",
+                str(f),
+                "--github-repository",
+                _FINALIZE_TEST_REPO,
+                "--tag-prefix",
+                "v",
+            ],
+        ):
+            main()
+        assert (
+            f"## [v1.0.0](https://github.com/{_FINALIZE_TEST_REPO}/releases/tag/v1.0.0) - 2026-02-11"
             in f.read_text()
         )
 

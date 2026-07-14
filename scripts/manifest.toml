@@ -9,6 +9,12 @@
 [[entries]]
 src = "docs/COMMIT_MESSAGE_STANDARD.md"
 
+# The downstream release contract referenced by the scaffolded promote-release.yml
+# header ("See docs/DOWNSTREAM_RELEASE.md"). Managed file: the root doc is the
+# SSoT, synced verbatim into the consumer scaffold so the reference resolves (#1046).
+[[entries]]
+src = "docs/DOWNSTREAM_RELEASE.md"
+
 # Agent skills/config live in .claude/ (SSoT, #626). They sync into the
 # downstream template under assets/workspace/.claude/. Workflow rules became
 # skills (synced below) and static principles moved into CLAUDE.md. The template

@@ -481,3 +481,120 @@ def test_each_tool_runs_in_devshell(dev_shell_tools: list[str]) -> None:
                 f"{proc.stderr.strip()[:200]}"
             )
     assert not failures, "Tools failed inside nix develop:\n" + "\n".join(failures)
+
+
+# ---------------------------------------------------------------------------
+# Overridable Python interpreter (#1038) — `mkProjectShell` accepts an opt-in
+# `python ? pkgs.python314` argument so a consumer whose nixpkgs C-extension
+# dependency is built against a different CPython ABI (e.g. `pkgs.freecad`,
+# built against the nixpkgs default Python 3.13) can align the interpreter uv
+# pins. The default stays byte-identical to the pinned-3.14 builder.
+# ---------------------------------------------------------------------------
+
+
+def _mkprojectshell_expr(system: str, args: str) -> str:
+    """A Nix expression building ``flake.lib.mkProjectShell`` with ``args``.
+
+    Mirrors the ``test_flake_modules`` / ``test_flake_hooks`` idiom: import the
+    pinned nixpkgs with the flake's overlay so ``pkgs`` matches the flake's own
+    dev-shell, then apply ``mkProjectShell``. ``--impure`` is required for the
+    ``builtins.getFlake`` on the local path.
+    """
+    return f"""
+    let
+      flake = builtins.getFlake "path:{REPO_ROOT}";
+      system = "{system}";
+      pkgs = import flake.inputs.nixpkgs {{
+        inherit system;
+        overlays = [ flake.overlays.default ];
+        config.allowUnfree = true;
+      }};
+    in flake.lib.mkProjectShell {{ inherit pkgs; {args} }}
+    """
+
+
+def test_devshell_python_default_is_byte_identical(current_system: str) -> None:
+    """Passing the explicit default ``python`` is byte-identical to no argument (#1038).
+
+    The parity guard for the new argument (same pattern as the ``modules`` /
+    ``hooks`` opt-ins): building ``mkProjectShell { python = pkgs.python314; }``
+    must produce the exact same derivation as the flake's own default dev-shell,
+    so adding the knob cannot silently change the pinned-3.14 shell.
+    """
+    expr = f"""
+    let
+      flake = builtins.getFlake "path:{REPO_ROOT}";
+      system = "{current_system}";
+      pkgs = import flake.inputs.nixpkgs {{
+        inherit system;
+        overlays = [ flake.overlays.default ];
+        config.allowUnfree = true;
+      }};
+    in {{
+      default = flake.devShells.${{system}}.default.drvPath;
+      explicitDefault =
+        (flake.lib.mkProjectShell {{ inherit pkgs; python = pkgs.python314; }}).drvPath;
+    }}
+    """
+    result = subprocess.run(
+        ["nix", "eval", "--impure", "--json", "--expr", expr],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stderr
+    paths = json.loads(result.stdout)
+    assert paths["default"] == paths["explicitDefault"], (
+        "explicit python=python314 must match the default dev-shell drv byte-for-byte; "
+        f"got {paths!r}"
+    )
+
+
+def test_devshell_python_override_switches_interpreter(current_system: str) -> None:
+    """``python = pkgs.python313`` makes UV_PYTHON and ``python3`` follow it (#1038).
+
+    The ABI-alignment knob for nixpkgs C-extension deps (freecad-class): the
+    overridden interpreter must be the one uv pins (``UV_PYTHON``) and the one on
+    the shell's own PATH (``python3``). Exercised with 3.13 (the nixpkgs default,
+    reliably cached) rather than building/pulling FreeCAD, which is far too heavy
+    for CI — the FreeCAD acceptance case is covered by the cad2gdml onboarding
+    spike (#1040 Phase 0), not here.
+    """
+    expr = _mkprojectshell_expr(current_system, "python = pkgs.python313;")
+    script = 'printf "\\nUV_PYTHON=%s\\n" "$UV_PYTHON"; python3 --version'
+    proc = subprocess.run(
+        [
+            "nix",
+            "develop",
+            "--impure",
+            "--ignore-environment",
+            "--keep",
+            "HOME",
+            "--expr",
+            expr,
+            "-c",
+            "bash",
+            "-c",
+            script,
+        ],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=1800,
+    )
+    assert proc.returncode == 0, (
+        f"failed to build/enter the python=python313 dev-shell: {proc.stderr[-500:]}"
+    )
+    lines = proc.stdout.splitlines()
+    uv_python = next(
+        (ln.partition("=")[2] for ln in lines if ln.startswith("UV_PYTHON=")), ""
+    )
+    assert uv_python.startswith("/nix/store/") and uv_python.endswith("python3.13"), (
+        f"UV_PYTHON must follow the override to a store python3.13; got {uv_python!r}"
+    )
+    version_line = lines[-1] if lines else ""
+    assert "3.13" in version_line, (
+        f"python3 on the shell PATH must report 3.13 under the override; got {version_line!r} "
+        f"(full stdout: {proc.stdout!r})"
+    )
