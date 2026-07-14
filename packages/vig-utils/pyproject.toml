@@ -17,6 +17,7 @@ authors = [
 
 [project.scripts]
 validate-commit-msg = "vig_utils.validate_commit_msg:main"
+validate-commit-range = "vig_utils.validate_commit_range:main"
 check-action-pins = "vig_utils.check_action_pins:main"
 prepare-changelog = "vig_utils.prepare_changelog:main"
 gh-issues = "vig_utils.gh_issues:main"
