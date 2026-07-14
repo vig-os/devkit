@@ -20,7 +20,8 @@
 #   1. resolve-toolchain — Resolve delivery mode + image from .vig-os
 #   2. lint              — Pre-commit hooks
 #   3. test              — Pytest
-#   4. summary           — Aggregate results for branch protection
+#   4. commit-checks     — Commit message + PR title validation (PRs only)
+#   5. summary           — Aggregate results for branch protection
 #
 # Triggers:
 #   - Pull requests to dev, release/**, and main
@@ -153,11 +154,66 @@ jobs:
       - name: Run tests
         run: just test
 
+  # Commit-message validation. `validate-commit-msg` is a commit-msg stage
+  # hook, so `just precommit` (prek run --all-files) never runs it — the only
+  # other enforcement path is the local .githooks shim, which is silently inert
+  # whenever core.hooksPath is unset or stale. This lane re-checks the standard
+  # against the commits the PR actually proposes to write into history.
+  commit-checks:
+    name: Commit Messages
+    needs: [resolve-toolchain]
+    runs-on: ubuntu-24.04
+    container:
+      image: ${{ needs.resolve-toolchain.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
+    timeout-minutes: 15
+    # pull_request only: there is no base ref to diff against on dispatch.
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          # The default depth-1 clone has neither the base branch nor the PR's
+          # own commits, and validate-commit-range walks base..head.
+          fetch-depth: 0
+
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: ${{ needs.resolve-toolchain.outputs.mode }}
+          devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      # The PR title is attacker-controlled text, so it reaches the validator as
+      # an environment variable — never interpolated into the shell command.
+      # The range starts at the merge-base with the *current* base branch, not
+      # at pull_request.base.sha: if the branch merged the base back in,
+      # base.sha would drag already-landed commits into the range and fail the
+      # PR for history it did not author.
+      - name: Validate commit messages and PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          BASE_SHA="$(git merge-base "origin/${BASE_REF}" "${HEAD_SHA}")"
+          echo "Validating ${BASE_SHA}..${HEAD_SHA} (base: ${BASE_REF})"
+          uv run validate-commit-range \
+            --base "${BASE_SHA}" \
+            --head "${HEAD_SHA}" \
+            --title "${PR_TITLE}" \
+            --blocked-patterns .github/agent-blocklist.toml
+
   summary:
     name: CI Summary
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    needs: [resolve-toolchain, lint, test]
+    needs: [resolve-toolchain, lint, test, commit-checks]
     if: always()
 
     steps:
@@ -169,6 +225,7 @@ jobs:
           echo "Resolve toolchain: ${{ needs.resolve-toolchain.result }}"
           echo "Lint: ${{ needs.lint.result }}"
           echo "Test: ${{ needs.test.result }}"
+          echo "Commit messages: ${{ needs.commit-checks.result }}"
           echo ""
 
           FAILED=false
@@ -185,6 +242,11 @@ jobs:
 
           if [ "${{ needs.test.result }}" = "failure" ]; then
             echo "ERROR: Tests failed"
+            FAILED=true
+          fi
+
+          if [ "${{ needs.commit-checks.result }}" = "failure" ]; then
+            echo "ERROR: Commit message checks failed"
             FAILED=true
           fi
 

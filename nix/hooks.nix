@@ -593,7 +593,13 @@ let
 
     # ── AI-agent identity + commit-message hooks (stage-gated / git-state
     #    hooks: never run by `--all-files`, runner-only; Refs #163) ────────
+    # Scaffolded: the consumer's `.githooks/prepare-commit-msg` already runs
+    # `prek run --hook-stage prepare-commit-msg`, and this must reach consumers
+    # together with validate-commit-msg — it strips agent trailers *before* the
+    # validator's blocklist gate sees them, so an agent-authored commit is
+    # repaired rather than hard-rejected. Refs #1019.
     prepare-commit-msg-strip-trailers = {
+      scaffold = true;
       yaml = {
         name = "strip agent trailers from commit message";
         entry = "uv run prepare-commit-msg-strip-trailers";
@@ -615,7 +621,13 @@ let
     # regex already enforces. The old five-scope pin rejected ~49% of the
     # scopes in actual use and would break the bots (Renovate invents a scope
     # per ecosystem) the moment enforcement went live. Refs #1019.
+    #
+    # Scaffolded: without it the consumer's `.githooks/commit-msg` shim
+    # (`prek run --hook-stage commit-msg`) has no hooks to run, so every
+    # scaffolded repo shipped a COMMIT_MESSAGE_STANDARD.md it could not
+    # enforce. Refs #1019.
     validate-commit-msg = {
+      scaffold = true;
       yaml = {
         name = "validate commit message";
         entry = "uv run validate-commit-msg";

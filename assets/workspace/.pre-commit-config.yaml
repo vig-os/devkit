@@ -127,3 +127,29 @@ repos:
         language: system
         files: ^\.(trivyignore|vulnixignore)$
         pass_filenames: false
+
+  # AI agent identity: strip trailers before commit-msg (Refs: #163)
+  - repo: local
+    hooks:
+      - id: prepare-commit-msg-strip-trailers
+        name: strip agent trailers from commit message
+        entry: uv run prepare-commit-msg-strip-trailers
+        language: system
+        stages: [prepare-commit-msg]
+        pass_filenames: true
+
+  # Commit message validation (commit-msg stage). Scope is free-form
+  # ("alphanumeric and hyphens only" per docs/COMMIT_MESSAGE_STANDARD.md);
+  # only the type, the Refs line and the agent blocklist are enforced.
+  - repo: local
+    hooks:
+      - id: validate-commit-msg
+        name: validate commit message
+        entry: uv run validate-commit-msg
+        language: system
+        stages: [commit-msg]
+        args: [
+          "--types", "feat,fix,docs,chore,refactor,test,ci,build,revert,style",
+          "--refs-optional-types", "chore",
+          "--blocked-patterns", ".github/agent-blocklist.toml",
+        ]
