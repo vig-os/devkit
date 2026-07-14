@@ -11,7 +11,8 @@
     # (especially the vigos.* home-manager module options), pin a release
     # tag instead and bump deliberately:
     #   vigos.url = "github:vig-os/devkit?ref=<tag>";
-    # Policy: docs/NIX.md "Home-manager modules - versioning & release policy".
+    # Policy: https://github.com/vig-os/devkit/blob/main/docs/NIX.md
+    # "Home-manager modules - versioning & release policy".
     vigos.url = "github:vig-os/devkit";
     # Follow vigos's pinned nixpkgs + flake-utils so your tools match the
     # toolchain exactly (one resolved nixpkgs, no drift).
@@ -61,7 +62,8 @@
           # YAML — toggle base hooks, add per-hook/global excludes, or add
           # fully custom hooks; hook updates then flow with `nix flake
           # update vigos`, and your customization lives HERE (preserved).
-          # Contract + migration steps: docs/MIGRATION.md ("Customizing
+          # Contract + migration steps:
+          # https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md ("Customizing
           # pre-commit hooks from the project flake"). Uncomment to opt in,
           # then delete .pre-commit-config.yaml and add it to .gitignore
           # (the generated config refuses to overwrite an existing file).

@@ -43,7 +43,9 @@ using `devcontainer up`) are not supported in this workflow.
 
 `bandit` can still run as a `prek` lint hook (add it to
 `.pre-commit-config.yaml`; the hook runner is `prek`, not the removed
-`pre-commit` binary — see docs/MIGRATION.md), but there is no separate CI
+`pre-commit` binary — see
+[`docs/MIGRATION.md`](https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md)),
+but there is no separate CI
 security-report job with JSON artifact uploads.
 
 ## Dependency review scope

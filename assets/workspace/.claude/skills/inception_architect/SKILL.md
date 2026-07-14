@@ -191,7 +191,7 @@ graph TD
 Create a new design document:
 
 1. **Create file**: `docs/designs/DES-XXX-YYYY-MM-DD-<kebab-case-title>.md`
-2. **Use template**: [DESIGN template](../../../docs/templates/DESIGN.md)
+2. **Use template**: [DESIGN template](https://github.com/vig-os/devkit/blob/main/docs/templates/DESIGN.md)
 3. **Fill sections**:
    - Overview: Link to RFC, summarize architecture approach
    - Architecture: System context, key decisions, pattern chosen

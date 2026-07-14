@@ -129,7 +129,7 @@ Unlike development skills, inception happens **before** issues and branches exis
 Synthesize all findings into the early sections of an RFC document:
 
 1. Create RFC file: `docs/rfcs/RFC-XXX-YYYY-MM-DD-<kebab-case-title>.md`
-2. Use the [RFC template](../../../docs/templates/RFC.md)
+2. Use the [RFC template](https://github.com/vig-os/devkit/blob/main/docs/templates/RFC.md)
 3. Fill in:
    - Problem Statement (from step 2)
    - Impact section (stakeholders from step 3)

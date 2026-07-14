@@ -57,4 +57,4 @@ Reference: [subagent-delegation rule](../subagent-delegation/SKILL.md)
 
 - Confirm which PR file, base branch, and feature branch to use from the user's message or ask if ambiguous.
 - If the user says "delete branch 34 locally", the feature branch is the one for issue 34 (e.g. `feature/34-rename-venv-container-creation`).
-- This workflow applies to both feature branches (to `dev`) and fix branches (to `release/X.Y.Z`). For the full release workflow, see [../../../docs/RELEASE_CYCLE.md](../../../docs/RELEASE_CYCLE.md).
+- This workflow applies to both feature branches (to `dev`) and fix branches (to `release/X.Y.Z`). For the full release workflow, see [`docs/RELEASE_CYCLE.md`](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md).

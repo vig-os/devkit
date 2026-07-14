@@ -38,7 +38,7 @@ Work through an implementation plan **without user checkpoints**. This is the wo
 For each unchecked task:
 
 1. Read the task description, files, and verification command.
-2. Implement the change following [coding-principles](../../../CLAUDE.md) and [tdd.mdc](../tdd/SKILL.md):
+2. Implement the change following [coding-principles](https://github.com/vig-os/devkit/blob/main/CLAUDE.md) and [tdd.mdc](../tdd/SKILL.md):
    - **RED**: Write failing test, run it, confirm failure, commit via [git_commit](../git_commit/SKILL.md) (`test: ...`).
    - **GREEN**: Write minimal code to pass, run test, confirm pass, commit via [git_commit](../git_commit/SKILL.md) (`feat: ...` or `fix: ...`).
    - **REFACTOR**: Clean up if needed, run tests, commit via [git_commit](../git_commit/SKILL.md) (`refactor: ...`).

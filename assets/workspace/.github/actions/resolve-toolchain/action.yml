@@ -6,7 +6,8 @@
 # Evolves resolve-image (#994): reads the `.vig-os` manifest and emits the
 # delivery mode alongside the container image, so a leading `resolve-toolchain`
 # job can drive the Option-A conditional-`container:` pattern
-# (docs/rfcs/ADR-conditional-container-toolchain.md). The `resolve-image` action
+# (https://github.com/vig-os/devkit/blob/main/docs/rfcs/ADR-conditional-container-toolchain.md).
+# The `resolve-image` action
 # stays in place for now; it is retired by #991/#989.
 #
 # Outputs:

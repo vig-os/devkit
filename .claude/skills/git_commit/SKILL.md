@@ -25,7 +25,7 @@ git status && echo "=== STAGED CHANGES ===" && git diff --cached
 - Break down into smaller commits if no common type and scope
 
 3. **Write accurate commit message** based on staged changes only:
-- Follow rules in [commit-messages.mdc](../../../CLAUDE.md)
+- Follow rules in [commit-messages.mdc](https://github.com/vig-os/devkit/blob/main/CLAUDE.md)
 - Include details in list form if helpful for larger commits
 
 4. **Present the commit for review** using exactly this format:
