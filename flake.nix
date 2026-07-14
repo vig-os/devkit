@@ -256,15 +256,46 @@
           # pre-#884 builder (parity: tests/test_flake_devshell.py). Kept as
           # one self-contained block so #883's `hooks` argument can land
           # beside it without conflict.
+          #
+          # Per-module options (#1027, the ADR's deferred migration path): a
+          # `modules` entry is EITHER a plain name string (no options) OR an
+          # attrset `{ name = "<name>"; <options> }` — additive, no break for
+          # the string form. Each module is a function `pkgs -> options ->
+          # contribution`; the options attrset is the entry minus `name`
+          # (empty for the string form). A module validates its own option
+          # keys (unknown keys throw), so the general mechanism here stays
+          # minimal: normalize the entry, resolve the name, apply.
           # ------------------------------------------------------------------
+          normalizeModuleEntry =
+            entry:
+            if builtins.isString entry then
+              {
+                name = entry;
+                options = { };
+              }
+            else if builtins.isAttrs entry && entry ? name then
+              {
+                inherit (entry) name;
+                options = builtins.removeAttrs entry [ "name" ];
+              }
+            else
+              throw (
+                "mkProjectShell: a `modules` entry must be a module name string or an "
+                + "attrset with a `name` field; got: "
+                + builtins.toJSON entry
+              );
           moduleDefs = map (
-            name:
-            (capabilityModules.${name} or (throw (
-              "mkProjectShell: unknown capability module '${name}'; available: "
+            entry:
+            let
+              parsed = normalizeModuleEntry entry;
+            in
+            (capabilityModules.${parsed.name} or (throw (
+              "mkProjectShell: unknown capability module '${parsed.name}'; available: "
               + pkgs.lib.concatStringsSep ", " (builtins.attrNames capabilityModules)
             ))
             )
               pkgs
+              parsed.options
           ) modules;
           # Appended AFTER extraPackages: earlier entries win PATH lookup, so
           # the per-repo escape hatch overrides a module's tool choice.

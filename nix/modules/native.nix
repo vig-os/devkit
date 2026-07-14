@@ -6,7 +6,11 @@
 # and this module provides that PATH. Field-validated need: hyrr/pycatima
 # (#639). Third-party libraries (Geant4, ROOT, OCCT, …) stay per-project
 # `extraPackages` — or a future ask-gated module.
-pkgs: {
+#
+# Takes no options (`_options`): the module calling convention is uniformly
+# `pkgs -> options -> contribution` since #1027 landed per-module options; the
+# native capability has nothing to configure.
+pkgs: _options: {
   packages = with pkgs; [
     # C/C++ compiler wrapper: puts cc/c++ (and gcc/g++) on PATH and links
     # against the same Nix C++ runtime the toolchain SSoT already exposes.

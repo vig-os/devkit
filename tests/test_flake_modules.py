@@ -171,7 +171,7 @@ def test_native_module_builds_c_extension_sdist_with_uv(
 # node module (#1027) — the Node/TypeScript capability. v1 contract (packages
 # only): `nodejs` (which bundles npm) in the dev-shell, with a selectable major
 # version via the ADR's per-module-options migration path — a `modules` entry
-# may be `{ name = "node"; version = 20; }` (attrset) alongside the plain
+# may be `{ name = "node"; version = 22; }` (attrset) alongside the plain
 # `"node"` string (nixpkgs default). See docs/rfcs/ADR-capability-modules.md.
 # ---------------------------------------------------------------------------
 
@@ -258,12 +258,17 @@ def test_node_module_provides_node_and_npm(current_system: str) -> None:
 
 
 def test_node_module_version_option_pins_major(current_system: str) -> None:
-    """``{ name = "node"; version = 20; }`` selects ``pkgs.nodejs_20`` (#1027).
+    """``{ name = "node"; version = 22; }`` selects ``pkgs.nodejs_22`` (#1027).
 
     The per-module-options migration path the ADR deferred: an attrset entry
     carries a ``version`` that maps to ``pkgs.nodejs_<major>``. Build that shell
     directly (the registry check only covers the default form) and assert the
     running interpreter is the pinned major.
+
+    A maintained LTS major (22) is used deliberately: the pinned nixpkgs marks
+    EOL majors (e.g. nodejs_20) insecure, so pinning one throws unless the
+    consumer opts into ``permittedInsecurePackages`` — a nixpkgs policy the
+    module surfaces rather than masks (documented in docs/NIX.md).
     """
     expr = f"""
     let
@@ -276,7 +281,7 @@ def test_node_module_version_option_pins_major(current_system: str) -> None:
       }};
     in flake.lib.mkProjectShell {{
       inherit pkgs;
-      modules = [ {{ name = "node"; version = 20; }} ];
+      modules = [ {{ name = "node"; version = 22; }} ];
     }}
     """
     proc = _develop_expr(expr, "node --version")
@@ -284,8 +289,8 @@ def test_node_module_version_option_pins_major(current_system: str) -> None:
         f"failed to build/enter the versioned node devshell: {proc.stderr[-500:]}"
     )
     got = proc.stdout.strip().splitlines()[-1] if proc.stdout else ""
-    assert got.startswith("v20."), (
-        f"node module version=20 must run Node 20.x; got {got!r}"
+    assert got.startswith("v22."), (
+        f"node module version=22 must run Node 22.x; got {got!r}"
     )
 
 
