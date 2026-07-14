@@ -98,6 +98,18 @@ def _strip_banner_block(rest: list[str]) -> list[str]:
     return rest[i:]
 
 
+def strip_banner(text: str, style: str = "html") -> str:
+    """Return ``text`` with any provenance banner (either variant) removed.
+
+    The inverse of :class:`Banner`: it locates the banner after the same leading
+    header region (shebang / YAML doc-start / front matter) and drops the banner
+    block plus its trailing blank. Used to compare a banner-stamped synced copy
+    against its un-stamped SSoT without re-encoding the banner shape.
+    """
+    header, rest = _split_header(text.splitlines(keepends=True), style)
+    return "".join(header + _strip_banner_block(rest))
+
+
 @dataclass
 class Banner:
     """Stamp the generated provenance banner (#1036) for the given variant.

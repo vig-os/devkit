@@ -91,6 +91,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`test_scaffold_doc_matches_root_sssot` is banner-aware** ([#1060](https://github.com/vig-os/devkit/issues/1060))
+  - The DOWNSTREAM_RELEASE.md identity test asserted byte-identity between the root SSoT and the scaffold copy, but #1043's provenance banner stamps three lines onto the managed scaffold copy, so the test has failed since that merge (unnoticed because it never ran in CI — see #1061). The assertion now strips the banner from the scaffold copy with the `Banner` transform's own helper (`strip_banner` in `scripts/transforms.py`) before comparing, so it still guards real content drift without re-encoding the banner shape.
 - **Scaffold ships `docs/DOWNSTREAM_RELEASE.md`** ([#1046](https://github.com/vig-os/devkit/issues/1046))
   - The scaffolded `promote-release.yml` header points at `docs/DOWNSTREAM_RELEASE.md` — the consumer's primary release-process documentation — but the scaffold never shipped it, leaving every consumer with a dangling reference. The doc is now a manifest-synced managed file (root copy is the SSoT), so the reference resolves inside consumer repos and refreshes on scaffold upgrades.
 - **Interim transitive npm vulnerability coverage via weekly lockfile maintenance** ([#1041](https://github.com/vig-os/devkit/issues/1041))
