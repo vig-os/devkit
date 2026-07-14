@@ -1,6 +1,6 @@
 # Downstream Release Workflows
 
-This document is the **only** place that describes the release process for **consumer projects** that install workflows from `assets/workspace/`. The upstream devcontainer and smoke-test validation flow is documented in [`docs/RELEASE_CYCLE.md`](RELEASE_CYCLE.md) and [`docs/CROSS_REPO_RELEASE_GATE.md`](CROSS_REPO_RELEASE_GATE.md).
+This document is the **only** place that describes the release process for **consumer projects** that install workflows from `assets/workspace/`. The upstream devcontainer and smoke-test validation flow is documented in [`docs/RELEASE_CYCLE.md`](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md) and [`docs/CROSS_REPO_RELEASE_GATE.md`](https://github.com/vig-os/devkit/blob/main/docs/CROSS_REPO_RELEASE_GATE.md).
 
 ## Overview
 
@@ -28,7 +28,7 @@ Candidate mode keeps release branch content unchanged (no CHANGELOG date finaliz
 
 ## Immutable releases, tag rulesets, and forward-fix policy (downstream)
 
-- **Candidate (`X.Y.Z-rcN`)**: By default only the git tag is created. With **`create-release: true`**, `release-publish.yml` creates a **draft** GitHub **pre-release** (`gh release create --draft --prerelease`). Promote-time validation uses `gh api .../releases/tags/<tag>` and inspects `.draft` to ensure the expected draft pre-release exists; see [Cross-repo gate](CROSS_REPO_RELEASE_GATE.md) for upstream enforcement status. With **immutable releases** enabled, **publishing** a pre-release locks the **linked** tag and assets (see [upstream policy](RELEASE_CYCLE.md#immutable-releases-tag-rulesets-and-forward-fix-policy)); iterate with a **new** RC tag.
+- **Candidate (`X.Y.Z-rcN`)**: By default only the git tag is created. With **`create-release: true`**, `release-publish.yml` creates a **draft** GitHub **pre-release** (`gh release create --draft --prerelease`). Promote-time validation uses `gh api .../releases/tags/<tag>` and inspects `.draft` to ensure the expected draft pre-release exists; see [Cross-repo gate](https://github.com/vig-os/devkit/blob/main/docs/CROSS_REPO_RELEASE_GATE.md) for upstream enforcement status. With **immutable releases** enabled, **publishing** a pre-release locks the **linked** tag and assets (see [upstream policy](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#immutable-releases-tag-rulesets-and-forward-fix-policy)); iterate with a **new** RC tag.
 - **Final (`X.Y.Z`)**: Automation creates a **draft** GitHub Release; **publishing** it (UI or `promote-release.yml`) applies immutable-release lock-in for the linked tag and assets when that setting is enabled. Enable **immutable releases** and **tag rulesets** on each consumer repository (and org policy) as needed; see [Preventing changes to your releases](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/preventing-changes-to-your-releases).
 - **Rollback**: The orchestrator resets the release branch and does **not** delete tags (forward-fix policy); recover with a new RC or a careful final retry per workflow logs.
 
@@ -41,7 +41,7 @@ After final `release.yml` has pushed tag `X.Y.Z` and created a **draft** GitHub 
 3. **Merge** — merge `release/X.Y.Z` → `main` (triggers `sync-main-to-dev` when configured)
 4. **Cleanup** (best-effort, does not fail the workflow) — delete remote git tags matching `${VERSION}-rc*` that have **no** GitHub Release
 
-**Upstream (`vig-os/devcontainer`) only:** Root `promote-release.yml` also prunes GHCR RC package versions via the org Packages API using **`GITHUB_TOKEN`** with **repo Admin** on the `devcontainer` package (one-time **Manage Actions access** grant). See [GitHub App Configuration](RELEASE_CYCLE.md#github-app-configuration) and [Registry and cleanup tokens](RELEASE_CYCLE.md#registry-and-cleanup-tokens-upstream) in `docs/RELEASE_CYCLE.md`.
+**Upstream (`vig-os/devcontainer`) only:** Root `promote-release.yml` also prunes GHCR RC package versions via the org Packages API using **`GITHUB_TOKEN`** with **repo Admin** on the `devcontainer` package (one-time **Manage Actions access** grant). See [GitHub App Configuration](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#github-app-configuration) and [Registry and cleanup tokens](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#registry-and-cleanup-tokens-upstream) in `docs/RELEASE_CYCLE.md`.
 
 This template does **not** implement upstream-only steps (GHCR `:latest`, cosign, cross-repo smoke-test gate). Projects that need registry or deploy promotion after merge should run separate automation or extend their `release-extension.yml` / own workflows; see [Extension Hook](#extension-hook).
 
@@ -62,7 +62,7 @@ There is no separate contract-version handshake; compatibility is defined by the
 Since [#991](https://github.com/vig-os/devkit/issues/991), the whole
 release/automation set provisions its toolchain per `DEVKIT_MODE`
 (`.vig-os`), following the conditional-`container:` pattern in
-[`docs/rfcs/ADR-conditional-container-toolchain.md`](rfcs/ADR-conditional-container-toolchain.md):
+[`docs/rfcs/ADR-conditional-container-toolchain.md`](https://github.com/vig-os/devkit/blob/main/docs/rfcs/ADR-conditional-container-toolchain.md):
 
 - Each `workflow_dispatch`/event-triggered workflow (`release.yml`,
   `prepare-release.yml`, `promote-release.yml`, `sync-issues.yml`,
@@ -91,7 +91,7 @@ choreography's bare `run:` invocations are identical in every mode. In `bare`
 mode the composite pins `vig-utils` to the `.vig-os` `DEVKIT_VERSION`
 (`renovate-changelog-pr` in `renovate-changelog-build.yml`, `prepare-changelog`
 in `prepare-release.yml` / `release-core.yml`); see
-[`docs/MIGRATION.md`](MIGRATION.md#bare-mode-vig-utils-release-console-scripts).
+[`docs/MIGRATION.md`](https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md#bare-mode-vig-utils-release-console-scripts).
 
 ## Required App Secrets
 

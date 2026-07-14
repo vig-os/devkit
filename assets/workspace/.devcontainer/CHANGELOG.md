@@ -77,6 +77,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Merge commits and bot-authored commits (`…[bot]`) are exempt. Renovate and Dependabot emit `build(pip): …` / `ci(actions): …` with no `Refs:` line, so without the exemption the new gate would fail every dependency PR. The exemption is keyed on the author — the same message from a human is still rejected.
 - **Scaffolded repos can enforce the commit standard** ([#1019](https://github.com/vig-os/devkit/issues/1019))
   - `validate-commit-msg` and `prepare-commit-msg-strip-trailers` now reach the consumer pre-commit config. Scaffolded repos already shipped a `.githooks/commit-msg` shim and a `COMMIT_MESSAGE_STANDARD.md`, but had no `commit-msg`-stage hooks for the shim to run — the documented standard was unenforceable in every consumer repo.
+- **Scaffold lint for unshipped references and foreign-ref local actions** ([#1057](https://github.com/vig-os/devkit/issues/1057))
+  - A new `tests/test_scaffold_lint.py` pins two structural invariants in `Project Checks`, no new hook. Rule 1 walks the scaffold and fails if a workflow header comment or a shipped `docs/*.md` cross-link points at a repo path the scaffold does not ship (the #1046/#1056 dangling-reference class). Rule 2 parses every scaffold and devkit workflow and fails if a job checks out a ref foreign to its trigger while invoking a local `uses: ./...` action (the #1034 bootstrap-deadlock shape), with the pre-#1034 pattern covered by a constructed regression fixture.
 
 ### Changed
 
@@ -91,6 +93,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Scaffolded references resolve to shipped or absolute docs** ([#1056](https://github.com/vig-os/devkit/issues/1056))
+  - Two more instances of the #1046 dangling-reference class: the scaffolded `ci.yml` header pointed at `docs/rfcs/ADR-conditional-container-toolchain.md`, and the synced `docs/DOWNSTREAM_RELEASE.md` cross-linked `docs/RELEASE_CYCLE.md`, `docs/CROSS_REPO_RELEASE_GATE.md`, `docs/MIGRATION.md`, and the same ADR — none of which the scaffold ships, so every consumer carried dead pointers. These now use absolute `https://github.com/vig-os/devkit/blob/main/docs/...` URLs (rewritten in the root `DOWNSTREAM_RELEASE.md` SSoT, which resolve from both devkit and a consumer checkout); links that resolve within the scaffold stay relative. Structurally guarded by the #1057 scaffold lint.
 - **Scaffold ships `docs/DOWNSTREAM_RELEASE.md`** ([#1046](https://github.com/vig-os/devkit/issues/1046))
   - The scaffolded `promote-release.yml` header points at `docs/DOWNSTREAM_RELEASE.md` — the consumer's primary release-process documentation — but the scaffold never shipped it, leaving every consumer with a dangling reference. The doc is now a manifest-synced managed file (root copy is the SSoT), so the reference resolves inside consumer repos and refreshes on scaffold upgrades.
 - **Interim transitive npm vulnerability coverage via weekly lockfile maintenance** ([#1041](https://github.com/vig-os/devkit/issues/1041))

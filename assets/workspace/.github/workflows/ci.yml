@@ -4,7 +4,7 @@
 # CI Workflow (mode-aware)
 #
 # One workflow for every DEVKIT_MODE. Toolchain provisioning is split from image
-# selection per docs/rfcs/ADR-conditional-container-toolchain.md (Option A,
+# selection per https://github.com/vig-os/devkit/blob/main/docs/rfcs/ADR-conditional-container-toolchain.md (Option A,
 # #991): a leading `resolve-toolchain` job reads `.vig-os` and outputs the
 # delivery `mode` and container `image` — the devcontainer image for the
 # container-ish modes, an EXPLICIT EMPTY STRING for direnv/bare (which makes the
