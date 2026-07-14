@@ -30,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`sync-main-to-dev` no longer deadlocks on new local actions** ([#1034](https://github.com/vig-os/devkit/issues/1034))
+  - The `sync` job checked out `ref: dev` and then invoked a local `uses: ./.github/actions/...` composite, which GitHub resolves against the checked-out workspace. When `main` added or renamed a local action absent from `dev`, the job died on its first run — and the only PR that would carry the action onto `dev` was the very sync PR the job could no longer open. Dropping `ref: dev` builds against the triggering `main` SHA, where the action is guaranteed to exist; every downstream step already operates on `origin/main`/`origin/dev` or the API, so behavior is otherwise unchanged.
 - **`setup-devkit-toolchain` no longer forces Python/uv env on non-Python consumers** ([#1028](https://github.com/vig-os/devkit/issues/1028))
   - The scaffolded CI toolchain composite applied `UV_PROJECT_ENVIRONMENT`, forwarded `UV_PYTHON_DOWNLOADS_JSON_URL`, and filtered the Nix CPython out of `$GITHUB_PATH` unconditionally. These are now gated on the consumer being Python (a `pyproject.toml` at the repo root), so the composite is a no-op for those steps on a Node/TS repo and keeps the Nix python on PATH there.
 - **Neutral release/CI step labels** ([#1029](https://github.com/vig-os/devkit/issues/1029))
