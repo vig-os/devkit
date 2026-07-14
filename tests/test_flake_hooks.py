@@ -220,6 +220,26 @@ class TestCommitMsgHookContract:
         assert "--refs-optional-types" in args
         assert "--blocked-patterns" in args
 
+    def test_commit_msg_hooks_are_scaffolded(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """Consumers get the commit-msg stage they are already wired to run.
+
+        The scaffolded ``.githooks/commit-msg`` shells out to
+        ``prek run --hook-stage commit-msg``; without these hooks in the
+        consumer render that shim is a no-op, and every scaffolded repo ships
+        a COMMIT_MESSAGE_STANDARD.md it cannot enforce. Refs #1019.
+
+        ``prepare-commit-msg-strip-trailers`` is scaffolded alongside it on
+        purpose: it strips agent trailers *before* the validator's blocklist
+        gate sees them. Shipping the validator alone would turn an
+        auto-repaired commit into a hard failure in consumer repos.
+        """
+        scaffold = _normalize(rendered_portable["scaffold"])["hooks"]
+        assert "validate-commit-msg" in scaffold
+        assert "prepare-commit-msg-strip-trailers" in scaffold
+        assert scaffold["validate-commit-msg"]["stages"] == ["commit-msg"]
+
 
 @pytest.fixture(scope="module")
 def consumer_config() -> dict[str, Any]:
