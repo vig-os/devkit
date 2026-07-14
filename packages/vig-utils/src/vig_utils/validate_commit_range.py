@@ -145,6 +145,13 @@ def validate_title(
     valid, error = validate_commit_message(
         title,
         approved_types=approved_types,
+        # Deliberately looser than full commit validation, where only
+        # DEFAULT_REFS_OPTIONAL_TYPES ({chore}) may omit Refs: every approved
+        # type is Refs-optional for a title. This is safe because the merge
+        # commit the title becomes on dev is exempt from Refs enforcement
+        # downstream -- validate_commits() skips merges (`commit.is_merge`),
+        # CI's commit-checks job is the only re-validator of history, and the
+        # commit-msg hook never fires on GitHub's server-side merges.
         refs_optional_types=approved_types,
         blocked_patterns=blocked_patterns,
     )
