@@ -4,10 +4,6 @@
     "github>vig-os/devcontainer//assets/workspace/.github/renovate-default"
   ],
   "enabledManagers": ["github-actions", "pep621", "npm", "nix", "custom.regex"],
-  "lockFileMaintenance": {
-    "enabled": true,
-    "schedule": ["before 9am on monday"]
-  },
   "customManagers": [
     {
       "customType": "regex",

@@ -117,6 +117,14 @@ Container-independent workflows keep working in every mode: `codeql.yml`,
 `scorecard.yml`, `renovate-changelog-commit.yml`, and the project-owned,
 host-native `release-extension.yml`.
 
+`codeql.yml` and `scorecard.yml` additionally guard their analysis job with
+`if: ${{ !github.event.repository.private }}`
+([#1039](https://github.com/vig-os/devkit/issues/1039)): neither scan can succeed
+on a private repo (CodeQL needs GitHub Advanced Security, unavailable on
+Free-plan private repos; OpenSSF Scorecard is public-only), so private consumers
+get a skipped (neutral) run instead of a permanently red one. A repo later
+flipped public starts scanning automatically, with no re-scaffold.
+
 ## The `.vig-os` project manifest
 
 Since [#885](https://github.com/vig-os/devkit/issues/885), `.vig-os` is
