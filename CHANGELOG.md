@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Restrict image locales to en_US.UTF-8** ([#1104](https://github.com/vig-os/devkit/issues/1104))
+  - The image shipped the full 222 MiB upstream `glibcLocales` archive but only
+    ever uses `en_US.UTF-8`. The `imageTools` entry and the `LOCALE_ARCHIVE`
+    OCI-config env now share one overridden derivation
+    (`allLocales = false; locales = [ "en_US.UTF-8/UTF-8" ]`), so exactly one
+    small (~3 MiB) locale path lands in the closure — a ~220 MiB uncompressed
+    reduction with zero functional change.
+
 ### Deprecated
 
 ### Removed

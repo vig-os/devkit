@@ -668,6 +668,17 @@
           }
         );
 
+        # Locale support without locale-gen. The image only ever sets
+        # en_US.UTF-8 (LANG/LC_ALL/LANGUAGE below), so we ship just that one
+        # locale instead of the full 222 MiB upstream archive. Bound once and
+        # used in BOTH image references — the imageTools entry AND the
+        # LOCALE_ARCHIVE Env store-path interpolation — so a single small
+        # derivation lands in the closure. Refs #1104.
+        glibcLocalesEnUS = pkgs.glibcLocales.override {
+          allLocales = false;
+          locales = [ "en_US.UTF-8/UTF-8" ];
+        };
+
         # The toolchain SSoT plus the runtime substrate a bare layered image
         # lacks (an FHS base distro would provide these; here we add them
         # explicitly — this is the discovery surface for FHS gaps). Shared by
@@ -681,8 +692,9 @@
             direnv
             nix-direnv
 
-            # Locale support without locale-gen.
-            glibcLocales
+            # Locale support without locale-gen (en_US.UTF-8 only; see
+            # glibcLocalesEnUS above). Refs #1104.
+            glibcLocalesEnUS
 
             # Python (with vig-utils baked) + the project Python toolchain.
             # The Debian image installed these via `uv pip install` at build;
@@ -1199,7 +1211,7 @@
                   "LANG=en_US.UTF-8"
                   "LANGUAGE=en_US:en"
                   "LC_ALL=en_US.UTF-8"
-                  "LOCALE_ARCHIVE=${pkgs.glibcLocales}/lib/locale/locale-archive"
+                  "LOCALE_ARCHIVE=${glibcLocalesEnUS}/lib/locale/locale-archive"
                   # Expose the Nix C++/compression runtime on the loader path
                   # for runtime-installed manylinux wheels (see manylinuxLibPath
                   # above). Required for the C-extension .so files the baked Nix
