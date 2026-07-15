@@ -114,11 +114,6 @@ CVE-2026-5928
 # Remaining lower-reachability components (provenance per note). Specifics
 # unverified offline; medium-near expiry to force re-review.
 Expiration: 2026-08-31
-# perl 5.42.0 — in-closure via neovim → wl-clipboard → xdg-utils (git stopped
-#   anchoring perl in #1107, which swapped the image to gitMinimal). Reachable
-#   only on xdg-utils' desktop-open helper paths, not the hot path; specifics
-#   unverified offline.
-CVE-2026-4176
 # zlib 1.3.2 — ubiquitous compression dep (curl, openssh, git, nix, python).
 #   Reachable on any decompression path; specifics unverified offline.
 CVE-2026-27820
@@ -319,36 +314,3 @@ CVE-2026-40467
 #   reachable when the opt-in readdir extension is loaded (`-l readdir`) on a
 #   crafted directory tree — not used by any tooling here.
 CVE-2026-40553
-
-# ============================================================================
-# Triage 2026-07-15 — perl 5.42.0 CPANSec batch (release-cycle fix, #1094).
-# Surfaced in the vulnix feed 2026-07-15 and failed the nightly vulnix gate
-# (security-scan run 29396607272). Verified ONLINE against NVD/MITRE/CPANSec,
-# the Debian security tracker, and the upstream perl release on 2026-07-15.
-# Real product match (perl the interpreter, no CPE collision). Both fixes exist
-# ONLY in the perl 5.43.x DEVELOPMENT series (fixed in 5.43.10); stable perl is
-# 5.42.0 in the pinned rev, in nixos-26.05, AND in Debian stable (all still
-# unpatched, no backport) — so the "advance the rev" lever has nowhere to land
-# today. perl is in-closure via neovim → wl-clipboard → xdg-utils (git stopped
-# anchoring it in #1107), same provenance as CVE-2026-4176; it processes
-# developer/CI-chosen inputs only, with no untrusted-input path in the
-# single-user dev model. Flip to a nixpkgs rev-advance once a patched perl
-# reaches the pinned channel; short expiry to force near-term re-check.
-# ============================================================================
-
-Expiration: 2026-08-14
-# perl 5.42.0 — CVE-2026-13221 (9.1): a 16-bit trie-delta field overflows in
-#   Perl_study_chunk when a regex alternation of >65535 fixed-string branches
-#   is compiled into a trie, silently truncating the match table (false
-#   positive/negative matches). Correctness bug; dangerous only when a regex
-#   gates access/filtering, and needs a pathological developer-authored
-#   pattern — no untrusted-regex path here. Fixed upstream in perl 5.43.10
-#   (dev series); not in any stable branch.
-CVE-2026-13221
-# perl 5.42.0 — CVE-2026-57432 (8.4): integer overflow in S_measure_struct
-#   wraps the signed size total negative, so a pack/unpack template with a huge
-#   repeat count drives an out-of-bounds heap read (info disclosure) when the
-#   template derives from untrusted input. No such path here (developer/CI-
-#   chosen templates only). Fixed in the perl 5.43.x dev series; not in any
-#   stable branch.
-CVE-2026-57432

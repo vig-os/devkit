@@ -1027,6 +1027,63 @@ EOF
     assert_success
 }
 
+# ── post-scaffold dependency sync is mode-aware and non-fatal (#1118) ──────────
+# The trailing `just sync` runs AFTER the scaffold is complete. In direnv/bare
+# mode the consumer's host nix/direnv shell owns dependency install, so a
+# container-side sync must be skipped entirely (it would write wrong-platform,
+# wrong-owner node_modules into the bind mount). Where it does run
+# (devcontainer/both), a failure must warn-and-continue so a misleading "Failed
+# to initialize workspace" no longer masks a successful scaffold.
+
+# Scaffold in $mode into $ws with a `just` stub that logs every invocation to
+# $BATS_TEST_TMPDIR/just.log and exits $3 when run as `just sync`.
+_scaffold_synclog() {
+    local mode="$1" ws="$2" sync_exit="$3"
+    local stub="$BATS_TEST_TMPDIR/stub-bin"
+    local log="$BATS_TEST_TMPDIR/just.log"
+    mkdir -p "$stub"
+    : > "$log"
+    {
+        printf '#!/usr/bin/env bash\n'
+        # $* and $1 are literals for the generated stub, not this shell (SC2016).
+        # shellcheck disable=SC2016
+        printf 'printf "%%s\\n" "$*" >> %q\n' "$log"
+        # shellcheck disable=SC2016
+        printf 'if [[ "$1" == sync ]]; then exit %s; fi\n' "$sync_exit"
+        printf 'exit 0\n'
+    } >"$stub/just"
+    chmod +x "$stub/just"
+    env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode "$mode"
+}
+
+@test "init-workspace --mode=direnv skips the container-side dependency sync (#1118)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1118-direnv"
+    mkdir -p "$ws"
+    run _scaffold_synclog direnv "$ws" 0
+    assert_success
+    assert_output --partial "Skipping dependency sync"
+    # `just sync` must never be invoked in direnv mode.
+    run grep -Fxq 'sync' "$BATS_TEST_TMPDIR/just.log"
+    assert_failure
+}
+
+@test "init-workspace warns and continues when 'just sync' fails (#1118)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1118-syncfail"
+    mkdir -p "$ws"
+    # devcontainer mode DOES run sync; a failing recipe must not abort init.
+    run _scaffold_synclog devcontainer "$ws" 1
+    assert_success
+    assert_output --partial "Warning: dependency sync failed"
+    # sync was actually attempted (guards against silently skipping it too).
+    run grep -Fxq 'sync' "$BATS_TEST_TMPDIR/just.log"
+    assert_success
+}
+
 @test "typos hook passes --force-exclude in repo and template configs (#859)" {
     # prek passes staged filenames explicitly; without --force-exclude, typos
     # ignores [files] extend-exclude and scans binary artifacts (three

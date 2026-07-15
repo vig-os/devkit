@@ -745,11 +745,50 @@
           '';
         });
 
+        # neovim for the IMAGE without the wl-clipboard clipboard provider
+        # (#1108). The stock nixpkgs neovim wrapper suffixes `wl-clipboard` onto
+        # the wrapped binary's runtime PATH as the Wayland clipboard provider:
+        # `runtimeDeps` gains `wl-clipboard` whenever `waylandSupport` is true,
+        # which defaults ON on Linux (pkgs/applications/editors/neovim/
+        # wrapper.nix). wl-clipboard drags in `xdg-utils`, and xdg-utils drags
+        # the entire perl 5.42.0 module stack (File-MimeInfo, X11-Protocol,
+        # XML-Twig, libwww-perl, File-DesktopEntry, …) — perl's SOLE remaining
+        # anchor in the image after #1107 swapped full `git` for gitMinimal. In
+        # a HEADLESS container this provider is dead code: there is no Wayland
+        # socket, so `wl-copy`/`wl-paste` never run. The clipboard path that
+        # actually works over VS Code remote / SSH is OSC52, which nvim >= 0.10
+        # uses natively when no display clipboard tool is on PATH. Evicting
+        # wl-clipboard therefore drops perl — and lets us retire its live CVE
+        # exception batch (#1097/#1098) instead of babysitting it — with zero
+        # functional loss in this usage.
+        #
+        # The pinned wrapped `neovim` is `wrapNeovim neovim-unwrapped {}`
+        # (= neovimUtils.legacyWrapper), whose `.override` exposes only
+        # `{ configure, extraMakeWrapperArgs }` — there is NO `waylandSupport`
+        # knob to flip. We therefore re-wrap `neovim-unwrapped` directly with the
+        # lower-level `wrapNeovimUnstable`, replicating the legacy wrap's defaults
+        # (empty rc, no plugins, `wrapRc = false`, and `legacyWrapper = true` so
+        # the provider-disabling lua rc — `vim.g.loaded_{perl,ruby,python3,node}
+        # _provider = 0` — matches stock `neovim`) but with
+        # `waylandSupport = false`. The result is a behaviour-equivalent `nvim`
+        # minus the wl-clipboard -> xdg-utils -> perl subtree. Scoped to the
+        # IMAGE — the dev-shell keeps the stock wrapped neovim via devTools.
+        # Refs #1108, #1103.
+        neovimImage = pkgs.wrapNeovimUnstable pkgs.neovim-unwrapped {
+          neovimRcContent = "";
+          luaRcContent = "";
+          plugins = [ ];
+          wrapperArgs = [ ];
+          wrapRc = false;
+          legacyWrapper = true;
+          waylandSupport = false;
+        };
+
         # The toolchain SSoT plus the runtime substrate a bare layered image
         # lacks (an FHS base distro would provide these; here we add them
         # explicitly — this is the discovery surface for FHS gaps). Shared by
         # the image (`devkitImage`) and its vulnix scan target
-        # (`devkitImageEnv`, #637). Three devTools entries are swapped for
+        # (`devkitImageEnv`, #637). Four devTools entries are swapped for
         # slimmer image-only builds — filtered out here, not in the SSoT, so the
         # dev-shell keeps the full tools:
         #   - full `podman` → `podmanClient` (client-only, #1106).
@@ -759,14 +798,21 @@
         #     send-email/svn/p4/gitk/`git help` — non-contract per #1103).
         #   - stock `actionlint` → `actionlintImage` (no `python3.13-pyflakes`
         #     wrapper — the other CPython 3.13 anchor).
+        #   - stock `neovim` → `neovimImage` (no wl-clipboard clipboard provider
+        #     — drops the wl-clipboard → xdg-utils → perl anchor; OSC52 replaces
+        #     it in the headless container; #1108).
         # Together with #1105 (bandit) and #1106 (criu) this evicts the redundant
-        # CPython 3.13 interpreter from the image. Refs #1107, #1103.
+        # CPython 3.13 interpreter (#1107) and perl (#1108) from the image.
+        # Refs #1108, #1107, #1103.
         imageTools =
-          (builtins.filter (p: p != pkgs.podman && p != pkgs.git && p != pkgs.actionlint) (devTools pkgs))
+          (builtins.filter (
+            p: p != pkgs.podman && p != pkgs.git && p != pkgs.actionlint && p != pkgs.neovim
+          ) (devTools pkgs))
           ++ [
             podmanClient
             pkgs.gitMinimal
             actionlintImage
+            (pkgs.lib.lowPrio neovimImage)
           ]
           ++ (with pkgs; [
             # Nix package manager in the closure (CppNix).

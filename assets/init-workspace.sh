@@ -1463,16 +1463,28 @@ if [[ -n "$PRECOMMIT_REF_HITS" ]]; then
 fi
 
 # Sync dependencies: resolves uv.lock for the new project name and installs the
-# project. Non-fatal (#859): a preserved old-generation justfile.project may not
-# define `sync` yet — the scaffold itself is complete at this point, so warn and
-# let the consumer sync after migrating their recipes.
-echo "Syncing dependencies..."
-cd "$WORKSPACE_DIR"
-if just --show sync > /dev/null 2>&1; then
-    just sync
+# project. Two mode-aware behaviors (#1118):
+#   * direnv/bare: skip entirely — the consumer's host nix/direnv shell owns
+#     dependency install; a container-side `just sync` (e.g. `npm ci`) would
+#     write wrong-platform, wrong-owner artifacts into the bind-mounted workspace.
+#   * devcontainer/both: run it, but non-fatally — the scaffold is already
+#     complete, so a sync failure warns and continues rather than aborting init
+#     with a misleading "Failed to initialize workspace".
+# Also non-fatal (#859): a preserved old-generation justfile.project may not
+# define `sync` yet — warn and let the consumer sync after migrating recipes.
+if [[ "$MODE" == "direnv" || "$MODE" == "bare" ]]; then
+    echo "Skipping dependency sync for $MODE mode; your nix/direnv shell installs" \
+         "dependencies (a container-side 'just sync' would write wrong-platform" \
+         "node_modules into the bind mount)."
 else
-    echo "Warning: no 'sync' recipe found (preserved pre-0.4.0 justfile.project?)." >&2
-    echo "         Run 'uv sync' manually after migrating your recipes (see MIGRATION.md)." >&2
+    echo "Syncing dependencies..."
+    cd "$WORKSPACE_DIR"
+    if just --show sync > /dev/null 2>&1; then
+        just sync || echo "Warning: dependency sync failed; the scaffold itself is complete — run 'just sync' manually." >&2
+    else
+        echo "Warning: no 'sync' recipe found (preserved pre-0.4.0 justfile.project?)." >&2
+        echo "         Run 'uv sync' manually after migrating your recipes (see MIGRATION.md)." >&2
+    fi
 fi
 
 echo "Workspace initialized successfully!"
