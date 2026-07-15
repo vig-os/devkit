@@ -7,7 +7,8 @@
 # upgrade and appends a per-language fragment (Python / Node / Rust) detected
 # from the repo's marker files (pyproject.toml / package.json / Cargo.toml).
 # Do not hand-edit durable ignores here — they will not survive an upgrade.
-# Put repo-specific ignores in a committed file your team owns instead.
+# Put repo-specific root ignores in .gitignore.project (preserved on upgrade);
+# init-workspace.sh appends its contents here on every regeneration (#1092).
 
 # Environments
 .env

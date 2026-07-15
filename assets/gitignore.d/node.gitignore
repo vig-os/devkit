@@ -12,6 +12,12 @@ node_modules/
 # TypeScript incremental build info
 *.tsbuildinfo
 
+# tsc/ncc emit .d.ts + .d.ts.map declaration byproducts under dist/src/ (#1092);
+# the .d.ts.map files embed absolute file:// paths regenerated per checkout, so
+# ignore them — WITHOUT a blanket dist/ ignore, keeping the committed bundle
+# dist/index.js + dist/package.json tracked.
+dist/src/
+
 # Coverage reports
 coverage/
 .nyc_output/

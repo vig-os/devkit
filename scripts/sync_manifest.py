@@ -162,6 +162,12 @@ _BANNER_SKIP: frozenset[str] = frozenset(
         # flake.nix is consumer-owned/preserved and deferred to avoid nix-format
         # churn on re-sync.
         "flake.nix",
+        # Consumer-owned durable root ignores (#1092): init-workspace.sh APPENDS
+        # this file's contents into the managed root .gitignore on every
+        # (re)scaffold (like the gitignore.d fragments below), so a preserved
+        # banner would land inside the managed .gitignore and contradict its
+        # managed banner. Its own hand-written header states it is preserved.
+        ".gitignore.project",
     }
 )
 

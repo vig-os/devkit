@@ -102,6 +102,13 @@ PRESERVE_FILES=(
     # terms. Preserved like .pre-commit-config.yaml; the upgrade prints a diff
     # against the template below. (Legacy `_typos.toml` handled at copy time.)
     ".typos.toml"
+    # The consumer owns its repo-ROOT ignores (#1092): the managed root
+    # .gitignore is overwritten on every upgrade, and git honors a repo-root
+    # ignore only from that root .gitignore — so there was no durable committed
+    # home for root-level ignores. .gitignore.project is that home (mirroring
+    # justfile.project): preserved here, and its contents are appended to the
+    # regenerated .gitignore by render_gitignore below so they survive upgrades.
+    ".gitignore.project"
 )
 
 # Base recipes the shipped .github/workflows/ci.yml depends on (sync, precommit,
@@ -612,6 +619,35 @@ render_gitignore() {
             cat "$frag" >>"$gi"
         fi
     done
+
+    # Consumer-owned durable root ignores (#1092): .gitignore.project is a
+    # PRESERVE_FILE — the only committed home git honors for repo-ROOT ignores,
+    # since git reads root ignores solely from this regenerated root .gitignore.
+    # Append its contents LAST so consumer entries survive every regeneration.
+    local proj="$WORKSPACE_DIR/.gitignore.project"
+    if [[ -f "$proj" ]]; then
+        printf '\n' >>"$gi"
+        cat "$proj" >>"$gi"
+    fi
+
+    # flake-hooks opt-in seed (#1092): a consumer that opts into flake-generated
+    # hooks (hooks = { } in flake.nix) gets .pre-commit-config.yaml installed as
+    # a /nix/store symlink, which must be ignored — committing it pushes a
+    # machine-local, broken symlink. Seed the ignore automatically, gated
+    # STRICTLY on the store-symlink condition so a hand-managed consumer who
+    # commits a real .pre-commit-config.yaml file is never affected. Idempotent:
+    # skip when the assembled ignore (incl. .gitignore.project) already lists it.
+    local pcc="$WORKSPACE_DIR/.pre-commit-config.yaml"
+    if [[ -L "$pcc" ]] && readlink "$pcc" | grep -q '/nix/store/'; then
+        if ! grep -qxF '.pre-commit-config.yaml' "$gi"; then
+            {
+                printf '\n# flake-hooks opt-in (#1092): the generated'
+                printf ' .pre-commit-config.yaml is a\n'
+                printf '# /nix/store symlink — never commit it.\n'
+                printf '.pre-commit-config.yaml\n'
+            } >>"$gi"
+        fi
+    fi
 }
 
 # Rewrite the managed CodeQL language matrix to the detected language(s) (#1025):

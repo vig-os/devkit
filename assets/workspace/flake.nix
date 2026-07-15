@@ -64,9 +64,11 @@
           # update vigos`, and your customization lives HERE (preserved).
           # Contract + migration steps:
           # https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md ("Customizing
-          # pre-commit hooks from the project flake"). Uncomment to opt in,
-          # then delete .pre-commit-config.yaml and add it to .gitignore
-          # (the generated config refuses to overwrite an existing file).
+          # pre-commit hooks from the project flake"). Uncomment to opt in, then
+          # delete .pre-commit-config.yaml (the generated config refuses to
+          # overwrite an existing file). The generated store symlink is ignored
+          # automatically on (re)scaffold (#1092); add durable root ignores you
+          # own to .gitignore.project.
           #
           #   hooks = {
           #     typos.enable = false;                    # toggle a base hook
