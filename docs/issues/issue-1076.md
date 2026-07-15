@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-14T16:51:03Z
-updated: 2026-07-14T16:51:03Z
+updated: 2026-07-14T21:02:04Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1076
-comments: 0
+comments: 1
 labels: refactor, priority:low, area:workspace, effort:small
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-14T20:06:21.774Z
+synced: 2026-07-15T04:57:33.246Z
 ---
 
 # [Issue 1076]: [refactor(workspace): make strip_banner style argument required](https://github.com/vig-os/devkit/issues/1076)
@@ -25,4 +25,12 @@ Found during review of release PR #1068.
 **Suggested:** make `style` a required argument to remove the footgun.
 
 **File:** `scripts/transforms.py:105`
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 14, 2026 at 09:02 PM_
+
+Shipped in [1.2.0](https://github.com/vig-os/devkit/releases/tag/1.2.0) via PR #1083.
 

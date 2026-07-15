@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-14T16:37:32Z
-updated: 2026-07-14T16:37:32Z
+updated: 2026-07-14T21:01:57Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1071
-comments: 0
+comments: 1
 labels: priority:blocking, security, security-scan
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-14T20:06:23.435Z
+synced: 2026-07-15T04:57:34.581Z
 ---
 
 # [Issue 1071]: [gawk 5.4.0 CVE batch (CVE-2026-40467/-40468/-40469/-40553) fails vulnix gate, blocks 1.2.0-rc1](https://github.com/vig-os/devkit/issues/1071)
@@ -34,3 +34,11 @@ All four are fixed upstream in **gawk 5.4.1**. In nixpkgs the bump ([NixOS/nixpk
 ## Fix
 
 Per the exception-register model (`docs/CONTAINER_SECURITY.md`, precedents #941/#963): add a short-dated, per-CVE-annotated `.vulnixignore` block via PR **against `release/1.2.0`**, drop it and advance the pin once 5.4.1 lands in `nixos-26.05`. gawk is a stdenv closure member processing developer/CI-chosen awk programs and inputs only — single-user dev-container exposure, no untrusted input path.
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 14, 2026 at 09:01 PM_
+
+Shipped in [1.2.0](https://github.com/vig-os/devkit/releases/tag/1.2.0) via PR #1072 (gawk 5.4.0 batch excepted in .vulnixignore, expiry 2026-07-28 — flip to a nixpkgs rev-advance once gawk 5.4.1 lands in nixos-26.05).
+
