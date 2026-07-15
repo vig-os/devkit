@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-14T16:50:59Z
-updated: 2026-07-14T16:50:59Z
+updated: 2026-07-14T21:01:59Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1073
-comments: 0
+comments: 1
 labels: bug, priority:low, area:ci, effort:small
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-14T20:06:23.038Z
+synced: 2026-07-15T04:57:34.164Z
 ---
 
 # [Issue 1073]: [fix(vigutils): prepare-changelog finalize fails on re-run with a changed --tag-prefix](https://github.com/vig-os/devkit/issues/1073)
@@ -27,4 +27,12 @@ Failing without corrupting is acceptable, but the docstring's "reuse branch" ide
 **Suggested:** either normalize/re-finalize across a prefix change, or emit a clearer error naming the mismatch, and update the docstring to state the invariant (prefix must be stable across re-runs).
 
 **File:** `packages/vig-utils/src/vig_utils/prepare_changelog.py:461`
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 14, 2026 at 09:01 PM_
+
+Shipped in [1.2.0](https://github.com/vig-os/devkit/releases/tag/1.2.0) via PR #1082.
 
