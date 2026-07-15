@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-15T10:04:20Z
-updated: 2026-07-15T10:04:20Z
+updated: 2026-07-15T14:48:37Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1112
-comments: 0
+comments: 1
 labels: bug, priority:low, area:workspace, effort:medium, semver:patch
-assignees: none
+assignees: c-vigo
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-15T11:04:48.208Z
+synced: 2026-07-15T20:04:03.220Z
 ---
 
 # [Issue 1112]: [[BUG] direnv mode never sets core.hooksPath — commit-time hooks silently inactive until set manually](https://github.com/vig-os/devkit/issues/1112)
@@ -35,3 +35,11 @@ Activate the hooks path automatically for direnv consumers — e.g. set `core.ho
 ## SemVer
 
 Patch — closes a local-gate gap; CI behavior unchanged.
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 15, 2026 at 02:48 PM_
+
+Fixed by #1127 (merged into `dev`). `mkProjectShell`'s base shellHook now wires `core.hooksPath` → `.githooks` on shell entry for direnv / `nix develop` consumers — guarded to scaffold-shaped repos (a `.githooks/` dir), the main worktree (linked worktrees stay owned by `justfile.worktree`'s direct prek install), and idempotent re-entry; it only ever sets the sanctioned `.githooks` value, reinforcing the #908 invariant. Reaches consumers on their next flake-pin bump; ships with the next patch release.
+

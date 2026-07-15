@@ -298,21 +298,39 @@ def test_devkit_extension_implements_manifest_sync() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Devkit dogfooding: dev-side mirror reconciliation (#1059)
+# Devkit dogfooding: dev-side mirror reconciliation via fast-forward (#1115)
 #
 # The freeze commit is scaffold-verbatim (root CHANGELOG.md only), so after
 # every prepare, dev's synced mirror (assets/workspace/.devcontainer/CHANGELOG.md)
 # is stale until reconciled — a red sync-manifest hook on every dev PR during
-# the release window. Devkit's extension closes that drift by committing the
-# reconciled mirror to dev, and its ORDERING is load-bearing for the rollback:
+# the release window. The old design (#1059) minted a *sibling* reconcile commit
+# on dev (same parent+tree as the release-branch sync commit, but a distinct
+# object), so the mirror's merge base at post-promote sync time was pre-freeze
+# content → a deterministic sync-main-to-dev conflict every cycle (#1091, #1114).
 #
-# * The dev-reconcile commit must be the LAST step of the job. Any extension
-#   failure then implies the reconcile did NOT land, dev holds only the
-#   root-only freeze, and the scaffold-shaped rollback's root-restore returns
-#   dev to root(pre) == mirror(pre).
-# * If the reconcile landed, the only remaining failure domain is open-pr; the
-#   rollback's dev-advanced guard skips the root-restore, leaving dev at
-#   root(frozen) == mirror(frozen) — also consistent.
+# The fix (#1115) fast-forwards dev to the release branch's sync commit, making
+# the mirror rewrite *shared ancestry* — the same property that keeps the root
+# changelog conflict-free (the freeze commit is the merge base). The FF is a
+# non-force, FF-only ref update (git/refs/heads/dev, -X PATCH, -F force=false)
+# taken ONLY while dev still sits on the freeze commit (branch_sha), and it
+# targets the release-commit's commit-sha *output* rather than a fresh ref read
+# (avoids GitHub read-after-write ref lag, #617). A dev-advanced race — or any
+# PATCH failure — falls back to the previous sibling-commit reconcile; that
+# cycle may conflict, exactly the status quo. The ordering/gating stays
+# load-bearing for the rollback:
+#
+# * Every step after the FF is gated on `ff_done != 'true'`: nothing failable
+#   runs after a successful FF, and the sibling-commit fallback is reached only
+#   when the FF did not land.
+# * FF not taken → the fallback reconcile commit must be the LAST step of the
+#   job. Any extension failure then implies neither the FF nor the reconcile
+#   landed, dev holds only the root-only freeze, and the scaffold-shaped
+#   rollback's root-restore returns dev to root(pre) == mirror(pre).
+# * Once dev advances (FF landed, or the fallback reconcile commit landed — each
+#   the last failable act on its path; the fallback steps are if-skipped when the
+#   FF succeeded, and a skipped step cannot fail), the only remaining failure
+#   domain is open-pr; the rollback's dev-advanced guard skips the root-restore,
+#   leaving dev at root(frozen) == mirror(frozen) — also consistent.
 #
 # Either way, every failure path leaves dev's root+mirror consistent.
 # --------------------------------------------------------------------------- #
@@ -332,6 +350,14 @@ def _commit_action_steps(job: dict) -> list[tuple[int, dict]]:
         for i, s in enumerate(job.get("steps") or [])
         if isinstance(s, dict) and "vig-os/commit-action" in str(s.get("uses", ""))
     ]
+
+
+def _step_by_id(job: dict, step_id: str) -> tuple[int, dict]:
+    """(index, step) of the job's step with the given ``id`` (asserts it exists)."""
+    for i, s in enumerate(job.get("steps") or []):
+        if isinstance(s, dict) and s.get("id") == step_id:
+            return i, s
+    raise AssertionError(f"no step with id={step_id!r} in the devkit extension job")
 
 
 def test_devkit_extension_reconciles_dev_mirror() -> None:
@@ -358,15 +384,90 @@ def test_devkit_extension_reconciles_dev_mirror() -> None:
     assert "dry_run" in str(job.get("if", "")), (
         "the job holding the dev reconciliation must be gated on dry_run"
     )
+    step_if = str(step.get("if", ""))
+    assert "steps.dev-ff.outputs.ff_done != 'true'" in step_if, (
+        "the fallback dev reconcile commit must be gated on the FF not having "
+        "been taken (#1115)"
+    )
+    assert "steps.dev-sync.outputs.mirror_dirty == 'true'" in step_if, (
+        "the fallback dev reconcile commit must still be gated on a dirty mirror"
+    )
+
+
+def test_devkit_extension_fast_forwards_dev_to_release_sync_commit() -> None:
+    """Dev is fast-forwarded to the release-branch sync commit, not a sibling (#1115).
+
+    The old design minted a sibling reconcile commit on dev (same parent+tree as
+    the release-branch sync commit, distinct object), so the mirror's merge base
+    at post-promote sync time was pre-freeze content → a deterministic
+    sync-main-to-dev conflict every cycle. Fast-forwarding dev to the release
+    branch's sync commit makes the rewrite shared ancestry. The FF is a
+    non-force, FF-only ref update pinned to the release-commit *output* (not a
+    fresh ref read — avoids GitHub read-after-write ref lag, #617), taken only
+    while dev still equals branch_sha.
+    """
+    job = _devkit_extension_job()
+    ff_idx, ff_step = _step_by_id(job, "dev-ff")
+
+    run = str(ff_step.get("run", ""))
+    assert "git/refs/heads/dev" in run, "the FF must PATCH refs/heads/dev"
+    assert "-X PATCH" in run, "the FF must use an HTTP PATCH ref update"
+    assert "-F force=false" in run, (
+        "the FF must pin force=false so the server only accepts a fast-forward"
+    )
+
+    env = ff_step.get("env") or {}
+    assert env.get("BRANCH_SHA") == "${{ inputs.branch_sha }}", (
+        "the FF must read the freeze SHA from inputs.branch_sha"
+    )
+    assert '"$DEV_SHA" = "$BRANCH_SHA"' in run, (
+        "the FF must only proceed while dev still sits on the freeze commit"
+    )
+
+    # The FF target is the release-commit's output, not a ref read (read lag, #617).
+    release_idx, release_step = next(
+        (i, s)
+        for i, s in _commit_action_steps(job)
+        if "release_branch" in str((s.get("env") or {}).get("TARGET_BRANCH", ""))
+    )
+    assert release_step.get("id") == "release-commit", (
+        "the release-branch commit step must carry id: release-commit"
+    )
+    assert "steps.release-commit.outputs.commit-sha" in str(env), (
+        "the FF target must be the release-commit's commit-sha output, not a "
+        "fresh ref read (avoids GitHub read-after-write ref lag, #617)"
+    )
+    assert release_idx < ff_idx, (
+        "the release-branch commit must precede the dev fast-forward"
+    )
+
+
+def test_devkit_extension_ff_short_circuits_fallback() -> None:
+    """Every step after the FF is gated on the FF not having been taken (#1115).
+
+    Nothing failable may run after a successful FF, and the sibling-commit
+    fallback must be reached only when the FF did not land.
+    """
+    job = _devkit_extension_job()
+    ff_idx, _ = _step_by_id(job, "dev-ff")
+    for i, s in enumerate(job.get("steps") or []):
+        if i <= ff_idx or not isinstance(s, dict):
+            continue
+        assert "steps.dev-ff.outputs.ff_done != 'true'" in str(s.get("if", "")), (
+            f"step #{i} ({s.get('name')!r}) after the FF must be gated on "
+            "steps.dev-ff.outputs.ff_done != 'true'"
+        )
 
 
 def test_devkit_extension_dev_reconcile_is_last_step() -> None:
-    """Ordering invariant the rollback analysis relies on (#1059).
+    """Ordering invariant the rollback analysis relies on (#1115).
 
-    The dev reconciliation commit runs AFTER the release-branch commit and is
-    the LAST step of the job: nothing failable follows it, so a rollback with
-    the reconcile landed can only come from open-pr — the one path where
-    skipping the root-restore is exactly what keeps dev consistent.
+    With the FF-first mechanism, the sibling-commit fallback reconcile stays the
+    LAST step of the job and still runs AFTER the release-branch commit: nothing
+    failable follows it, so a rollback with the reconcile landed can only come
+    from open-pr — the one path where skipping the root-restore is exactly what
+    keeps dev consistent. (A successful FF if-skips every fallback step, and a
+    skipped step cannot fail, so the invariant holds on both paths.)
     """
     job = _devkit_extension_job()
     steps = job.get("steps") or []

@@ -286,7 +286,7 @@ pin wins and no download happens; the URL matters only on the CI runner.
   bare layered image lacks (an FHS base distro would otherwise supply it): the
   Nix evaluator (`nix`, `direnv`, `nix-direnv`), `glibcLocales` for locale
   support, the project Python env (`vig-utils` + `pip-licenses` baked via
-  `python314.withPackages`), the `prek` hook runner (via `devTools`) + `bandit`,
+  `python314.withPackages`), the `prek` hook runner (via `devTools`),
   Rust/just tooling
   (`cargo-binstall`, `just-lsp`, `typstyle`), core GNU utilities, `cacert`,
   `openssh`, and `dockerTools.fakeNss` (a root uid-0 user database, without which

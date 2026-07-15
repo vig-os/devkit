@@ -137,7 +137,7 @@ jobs:
     env:
       SYNC_BRANCH: chore/sync-main-to-dev-${{ github.run_number }}-${{ github.run_attempt }}
     permissions:
-      contents: write
+      contents: read
       pull-requests: write
       issues: write
       packages: read

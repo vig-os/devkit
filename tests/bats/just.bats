@@ -267,8 +267,8 @@ EOF
     assert_success
 }
 
-@test "release caller and reusable workflows define explicit minimal permissions for gh operations" {
-    run bash -lc "awk '/^  core:/{flag=1} /^  extension:/{flag=0} flag {print}' assets/workspace/.github/workflows/release.yml | grep -Fq -- 'actions: write' && awk '/^  core:/{flag=1} /^  extension:/{flag=0} flag {print}' assets/workspace/.github/workflows/release.yml | grep -Fq -- 'pull-requests: read' && awk '/^  publish:/{flag=1} /^  rollback:/{flag=0} flag {print}' assets/workspace/.github/workflows/release.yml | grep -Fq -- 'contents: write' && awk '/^  validate:/{flag=1} /^  finalize:/{flag=0} flag {print}' assets/workspace/.github/workflows/release-core.yml | grep -Fq -- 'pull-requests: read' && awk '/^  finalize:/{flag=1} /^  test:/{flag=0} flag {print}' assets/workspace/.github/workflows/release-core.yml | grep -Fq -- 'actions: write'"
+@test "release caller and reusable workflows keep GITHUB_TOKEN read-only (writes ride App tokens) (#1136)" {
+    run bash -lc "awk '/^  core:/{flag=1} /^  extension:/{flag=0} flag {print}' assets/workspace/.github/workflows/release.yml | grep -Fq -- 'actions: read' && awk '/^  core:/{flag=1} /^  extension:/{flag=0} flag {print}' assets/workspace/.github/workflows/release.yml | grep -Fq -- 'contents: read' && awk '/^  core:/{flag=1} /^  extension:/{flag=0} flag {print}' assets/workspace/.github/workflows/release.yml | grep -Fq -- 'pull-requests: read' && awk '/^  publish:/{flag=1} /^  rollback:/{flag=0} flag {print}' assets/workspace/.github/workflows/release.yml | grep -Fq -- 'contents: read' && awk '/^  validate:/{flag=1} /^  finalize:/{flag=0} flag {print}' assets/workspace/.github/workflows/release-core.yml | grep -Fq -- 'pull-requests: read' && awk '/^  finalize:/{flag=1} /^  test:/{flag=0} flag {print}' assets/workspace/.github/workflows/release-core.yml | grep -Fq -- 'actions: read' && awk '/^  finalize:/{flag=1} /^  test:/{flag=0} flag {print}' assets/workspace/.github/workflows/release-core.yml | grep -Fq -- 'contents: read'"
     assert_success
 }
 

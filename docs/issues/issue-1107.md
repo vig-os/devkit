@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-15T08:43:13Z
-updated: 2026-07-15T08:43:13Z
+updated: 2026-07-15T14:37:15Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1107
-comments: 0
+comments: 1
 labels: refactor, priority:medium, area:image, effort:medium, semver:minor
 assignees: none
 milestone: Backlog
 projects: none
 parent: 1103
 children: none
-synced: 2026-07-15T11:04:49.964Z
+synced: 2026-07-15T20:04:04.497Z
 ---
 
 # [Issue 1107]: [Evict the redundant CPython 3.13 interpreter: gitMinimal + actionlint without pyflakes (~127 MiB)](https://github.com/vig-os/devkit/issues/1107)
@@ -79,4 +79,12 @@ sub-issue, which depends on this one.
 
 Part of the image-slimming epic. **Depends on** the podman-DooD and bandit
 sub-issues (two of the four anchors).
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 15, 2026 at 02:37 PM_
+
+Implemented and merged to dev in #1126 (−148.8 MiB measured; python3.13 grep empty).
 

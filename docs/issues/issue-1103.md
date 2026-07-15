@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-15T08:31:17Z
-updated: 2026-07-15T08:43:33Z
+updated: 2026-07-15T14:37:19Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1103
-comments: 1
+comments: 4
 labels: refactor, priority:medium, area:image, effort:large, semver:minor
 assignees: none
 milestone: Backlog
 projects: none
 parent: none
 children: 1104, 1105, 1106, 1107, 1108
-synced: 2026-07-15T11:04:51.945Z
+synced: 2026-07-15T20:04:06.107Z
 ---
 
 # [Issue 1103]: [[EPIC] Slim the devcontainer image (~680 MiB, mode-neutral cuts)](https://github.com/vig-os/devkit/issues/1103)
@@ -25,11 +25,11 @@ compressed pull). Measured via `nix path-info -S` on `.#devkitImageEnv` — the
 vulnix scan target whose runtime closure equals the image's package set
 (`imageTools`): **2.14 GiB across 424 store paths**.
 
-This epic recovers **~730 MiB uncompressed** through five cuts: pure
+This epic recovers **~550 MiB uncompressed** through five cuts (revised 2026-07-15 from ~730 MiB — see the #1106 correction below): pure
 de-duplication, retiring one dead feature (the sidecar / podman-in-podman
 model), and evicting two redundant interpreter stacks. Expected result:
-`podman images` shows **~1.5–1.6 GB** (from 2.27 GB); compressed pull drops
-from ~735 MiB to roughly ~500 MiB. The image **stays a self-contained, offline,
+`podman images` shows **~1.7 GB** (from 2.27 GB); compressed pull drops
+from ~735 MiB accordingly. The image **stays a self-contained, offline,
 flake-free artifact** — the separate strategic question of whether image mode
 should stop shipping user toolchains (node, neovim, lazygit, …) and become a
 thin direnv substrate is **explicitly out of scope** — see the pinned comment.
@@ -60,11 +60,11 @@ this epic as the declaration of record.
 |---|-----|-----------------|-------|
 | 1 | Restrict `glibcLocales` to `en_US.UTF-8` | ~222 MiB | must rebind **both** the `imageTools` entry and the `LOCALE_ARCHIVE` Env reference (`flake.nix:1202`) — fixing only one ships *both* archives |
 | 2 | Drop `bandit` from `imageTools` (stray CPython 3.13 stack) | ~74 MiB | hooks already run `uv run bandit` (venv); the baked copy is vestigial |
-| 3 | Replace full `podman` runtime with a DooD-only client | ~254 MiB | sidecar model retired; scaffold is already DooD-wired |
+| 3 | Replace full `podman` runtime with a DooD-only client | **~67 MiB** (measured; was ~254 est.) | sidecar model retired; retained client binary (~54 MiB) + rpath-linked `systemd` account for the difference — strategic goal (criu gone) fully met |
 | 4 | Evict the redundant second CPython 3.13 interpreter | ~127 MiB | `gitMinimal` + actionlint-without-pyflakes; **depends on #2 and #3** |
 | 5 | Evict perl: rewrap `neovim` without `wl-clipboard` | ~55–60 MiB | **retires the perl 5.42 CVE exception batch** (`.vulnixignore`, #1097/#1098); **depends on #4's gitMinimal** |
 
-Totals are marginal per cut with no double-count (~730 MiB combined).
+Totals are marginal per cut with no double-count (~550 MiB combined; #1106 measured, others estimated pending merge).
 
 ### Why the sidecar retirement unlocks the podman cut
 
@@ -158,4 +158,45 @@ size-optimisation — it belongs in an RFC under `docs/rfcs/`, not folded into t
 epic. Deciding it by quietly deleting node would strand whichever consumer relied
 on the mode we didn't pick.
 
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on July 15, 2026 at 12:50 PM_
+
+**Size correction from #1106 (PR #1122):** the DooD-client cut nets **~67 MiB measured**, not the estimated ~254 MiB — the estimate assumed dropping podman entirely, but the retained client binary (~54 MiB) and `systemd` (rpath-linked into podman; `systemdMinimal` breaks `podman logs` per the nixpkgs pin) stay in the closure. Strategic goal fully met: **criu is gone**, removing one of the four CPython 3.13 anchors and unblocking #1107. Epic totals revised ~730 → ~550 MiB (expected final ~1.7 GB uncompressed). PRs so far: #1119 (locales, −220 MiB verified), #1120 (bandit, −74.5 MiB verified), #1122 (podman, −67 MiB verified).
+
+---
+
+# [Comment #3]() by [c-vigo]()
+
+_Posted on July 15, 2026 at 02:27 PM_
+
+**Final tally — all five sub-issues implemented and PR'd** (measured on `.#devkitImageEnv`, exact bytes):
+
+| PR | Cut | Measured | Est. |
+|---|---|---|---|
+| #1119 (merged) | locales → en_US | −219.5 MiB | ~222 |
+| #1120 (merged) | drop baked bandit | −74.5 MiB | ~74 |
+| #1122 (merged) | podman → DooD client | −67.0 MiB | ~254 → corrected |
+| #1126 (merged) | CPython 3.13 eviction (gitMinimal + actionlint) | −148.8 MiB | ~127 |
+| #1128 (open) | perl eviction (neovim w/o wl-clipboard) | −108.3 MiB | ~55–60 |
+
+**Total: 2,293,215,224 → 1,645,235,648 bytes = −618 MiB (−27%), 2.14 → 1.53 GiB uncompressed.** `podman images` will show ~1.65 GB (was 2.27 GB).
+
+Structural outcomes beyond size:
+- exactly **one** CPython (3.14) and **one** git (`gitMinimal`) in the image;
+- **perl gone** → the perl 5.42.0 CVE exception batch (#1097/#1098) is *deleted* in #1128 rather than maintained;
+- established, reusable pattern: image-scoped `builtins.filter` swaps against the `devTools` SSoT (`podmanClient`, `gitMinimal`, `actionlintImage`, `neovimImage`) — dev-shell behavior unchanged throughout.
+
+Epic completes when #1128 merges. The image-mode toolchain question (node & friends) remains parked for the RFC per the pinned comment.
+
+---
+
+# [Comment #4]() by [c-vigo]()
+
+_Posted on July 15, 2026 at 02:37 PM_
+
+All five sub-issues implemented, merged to dev (435c62ed), and closed. **Final measured result: 2.14 → 1.53 GiB uncompressed (−618 MiB, −27%)** — see the [tally](https://github.com/vig-os/devkit/issues/1103#issuecomment-4981717345). Ships with the next release. The image-mode toolchain question (node & friends vs direnv substrate) stays parked for a future RFC per the pinned comment — not tracked by this epic.
 

@@ -595,8 +595,9 @@ _preview_symlinked_template_venv() {
     # shellcheck disable=SC2016
     run grep -A3 'for preserved in "${PRESERVE_FILES\[@\]}"' "$INIT_WORKSPACE_SH"
     assert_success
+    # path_present (not -e) so a dangling store symlink is still excluded (#1117).
     # shellcheck disable=SC2016
-    assert_output --partial 'if [[ -e "$WORKSPACE_DIR/$preserved" ]]; then'
+    assert_output --partial 'if path_present "$WORKSPACE_DIR/$preserved"; then'
     # shellcheck disable=SC2016
     assert_output --partial 'EXCLUDE_ARGS+=("--exclude=/$preserved")'
 }
@@ -1023,6 +1024,63 @@ EOF
     assert_success
     # the invocation must be non-fatal
     run grep -E 'just sync.*\|\||if.*just.*--show.*sync|just --show sync' "$INIT_WORKSPACE_SH"
+    assert_success
+}
+
+# ── post-scaffold dependency sync is mode-aware and non-fatal (#1118) ──────────
+# The trailing `just sync` runs AFTER the scaffold is complete. In direnv/bare
+# mode the consumer's host nix/direnv shell owns dependency install, so a
+# container-side sync must be skipped entirely (it would write wrong-platform,
+# wrong-owner node_modules into the bind mount). Where it does run
+# (devcontainer/both), a failure must warn-and-continue so a misleading "Failed
+# to initialize workspace" no longer masks a successful scaffold.
+
+# Scaffold in $mode into $ws with a `just` stub that logs every invocation to
+# $BATS_TEST_TMPDIR/just.log and exits $3 when run as `just sync`.
+_scaffold_synclog() {
+    local mode="$1" ws="$2" sync_exit="$3"
+    local stub="$BATS_TEST_TMPDIR/stub-bin"
+    local log="$BATS_TEST_TMPDIR/just.log"
+    mkdir -p "$stub"
+    : > "$log"
+    {
+        printf '#!/usr/bin/env bash\n'
+        # $* and $1 are literals for the generated stub, not this shell (SC2016).
+        # shellcheck disable=SC2016
+        printf 'printf "%%s\\n" "$*" >> %q\n' "$log"
+        # shellcheck disable=SC2016
+        printf 'if [[ "$1" == sync ]]; then exit %s; fi\n' "$sync_exit"
+        printf 'exit 0\n'
+    } >"$stub/just"
+    chmod +x "$stub/just"
+    env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode "$mode"
+}
+
+@test "init-workspace --mode=direnv skips the container-side dependency sync (#1118)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1118-direnv"
+    mkdir -p "$ws"
+    run _scaffold_synclog direnv "$ws" 0
+    assert_success
+    assert_output --partial "Skipping dependency sync"
+    # `just sync` must never be invoked in direnv mode.
+    run grep -Fxq 'sync' "$BATS_TEST_TMPDIR/just.log"
+    assert_failure
+}
+
+@test "init-workspace warns and continues when 'just sync' fails (#1118)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1118-syncfail"
+    mkdir -p "$ws"
+    # devcontainer mode DOES run sync; a failing recipe must not abort init.
+    run _scaffold_synclog devcontainer "$ws" 1
+    assert_success
+    assert_output --partial "Warning: dependency sync failed"
+    # sync was actually attempted (guards against silently skipping it too).
+    run grep -Fxq 'sync' "$BATS_TEST_TMPDIR/just.log"
     assert_success
 }
 
@@ -1925,6 +1983,25 @@ _upgrade_no_flags() {
     run _upgrade_no_flags "$ws"
     assert_success
     run grep -x 'DEVKIT_MODULES="native rust"' "$ws/.vig-os"
+    assert_success
+}
+
+@test "upgrade preserves persisted tag-scheme keys (#1116)" {
+    # .vig-os is a managed file, so a consumer's DEVKIT_TAG_PREFIX /
+    # DEVKIT_FLOATING_TAGS must be read before the template overwrite and
+    # written back — else an upgrade silently resets bare tags / stops moving
+    # floating tags (release-integrity regression observed 1.2.0 -> 1.2.1).
+    ws="$BATS_TEST_TMPDIR/e2e-1116-tagscheme"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_TAG_PREFIX=.*/DEVKIT_TAG_PREFIX=v/' "$ws/.vig-os"
+    sed -i 's/^DEVKIT_FLOATING_TAGS=.*/DEVKIT_FLOATING_TAGS=major,minor/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -x 'DEVKIT_TAG_PREFIX=v' "$ws/.vig-os"
+    assert_success
+    run grep -x 'DEVKIT_FLOATING_TAGS=major,minor' "$ws/.vig-os"
     assert_success
 }
 
@@ -2980,4 +3057,120 @@ _RELEASE_RESOLVERS_991=(
     run cat "$ws/.gitignore"
     assert_success
     refute_line '.pre-commit-config.yaml'
+}
+
+# ── migrate hand-added root ignores into .gitignore.project (#1111) ────────────
+# The #1092 fix made .gitignore.project the durable home for repo-root ignores,
+# but the upgrade that INTRODUCES it seeds it empty — so any ignores a consumer
+# had hand-added directly to the managed (regenerated) root .gitignore were
+# silently dropped. init-workspace snapshots the pre-overwrite root .gitignore
+# and migrates its consumer-added, non-managed lines into .gitignore.project,
+# whence render_gitignore folds them back into the regenerated root .gitignore.
+
+@test "upgrade migrates consumer-added root .gitignore lines into .gitignore.project (#1111)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1111-migrate"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    # Consumer hand-adds root ignores to the managed root .gitignore, as they had
+    # to before .gitignore.project existed (#1092).
+    printf '.DS_Store\nmy-secret-dir/\n' >>"$ws/.gitignore"
+    run _upgrade both "$ws"
+    assert_success
+    # The upgrade note (fix variant (b)) lists what was rescued.
+    assert_output --partial 'Migrated 2 consumer line'
+    # Hand-added lines are recovered into the durable, preserved home ...
+    run grep -qxF '.DS_Store' "$ws/.gitignore.project"
+    assert_success
+    run grep -qxF 'my-secret-dir/' "$ws/.gitignore.project"
+    assert_success
+    # ... and stay effective in the regenerated root .gitignore.
+    run grep -qxF '.DS_Store' "$ws/.gitignore"
+    assert_success
+    run grep -qxF 'my-secret-dir/' "$ws/.gitignore"
+    assert_success
+}
+
+@test "a second upgrade does not re-migrate already-migrated root ignores (#1111)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1111-idempotent"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    printf '.DS_Store\nmy-secret-dir/\n' >>"$ws/.gitignore"
+    run _upgrade both "$ws"
+    assert_success
+    run _upgrade both "$ws"
+    assert_success
+    # The second upgrade migrates nothing new (idempotent) ...
+    refute_output --partial 'Migrated'
+    # ... and the migrated line appears exactly once in .gitignore.project.
+    run grep -cxF '.DS_Store' "$ws/.gitignore.project"
+    assert_output '1'
+}
+
+@test "managed template/fragment ignore lines are never migrated into .gitignore.project (#1111)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1111-managed"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    # Add one genuinely consumer-owned line to the managed root .gitignore.
+    printf 'consumer-only-dir/\n' >>"$ws/.gitignore"
+    run _upgrade both "$ws"
+    assert_success
+    # The consumer's own line migrates ...
+    run grep -qxF 'consumer-only-dir/' "$ws/.gitignore.project"
+    assert_success
+    # ... but a managed template-base line (justfile.local) is NOT copied in:
+    # it is already provided by the regenerated root .gitignore.
+    run grep -qxF 'justfile.local' "$ws/.gitignore.project"
+    assert_failure
+}
+
+# ── dangling /nix/store symlink is preserved and seeds the ignore (#1117) ──────
+# In direnv mode the flake generates .pre-commit-config.yaml as a symlink into
+# the HOST /nix/store, which is NOT mounted inside the devcontainer image where
+# init-workspace runs. So the symlink is DANGLING from the container's view: `-e`
+# (which follows the link) reports it absent, the preserve/exclude gate emits no
+# --exclude, and `rsync -avL` copies the template over it — destroying the
+# flake-generated config AND skipping the #1092 ignore seed. The presence gates
+# must treat a symlink of any kind (even dangling) as present.
+
+@test "a dangling /nix/store .pre-commit-config.yaml symlink survives upgrade and seeds the ignore (#1117)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1117-dangling"
+    mkdir -p "$ws"
+    # A /nix/store-shaped target that does NOT exist (the host store is not
+    # mounted): the symlink is dangling from the container's viewpoint.
+    target="/nix/store/0000000000000000000000000000000-hooks/pre-commit-config.yaml"
+    ln -s "$target" "$ws/.pre-commit-config.yaml"
+    run _scaffold both "$ws"
+    assert_success
+    # (1) The symlink survives untouched — the template was NOT written over it.
+    run test -L "$ws/.pre-commit-config.yaml"
+    assert_success
+    run readlink "$ws/.pre-commit-config.yaml"
+    assert_success
+    assert_output "$target"
+    # (2) The #1092 ignore seed still fires (the symlink was present at seed time).
+    run cat "$ws/.gitignore"
+    assert_success
+    assert_line '.pre-commit-config.yaml'
+}
+
+@test "--preview classifies a dangling /nix/store .pre-commit-config.yaml symlink as PRESERVED (#1117)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1117-dangling-preview"
+    mkdir -p "$ws"
+    target="/nix/store/0000000000000000000000000000000-hooks/pre-commit-config.yaml"
+    ln -s "$target" "$ws/.pre-commit-config.yaml"
+    local stub="$BATS_TEST_TMPDIR/stub-bin"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+    run env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --preview --no-prompts --mode both
+    assert_success
+    assert_line '  ✓  .pre-commit-config.yaml'
 }

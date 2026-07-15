@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-15T08:43:09Z
-updated: 2026-07-15T08:43:09Z
+updated: 2026-07-15T14:37:11Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1105
-comments: 0
+comments: 1
 labels: refactor, priority:medium, area:image, effort:small, semver:minor
 assignees: none
 milestone: Backlog
 projects: none
 parent: 1103
 children: none
-synced: 2026-07-15T11:04:50.897Z
+synced: 2026-07-15T20:04:05.283Z
 ---
 
 # [Issue 1105]: [Drop vestigial baked bandit from imageTools (stray CPython 3.13 stack, ~74 MiB)](https://github.com/vig-os/devkit/issues/1105)
@@ -63,4 +63,12 @@ doesn't use it anyway.)
 
 Part of the image-slimming epic. Independent; one of the four anchors gating
 interpreter eviction.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 15, 2026 at 02:37 PM_
+
+Implemented and merged to dev in #1120 (−74.5 MiB measured).
 

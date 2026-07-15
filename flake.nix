@@ -470,6 +470,47 @@
             export NVIM_APPNAME="vigos-dev"
           '';
 
+          # #1112: wire `.githooks` as the git hook entry point for direnv /
+          # `nix develop` consumers. Devcontainer mode runs
+          # `git config core.hooksPath .githooks` from setup-git-conf.sh; a
+          # container-less consumer never got that, so commit-time hooks
+          # (pre-commit / commit-msg via prek) were silently inactive until the
+          # consumer set it by hand — a local commit could bypass the gate with
+          # only CI catching it later. Set it on shell entry, mirroring the
+          # devcontainer, and ALWAYS to `.githooks` (never elsewhere):
+          # `.githooks` is the sanctioned single entry point (#908 —
+          # sanctioned-environment guard, consumer-owned scripts) and its
+          # `prek run` picks up any flake-generated config. This SETS
+          # core.hooksPath but never unsets/resets it or installs into
+          # `.git/hooks`, so the #908 invariant is reinforced, not broken.
+          #
+          # Guards, in order:
+          #   * `.githooks/` must exist at the git toplevel — only a
+          #     scaffold-shaped repo is touched; a bare mkProjectShell consumer
+          #     is left alone.
+          #   * MAIN worktree only (worktree git-dir == common git-dir) — a
+          #     linked worktree is owned by justfile.worktree, which
+          #     deliberately unsets core.hooksPath and installs prek hooks
+          #     directly; guarding here keeps this hook from fighting that flow
+          #     on every shell entry inside a worktree.
+          #   * only when the value differs from `.githooks` — idempotent: no
+          #     redundant write on re-entry when it is already set.
+          #
+          # In the shared base (like the ld/nvim hooks) so the default
+          # `hooks = null` shell and an opted-in shell change identically; the
+          # zero-hooks parity (tests/test_flake_devshell.py,
+          # tests/test_flake_hooks.py) holds.
+          githooksPathHook = ''
+            if _gitTop=$(${pkgs.gitMinimal}/bin/git rev-parse --show-toplevel 2>/dev/null) \
+              && [ -d "$_gitTop/.githooks" ] \
+              && [ "$(${pkgs.gitMinimal}/bin/git rev-parse --absolute-git-dir 2>/dev/null)" \
+                 = "$(${pkgs.gitMinimal}/bin/git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ] \
+              && [ "$(${pkgs.gitMinimal}/bin/git -C "$_gitTop" config --get core.hooksPath 2>/dev/null)" != ".githooks" ]; then
+              ${pkgs.gitMinimal}/bin/git -C "$_gitTop" config core.hooksPath .githooks
+            fi
+            unset _gitTop
+          '';
+
           # When the interpreter is overridden (#1038), prepend it to PATH so the
           # bare `python`/`python3` follow the override too — not just uv's
           # `UV_PYTHON` pin. `vig-utils` (a devTools entry) is built against the
@@ -516,6 +557,7 @@
               + nvimIsolationHook
               + "\n"
               + pythonOverrideHook
+              + githooksPathHook
               + moduleShellHook
               + hooksShellHook
               + shellHook;
@@ -668,21 +710,161 @@
           }
         );
 
+        # Locale support without locale-gen. The image only ever sets
+        # en_US.UTF-8 (LANG/LC_ALL/LANGUAGE below), so we ship just that one
+        # locale instead of the full 222 MiB upstream archive. Bound once and
+        # used in BOTH image references — the imageTools entry AND the
+        # LOCALE_ARCHIVE Env store-path interpolation — so a single small
+        # derivation lands in the closure. Refs #1104.
+        glibcLocalesEnUS = pkgs.glibcLocales.override {
+          allLocales = false;
+          locales = [ "en_US.UTF-8/UTF-8" ];
+        };
+
+        # Client-only podman for the IMAGE (Docker-out-of-Docker, #1106).
+        #
+        # `devTools` (nix/devtools.nix) ships the FULL local podman runtime —
+        # crun/criu/conmon/netavark/passt/libkrun(fw)/aardvark-dns/
+        # fuse-overlayfs/runc — because dev-shell users on a real host run
+        # daemonless `podman run` and need those helpers. The IMAGE never does:
+        # the consumer scaffold mounts the host's rootless podman socket as
+        # /var/run/docker.sock and sets DOCKER_HOST
+        # (assets/workspace/.devcontainer/scripts/initialize.sh), so every
+        # `podman`/`docker` call forwards to the host daemon — the container is
+        # a thin CLIENT. The in-image runtime (the retired podman-in-podman
+        # sidecar model, declared non-contract in epic #1103) is dead weight;
+        # stubbing the helpers nets ~67 MiB (the epic's ~254 MiB estimate
+        # assumed dropping podman entirely — the retained client binary and
+        # its rpath-linked systemd account for the difference).
+        #
+        # This pin has no `podman-remote` attribute, and the wrapper hardcodes
+        # its helper set (passthru.helpersBin / binPath in
+        # pkgs/by-name/po/podman/package.nix). We therefore keep the real
+        # podman client and .override its helper INPUTS with an empty stub
+        # (option 1 of #1106): the helpers are only wrap-time PATH suffixes and
+        # a store path substituted into the OCI-runtime config
+        # (hardcode-paths.patch) — pointing them at an empty $out/bin drops the
+        # helper closures while leaving the `podman` binary, `podman --version`,
+        # and shell completions intact. Daemonless `podman run` then fails
+        # gracefully (no local runtime), which is exactly the DooD contract.
+        # `extraRuntimes = []` drops runc; catatonit (tiny, pause-image init)
+        # is left real so the installPhase `ln -s helpersBin/bin/*` glob is
+        # non-empty. systemd stays: it is a buildInput linked into the podman
+        # binary (rpath), not a helper, and the pin warns systemdMinimal breaks
+        # `podman logs`. Scoped to the IMAGE only — the dev-shell keeps the
+        # full runtime via devTools. Refs #1106, #1103.
+        podmanHelperStub = pkgs.runCommand "podman-helper-stub" { } "mkdir -p $out/bin";
+        podmanClient = pkgs.podman.override {
+          crun = podmanHelperStub;
+          conmon = podmanHelperStub;
+          netavark = podmanHelperStub;
+          passt = podmanHelperStub;
+          aardvark-dns = podmanHelperStub;
+          fuse-overlayfs = podmanHelperStub;
+          runc = podmanHelperStub;
+          extraRuntimes = [ ];
+        };
+
+        # actionlint for the IMAGE without its optional `pyflakes` runtime dep
+        # (#1107). Stock actionlint wraps its binary with `pyflakes` + `shellcheck`
+        # on PATH (pkgs/by-name/ac/actionlint/package.nix postInstall). `pyflakes`
+        # only lints inline `python` in workflow `run:` steps — unused in this
+        # gh-driven repo — and it is `python3.13-pyflakes`, one of the two
+        # remaining anchors dragging the redundant CPython 3.13 interpreter into
+        # the image (full `git` → gitMinimal drops the other; #1105/#1106 dropped
+        # bandit/criu). `.override` exposes only `python3Packages`, not `pyflakes`,
+        # so a clean single-dep drop needs `overrideAttrs`: we rewrite postInstall
+        # to wrap with `shellcheck` ONLY, evicting `pyflakes` (and thus
+        # python3.13) from the closure while keeping the shellcheck-backed `run:`
+        # shell lint and the man page. Scoped to the IMAGE — the dev-shell keeps
+        # stock actionlint via devTools. Refs #1107, #1103.
+        actionlintImage = pkgs.actionlint.overrideAttrs (_: {
+          postInstall = ''
+            ronn --roff man/actionlint.1.ronn
+            installManPage man/actionlint.1
+            wrapProgram "$out/bin/actionlint" \
+              --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.shellcheck ]}
+          '';
+        });
+
+        # neovim for the IMAGE without the wl-clipboard clipboard provider
+        # (#1108). The stock nixpkgs neovim wrapper suffixes `wl-clipboard` onto
+        # the wrapped binary's runtime PATH as the Wayland clipboard provider:
+        # `runtimeDeps` gains `wl-clipboard` whenever `waylandSupport` is true,
+        # which defaults ON on Linux (pkgs/applications/editors/neovim/
+        # wrapper.nix). wl-clipboard drags in `xdg-utils`, and xdg-utils drags
+        # the entire perl 5.42.0 module stack (File-MimeInfo, X11-Protocol,
+        # XML-Twig, libwww-perl, File-DesktopEntry, …) — perl's SOLE remaining
+        # anchor in the image after #1107 swapped full `git` for gitMinimal. In
+        # a HEADLESS container this provider is dead code: there is no Wayland
+        # socket, so `wl-copy`/`wl-paste` never run. The clipboard path that
+        # actually works over VS Code remote / SSH is OSC52, which nvim >= 0.10
+        # uses natively when no display clipboard tool is on PATH. Evicting
+        # wl-clipboard therefore drops perl — and lets us retire its live CVE
+        # exception batch (#1097/#1098) instead of babysitting it — with zero
+        # functional loss in this usage.
+        #
+        # The pinned wrapped `neovim` is `wrapNeovim neovim-unwrapped {}`
+        # (= neovimUtils.legacyWrapper), whose `.override` exposes only
+        # `{ configure, extraMakeWrapperArgs }` — there is NO `waylandSupport`
+        # knob to flip. We therefore re-wrap `neovim-unwrapped` directly with the
+        # lower-level `wrapNeovimUnstable`, replicating the legacy wrap's defaults
+        # (empty rc, no plugins, `wrapRc = false`, and `legacyWrapper = true` so
+        # the provider-disabling lua rc — `vim.g.loaded_{perl,ruby,python3,node}
+        # _provider = 0` — matches stock `neovim`) but with
+        # `waylandSupport = false`. The result is a behaviour-equivalent `nvim`
+        # minus the wl-clipboard -> xdg-utils -> perl subtree. Scoped to the
+        # IMAGE — the dev-shell keeps the stock wrapped neovim via devTools.
+        # Refs #1108, #1103.
+        neovimImage = pkgs.wrapNeovimUnstable pkgs.neovim-unwrapped {
+          neovimRcContent = "";
+          luaRcContent = "";
+          plugins = [ ];
+          wrapperArgs = [ ];
+          wrapRc = false;
+          legacyWrapper = true;
+          waylandSupport = false;
+        };
+
         # The toolchain SSoT plus the runtime substrate a bare layered image
         # lacks (an FHS base distro would provide these; here we add them
         # explicitly — this is the discovery surface for FHS gaps). Shared by
         # the image (`devkitImage`) and its vulnix scan target
-        # (`devkitImageEnv`, #637).
+        # (`devkitImageEnv`, #637). Four devTools entries are swapped for
+        # slimmer image-only builds — filtered out here, not in the SSoT, so the
+        # dev-shell keeps the full tools:
+        #   - full `podman` → `podmanClient` (client-only, #1106).
+        #   - full `git` → `gitMinimal` (no perl/python/gui/man; drops the
+        #     git-p4/python-helper anchor of CPython 3.13, plus git-doc; gettext
+        #     stays, still linked by gitMinimal for i18n; loses
+        #     send-email/svn/p4/gitk/`git help` — non-contract per #1103).
+        #   - stock `actionlint` → `actionlintImage` (no `python3.13-pyflakes`
+        #     wrapper — the other CPython 3.13 anchor).
+        #   - stock `neovim` → `neovimImage` (no wl-clipboard clipboard provider
+        #     — drops the wl-clipboard → xdg-utils → perl anchor; OSC52 replaces
+        #     it in the headless container; #1108).
+        # Together with #1105 (bandit) and #1106 (criu) this evicts the redundant
+        # CPython 3.13 interpreter (#1107) and perl (#1108) from the image.
+        # Refs #1108, #1107, #1103.
         imageTools =
-          (devTools pkgs)
+          (builtins.filter (
+            p: p != pkgs.podman && p != pkgs.git && p != pkgs.actionlint && p != pkgs.neovim
+          ) (devTools pkgs))
+          ++ [
+            podmanClient
+            pkgs.gitMinimal
+            actionlintImage
+            (pkgs.lib.lowPrio neovimImage)
+          ]
           ++ (with pkgs; [
             # Nix package manager in the closure (CppNix).
             nix
             direnv
             nix-direnv
 
-            # Locale support without locale-gen.
-            glibcLocales
+            # Locale support without locale-gen (en_US.UTF-8 only; see
+            # glibcLocalesEnUS above). Refs #1104.
+            glibcLocalesEnUS
 
             # Python (with vig-utils baked) + the project Python toolchain.
             # The Debian image installed these via `uv pip install` at build;
@@ -690,7 +872,6 @@
             # The git-hook runner is `prek` (via devTools); the standalone
             # Python `pre-commit` that used to sit here is dropped (#778).
             pythonEnv
-            bandit
 
             # Rust/cargo + just LSP/formatter tools. The Debian image installed
             # these via cargo-binstall; Nix-native from nixpkgs here (#666).
@@ -1050,9 +1231,12 @@
                     # working binary without pulling in the Docker engine. The
                     # heredoc is quoted so `$@` is written verbatim; the store
                     # paths are interpolated by Nix at eval time. Refs #740.
+                    # Points at `podmanClient` (the image's client-only podman,
+                    # #1106) — NOT `pkgs.podman` — so the shim does not silently
+                    # re-pull the full local runtime into the image closure.
                     cat > "$out/usr/local/bin/docker" <<'DOCKERSHIM'
                     #!${pkgs.runtimeShell}
-                    exec ${pkgs.podman}/bin/podman "$@"
+                    exec ${podmanClient}/bin/podman "$@"
                     DOCKERSHIM
                     chmod +x "$out/usr/local/bin/docker"
 
@@ -1199,7 +1383,7 @@
                   "LANG=en_US.UTF-8"
                   "LANGUAGE=en_US:en"
                   "LC_ALL=en_US.UTF-8"
-                  "LOCALE_ARCHIVE=${pkgs.glibcLocales}/lib/locale/locale-archive"
+                  "LOCALE_ARCHIVE=${glibcLocalesEnUS}/lib/locale/locale-archive"
                   # Expose the Nix C++/compression runtime on the loader path
                   # for runtime-installed manylinux wheels (see manylinuxLibPath
                   # above). Required for the C-extension .so files the baked Nix

@@ -375,8 +375,8 @@ jobs:
     needs: validate
     runs-on: ubuntu-24.04
     permissions:
-      actions: write
-      contents: write
+      actions: read
+      contents: read
       packages: read
     container:
       image: ${{ inputs.toolchain_image }}
@@ -467,6 +467,11 @@ jobs:
         if: ${{ inputs.release_kind == 'final' && steps.bundle.outputs.has_bundle == 'true' }}
         run: |
           set -euo pipefail
+          # Install project deps (npm ci / uv sync) so the bundler (e.g. ncc, a
+          # devDependency) is on PATH. The toolchain preamble provisions the
+          # dev-shell but not the repo's node_modules, so `just bundle` alone
+          # exits 127; every other build job syncs first (#1130).
+          just sync
           # Rebuild the committed artifact from the finalized sources so the tag
           # ships a fresh bundle, not a stale one. Output (dist/) is committed
           # alongside CHANGELOG.md below.
@@ -474,7 +479,7 @@ jobs:
 
       - name: Commit and push finalization changes via API
         if: ${{ inputs.release_kind == 'final' }}
-        uses: vig-os/commit-action@1bc004353d08d9332a0cb54920b148256220c8e0  # v0.2.0
+        uses: vig-os/commit-action@96ba909f2151cef35550b032cff210de671c9c9e  # v0.3.0
         env:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}

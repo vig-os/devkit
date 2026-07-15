@@ -31,7 +31,6 @@ EXPECTED_VERSIONS = {
     "uv": "0.11.",  # uv (fast-mover overlaid from nixpkgs-unstable)
     "python": "3.14",  # interpreter major.minor (pinned to python314)
     "ruff": "0.15.",  # nixpkgs-26.05
-    "bandit": "1.9.",  # nixpkgs-26.05
     "pip_licenses": "5.",  # PyPI wheel pinned in flake.nix
     "taplo": "0.10.",  # nixpkgs-26.05
     "vig_utils": "0.1.",  # our package version
@@ -659,16 +658,6 @@ class TestDevelopmentTools:
         expected = EXPECTED_VERSIONS["ruff"]
         assert expected in result.stdout, (
             f"Expected ruff {expected}, got: {result.stdout}"
-        )
-
-    def test_bandit_installed(self, host):
-        """Test that bandit is installed."""
-        result = host.run("bandit --version")
-        assert result.rc == 0, "bandit --version failed"
-        assert "bandit" in result.stdout.lower()
-        expected = EXPECTED_VERSIONS["bandit"]
-        assert expected in result.stdout, (
-            f"Expected bandit {expected}, got: {result.stdout}"
         )
 
     def test_pip_licenses_installed(self, host):

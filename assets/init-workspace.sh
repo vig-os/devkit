@@ -292,6 +292,8 @@ MANIFEST_PROJECT="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_PROJECT || tru
 MANIFEST_ORG="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_ORG || true)"
 MANIFEST_REPO="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REPO || true)"
 MANIFEST_MODULES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_MODULES || true)"
+MANIFEST_TAG_PREFIX="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TAG_PREFIX || true)"
+MANIFEST_FLOATING_TAGS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FLOATING_TAGS || true)"
 
 # The OWNER/REPO placeholder (written when no origin was resolvable) must not
 # mask a now-detectable git origin on a later upgrade.
@@ -487,6 +489,18 @@ extract_template_recipe() {
     ' "$TEMPLATE_DIR/justfile.project"
 }
 
+# Helper: a path is "present" in the workspace if it exists as a resolvable
+# target OR is a symlink of any kind — including a DANGLING one (#1117). In
+# direnv mode a flake-hooks consumer's .pre-commit-config.yaml is a symlink into
+# the HOST /nix/store, which is not mounted inside the image where this script
+# runs, so `-e` alone (it follows the link) reports the symlink absent. Every
+# presence gate that decides whether to preserve/classify/track such a file must
+# see the symlink itself, so the rsync copy never clobbers it and the #1092
+# ignore seed (which reads the still-present symlink's target) still fires.
+path_present() {
+    [[ -e "$1" || -L "$1" ]]
+}
+
 # Helper: check if a file is in the preserve list
 is_preserved_file() {
     local file="$1"
@@ -564,7 +578,9 @@ JUSTFILE_PROJECT_PREEXISTED=false
 # A preserved .pre-commit-config.yaml may lag the template hook stack (#878);
 # record it so the post-scaffold guard can surface the divergence.
 PRECOMMIT_CONFIG_PREEXISTED=false
-[[ -f "$WORKSPACE_DIR/.pre-commit-config.yaml" ]] && PRECOMMIT_CONFIG_PREEXISTED=true
+# path_present, not -f: a flake-hooks consumer's config is a dangling store
+# symlink (#1117), which -f (it follows the link) would miss.
+path_present "$WORKSPACE_DIR/.pre-commit-config.yaml" && PRECOMMIT_CONFIG_PREEXISTED=true
 
 # A preserved .typos.toml is the consumer's spell-check exception set (#913);
 # record it so the post-scaffold guard can surface template divergence.
@@ -579,6 +595,15 @@ PYMARKDOWN_CONFIG_PREEXISTED=false
 [[ -f "$WORKSPACE_DIR/.pymarkdown" ]] && PYMARKDOWN_CONFIG_PREEXISTED=true
 PYMARKDOWN_DOC_PREEXISTED=false
 [[ -f "$WORKSPACE_DIR/.pymarkdown.config.md" ]] && PYMARKDOWN_DOC_PREEXISTED=true
+
+# Snapshot the consumer's OLD root .gitignore before the rsync overwrite (#1111).
+# Root .gitignore is managed (NOT a PRESERVE_FILE), so rsync replaces it below;
+# capture it now so migrate_root_gitignore can recover any root ignores the
+# consumer had hand-added directly to it (they predate the #1092 durable home,
+# .gitignore.project, and would otherwise be silently dropped on the upgrade that
+# introduces it). Empty on a fresh scaffold (no old file) — the migration no-ops.
+OLD_GITIGNORE_SNAPSHOT=""
+[[ -f "$WORKSPACE_DIR/.gitignore" ]] && OLD_GITIGNORE_SNAPSHOT="$(cat "$WORKSPACE_DIR/.gitignore")"
 
 # ── consumer language detection (#1024/#1025) ─────────────────────────────────
 # Managed scaffold statics (.gitignore, .github/workflows/codeql.yml) are
@@ -670,6 +695,77 @@ render_gitignore() {
     fi
 }
 
+# Migrate consumer-added root ignores into .gitignore.project (#1111). The #1092
+# fix made .gitignore.project the durable, preserved home for repo-ROOT ignores,
+# but the upgrade that INTRODUCES it seeds it empty — so any ignores a consumer
+# had hand-added directly to the managed root .gitignore (.DS_Store, editor/OS
+# cruft, project paths) are silently dropped when render_gitignore regenerates
+# root .gitignore from the template. Recover them: any non-blank, non-comment
+# line in the pre-overwrite root .gitignore (OLD_GITIGNORE_SNAPSHOT) that is NOT
+# a managed entry (template base + active language fragments + the #1092 seed)
+# and NOT already in .gitignore.project is appended to .gitignore.project, whence
+# render_gitignore (called AFTER this) folds it back into the regenerated root
+# .gitignore — no separate write to the root file. Append-only and deduplicated
+# against the existing .gitignore.project, so a second upgrade re-adds nothing
+# (idempotent: the migrated lines now live in .gitignore.project) and the
+# consumer's existing entries are never reordered or rewritten. Only entries
+# (non-blank, non-comment lines) migrate; a consumer's free-text comments are not
+# semantically ignorable, so they are left behind with the old managed file.
+migrate_root_gitignore() {
+    local proj="$WORKSPACE_DIR/.gitignore.project"
+    [[ -f "$proj" ]] || return 0
+    [[ -n "$OLD_GITIGNORE_SNAPSHOT" ]] || return 0
+
+    local line lang frag
+    # Managed entries the regenerated root .gitignore already provides — never
+    # migrate one of these (idempotent even for a line the template later drops).
+    local -A managed=()
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]] && continue
+        managed["$line"]=1
+    done < "$TEMPLATE_DIR/.gitignore"
+    for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
+        frag="$SCRIPT_DIR/gitignore.d/$lang.gitignore"
+        [[ -f "$frag" ]] || continue
+        while IFS= read -r line; do
+            [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]] && continue
+            managed["$line"]=1
+        done < "$frag"
+    done
+    # The #1092 flake-hooks seed is a managed entry too.
+    managed[".pre-commit-config.yaml"]=1
+
+    # Entries already committed in .gitignore.project must not be re-added — this
+    # is what makes a second upgrade a no-op.
+    local -A existing=()
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]] && continue
+        existing["$line"]=1
+    done < "$proj"
+
+    # Consumer-added lines: present in the old root .gitignore, owned by neither
+    # the managed sources nor .gitignore.project. Deduplicated, order preserved.
+    local -a migrate=()
+    local -A seen=()
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -n "${managed[$line]:-}" ]] && continue
+        [[ -n "${existing[$line]:-}" ]] && continue
+        [[ -n "${seen[$line]:-}" ]] && continue
+        seen["$line"]=1
+        migrate+=("$line")
+    done <<< "$OLD_GITIGNORE_SNAPSHOT"
+
+    [[ ${#migrate[@]} -eq 0 ]] && return 0
+
+    {
+        printf '\n# Migrated from the managed root .gitignore on upgrade (#1111).\n'
+        printf '%s\n' "${migrate[@]}"
+    } >> "$proj"
+    echo "Migrated ${#migrate[@]} consumer line(s) into .gitignore.project (#1111):"
+    printf '  %s\n' "${migrate[@]}"
+}
+
 # Rewrite the managed CodeQL language matrix to the detected language(s) (#1025):
 # python -> 'python', node -> 'javascript-typescript', rust -> omitted (CodeQL
 # ships no first-class Rust analyzer). 'actions' is always analyzed, so the
@@ -742,7 +838,9 @@ if [[ "$FORCE" == "true" ]]; then
             continue
         fi
 
-        if [[ -e "$workspace_file" ]]; then
+        # path_present, not -e: a dangling store symlink (#1117) at a preserved
+        # path exists in the tree and must classify as PRESERVED, not ADDED.
+        if path_present "$workspace_file"; then
             if is_preserved_file "$rel_path"; then
                 PRESERVED+=("$rel_path")
             else
@@ -928,9 +1026,12 @@ else
     # (.devcontainer/README.md, .claude/skills/*/README.md), which the preview
     # (is_preserved_file, exact rel-path) still promised as ADDED. The anchor
     # matches is_preserved_file's exact-path semantics.
+    # path_present, not -e: a preserved path that is a symlink of any kind —
+    # including a dangling store symlink (#1117) — must be excluded from the
+    # copy, or `rsync -avL` dereferences and writes a real template file over it.
     EXCLUDE_ARGS=()
     for preserved in "${PRESERVE_FILES[@]}"; do
-        if [[ -e "$WORKSPACE_DIR/$preserved" ]]; then
+        if path_present "$WORKSPACE_DIR/$preserved"; then
             EXCLUDE_ARGS+=("--exclude=/$preserved")
         fi
     done
@@ -1188,6 +1289,7 @@ fi
 # every (re)scaffold, so the correct .gitignore / codeql matrix is
 # upgrade-persistent. These files carry no placeholders, so ordering after the
 # substitution above is incidental.
+migrate_root_gitignore
 render_gitignore
 render_codeql_matrix
 
@@ -1195,7 +1297,10 @@ render_codeql_matrix
 # file (template-overwritten on upgrade), so the resolved delivery mode and
 # identity are written back on every (re)scaffold — the next upgrade then
 # needs no mode/identity flags at all. A consumer's DEVKIT_MODULES
-# declaration (#884, read before the template overwrite) is restored too.
+# declaration (#884, read before the template overwrite) is restored too, as
+# are the DEVKIT_TAG_PREFIX / DEVKIT_FLOATING_TAGS release tag-scheme keys
+# (#1116, read before the overwrite) — the template ships them empty, so
+# without a write-back an upgrade would silently reset a consumer's tag scheme.
 if [[ -f "$VIG_OS_MANIFEST" ]]; then
     echo "Persisting resolved manifest values in .vig-os..."
     write_manifest_value DEVKIT_MODE "$MODE"
@@ -1204,6 +1309,14 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     write_manifest_value DEVKIT_REPO "$GITHUB_REPOSITORY"
     if [[ -n "$MANIFEST_MODULES" ]]; then
         write_manifest_value DEVKIT_MODULES "\"$MANIFEST_MODULES\""
+    fi
+    # Bare in the template (DEVKIT_TAG_PREFIX= / DEVKIT_FLOATING_TAGS=), so
+    # written back bare — matching the template's unquoted form.
+    if [[ -n "$MANIFEST_TAG_PREFIX" ]]; then
+        write_manifest_value DEVKIT_TAG_PREFIX "$MANIFEST_TAG_PREFIX"
+    fi
+    if [[ -n "$MANIFEST_FLOATING_TAGS" ]]; then
+        write_manifest_value DEVKIT_FLOATING_TAGS "$MANIFEST_FLOATING_TAGS"
     fi
 fi
 
@@ -1350,16 +1463,28 @@ if [[ -n "$PRECOMMIT_REF_HITS" ]]; then
 fi
 
 # Sync dependencies: resolves uv.lock for the new project name and installs the
-# project. Non-fatal (#859): a preserved old-generation justfile.project may not
-# define `sync` yet — the scaffold itself is complete at this point, so warn and
-# let the consumer sync after migrating their recipes.
-echo "Syncing dependencies..."
-cd "$WORKSPACE_DIR"
-if just --show sync > /dev/null 2>&1; then
-    just sync
+# project. Two mode-aware behaviors (#1118):
+#   * direnv/bare: skip entirely — the consumer's host nix/direnv shell owns
+#     dependency install; a container-side `just sync` (e.g. `npm ci`) would
+#     write wrong-platform, wrong-owner artifacts into the bind-mounted workspace.
+#   * devcontainer/both: run it, but non-fatally — the scaffold is already
+#     complete, so a sync failure warns and continues rather than aborting init
+#     with a misleading "Failed to initialize workspace".
+# Also non-fatal (#859): a preserved old-generation justfile.project may not
+# define `sync` yet — warn and let the consumer sync after migrating recipes.
+if [[ "$MODE" == "direnv" || "$MODE" == "bare" ]]; then
+    echo "Skipping dependency sync for $MODE mode; your nix/direnv shell installs" \
+         "dependencies (a container-side 'just sync' would write wrong-platform" \
+         "node_modules into the bind mount)."
 else
-    echo "Warning: no 'sync' recipe found (preserved pre-0.4.0 justfile.project?)." >&2
-    echo "         Run 'uv sync' manually after migrating your recipes (see MIGRATION.md)." >&2
+    echo "Syncing dependencies..."
+    cd "$WORKSPACE_DIR"
+    if just --show sync > /dev/null 2>&1; then
+        just sync || echo "Warning: dependency sync failed; the scaffold itself is complete — run 'just sync' manually." >&2
+    else
+        echo "Warning: no 'sync' recipe found (preserved pre-0.4.0 justfile.project?)." >&2
+        echo "         Run 'uv sync' manually after migrating your recipes (see MIGRATION.md)." >&2
+    fi
 fi
 
 echo "Workspace initialized successfully!"

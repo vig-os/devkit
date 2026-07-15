@@ -320,6 +320,14 @@ def consumer_config() -> dict[str, Any]:
 
 
 @pytest.fixture(scope="module")
+def default_shellhook() -> str:
+    """The shellHook of the flake's own default dev-shell (``hooks = null``)."""
+    result = _run_nix(["eval", "--raw", ".#devShells.x86_64-linux.default.shellHook"])
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+@pytest.fixture(scope="module")
 def opted_in_shellhook() -> str:
     """The shellHook of a minimally opted-in (``hooks = { }``) shell."""
     expr = f"""
@@ -416,18 +424,73 @@ class TestZeroHooksParity:
         assert ".pre-commit-config.yaml" in opted_in_shellhook
         assert "Refusing" in opted_in_shellhook
 
-    def test_opted_in_shellhook_never_rewires_hookspath(
+    def test_opted_in_shellhook_only_sanctions_githooks_path(
         self, opted_in_shellhook: str
     ) -> None:
-        """Opting in must not touch ``core.hooksPath`` or ``.git/hooks``.
+        """Opting in adds no ``core.hooksPath`` mutation beyond the sanctioned set.
 
         The scaffold's ``.githooks`` directory stays the single hook entry
         point (its sanctioned-environment guard and any consumer-owned
         scripts keep running); the generated config is picked up by
         ``.githooks/pre-commit``'s ``prek run`` via the repo-root symlink.
-        PR #908 review defect: git-hooks.nix's stock installation script
-        unset/reset ``core.hooksPath`` and installed only the pre-commit
-        stage into ``.git/hooks``, silently bypassing ``.githooks``.
+        The base dev-shell now wires ``core.hooksPath`` -> ``.githooks`` for
+        direnv consumers (#1112), *reinforcing* that entry point. Opting into
+        the flake-generated config must add no *other* hooksPath mutation:
+        the PR #908 defect was git-hooks.nix's stock installation script
+        unsetting/resetting ``core.hooksPath`` and installing only the
+        pre-commit stage into ``.git/hooks``, silently bypassing ``.githooks``.
+        So every ``core.hooksPath`` *write* must set the sanctioned
+        ``.githooks`` value, and nothing may unset/uninstall it. (A
+        ``config --get core.hooksPath`` read is harmless and does not match
+        the ``config core.hooksPath`` write form.)
         """
-        assert "core.hooksPath" not in opted_in_shellhook
+        assert opted_in_shellhook.count(
+            "config core.hooksPath"
+        ) == opted_in_shellhook.count("config core.hooksPath .githooks"), (
+            "opting in introduced a non-`.githooks` core.hooksPath write (#908)"
+        )
+        assert "--unset" not in opted_in_shellhook
         assert "uninstall" not in opted_in_shellhook
+
+
+class TestGithooksPathWiring:
+    """The dev-shell wires ``.githooks`` as core.hooksPath for direnv mode (#1112).
+
+    Devcontainer mode runs ``git config core.hooksPath .githooks`` from
+    ``setup-git-conf.sh``; a direnv / ``nix develop`` consumer never got that,
+    so commit-time hooks (pre-commit / commit-msg via prek) were silently
+    inactive until the consumer set it by hand. The base shellHook now mirrors
+    the devcontainer, guarded so it only touches a scaffold-shaped repo and
+    never fights the worktree flow (justfile.worktree unsets core.hooksPath and
+    installs prek hooks directly in a linked worktree).
+    """
+
+    def test_default_shellhook_sets_core_hookspath_to_githooks(
+        self, default_shellhook: str
+    ) -> None:
+        """direnv mode mirrors the devcontainer: ``config core.hooksPath .githooks``."""
+        assert "config core.hooksPath .githooks" in default_shellhook
+
+    def test_default_shellhook_guards_on_githooks_dir(
+        self, default_shellhook: str
+    ) -> None:
+        """Only a scaffold-shaped repo (a ``.githooks/`` dir at toplevel) is touched."""
+        assert "/.githooks" in default_shellhook
+
+    def test_default_shellhook_guards_on_main_worktree(
+        self, default_shellhook: str
+    ) -> None:
+        """A linked worktree (owned by justfile.worktree) is left alone.
+
+        The guard compares the worktree git-dir with the common git-dir; they
+        differ only in a linked worktree, so the wiring runs solely in the main
+        checkout and never re-fights the worktree's deliberate unset.
+        """
+        assert "--git-common-dir" in default_shellhook
+
+    def test_default_shellhook_never_unsets_hookspath(
+        self, default_shellhook: str
+    ) -> None:
+        """The wiring only ever *sets* ``.githooks``; it never unsets/uninstalls (#908)."""
+        assert "--unset" not in default_shellhook
+        assert "uninstall" not in default_shellhook

@@ -1,4 +1,4 @@
-# Prepare Release Extension (devkit dogfooding of #1059)
+# Prepare Release Extension (devkit dogfooding of #1059, #1115)
 #
 # Devkit's implementation of the scaffolded prepare-release-extension.yml hook.
 # Runs on the freshly cut release/X.Y.Z branch, AFTER the changelog freeze and
@@ -16,30 +16,51 @@
 #    branch the image is built from (tests/test_image.py::test_manifest_files
 #    checksums mirror == root).
 #
-# 2. Dev reconciliation (LAST, and that ordering is load-bearing): the freeze
-#    commit is scaffold-verbatim (root CHANGELOG.md only), so dev's mirror is
-#    stale after every prepare — the sync-manifest pre-commit hook would go red
-#    on every dev PR during the release window. This job therefore re-syncs the
-#    mirror against dev's current head and commits JUST the mirror to dev
-#    (idempotent: skipped when it already matches).
+# 2. Dev reconciliation: the freeze commit is scaffold-verbatim (root
+#    CHANGELOG.md only), so dev's mirror is stale after every prepare — the
+#    sync-manifest pre-commit hook would go red on every dev PR during the
+#    release window. The OLD design (#1059) minted a *sibling* reconcile commit
+#    on dev: same parent+tree as the release-branch sync commit (step 1) but a
+#    distinct object. Because that sibling shared no ancestry with the release
+#    branch, the mirror's merge base at post-promote sync time was the stale
+#    pre-freeze content → a deterministic sync-main-to-dev conflict on the
+#    mirror every release cycle (#1091, #1114).
 #
-# Rollback interplay — why the dev reconciliation MUST be the last step:
+#    The fix (#1115) fast-forwards dev to the release branch's step-1 sync
+#    commit, so the mirror rewrite becomes *shared ancestry* — the same property
+#    that keeps the root changelog conflict-free (the freeze commit is the merge
+#    base). The FF only runs while dev still sits on the freeze commit
+#    (branch_sha); the ref update is non-force and therefore FF-only, so the
+#    server rejects it atomically if dev advanced in the race window. A
+#    dev-advanced race (or any PATCH failure) falls back to the previous
+#    sibling-commit reconcile — that one cycle may conflict, exactly the status
+#    quo, never worse. The FF creates NO commit: the step-1 sync commit is
+#    app-signed API history and the COMMIT_APP token already pushes to dev
+#    directly (same actor), so fast-forwarding dev to it adds no new object and
+#    introduces no new signer.
+#
+# Rollback interplay — why the fallback reconcile MUST stay the last step:
 # prepare-release.yml's rollback job restores root CHANGELOG.md on dev only when
-# dev's head still equals the post-freeze SHA (the dev-advanced guard). The
-# reconcile commit always advances dev, so:
-#   * Extension fails BEFORE the reconcile commit lands => dev holds only the
-#     root-only freeze => rollback's guard passes and its root-restore returns
-#     dev to root(pre) == mirror(pre). Consistent.
-#   * The reconcile commit landed => the extension job is already finished
-#     (nothing failable follows), so the only remaining failure domain is
-#     open-pr => rollback's guard sees dev advanced and skips the root-restore,
-#     leaving dev at root(frozen) == mirror(frozen). Also consistent; the freeze
-#     is intentionally NOT auto-reverted on this rare path (restoring root alone
-#     would re-open the inverse drift, and the scaffold-shaped rollback must not
-#     learn devkit-specific mirror paths). Recover by reverting the freeze +
-#     reconcile commits on dev, or re-cutting the release branch manually.
+# dev's head still equals the post-freeze SHA (the dev-advanced guard). Any dev
+# mutation here (the FF, or the fallback reconcile commit) advances dev, so:
+#   * Extension fails BEFORE any dev update => dev still at branch_sha => the
+#     rollback's dev-advanced guard passes and its root-restore returns dev to
+#     root(pre) == mirror(pre). Consistent.
+#   * Once dev advances (the FF landed, or the fallback reconcile commit landed
+#     — each the last failable act on its path; the fallback steps are
+#     if-skipped when the FF succeeded and a skipped step cannot fail), the only
+#     remaining failure domain is open-pr (plus the single GITHUB_OUTPUT write
+#     after the PATCH) => the rollback's guard sees dev advanced and skips the
+#     root-restore, leaving dev at root(frozen) == mirror(frozen). Also
+#     consistent; the freeze is intentionally NOT auto-reverted on this rare
+#     path (restoring root alone would re-open the inverse drift, and the
+#     scaffold-shaped rollback must not learn devkit-specific mirror paths).
+#     After an FF, the deleted release branch's sync commit stays reachable from
+#     dev (no GC risk); recover by re-cutting release/X.Y.Z at dev's head
+#     (identical content) or reverting the freeze + sync commits on dev.
 # Every failure path therefore leaves dev's root+mirror consistent, which is
-# pinned by tests/test_workflow_prepare_extension.py's ordering assertions.
+# pinned by tests/test_workflow_prepare_extension.py's ordering/gating
+# assertions.
 
 name: Prepare Release Extension
 
@@ -114,7 +135,8 @@ jobs:
           echo "✓ Synced workspace manifest on ${{ inputs.release_branch }}"
 
       - name: Commit synced manifest to release branch via API
-        uses: vig-os/commit-action@1bc004353d08d9332a0cb54920b148256220c8e0  # v0.2.0
+        id: release-commit
+        uses: vig-os/commit-action@96ba909f2151cef35550b032cff210de671c9c9e  # v0.3.0
         env:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -128,13 +150,49 @@ jobs:
             CHANGELOG.md on the release branch.
           FILE_PATHS: assets/workspace/.devcontainer/CHANGELOG.md
 
-      # ── Dev-side mirror reconciliation ──────────────────────────────────────
-      # Everything below runs against dev's CURRENT head (not the frozen branch
-      # point), so a dev that advanced since the freeze is reconciled against
-      # what it actually contains. The commit step below must stay the LAST step
-      # of this job — see the rollback-interplay analysis in the header.
+      - name: Fast-forward dev to the release-branch sync commit
+        id: dev-ff
+        env:
+          GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
+          BRANCH_SHA: ${{ inputs.branch_sha }}
+          RELEASE_COMMIT_SHA: ${{ steps.release-commit.outputs.commit-sha }}
+        run: |
+          set -euo pipefail
+          FF_DONE=false
+          # Missing output => no-op PATCH to the branch point; fails safe.
+          RELEASE_SHA="${RELEASE_COMMIT_SHA:-$BRANCH_SHA}"
+          # A read failure here must degrade to the fallback, never fail the
+          # job before any dev mutation (that would roll back the release
+          # branch for nothing).
+          DEV_SHA="$(git ls-remote origin refs/heads/dev | cut -f1 || true)"
+          if [ "$DEV_SHA" = "$BRANCH_SHA" ]; then
+            # Non-force: the server rejects atomically unless this is a
+            # fast-forward, so a dev that advanced in the race window can
+            # never be clobbered. Deliberately not retried — a legitimate
+            # 422 non-FF rejection must not be retried, and a transient
+            # failure degrades to the fallback (status quo).
+            if gh api -X PATCH "repos/${{ github.repository }}/git/refs/heads/dev" \
+                 -f sha="$RELEASE_SHA" -F force=false; then
+              FF_DONE=true
+              echo "✓ Fast-forwarded dev to release sync commit $RELEASE_SHA"
+            else
+              echo "w non-FF rejection or transient failure; falling back to reconcile commit"
+            fi
+          else
+            echo "i dev advanced past the freeze; falling back to reconcile commit"
+          fi
+          echo "ff_done=$FF_DONE" >> "$GITHUB_OUTPUT"
+
+      # ── Dev-side mirror reconciliation (fallback) ───────────────────────────
+      # Reached only when the fast-forward above did NOT land (dev advanced past
+      # the freeze, or the PATCH failed). Everything below runs against dev's
+      # CURRENT head (not the frozen branch point), so a dev that advanced since
+      # the freeze is reconciled against what it actually contains. The commit
+      # step below must stay the LAST step of this job — see the
+      # rollback-interplay analysis in the header.
 
       - name: Check out dev at its current head
+        if: ${{ steps.dev-ff.outputs.ff_done != 'true' }}
         run: |
           set -euo pipefail
           # The release-branch sync above left local modifications (the API
@@ -146,6 +204,7 @@ jobs:
 
       - name: Sync workspace manifest against dev
         id: dev-sync
+        if: ${{ steps.dev-ff.outputs.ff_done != 'true' }}
         run: |
           set -euo pipefail
           uv run python scripts/sync_manifest.py sync assets/workspace/
@@ -158,8 +217,8 @@ jobs:
           fi
 
       - name: Commit reconciled mirror to dev via API
-        if: ${{ steps.dev-sync.outputs.mirror_dirty == 'true' }}
-        uses: vig-os/commit-action@1bc004353d08d9332a0cb54920b148256220c8e0  # v0.2.0
+        if: ${{ steps.dev-ff.outputs.ff_done != 'true' && steps.dev-sync.outputs.mirror_dirty == 'true' }}
+        uses: vig-os/commit-action@96ba909f2151cef35550b032cff210de671c9c9e  # v0.3.0
         env:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}

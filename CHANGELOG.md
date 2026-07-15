@@ -19,6 +19,226 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [1.3.0](https://github.com/vig-os/devkit/releases/tag/1.3.0) - 2026-07-15
+
+### Added
+
+- **Scaffold CI dependency-review gate** ([#1140](https://github.com/vig-os/devkit/issues/1140))
+  - Consumer `ci.yml` now runs a standalone `dependency-review` job
+    (`actions/dependency-review-action` v5, `fail-on-severity: high`) that
+    blocks PRs introducing known-vulnerable dependencies off GitHub's
+    dependency graph — no toolchain or container required.
+  - Guarded to public-repo pull requests (the action only diffs base/head on
+    PRs, and the dependency-graph API is unavailable on Free-plan private
+    repos), so private repos get a skipped-neutral run and auto-activate when
+    flipped public (#1039 pattern); `CI Summary` requires it without going red
+    on push/dispatch/private-repo skips.
+
+### Changed
+
+- **Renovate dependency update** ([#1134](https://github.com/vig-os/devkit/pull/1134))
+  - Update `actions/setup-node` from `v6.4.0` to `v6.5.0`
+  - Update `cachix/install-nix-action` from `v31.10.7` to `v31.11.0`
+  - Update `vig-os/commit-action` from `v0.2.0` to `v0.3.0`
+- **Renovate: update `actions/setup-node` from `v6.4.0` to `v7.0.0`** ([#1135](https://github.com/vig-os/devkit/pull/1135))
+- **Evict perl from the image (neovim without wl-clipboard)** ([#1108](https://github.com/vig-os/devkit/issues/1108))
+  - perl 5.42.0 and its module stack (libwww-perl, XML-Twig, File-MimeInfo,
+    X11-Protocol, …) had one remaining anchor after
+    [#1107](https://github.com/vig-os/devkit/issues/1107) swapped full `git` for
+    `gitMinimal`: `neovim → wl-clipboard → xdg-utils → perl`. The nixpkgs neovim
+    wrapper suffixes `wl-clipboard` onto the wrapped binary's PATH as the Wayland
+    clipboard provider (`waylandSupport`, on by default on Linux), and
+    wl-clipboard drags xdg-utils, which drags perl.
+  - In a headless container this provider is dead code — there is no Wayland
+    socket, so `wl-copy`/`wl-paste` never run. The clipboard path that actually
+    works over VS Code remote / SSH is OSC52, which nvim >= 0.10 uses natively
+    when no display clipboard tool is on PATH.
+  - The image now re-wraps `neovim-unwrapped` with `wrapNeovimUnstable`
+    (replicating the stock legacy wrap — empty rc, providers disabled — but with
+    `waylandSupport = false`), evicting the wl-clipboard → xdg-utils → perl
+    subtree. Measured **~108 MiB** off the uncompressed closure
+    (1,758,754,952 → 1,645,235,648 bytes).
+  - Dev-shell behavior is unchanged: `devTools` still ships the stock wrapped
+    neovim (which keeps wl-clipboard for real Wayland hosts); the swap is scoped
+    to the image only.
+- **Restrict image locales to en_US.UTF-8** ([#1104](https://github.com/vig-os/devkit/issues/1104))
+  - The image shipped the full 222 MiB upstream `glibcLocales` archive but only
+    ever uses `en_US.UTF-8`. The `imageTools` entry and the `LOCALE_ARCHIVE`
+    OCI-config env now share one overridden derivation
+    (`allLocales = false; locales = [ "en_US.UTF-8/UTF-8" ]`), so exactly one
+    small (~3 MiB) locale path lands in the closure — a ~220 MiB uncompressed
+    reduction with zero functional change.
+- **Drop vestigial baked bandit from the image** ([#1105](https://github.com/vig-os/devkit/issues/1105))
+  - Hooks already run the venv bandit via `uv run` (pinned `bandit[toml]==1.9.4`); the baked copy was unused.
+  - Removes ~74 MiB from the image closure — a stray CPython 3.13 package stack (nixpkgs builds `bandit` on 3.13 while the image toolchain is 3.14) plus a duplicate `git-minimal` pulled in via gitpython.
+- **Evict the redundant CPython 3.13 interpreter from the image** ([#1107](https://github.com/vig-os/devkit/issues/1107))
+  - The image carried a second CPython interpreter (`python3-3.13.13`, 127 MiB)
+    that the chosen toolchain (`python3.14`, `UV_PYTHON`, `vig-utils`) never
+    uses. It was held by four independent anchors, all of which had to fall:
+    `bandit` ([#1105](https://github.com/vig-os/devkit/issues/1105)), `criu` via
+    the podman runtime ([#1106](https://github.com/vig-os/devkit/issues/1106)),
+    full `git` (git-p4/python helpers), and `actionlint` (its optional
+    `python3.13-pyflakes` lint wrapper) — the last two removed here.
+  - The image now ships `gitMinimal` (`perlSupport`/`pythonSupport`/
+    `guiSupport`/`withManual` all off) instead of full `git`, and an
+    `overrideAttrs`'d `actionlint` whose wrapper drops `pyflakes` (keeping
+    `shellcheck`). Together this evicts the 3.13 interpreter and full git's
+    `git-doc`, measuring **~149 MiB** off the uncompressed closure beyond the
+    bandit/criu cuts.
+  - Contract (declared non-contract in
+    [#1103](https://github.com/vig-os/devkit/issues/1103), `semver:minor`): the
+    image loses `git send-email`/`svn`/`p4`/`gitk`/`git gui` and built-in
+    `git help <cmd>` man pages, and actionlint's inline-python lint on workflow
+    `run:` steps. Builtin-C porcelain (`log`, `commit`, `rebase -i`, `add -p`,
+    worktrees) and SSH commit signing are unaffected; `gettext` stays (still
+    linked by gitMinimal for i18n).
+  - Dev-shell behavior is unchanged: `devTools` still ships full `git` and stock
+    `actionlint`; the swaps are scoped to the image only.
+- **Replace in-image podman runtime with DooD-only client** ([#1106](https://github.com/vig-os/devkit/issues/1106))
+  - The image now ships a client-only podman: its local-runtime helpers
+    (`crun`, `criu`, `conmon`, `netavark`, `passt`, `libkrun`/`libkrunfw`,
+    `aardvark-dns`, `fuse-overlayfs`, `runc`) are `.override`n with an empty
+    stub, dropping ~67 MiB of uncompressed image closure. The epic's ~254 MiB
+    estimate assumed removing podman entirely; retaining the client binary
+    (~54 MiB) and `systemd` (rpath-linked into it; `systemdMinimal` breaks
+    `podman logs` per the nixpkgs pin) reduces the net saving to ~67 MiB.
+  - In-container isolated (nested) container execution is removed — the retired
+    podman-in-podman sidecar model, declared non-contract in
+    [#1103](https://github.com/vig-os/devkit/issues/1103).
+  - Docker-out-of-Docker against the host's rootless podman socket (the
+    consumer scaffold's existing `DOCKER_HOST` wiring) is unchanged.
+  - The `docker -> podman` shim is retained and now execs the client-only
+    podman.
+  - Dev-shell behavior is unchanged: `devTools` still ships the full podman
+    runtime for daemonless `podman run` on a real host; the swap is scoped to
+    the image only.
+
+### Fixed
+
+- **Gate promote on release-PR mergeability before the irreversible publish** ([#1132](https://github.com/vig-os/devkit/issues/1132))
+  - `promote-release.yml`'s `validate` job verified the release PR was
+    non-draft, approved, and CI-green but never checked whether it was actually
+    *mergeable*. Because the sequence is `validate → promote (undraft, one-way
+    under immutable releases) → merge`, a PR that was `BEHIND` `main` (or
+    `BLOCKED`/`DIRTY`) passed validation, the GitHub Release was published, and
+    only then did the merge fail — leaving a half-promoted release whose PR
+    never reached `main` and which cannot be re-run to recover.
+  - The `validate` PR check now fetches `mergeable`/`mergeStateStatus` and
+    fails fast unless the PR is mergeable, re-querying while GitHub is still
+    computing the state (`UNKNOWN`). Keeps the invariant: never start the
+    irreversible publish unless the merge can succeed.
+
+- **Migrate hand-added root `.gitignore` lines into `.gitignore.project` on upgrade** ([#1111](https://github.com/vig-os/devkit/issues/1111))
+  - The [#1092](https://github.com/vig-os/devkit/issues/1092) fix made
+    `.gitignore.project` the durable home for repo-root ignores, but the upgrade
+    that introduces it seeds it empty — so any ignores a consumer had hand-added
+    directly to the managed (regenerated) root `.gitignore` (`.DS_Store`,
+    editor/OS cruft, project paths) were silently dropped when `render_gitignore`
+    rebuilt root `.gitignore` from the template.
+  - `init-workspace.sh` now snapshots the pre-overwrite root `.gitignore` and
+    migrates its consumer-added entries (non-blank, non-comment lines that are
+    not provided by the template base, an active language fragment, or the #1092
+    seed, and not already present) into `.gitignore.project`, from where they
+    flow back into the regenerated root `.gitignore`. The migration is
+    append-only and deduplicated, so it never reorders the consumer's existing
+    entries and a second upgrade re-adds nothing (idempotent); it prints the
+    count and list of migrated lines.
+
+- **Install project deps before building the release artifact** ([#1130](https://github.com/vig-os/devkit/issues/1130))
+  - The `Build release artifact` step in `release-core.yml` ran `just bundle`
+    without a preceding `just sync`, so a JS-Action consumer's bundler (`ncc`, a
+    devDependency) was absent from PATH — the finalization step exited 127 and
+    the `final` release rolled back. Only surfaced on a real `final` release (the
+    step is gated on `release_kind == 'final'` and a detected `bundle` recipe).
+  - The step now runs `just sync` (language-neutral: `npm ci` / `uv sync`) before
+    `just bundle`, matching every other build job. No-op for consumers without a
+    bundle recipe.
+
+- **Wire `core.hooksPath` for direnv consumers** ([#1112](https://github.com/vig-os/devkit/issues/1112))
+  - In direnv / `nix develop` mode the dev-shell never set `core.hooksPath`, so
+    commit-time hooks (pre-commit / commit-msg via prek) were silently inactive
+    until the consumer set it by hand — a local commit could bypass the gate with
+    only CI catching it later. Devcontainer mode already wired it in setup.
+  - `mkProjectShell`'s shellHook now sets `core.hooksPath` → `.githooks` on shell
+    entry, mirroring the devcontainer and reinforcing the `.githooks` entry-point
+    invariant (never installing into `.git/hooks`, never unsetting it).
+  - Guarded to a scaffold-shaped repo (a `.githooks/` directory at the git
+    toplevel) and to the main worktree, so it leaves non-scaffold consumers
+    untouched and never fights the worktree flow (which deliberately unsets
+    `core.hooksPath` and installs prek hooks directly); idempotent on re-entry.
+- **Post-scaffold dependency sync is mode-aware and no longer aborts a successful upgrade** ([#1118](https://github.com/vig-os/devkit/issues/1118))
+  - In `direnv` and `bare` modes the container-side `just sync` is now skipped
+    entirely: the consumer's host nix/direnv shell owns dependency install, and a
+    container-side `npm ci`/`uv sync` would write wrong-platform, wrong-owner
+    artifacts into the bind-mounted workspace. An informational line notes the skip.
+  - In `devcontainer`/`both` modes the sync still runs but is non-fatal — a failure
+    (e.g. `npm error Exit handler never called!`) now warns and continues instead of
+    aborting init with a misleading "Failed to initialize workspace", since the
+    scaffold itself is already complete.
+- **Preserve a flake-hooks `.pre-commit-config.yaml` store symlink on upgrade** ([#1117](https://github.com/vig-os/devkit/issues/1117))
+  - In direnv mode a flake with `hooks = { }` generates `.pre-commit-config.yaml`
+    as a symlink into the host `/nix/store`, which is not mounted inside the image
+    where `init-workspace.sh` runs — so the symlink is dangling from the
+    container's view. The preserve/exclude and report gates tested presence with
+    `-e`/`-f`, which follow the link and reported it absent, so `rsync -avL`
+    overwrote the symlink with the ~6 KB template config and the
+    [#1092](https://github.com/vig-os/devkit/issues/1092) ignore auto-seed never
+    fired — leaving a committed, non-ignored template shadowing the generated
+    config (observed on `commit-action` 1.2.0→1.2.1).
+  - A new `path_present` helper treats a symlink of any kind (including a dangling
+    one) as present at all three gates — the rsync exclude builder, the
+    add/preserve report classification (`--preview` now lists it as PRESERVED),
+    and the `PRECOMMIT_CONFIG_PREEXISTED` divergence guard — so the symlink
+    survives untouched and the ignore seed still runs.
+- **Preserve tag-scheme keys across `--force` upgrades** ([#1116](https://github.com/vig-os/devkit/issues/1116))
+  - `init-workspace.sh` read back `DEVKIT_MODE`/identity/`DEVKIT_MODULES` before
+    the managed-template overwrite of `.vig-os`, but not `DEVKIT_TAG_PREFIX` or
+    `DEVKIT_FLOATING_TAGS`, so an upgrade silently reset a consumer's release
+    tag scheme to the empty template defaults (observed cutting bare tags and
+    stalling floating tags on the commit-action 1.2.0 → 1.2.1 upgrade).
+  - Both keys are now read before the overwrite and written back (bare, matching
+    the template's unquoted form) when the consumer set them.
+- **Post-promote sync-main-to-dev no longer conflicts on the workspace changelog mirror** ([#1115](https://github.com/vig-os/devkit/issues/1115))
+  - The prepare extension's sibling-commit reconcile left the mirror's merge base
+    at pre-freeze content, so `assets/workspace/.devcontainer/CHANGELOG.md`
+    conflicted in the post-promote sync-main-to-dev merge every release cycle
+    ([#1091](https://github.com/vig-os/devkit/issues/1091),
+    [#1114](https://github.com/vig-os/devkit/issues/1114)).
+  - The extension now fast-forwards dev to the release branch's mirror-sync
+    commit (a non-force app ref update, taken only while dev still sits on the
+    freeze commit) so the mirror rewrite is shared ancestry — the same property
+    that keeps the root changelog conflict-free.
+  - A dev-advanced race (or any ref-update failure) falls back to the previous
+    sibling-commit reconcile, exactly the status quo.
+
+### Security
+
+- **Drop vestigial job-level `GITHUB_TOKEN` write grants from workflow templates** ([#1136](https://github.com/vig-os/devkit/issues/1136))
+  - An OpenSSF Scorecard TokenPermissions audit traced every job-level
+    `contents: write` / `actions: write` grant in the rendered release/sync
+    workflows to the token that performs the write: each git push, tag push,
+    `gh release`, `gh pr`, `gh api` mutation and `gh workflow run` rides a
+    COMMIT_APP / RELEASE_APP installation token, not the job's `GITHUB_TOKEN`.
+  - Those grants are now reduced to `read` across `prepare-release.yml` (prepare,
+    rollback), `promote-release.yml` (validate, promote, merge, cleanup,
+    floating-tags), `release.yml` (core + publish caller blocks, rollback),
+    `release-core.yml` (finalize), `release-publish.yml` (publish),
+    `sync-issues.yml` (sync) and `sync-main-to-dev.yml` (sync), shrinking the
+    blast radius of a compromised step to a read-only `GITHUB_TOKEN`.
+  - `promote-release.yml`'s *Verify draft GitHub Release exists* step now reads
+    drafts with the RELEASE_APP token (GitHub only returns drafts to a token with
+    push access), so the `validate` job can drop to `contents: read` without
+    hiding the draft. `sync-issues.yml`'s `sync` job keeps `actions: write` — its
+    cache-deletion step calls `gh api ... -X DELETE` on `github.token`.
+- **Retire the perl 5.42.0 CVE exception batch** ([#1108](https://github.com/vig-os/devkit/issues/1108))
+  - With perl gone from the image closure (neovim no longer anchors it via
+    wl-clipboard → xdg-utils), the perl 5.42.0 CVE exceptions in `.vulnixignore`
+    are **deleted** rather than maintained: CVE-2026-4176, and the CPANSec batch
+    CVE-2026-13221 / CVE-2026-57432 (accepted "pending upstream stable fix" in
+    [#1097](https://github.com/vig-os/devkit/issues/1097)/[#1098](https://github.com/vig-os/devkit/issues/1098),
+    fixed only in the perl 5.43.x development series). Fewer packages, fewer
+    exceptions to babysit; the nightly vulnix scan no longer needs them.
+
 ## [1.2.1](https://github.com/vig-os/devkit/releases/tag/1.2.1) - 2026-07-15
 
 ### Added
