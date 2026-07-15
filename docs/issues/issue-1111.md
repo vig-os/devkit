@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-15T10:04:19Z
-updated: 2026-07-15T10:04:19Z
+updated: 2026-07-15T14:57:06Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1111
-comments: 0
+comments: 1
 labels: bug, priority:low, area:workspace, effort:medium, semver:patch
-assignees: none
+assignees: c-vigo
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-15T11:04:48.599Z
+synced: 2026-07-15T20:04:03.632Z
 ---
 
 # [Issue 1111]: [[BUG] #1092 seam: upgrade drops prior hand-added root ignores instead of migrating them into the empty-seeded .gitignore.project](https://github.com/vig-os/devkit/issues/1111)
@@ -37,3 +37,11 @@ Either:
 ## SemVer
 
 Patch — data-preservation fix.
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 15, 2026 at 02:57 PM_
+
+Fixed by #1129 (merged into `dev`). Consumer hand-added root `.gitignore` entries are now auto-migrated append-only into `.gitignore.project` before the render — deduplicated against managed sources and existing entries, idempotent across upgrades, with an upgrade note listing what moved. Ships with the next patch release.
+

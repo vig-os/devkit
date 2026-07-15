@@ -24,7 +24,8 @@
 #   2. lint              — Pre-commit hooks
 #   3. test              — Run tests
 #   4. commit-checks     — Commit message + PR title validation (PRs only)
-#   5. summary           — Aggregate results for branch protection
+#   5. dependency-review — Vulnerable-dependency gate (public-repo PRs only)
+#   6. summary           — Aggregate results for branch protection
 #
 # Triggers:
 #   - Pull requests to dev, release/**, and main
@@ -223,11 +224,37 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: uv run check-pr-agent-fingerprints
 
+  # Blocks PRs that introduce known-vulnerable dependencies, off GitHub's
+  # dependency graph (lockfiles + action pins alike) — no toolchain, no
+  # container, no resolve-toolchain. Doubly guarded, mirroring the codeql.yml
+  # private-repo note: (1) dependency-review-action only works on pull_request,
+  # where it diffs the base and head dependency sets; (2) the dependency-graph
+  # API is unavailable on Free-plan private repos, so private repos get a
+  # skipped (neutral) run instead of a permanently red one, and a repo later
+  # flipped public starts gating automatically with no re-scaffold (#1039).
+  dependency-review:
+    name: Dependency Review
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    if: ${{ github.event_name == 'pull_request' && !github.event.repository.private }}
+    permissions:
+      contents: read
+      pull-requests: write   # post the dependency-review summary comment
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+
+      - name: Review dependencies for vulnerabilities
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294  # v5.0.0
+        with:
+          fail-on-severity: high
+
   summary:
     name: CI Summary
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    needs: [resolve-toolchain, lint, test, commit-checks]
+    needs: [resolve-toolchain, lint, test, commit-checks, dependency-review]
     if: always()
 
     steps:
@@ -240,6 +267,7 @@ jobs:
           echo "Lint: ${{ needs.lint.result }}"
           echo "Test: ${{ needs.test.result }}"
           echo "Commit messages: ${{ needs.commit-checks.result }}"
+          echo "Dependency review: ${{ needs.dependency-review.result }}"
           echo ""
 
           FAILED=false
@@ -261,6 +289,13 @@ jobs:
 
           if [ "${{ needs.commit-checks.result }}" = "failure" ]; then
             echo "ERROR: Commit message checks failed"
+            FAILED=true
+          fi
+
+          # Skipped on push/dispatch and on private repos (same skip-is-OK
+          # treatment as commit-checks); only a genuine failure trips the gate.
+          if [ "${{ needs.dependency-review.result }}" = "failure" ]; then
+            echo "ERROR: Dependency review failed"
             FAILED=true
           fi
 

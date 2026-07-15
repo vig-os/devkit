@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-15T08:43:11Z
-updated: 2026-07-15T08:43:11Z
+updated: 2026-07-15T14:37:13Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1106
-comments: 0
+comments: 1
 labels: refactor, priority:medium, area:image, effort:medium, semver:minor
 assignees: none
 milestone: Backlog
 projects: none
 parent: 1103
 children: none
-synced: 2026-07-15T11:04:50.441Z
+synced: 2026-07-15T20:04:04.913Z
 ---
 
 # [Issue 1106]: [Replace full podman runtime with DooD-only client (~254 MiB; sidecar model retired)](https://github.com/vig-os/devkit/issues/1106)
@@ -86,4 +86,12 @@ CPython 3.13 interpreter (see that sub-issue).
 
 Part of the image-slimming epic. The overridden podman is not in
 cache.nixos.org; first CI build pays, vig-os.cachix.org caches after.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 15, 2026 at 02:37 PM_
+
+Implemented and merged to dev in #1122 (−67 MiB measured; estimate corrected on the epic — criu anchor removed as intended).
 

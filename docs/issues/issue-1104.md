@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-15T08:43:07Z
-updated: 2026-07-15T08:43:07Z
+updated: 2026-07-15T14:37:09Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1104
-comments: 0
+comments: 1
 labels: refactor, priority:medium, area:image, effort:small, semver:patch
 assignees: none
 milestone: Backlog
 projects: none
 parent: 1103
 children: none
-synced: 2026-07-15T11:04:51.374Z
+synced: 2026-07-15T20:04:05.688Z
 ---
 
 # [Issue 1104]: [Restrict image glibcLocales to en_US.UTF-8 (rebind imageTools AND LOCALE_ARCHIVE)](https://github.com/vig-os/devkit/issues/1104)
@@ -62,4 +62,12 @@ glibcLocalesEnUS = pkgs.glibcLocales.override {
 Part of the image-slimming epic. Fully independent — can land first. The
 overridden derivation is not in cache.nixos.org; first CI build pays,
 vig-os.cachix.org caches after.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 15, 2026 at 02:37 PM_
+
+Implemented and merged to dev in #1119 (−219.5 MiB measured). Will ship with the next release.
 

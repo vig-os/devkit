@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-15T08:43:14Z
-updated: 2026-07-15T08:43:14Z
+updated: 2026-07-15T14:37:17Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1108
-comments: 0
+comments: 1
 labels: refactor, priority:medium, area:image, effort:medium, semver:minor, security
 assignees: none
 milestone: Backlog
 projects: none
 parent: 1103
 children: none
-synced: 2026-07-15T11:04:49.581Z
+synced: 2026-07-15T20:04:04.064Z
 ---
 
 # [Issue 1108]: [Evict perl from the image: rewrap neovim without wl-clipboard; retire perl 5.42 CVE exception](https://github.com/vig-os/devkit/issues/1108)
@@ -74,4 +74,12 @@ auto-detects when no X11/Wayland tools are present; verify with a headless
 Part of the image-slimming epic. **Depends on** the interpreter-eviction
 sub-issue (`gitMinimal` removes perl's other anchor). `security`-relevant:
 retires a live CVE exception rather than maintaining it.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 15, 2026 at 02:37 PM_
+
+Implemented and merged to dev in #1128 (−108.3 MiB measured; perl/wl-clipboard/xdg-utils grep empty; perl CVE exception batch deleted).
 
