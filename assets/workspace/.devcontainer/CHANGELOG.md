@@ -21,6 +21,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.3.0] - TBD
 
+### Added
+
+- **Scaffold CI dependency-review gate** ([#1140](https://github.com/vig-os/devkit/issues/1140))
+  - Consumer `ci.yml` now runs a standalone `dependency-review` job
+    (`actions/dependency-review-action` v5, `fail-on-severity: high`) that
+    blocks PRs introducing known-vulnerable dependencies off GitHub's
+    dependency graph — no toolchain or container required.
+  - Guarded to public-repo pull requests (the action only diffs base/head on
+    PRs, and the dependency-graph API is unavailable on Free-plan private
+    repos), so private repos get a skipped-neutral run and auto-activate when
+    flipped public (#1039 pattern); `CI Summary` requires it without going red
+    on push/dispatch/private-repo skips.
+
 ### Changed
 
 - **Renovate dependency update** ([#1134](https://github.com/vig-os/devkit/pull/1134))
