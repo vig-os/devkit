@@ -88,7 +88,7 @@ Additionally, the CI validator skips two classes of commit outright:
 
 ## Where the standard is enforced
 
-- **Locally** — the `commit-msg` hook (via `core.hooksPath` → `.githooks/commit-msg` → `prek run --hook-stage commit-msg`). This guards only a correctly configured working copy: if `core.hooksPath` is unset or stale, git runs no hooks and the guard is silently absent.
+- **Locally** — the `commit-msg` hook (via `core.hooksPath` → `.githooks/commit-msg` → `prek run --hook-stage commit-msg`). Both sanctioned environments wire `core.hooksPath` → `.githooks` automatically: the devcontainer sets it during setup, and the direnv / `nix develop` dev-shell sets it on shell entry (guarded to the main worktree). So once you have entered the dev environment the guard is active. It is only silently absent before you have entered it (or in an ad-hoc checkout outside both modes), where `core.hooksPath` may be unset and git runs no hooks.
 - **In CI** — the `commit-checks` job runs `validate-commit-range`, which re-validates every commit the pull request adds (from the merge-base with the base branch) plus the **pull request title**. The title matters because pull requests merge `--no-ff`, so it becomes the merge commit's subject in the base branch's history.
 
 Because `commit-msg` is a stage-gated hook, `prek run --all-files` does **not** run it — CI enforcement comes from the `commit-checks` job, not from the lint lane.

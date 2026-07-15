@@ -470,6 +470,47 @@
             export NVIM_APPNAME="vigos-dev"
           '';
 
+          # #1112: wire `.githooks` as the git hook entry point for direnv /
+          # `nix develop` consumers. Devcontainer mode runs
+          # `git config core.hooksPath .githooks` from setup-git-conf.sh; a
+          # container-less consumer never got that, so commit-time hooks
+          # (pre-commit / commit-msg via prek) were silently inactive until the
+          # consumer set it by hand — a local commit could bypass the gate with
+          # only CI catching it later. Set it on shell entry, mirroring the
+          # devcontainer, and ALWAYS to `.githooks` (never elsewhere):
+          # `.githooks` is the sanctioned single entry point (#908 —
+          # sanctioned-environment guard, consumer-owned scripts) and its
+          # `prek run` picks up any flake-generated config. This SETS
+          # core.hooksPath but never unsets/resets it or installs into
+          # `.git/hooks`, so the #908 invariant is reinforced, not broken.
+          #
+          # Guards, in order:
+          #   * `.githooks/` must exist at the git toplevel — only a
+          #     scaffold-shaped repo is touched; a bare mkProjectShell consumer
+          #     is left alone.
+          #   * MAIN worktree only (worktree git-dir == common git-dir) — a
+          #     linked worktree is owned by justfile.worktree, which
+          #     deliberately unsets core.hooksPath and installs prek hooks
+          #     directly; guarding here keeps this hook from fighting that flow
+          #     on every shell entry inside a worktree.
+          #   * only when the value differs from `.githooks` — idempotent: no
+          #     redundant write on re-entry when it is already set.
+          #
+          # In the shared base (like the ld/nvim hooks) so the default
+          # `hooks = null` shell and an opted-in shell change identically; the
+          # zero-hooks parity (tests/test_flake_devshell.py,
+          # tests/test_flake_hooks.py) holds.
+          githooksPathHook = ''
+            if _gitTop=$(${pkgs.gitMinimal}/bin/git rev-parse --show-toplevel 2>/dev/null) \
+              && [ -d "$_gitTop/.githooks" ] \
+              && [ "$(${pkgs.gitMinimal}/bin/git rev-parse --absolute-git-dir 2>/dev/null)" \
+                 = "$(${pkgs.gitMinimal}/bin/git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ] \
+              && [ "$(${pkgs.gitMinimal}/bin/git -C "$_gitTop" config --get core.hooksPath 2>/dev/null)" != ".githooks" ]; then
+              ${pkgs.gitMinimal}/bin/git -C "$_gitTop" config core.hooksPath .githooks
+            fi
+            unset _gitTop
+          '';
+
           # When the interpreter is overridden (#1038), prepend it to PATH so the
           # bare `python`/`python3` follow the override too — not just uv's
           # `UV_PYTHON` pin. `vig-utils` (a devTools entry) is built against the
@@ -516,6 +557,7 @@
               + nvimIsolationHook
               + "\n"
               + pythonOverrideHook
+              + githooksPathHook
               + moduleShellHook
               + hooksShellHook
               + shellHook;

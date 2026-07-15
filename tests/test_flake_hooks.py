@@ -439,12 +439,16 @@ class TestZeroHooksParity:
         the PR #908 defect was git-hooks.nix's stock installation script
         unsetting/resetting ``core.hooksPath`` and installing only the
         pre-commit stage into ``.git/hooks``, silently bypassing ``.githooks``.
-        So every ``core.hooksPath`` reference must be the sanctioned
-        ``.githooks`` set, and nothing may unset/uninstall it.
+        So every ``core.hooksPath`` *write* must set the sanctioned
+        ``.githooks`` value, and nothing may unset/uninstall it. (A
+        ``config --get core.hooksPath`` read is harmless and does not match
+        the ``config core.hooksPath`` write form.)
         """
-        assert opted_in_shellhook.count("core.hooksPath") == opted_in_shellhook.count(
-            "core.hooksPath .githooks"
-        ), "opting in introduced a non-`.githooks` core.hooksPath mutation (#908)"
+        assert opted_in_shellhook.count(
+            "config core.hooksPath"
+        ) == opted_in_shellhook.count("config core.hooksPath .githooks"), (
+            "opting in introduced a non-`.githooks` core.hooksPath write (#908)"
+        )
         assert "--unset" not in opted_in_shellhook
         assert "uninstall" not in opted_in_shellhook
 

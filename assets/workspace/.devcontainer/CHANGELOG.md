@@ -28,6 +28,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Wire `core.hooksPath` for direnv consumers** ([#1112](https://github.com/vig-os/devkit/issues/1112))
+  - In direnv / `nix develop` mode the dev-shell never set `core.hooksPath`, so
+    commit-time hooks (pre-commit / commit-msg via prek) were silently inactive
+    until the consumer set it by hand — a local commit could bypass the gate with
+    only CI catching it later. Devcontainer mode already wired it in setup.
+  - `mkProjectShell`'s shellHook now sets `core.hooksPath` → `.githooks` on shell
+    entry, mirroring the devcontainer and reinforcing the `.githooks` entry-point
+    invariant (never installing into `.git/hooks`, never unsetting it).
+  - Guarded to a scaffold-shaped repo (a `.githooks/` directory at the git
+    toplevel) and to the main worktree, so it leaves non-scaffold consumers
+    untouched and never fights the worktree flow (which deliberately unsets
+    `core.hooksPath` and installs prek hooks directly); idempotent on re-entry.
 - **Post-promote sync-main-to-dev no longer conflicts on the workspace changelog mirror** ([#1115](https://github.com/vig-os/devkit/issues/1115))
   - The prepare extension's sibling-commit reconcile left the mirror's merge base
     at pre-freeze content, so `assets/workspace/.devcontainer/CHANGELOG.md`
