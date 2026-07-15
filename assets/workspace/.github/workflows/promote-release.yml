@@ -236,6 +236,45 @@ jobs:
             exit 1
           fi
 
+          # Mergeability gate (#1132). promote → merge is preceded by an
+          # IRREVERSIBLE publish (undraft), so a PR that is approved + CI-green
+          # but not actually mergeable (BEHIND main, BLOCKED, or DIRTY) would
+          # undraft the Release and only then fail to merge — a half-promoted
+          # release. Fail fast here instead. GitHub computes mergeability
+          # asynchronously, so re-query while either field is UNKNOWN.
+          MERGEABLE="UNKNOWN"
+          MERGE_STATE="UNKNOWN"
+          for attempt in 1 2 3 4 5; do
+            MERGE_JSON=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
+              gh pr view "$PR_NUMBER" --json mergeable,mergeStateStatus)
+            MERGEABLE=$(echo "$MERGE_JSON" | jq -r '.mergeable')
+            MERGE_STATE=$(echo "$MERGE_JSON" | jq -r '.mergeStateStatus')
+            if [ "$MERGEABLE" != "UNKNOWN" ] && [ "$MERGE_STATE" != "UNKNOWN" ]; then
+              break
+            fi
+            echo "Mergeability still computing (mergeable=$MERGEABLE, mergeStateStatus=$MERGE_STATE), retry $attempt/5..."
+            sleep $((attempt * 5))
+          done
+
+          if [ "$MERGEABLE" != "MERGEABLE" ]; then
+            echo "ERROR: PR #$PR_NUMBER is not mergeable (mergeable=$MERGEABLE, mergeStateStatus=$MERGE_STATE)"
+            echo "Refusing to promote: the publish step is irreversible and this merge would fail after it."
+            exit 1
+          fi
+          case "$MERGE_STATE" in
+            CLEAN | HAS_HOOKS | UNSTABLE)
+              echo "PR #$PR_NUMBER is mergeable (mergeStateStatus=$MERGE_STATE)"
+              ;;
+            BEHIND)
+              echo "ERROR: PR #$PR_NUMBER is BEHIND main — update release/$VERSION to base before promoting"
+              exit 1
+              ;;
+            *)
+              echo "ERROR: PR #$PR_NUMBER is not in a mergeable state (mergeStateStatus=$MERGE_STATE)"
+              exit 1
+              ;;
+          esac
+
           echo "✓ PR #$PR_NUMBER verified for promote"
 
       - name: Summary

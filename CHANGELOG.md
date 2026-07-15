@@ -89,6 +89,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Gate promote on release-PR mergeability before the irreversible publish** ([#1132](https://github.com/vig-os/devkit/issues/1132))
+  - `promote-release.yml`'s `validate` job verified the release PR was
+    non-draft, approved, and CI-green but never checked whether it was actually
+    *mergeable*. Because the sequence is `validate → promote (undraft, one-way
+    under immutable releases) → merge`, a PR that was `BEHIND` `main` (or
+    `BLOCKED`/`DIRTY`) passed validation, the GitHub Release was published, and
+    only then did the merge fail — leaving a half-promoted release whose PR
+    never reached `main` and which cannot be re-run to recover.
+  - The `validate` PR check now fetches `mergeable`/`mergeStateStatus` and
+    fails fast unless the PR is mergeable, re-querying while GitHub is still
+    computing the state (`UNKNOWN`). Keeps the invariant: never start the
+    irreversible publish unless the merge can succeed.
+
 - **Migrate hand-added root `.gitignore` lines into `.gitignore.project` on upgrade** ([#1111](https://github.com/vig-os/devkit/issues/1111))
   - The [#1092](https://github.com/vig-os/devkit/issues/1092) fix made
     `.gitignore.project` the durable home for repo-root ignores, but the upgrade
