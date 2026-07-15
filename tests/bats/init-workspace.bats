@@ -872,6 +872,51 @@ _scaffold_with_version_file() {
     assert_output "DEVKIT_VERSION=1.2.3"
 }
 
+# ── flake pin / DEVKIT_VERSION lockstep skew warning (#1093) ──────────────────
+# The scaffold (keyed to DEVKIT_VERSION) and the pinned `vigos` flake input ship
+# coupled halves of a change (e.g. #1053's JSONC banner + its check-json exclude).
+# A --force upgrade that advances the scaffold but leaves a stale pinned flake ref
+# behind silently breaks every commit for a direnv/flake consumer. init warns when
+# a pinned vigos ref in the consumer's flake.nix differs from the DEVKIT_VERSION
+# being written. A floating (unpinned) input is intentional and never warns.
+
+# Pre-seed $ws/flake.nix carrying a $url vigos input, then --force upgrade the
+# direnv scaffold to $target (via the image built-tag record).
+_upgrade_direnv_with_flake_url() {
+    local ws="$1" target="$2" url="$3"
+    mkdir -p "$ws"
+    cat >"$ws/flake.nix" <<EOF
+{
+  inputs = {
+    vigos.url = "$url";
+    nixpkgs.follows = "vigos/nixpkgs";
+  };
+}
+EOF
+    local verfile="$BATS_TEST_TMPDIR/VERSION-1093-$RANDOM"
+    printf '%s\n' "$target" >"$verfile"
+    _scaffold_with_version_file direnv "$ws" "$verfile"
+}
+
+@test "init-workspace warns when a pinned vigos flake ref lags the DEVKIT_VERSION target (#1093)" {
+    run _upgrade_direnv_with_flake_url "$BATS_TEST_TMPDIR/e2e-1093-skew" 1.2.0 "github:vig-os/devkit?ref=1.1.0"
+    assert_success
+    assert_output --partial "pinned vigos flake input is still 1.1.0"
+    assert_output --partial "nix flake update vigos"
+}
+
+@test "init-workspace is silent when the pinned vigos flake ref matches the target (#1093)" {
+    run _upgrade_direnv_with_flake_url "$BATS_TEST_TMPDIR/e2e-1093-match" 1.2.0 "github:vig-os/devkit?ref=1.2.0"
+    assert_success
+    refute_output --partial "pinned vigos flake input is still"
+}
+
+@test "init-workspace is silent when the vigos flake input floats unpinned (#1093)" {
+    run _upgrade_direnv_with_flake_url "$BATS_TEST_TMPDIR/e2e-1093-float" 1.2.0 "github:vig-os/devkit"
+    assert_success
+    refute_output --partial "pinned vigos flake input is still"
+}
+
 @test "template ships .typos.toml alongside the typos hook (#855)" {
     # The scaffold's .pre-commit-config.yaml runs the typos hook; without the
     # exception config, scaffold-shipped content (version-check.sh's Nd
