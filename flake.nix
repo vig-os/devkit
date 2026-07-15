@@ -679,13 +679,60 @@
           locales = [ "en_US.UTF-8/UTF-8" ];
         };
 
+        # Client-only podman for the IMAGE (Docker-out-of-Docker, #1106).
+        #
+        # `devTools` (nix/devtools.nix) ships the FULL local podman runtime —
+        # crun/criu/conmon/netavark/passt/libkrun(fw)/aardvark-dns/
+        # fuse-overlayfs/runc — because dev-shell users on a real host run
+        # daemonless `podman run` and need those helpers. The IMAGE never does:
+        # the consumer scaffold mounts the host's rootless podman socket as
+        # /var/run/docker.sock and sets DOCKER_HOST
+        # (assets/workspace/.devcontainer/scripts/initialize.sh), so every
+        # `podman`/`docker` call forwards to the host daemon — the container is
+        # a thin CLIENT. The in-image runtime (the retired podman-in-podman
+        # sidecar model, declared non-contract in epic #1103) is dead weight;
+        # stubbing the helpers nets ~67 MiB (the epic's ~254 MiB estimate
+        # assumed dropping podman entirely — the retained client binary and
+        # its rpath-linked systemd account for the difference).
+        #
+        # This pin has no `podman-remote` attribute, and the wrapper hardcodes
+        # its helper set (passthru.helpersBin / binPath in
+        # pkgs/by-name/po/podman/package.nix). We therefore keep the real
+        # podman client and .override its helper INPUTS with an empty stub
+        # (option 1 of #1106): the helpers are only wrap-time PATH suffixes and
+        # a store path substituted into the OCI-runtime config
+        # (hardcode-paths.patch) — pointing them at an empty $out/bin drops the
+        # helper closures while leaving the `podman` binary, `podman --version`,
+        # and shell completions intact. Daemonless `podman run` then fails
+        # gracefully (no local runtime), which is exactly the DooD contract.
+        # `extraRuntimes = []` drops runc; catatonit (tiny, pause-image init)
+        # is left real so the installPhase `ln -s helpersBin/bin/*` glob is
+        # non-empty. systemd stays: it is a buildInput linked into the podman
+        # binary (rpath), not a helper, and the pin warns systemdMinimal breaks
+        # `podman logs`. Scoped to the IMAGE only — the dev-shell keeps the
+        # full runtime via devTools. Refs #1106, #1103.
+        podmanHelperStub = pkgs.runCommand "podman-helper-stub" { } "mkdir -p $out/bin";
+        podmanClient = pkgs.podman.override {
+          crun = podmanHelperStub;
+          conmon = podmanHelperStub;
+          netavark = podmanHelperStub;
+          passt = podmanHelperStub;
+          aardvark-dns = podmanHelperStub;
+          fuse-overlayfs = podmanHelperStub;
+          runc = podmanHelperStub;
+          extraRuntimes = [ ];
+        };
+
         # The toolchain SSoT plus the runtime substrate a bare layered image
         # lacks (an FHS base distro would provide these; here we add them
         # explicitly — this is the discovery surface for FHS gaps). Shared by
         # the image (`devkitImage`) and its vulnix scan target
-        # (`devkitImageEnv`, #637).
+        # (`devkitImageEnv`, #637). The full podman from devTools is swapped for
+        # the client-only build above (#1106) — filtered out here, not in the
+        # SSoT, so the dev-shell keeps its daemonless runtime.
         imageTools =
-          (devTools pkgs)
+          (builtins.filter (p: p != pkgs.podman) (devTools pkgs))
+          ++ [ podmanClient ]
           ++ (with pkgs; [
             # Nix package manager in the closure (CppNix).
             nix
@@ -1061,9 +1108,12 @@
                     # working binary without pulling in the Docker engine. The
                     # heredoc is quoted so `$@` is written verbatim; the store
                     # paths are interpolated by Nix at eval time. Refs #740.
+                    # Points at `podmanClient` (the image's client-only podman,
+                    # #1106) — NOT `pkgs.podman` — so the shim does not silently
+                    # re-pull the full local runtime into the image closure.
                     cat > "$out/usr/local/bin/docker" <<'DOCKERSHIM'
                     #!${pkgs.runtimeShell}
-                    exec ${pkgs.podman}/bin/podman "$@"
+                    exec ${podmanClient}/bin/podman "$@"
                     DOCKERSHIM
                     chmod +x "$out/usr/local/bin/docker"
 
