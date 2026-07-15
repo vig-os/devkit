@@ -595,8 +595,9 @@ _preview_symlinked_template_venv() {
     # shellcheck disable=SC2016
     run grep -A3 'for preserved in "${PRESERVE_FILES\[@\]}"' "$INIT_WORKSPACE_SH"
     assert_success
+    # path_present (not -e) so a dangling store symlink is still excluded (#1117).
     # shellcheck disable=SC2016
-    assert_output --partial 'if [[ -e "$WORKSPACE_DIR/$preserved" ]]; then'
+    assert_output --partial 'if path_present "$WORKSPACE_DIR/$preserved"; then'
     # shellcheck disable=SC2016
     assert_output --partial 'EXCLUDE_ARGS+=("--exclude=/$preserved")'
 }
@@ -1985,6 +1986,25 @@ _upgrade_no_flags() {
     assert_success
 }
 
+@test "upgrade preserves persisted tag-scheme keys (#1116)" {
+    # .vig-os is a managed file, so a consumer's DEVKIT_TAG_PREFIX /
+    # DEVKIT_FLOATING_TAGS must be read before the template overwrite and
+    # written back — else an upgrade silently resets bare tags / stops moving
+    # floating tags (release-integrity regression observed 1.2.0 -> 1.2.1).
+    ws="$BATS_TEST_TMPDIR/e2e-1116-tagscheme"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_TAG_PREFIX=.*/DEVKIT_TAG_PREFIX=v/' "$ws/.vig-os"
+    sed -i 's/^DEVKIT_FLOATING_TAGS=.*/DEVKIT_FLOATING_TAGS=major,minor/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -x 'DEVKIT_TAG_PREFIX=v' "$ws/.vig-os"
+    assert_success
+    run grep -x 'DEVKIT_FLOATING_TAGS=major,minor' "$ws/.vig-os"
+    assert_success
+}
+
 # ── legacy mode inference (#885) ──────────────────────────────────────────────
 # Consumers scaffolded before the manifest carry a version-only .vig-os (or
 # none): an upgrade without --mode must infer the delivery mode from the tree
@@ -3037,4 +3057,53 @@ _RELEASE_RESOLVERS_991=(
     run cat "$ws/.gitignore"
     assert_success
     refute_line '.pre-commit-config.yaml'
+}
+
+# ── dangling /nix/store symlink is preserved and seeds the ignore (#1117) ──────
+# In direnv mode the flake generates .pre-commit-config.yaml as a symlink into
+# the HOST /nix/store, which is NOT mounted inside the devcontainer image where
+# init-workspace runs. So the symlink is DANGLING from the container's view: `-e`
+# (which follows the link) reports it absent, the preserve/exclude gate emits no
+# --exclude, and `rsync -avL` copies the template over it — destroying the
+# flake-generated config AND skipping the #1092 ignore seed. The presence gates
+# must treat a symlink of any kind (even dangling) as present.
+
+@test "a dangling /nix/store .pre-commit-config.yaml symlink survives upgrade and seeds the ignore (#1117)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1117-dangling"
+    mkdir -p "$ws"
+    # A /nix/store-shaped target that does NOT exist (the host store is not
+    # mounted): the symlink is dangling from the container's viewpoint.
+    target="/nix/store/0000000000000000000000000000000-hooks/pre-commit-config.yaml"
+    ln -s "$target" "$ws/.pre-commit-config.yaml"
+    run _scaffold both "$ws"
+    assert_success
+    # (1) The symlink survives untouched — the template was NOT written over it.
+    run test -L "$ws/.pre-commit-config.yaml"
+    assert_success
+    run readlink "$ws/.pre-commit-config.yaml"
+    assert_success
+    assert_output "$target"
+    # (2) The #1092 ignore seed still fires (the symlink was present at seed time).
+    run cat "$ws/.gitignore"
+    assert_success
+    assert_line '.pre-commit-config.yaml'
+}
+
+@test "--preview classifies a dangling /nix/store .pre-commit-config.yaml symlink as PRESERVED (#1117)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1117-dangling-preview"
+    mkdir -p "$ws"
+    target="/nix/store/0000000000000000000000000000000-hooks/pre-commit-config.yaml"
+    ln -s "$target" "$ws/.pre-commit-config.yaml"
+    local stub="$BATS_TEST_TMPDIR/stub-bin"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+    run env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --preview --no-prompts --mode both
+    assert_success
+    assert_line '  ✓  .pre-commit-config.yaml'
 }
