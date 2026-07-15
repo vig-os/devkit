@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Evict perl from the image (neovim without wl-clipboard)** ([#1108](https://github.com/vig-os/devkit/issues/1108))
+  - perl 5.42.0 and its module stack (libwww-perl, XML-Twig, File-MimeInfo,
+    X11-Protocol, …) had one remaining anchor after
+    [#1107](https://github.com/vig-os/devkit/issues/1107) swapped full `git` for
+    `gitMinimal`: `neovim → wl-clipboard → xdg-utils → perl`. The nixpkgs neovim
+    wrapper suffixes `wl-clipboard` onto the wrapped binary's PATH as the Wayland
+    clipboard provider (`waylandSupport`, on by default on Linux), and
+    wl-clipboard drags xdg-utils, which drags perl.
+  - In a headless container this provider is dead code — there is no Wayland
+    socket, so `wl-copy`/`wl-paste` never run. The clipboard path that actually
+    works over VS Code remote / SSH is OSC52, which nvim >= 0.10 uses natively
+    when no display clipboard tool is on PATH.
+  - The image now re-wraps `neovim-unwrapped` with `wrapNeovimUnstable`
+    (replicating the stock legacy wrap — empty rc, providers disabled — but with
+    `waylandSupport = false`), evicting the wl-clipboard → xdg-utils → perl
+    subtree. Measured **~108 MiB** off the uncompressed closure
+    (1,758,754,952 → 1,645,235,648 bytes).
+  - Dev-shell behavior is unchanged: `devTools` still ships the stock wrapped
+    neovim (which keeps wl-clipboard for real Wayland hosts); the swap is scoped
+    to the image only.
 - **Restrict image locales to en_US.UTF-8** ([#1104](https://github.com/vig-os/devkit/issues/1104))
   - The image shipped the full 222 MiB upstream `glibcLocales` archive but only
     ever uses `en_US.UTF-8`. The `imageTools` entry and the `LOCALE_ARCHIVE`
@@ -21,6 +41,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Drop vestigial baked bandit from the image** ([#1105](https://github.com/vig-os/devkit/issues/1105))
   - Hooks already run the venv bandit via `uv run` (pinned `bandit[toml]==1.9.4`); the baked copy was unused.
   - Removes ~74 MiB from the image closure — a stray CPython 3.13 package stack (nixpkgs builds `bandit` on 3.13 while the image toolchain is 3.14) plus a duplicate `git-minimal` pulled in via gitpython.
+- **Evict the redundant CPython 3.13 interpreter from the image** ([#1107](https://github.com/vig-os/devkit/issues/1107))
+  - The image carried a second CPython interpreter (`python3-3.13.13`, 127 MiB)
+    that the chosen toolchain (`python3.14`, `UV_PYTHON`, `vig-utils`) never
+    uses. It was held by four independent anchors, all of which had to fall:
+    `bandit` ([#1105](https://github.com/vig-os/devkit/issues/1105)), `criu` via
+    the podman runtime ([#1106](https://github.com/vig-os/devkit/issues/1106)),
+    full `git` (git-p4/python helpers), and `actionlint` (its optional
+    `python3.13-pyflakes` lint wrapper) — the last two removed here.
+  - The image now ships `gitMinimal` (`perlSupport`/`pythonSupport`/
+    `guiSupport`/`withManual` all off) instead of full `git`, and an
+    `overrideAttrs`'d `actionlint` whose wrapper drops `pyflakes` (keeping
+    `shellcheck`). Together this evicts the 3.13 interpreter and full git's
+    `git-doc`, measuring **~149 MiB** off the uncompressed closure beyond the
+    bandit/criu cuts.
+  - Contract (declared non-contract in
+    [#1103](https://github.com/vig-os/devkit/issues/1103), `semver:minor`): the
+    image loses `git send-email`/`svn`/`p4`/`gitk`/`git gui` and built-in
+    `git help <cmd>` man pages, and actionlint's inline-python lint on workflow
+    `run:` steps. Builtin-C porcelain (`log`, `commit`, `rebase -i`, `add -p`,
+    worktrees) and SSH commit signing are unaffected; `gettext` stays (still
+    linked by gitMinimal for i18n).
+  - Dev-shell behavior is unchanged: `devTools` still ships full `git` and stock
+    `actionlint`; the swaps are scoped to the image only.
 - **Replace in-image podman runtime with DooD-only client** ([#1106](https://github.com/vig-os/devkit/issues/1106))
   - The image now ships a client-only podman: its local-runtime helpers
     (`crun`, `criu`, `conmon`, `netavark`, `passt`, `libkrun`/`libkrunfw`,
@@ -58,6 +101,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     toplevel) and to the main worktree, so it leaves non-scaffold consumers
     untouched and never fights the worktree flow (which deliberately unsets
     `core.hooksPath` and installs prek hooks directly); idempotent on re-entry.
+- **Post-scaffold dependency sync is mode-aware and no longer aborts a successful upgrade** ([#1118](https://github.com/vig-os/devkit/issues/1118))
+  - In `direnv` and `bare` modes the container-side `just sync` is now skipped
+    entirely: the consumer's host nix/direnv shell owns dependency install, and a
+    container-side `npm ci`/`uv sync` would write wrong-platform, wrong-owner
+    artifacts into the bind-mounted workspace. An informational line notes the skip.
+  - In `devcontainer`/`both` modes the sync still runs but is non-fatal — a failure
+    (e.g. `npm error Exit handler never called!`) now warns and continues instead of
+    aborting init with a misleading "Failed to initialize workspace", since the
+    scaffold itself is already complete.
+- **Preserve a flake-hooks `.pre-commit-config.yaml` store symlink on upgrade** ([#1117](https://github.com/vig-os/devkit/issues/1117))
+  - In direnv mode a flake with `hooks = { }` generates `.pre-commit-config.yaml`
+    as a symlink into the host `/nix/store`, which is not mounted inside the image
+    where `init-workspace.sh` runs — so the symlink is dangling from the
+    container's view. The preserve/exclude and report gates tested presence with
+    `-e`/`-f`, which follow the link and reported it absent, so `rsync -avL`
+    overwrote the symlink with the ~6 KB template config and the
+    [#1092](https://github.com/vig-os/devkit/issues/1092) ignore auto-seed never
+    fired — leaving a committed, non-ignored template shadowing the generated
+    config (observed on `commit-action` 1.2.0→1.2.1).
+  - A new `path_present` helper treats a symlink of any kind (including a dangling
+    one) as present at all three gates — the rsync exclude builder, the
+    add/preserve report classification (`--preview` now lists it as PRESERVED),
+    and the `PRECOMMIT_CONFIG_PREEXISTED` divergence guard — so the symlink
+    survives untouched and the ignore seed still runs.
+- **Preserve tag-scheme keys across `--force` upgrades** ([#1116](https://github.com/vig-os/devkit/issues/1116))
+  - `init-workspace.sh` read back `DEVKIT_MODE`/identity/`DEVKIT_MODULES` before
+    the managed-template overwrite of `.vig-os`, but not `DEVKIT_TAG_PREFIX` or
+    `DEVKIT_FLOATING_TAGS`, so an upgrade silently reset a consumer's release
+    tag scheme to the empty template defaults (observed cutting bare tags and
+    stalling floating tags on the commit-action 1.2.0 → 1.2.1 upgrade).
+  - Both keys are now read before the overwrite and written back (bare, matching
+    the template's unquoted form) when the consumer set them.
 - **Post-promote sync-main-to-dev no longer conflicts on the workspace changelog mirror** ([#1115](https://github.com/vig-os/devkit/issues/1115))
   - The prepare extension's sibling-commit reconcile left the mirror's merge base
     at pre-freeze content, so `assets/workspace/.devcontainer/CHANGELOG.md`
@@ -72,6 +147,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     sibling-commit reconcile, exactly the status quo.
 
 ### Security
+
+- **Retire the perl 5.42.0 CVE exception batch** ([#1108](https://github.com/vig-os/devkit/issues/1108))
+  - With perl gone from the image closure (neovim no longer anchors it via
+    wl-clipboard → xdg-utils), the perl 5.42.0 CVE exceptions in `.vulnixignore`
+    are **deleted** rather than maintained: CVE-2026-4176, and the CPANSec batch
+    CVE-2026-13221 / CVE-2026-57432 (accepted "pending upstream stable fix" in
+    [#1097](https://github.com/vig-os/devkit/issues/1097)/[#1098](https://github.com/vig-os/devkit/issues/1098),
+    fixed only in the perl 5.43.x development series). Fewer packages, fewer
+    exceptions to babysit; the nightly vulnix scan no longer needs them.
 
 ## [1.2.1](https://github.com/vig-os/devkit/releases/tag/1.2.1) - 2026-07-15
 
