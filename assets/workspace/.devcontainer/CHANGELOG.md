@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renovate dependency update** ([#1134](https://github.com/vig-os/devkit/pull/1134))
+  - Update `actions/setup-node` from `v6.4.0` to `v6.5.0`
+  - Update `cachix/install-nix-action` from `v31.10.7` to `v31.11.0`
+  - Update `vig-os/commit-action` from `v0.2.0` to `v0.3.0`
 - **Renovate: update `actions/setup-node` from `v6.4.0` to `v7.0.0`** ([#1135](https://github.com/vig-os/devkit/pull/1135))
 - **Evict perl from the image (neovim without wl-clipboard)** ([#1108](https://github.com/vig-os/devkit/issues/1108))
   - perl 5.42.0 and its module stack (libwww-perl, XML-Twig, File-MimeInfo,
