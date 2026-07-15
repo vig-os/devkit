@@ -2689,3 +2689,106 @@ _RELEASE_RESOLVERS_991=(
     assert_success
     assert_output --partial 'Seeded by vigOS devkit'
 }
+
+# ── consumer-owned durable root ignores: .gitignore.project (#1092) ────────────
+# The managed root .gitignore is overwritten on every upgrade, and git honors a
+# repo-ROOT ignore only from that root .gitignore — so consumers had no durable
+# committed home for root-level ignores. .gitignore.project is a PRESERVE_FILE
+# (mirroring justfile.project) whose contents init-workspace.sh appends to the
+# regenerated .gitignore after the per-language fragments, so root-level consumer
+# ignores survive every regeneration.
+
+@test ".gitignore.project is in PRESERVE_FILES (#1092)" {
+    # shellcheck disable=SC2016
+    run grep -E '"\.gitignore\.project"' "$INIT_WORKSPACE_SH"
+    assert_success
+}
+
+@test "template ships a .gitignore.project (#1092)" {
+    run test -f "$TEMPLATE_DIR/.gitignore.project"
+    assert_success
+}
+
+@test "upgrade preserves a customized .gitignore.project (#1092)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1092-preserve"
+    mkdir -p "$ws"
+    printf '# SENTINEL-1092 consumer root ignores\n/scratch-local/\n' \
+        >"$ws/.gitignore.project"
+    run _upgrade both "$ws"
+    assert_success
+    run grep -q 'SENTINEL-1092' "$ws/.gitignore.project"
+    assert_success
+}
+
+@test "rendered .gitignore appends the consumer .gitignore.project contents (#1092)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1092-append"
+    mkdir -p "$ws"
+    printf '# SENTINEL-1092 consumer root ignores\n/scratch-local/\n' \
+        >"$ws/.gitignore.project"
+    run _scaffold both "$ws"
+    assert_success
+    run cat "$ws/.gitignore"
+    assert_success
+    # The consumer's durable root ignore is folded into the regenerated file.
+    assert_line '/scratch-local/'
+}
+
+@test "scaffold .gitignore ignores dist/src/ byproducts but keeps dist/index.js tracked (#1092)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1092-node-dist"
+    mkdir -p "$ws"
+    printf '{ "name": "probe" }\n' >"$ws/package.json"
+    run _scaffold both "$ws"
+    assert_success
+    run cat "$ws/.gitignore"
+    assert_success
+    # tsc/ncc declaration output under dist/src/ is ignored ...
+    assert_line 'dist/src/'
+    # ... but no blanket dist/ ignore (the committed bundle must stay tracked).
+    refute_line 'dist/'
+    # Behavioral proof: git honors the ignore for dist/src/ output, not the bundle.
+    git -C "$ws" init -q
+    mkdir -p "$ws/dist/src"
+    printf 'x\n' >"$ws/dist/index.js"
+    printf 'x\n' >"$ws/dist/src/index.d.ts"
+    run git -C "$ws" check-ignore dist/src/index.d.ts
+    assert_success
+    run git -C "$ws" check-ignore dist/index.js
+    assert_failure
+}
+
+# ── flake-hooks opt-in seeds the .pre-commit-config.yaml ignore (#1092) ────────
+# A consumer that opts into flake-generated hooks (hooks = { } in flake.nix) gets
+# .pre-commit-config.yaml installed as a /nix/store symlink, which must be
+# gitignored (committing it pushes a machine-local, broken symlink). The seed is
+# gated STRICTLY on the store-symlink condition, so a hand-managed consumer that
+# commits a real .pre-commit-config.yaml file is never affected.
+
+@test "flake-hooks store-symlink seeds the .pre-commit-config.yaml ignore (#1092)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1092-flakehooks"
+    mkdir -p "$ws"
+    # A real /nix/store-shaped target so the preserve exclude keeps the symlink
+    # (the exclude guard uses -e, which follows the link) and readlink sees the
+    # /nix/store/ path the seed gates on.
+    store="$BATS_TEST_TMPDIR/nix/store/abc123-hooks"
+    mkdir -p "$store"
+    printf 'repos: []\n' >"$store/pre-commit-config.yaml"
+    ln -s "$store/pre-commit-config.yaml" "$ws/.pre-commit-config.yaml"
+    run _scaffold both "$ws"
+    assert_success
+    run cat "$ws/.gitignore"
+    assert_success
+    assert_line '.pre-commit-config.yaml'
+}
+
+@test "a hand-managed real .pre-commit-config.yaml is NOT seeded into .gitignore (#1092)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1092-realconfig"
+    mkdir -p "$ws"
+    # A committed regular file (not a store symlink): the consumer owns it and
+    # tracks it, so it must never be auto-ignored.
+    printf 'repos: []\n' >"$ws/.pre-commit-config.yaml"
+    run _scaffold both "$ws"
+    assert_success
+    run cat "$ws/.gitignore"
+    assert_success
+    refute_line '.pre-commit-config.yaml'
+}
