@@ -339,6 +339,11 @@ class TestPreserveFilesSource:
         assert "renovate.json" in preserve
         assert ".envrc" in preserve
         assert ".typos.toml" in preserve
+        # Lint configs are preserved now (#1099): consumers customize them.
+        assert ".yamllint" in preserve
+        # .pymarkdown is the strict-JSON config (banner-skipped like renovate.json).
+        assert ".pymarkdown" in preserve
+        assert ".pymarkdown.config.md" in preserve
         # justfile.local is preserved now (#1054): its header's claim is real.
         assert "justfile.local" in preserve
         # Interleaved comment lines are not mistaken for array entries.
@@ -412,6 +417,34 @@ class TestBannerApplication:
 
         text = local.read_text()
         assert ("# " + transforms.PRESERVED_BANNER[0]) in text
+        # The managed variant must not leak into this preserved file.
+        assert transforms.MANAGED_BANNER[0] not in text
+
+    def test_stamps_preserved_banner_on_yamllint(self, tmp_path):
+        """.yamllint is a PRESERVE_FILE now (#1099): preserved banner (hash style)."""
+        sync_manifest = _load_sync_manifest()
+        transforms = _load_transforms()
+        cfg = tmp_path / ".yamllint"
+        cfg.write_text("---\nextends: default\n")
+
+        sync_manifest.apply_banners(tmp_path, {".yamllint"})
+
+        text = cfg.read_text()
+        assert ("# " + transforms.PRESERVED_BANNER[0]) in text
+        # The managed variant must not leak into this preserved file.
+        assert transforms.MANAGED_BANNER[0] not in text
+
+    def test_stamps_preserved_banner_on_pymarkdown_config_md(self, tmp_path):
+        """.pymarkdown.config.md is a PRESERVE_FILE now (#1099): preserved banner (html)."""
+        sync_manifest = _load_sync_manifest()
+        transforms = _load_transforms()
+        doc = tmp_path / ".pymarkdown.config.md"
+        doc.write_text("# Pymarkdown Configuration\n")
+
+        sync_manifest.apply_banners(tmp_path, {".pymarkdown.config.md"})
+
+        text = doc.read_text()
+        assert ("<!-- " + transforms.PRESERVED_BANNER[0] + " -->") in text
         # The managed variant must not leak into this preserved file.
         assert transforms.MANAGED_BANNER[0] not in text
 

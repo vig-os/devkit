@@ -1378,6 +1378,109 @@ EOF
     assert_failure
 }
 
+# ── upgrade must preserve customized lint configs .yamllint / .pymarkdown (#1099) ─
+# Same class as #878/#913: these are fully-managed scaffold files, yet lint
+# CONFIGS a consumer legitimately customizes (repo-specific `ignore:` globs, rule
+# disables). A template overwrite silently destroyed those edits and the hook
+# then flagged legitimate content. Preserve them like .typos.toml (#913) and
+# print the template diff so hook-rule evolution stays visible.
+
+@test ".yamllint is preserved on --force upgrade (#1099)" {
+    # shellcheck disable=SC2016
+    run grep -E '"\.yamllint"' "$INIT_WORKSPACE_SH"
+    assert_success
+}
+
+@test "upgrade preserves a customized .yamllint (#1099)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1099-yamllint-preserve"
+    mkdir -p "$ws"
+    printf '# SENTINEL-1099 consumer yamllint config\nrules:\n  line-length: enable\n' \
+        >"$ws/.yamllint"
+    run _upgrade both "$ws"
+    assert_success
+    run grep -q 'SENTINEL-1099' "$ws/.yamllint"
+    assert_success
+}
+
+@test "upgrade prints a template diff hint for a preserved .yamllint (#1099)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1099-yamllint-diff"
+    mkdir -p "$ws"
+    # a config lacking the template's rule set
+    printf '# SENTINEL-1099 minimal consumer yamllint config\n' >"$ws/.yamllint"
+    run _upgrade both "$ws"
+    assert_success
+    refute_output --partial 'command not found'
+    assert_output --partial 'Preserved .yamllint differs from the template'
+    # a template rule the preserved file lacks shows in the diff
+    assert_output --partial 'comments-indentation'
+}
+
+@test ".pymarkdown.config.md is preserved on --force upgrade (#1099)" {
+    # shellcheck disable=SC2016
+    run grep -E '"\.pymarkdown\.config\.md"' "$INIT_WORKSPACE_SH"
+    assert_success
+}
+
+@test "upgrade preserves a customized .pymarkdown.config.md (#1099)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1099-pymarkdown-preserve"
+    mkdir -p "$ws"
+    printf '# SENTINEL-1099 consumer pymarkdown notes\n\nMy repo-specific rules.\n' \
+        >"$ws/.pymarkdown.config.md"
+    run _upgrade both "$ws"
+    assert_success
+    run grep -q 'SENTINEL-1099' "$ws/.pymarkdown.config.md"
+    assert_success
+}
+
+@test "upgrade prints a template diff hint for a preserved .pymarkdown.config.md (#1099)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1099-pymarkdown-diff"
+    mkdir -p "$ws"
+    # a doc lacking the template's rule descriptions
+    printf '# SENTINEL-1099 minimal consumer pymarkdown notes\n' \
+        >"$ws/.pymarkdown.config.md"
+    run _upgrade both "$ws"
+    assert_success
+    refute_output --partial 'command not found'
+    assert_output --partial 'Preserved .pymarkdown.config.md differs from the template'
+    # a template rule the preserved file lacks shows in the diff
+    assert_output --partial 'MD013'
+}
+
+# .pymarkdown is the JSON config pymarkdown actually reads (md0xx rule settings)
+# — the file a consumer really customizes. Like renovate.json it is strict JSON
+# and carries no banner (it stays in _BANNER_SKIP), but it is preserved on
+# upgrade all the same, with a template diff on divergence.
+
+@test ".pymarkdown is preserved on --force upgrade (#1099)" {
+    # shellcheck disable=SC2016
+    run grep -E '"\.pymarkdown"' "$INIT_WORKSPACE_SH"
+    assert_success
+}
+
+@test "upgrade preserves a customized .pymarkdown (#1099)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1099-pymarkdown-json-preserve"
+    mkdir -p "$ws"
+    printf '{ "SENTINEL-1099": true, "plugins": { "md013": { "line_length": 999 } } }\n' \
+        >"$ws/.pymarkdown"
+    run _upgrade both "$ws"
+    assert_success
+    run grep -q 'SENTINEL-1099' "$ws/.pymarkdown"
+    assert_success
+}
+
+@test "upgrade prints a template diff hint for a preserved .pymarkdown (#1099)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1099-pymarkdown-json-diff"
+    mkdir -p "$ws"
+    # a config lacking the template's rule set
+    printf '{ "SENTINEL-1099": true }\n' >"$ws/.pymarkdown"
+    run _upgrade both "$ws"
+    assert_success
+    refute_output --partial 'command not found'
+    assert_output --partial 'Preserved .pymarkdown differs from the template'
+    # a template rule the preserved file lacks shows in the diff
+    assert_output --partial 'siblings_only'
+}
+
 # ── justfile.local must be preserved on upgrade (#1054) ───────────────────────
 # The scaffolded justfile.local (personal, gitignored recipes) claims in its
 # header to be preserved on upgrade, but it was absent from PRESERVE_FILES, so a

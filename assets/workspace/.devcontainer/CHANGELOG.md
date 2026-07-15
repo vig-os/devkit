@@ -30,6 +30,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Managed `.gitignore` rewrite no longer drops consumer-required ignores** ([#1092](https://github.com/vig-os/devkit/issues/1092))
   - When the flake-hooks opt-in installs `.pre-commit-config.yaml` as a `/nix/store` symlink, the ignore for it is now seeded automatically on every (re)scaffold — gated strictly on the store-symlink condition, so a hand-managed consumer that commits a real `.pre-commit-config.yaml` file is never affected.
   - The Node fragment now ignores the `tsc`/`ncc` declaration byproducts under `dist/src/` (`.d.ts` / `.d.ts.map` files embed absolute `file://` paths regenerated per checkout) while keeping the committed bundle `dist/index.js` and `dist/package.json` tracked — no blanket `dist/` ignore.
+- **Preserve customized lint configs `.pymarkdown` / `.yamllint` on upgrade** ([#1099](https://github.com/vig-os/devkit/issues/1099))
+  - Promoted the markdown-lint config `.pymarkdown` (the JSON pymarkdown reads),
+    the `.yamllint` config, and the `.pymarkdown.config.md` doc companion to
+    `PRESERVE_FILES`, so repo-specific `ignore:` globs and rule disables survive
+    `install.sh --force` instead of being silently overwritten (same class as
+    `.pre-commit-config.yaml` #878 and `.typos.toml` #913).
+  - The upgrade now prints a template diff against each preserved file so
+    lint-rule evolution stays visible. The comment-capable `.yamllint` /
+    `.pymarkdown.config.md` templates render the preserved provenance banner;
+    `.pymarkdown` is strict JSON and stays un-bannered, like `renovate.json`.
 - **Candidate releases no longer fail the draft/approval gate** ([#1095](https://github.com/vig-os/devkit/issues/1095))
   - The scaffolded `release-core.yml` "Find and verify PR" step applied the draft + approval gate to every release kind, so a `release_kind=candidate` dispatch failed against a still-draft PR (`ERROR: PR #N is still in draft`). This was template drift: the #902 fix landed in devkit's own `release.yml` but was never mirrored into the scaffolded template consumers receive. The draft + approval checks are now guarded behind `release_kind=final`; candidates gate on CI only, consistent with `RELEASE_CYCLE.md`.
 
