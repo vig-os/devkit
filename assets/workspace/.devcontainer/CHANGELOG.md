@@ -21,6 +21,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Drop vestigial baked bandit from the image** ([#1105](https://github.com/vig-os/devkit/issues/1105))
   - Hooks already run the venv bandit via `uv run` (pinned `bandit[toml]==1.9.4`); the baked copy was unused.
   - Removes ~74 MiB from the image closure — a stray CPython 3.13 package stack (nixpkgs builds `bandit` on 3.13 while the image toolchain is 3.14) plus a duplicate `git-minimal` pulled in via gitpython.
+- **Replace in-image podman runtime with DooD-only client** ([#1106](https://github.com/vig-os/devkit/issues/1106))
+  - The image now ships a client-only podman: its local-runtime helpers
+    (`crun`, `criu`, `conmon`, `netavark`, `passt`, `libkrun`/`libkrunfw`,
+    `aardvark-dns`, `fuse-overlayfs`, `runc`) are `.override`n with an empty
+    stub, dropping ~67 MiB of uncompressed image closure. The epic's ~254 MiB
+    estimate assumed removing podman entirely; retaining the client binary
+    (~54 MiB) and `systemd` (rpath-linked into it; `systemdMinimal` breaks
+    `podman logs` per the nixpkgs pin) reduces the net saving to ~67 MiB.
+  - In-container isolated (nested) container execution is removed — the retired
+    podman-in-podman sidecar model, declared non-contract in
+    [#1103](https://github.com/vig-os/devkit/issues/1103).
+  - Docker-out-of-Docker against the host's rootless podman socket (the
+    consumer scaffold's existing `DOCKER_HOST` wiring) is unchanged.
+  - The `docker -> podman` shim is retained and now execs the client-only
+    podman.
+  - Dev-shell behavior is unchanged: `devTools` still ships the full podman
+    runtime for daemonless `podman run` on a real host; the swap is scoped to
+    the image only.
 
 ### Deprecated
 

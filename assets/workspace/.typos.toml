@@ -11,3 +11,5 @@ ba = "ba"
 unexcepted = "unexcepted"
 # version-check.sh duration placeholder (#759): 'Nd' = N days (cf. Nw/Nh/Nm)
 Nd = "Nd"
+# podman rootless-networking helper package name (#1106), not a misspelling
+passt = "passt"
