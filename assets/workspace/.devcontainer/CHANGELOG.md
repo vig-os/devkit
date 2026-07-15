@@ -89,6 +89,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Migrate hand-added root `.gitignore` lines into `.gitignore.project` on upgrade** ([#1111](https://github.com/vig-os/devkit/issues/1111))
+  - The [#1092](https://github.com/vig-os/devkit/issues/1092) fix made
+    `.gitignore.project` the durable home for repo-root ignores, but the upgrade
+    that introduces it seeds it empty — so any ignores a consumer had hand-added
+    directly to the managed (regenerated) root `.gitignore` (`.DS_Store`,
+    editor/OS cruft, project paths) were silently dropped when `render_gitignore`
+    rebuilt root `.gitignore` from the template.
+  - `init-workspace.sh` now snapshots the pre-overwrite root `.gitignore` and
+    migrates its consumer-added entries (non-blank, non-comment lines that are
+    not provided by the template base, an active language fragment, or the #1092
+    seed, and not already present) into `.gitignore.project`, from where they
+    flow back into the regenerated root `.gitignore`. The migration is
+    append-only and deduplicated, so it never reorders the consumer's existing
+    entries and a second upgrade re-adds nothing (idempotent); it prints the
+    count and list of migrated lines.
 - **Wire `core.hooksPath` for direnv consumers** ([#1112](https://github.com/vig-os/devkit/issues/1112))
   - In direnv / `nix develop` mode the dev-shell never set `core.hooksPath`, so
     commit-time hooks (pre-commit / commit-msg via prek) were silently inactive

@@ -3059,6 +3059,73 @@ _RELEASE_RESOLVERS_991=(
     refute_line '.pre-commit-config.yaml'
 }
 
+# ── migrate hand-added root ignores into .gitignore.project (#1111) ────────────
+# The #1092 fix made .gitignore.project the durable home for repo-root ignores,
+# but the upgrade that INTRODUCES it seeds it empty — so any ignores a consumer
+# had hand-added directly to the managed (regenerated) root .gitignore were
+# silently dropped. init-workspace snapshots the pre-overwrite root .gitignore
+# and migrates its consumer-added, non-managed lines into .gitignore.project,
+# whence render_gitignore folds them back into the regenerated root .gitignore.
+
+@test "upgrade migrates consumer-added root .gitignore lines into .gitignore.project (#1111)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1111-migrate"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    # Consumer hand-adds root ignores to the managed root .gitignore, as they had
+    # to before .gitignore.project existed (#1092).
+    printf '.DS_Store\nmy-secret-dir/\n' >>"$ws/.gitignore"
+    run _upgrade both "$ws"
+    assert_success
+    # The upgrade note (fix variant (b)) lists what was rescued.
+    assert_output --partial 'Migrated 2 consumer line'
+    # Hand-added lines are recovered into the durable, preserved home ...
+    run grep -qxF '.DS_Store' "$ws/.gitignore.project"
+    assert_success
+    run grep -qxF 'my-secret-dir/' "$ws/.gitignore.project"
+    assert_success
+    # ... and stay effective in the regenerated root .gitignore.
+    run grep -qxF '.DS_Store' "$ws/.gitignore"
+    assert_success
+    run grep -qxF 'my-secret-dir/' "$ws/.gitignore"
+    assert_success
+}
+
+@test "a second upgrade does not re-migrate already-migrated root ignores (#1111)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1111-idempotent"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    printf '.DS_Store\nmy-secret-dir/\n' >>"$ws/.gitignore"
+    run _upgrade both "$ws"
+    assert_success
+    run _upgrade both "$ws"
+    assert_success
+    # The second upgrade migrates nothing new (idempotent) ...
+    refute_output --partial 'Migrated'
+    # ... and the migrated line appears exactly once in .gitignore.project.
+    run grep -cxF '.DS_Store' "$ws/.gitignore.project"
+    assert_output '1'
+}
+
+@test "managed template/fragment ignore lines are never migrated into .gitignore.project (#1111)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1111-managed"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    # Add one genuinely consumer-owned line to the managed root .gitignore.
+    printf 'consumer-only-dir/\n' >>"$ws/.gitignore"
+    run _upgrade both "$ws"
+    assert_success
+    # The consumer's own line migrates ...
+    run grep -qxF 'consumer-only-dir/' "$ws/.gitignore.project"
+    assert_success
+    # ... but a managed template-base line (justfile.local) is NOT copied in:
+    # it is already provided by the regenerated root .gitignore.
+    run grep -qxF 'justfile.local' "$ws/.gitignore.project"
+    assert_failure
+}
+
 # ── dangling /nix/store symlink is preserved and seeds the ignore (#1117) ──────
 # In direnv mode the flake generates .pre-commit-config.yaml as a symlink into
 # the HOST /nix/store, which is NOT mounted inside the devcontainer image where

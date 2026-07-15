@@ -596,6 +596,15 @@ PYMARKDOWN_CONFIG_PREEXISTED=false
 PYMARKDOWN_DOC_PREEXISTED=false
 [[ -f "$WORKSPACE_DIR/.pymarkdown.config.md" ]] && PYMARKDOWN_DOC_PREEXISTED=true
 
+# Snapshot the consumer's OLD root .gitignore before the rsync overwrite (#1111).
+# Root .gitignore is managed (NOT a PRESERVE_FILE), so rsync replaces it below;
+# capture it now so migrate_root_gitignore can recover any root ignores the
+# consumer had hand-added directly to it (they predate the #1092 durable home,
+# .gitignore.project, and would otherwise be silently dropped on the upgrade that
+# introduces it). Empty on a fresh scaffold (no old file) — the migration no-ops.
+OLD_GITIGNORE_SNAPSHOT=""
+[[ -f "$WORKSPACE_DIR/.gitignore" ]] && OLD_GITIGNORE_SNAPSHOT="$(cat "$WORKSPACE_DIR/.gitignore")"
+
 # ── consumer language detection (#1024/#1025) ─────────────────────────────────
 # Managed scaffold statics (.gitignore, .github/workflows/codeql.yml) are
 # Python-shaped by default, which is wrong for Node/Rust consumers and does not
@@ -684,6 +693,77 @@ render_gitignore() {
             } >>"$gi"
         fi
     fi
+}
+
+# Migrate consumer-added root ignores into .gitignore.project (#1111). The #1092
+# fix made .gitignore.project the durable, preserved home for repo-ROOT ignores,
+# but the upgrade that INTRODUCES it seeds it empty — so any ignores a consumer
+# had hand-added directly to the managed root .gitignore (.DS_Store, editor/OS
+# cruft, project paths) are silently dropped when render_gitignore regenerates
+# root .gitignore from the template. Recover them: any non-blank, non-comment
+# line in the pre-overwrite root .gitignore (OLD_GITIGNORE_SNAPSHOT) that is NOT
+# a managed entry (template base + active language fragments + the #1092 seed)
+# and NOT already in .gitignore.project is appended to .gitignore.project, whence
+# render_gitignore (called AFTER this) folds it back into the regenerated root
+# .gitignore — no separate write to the root file. Append-only and deduplicated
+# against the existing .gitignore.project, so a second upgrade re-adds nothing
+# (idempotent: the migrated lines now live in .gitignore.project) and the
+# consumer's existing entries are never reordered or rewritten. Only entries
+# (non-blank, non-comment lines) migrate; a consumer's free-text comments are not
+# semantically ignorable, so they are left behind with the old managed file.
+migrate_root_gitignore() {
+    local proj="$WORKSPACE_DIR/.gitignore.project"
+    [[ -f "$proj" ]] || return 0
+    [[ -n "$OLD_GITIGNORE_SNAPSHOT" ]] || return 0
+
+    local line lang frag
+    # Managed entries the regenerated root .gitignore already provides — never
+    # migrate one of these (idempotent even for a line the template later drops).
+    local -A managed=()
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]] && continue
+        managed["$line"]=1
+    done < "$TEMPLATE_DIR/.gitignore"
+    for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
+        frag="$SCRIPT_DIR/gitignore.d/$lang.gitignore"
+        [[ -f "$frag" ]] || continue
+        while IFS= read -r line; do
+            [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]] && continue
+            managed["$line"]=1
+        done < "$frag"
+    done
+    # The #1092 flake-hooks seed is a managed entry too.
+    managed[".pre-commit-config.yaml"]=1
+
+    # Entries already committed in .gitignore.project must not be re-added — this
+    # is what makes a second upgrade a no-op.
+    local -A existing=()
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]] && continue
+        existing["$line"]=1
+    done < "$proj"
+
+    # Consumer-added lines: present in the old root .gitignore, owned by neither
+    # the managed sources nor .gitignore.project. Deduplicated, order preserved.
+    local -a migrate=()
+    local -A seen=()
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -n "${managed[$line]:-}" ]] && continue
+        [[ -n "${existing[$line]:-}" ]] && continue
+        [[ -n "${seen[$line]:-}" ]] && continue
+        seen["$line"]=1
+        migrate+=("$line")
+    done <<< "$OLD_GITIGNORE_SNAPSHOT"
+
+    [[ ${#migrate[@]} -eq 0 ]] && return 0
+
+    {
+        printf '\n# Migrated from the managed root .gitignore on upgrade (#1111).\n'
+        printf '%s\n' "${migrate[@]}"
+    } >> "$proj"
+    echo "Migrated ${#migrate[@]} consumer line(s) into .gitignore.project (#1111):"
+    printf '  %s\n' "${migrate[@]}"
 }
 
 # Rewrite the managed CodeQL language matrix to the detected language(s) (#1025):
@@ -1209,6 +1289,7 @@ fi
 # every (re)scaffold, so the correct .gitignore / codeql matrix is
 # upgrade-persistent. These files carry no placeholders, so ordering after the
 # substitution above is incidental.
+migrate_root_gitignore
 render_gitignore
 render_codeql_matrix
 
