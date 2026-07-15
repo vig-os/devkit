@@ -292,6 +292,8 @@ MANIFEST_PROJECT="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_PROJECT || tru
 MANIFEST_ORG="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_ORG || true)"
 MANIFEST_REPO="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REPO || true)"
 MANIFEST_MODULES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_MODULES || true)"
+MANIFEST_TAG_PREFIX="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TAG_PREFIX || true)"
+MANIFEST_FLOATING_TAGS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FLOATING_TAGS || true)"
 
 # The OWNER/REPO placeholder (written when no origin was resolvable) must not
 # mask a now-detectable git origin on a later upgrade.
@@ -1214,7 +1216,10 @@ render_codeql_matrix
 # file (template-overwritten on upgrade), so the resolved delivery mode and
 # identity are written back on every (re)scaffold — the next upgrade then
 # needs no mode/identity flags at all. A consumer's DEVKIT_MODULES
-# declaration (#884, read before the template overwrite) is restored too.
+# declaration (#884, read before the template overwrite) is restored too, as
+# are the DEVKIT_TAG_PREFIX / DEVKIT_FLOATING_TAGS release tag-scheme keys
+# (#1116, read before the overwrite) — the template ships them empty, so
+# without a write-back an upgrade would silently reset a consumer's tag scheme.
 if [[ -f "$VIG_OS_MANIFEST" ]]; then
     echo "Persisting resolved manifest values in .vig-os..."
     write_manifest_value DEVKIT_MODE "$MODE"
@@ -1223,6 +1228,14 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     write_manifest_value DEVKIT_REPO "$GITHUB_REPOSITORY"
     if [[ -n "$MANIFEST_MODULES" ]]; then
         write_manifest_value DEVKIT_MODULES "\"$MANIFEST_MODULES\""
+    fi
+    # Bare in the template (DEVKIT_TAG_PREFIX= / DEVKIT_FLOATING_TAGS=), so
+    # written back bare — matching the template's unquoted form.
+    if [[ -n "$MANIFEST_TAG_PREFIX" ]]; then
+        write_manifest_value DEVKIT_TAG_PREFIX "$MANIFEST_TAG_PREFIX"
+    fi
+    if [[ -n "$MANIFEST_FLOATING_TAGS" ]]; then
+        write_manifest_value DEVKIT_FLOATING_TAGS "$MANIFEST_FLOATING_TAGS"
     fi
 fi
 

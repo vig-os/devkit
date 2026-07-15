@@ -723,16 +723,51 @@
           extraRuntimes = [ ];
         };
 
+        # actionlint for the IMAGE without its optional `pyflakes` runtime dep
+        # (#1107). Stock actionlint wraps its binary with `pyflakes` + `shellcheck`
+        # on PATH (pkgs/by-name/ac/actionlint/package.nix postInstall). `pyflakes`
+        # only lints inline `python` in workflow `run:` steps — unused in this
+        # gh-driven repo — and it is `python3.13-pyflakes`, one of the two
+        # remaining anchors dragging the redundant CPython 3.13 interpreter into
+        # the image (full `git` → gitMinimal drops the other; #1105/#1106 dropped
+        # bandit/criu). `.override` exposes only `python3Packages`, not `pyflakes`,
+        # so a clean single-dep drop needs `overrideAttrs`: we rewrite postInstall
+        # to wrap with `shellcheck` ONLY, evicting `pyflakes` (and thus
+        # python3.13) from the closure while keeping the shellcheck-backed `run:`
+        # shell lint and the man page. Scoped to the IMAGE — the dev-shell keeps
+        # stock actionlint via devTools. Refs #1107, #1103.
+        actionlintImage = pkgs.actionlint.overrideAttrs (_: {
+          postInstall = ''
+            ronn --roff man/actionlint.1.ronn
+            installManPage man/actionlint.1
+            wrapProgram "$out/bin/actionlint" \
+              --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.shellcheck ]}
+          '';
+        });
+
         # The toolchain SSoT plus the runtime substrate a bare layered image
         # lacks (an FHS base distro would provide these; here we add them
         # explicitly — this is the discovery surface for FHS gaps). Shared by
         # the image (`devkitImage`) and its vulnix scan target
-        # (`devkitImageEnv`, #637). The full podman from devTools is swapped for
-        # the client-only build above (#1106) — filtered out here, not in the
-        # SSoT, so the dev-shell keeps its daemonless runtime.
+        # (`devkitImageEnv`, #637). Three devTools entries are swapped for
+        # slimmer image-only builds — filtered out here, not in the SSoT, so the
+        # dev-shell keeps the full tools:
+        #   - full `podman` → `podmanClient` (client-only, #1106).
+        #   - full `git` → `gitMinimal` (no perl/python/gui/man; drops the
+        #     git-p4/python-helper anchor of CPython 3.13, plus git-doc; gettext
+        #     stays, still linked by gitMinimal for i18n; loses
+        #     send-email/svn/p4/gitk/`git help` — non-contract per #1103).
+        #   - stock `actionlint` → `actionlintImage` (no `python3.13-pyflakes`
+        #     wrapper — the other CPython 3.13 anchor).
+        # Together with #1105 (bandit) and #1106 (criu) this evicts the redundant
+        # CPython 3.13 interpreter from the image. Refs #1107, #1103.
         imageTools =
-          (builtins.filter (p: p != pkgs.podman) (devTools pkgs))
-          ++ [ podmanClient ]
+          (builtins.filter (p: p != pkgs.podman && p != pkgs.git && p != pkgs.actionlint) (devTools pkgs))
+          ++ [
+            podmanClient
+            pkgs.gitMinimal
+            actionlintImage
+          ]
           ++ (with pkgs; [
             # Nix package manager in the closure (CppNix).
             nix

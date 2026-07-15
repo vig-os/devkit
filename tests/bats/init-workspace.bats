@@ -1929,6 +1929,25 @@ _upgrade_no_flags() {
     assert_success
 }
 
+@test "upgrade preserves persisted tag-scheme keys (#1116)" {
+    # .vig-os is a managed file, so a consumer's DEVKIT_TAG_PREFIX /
+    # DEVKIT_FLOATING_TAGS must be read before the template overwrite and
+    # written back — else an upgrade silently resets bare tags / stops moving
+    # floating tags (release-integrity regression observed 1.2.0 -> 1.2.1).
+    ws="$BATS_TEST_TMPDIR/e2e-1116-tagscheme"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_TAG_PREFIX=.*/DEVKIT_TAG_PREFIX=v/' "$ws/.vig-os"
+    sed -i 's/^DEVKIT_FLOATING_TAGS=.*/DEVKIT_FLOATING_TAGS=major,minor/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -x 'DEVKIT_TAG_PREFIX=v' "$ws/.vig-os"
+    assert_success
+    run grep -x 'DEVKIT_FLOATING_TAGS=major,minor' "$ws/.vig-os"
+    assert_success
+}
+
 # ── legacy mode inference (#885) ──────────────────────────────────────────────
 # Consumers scaffolded before the manifest carry a version-only .vig-os (or
 # none): an upgrade without --mode must infer the delivery mode from the tree
