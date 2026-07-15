@@ -114,9 +114,10 @@ CVE-2026-5928
 # Remaining lower-reachability components (provenance per note). Specifics
 # unverified offline; medium-near expiry to force re-review.
 Expiration: 2026-08-31
-# perl 5.42.0 — in-closure via git (git's perl-based subcommands: send-email,
-#   instaweb, etc.). Reachable only when those subcommands run, not on the hot
-#   path; specifics unverified offline.
+# perl 5.42.0 — in-closure via neovim → wl-clipboard → xdg-utils (git stopped
+#   anchoring perl in #1107, which swapped the image to gitMinimal). Reachable
+#   only on xdg-utils' desktop-open helper paths, not the hot path; specifics
+#   unverified offline.
 CVE-2026-4176
 # zlib 1.3.2 — ubiquitous compression dep (curl, openssh, git, nix, python).
 #   Reachable on any decompression path; specifics unverified offline.
@@ -328,8 +329,8 @@ CVE-2026-40553
 # ONLY in the perl 5.43.x DEVELOPMENT series (fixed in 5.43.10); stable perl is
 # 5.42.0 in the pinned rev, in nixos-26.05, AND in Debian stable (all still
 # unpatched, no backport) — so the "advance the rev" lever has nowhere to land
-# today. perl is in-closure via git's perl-based subcommands (send-email,
-# instaweb, etc.), same provenance as CVE-2026-4176; it processes
+# today. perl is in-closure via neovim → wl-clipboard → xdg-utils (git stopped
+# anchoring it in #1107), same provenance as CVE-2026-4176; it processes
 # developer/CI-chosen inputs only, with no untrusted-input path in the
 # single-user dev model. Flip to a nixpkgs rev-advance once a patched perl
 # reaches the pinned channel; short expiry to force near-term re-check.

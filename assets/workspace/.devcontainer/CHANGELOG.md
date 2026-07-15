@@ -21,6 +21,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Drop vestigial baked bandit from the image** ([#1105](https://github.com/vig-os/devkit/issues/1105))
   - Hooks already run the venv bandit via `uv run` (pinned `bandit[toml]==1.9.4`); the baked copy was unused.
   - Removes ~74 MiB from the image closure — a stray CPython 3.13 package stack (nixpkgs builds `bandit` on 3.13 while the image toolchain is 3.14) plus a duplicate `git-minimal` pulled in via gitpython.
+- **Evict the redundant CPython 3.13 interpreter from the image** ([#1107](https://github.com/vig-os/devkit/issues/1107))
+  - The image carried a second CPython interpreter (`python3-3.13.13`, 127 MiB)
+    that the chosen toolchain (`python3.14`, `UV_PYTHON`, `vig-utils`) never
+    uses. It was held by four independent anchors, all of which had to fall:
+    `bandit` ([#1105](https://github.com/vig-os/devkit/issues/1105)), `criu` via
+    the podman runtime ([#1106](https://github.com/vig-os/devkit/issues/1106)),
+    full `git` (git-p4/python helpers), and `actionlint` (its optional
+    `python3.13-pyflakes` lint wrapper) — the last two removed here.
+  - The image now ships `gitMinimal` (`perlSupport`/`pythonSupport`/
+    `guiSupport`/`withManual` all off) instead of full `git`, and an
+    `overrideAttrs`'d `actionlint` whose wrapper drops `pyflakes` (keeping
+    `shellcheck`). Together this evicts the 3.13 interpreter and full git's
+    `git-doc`, measuring **~149 MiB** off the uncompressed closure beyond the
+    bandit/criu cuts.
+  - Contract (declared non-contract in
+    [#1103](https://github.com/vig-os/devkit/issues/1103), `semver:minor`): the
+    image loses `git send-email`/`svn`/`p4`/`gitk`/`git gui` and built-in
+    `git help <cmd>` man pages, and actionlint's inline-python lint on workflow
+    `run:` steps. Builtin-C porcelain (`log`, `commit`, `rebase -i`, `add -p`,
+    worktrees) and SSH commit signing are unaffected; `gettext` stays (still
+    linked by gitMinimal for i18n).
+  - Dev-shell behavior is unchanged: `devTools` still ships full `git` and stock
+    `actionlint`; the swaps are scoped to the image only.
 - **Replace in-image podman runtime with DooD-only client** ([#1106](https://github.com/vig-os/devkit/issues/1106))
   - The image now ships a client-only podman: its local-runtime helpers
     (`crun`, `criu`, `conmon`, `netavark`, `passt`, `libkrun`/`libkrunfw`,
