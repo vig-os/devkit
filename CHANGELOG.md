@@ -29,6 +29,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Skip trunk-reachable history in release-PR commit validation** ([#1149](https://github.com/vig-os/devkit/issues/1149))
+  - On a freshly migrated consumer's first release PR (`release/X.Y.Z` →
+    `main`), the `Commit Messages` job validated `merge-base(base, head)..head`,
+    which spans the entire pre-migration history since the last release —
+    commits merged before the commit gate existed. A single non-compliant
+    historical commit permanently blocked the first release train (immutable
+    shared history, neither a merge nor bot-authored, so no exemption applied).
+    `validate-commit-range` gains a repeatable `--exclude-reachable REF` option,
+    and the scaffolded `ci.yml` now passes `--exclude-reachable origin/dev` on
+    non-dev PRs: commits already reachable from the trunk branch were gated (or
+    grandfathered) on their way into trunk and are no longer re-litigated. The
+    exclusion is a no-op on a dev PR (whose base *is* dev), so it only tightens
+    release/main PR ranges.
 - **Pin the release finalize sync-issues dispatch to the release branch** ([#1150](https://github.com/vig-os/devkit/issues/1150))
   - The `finalize` job in `release-core.yml` dispatched `sync-issues.yml` with
     no `--ref`, so GitHub resolved the workflow on the **default branch** — the

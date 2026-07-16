@@ -95,10 +95,22 @@ def parse_git_log(raw: str) -> list[Commit]:
     return commits
 
 
-def read_commits(base: str, head: str, repo: Path | None = None) -> list[Commit]:
-    """Read ``base..head`` from git."""
+def read_commits(
+    base: str,
+    head: str,
+    repo: Path | None = None,
+    exclude: list[str] | None = None,
+) -> list[Commit]:
+    """Read ``base..head`` from git, minus anything reachable from ``exclude``.
+
+    Each ref in ``exclude`` is appended to the revision range as ``^<ref>``, so
+    commits reachable from it drop out. A release PR passes the trunk branch
+    here: its pre-migration history was already gated (or grandfathered) on the
+    way into trunk and must not be re-litigated (#1149).
+    """
+    negatives = [f"^{ref}" for ref in (exclude or [])]
     result = subprocess.run(  # nosec B603 B607 - fixed argv, shell=False
-        ["git", "log", f"--format={_GIT_LOG_FORMAT}", f"{base}..{head}"],
+        ["git", "log", f"--format={_GIT_LOG_FORMAT}", f"{base}..{head}", *negatives],
         capture_output=True,
         text=True,
         check=True,
@@ -180,6 +192,17 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Path to the agent blocklist TOML.",
     )
+    parser.add_argument(
+        "--exclude-reachable",
+        action="append",
+        default=[],
+        metavar="REF",
+        help=(
+            "Exclude commits reachable from REF (repeatable). A release PR "
+            "passes the trunk branch so pre-gate history already merged to "
+            "trunk is not re-validated."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if not args.base and not args.title:
@@ -214,7 +237,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.base:
         try:
-            commits = read_commits(args.base, args.head)
+            commits = read_commits(args.base, args.head, exclude=args.exclude_reachable)
         except subprocess.CalledProcessError as exc:
             print(
                 f"git log {args.base}..{args.head} failed: {exc.stderr}",

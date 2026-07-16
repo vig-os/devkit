@@ -15,15 +15,23 @@ These tests run locally (pytest); they do not require the devcontainer CLI.
 
 from __future__ import annotations
 
+import os
+import subprocess
+from typing import TYPE_CHECKING
+
 import pytest
 from vig_utils.validate_commit_range import (
     Commit,
     is_bot_author,
     main,
     parse_git_log,
+    read_commits,
     validate_commits,
     validate_title,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _commit(
@@ -191,6 +199,66 @@ class TestParseGitLog:
     def test_empty_output_is_empty_list(self) -> None:
         assert parse_git_log("") == []
         assert parse_git_log("\n") == []
+
+
+class TestReadCommits:
+    """``--exclude-reachable`` drops history already gated on the trunk branch.
+
+    On a release PR (``release/X.Y.Z`` -> ``main``) the ``base..head`` span
+    reaches back through pre-migration commits that predate the commit gate but
+    were already merged into (or grandfathered onto) the trunk branch. Excluding
+    commits reachable from the trunk stops the first release train re-litigating
+    them, while staying a no-op on a dev PR whose base *is* the trunk (#1149).
+    """
+
+    @staticmethod
+    def _git(repo: Path, *args: str) -> str:
+        env = {
+            "GIT_AUTHOR_NAME": "Test",
+            "GIT_AUTHOR_EMAIL": "test@example.com",
+            "GIT_COMMITTER_NAME": "Test",
+            "GIT_COMMITTER_EMAIL": "test@example.com",
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+            "PATH": os.environ.get("PATH", ""),
+        }
+        return subprocess.run(
+            ["git", *args],
+            cwd=repo,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    def _commit(self, repo: Path, message: str) -> str:
+        self._git(repo, "commit", "--allow-empty", "-m", message)
+        return self._git(repo, "rev-parse", "HEAD")
+
+    @pytest.fixture
+    def repo(self, tmp_path: Path) -> Path:
+        """Build main(base) -> dev(grandfathered) -> release(head) topology."""
+        self._git(tmp_path, "init", "-q", "-b", "main")
+        self.base = self._commit(tmp_path, "chore: base commit")
+        # A non-compliant commit that was grandfathered onto the trunk branch.
+        self._git(tmp_path, "checkout", "-q", "-b", "dev")
+        self.grandfathered = self._commit(tmp_path, "broken commit with no type")
+        # The release branch cuts from dev, then adds one compliant commit.
+        self._git(tmp_path, "checkout", "-q", "-b", "release/1.0.0")
+        self.head = self._commit(tmp_path, "feat(x): new thing\n\nRefs: #2")
+        return tmp_path
+
+    def test_without_exclude_returns_trunk_history(self, repo: Path) -> None:
+        commits = read_commits(self.base, self.head, repo=repo)
+        subjects = {c.subject for c in commits}
+        assert "broken commit with no type" in subjects
+        assert "feat(x): new thing" in subjects
+
+    def test_exclude_reachable_drops_trunk_history(self, repo: Path) -> None:
+        commits = read_commits(self.base, self.head, repo=repo, exclude=["dev"])
+        subjects = {c.subject for c in commits}
+        assert "broken commit with no type" not in subjects
+        assert "feat(x): new thing" in subjects
 
 
 class TestMain:
