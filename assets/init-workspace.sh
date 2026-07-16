@@ -798,25 +798,54 @@ migrate_root_gitignore() {
 # ships no first-class Rust analyzer). 'actions' is always analyzed, so the
 # matrix is never empty (a marker-less repo analyzes just actions). No-op when
 # the workflow is absent (e.g. it was never scaffolded or was pruned).
+#
+# The push-to-main trigger's `paths:` filter is rendered from the SAME detection
+# (#1142): a python source push must match '**.py', a node one '**.ts'/'**.js'/
+# '**.mjs'/'**.cjs'; rust has no CodeQL source leg so it adds no source globs.
+# The '.github/workflows/**' catch-all is always kept (the 'actions' leg always
+# runs). Left hardcoded to '**.py', a Node consumer's post-merge scan never fired
+# for TS/JS changes — and being a managed file, hand-fixes were reverted on every
+# upgrade.
 render_codeql_matrix() {
     local cq="$WORKSPACE_DIR/.github/workflows/codeql.yml"
     [[ -f "$cq" ]] || return 0
     local -a langs=()
+    local -a paths=()
     local lang
     for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
         case "$lang" in
-            python) langs+=("'python'") ;;
-            node) langs+=("'javascript-typescript'") ;;
+            python)
+                langs+=("'python'")
+                paths+=("'**.py'")
+                ;;
+            node)
+                langs+=("'javascript-typescript'")
+                paths+=("'**.ts'" "'**.js'" "'**.mjs'" "'**.cjs'")
+                ;;
             rust) : ;; # CodeQL rust support caveat (#1025): omit the leg
         esac
     done
     langs+=("'actions'")
+    paths+=("'.github/workflows/**'")
     local joined=""
     for lang in "${langs[@]}"; do
         joined="${joined:+$joined, }$lang"
     done
     sed -i -E "s|^([[:space:]]*language:).*|\1 [${joined}]|" "$cq"
     echo "Rendered CodeQL language matrix: [${joined}]"
+
+    # Replace the list items under the push `paths:` key (4-space `paths:`,
+    # 6-space `- ` items) with the rendered set. awk, not sed: the item count
+    # varies per language, so we rewrite the whole block in one pass.
+    local rendered_paths
+    rendered_paths="$(printf '      - %s\n' "${paths[@]}")"
+    awk -v items="$rendered_paths" '
+        /^    paths:$/ { print; print items; inpaths = 1; next }
+        inpaths && /^      - / { next }
+        inpaths { inpaths = 0 }
+        { print }
+    ' "$cq" >"$cq.tmp" && mv "$cq.tmp" "$cq"
+    echo "Rendered CodeQL push paths filter: [${paths[*]}]"
     # Preflight note (#1025): the advanced CodeQL config the scaffold ships
     # cannot coexist with GitHub's *default* code-scanning setup — its uploads
     # are rejected while default setup is enabled. We never flip that API

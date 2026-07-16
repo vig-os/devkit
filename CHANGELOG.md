@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Render CodeQL push `paths:` filter per detected language** ([#1142](https://github.com/vig-os/devkit/issues/1142))
+  - The scaffolded `codeql.yml` hardcoded the push-to-main trigger's `paths:`
+    filter to `**.py`, so on a Node consumer a push touching only TS/JS never
+    fired the post-merge CodeQL scan (only the unfiltered PR trigger caught it).
+    `init-workspace.sh` now renders the filter from the same language detection
+    as the matrix: python → `**.py`; node → `**.ts`/`**.js`/`**.mjs`/`**.cjs`;
+    rust adds no source globs; the `.github/workflows/**` catch-all is always
+    kept. Because `codeql.yml` is a managed file, consumer hand-fixes are no
+    longer reverted on every devkit upgrade.
 - **Never migrate scaffold-committed or template gitignore lines** ([#1145](https://github.com/vig-os/devkit/issues/1145))
   - The [#1111](https://github.com/vig-os/devkit/issues/1111) gitignore
     migration copied entries that shadow scaffold-COMMITTED files: the old

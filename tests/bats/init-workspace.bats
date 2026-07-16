@@ -2856,6 +2856,70 @@ _RELEASE_RESOLVERS_991=(
     assert_output --partial "default code-scanning setup"
 }
 
+# ── language-aware codeql push paths filter (#1142) ───────────────────────────
+# The push-to-main trigger's `paths:` filter was hardcoded to '**.py' alongside
+# the '.github/workflows/**' catch-all, so on a Node consumer a push touching
+# only TS/JS never triggered the post-merge CodeQL scan (only the unfiltered PR
+# trigger caught it). init-workspace.sh now renders the push `paths:` from the
+# SAME language detection as the matrix (#1025): python → '**.py'; node →
+# '**.ts'/'**.js'/'**.mjs'/'**.cjs'; rust omits its source globs; the
+# '.github/workflows/**' catch-all is always kept. Because codeql.yml is a
+# managed file, this stops consumer hand-fixes being reverted on upgrade.
+
+@test "scaffold codeql push paths for a Node consumer are TS/JS globs + workflows (#1142)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1142-node-paths"
+    mkdir -p "$ws"
+    printf '{ "name": "probe" }\n' >"$ws/package.json"
+    run _scaffold both "$ws"
+    assert_success
+    run cat "$ws/.github/workflows/codeql.yml"
+    assert_success
+    assert_output --partial "'**.ts'"
+    assert_output --partial "'**.js'"
+    assert_output --partial "'**.mjs'"
+    assert_output --partial "'**.cjs'"
+    assert_output --partial "'.github/workflows/**'"
+    refute_output --partial "'**.py'"
+}
+
+@test "scaffold codeql push paths for a Python consumer are '**.py' + workflows (#1142)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1142-py-paths"
+    mkdir -p "$ws"
+    printf '[project]\nname = "probe"\n' >"$ws/pyproject.toml"
+    run _scaffold both "$ws"
+    assert_success
+    run cat "$ws/.github/workflows/codeql.yml"
+    assert_success
+    assert_output --partial "'**.py'"
+    assert_output --partial "'.github/workflows/**'"
+    refute_output --partial "'**.ts'"
+}
+
+@test "scaffold codeql push paths for a Rust consumer are workflows-only (#1142)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1142-rust-paths"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    run _scaffold both "$ws"
+    assert_success
+    run cat "$ws/.github/workflows/codeql.yml"
+    assert_success
+    assert_output --partial "'.github/workflows/**'"
+    refute_output --partial "'**.py'"
+    refute_output --partial "'**.ts'"
+}
+
+@test "scaffold codeql push paths for a marker-less consumer are workflows-only (#1142)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1142-bare-paths"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run cat "$ws/.github/workflows/codeql.yml"
+    assert_success
+    assert_output --partial "'.github/workflows/**'"
+    refute_output --partial "'**.py'"
+    refute_output --partial "'**.ts'"
+}
+
 # ── first-scaffold npm justfile.project recipes for Node consumers (#1027) ─────
 # justfile.project is a PRESERVE_FILE: the stock template ships uv/pyproject
 # recipes, which no-op for a Node repo whose CI still calls `just sync|test`.
