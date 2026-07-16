@@ -555,6 +555,83 @@ re-scaffold:
    `tests/test_example.py`) may be rewritten to a name that differs from your
    original scaffold. Review the diff before committing.
 
+## First release after migrating to devkit
+
+The **first** release train a freshly migrated consumer runs has a one-time
+sharp edge in the promote step. `promote-release.yml` is dispatched via
+`workflow_dispatch`, and GitHub only registers a `workflow_dispatch` workflow
+that exists on the **default branch**. `promote-release.yml` typically has no
+pre-devkit counterpart on `main` (unlike `prepare-release.yml` / `release.yml`,
+whose legacy filenames may collide and so stay dispatchable), and the thing that
+puts it on the default branch is the release-PR merge that promote itself
+performs. So on a first release:
+
+```console
+$ gh workflow run promote-release.yml -f version=X.Y.Z
+HTTP 404: Workflow does not have 'workflow_dispatch' trigger (on the default branch)
+```
+
+Dispatching by numeric ID is impossible too — no run has ever registered the ID.
+Once this first release lands (by the manual sequence below) the workflow is on
+`main` and **every subsequent release promotes normally** with a plain
+`gh workflow run promote-release.yml`.
+
+> **The manual promote cannot be "resumed" by the workflow later.** Promote's
+> validate job hard-requires a **still-draft** GitHub Release and an **open,
+> approved** release PR. Once you undraft the Release and merge the PR by hand
+> (below), those preconditions are gone, so a half-completed manual promote can
+> never be finished by the registered workflow. Run the sequence through to the
+> end in one go.
+
+### First-release manual promote runbook
+
+Prerequisites (produced by the final `release.yml` run): the git tag
+`<prefix>X.Y.Z` exists, its **draft** GitHub Release exists, and the
+`release/X.Y.Z → main` PR is open, approved, and CI-green. `<prefix>` is
+`DEVKIT_TAG_PREFIX` (e.g. `v`), empty for bare `X.Y.Z` tags. Use a token with
+`contents: write` on the repo (the Release App token, or an admin PAT).
+
+1. **Publish (undraft) the GitHub Release** — the same `--draft=false` edit the
+   `promote` job performs:
+
+   ```bash
+   gh release edit "<prefix>X.Y.Z" --draft=false
+   ```
+
+2. **Merge the release PR to `main`** — the `merge` job's step. This triggers
+   `sync-main-to-dev`:
+
+   ```bash
+   gh pr merge "$(gh pr list --head release/X.Y.Z --base main --json number --jq '.[0].number')" --merge
+   ```
+
+3. **Best-effort RC cleanup** — delete the RC draft pre-releases and orphan git
+   RC tags for this version, matching the `cleanup` job. Drafts delete by
+   release id; tags with a surviving Release stay:
+
+   ```bash
+   # RC draft pre-releases (delete by id):
+   gh api --paginate repos/$GH_REPO/releases \
+     | jq -r --arg base "<prefix>X.Y.Z" \
+         '.[] | select(.draft and .prerelease and (.tag_name | startswith($base + "-rc"))) | .id' \
+     | xargs -rI{} gh api -X DELETE "repos/$GH_REPO/releases/{}"
+   # Orphan git RC tags (no Release attached):
+   git ls-remote --tags --refs origin "<prefix>X.Y.Z-rc*" | awk '{print $2}' | sed 's#refs/tags/##' \
+     | xargs -rI{} gh api -X DELETE "repos/$GH_REPO/git/refs/tags/{}"
+   ```
+
+4. **Move the floating tags** (only if `DEVKIT_FLOATING_TAGS` is set). The Tag
+   protection ruleset makes `<prefix>X` / `<prefix>X.Y` moves Release-App
+   exclusive, so on a first release neither a human nor the (unregistered)
+   workflow can move them without a one-off ruleset bypass. This step is its own
+   procedure — tracked in
+   [#1152](https://github.com/vig-os/devkit/issues/1152).
+
+After step 2 the merged `main` carries `promote-release.yml`, so this whole
+runbook is needed exactly once per consumer. See
+[`docs/DOWNSTREAM_RELEASE.md`](./DOWNSTREAM_RELEASE.md) for the steady-state
+(fully automated) release and promote flow.
+
 ## The retired Debian line (historical)
 
 The Debian build path was decommissioned in

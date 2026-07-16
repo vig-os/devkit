@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Document the first-release manual promote runbook** ([#1151](https://github.com/vig-os/devkit/issues/1151))
+  - `promote-release.yml` is dispatched via `workflow_dispatch`, which GitHub
+    only registers for workflows present on the **default branch** — and the
+    release-PR merge that puts it there is what promote itself performs, so a
+    consumer's *first* promote 404s (chicken-and-egg). `docs/MIGRATION.md` gains
+    a "First release after migrating to devkit" section with the end-to-end
+    manual promote sequence (undraft the Release → merge the release PR → RC
+    cleanup), a note that the manual path cannot be resumed by the workflow
+    once the draft/PR preconditions are consumed, and a pointer to the
+    floating-tag handling. Every subsequent release promotes normally.
+
 ### Changed
 
 - **Release extension seam gains a documented token ceiling** ([#1144](https://github.com/vig-os/devkit/issues/1144))
