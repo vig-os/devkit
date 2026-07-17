@@ -378,6 +378,25 @@ let
         excludes = [ shellcheckExclude ];
       };
     };
+    # Secret scanner (#1172). Opt-in and default-DISABLED: it carries no
+    # `yaml` (absent from the committed runner and scaffold configs) and no
+    # `check` (absent from the sandbox gate), so devkit's own lanes never run
+    # it — gitleaks needs a repo-specific `.gitleaks.toml` to tune false
+    # positives and devkit ships none. It lives only on the consumer
+    # generation surface with `enable = false`, so a secret-bearing consumer
+    # opts in with `mkProjectShell { hooks = { gitleaks.enable = true; }; }`.
+    # A repo-root `.gitleaks.toml` is picked up by gitleaks automatically — no
+    # extra plumbing. v8.19+ invocation form (`gitleaks git --pre-commit`; the
+    # nixpkgs pin is 8.30.x). Refs #1172.
+    gitleaks = {
+      consumer = pkgs: {
+        enable = false;
+        name = "gitleaks";
+        entry = "${pkgs.gitleaks}/bin/gitleaks git --pre-commit --staged --redact --verbose";
+        language = "system";
+        pass_filenames = false;
+      };
+    };
     # GitHub Actions workflow linter (#995). Runner-only and devkit-only: it
     # lints THIS repo's own .github/workflows/ via actionlint's auto-discovery
     # (pass_filenames = false). Not scaffolded to consumers and not in the
@@ -486,6 +505,41 @@ let
         enable = true;
         name = "nixfmt";
         entry = "${pkgs.nixfmt}/bin/nixfmt --check";
+        language = "system";
+        files = "\\.nix$";
+      };
+    };
+    # Nix linters, flake-generated consumer surface ONLY (#1171). No `yaml`
+    # and `scaffold = false`, so neither committed hand-managed YAML (runner
+    # or scaffold) changes — existing container-mode consumers see zero
+    # change until they opt into flake hooks. Devkit's own coverage stays
+    # with the authored-flake-scoped `checks.{statix,deadnix}` gates in
+    # flake.nix (#777), which deliberately keep the STRICT deadnix defaults.
+    statix = {
+      scaffold = false;
+      # statix accepts exactly ONE target, so run it repo-wide from the root
+      # (it respects .gitignore) rather than on the changed filenames.
+      consumer = pkgs: {
+        enable = true;
+        name = "statix";
+        entry = "${pkgs.statix}/bin/statix check .";
+        language = "system";
+        files = "\\.nix$";
+        pass_filenames = false;
+      };
+    };
+    # deadnix relaxes the lambda checks (--no-lambda-arg
+    # --no-lambda-pattern-names): the scaffolded consumer flake.nix ships the
+    # idiomatic `{ self, … }` output pattern and the `extraPackages = pkgs:
+    # [ ]` seed, whose intentionally-unused args strict deadnix flags — a
+    # fresh scaffold must pass out of the box
+    # (tests/test_flake_hooks.py::TestNixLintersConsumerSurface).
+    deadnix = {
+      scaffold = false;
+      consumer = pkgs: {
+        enable = true;
+        name = "deadnix";
+        entry = "${pkgs.deadnix}/bin/deadnix --fail --no-lambda-arg --no-lambda-pattern-names";
         language = "system";
         files = "\\.nix$";
       };

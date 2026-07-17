@@ -294,6 +294,7 @@ MANIFEST_REPO="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REPO || true)"
 MANIFEST_MODULES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_MODULES || true)"
 MANIFEST_TAG_PREFIX="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TAG_PREFIX || true)"
 MANIFEST_FLOATING_TAGS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FLOATING_TAGS || true)"
+MANIFEST_CI_RUNNER="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_CI_RUNNER || true)"
 
 # The OWNER/REPO placeholder (written when no origin was resolvable) must not
 # mask a now-detectable git origin on a later upgrade.
@@ -618,6 +619,19 @@ DETECTED_LANGUAGES=()
 [[ -f "$WORKSPACE_DIR/pyproject.toml" ]] && DETECTED_LANGUAGES+=("python")
 [[ -f "$WORKSPACE_DIR/package.json" ]] && DETECTED_LANGUAGES+=("node")
 [[ -f "$WORKSPACE_DIR/Cargo.toml" ]] && DETECTED_LANGUAGES+=("rust")
+# nix (#1171): a repo is nix-oriented when it carries *.nix files BEYOND the
+# scaffold-managed ./flake.nix (excluding .git/, .direnv/, .worktrees/).
+# flake.nix alone cannot be the marker: every direnv scaffold ships one, so
+# naive detection would false-positive on every direnv consumer at re-scaffold
+# time. The beyond-flake.nix rule is deterministic and re-scaffold-safe.
+if find "$WORKSPACE_DIR" \
+    -path "$WORKSPACE_DIR/.git" -prune -o \
+    -path "$WORKSPACE_DIR/.direnv" -prune -o \
+    -path "$WORKSPACE_DIR/.worktrees" -prune -o \
+    -name '*.nix' ! -path "$WORKSPACE_DIR/flake.nix" -print -quit \
+    | grep -q .; then
+    DETECTED_LANGUAGES+=("nix")
+fi
 
 # Seed npm-mapped justfile.project recipes on the FIRST scaffold of a Node
 # consumer (#1027). justfile.project is a PRESERVE_FILE: the stock template
@@ -857,6 +871,7 @@ render_codeql_matrix() {
                 paths+=("'**.ts'" "'**.js'" "'**.mjs'" "'**.cjs'")
                 ;;
             rust) : ;; # CodeQL rust support caveat (#1025): omit the leg
+            nix) : ;; # nix is not a CodeQL language (#1171): omit the leg
         esac
     done
     langs+=("'actions'")
@@ -1408,8 +1423,9 @@ render_codeql_matrix
 # needs no mode/identity flags at all. A consumer's DEVKIT_MODULES
 # declaration (#884, read before the template overwrite) is restored too, as
 # are the DEVKIT_TAG_PREFIX / DEVKIT_FLOATING_TAGS release tag-scheme keys
-# (#1116, read before the overwrite) — the template ships them empty, so
-# without a write-back an upgrade would silently reset a consumer's tag scheme.
+# (#1116, read before the overwrite) and the DEVKIT_CI_RUNNER runner override
+# (#1173) — the template ships them empty, so without a write-back an upgrade
+# would silently reset a consumer's tag scheme or self-hosted runner selection.
 if [[ -f "$VIG_OS_MANIFEST" ]]; then
     echo "Persisting resolved manifest values in .vig-os..."
     write_manifest_value DEVKIT_MODE "$MODE"
@@ -1426,6 +1442,12 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     fi
     if [[ -n "$MANIFEST_FLOATING_TAGS" ]]; then
         write_manifest_value DEVKIT_FLOATING_TAGS "$MANIFEST_FLOATING_TAGS"
+    fi
+    # CI runner override (#1173): bare in the template (DEVKIT_CI_RUNNER=), so a
+    # self-hosted consumer's label list is read before the overwrite and written
+    # back — else an upgrade silently resets ci.yml onto the hosted default.
+    if [[ -n "$MANIFEST_CI_RUNNER" ]]; then
+        write_manifest_value DEVKIT_CI_RUNNER "$MANIFEST_CI_RUNNER"
     fi
 fi
 

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -338,6 +339,72 @@ def consumer_config() -> dict[str, Any]:
 
 
 @pytest.fixture(scope="module")
+def gitleaks_enabled_config() -> dict[str, Any]:
+    """Generated config for a consumer that opts into the gitleaks hook (#1172)."""
+    expr = f"""
+    let
+      flake = builtins.getFlake "path:{REPO_ROOT}";
+      system = builtins.currentSystem;
+      pkgs = import flake.inputs.nixpkgs {{ inherit system; }};
+      shell = flake.lib.mkProjectShell {{
+        inherit pkgs;
+        hooks = {{
+          gitleaks.enable = true;
+        }};
+      }};
+    in
+    shell.hooksConfigFile
+    """
+    result = _run_nix(
+        ["build", "--impure", "--no-link", "--print-out-paths", "--expr", expr],
+        timeout=1800,
+    )
+    assert result.returncode == 0, (
+        "building the gitleaks-enabled hook config failed:\n" + result.stderr
+    )
+    return yaml.safe_load(Path(result.stdout.strip()).read_text())
+
+
+class TestGitleaksOptInHook:
+    """gitleaks is an opt-in, default-disabled consumer hook (#1172).
+
+    It carries no runner/scaffold render and no sandbox-gate profile (devkit's
+    own lanes never run it — there is no repo-root ``.gitleaks.toml`` tuning),
+    and it stays off the consumer surface until a consumer sets
+    ``gitleaks.enable = true``.
+    """
+
+    def test_gitleaks_absent_from_runner_render(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """devkit's own committed .pre-commit-config.yaml never runs gitleaks."""
+        assert "gitleaks" not in _normalize(rendered_portable["runner"])["hooks"]
+
+    def test_gitleaks_absent_from_scaffold_render(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """The scaffolded consumer config does not ship gitleaks."""
+        assert "gitleaks" not in _normalize(rendered_portable["scaffold"])["hooks"]
+
+    def test_gitleaks_disabled_by_default_on_consumer_surface(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """A consumer that does not opt in gets no gitleaks hook."""
+        assert "gitleaks" not in _normalize(consumer_config)["hooks"]
+
+    def test_gitleaks_rendered_when_enabled(
+        self, gitleaks_enabled_config: dict[str, Any]
+    ) -> None:
+        """Opting in renders gitleaks with the v8.19+ pre-commit invocation."""
+        hooks = _normalize(gitleaks_enabled_config)["hooks"]
+        assert "gitleaks" in hooks, "gitleaks.enable = true did not render the hook"
+        entry = hooks["gitleaks"]["entry"]
+        assert "gitleaks git --pre-commit --staged --redact --verbose" in entry
+        assert hooks["gitleaks"]["language"] == "system"
+        assert hooks["gitleaks"]["pass_filenames"] is False
+
+
+@pytest.fixture(scope="module")
 def default_shellhook() -> str:
     """The shellHook of the flake's own default dev-shell (``hooks = null``)."""
     result = _run_nix(["eval", "--raw", ".#devShells.x86_64-linux.default.shellHook"])
@@ -401,6 +468,84 @@ class TestConsumerHooksSurface:
         assert "^data/stopping/" in exclude
         # The base excludes stay active alongside the consumer additions.
         assert ".github_data" in exclude
+
+
+class TestNixLintersConsumerSurface:
+    """statix + deadnix live on the flake-generated consumer surface (#1171).
+
+    Nix-oriented consumers (exo-fleet, vigo-nixos) need the statix/deadnix
+    lint pair; today they exist only as devkit-internal ``nix flake check``
+    gates. ``nix/hooks.nix`` defines them as consumer-only ``language: system``
+    hooks: they render into ``mkProjectShell``'s generated config but are NOT
+    injected into either committed hand-managed YAML (``scaffold = false`` —
+    existing container-mode consumers must see zero change).
+    """
+
+    def test_statix_is_on_the_consumer_surface(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        hooks = _normalize(consumer_config)["hooks"]
+        assert "statix" in hooks, "statix missing from generated consumer config"
+        assert "/bin/statix" in hooks["statix"]["entry"]
+        # statix accepts exactly ONE target, so filenames must not be appended.
+        assert hooks["statix"].get("pass_filenames") is False
+
+    def test_deadnix_is_on_the_consumer_surface(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        hooks = _normalize(consumer_config)["hooks"]
+        assert "deadnix" in hooks, "deadnix missing from generated consumer config"
+        entry = hooks["deadnix"]["entry"]
+        assert "/bin/deadnix" in entry
+        assert "--fail" in entry, "deadnix must fail the hook on findings"
+
+    def test_nix_linters_stay_out_of_the_committed_yaml(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """Neither committed YAML gains the pair (scaffold = false, #1171).
+
+        The hand-managed runner/scaffold configs are what existing
+        container-mode consumers re-scaffold from; injecting statix/deadnix
+        there would surprise every one of them on the next upgrade.
+        """
+        for profile in ("runner", "scaffold"):
+            hooks = _normalize(rendered_portable[profile])["hooks"]
+            assert "statix" not in hooks, f"statix leaked into the {profile} YAML"
+            assert "deadnix" not in hooks, f"deadnix leaked into the {profile} YAML"
+
+    def test_template_flake_passes_both_linters_as_configured(
+        self, consumer_config: dict[str, Any], tmp_path: Path
+    ) -> None:
+        """The scaffolded consumer flake.nix passes both hooks out of the box.
+
+        deadnix flags intentionally-unused lambda args — the template's
+        ``{ self, … }`` output pattern and the ``extraPackages = pkgs: [ ]``
+        seed — so the hook entries must carry the flags that keep a FRESH
+        scaffold green. Run the exact rendered entries against a copy of the
+        template (statix's single-target ``check .`` from the copy's root,
+        mirroring a fresh consumer repo).
+        """
+        template = REPO_ROOT / "assets" / "workspace" / "flake.nix"
+        (tmp_path / "flake.nix").write_text(template.read_text())
+        hooks = _normalize(consumer_config)["hooks"]
+
+        deadnix_cmd = shlex.split(hooks["deadnix"]["entry"]) + ["flake.nix"]
+        result = subprocess.run(
+            deadnix_cmd, capture_output=True, text=True, cwd=tmp_path
+        )
+        assert result.returncode == 0, (
+            "deadnix (as configured) rejects the scaffolded flake.nix:\n"
+            f"{result.stdout}{result.stderr}"
+        )
+
+        statix_cmd = shlex.split(hooks["statix"]["entry"])
+        result = subprocess.run(
+            statix_cmd, capture_output=True, text=True, cwd=tmp_path
+        )
+        assert result.returncode == 0, (
+            "statix (as configured) rejects the scaffolded flake.nix:\n"
+            f"{result.stdout}{result.stderr}"
+        )
 
 
 class TestZeroHooksParity:

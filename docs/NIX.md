@@ -392,6 +392,31 @@ These are decided inline in `flake.nix`; summarized here.
      overwritten (#878) and the planned `.vig-os` manifest opt-out flag
      (#885).
 
+### Opt-in `gitleaks` secret scanning (#1172)
+
+`gitleaks` ships in the toolchain (`nix/devtools.nix` → dev-shell, image, and
+`vigos.packages`) and is defined as a `language: system` hook, but it is
+**default-disabled** and lives only on the consumer generation surface — it is
+absent from devkit's own committed `.pre-commit-config.yaml`, the scaffold copy,
+and the sandbox `checks.pre-commit` gate, so no devkit lane runs it. A
+secret-bearing consumer opts in from its project flake:
+
+```nix
+devShells.default = vigos.lib.mkProjectShell {
+  inherit pkgs;
+  hooks = { gitleaks.enable = true; };
+};
+```
+
+The hook runs `gitleaks git --pre-commit --staged --redact --verbose` (the
+v8.19+ invocation) resolved from the pinned nixpkgs binary — no upstream
+pre-commit repo clone, and it works offline. A repo-root `.gitleaks.toml` is
+picked up by gitleaks automatically; no extra plumbing is needed to tune
+allowlists. It is off by default deliberately: false-positive tuning is
+repo-specific, and a red first `just precommit` on every existing consumer would
+be a poor upgrade experience — so devkit ships no `.gitleaks.toml` and never
+enables it for itself.
+
   Hooks that cannot run in the sandbox stay **runner-only** in the committed
   render and carry no gate profile in `nix/hooks.nix`: the generators
   `generate-docs`/`sync-manifest`, `pip-licenses` (reads `uv.lock`),

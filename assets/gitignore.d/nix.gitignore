@@ -1,0 +1,7 @@
+# ── Nix ───────────────────────────────────────────────────────────────────────
+# Appended to the language-neutral base by init-workspace.sh when *.nix files
+# beyond the scaffold-managed ./flake.nix mark the repo as Nix (#1171).
+
+# nix build output symlinks
+result
+result-*

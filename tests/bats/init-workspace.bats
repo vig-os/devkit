@@ -2076,6 +2076,26 @@ _upgrade_no_flags() {
     assert_success
 }
 
+@test "template .vig-os ships the CI runner key empty (#1173)" {
+    run grep -x 'DEVKIT_CI_RUNNER=' "$TEMPLATE_DIR/.vig-os"
+    assert_success
+}
+
+@test "upgrade preserves a persisted DEVKIT_CI_RUNNER value (#1173)" {
+    # .vig-os is a managed file, so a self-hosted consumer's DEVKIT_CI_RUNNER
+    # must be read before the template overwrite and written back — else an
+    # upgrade silently resets ci.yml's jobs onto the hosted default runner.
+    ws="$BATS_TEST_TMPDIR/e2e-1173-cirunner"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_CI_RUNNER=.*/DEVKIT_CI_RUNNER=self-hosted,linux,x64,meatgrinder/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -x 'DEVKIT_CI_RUNNER=self-hosted,linux,x64,meatgrinder' "$ws/.vig-os"
+    assert_success
+}
+
 # ── legacy mode inference (#885) ──────────────────────────────────────────────
 # Consumers scaffolded before the manifest carry a version-only .vig-os (or
 # none): an upgrade without --mode must infer the delivery mode from the tree
@@ -2996,6 +3016,56 @@ _RELEASE_RESOLVERS_991=(
     assert_output --partial "'.github/workflows/**'"
     refute_output --partial "'**.py'"
     refute_output --partial "'**.ts'"
+}
+
+# ── nix consumer detection + gitignore fragment (#1171) ───────────────────────
+# A repo is nix-oriented when it carries *.nix files BEYOND the scaffold-managed
+# ./flake.nix (which every direnv scaffold ships — so flake.nix alone cannot be
+# the marker without false-positiving on every direnv consumer at re-scaffold
+# time). The beyond-flake.nix rule is deterministic and re-scaffold-safe. A
+# detected nix repo appends the nix.gitignore fragment (result/result-* build
+# symlinks). nix is NOT a CodeQL language, so the matrix is unchanged (same
+# treatment as rust: the language leg is omitted).
+
+@test "scaffold .gitignore for a nix consumer ignores result symlinks (#1171)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1171-nix-gi"
+    mkdir -p "$ws/nix"
+    # A *.nix file beyond the managed root flake.nix marks the repo as nix.
+    printf '{ }\n' >"$ws/nix/module.nix"
+    run _scaffold both "$ws"
+    assert_success
+    run cat "$ws/.gitignore"
+    assert_success
+    assert_line 'result'
+    assert_line 'result-*'
+}
+
+@test "scaffold .gitignore for a flake.nix-only consumer is not nix (#1171)" {
+    # Re-scaffold trap: every direnv consumer ships ./flake.nix. flake.nix alone
+    # must NOT trigger nix detection, or re-scaffold would false-positive on all
+    # of them. Pre-place ONLY the root flake.nix (no other *.nix).
+    ws="$BATS_TEST_TMPDIR/e2e-1171-flake-only"
+    mkdir -p "$ws"
+    printf '{ outputs = _: { }; }\n' >"$ws/flake.nix"
+    run _scaffold both "$ws"
+    assert_success
+    run cat "$ws/.gitignore"
+    assert_success
+    refute_line 'result'
+    refute_line 'result-*'
+}
+
+@test "scaffold codeql matrix for a nix consumer omits the language leg, keeps actions (#1171)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1171-nix-cq"
+    mkdir -p "$ws/nix"
+    printf '{ }\n' >"$ws/nix/module.nix"
+    run _scaffold both "$ws"
+    assert_success
+    run grep -E '^[[:space:]]*language:' "$ws/.github/workflows/codeql.yml"
+    assert_success
+    assert_output --partial "'actions'"
+    refute_output --partial "'nix'"
+    refute_output --partial "'python'"
 }
 
 # ── first-scaffold npm justfile.project recipes for Node consumers (#1027) ─────

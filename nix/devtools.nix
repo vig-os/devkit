@@ -58,9 +58,10 @@ with pkgs;
   # manylinux-wheel env (whose native pyjson5 cannot load on a bare host
   # runner), retiring the one hook-SSoT residual. Refs #1170, #883.
   (import ./pymarkdown.nix pkgs)
-  deadnix # dead-Nix-code linter (flake `checks.deadnix`)
-  statix # nix anti-pattern linter (flake `checks.statix`)
+  deadnix # dead-Nix-code linter (flake `checks.deadnix`, consumer hook #1171)
+  statix # nix anti-pattern linter (flake `checks.statix`, consumer hook #1171)
   actionlint # GitHub Actions workflow linter (pre-commit hook, #995)
+  gitleaks # secret scanner (opt-in `language: system` pre-commit hook, #1172)
 
   # Container runtime
   podman
