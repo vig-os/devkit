@@ -118,6 +118,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Audit and baseline the managed GitHub Actions workflows (zizmor)** ([#1182](https://github.com/vig-os/devkit/issues/1182))
+  - `zizmor` over the 14 devkit-managed workflows previously surfaced 73 findings
+    (40 high / 32 medium) that every consumer had to baseline against code it does
+    not own. Devkit now audits its own output: 8 findings fixed upstream and the
+    intentional remainder shipped as a devkit-owned baseline so consumer baselines
+    shrink to zero.
+  - **Fixed (8):** `persist-credentials: false` on the read-only checkouts that
+    never push or fetch (CI lint/test/resolve-toolchain/dependency-review,
+    `codeql.yml`, and the `renovate-changelog-build`/`sync-issues` toolchain
+    checkouts) — 7 `artipacked` findings; and the `sync-main-to-dev` cleanup step's
+    release-app token moved into `env:` — 1 `template-injection` finding. All
+    behavior-preserving.
+  - **Baseline shipped:** a maintained `zizmor.yml` (scaffolded/managed, registered
+    in `scripts/manifest.toml`) suppresses the 65 residual findings that cannot be
+    fixed without changing release/CI behavior (`unpinned-images` for the
+    runtime-resolved toolchain image, broadly-scoped `github-app` release tokens,
+    `secrets: inherit` release fan-out, the renovate-changelog `dangerous-triggers`,
+    and credential-persisting push checkouts). Every exemption is scoped to a
+    managed-workflow basename, so a consumer-authored workflow never inherits one.
+  - **Gate added:** devkit CI (`ci.yml` `project-checks`) lints the managed set
+    against the shipped baseline, so a regression or a new audit fails devkit CI
+    instead of reaching consumers. Policy documented in `docs/WORKFLOW_SECURITY.md`.
+
 ## [1.3.1](https://github.com/vig-os/devkit/releases/tag/1.3.1) - 2026-07-17
 
 ### Added
