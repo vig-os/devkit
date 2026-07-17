@@ -3436,3 +3436,27 @@ _RELEASE_RESOLVERS_991=(
     assert_success
     assert_line '  ✓  .pre-commit-config.yaml'
 }
+
+# ── scaffold chmod scope for consumer .sh files (#1195) ───────────────────────
+# The post-copy "restore executable permissions" sweep must set +x only on the
+# scaffold-delivered script set (the template's .sh files), never on a
+# consumer's own sourced-only .sh libraries. A blanket `find … -name '*.sh'`
+# re-dirtied preserved consumer libs (mode 644 → 755) on every --force
+# re-scaffold — observed in the field on exo-fleet (#1195).
+
+@test "scaffold chmod +x skips a consumer's pre-existing sourced .sh lib (#1195)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1195-chmod-scope"
+    mkdir -p "$ws/lib"
+    # Consumer-owned, sourced-only library: not a template path, intentionally
+    # non-executable (644). The scaffold must leave its mode untouched.
+    printf '#!/usr/bin/env bash\n# sourced, never executed\n' >"$ws/lib/consumer-lib.sh"
+    chmod 644 "$ws/lib/consumer-lib.sh"
+    run _scaffold both "$ws"
+    assert_success
+    # (a) the consumer's sourced lib keeps its non-executable mode
+    run test -x "$ws/lib/consumer-lib.sh"
+    assert_failure
+    # (b) a template-delivered script IS made executable
+    run test -x "$ws/.devcontainer/scripts/post-create.sh"
+    assert_success
+}
