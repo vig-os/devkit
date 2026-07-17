@@ -504,8 +504,10 @@ validate:
 
 Scoping the variable to the one command keeps the Nix `libstdc++` out of every
 other tool's process; when neither `$VIGOS_STDCPP_LIB` nor `cc` resolves the
-library the prefix degrades to the caller's own `LD_LIBRARY_PATH` (or empty) — a
-no-op. Only reach for it on a repo that runs `uvx`/`uv tool` tools with compiled
+library the command runs with the environment untouched — the recipe never
+composes an empty prefix, because an empty `LD_LIBRARY_PATH` entry (a leading
+colon or a bare `""`) means "current working directory" to the dynamic loader.
+Only reach for it on a repo that runs `uvx`/`uv tool` tools with compiled
 extensions under the Nix CPython; pure-Python tools need nothing.
 
 ## Cachix and the `direnv allow` onboarding flow
