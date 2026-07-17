@@ -150,6 +150,39 @@ every delivery mode. A private consumer can skip it — the gate is neutral ther
 and starts working automatically if the repo is later flipped public
 ([#1166](https://github.com/vig-os/devkit/issues/1166)).
 
+### Run CI on self-hosted runners
+
+`ci.yml` defaults to GitHub-hosted `ubuntu-24.04` runners. A consumer whose org
+runs its CI on self-hosted runners (e.g. GitHub billing blocks hosted runners
+for heavy jobs) sets the optional `.vig-os` key `DEVKIT_CI_RUNNER` to a
+**comma-separated runner label list** instead of hand-editing the
+scaffold-managed workflow (hand-edits to `runs-on` are clobbered on the next
+upgrade):
+
+```ini
+# .vig-os
+DEVKIT_CI_RUNNER=self-hosted,linux,x64,meatgrinder
+```
+
+`resolve-toolchain` reads the key and emits a `runner-json` output — a JSON array
+of the labels (`["self-hosted","linux","x64","meatgrinder"]`), or
+`["ubuntu-24.04"]` when the key is absent — and the toolchain jobs (`lint`,
+`test`, `commit-checks`) plus the `summary` gate declare
+`runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}`. A single
+label still emits a valid one-element array. The key is persisted across
+re-scaffolds like the other manifest keys, so an upgrade preserves it with no
+flags. Absent => unchanged behavior for every existing consumer
+([#1173](https://github.com/vig-os/devkit/issues/1173)).
+
+**Limitation — two jobs always stay hosted.** `resolve-toolchain` runs on the
+hosted default because it *produces* `runner-json` (a job cannot depend on its
+own output — chicken-and-egg); it is a seconds-long sparse checkout.
+`dependency-review` also stays hosted: it is public-repo-only (skipped on private
+repos), needs no toolchain, and reads GitHub's dependency-graph API. A consumer
+whose org **cannot run any hosted job at all** therefore still needs those two
+lanes handled separately (e.g. a repo-specific static render); this v1 keeps the
+managed workflow minimal and does not cover that case.
+
 ## The `.vig-os` project manifest
 
 Since [#885](https://github.com/vig-os/devkit/issues/885), `.vig-os` is
@@ -165,6 +198,7 @@ unknown keys:
 | `DEVKIT_ORG` | Persisted organization name (`ORG_NAME`) |
 | `DEVKIT_REPO` | Persisted GitHub `owner/repo` (Renovate preset) |
 | `DEVKIT_MODULES` | Reserved: space-separated capability modules mirroring `mkProjectShell`'s `modules = [ … ]` ([#884](https://github.com/vig-os/devkit/issues/884)) |
+| `DEVKIT_CI_RUNNER` | Comma-separated runner label list for the scaffolded `ci.yml` toolchain jobs; empty (default) => the hosted `ubuntu-24.04` runner ([#1173](https://github.com/vig-os/devkit/issues/1173)) |
 
 How it behaves:
 
