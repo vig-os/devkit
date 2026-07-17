@@ -132,6 +132,21 @@ Extension contract inputs include both `release_kind` and `publish_version`, so 
 
 `release.yml` requires extension success before publish, so extension failures block release publication.
 
+### Permission ceiling
+
+A called reusable workflow can only **downgrade** the caller's `GITHUB_TOKEN` — it can never elevate it (issue [#1144](https://github.com/vig-os/devkit/issues/1144)). So the *maximum* token scope this seam can reach is set by the `extension` caller job in the managed `release.yml`, which grants:
+
+| Scope | Level | For |
+| --- | --- | --- |
+| `contents` | `read` | check out the finalized commit |
+| `packages` | `write` | container / package publishing (e.g. GHCR) |
+| `id-token` | `write` | keyless cosign signing + provenance via OIDC |
+| `attestations` | `write` | build provenance attestations (`actions/attest-build-provenance`) |
+
+This is a **ceiling, not a grant**. The shipped default no-op declares `permissions: contents: read` and stays read-only. To publish, sign, or attest, declare the scopes your step needs **on your own job** (up to the ceiling) — e.g. a job that runs `actions/attest-build-provenance` sets `permissions: { id-token: write, attestations: write }`. Deny-by-default is preserved: no job gets a write token it did not ask for.
+
+If an extension needs a scope **beyond** this ceiling (for example `contents: write` to push to a branch, which the read-only seam intentionally forbids), it belongs in a consumer-owned tag-push or post-release workflow that owns its own token grant — e.g. a workflow on `push: tags: 'v*.*.*'` with its own `permissions:` block — not in this seam.
+
 ## Prepare-Release Extension Hook
 
 Project-specific **release-branch preparation** belongs in `.github/workflows/prepare-release-extension.yml` — the *mutating* counterpart to the read-only `release-extension.yml`. Default template behavior is no-op.

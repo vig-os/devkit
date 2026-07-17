@@ -677,9 +677,20 @@ jobs:
                 -f sha="$TARGET_SHA" -F force=true >/dev/null
               echo "Moved floating tag ${name} -> ${TARGET_SHA}"
             else
-              retry --retries 3 --backoff 5 --max-backoff 30 -- \
-                gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
-                -f ref="refs/tags/${name}" -f sha="$TARGET_SHA" >/dev/null
+              # First time this floating level is published: promote must
+              # CREATE the ref (POST /git/refs), not move it. The Tag ruleset
+              # denies creation to everyone but the Release App, so if the app
+              # is not an effective bypass actor for the ruleset's `creation`
+              # rule the call is refused — surfaced as the opaque "Reference
+              # does not exist" / HTTP 422 (#1157). Publish + merge already
+              # succeeded, so fail loud with actionable remediation rather than
+              # leaving the advertised `@${name}` pin silently missing.
+              if ! retry --retries 3 --backoff 5 --max-backoff 30 -- \
+                  gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+                  -f ref="refs/tags/${name}" -f sha="$TARGET_SHA" >/dev/null; then
+                echo "::error title=Floating tag ${name} not created::Could not create floating tag '${name}' at ${TARGET_SHA} (first release of this floating level). The repo Tag ruleset restricts tag creation; if the Release App is not a bypass actor for the ruleset's 'creation' rule the POST /git/refs is denied as 'Reference does not exist' (HTTP 422). The GitHub Release is published and the release PR merged — only this floating tag is missing, which silently breaks the advertised 'uses: ...@${name}' pin. Remediate once by hand (temporarily bypass the ruleset, create refs/tags/${name} -> ${TARGET_SHA}, then revert), or grant the Release App a 'creation' bypass so future levels move automatically. See https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md#first-release-floating-tags."
+                return 1
+              fi
               echo "Created floating tag ${name} -> ${TARGET_SHA}"
             fi
           }

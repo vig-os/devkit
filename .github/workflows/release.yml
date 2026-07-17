@@ -589,7 +589,7 @@ jobs:
 
       - name: Commit finalization changes via API
         if: needs.validate.outputs.release_kind == 'final'
-        uses: vig-os/commit-action@96ba909f2151cef35550b032cff210de671c9c9e  # v0.3.0
+        uses: vig-os/commit-action@3a0588ec060d9647bf406e064cf9e6192a431864  # v0.3.1
         env:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -1221,7 +1221,7 @@ jobs:
       - name: Attest SBOM (attempt 1)
         id: attest_sbom
         continue-on-error: true
-        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763  # v4.1.1
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6  # v4.2.0
         with:
           subject-name: ghcr.io/vig-os/devcontainer
           subject-digest: ${{ steps.digest.outputs.digest }}
@@ -1234,7 +1234,7 @@ jobs:
 
       - name: Attest SBOM (retry)
         if: steps.attest_sbom.outcome == 'failure'
-        uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763  # v4.1.1
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6  # v4.2.0
         with:
           subject-name: ghcr.io/vig-os/devcontainer
           subject-digest: ${{ steps.digest.outputs.digest }}

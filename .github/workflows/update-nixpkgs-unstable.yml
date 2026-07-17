@@ -80,7 +80,7 @@ jobs:
       # pushes. Same mechanism as renovate-changelog-commit.yml.
       - name: Commit the lock bump via API
         if: steps.detect.outputs.changed == 'true'
-        uses: vig-os/commit-action@96ba909f2151cef35550b032cff210de671c9c9e  # v0.3.0
+        uses: vig-os/commit-action@3a0588ec060d9647bf406e064cf9e6192a431864  # v0.3.1
         env:
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}

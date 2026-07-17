@@ -1,6 +1,15 @@
 # Seeded by vigOS devkit — yours to edit; upgrades never overwrite this file.
 # Bugs / missing tools: https://github.com/vig-os/devkit/issues
 
+#
+# Token ceiling (#1144): release.yml's `extension` caller job grants this seam a
+# ceiling of contents:read, packages:write, id-token:write, attestations:write —
+# the maximum a job here can reach (a called workflow can only downgrade the
+# caller's GITHUB_TOKEN, never elevate it). This default no-op stays read-only;
+# to publish/sign/attest, declare the scopes you need on YOUR job (up to that
+# ceiling), e.g. `permissions: { id-token: write, attestations: write }`. See
+# "Extension Hook" in docs/DOWNSTREAM_RELEASE.md.
+
 name: Release Extension
 
 on:  # yamllint disable-line rule:truthy

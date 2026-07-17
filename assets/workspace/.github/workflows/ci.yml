@@ -207,11 +207,23 @@ jobs:
           set -euo pipefail
           BASE_SHA="$(git merge-base "origin/${BASE_REF}" "${HEAD_SHA}")"
           echo "Validating ${BASE_SHA}..${HEAD_SHA} (base: ${BASE_REF})"
+          # A release PR (release/* -> main) spans pre-migration history that
+          # predates the commit gate. Those commits were gated (or
+          # grandfathered) on their way into the trunk branch, so exclude
+          # anything already reachable from origin/dev — a no-op on a dev PR
+          # (its base IS dev) that only tightens the release-PR range (#1149).
+          EXCLUDE=()
+          TRUNK="dev"
+          if [ "${BASE_REF}" != "${TRUNK}" ] && \
+             git fetch --no-tags --quiet origin "${TRUNK}" 2>/dev/null; then
+            EXCLUDE+=(--exclude-reachable "origin/${TRUNK}")
+          fi
           uv run validate-commit-range \
             --base "${BASE_SHA}" \
             --head "${HEAD_SHA}" \
             --title "${PR_TITLE}" \
-            --blocked-patterns .github/agent-blocklist.toml
+            --blocked-patterns .github/agent-blocklist.toml \
+            ${EXCLUDE[@]+"${EXCLUDE[@]}"}
 
       # The PR title and body are attacker-controlled text visible in the UI and
       # notifications even though the body never enters git history, so they reach

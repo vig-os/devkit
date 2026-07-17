@@ -2656,16 +2656,23 @@ _RELEASE_RESOLVERS_991=(
 @test "release-core builds+commits an opt-in bundle when a bundle recipe exists (#1029)" {
     # A repo that ships a committed build artifact (e.g. a JS action's ncc
     # dist/) defines a `bundle` just recipe; the release finalize flow detects
-    # it via `just --summary`, runs `just bundle`, and commits dist/ as part of
-    # the finalization commit. Language-neutral: no bundle recipe -> no-op.
+    # it via `just --summary`, runs `just bundle`, and commits the bundle as
+    # part of the finalization commit. Language-neutral: no bundle recipe -> no-op.
     f="$TEMPLATE_DIR/.github/workflows/release-core.yml"
     run grep -q 'just --summary' "$f"
     assert_success
     run grep -q 'just bundle' "$f"
     assert_success
-    # dist/ joins CHANGELOG.md in the finalization commit's FILE_PATHS.
-    run grep -q 'CHANGELOG.md,dist' "$f"
+    # Only the non-ignored dist/ files join CHANGELOG.md in the finalization
+    # commit's FILE_PATHS -- the whole `dist` dir would force-add the gitignored
+    # tsc/ncc emit via commit-action (#1159). The build step computes the set
+    # with git-add/.gitignore semantics and exposes it as a step output.
+    run grep -q 'git ls-files -co --exclude-standard -- dist' "$f"
     assert_success
+    run grep -q 'steps.artifact.outputs.dist_paths' "$f"
+    assert_success
+    run grep -q 'CHANGELOG.md,dist' "$f"
+    assert_failure
 }
 
 @test "resolve-image action is removed from every rendered mode tree (#991)" {
@@ -2854,6 +2861,70 @@ _RELEASE_RESOLVERS_991=(
     run cat "$ws/.github/workflows/codeql.yml"
     assert_success
     assert_output --partial "default code-scanning setup"
+}
+
+# ── language-aware codeql push paths filter (#1142) ───────────────────────────
+# The push-to-main trigger's `paths:` filter was hardcoded to '**.py' alongside
+# the '.github/workflows/**' catch-all, so on a Node consumer a push touching
+# only TS/JS never triggered the post-merge CodeQL scan (only the unfiltered PR
+# trigger caught it). init-workspace.sh now renders the push `paths:` from the
+# SAME language detection as the matrix (#1025): python → '**.py'; node →
+# '**.ts'/'**.js'/'**.mjs'/'**.cjs'; rust omits its source globs; the
+# '.github/workflows/**' catch-all is always kept. Because codeql.yml is a
+# managed file, this stops consumer hand-fixes being reverted on upgrade.
+
+@test "scaffold codeql push paths for a Node consumer are TS/JS globs + workflows (#1142)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1142-node-paths"
+    mkdir -p "$ws"
+    printf '{ "name": "probe" }\n' >"$ws/package.json"
+    run _scaffold both "$ws"
+    assert_success
+    run cat "$ws/.github/workflows/codeql.yml"
+    assert_success
+    assert_output --partial "'**.ts'"
+    assert_output --partial "'**.js'"
+    assert_output --partial "'**.mjs'"
+    assert_output --partial "'**.cjs'"
+    assert_output --partial "'.github/workflows/**'"
+    refute_output --partial "'**.py'"
+}
+
+@test "scaffold codeql push paths for a Python consumer are '**.py' + workflows (#1142)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1142-py-paths"
+    mkdir -p "$ws"
+    printf '[project]\nname = "probe"\n' >"$ws/pyproject.toml"
+    run _scaffold both "$ws"
+    assert_success
+    run cat "$ws/.github/workflows/codeql.yml"
+    assert_success
+    assert_output --partial "'**.py'"
+    assert_output --partial "'.github/workflows/**'"
+    refute_output --partial "'**.ts'"
+}
+
+@test "scaffold codeql push paths for a Rust consumer are workflows-only (#1142)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1142-rust-paths"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    run _scaffold both "$ws"
+    assert_success
+    run cat "$ws/.github/workflows/codeql.yml"
+    assert_success
+    assert_output --partial "'.github/workflows/**'"
+    refute_output --partial "'**.py'"
+    refute_output --partial "'**.ts'"
+}
+
+@test "scaffold codeql push paths for a marker-less consumer are workflows-only (#1142)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1142-bare-paths"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run cat "$ws/.github/workflows/codeql.yml"
+    assert_success
+    assert_output --partial "'.github/workflows/**'"
+    refute_output --partial "'**.py'"
+    refute_output --partial "'**.ts'"
 }
 
 # ── first-scaffold npm justfile.project recipes for Node consumers (#1027) ─────
@@ -3124,6 +3195,56 @@ _RELEASE_RESOLVERS_991=(
     # it is already provided by the regenerated root .gitignore.
     run grep -qxF 'justfile.local' "$ws/.gitignore.project"
     assert_failure
+}
+
+# ── never migrate scaffold-committed or template gitignore lines (#1145) ──────
+# Field report: the sync-issues-action 1.3.0 deploy (vig-os/sync-issues-action
+# #106 / PR #108) showed migrate_root_gitignore copying (1) `.envrc` — a
+# scaffold-COMMITTED file (#640) — into .gitignore.project, silently keeping the
+# scaffolded .envrc untracked on every clone, and (2) ~90 lines of stale Python
+# template junk into a Node repo's consumer-owned file, because the managed set
+# only included the DETECTED languages' fragments.
+
+@test "scaffold-committed .envrc is never migrated into .gitignore.project (#1145)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1145-envrc"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    # The old Python-template root .gitignore shipped an `.envrc` entry; in
+    # direnv mode .envrc is a scaffold-committed file, so migrating the entry
+    # would shadow it and break nix-direnv onboarding on every clone.
+    printf '.envrc\nconsumer-only-dir/\n' >>"$ws/.gitignore"
+    run _upgrade both "$ws"
+    assert_success
+    # The scaffold-committed file's entry is NOT migrated ...
+    run grep -qxF '.envrc' "$ws/.gitignore.project"
+    assert_failure
+    # ... while the genuine consumer line IS.
+    run grep -qxF 'consumer-only-dir/' "$ws/.gitignore.project"
+    assert_success
+    # And the scaffolded .envrc is not git-ignored after the upgrade.
+    git init -q "$ws"
+    run git -C "$ws" check-ignore .envrc
+    assert_failure
+}
+
+@test "stale lines from a NON-detected language fragment are never migrated (#1145)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1145-crosslang"
+    mkdir -p "$ws"
+    # Node-only marker: python is NOT among the detected languages.
+    printf '{ "name": "probe" }\n' >"$ws/package.json"
+    run _scaffold both "$ws"
+    assert_success
+    # The repo once used the Python-flavored managed template; its old root
+    # .gitignore still carries Python fragment lines. Those are devkit template
+    # material, not consumer-authored — they must not be migrated.
+    printf '__pycache__/\nconsumer-only-dir/\n' >>"$ws/.gitignore"
+    run _upgrade both "$ws"
+    assert_success
+    run grep -qxF '__pycache__/' "$ws/.gitignore.project"
+    assert_failure
+    run grep -qxF 'consumer-only-dir/' "$ws/.gitignore.project"
+    assert_success
 }
 
 # ── dangling /nix/store symlink is preserved and seeds the ignore (#1117) ──────

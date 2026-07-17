@@ -69,3 +69,27 @@ def test_floating_tags_job_threads_prefix_and_version() -> None:
     assert "TAG_PREFIX" in env
     assert "FLOATING_TAGS" in env
     assert "VERSION" in env
+
+
+def _move_step_script() -> str:
+    """The bash body of the ``Move floating major/minor tags`` step."""
+    workflow = _load(WORKFLOWS / "promote-release.yml")
+    steps = workflow["jobs"]["floating-tags"]["steps"]
+    move = next(s for s in steps if "floating" in str(s.get("name", "")).lower())
+    return move["run"]
+
+
+def test_create_failure_emits_actionable_error() -> None:
+    """A first-time floating-level create that the ruleset denies must fail loud.
+
+    #1157: the create path (``POST /git/refs`` for a brand-new ``<prefix>X.Y``)
+    is denied ``422`` when the Tag ruleset does not bypass the Release App for
+    the ``creation`` rule. The bare ``gh`` error is undiagnosable, so the step
+    must surface a ``::error::`` annotation and point at the documented one-off
+    remediation instead of a cryptic ``Reference does not exist``.
+    """
+    script = _move_step_script()
+    assert "::error" in script  # a GitHub error annotation, not a bare echo
+    # Names the ruleset root cause and the documented remediation.
+    assert "ruleset" in script.lower()
+    assert "first-release-floating-tags" in script

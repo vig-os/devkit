@@ -223,7 +223,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Commit prepared CHANGELOG to dev via API
-        uses: vig-os/commit-action@96ba909f2151cef35550b032cff210de671c9c9e  # v0.3.0
+        uses: vig-os/commit-action@3a0588ec060d9647bf406e064cf9e6192a431864  # v0.3.1
         env:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -517,7 +517,7 @@ jobs:
 
       - name: Commit CHANGELOG rollback to dev via API
         if: ${{ steps.rollback-prepare.outputs.changelog_rollback_needed == 'true' }}
-        uses: vig-os/commit-action@96ba909f2151cef35550b032cff210de671c9c9e  # v0.3.0
+        uses: vig-os/commit-action@3a0588ec060d9647bf406e064cf9e6192a431864  # v0.3.1
         env:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}

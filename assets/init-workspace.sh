@@ -702,8 +702,9 @@ render_gitignore() {
 # cruft, project paths) are silently dropped when render_gitignore regenerates
 # root .gitignore from the template. Recover them: any non-blank, non-comment
 # line in the pre-overwrite root .gitignore (OLD_GITIGNORE_SNAPSHOT) that is NOT
-# a managed entry (template base + active language fragments + the #1092 seed)
-# and NOT already in .gitignore.project is appended to .gitignore.project, whence
+# a managed entry (template base + ALL language fragments + the #1092 seed), NOT
+# a scaffold-committed file, and NOT already in .gitignore.project is appended
+# to .gitignore.project, whence
 # render_gitignore (called AFTER this) folds it back into the regenerated root
 # .gitignore — no separate write to the root file. Append-only and deduplicated
 # against the existing .gitignore.project, so a second upgrade re-adds nothing
@@ -711,12 +712,26 @@ render_gitignore() {
 # consumer's existing entries are never reordered or rewritten. Only entries
 # (non-blank, non-comment lines) migrate; a consumer's free-text comments are not
 # semantically ignorable, so they are left behind with the old managed file.
+#
+# Two never-migrate rules (#1145, field report vig-os/sync-issues-action#106):
+#  1. Scaffold-COMMITTED files (.envrc & co.) never migrate: an old template's
+#     ignore entry for one (the pre-#640 Python template shipped `.envrc`)
+#     would shadow the file the scaffold itself commits — e.g. keep the
+#     committed .envrc untracked and silently break direnv onboarding on every
+#     clone. These are literal file names, not glob patterns, so a plain
+#     literal match on the line is enough — no variant handling.
+#  2. The managed set is built from ALL gitignore.d fragments, not just the
+#     detected languages': the OLD root .gitignore was a devkit-managed
+#     template for whatever language set applied back then, so any line found
+#     in ANY devkit fragment is template material, not consumer-authored — a
+#     repo that switched language templates must not inherit the stale
+#     fragment's lines as "consumer" entries.
 migrate_root_gitignore() {
     local proj="$WORKSPACE_DIR/.gitignore.project"
     [[ -f "$proj" ]] || return 0
     [[ -n "$OLD_GITIGNORE_SNAPSHOT" ]] || return 0
 
-    local line lang frag
+    local line frag
     # Managed entries the regenerated root .gitignore already provides — never
     # migrate one of these (idempotent even for a line the template later drops).
     local -A managed=()
@@ -724,8 +739,10 @@ migrate_root_gitignore() {
         [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]] && continue
         managed["$line"]=1
     done < "$TEMPLATE_DIR/.gitignore"
-    for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
-        frag="$SCRIPT_DIR/gitignore.d/$lang.gitignore"
+    # ALL fragments, not just the detected languages' (#1145 rule 2): the old
+    # root .gitignore may be a stale template of a language this repo no longer
+    # markers for — its fragment lines are template material, never consumer's.
+    for frag in "$SCRIPT_DIR"/gitignore.d/*.gitignore; do
         [[ -f "$frag" ]] || continue
         while IFS= read -r line; do
             [[ "$line" =~ ^[[:space:]]*$ || "$line" =~ ^[[:space:]]*# ]] && continue
@@ -734,6 +751,16 @@ migrate_root_gitignore() {
     done
     # The #1092 flake-hooks seed is a managed entry too.
     managed[".pre-commit-config.yaml"]=1
+    # Never-migrate denylist (#1145 rule 1): files the scaffold itself COMMITS.
+    # Migrating an old template's ignore entry for one of these would shadow the
+    # committed file (e.g. `.envrc` from the pre-#640 Python template keeps the
+    # scaffolded .envrc untracked and breaks direnv onboarding). Literal file
+    # names, so a plain literal line match suffices.
+    local entry
+    for entry in .envrc .gitignore.project flake.nix flake.lock \
+        justfile justfile.project .vig-os; do
+        managed["$entry"]=1
+    done
 
     # Entries already committed in .gitignore.project must not be re-added — this
     # is what makes a second upgrade a no-op.
@@ -771,25 +798,54 @@ migrate_root_gitignore() {
 # ships no first-class Rust analyzer). 'actions' is always analyzed, so the
 # matrix is never empty (a marker-less repo analyzes just actions). No-op when
 # the workflow is absent (e.g. it was never scaffolded or was pruned).
+#
+# The push-to-main trigger's `paths:` filter is rendered from the SAME detection
+# (#1142): a python source push must match '**.py', a node one '**.ts'/'**.js'/
+# '**.mjs'/'**.cjs'; rust has no CodeQL source leg so it adds no source globs.
+# The '.github/workflows/**' catch-all is always kept (the 'actions' leg always
+# runs). Left hardcoded to '**.py', a Node consumer's post-merge scan never fired
+# for TS/JS changes — and being a managed file, hand-fixes were reverted on every
+# upgrade.
 render_codeql_matrix() {
     local cq="$WORKSPACE_DIR/.github/workflows/codeql.yml"
     [[ -f "$cq" ]] || return 0
     local -a langs=()
+    local -a paths=()
     local lang
     for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
         case "$lang" in
-            python) langs+=("'python'") ;;
-            node) langs+=("'javascript-typescript'") ;;
+            python)
+                langs+=("'python'")
+                paths+=("'**.py'")
+                ;;
+            node)
+                langs+=("'javascript-typescript'")
+                paths+=("'**.ts'" "'**.js'" "'**.mjs'" "'**.cjs'")
+                ;;
             rust) : ;; # CodeQL rust support caveat (#1025): omit the leg
         esac
     done
     langs+=("'actions'")
+    paths+=("'.github/workflows/**'")
     local joined=""
     for lang in "${langs[@]}"; do
         joined="${joined:+$joined, }$lang"
     done
     sed -i -E "s|^([[:space:]]*language:).*|\1 [${joined}]|" "$cq"
     echo "Rendered CodeQL language matrix: [${joined}]"
+
+    # Replace the list items under the push `paths:` key (4-space `paths:`,
+    # 6-space `- ` items) with the rendered set. awk, not sed: the item count
+    # varies per language, so we rewrite the whole block in one pass.
+    local rendered_paths
+    rendered_paths="$(printf '      - %s\n' "${paths[@]}")"
+    awk -v items="$rendered_paths" '
+        /^    paths:$/ { print; print items; inpaths = 1; next }
+        inpaths && /^      - / { next }
+        inpaths { inpaths = 0 }
+        { print }
+    ' "$cq" >"$cq.tmp" && mv "$cq.tmp" "$cq"
+    echo "Rendered CodeQL push paths filter: [${paths[*]}]"
     # Preflight note (#1025): the advanced CodeQL config the scaffold ships
     # cannot coexist with GitHub's *default* code-scanning setup — its uploads
     # are rejected while default setup is enabled. We never flip that API

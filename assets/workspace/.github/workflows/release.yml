@@ -105,6 +105,19 @@ jobs:
     needs: core
     if: ${{ inputs.dry-run != true }}
     uses: ./.github/workflows/release-extension.yml
+    # Token ceiling for the consumer seam (#1144). A called reusable workflow can
+    # only DOWNGRADE the caller's GITHUB_TOKEN, never elevate it, so this caller
+    # job sets the maximum the seam can reach. It is a ceiling, not a grant: the
+    # project-owned release-extension.yml declares its own (lower) permissions per
+    # job — the shipped default no-op stays read-only. A consumer opts a job in by
+    # raising its permissions up to these scopes: packages (container/package
+    # publishing), id-token (keyless cosign signing + provenance via OIDC),
+    # attestations (build provenance attestations).
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
     with:
       version: ${{ needs.core.outputs.version }}
       finalize_sha: ${{ needs.core.outputs.finalize_sha }}

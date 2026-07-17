@@ -464,6 +464,7 @@ jobs:
           fi
 
       - name: Build release artifact
+        id: artifact
         if: ${{ inputs.release_kind == 'final' && steps.bundle.outputs.has_bundle == 'true' }}
         run: |
           set -euo pipefail
@@ -476,10 +477,24 @@ jobs:
           # ships a fresh bundle, not a stale one. Output (dist/) is committed
           # alongside CHANGELOG.md below.
           just bundle
+          # Commit only the shipped bundle, not the whole dir. `just bundle`
+          # also emits gitignored tsc/ncc byproducts (dist/src/**, *.tsbuildinfo);
+          # commit-action walks a directory path on disk and force-adds EVERY
+          # file it finds — it never consults .gitignore — so passing bare `dist`
+          # re-tracks those byproducts on every final release (#1159).
+          # `git ls-files -co --exclude-standard` lists tracked + untracked files
+          # that are NOT gitignored (git-add semantics), so only the real bundle
+          # (dist/index.js, dist/licenses.txt) reaches the finalize commit.
+          DIST_PATHS=$(git ls-files -co --exclude-standard -- dist | paste -sd,)
+          if [[ -z "$DIST_PATHS" ]]; then
+            echo "::error::bundle recipe produced no non-ignored files under dist/" >&2
+            exit 1
+          fi
+          echo "dist_paths=$DIST_PATHS" >> "$GITHUB_OUTPUT"
 
       - name: Commit and push finalization changes via API
         if: ${{ inputs.release_kind == 'final' }}
-        uses: vig-os/commit-action@96ba909f2151cef35550b032cff210de671c9c9e  # v0.3.0
+        uses: vig-os/commit-action@3a0588ec060d9647bf406e064cf9e6192a431864  # v0.3.1
         env:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -491,9 +506,11 @@ jobs:
             Set release date to ${{ needs.validate.outputs.release_date }} in CHANGELOG.md
 
             Refs: #${{ needs.validate.outputs.pr_number }}
-          # dist/ joins the finalization commit only when a bundle was built, so
-          # the tagged commit carries the fresh artifact (#1029).
-          FILE_PATHS: ${{ steps.bundle.outputs.has_bundle == 'true' && 'CHANGELOG.md,dist' || 'CHANGELOG.md' }}
+          # The fresh bundle joins the finalization commit only when one was
+          # built (#1029), and only its non-ignored files — computed by the
+          # build step — not the whole dir, so gitignored tsc/ncc emit stays
+          # untracked (#1159).
+          FILE_PATHS: ${{ steps.bundle.outputs.has_bundle == 'true' && format('CHANGELOG.md,{0}', steps.artifact.outputs.dist_paths) || 'CHANGELOG.md' }}
 
       - name: Trigger sync-issues workflow
         if: ${{ inputs.release_kind == 'final' }}
@@ -502,17 +519,30 @@ jobs:
           VERSION: ${{ needs.validate.outputs.version }}
         run: |
           set -euo pipefail
+          # Pin the dispatch to the release branch's ref. Without --ref, GitHub
+          # resolves the workflow definition on the DEFAULT branch — the
+          # pre-devkit sync-issues.yml until the first devkit release merges — so
+          # the sync must run the release branch's own workflow, not whatever
+          # trunk currently carries (#1150).
           retry --retries 2 --backoff 5 --max-backoff 20 -- \
-            gh workflow run sync-issues.yml -f "target-branch=release/$VERSION"
+            gh workflow run sync-issues.yml \
+              --ref "release/$VERSION" \
+              -f "target-branch=release/$VERSION"
 
       - name: Wait for sync-issues completion
         if: ${{ inputs.release_kind == 'final' }}
         id: wait_sync
         env:
           GH_TOKEN: ${{ steps.auth.outputs.token }}
+          VERSION: ${{ needs.validate.outputs.version }}
         run: |
           set -euo pipefail
-          TIMEOUT=120
+          # 120s was too tight even for the devkit workflow: the first
+          # release-branch run has no cutoff cache and self-heals up to 14 days
+          # of history, which can take minutes. Both polls filter --branch to the
+          # dispatched release-branch run so a concurrent scheduled run is never
+          # mistaken for it (#1150).
+          TIMEOUT=600
           ELAPSED=0
           INTERVAL=10
           RUN_STATUS="unknown"
@@ -522,6 +552,7 @@ jobs:
           while [ $ELAPSED -lt $TIMEOUT ]; do
             RUN_STATUS=$(gh run list \
               --workflow sync-issues.yml \
+              --branch "release/$VERSION" \
               --limit 1 \
               --json status,conclusion \
               --jq '.[0].status' 2>/dev/null || echo "unknown")
@@ -541,6 +572,7 @@ jobs:
 
           RUN_CONCLUSION=$(gh run list \
             --workflow sync-issues.yml \
+            --branch "release/$VERSION" \
             --limit 1 \
             --json conclusion \
             --jq '.[0].conclusion' 2>/dev/null || echo "unknown")
