@@ -320,6 +320,72 @@ def consumer_config() -> dict[str, Any]:
 
 
 @pytest.fixture(scope="module")
+def gitleaks_enabled_config() -> dict[str, Any]:
+    """Generated config for a consumer that opts into the gitleaks hook (#1172)."""
+    expr = f"""
+    let
+      flake = builtins.getFlake "path:{REPO_ROOT}";
+      system = builtins.currentSystem;
+      pkgs = import flake.inputs.nixpkgs {{ inherit system; }};
+      shell = flake.lib.mkProjectShell {{
+        inherit pkgs;
+        hooks = {{
+          gitleaks.enable = true;
+        }};
+      }};
+    in
+    shell.hooksConfigFile
+    """
+    result = _run_nix(
+        ["build", "--impure", "--no-link", "--print-out-paths", "--expr", expr],
+        timeout=1800,
+    )
+    assert result.returncode == 0, (
+        "building the gitleaks-enabled hook config failed:\n" + result.stderr
+    )
+    return yaml.safe_load(Path(result.stdout.strip()).read_text())
+
+
+class TestGitleaksOptInHook:
+    """gitleaks is an opt-in, default-disabled consumer hook (#1172).
+
+    It carries no runner/scaffold render and no sandbox-gate profile (devkit's
+    own lanes never run it — there is no repo-root ``.gitleaks.toml`` tuning),
+    and it stays off the consumer surface until a consumer sets
+    ``gitleaks.enable = true``.
+    """
+
+    def test_gitleaks_absent_from_runner_render(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """devkit's own committed .pre-commit-config.yaml never runs gitleaks."""
+        assert "gitleaks" not in _normalize(rendered_portable["runner"])["hooks"]
+
+    def test_gitleaks_absent_from_scaffold_render(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """The scaffolded consumer config does not ship gitleaks."""
+        assert "gitleaks" not in _normalize(rendered_portable["scaffold"])["hooks"]
+
+    def test_gitleaks_disabled_by_default_on_consumer_surface(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """A consumer that does not opt in gets no gitleaks hook."""
+        assert "gitleaks" not in _normalize(consumer_config)["hooks"]
+
+    def test_gitleaks_rendered_when_enabled(
+        self, gitleaks_enabled_config: dict[str, Any]
+    ) -> None:
+        """Opting in renders gitleaks with the v8.19+ pre-commit invocation."""
+        hooks = _normalize(gitleaks_enabled_config)["hooks"]
+        assert "gitleaks" in hooks, "gitleaks.enable = true did not render the hook"
+        entry = hooks["gitleaks"]["entry"]
+        assert "gitleaks git --pre-commit --staged --redact --verbose" in entry
+        assert hooks["gitleaks"]["language"] == "system"
+        assert hooks["gitleaks"]["pass_filenames"] is False
+
+
+@pytest.fixture(scope="module")
 def default_shellhook() -> str:
     """The shellHook of the flake's own default dev-shell (``hooks = null``)."""
     result = _run_nix(["eval", "--raw", ".#devShells.x86_64-linux.default.shellHook"])
