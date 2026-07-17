@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.3.1] - TBD
+
+### Added
+
 - **Document the first-release manual promote runbook** ([#1151](https://github.com/vig-os/devkit/issues/1151))
   - `promote-release.yml` is dispatched via `workflow_dispatch`, which GitHub
     only registers for workflows present on the **default branch** — and the
@@ -50,10 +64,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     consumer opts a job in by declaring the scopes it needs, up to the ceiling.
     Scopes beyond it (e.g. `contents: write`) still belong in a consumer-owned
     tag-push workflow. Documented in `docs/DOWNSTREAM_RELEASE.md`.
-
-### Deprecated
-
-### Removed
 
 ### Fixed
 
@@ -134,8 +144,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     dumped into its consumer-owned file. The managed set is now built from ALL
     `gitignore.d/` fragments — any line found in any devkit fragment is
     template material, never migrated.
-
-### Security
 
 ## [1.3.0](https://github.com/vig-os/devkit/releases/tag/1.3.0) - 2026-07-15
 
