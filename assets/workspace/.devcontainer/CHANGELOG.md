@@ -151,6 +151,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `stdenv`, `shellHook`, `*Phase`, …). The ambient diff keeps host secrets out
     of `GITHUB_ENV`; a random heredoc delimiter keeps multi-line values intact.
     Local-vs-CI parity is now the default in direnv mode, no consumer change.
+- **`just` no longer leaks a git `fatal:` in a foreign-git worktree cwd** ([#1203](https://github.com/vig-os/devkit/issues/1203))
+  - The `justfile.worktree` `_wt_repo` variable is a top-level backtick that
+    `just` evaluates eagerly on every invocation, so its `git rev-parse
+    --show-toplevel` ran for any recipe (`just sync`, `just lint`, …). In a git
+    worktree whose `.git` file points at a gitdir outside a bind mount (the
+    bare-`podman` scaffold context), git couldn't resolve the repo and printed
+    `fatal: not a git repository: (null)` to stderr on every `just` call. The
+    substitution now falls back to `pwd` (`git rev-parse --show-toplevel
+    2>/dev/null || pwd`), matching the existing `setup-labels.sh` idiom —
+    cosmetic only, the worktree recipes are unaffected.
 
 ### Security
 

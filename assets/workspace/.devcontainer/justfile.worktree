@@ -19,7 +19,10 @@ alias wt-clean := worktree-clean
 # ===============================================================================
 
 # Derive worktree base directory: ../<repo>-worktrees/
-_wt_repo := `basename "$(git rev-parse --show-toplevel)"`
+# `just` evaluates this backtick eagerly on every invocation, so tolerate a cwd
+# where git can't resolve a repo (a worktree whose .git points outside a bind
+# mount, #1203) — fall back to the cwd instead of leaking a `fatal:` to stderr.
+_wt_repo := `basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)"`
 _wt_base := "../" + _wt_repo + "-worktrees"
 
 # -------------------------------------------------------------------------------
