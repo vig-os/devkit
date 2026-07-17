@@ -187,6 +187,24 @@ class TestPortableRenderFidelity:
                 f"scaffold hook {hook_id} diverges from runner"
             )
 
+    def test_pymarkdown_is_a_system_hook(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """pymarkdown resolves from the flake toolchain, not an upstream repo (#1170).
+
+        Packaging ``pymarkdownlnt`` in the flake (nix/pymarkdown.nix) retires the
+        one runner-only remote-repo residual: the committed runner + scaffold
+        render it as a ``language: system`` local hook on PATH, same ``fix`` args
+        and excludes as before, with no pinned ``rev``.
+        """
+        for profile in ("runner", "scaffold"):
+            hook = _normalize(rendered_portable[profile])["hooks"]["pymarkdown"]
+            assert hook["repo"] == "local", profile
+            assert hook.get("language") == "system", profile
+            assert hook.get("entry") == "pymarkdown", profile
+            assert hook.get("args") == ["-c", ".pymarkdown", "fix"], profile
+            assert "rev" not in hook, profile
+
 
 class TestCheckJsonExcludesJsoncBanners:
     """check-json skips the `//`-bannered JSONC scaffold files (#1053).
@@ -433,6 +451,9 @@ class TestConsumerHooksSurface:
             "shellcheck",
             "yamllint",
             "no-commit-to-branch",
+            # pymarkdown joins the consumer generation surface once packaged
+            # in the flake (#1170) — direnv/bare consumers regain markdown lint.
+            "pymarkdown",
         ):
             assert expected in hooks, (
                 f"base hook {expected} missing from generated config"

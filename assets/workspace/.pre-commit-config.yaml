@@ -85,12 +85,17 @@ repos:
         args: ["-x"]
         exclude: (^|/)\.envrc$
 
-  # Markdown Linting (excludes auto-generated docs)
-  - repo: https://github.com/jackdewinter/pymarkdown
-    rev: f93643d339dfee2a1022e7b05e8b5a281bfac553  # v0.9.23
+  # Markdown linting (pymarkdown from the flake toolchain; excludes auto-generated
+  # docs). Packaged in nix/pymarkdown.nix and promoted to a language: system hook
+  # (#1170), so it resolves from PATH like shellcheck/typos instead of its
+  # upstream pre-commit repo (whose native pyjson5 fails on bare host runners).
+  - repo: local
     hooks:
       - id: pymarkdown
         name: pymarkdown
+        entry: pymarkdown
+        language: system
+        types: [markdown]
         args: ["-c", ".pymarkdown", "fix"]
         exclude: ^(README\.md|CONTRIBUTE\.md|TESTING\.md)
 

@@ -344,13 +344,12 @@ _scaffold() {
 
 # ── direnv defaults to flake-generated pre-commit hooks (#1167) ────────────────
 # The direnv CI lane runs on the bare host runner (resolve-toolchain emits an
-# empty container image), which lacks the devkit image's FHS loader + C++
-# runtime that the hand-managed .pre-commit-config.yaml's pymarkdown hook (native
-# pyjson5) needs. A fresh direnv scaffold therefore defaults to the shared
-# flake-generated hook set (which drops pymarkdown), matching what every direnv
-# consumer converged on by hand. Container/both keep the hand-managed YAML (they
-# run inside the image where pymarkdown works); a consumer's own preserved
-# flake.nix/config is never rewritten.
+# empty container image). A fresh direnv scaffold therefore defaults to the
+# shared flake-generated hook set, which is resolved entirely from the Nix store
+# — including pymarkdown, now a flake system hook (#1170) — rather than building
+# the committed YAML's remote pre-commit repo hook envs per runner. Container/both
+# keep the hand-managed YAML; a consumer's own preserved flake.nix/config is
+# never rewritten.
 
 @test "direnv scaffold drops the hand-managed .pre-commit-config.yaml (#1167)" {
     ws="$BATS_TEST_TMPDIR/e2e-direnv-hooks-drop"

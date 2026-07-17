@@ -52,6 +52,12 @@ with pkgs;
   nixfmt # nix file formatter, RFC style (treefmt `nix fmt`, pre-commit hook)
   ruff # python linter/formatter (pre-commit ruff/ruff-format hooks)
   typos # source typo checker (pre-commit typos hook)
+  # pymarkdownlnt packaged from PyPI (nix/pymarkdown.nix): the `pymarkdown`
+  # markdown-lint hook resolves this binary as a `language: system` hook from
+  # PATH — like ruff/typos/shellcheck — instead of pre-commit's own
+  # manylinux-wheel env (whose native pyjson5 cannot load on a bare host
+  # runner), retiring the one hook-SSoT residual. Refs #1170, #883.
+  (import ./pymarkdown.nix pkgs)
   deadnix # dead-Nix-code linter (flake `checks.deadnix`, consumer hook #1171)
   statix # nix anti-pattern linter (flake `checks.statix`, consumer hook #1171)
   actionlint # GitHub Actions workflow linter (pre-commit hook, #995)

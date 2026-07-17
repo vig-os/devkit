@@ -15,9 +15,9 @@
 #   - `consumer`  — its git-hooks.nix fragment for the consumer generation
 #                   surface (`mkProjectShell { hooks = …; }`): entering the
 #                   shell installs the rendered config via git-hooks.nix's
-#                   installation script (`null` = not generatable, e.g.
-#                   pymarkdown, which is not in nixpkgs — documented residual
-#                   in docs/NIX.md).
+#                   installation script (`null` = not generatable, e.g. the
+#                   `uv run` generator/venv hooks like generate-docs or
+#                   sync-manifest, or the commit-msg-stage hooks).
 #
 # `checkName`/`consumerName` map a committed hook id to the git-hooks.nix
 # attribute name where they differ (git-hooks.nix pluralises some
@@ -48,10 +48,6 @@ let
     yamllint = {
       repo = "https://github.com/adrienverge/yamllint";
       rev = "81e9f98ffd059efe8aa9c1b1a42e5cce61b640c6"; # v1.35.1
-    };
-    pymarkdown = {
-      repo = "https://github.com/jackdewinter/pymarkdown";
-      rev = "f93643d339dfee2a1022e7b05e8b5a281bfac553"; # v0.9.23
     };
   };
 
@@ -418,20 +414,50 @@ let
         pass_filenames = false;
       };
     };
-    # Markdown lint — runner-only everywhere: pymarkdown is not in nixpkgs,
-    # so neither the sandbox gate nor the consumer generation can resolve
-    # it (documented residual, docs/NIX.md).
+    # Markdown lint — a language:system hook resolved from the flake toolchain
+    # (pymarkdownlnt packaged in nix/pymarkdown.nix, #1170), retiring the last
+    # runner-only remote-repo residual of the hook SSoT (#883). All three
+    # artifacts run the SAME `-c .pymarkdown fix` command over the SAME
+    # `.pymarkdown` JSON config and README/CONTRIBUTE/TESTING excludes.
+    #
+    # `fix` (not `scan`) is deliberate and matches the runner/CI: pymarkdown fix
+    # rewrites auto-fixable violations and exits 0 while *tolerating* unfixable
+    # ones (e.g. MD013 line-length), so the hook fails only when it MODIFIES a
+    # file — the same modify-and-fail semantics the ruff/end-of-file-fixer gate
+    # hooks above rely on. The Nix gate operates on the sandboxed source copy, so
+    # a fix never mutates the real tree; `scan` would be stricter than the runner
+    # and would newly fail the gate on pre-existing unfixable markdown debt.
     pymarkdown = {
-      repo = "pymarkdown";
       scaffold = true;
       yaml = {
         name = "pymarkdown";
+        entry = "pymarkdown";
+        language = "system";
+        types = [ "markdown" ];
         args = [
           "-c"
           ".pymarkdown"
           "fix"
         ];
         exclude = "^(README\\.md|CONTRIBUTE\\.md|TESTING\\.md)";
+      };
+      check =
+        { pkgs, ... }:
+        {
+          enable = true;
+          name = "pymarkdown";
+          entry = "${import ./pymarkdown.nix pkgs}/bin/pymarkdown -c .pymarkdown fix";
+          language = "system";
+          types = [ "markdown" ];
+          excludes = [ "^(README\\.md|CONTRIBUTE\\.md|TESTING\\.md)" ];
+        };
+      consumer = pkgs: {
+        enable = true;
+        name = "pymarkdown";
+        entry = "${import ./pymarkdown.nix pkgs}/bin/pymarkdown -c .pymarkdown fix";
+        language = "system";
+        types = [ "markdown" ];
+        excludes = [ "^(README\\.md|CONTRIBUTE\\.md|TESTING\\.md)" ];
       };
     };
     # just formats justfiles. The runner rewrites in place; the Nix gate
@@ -731,7 +757,6 @@ let
         "pre-commit-hooks"
         "local"
         "yamllint"
-        "pymarkdown"
       ];
       hooksOf =
         repoKey:

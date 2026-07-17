@@ -48,6 +48,9 @@ VERSION_FLAG_OVERRIDES: dict[str, list[str]] = {
     # argument"); it is a subcommand CLI. `--help` exits 0 and proves the binary
     # is runnable in the dev-shell, which is what this parity check asserts.
     "statix": ["--help"],
+    # pymarkdown is a subcommand CLI: `--version` exits 2 ("unrecognized
+    # arguments"); the version is printed by the `version` subcommand. Refs #1170.
+    "pymarkdown": ["version"],
     # vig-utils is a subcommand CLI (its `main` requires a subcommand, so
     # `--version` exits 2); `--help` exits 0 and proves the binary runs. The
     # release console scripts it ships (prepare-changelog,
@@ -338,6 +341,22 @@ def test_devshell_provides_precommit_binary_hooks(
     assert not missing, (
         "devTools must provide the binary pre-commit tools so their "
         f"language: system hooks resolve from the flake: missing {sorted(missing)}"
+    )
+
+
+def test_devshell_provides_pymarkdown(dev_shell_tools: list[str]) -> None:
+    """The flake must provide pymarkdown so its language: system hook runs (#1170).
+
+    ``pymarkdownlnt`` is packaged in the flake (nix/pymarkdown.nix) and added to
+    the ``devTools`` SSoT so the ``pymarkdown`` markdown-lint hook is a
+    ``language: system`` hook resolved from PATH — like ruff/typos/shellcheck —
+    instead of pre-commit's own manylinux-wheel env (whose native ``pyjson5``
+    cannot load on a bare host runner). Its ``meta.mainProgram`` is
+    ``pymarkdown``, so the SSoT tool name is that binary.
+    """
+    assert "pymarkdown" in dev_shell_tools, (
+        "devTools must provide 'pymarkdown' (via nix/pymarkdown.nix) so the "
+        "language: system markdown-lint hook resolves from the flake (#1170)"
     )
 
 
