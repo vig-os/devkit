@@ -342,6 +342,78 @@ _scaffold() {
     assert_success
 }
 
+# ── direnv defaults to flake-generated pre-commit hooks (#1167) ────────────────
+# The direnv CI lane runs on the bare host runner (resolve-toolchain emits an
+# empty container image), which lacks the devkit image's FHS loader + C++
+# runtime that the hand-managed .pre-commit-config.yaml's pymarkdown hook (native
+# pyjson5) needs. A fresh direnv scaffold therefore defaults to the shared
+# flake-generated hook set (which drops pymarkdown), matching what every direnv
+# consumer converged on by hand. Container/both keep the hand-managed YAML (they
+# run inside the image where pymarkdown works); a consumer's own preserved
+# flake.nix/config is never rewritten.
+
+@test "direnv scaffold drops the hand-managed .pre-commit-config.yaml (#1167)" {
+    ws="$BATS_TEST_TMPDIR/e2e-direnv-hooks-drop"
+    mkdir -p "$ws"
+    run _scaffold direnv "$ws"
+    assert_success
+    run test -e "$ws/.pre-commit-config.yaml"
+    assert_failure
+}
+
+@test "direnv scaffold activates flake-generated hooks in flake.nix (#1167)" {
+    ws="$BATS_TEST_TMPDIR/e2e-direnv-hooks-flake"
+    mkdir -p "$ws"
+    run _scaffold direnv "$ws"
+    assert_success
+    run grep -Eq '^[[:space:]]*hooks = \{ \};' "$ws/flake.nix"
+    assert_success
+}
+
+@test "direnv scaffold gitignores the generated .pre-commit-config.yaml (#1167)" {
+    ws="$BATS_TEST_TMPDIR/e2e-direnv-hooks-gitignore"
+    mkdir -p "$ws"
+    run _scaffold direnv "$ws"
+    assert_success
+    run grep -qxF '.pre-commit-config.yaml' "$ws/.gitignore"
+    assert_success
+}
+
+@test "devcontainer scaffold keeps the hand-managed .pre-commit-config.yaml (#1167)" {
+    ws="$BATS_TEST_TMPDIR/e2e-devc-hooks-keep"
+    mkdir -p "$ws"
+    run _scaffold devcontainer "$ws"
+    assert_success
+    run test -f "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "both scaffold keeps the YAML and leaves flake hooks opt-in (#1167)" {
+    ws="$BATS_TEST_TMPDIR/e2e-both-hooks-opt-in"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run test -f "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -Eq '^[[:space:]]*hooks = \{ \};' "$ws/flake.nix"
+    assert_failure
+}
+
+@test "direnv --force preserves a consumer's own flake.nix and config (#1167)" {
+    ws="$BATS_TEST_TMPDIR/e2e-direnv-hooks-preserve"
+    mkdir -p "$ws"
+    printf '# SENTINEL-1167 consumer flake\n{ }\n' >"$ws/flake.nix"
+    printf '# SENTINEL-1167 consumer config\nrepos: []\n' >"$ws/.pre-commit-config.yaml"
+    run _scaffold direnv "$ws"
+    assert_success
+    # A preserved consumer flake is never rewritten with the default hooks line...
+    run grep -Eq '^[[:space:]]*hooks = \{ \};' "$ws/flake.nix"
+    assert_failure
+    # ...and their committed config survives.
+    run grep -q 'SENTINEL-1167 consumer config' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
 # ── opt-in .devcontainer/ prune on container-less mode upgrade (#990) ──────────
 # The #738 default is non-destructive: a container→direnv/bare re-scaffold keeps
 # a populated pre-existing .devcontainer/. On a real container→direnv migration

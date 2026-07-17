@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **direnv scaffolds default to flake-generated pre-commit hooks** ([#1167](https://github.com/vig-os/devkit/issues/1167))
+  - The direnv CI lane runs on the bare host runner (`resolve-toolchain` emits an
+    empty container image), which lacks the devkit image's FHS loader and C++
+    runtime that the hand-managed `.pre-commit-config.yaml`'s `pymarkdown` hook
+    (native `pyjson5`) needs — so it fails with `ImportError: libstdc++.so.6`
+    there, and every direnv consumer had to switch to flake-generated hooks by
+    hand. A fresh `direnv` scaffold now activates an empty `hooks = { }` in
+    `flake.nix` and drops the hand-managed YAML, so the shared flake hook set
+    generates `.pre-commit-config.yaml` (a gitignored `/nix/store` symlink,
+    dropping `pymarkdown`) and runs host-side. A consumer's own preserved
+    `flake.nix` or committed config is never rewritten; `container`/`both` keep
+    the hand-managed YAML (they run inside the image where `pymarkdown` works);
+    `bare` is unaffected (it ships no flake and owns its own toolchain).
+
 ### Deprecated
 
 ### Removed

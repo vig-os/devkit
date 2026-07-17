@@ -362,6 +362,15 @@ hook set is defined once in the vigOS flake, and a consumer can compose it
 from the **preserved** project `flake.nix` instead of hand-editing the
 scaffolded `.pre-commit-config.yaml`:
 
+> **`direnv` scaffolds opt in by default** ([#1167](https://github.com/vig-os/devkit/issues/1167)).
+> A fresh `direnv` scaffold ships `flake.nix` with `hooks = { }` already active
+> and no hand-managed `.pre-commit-config.yaml`, because the direnv CI lane runs
+> on the bare host runner where the YAML's `pymarkdown` hook cannot load (see the
+> residual note below). Everything in this section still applies — customize via
+> the `hooks`/`hooksExcludes` block; the generated config is a gitignored store
+> symlink. `container`/`both` scaffolds keep the hand-managed YAML with the block
+> commented out, and `bare` ships no flake at all.
+
 ```nix
 devShells.default = vigos.lib.mkProjectShell {
   inherit pkgs;
@@ -407,8 +416,12 @@ The contract:
   it. To opt back out, remove the `hooks` argument and commit a plain YAML
   again.
 - **Residual:** the `pymarkdown` hook is not in nixpkgs, so the generated
-  base set does not include it (the scaffolded YAML runs it from its upstream
-  pre-commit repo). Add it as a custom hook if you need it under generation.
+  base set does not include it (the hand-managed YAML runs it from its upstream
+  pre-commit repo, which only loads inside the devkit image — its native
+  `pyjson5` fails with `ImportError: libstdc++.so.6` on the bare host runner the
+  `direnv`/`bare` CI lanes use, which is why `direnv` defaults to generation,
+  [#1167](https://github.com/vig-os/devkit/issues/1167)). Add it as a custom
+  hook if you need it under generation.
 - The planned declarative `.vig-os` manifest
   ([#885](https://github.com/vig-os/devkit/issues/885)) will carry an
   explicit raw-YAML opt-out flag so the choice is recorded per-repo rather

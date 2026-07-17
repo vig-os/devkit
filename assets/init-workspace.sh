@@ -680,10 +680,14 @@ render_gitignore() {
     # a /nix/store symlink, which must be ignored — committing it pushes a
     # machine-local, broken symlink. Seed the ignore automatically, gated
     # STRICTLY on the store-symlink condition so a hand-managed consumer who
-    # commits a real .pre-commit-config.yaml file is never affected. Idempotent:
-    # skip when the assembled ignore (incl. .gitignore.project) already lists it.
+    # commits a real .pre-commit-config.yaml file is never affected. A fresh
+    # direnv scaffold defaults to flake-generated hooks (FLAKE_HOOKS_DEFAULT,
+    # #1167) before the store symlink exists, so seed the ignore for it too.
+    # Idempotent: skip when the assembled ignore (incl. .gitignore.project)
+    # already lists it.
     local pcc="$WORKSPACE_DIR/.pre-commit-config.yaml"
-    if [[ -L "$pcc" ]] && readlink "$pcc" | grep -q '/nix/store/'; then
+    if { [[ -L "$pcc" ]] && readlink "$pcc" | grep -q '/nix/store/'; } \
+        || [[ "${FLAKE_HOOKS_DEFAULT:-false}" == "true" ]]; then
         if ! grep -qxF '.pre-commit-config.yaml' "$gi"; then
             {
                 printf '\n# flake-hooks opt-in (#1092): the generated'
@@ -693,6 +697,33 @@ render_gitignore() {
             } >>"$gi"
         fi
     fi
+}
+
+# Turn a freshly-scaffolded direnv flake.nix into a flake-hooks generator (#1167)
+# by activating an empty `hooks = { }` argument to mkProjectShell. The direnv CI
+# lane runs on the bare host runner (resolve-toolchain emits an empty container
+# image), which lacks the image's FHS loader, so the hand-managed
+# .pre-commit-config.yaml's pymarkdown hook (native pyjson5) can't load there;
+# the shared flake hook set drops pymarkdown and runs host-side. Deterministic
+# single insert after the (unique) extraPackages line — a bats regression guard
+# pins that anchor. Only ever called on a FRESH scaffold (guarded by the caller).
+activate_flake_hooks_default() {
+    local flake="$WORKSPACE_DIR/flake.nix"
+    [[ -f "$flake" ]] || return 0
+    local tmp="${flake}.hooks-default"
+    awk '
+        { print }
+        /^          extraPackages = extraPackages pkgs;$/ && !inserted {
+            print ""
+            print "          # Host-runner hooks (#1167): direnv CI runs on the bare host"
+            print "          # runner, so let the flake GENERATE .pre-commit-config.yaml from"
+            print "          # the shared base hook set (drops pymarkdown, whose native pyjson5"
+            print "          # cannot load off the image). Customize like the opt-in block below;"
+            print "          # the generated config is a gitignored /nix/store symlink."
+            print "          hooks = { };"
+            inserted = 1
+        }
+    ' "$flake" >"$tmp" && mv "$tmp" "$flake"
 }
 
 # Migrate consumer-added root ignores into .gitignore.project (#1111). The #1092
@@ -1338,6 +1369,24 @@ else
             sed -i "s/{{SHORT_NAME}}/${SHORT_NAME_ESCAPED}/g; s/{{ORG_NAME}}/${ORG_NAME_ESCAPED}/g; s/{{GITHUB_REPOSITORY}}/${GITHUB_REPOSITORY_ESCAPED}/g" "$file"
         fi
     done
+fi
+
+# Host-runner hooks default (#1167): a FRESH direnv scaffold defaults to
+# flake-generated pre-commit hooks. The direnv CI lane runs on the bare host
+# runner (empty container image), which lacks the image's FHS loader that the
+# hand-managed YAML's pymarkdown hook (native pyjson5) needs — the shared flake
+# hook set drops it. Runs BEFORE render_gitignore so the generated config is
+# ignored from the first scaffold. Gated on a fresh scaffold: never rewrite a
+# consumer's own flake.nix nor delete a committed .pre-commit-config.yaml (both
+# PRESERVE_FILES). bare mode is out of scope — it prunes flake.nix (no generator)
+# and the consumer owns its own toolchain there.
+FLAKE_HOOKS_DEFAULT=false
+if [[ "$MODE" == "direnv" && "$FLAKE_PREEXISTED" == "false" \
+    && "$PRECOMMIT_CONFIG_PREEXISTED" == "false" ]]; then
+    activate_flake_hooks_default
+    rm -f "$WORKSPACE_DIR/.pre-commit-config.yaml"
+    FLAKE_HOOKS_DEFAULT=true
+    echo "direnv mode: defaulting to flake-generated pre-commit hooks (#1167)"
 fi
 
 # Render the language-aware managed statics (#1024/#1025) from the freshly
