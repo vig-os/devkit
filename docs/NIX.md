@@ -481,6 +481,35 @@ host config (`programs.nix-ld.enable` + `libraries = [ pkgs.stdenv.cc.cc ]`)
 would also work but is per-contributor system config the repo cannot enforce, so
 it is at most a fallback, not the fix.
 
+That `LD_LIBRARY_PATH` safety net only exists **inside** the dev-shell. In
+`direnv`-mode CI the preamble forwards the dev-shell `PATH` but not its exported
+environment, so a `uvx`-run tool on a non-Python repo (where the manylinux
+exclusion of [#1028](https://github.com/vig-os/devkit/issues/1028) does not
+apply and the Nix CPython stays on `PATH`) loads its native wheel with no
+`libstdc++` on the loader path and aborts with
+`libstdc++.so.6: cannot open shared object file`
+([#1181](https://github.com/vig-os/devkit/issues/1181), otterdog's `rjsonnet` in
+org-config#40). For that case the root `justfile` ships a base
+`with-native-libs` recipe (all delivery modes — it is **not** in the
+devcontainer-only `justfile.devc`) that wraps a single command with a
+command-scoped `LD_LIBRARY_PATH`, sourced from `$VIGOS_STDCPP_LIB` (a dev-shell
+`shellHook` export, when present) or otherwise derived from the on-`PATH` `cc`
+wrapper via `cc -print-file-name=libstdc++.so.6`. A `justfile.project` recipe
+that runs a `uvx` tool with a native extension prefixes it:
+
+```just
+validate:
+    just with-native-libs uvx --from otterdog@1.2.3 otterdog validate --local
+```
+
+Scoping the variable to the one command keeps the Nix `libstdc++` out of every
+other tool's process; when neither `$VIGOS_STDCPP_LIB` nor `cc` resolves the
+library the command runs with the environment untouched — the recipe never
+composes an empty prefix, because an empty `LD_LIBRARY_PATH` entry (a leading
+colon or a bare `""`) means "current working directory" to the dynamic loader.
+Only reach for it on a repo that runs `uvx`/`uv tool` tools with compiled
+extensions under the Nix CPython; pure-Python tools need nothing.
+
 ## Cachix and the `direnv allow` onboarding flow
 
 The dev-shell closure is published to the public **`vig-os`** Cachix binary

@@ -116,6 +116,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **uvx tools with native wheels load libstdc++ in direnv-mode CI** ([#1181](https://github.com/vig-os/devkit/issues/1181))
+  - On a non-Python direnv-mode consumer the CI preamble keeps the Nix CPython
+    on `PATH`, whose loader does not search `/usr/lib`, so a `uvx`-run tool's
+    manylinux native wheel (e.g. otterdog's `rjsonnet`) aborted with
+    `libstdc++.so.6: cannot open shared object file` — the same failure class as
+    the dropped `pymarkdown`/`pyjson5` hook. The root `justfile` now ships a base
+    `with-native-libs` recipe that wraps one command with a command-scoped
+    `LD_LIBRARY_PATH` sourced from `$VIGOS_STDCPP_LIB` or derived from the
+    on-`PATH` `cc` wrapper, so a `justfile.project` recipe can run such a tool
+    (`just with-native-libs uvx …`) without the wheel failing to import. It
+    degrades to a no-op when neither source resolves the library.
 - **direnv CI: forward the flake `shellHook` environment** ([#1180](https://github.com/vig-os/devkit/issues/1180))
   - The direnv-mode `setup-devkit-toolchain` preamble exported the dev-shell
     store bin dirs to `GITHUB_PATH` but dropped every environment variable a

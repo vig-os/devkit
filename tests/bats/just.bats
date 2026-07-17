@@ -293,3 +293,86 @@ EOF
     run bash -lc "awk '/^      - name: Collect finalization files/{flag=1} /^      - name: Commit finalization changes via API/{flag=0} flag {print}' .github/workflows/release.yml | grep -Fq \"tr '\\n' ','\""
     assert_success
 }
+
+# ── uvx native-wheel libstdc++ helper (#1181) ─────────────────────────────────
+# On a non-Python direnv-mode consumer the CI preamble keeps the Nix CPython on
+# PATH, whose loader does not search /usr/lib, so a uvx tool's manylinux native
+# wheel (e.g. otterdog's rjsonnet) fails to import with
+# "libstdc++.so.6: cannot open shared object file" (org-config#40). The base
+# `with-native-libs` recipe wraps ONE command with a command-scoped
+# LD_LIBRARY_PATH sourced from $VIGOS_STDCPP_LIB (dev-shell export) or derived
+# from the on-PATH `cc` wrapper, degrading to a no-op when neither is available.
+# It lives in the root justfile (all delivery modes), not justfile.devc which is
+# devcontainer-only — direnv-mode CI is exactly the case that needs it.
+
+# Materialize the scaffolded root justfile plus two `cc` stubs in a temp dir:
+# `found/cc` echoes an absolute path (gcc's behavior when it resolves the lib),
+# `notfound/cc` echoes the bare name back (gcc's behavior when it cannot).
+_with_native_libs_fixture() {
+    NL_DIR="$BATS_TEST_TMPDIR/nl"
+    mkdir -p "$NL_DIR/found" "$NL_DIR/notfound"
+    cp "$PROJECT_ROOT/assets/workspace/justfile" "$NL_DIR/justfile"
+    cat > "$NL_DIR/found/cc" <<'STUB'
+#!/usr/bin/env bash
+[ "$1" = "-print-file-name=libstdc++.so.6" ] && echo /opt/fake/lib/libstdc++.so.6
+STUB
+    cat > "$NL_DIR/notfound/cc" <<'STUB'
+#!/usr/bin/env bash
+[ "$1" = "-print-file-name=libstdc++.so.6" ] && echo libstdc++.so.6
+STUB
+    chmod +x "$NL_DIR/found/cc" "$NL_DIR/notfound/cc"
+}
+
+@test "root justfile ships the with-native-libs helper recipe (#1181)" {
+    run grep -qE '^with-native-libs \+command:' assets/workspace/justfile
+    assert_success
+}
+
+@test "with-native-libs derives LD_LIBRARY_PATH from the on-PATH cc wrapper (#1181)" {
+    _with_native_libs_fixture
+    run env -u LD_LIBRARY_PATH PATH="$NL_DIR/found:$PATH" \
+        just -f "$NL_DIR/justfile" -d "$NL_DIR" with-native-libs env
+    assert_success
+    assert_line "LD_LIBRARY_PATH=/opt/fake/lib"
+}
+
+@test "with-native-libs prefers VIGOS_STDCPP_LIB over deriving from cc (#1181)" {
+    _with_native_libs_fixture
+    run env -u LD_LIBRARY_PATH VIGOS_STDCPP_LIB=/from/var PATH="$NL_DIR/found:$PATH" \
+        just -f "$NL_DIR/justfile" -d "$NL_DIR" with-native-libs env
+    assert_success
+    assert_line "LD_LIBRARY_PATH=/from/var"
+}
+
+@test "with-native-libs no-ops cleanly when libstdc++ is not found (#1181)" {
+    # A true no-op: LD_LIBRARY_PATH stays UNSET, not set-to-empty — an empty
+    # value is itself one empty entry, which the dynamic loader treats as the
+    # current working directory.
+    _with_native_libs_fixture
+    run env -u LD_LIBRARY_PATH PATH="$NL_DIR/notfound:$PATH" \
+        just -f "$NL_DIR/justfile" -d "$NL_DIR" with-native-libs env
+    assert_success
+    refute_line --regexp '^LD_LIBRARY_PATH='
+}
+
+@test "with-native-libs prepends to an existing LD_LIBRARY_PATH (#1181)" {
+    _with_native_libs_fixture
+    run env LD_LIBRARY_PATH=/pre/existing PATH="$NL_DIR/found:$PATH" \
+        just -f "$NL_DIR/justfile" -d "$NL_DIR" with-native-libs env
+    assert_success
+    assert_line "LD_LIBRARY_PATH=/opt/fake/lib:/pre/existing"
+}
+
+@test "with-native-libs leaves an existing LD_LIBRARY_PATH untouched when nothing resolves (#1181)" {
+    # With an empty prefix a naive composition yields ":/pre/existing" — the
+    # leading empty entry means "current working directory" to the dynamic
+    # loader, silently adding cwd to the library search path (a planted
+    # libstdc++.so.6 in an untrusted directory would be loaded). The caller's
+    # value must pass through byte-identical, no leading colon.
+    _with_native_libs_fixture
+    run env LD_LIBRARY_PATH=/pre/existing PATH="$NL_DIR/notfound:$PATH" \
+        just -f "$NL_DIR/justfile" -d "$NL_DIR" with-native-libs env
+    assert_success
+    assert_line "LD_LIBRARY_PATH=/pre/existing"
+    refute_output --partial "LD_LIBRARY_PATH=:"
+}
