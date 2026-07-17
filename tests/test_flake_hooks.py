@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -380,6 +381,84 @@ class TestConsumerHooksSurface:
         assert "^data/stopping/" in exclude
         # The base excludes stay active alongside the consumer additions.
         assert ".github_data" in exclude
+
+
+class TestNixLintersConsumerSurface:
+    """statix + deadnix live on the flake-generated consumer surface (#1171).
+
+    Nix-oriented consumers (exo-fleet, vigo-nixos) need the statix/deadnix
+    lint pair; today they exist only as devkit-internal ``nix flake check``
+    gates. ``nix/hooks.nix`` defines them as consumer-only ``language: system``
+    hooks: they render into ``mkProjectShell``'s generated config but are NOT
+    injected into either committed hand-managed YAML (``scaffold = false`` —
+    existing container-mode consumers must see zero change).
+    """
+
+    def test_statix_is_on_the_consumer_surface(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        hooks = _normalize(consumer_config)["hooks"]
+        assert "statix" in hooks, "statix missing from generated consumer config"
+        assert "/bin/statix" in hooks["statix"]["entry"]
+        # statix accepts exactly ONE target, so filenames must not be appended.
+        assert hooks["statix"].get("pass_filenames") is False
+
+    def test_deadnix_is_on_the_consumer_surface(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        hooks = _normalize(consumer_config)["hooks"]
+        assert "deadnix" in hooks, "deadnix missing from generated consumer config"
+        entry = hooks["deadnix"]["entry"]
+        assert "/bin/deadnix" in entry
+        assert "--fail" in entry, "deadnix must fail the hook on findings"
+
+    def test_nix_linters_stay_out_of_the_committed_yaml(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """Neither committed YAML gains the pair (scaffold = false, #1171).
+
+        The hand-managed runner/scaffold configs are what existing
+        container-mode consumers re-scaffold from; injecting statix/deadnix
+        there would surprise every one of them on the next upgrade.
+        """
+        for profile in ("runner", "scaffold"):
+            hooks = _normalize(rendered_portable[profile])["hooks"]
+            assert "statix" not in hooks, f"statix leaked into the {profile} YAML"
+            assert "deadnix" not in hooks, f"deadnix leaked into the {profile} YAML"
+
+    def test_template_flake_passes_both_linters_as_configured(
+        self, consumer_config: dict[str, Any], tmp_path: Path
+    ) -> None:
+        """The scaffolded consumer flake.nix passes both hooks out of the box.
+
+        deadnix flags intentionally-unused lambda args — the template's
+        ``{ self, … }`` output pattern and the ``extraPackages = pkgs: [ ]``
+        seed — so the hook entries must carry the flags that keep a FRESH
+        scaffold green. Run the exact rendered entries against a copy of the
+        template (statix's single-target ``check .`` from the copy's root,
+        mirroring a fresh consumer repo).
+        """
+        template = REPO_ROOT / "assets" / "workspace" / "flake.nix"
+        (tmp_path / "flake.nix").write_text(template.read_text())
+        hooks = _normalize(consumer_config)["hooks"]
+
+        deadnix_cmd = shlex.split(hooks["deadnix"]["entry"]) + ["flake.nix"]
+        result = subprocess.run(
+            deadnix_cmd, capture_output=True, text=True, cwd=tmp_path
+        )
+        assert result.returncode == 0, (
+            "deadnix (as configured) rejects the scaffolded flake.nix:\n"
+            f"{result.stdout}{result.stderr}"
+        )
+
+        statix_cmd = shlex.split(hooks["statix"]["entry"])
+        result = subprocess.run(
+            statix_cmd, capture_output=True, text=True, cwd=tmp_path
+        )
+        assert result.returncode == 0, (
+            "statix (as configured) rejects the scaffolded flake.nix:\n"
+            f"{result.stdout}{result.stderr}"
+        )
 
 
 class TestZeroHooksParity:
