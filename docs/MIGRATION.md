@@ -125,6 +125,43 @@ Free-plan private repos; OpenSSF Scorecard is public-only), so private consumers
 get a skipped (neutral) run instead of a permanently red one. A repo later
 flipped public starts scanning automatically, with no re-scaffold.
 
+### direnv mode: `shellHook` environment forwarding
+
+In `direnv` mode the `setup-devkit-toolchain` preamble forwards your flake
+dev-shell's `shellHook` environment to CI **by default**
+([#1180](https://github.com/vig-os/devkit/issues/1180)). Any env var a project
+exports from its `shellHook` (tool configuration, sensible defaults) is present
+in every local `nix develop`/direnv session; before #1180 the preamble exported
+only the dev-shell's `PATH` (via `GITHUB_PATH`), so those vars silently vanished
+on CI — a local-vs-CI divergence that surfaced as unrelated tool errors
+(a `shellHook`-seeded `OTTERDOG_TOKEN` placeholder worked locally and failed on
+CI). The preamble now diffs the ambient runner environment against the dev-shell
+environment (the `shellHook` has run inside `nix develop`) and writes the vars
+the dev-shell **adds or changes** to `GITHUB_ENV`. The ambient diff is what keeps
+host secrets — already in the runner env, unchanged inside the shell — out of
+`GITHUB_ENV`; multi-line values are written with a random `GITHUB_ENV` heredoc
+delimiter so they survive intact.
+
+A denylist keeps shell-session state and Nix/stdenv build machinery from leaking
+into the CI environment. Never forwarded:
+
+- **Session/runtime shell state** — `PATH` (already handled via `GITHUB_PATH`),
+  `HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `PWD`, `OLDPWD`, `SHLVL`, `IFS`,
+  `TMPDIR`/`TMP`/`TEMP`/`TEMPDIR`.
+- **Nix/stdenv build internals** — everything `NIX_*`; the stdenv scalars/lists
+  `out`, `outputs`, `src`, `stdenv`, `system`, `builder`, `name`, `pname`,
+  `version`, `shell`, `shellHook`, `buildInputs`, `nativeBuildInputs`,
+  `propagatedBuildInputs`, `propagatedNativeBuildInputs`, `SOURCE_DATE_EPOCH`,
+  `HOST_PATH`; and the build-machinery patterns `deps*`, `*Phase`, `phases`,
+  `dont*`, `configureFlags`/`cmakeFlags`/`mesonFlags`/`makeFlags`, `patches`,
+  `strictDeps`, `outputHash*`.
+
+This is why the diff-plus-denylist approach is used instead of forwarding
+`nix print-dev-env` wholesale: that dumps the full build machinery, none of which
+belongs in a CI environment. Recipes should still avoid depending on env a
+`shellHook` sets **only for interactive convenience** — CI parity is best-effort
+for build machinery, but genuine `shellHook` exports are now forwarded.
+
 ### Enable the dependency graph on new public consumers
 
 The scaffolded `ci.yml` also ships a **Dependency Review** gate that blocks PRs
