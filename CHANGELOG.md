@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Package pymarkdown in the flake and promote it to a system hook** ([#1170](https://github.com/vig-os/devkit/issues/1170))
+  - `pymarkdownlnt` is now packaged as a Nix derivation (`nix/pymarkdown.nix`,
+    with its two PyPI-only pure-Python deps `application-properties` and
+    `columnar`; `pyjson5` comes from nixpkgs) and added to the toolchain SSoT
+    (`nix/devtools.nix`), so it ships in the dev-shell, the image, and the
+    `vigos.packages` home module.
+  - The `pymarkdown` hook is promoted from a runner-only remote-repo hook to a
+    `language: system` hook resolved from PATH — like `shellcheck`/`typos` — in
+    **all three** hook artifacts: the committed runner + scaffold YAML, the
+    sandbox `checks.pre-commit` gate, and the consumer generation surface. Same
+    `-c .pymarkdown fix` command and README/CONTRIBUTE/TESTING excludes as before.
+  - This retires the last runner-only residual of the single-SSoT hook system
+    (#883): **every** `direnv`/`bare` consumer regains (or gains) markdown lint
+    from the shared flake hook set, and the container/both lanes converge on the
+    same system hook.
 - **Document enabling the dependency graph on new public consumers** ([#1166](https://github.com/vig-os/devkit/issues/1166))
   - The scaffolded `ci.yml` Dependency Review gate reads GitHub's dependency
     graph, which the `vig-os` org leaves **disabled** on new repos

@@ -702,11 +702,12 @@ render_gitignore() {
 # Turn a freshly-scaffolded direnv flake.nix into a flake-hooks generator (#1167)
 # by activating an empty `hooks = { }` argument to mkProjectShell. The direnv CI
 # lane runs on the bare host runner (resolve-toolchain emits an empty container
-# image), which lacks the image's FHS loader, so the hand-managed
-# .pre-commit-config.yaml's pymarkdown hook (native pyjson5) can't load there;
-# the shared flake hook set drops pymarkdown and runs host-side. Deterministic
-# single insert after the (unique) extraPackages line — a bats regression guard
-# pins that anchor. Only ever called on a FRESH scaffold (guarded by the caller).
+# image), so the shared flake hook set — resolved entirely from the Nix store,
+# including pymarkdown now that it is a flake system hook (#1170) — is more
+# robust there than the committed YAML, which builds its remote pre-commit repo
+# hook envs (pre-commit-hooks, yamllint) per runner. Deterministic single insert
+# after the (unique) extraPackages line — a bats regression guard pins that
+# anchor. Only ever called on a FRESH scaffold (guarded by the caller).
 activate_flake_hooks_default() {
     local flake="$WORKSPACE_DIR/flake.nix"
     [[ -f "$flake" ]] || return 0
@@ -717,9 +718,11 @@ activate_flake_hooks_default() {
             print ""
             print "          # Host-runner hooks (#1167): direnv CI runs on the bare host"
             print "          # runner, so let the flake GENERATE .pre-commit-config.yaml from"
-            print "          # the shared base hook set (drops pymarkdown, whose native pyjson5"
-            print "          # cannot load off the image). Customize like the opt-in block below;"
-            print "          # the generated config is a gitignored /nix/store symlink."
+            print "          # the shared base hook set, resolved entirely from the Nix store"
+            print "          # (incl. pymarkdown, now a flake system hook, #1170) rather than"
+            print "          # building the committed YAML remote pre-commit repo hook envs"
+            print "          # per runner. Customize like the opt-in block below; the generated"
+            print "          # config is a gitignored /nix/store symlink."
             print "          hooks = { };"
             inserted = 1
         }
@@ -1373,9 +1376,10 @@ fi
 
 # Host-runner hooks default (#1167): a FRESH direnv scaffold defaults to
 # flake-generated pre-commit hooks. The direnv CI lane runs on the bare host
-# runner (empty container image), which lacks the image's FHS loader that the
-# hand-managed YAML's pymarkdown hook (native pyjson5) needs — the shared flake
-# hook set drops it. Runs BEFORE render_gitignore so the generated config is
+# runner (empty container image), where the shared flake hook set — resolved
+# from the Nix store, including pymarkdown now that it is a flake system hook
+# (#1170) — is more robust than the committed YAML's per-runner remote
+# pre-commit repo hook env builds. Runs BEFORE render_gitignore so the generated config is
 # ignored from the first scaffold. Gated on a fresh scaffold: never rewrite a
 # consumer's own flake.nix nor delete a committed .pre-commit-config.yaml (both
 # PRESERVE_FILES). bare mode is out of scope — it prunes flake.nix (no generator)

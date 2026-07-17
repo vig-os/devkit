@@ -429,16 +429,19 @@
           # on both NixOS and FHS hosts. The IMAGE path sets the same two vars
           # (baking pythonEnv). Refs #666, #683.
 
-          # The C++ runtime (libstdc++.so.6). The `pymarkdown` pre-commit hook
-          # runs from pre-commit's OWN manylinux-wheel Python env (not the project
-          # venv), whose dependency `pyjson5` is a C extension linked against
-          # `libstdc++.so.6`. On a NixOS host that library is not on the loader
-          # path outside an FHS environment, so the hook aborts with
+          # The C++ runtime (libstdc++.so.6). A pre-commit hook (or any tool) that
+          # runs from a manylinux-wheel Python env (not the project venv) may ship
+          # a C extension linked against `libstdc++.so.6` — historically the
+          # `pymarkdown` hook via its `pyjson5` dependency. On a NixOS host that
+          # library is not on the loader path outside an FHS environment, so such a
+          # wheel aborts with
           # `ImportError: libstdc++.so.6: cannot open shared object file`. Exposing
           # the Nix C++ runtime on LD_LIBRARY_PATH lets the wheel resolve it; it is
           # the same libstdc++ the Nix toolchain itself links (`stdenv.cc.cc.lib`).
-          # pymarkdown is not in nixpkgs, so the #697 "add to devTools +
-          # language:system" recipe does not apply here. Refs #698.
+          # `pymarkdown` itself is now packaged in the flake (nix/pymarkdown.nix,
+          # #1170) and runs as a language:system hook, so this is no longer needed
+          # for it, but it remains a general safety net for any runtime-installed
+          # C-extension wheel. Refs #698, #1170.
           ldLibraryPath = "${pkgs.stdenv.cc.cc.lib}/lib";
 
           # Inject it ONLY on NixOS, where it is both required (above) and ABI-safe

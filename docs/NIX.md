@@ -394,9 +394,8 @@ These are decided inline in `flake.nix`; summarized here.
 
   Hooks that cannot run in the sandbox stay **runner-only** in the committed
   render and carry no gate profile in `nix/hooks.nix`: the generators
-  `generate-docs`/`sync-manifest`, `pip-licenses` (reads `uv.lock`), `pymarkdown`
-  (not in nixpkgs — also the one residual missing from the consumer generation
-  profile), `no-commit-to-branch` and `destroyed-symlinks`
+  `generate-docs`/`sync-manifest`, `pip-licenses` (reads `uv.lock`),
+  `no-commit-to-branch` and `destroyed-symlinks`
   (git-state-dependent), `check-agent-identity` (inspects the commit
   author/committer), and the `commit-msg`/`prepare-commit-msg`-stage hooks (never
   run by `--all-files`). `checks.pre-commit` is thus a Nix-verified guarantee that
@@ -411,25 +410,29 @@ These are decided inline in `flake.nix`; summarized here.
 
 ### `libstdc++` for C-extension pre-commit hooks (#698)
 
-Some pre-commit hooks run from pre-commit's **own** manylinux-wheel Python env
-(not the project venv) and ship a C extension. The `pymarkdown` hook is the case
-in point: its dependency `pyjson5` is a C extension linked against
-`libstdc++.so.6`, which a NixOS host does not put on the loader path outside an
-FHS environment — so the hook aborted with
+Historically some pre-commit hooks ran from pre-commit's **own** manylinux-wheel
+Python env (not the project venv) and shipped a C extension. The `pymarkdown`
+hook was the case in point: its dependency `pyjson5` is a C extension linked
+against `libstdc++.so.6`, which a NixOS host does not put on the loader path
+outside an FHS environment — so the hook aborted with
 `ImportError: libstdc++.so.6: cannot open shared object file` and forced
-`--no-verify`. Unlike the standalone binaries in #697 (`ruff`/`typos`),
-`pymarkdown` is **not** in nixpkgs, so the "add to `devTools` + `language:
-system`" recipe does not apply.
+`--no-verify`. That residual is now retired: `pymarkdownlnt` is packaged in the
+flake (`nix/pymarkdown.nix`) and `pymarkdown` is a `language: system` hook
+resolved from `devTools` like `ruff`/`typos`/`shellcheck` — the exact #697 recipe
+that seemed not to apply while it was missing from nixpkgs (#1170). The gate and
+the consumer generation surface now carry it too, so the hook set has no
+runner-only lint residual left.
 
-`mkProjectShell` therefore **appends** `${pkgs.stdenv.cc.cc.lib}/lib` to
-`LD_LIBRARY_PATH` in the dev-shell, so the wheel resolves the Nix C++ runtime.
-That is the same `libstdc++` the Nix toolchain itself links, so the other
-dev-shell binaries keep working (no version clash), and the existing
-mkShell-injected `LD_LIBRARY_PATH` is appended to rather than clobbered. The fix
-generalises to any future C-extension Python hook. A `nix-ld` host config
-(`programs.nix-ld.enable` + `libraries = [ pkgs.stdenv.cc.cc ]`) would also work
-but is per-contributor system config the repo cannot enforce, so it is at most a
-fallback, not the fix.
+`mkProjectShell` still **appends** `${pkgs.stdenv.cc.cc.lib}/lib` to
+`LD_LIBRARY_PATH` in the dev-shell, so any *runtime-installed* manylinux wheel
+(e.g. a `uvx` tool, or a consumer's own C-extension hook) resolves the Nix C++
+runtime. That is the same `libstdc++` the Nix toolchain itself links, so the
+other dev-shell binaries keep working (no version clash), and the existing
+mkShell-injected `LD_LIBRARY_PATH` is appended to rather than clobbered. It
+remains a general safety net for any future C-extension Python hook. A `nix-ld`
+host config (`programs.nix-ld.enable` + `libraries = [ pkgs.stdenv.cc.cc ]`)
+would also work but is per-contributor system config the repo cannot enforce, so
+it is at most a fallback, not the fix.
 
 ## Cachix and the `direnv allow` onboarding flow
 

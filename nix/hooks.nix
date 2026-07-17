@@ -15,9 +15,9 @@
 #   - `consumer`  — its git-hooks.nix fragment for the consumer generation
 #                   surface (`mkProjectShell { hooks = …; }`): entering the
 #                   shell installs the rendered config via git-hooks.nix's
-#                   installation script (`null` = not generatable, e.g.
-#                   pymarkdown, which is not in nixpkgs — documented residual
-#                   in docs/NIX.md).
+#                   installation script (`null` = not generatable, e.g. the
+#                   `uv run` generator/venv hooks like generate-docs or
+#                   sync-manifest, or the commit-msg-stage hooks).
 #
 # `checkName`/`consumerName` map a committed hook id to the git-hooks.nix
 # attribute name where they differ (git-hooks.nix pluralises some
