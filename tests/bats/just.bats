@@ -352,7 +352,7 @@ STUB
     run env -u LD_LIBRARY_PATH PATH="$NL_DIR/notfound:$PATH" \
         just -f "$NL_DIR/justfile" -d "$NL_DIR" with-native-libs env
     assert_success
-    refute_output --partial "LD_LIBRARY_PATH"
+    refute_line --regexp '^LD_LIBRARY_PATH='
 }
 
 @test "with-native-libs prepends to an existing LD_LIBRARY_PATH (#1181)" {
