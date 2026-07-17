@@ -14,4 +14,5 @@
 {
   native = import ./native.nix;
   node = import ./node.nix;
+  docs = import ./docs.nix;
 }
