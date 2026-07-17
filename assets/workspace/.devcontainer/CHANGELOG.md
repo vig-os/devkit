@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Route scaffolded CI jobs to self-hosted runners via `.vig-os`** ([#1173](https://github.com/vig-os/devkit/issues/1173))
+  - New optional `.vig-os` key `DEVKIT_CI_RUNNER` (comma-separated runner label
+    list, e.g. `self-hosted,linux,x64,meatgrinder`) lets a self-hosted consumer
+    route the scaffold-managed `ci.yml` onto its own runners without hand-editing
+    a managed file (hand-edits are clobbered on upgrade). `resolve-toolchain`
+    reads the key and emits a `runner-json` output — a JSON array of labels,
+    defaulting to `["ubuntu-24.04"]` when the key is absent — which the toolchain
+    jobs (`lint`, `test`, `commit-checks`) and the `summary` gate consume via
+    `runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}`. The
+    `resolve-toolchain` job itself stays on the hosted default (it produces the
+    output), and `dependency-review` stays hosted (public-repo-only,
+    toolchain-free). Absent key => unchanged behavior for every existing
+    consumer; the value is persisted across re-scaffolds like the other manifest
+    keys. Documented in `docs/MIGRATION.md`.
 - **Document enabling the dependency graph on new public consumers** ([#1166](https://github.com/vig-os/devkit/issues/1166))
   - The scaffolded `ci.yml` Dependency Review gate reads GitHub's dependency
     graph, which the `vig-os` org leaves **disabled** on new repos

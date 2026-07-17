@@ -74,10 +74,14 @@ def test_dependency_review_stays_hosted() -> None:
     assert workflow["jobs"]["dependency-review"]["runs-on"] == HOSTED_DEFAULT
 
 
-def _run_resolve(tmp_path: Path, manifest: str | None) -> dict[str, str]:
+def _run_resolve(
+    tmp_path: Path, manifest: str | None, *, check: bool = True
+) -> dict[str, str]:
     """Execute the resolve-toolchain step's real bash against a .vig-os manifest.
 
-    Returns the parsed GITHUB_OUTPUT key=value map.
+    Returns the parsed GITHUB_OUTPUT key=value map. ``runner-json`` is emitted
+    early (before mode/tag resolution), so callers exercising an error path
+    (e.g. no manifest => default `both` mode with no tag) pass ``check=False``.
     """
     action = _load(RESOLVE_ACTION)
     script = action["runs"]["steps"][0]["run"]
@@ -97,7 +101,7 @@ def _run_resolve(tmp_path: Path, manifest: str | None) -> dict[str, str]:
         ["bash", "-c", script],
         cwd=tmp_path,
         env=env,
-        check=True,
+        check=check,
         capture_output=True,
         text=True,
     )
@@ -117,8 +121,12 @@ def test_runner_json_defaults_to_hosted_when_key_absent(tmp_path: Path) -> None:
 
 
 def test_runner_json_defaults_when_no_manifest(tmp_path: Path) -> None:
-    """No .vig-os at all still yields the hosted default array."""
-    outputs = _run_resolve(tmp_path, None)
+    """No .vig-os at all still yields the hosted default array.
+
+    The default `both` mode then errors on the missing tag (an unrelated
+    production error path), but runner-json is emitted before that exit.
+    """
+    outputs = _run_resolve(tmp_path, None, check=False)
     assert json.loads(outputs["runner-json"]) == [HOSTED_DEFAULT]
 
 

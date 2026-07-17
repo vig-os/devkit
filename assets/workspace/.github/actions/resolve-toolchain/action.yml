@@ -59,6 +59,12 @@ outputs:
   floating-tags:
     description: Floating tag levels from DEVKIT_FLOATING_TAGS (subset of major,minor; empty => off)
     value: ${{ steps.resolve.outputs.floating-tags }}
+  runner-json:
+    description: >-
+      JSON array of runner labels from DEVKIT_CI_RUNNER (comma-separated), for
+      `runs-on: ${{ fromJSON(...) }}`. Defaults to ["ubuntu-24.04"] when the key
+      is absent.
+    value: ${{ steps.resolve.outputs.runner-json }}
 
 runs:
   using: composite
@@ -76,6 +82,7 @@ runs:
         LEGACY_VERSION=""
         TAG_PREFIX=""
         FLOATING_TAGS=""
+        CI_RUNNER=""
 
         if [[ -f .vig-os ]]; then
           # Tolerant KEY=VALUE parsing shared with resolve-image (#781): capture
@@ -87,7 +94,7 @@ runs:
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
 
             case "$line" in
-              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_FLOATING_TAGS=*)
+              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*)
                 key="${line%%=*}"
                 value="${line#*=}"
                 value="${value#"${value%%[![:space:]]*}"}"
@@ -105,6 +112,7 @@ runs:
                   DEVCONTAINER_VERSION) LEGACY_VERSION="$value" ;;
                   DEVKIT_TAG_PREFIX) TAG_PREFIX="$value" ;;
                   DEVKIT_FLOATING_TAGS) FLOATING_TAGS="$value" ;;
+                  DEVKIT_CI_RUNNER) CI_RUNNER="$value" ;;
                 esac
                 ;;
             esac
@@ -136,6 +144,28 @@ runs:
         # empty by default (= off). Only promote-release consumes it, force-moving
         # <prefix>X / <prefix>X.Y at the final release commit.
         echo "floating-tags=$FLOATING_TAGS" >> "$GITHUB_OUTPUT"
+
+        # CI runner labels (#1173): DEVKIT_CI_RUNNER is a comma-separated label
+        # list routed into `runs-on: ${{ fromJSON(...) }}` by the downstream CI
+        # jobs. Absent => the hosted default, so existing consumers are unchanged.
+        # Emitted for every mode, ALWAYS a valid JSON array (single label =>
+        # ["ubuntu-24.04"]); whitespace around each label is trimmed and empty
+        # entries dropped so a trailing/spaced comma never yields a blank label.
+        CI_RUNNER="${CI_RUNNER:-ubuntu-24.04}"
+        RUNNER_JSON="["
+        runner_first=1
+        IFS=',' read -ra runner_labels <<< "$CI_RUNNER"
+        for label in "${runner_labels[@]}"; do
+          label="${label#"${label%%[![:space:]]*}"}"
+          label="${label%"${label##*[![:space:]]}"}"
+          [[ -z "$label" ]] && continue
+          if [[ "$runner_first" -eq 1 ]]; then runner_first=0; else RUNNER_JSON+=","; fi
+          RUNNER_JSON+="\"$label\""
+        done
+        # An all-blank value (e.g. DEVKIT_CI_RUNNER=" ,") falls back to the default.
+        [[ "$runner_first" -eq 1 ]] && RUNNER_JSON+="\"ubuntu-24.04\""
+        RUNNER_JSON+="]"
+        echo "runner-json=$RUNNER_JSON" >> "$GITHUB_OUTPUT"
 
         # Resolve the version tag: explicit override wins, else DEVKIT_VERSION,
         # else the legacy DEVCONTAINER_VERSION.

@@ -36,3 +36,11 @@ DEVKIT_TAG_PREFIX=
 # `major,minor` moves <prefix>X and <prefix>X.Y so consumers can pin
 # `uses: owner/repo@v0`. Composes with DEVKIT_TAG_PREFIX; final releases only (#1045).
 DEVKIT_FLOATING_TAGS=
+
+# CI runner labels for the scaffolded ci.yml toolchain jobs (lint, test,
+# commit-checks) and the summary gate — comma-separated, e.g.
+# `self-hosted,linux,x64,meatgrinder`. Empty (default) => the hosted `ubuntu-24.04`
+# runner (no change for existing consumers). Routed into `runs-on` via
+# resolve-toolchain's `runner-json` output; the resolve-toolchain and
+# dependency-review jobs always stay on the hosted default (#1173).
+DEVKIT_CI_RUNNER=

@@ -19,6 +19,16 @@
 # This collapses the former per-mode ci.yml overlays (container / direnv / bare)
 # into a single managed file (#991).
 #
+# Runner selection (#1173): `resolve-toolchain` also emits `runner-json`, a JSON
+# array of runner labels from the optional `.vig-os` key `DEVKIT_CI_RUNNER`
+# (comma-separated; absent => the hosted default). The toolchain jobs (lint,
+# test, commit-checks) and the summary gate declare
+# `runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}`, so a
+# self-hosted consumer routes them onto its own runners without hand-editing this
+# managed file. `resolve-toolchain` itself stays on the hosted default (it
+# produces the output — chicken-and-egg); `dependency-review` stays hosted too
+# (public-repo-only, toolchain-free, and reads GitHub's dependency-graph API).
+#
 # Jobs:
 #   1. resolve-toolchain — Resolve delivery mode + image from .vig-os
 #   2. lint              — Pre-commit hooks
@@ -69,6 +79,7 @@ jobs:
       mode: ${{ steps.resolve.outputs.mode }}
       image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
+      runner-json: ${{ steps.resolve.outputs.runner-json }}
 
     steps:
       - name: Checkout repository
@@ -90,7 +101,7 @@ jobs:
   lint:
     name: Lint & Format
     needs: [resolve-toolchain]
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
     # Empty image (direnv/bare) => runs on the host; non-empty => in-container.
     # The credentials block is inert on the host (proven by the #992 spike).
     container:
@@ -128,7 +139,7 @@ jobs:
   test:
     name: Tests
     needs: [resolve-toolchain]
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
     container:
       image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
@@ -166,7 +177,7 @@ jobs:
   commit-checks:
     name: Commit Messages
     needs: [resolve-toolchain]
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
     container:
       image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
@@ -269,7 +280,7 @@ jobs:
 
   summary:
     name: CI Summary
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
     timeout-minutes: 5
     needs: [resolve-toolchain, lint, test, commit-checks, dependency-review]
     if: always()
