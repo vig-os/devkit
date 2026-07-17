@@ -55,6 +55,7 @@ with pkgs;
   deadnix # dead-Nix-code linter (flake `checks.deadnix`)
   statix # nix anti-pattern linter (flake `checks.statix`)
   actionlint # GitHub Actions workflow linter (pre-commit hook, #995)
+  gitleaks # secret scanner (opt-in `language: system` pre-commit hook, #1172)
 
   # Container runtime
   podman

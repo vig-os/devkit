@@ -382,6 +382,25 @@ let
         excludes = [ shellcheckExclude ];
       };
     };
+    # Secret scanner (#1172). Opt-in and default-DISABLED: it carries no
+    # `yaml` (absent from the committed runner and scaffold configs) and no
+    # `check` (absent from the sandbox gate), so devkit's own lanes never run
+    # it — gitleaks needs a repo-specific `.gitleaks.toml` to tune false
+    # positives and devkit ships none. It lives only on the consumer
+    # generation surface with `enable = false`, so a secret-bearing consumer
+    # opts in with `mkProjectShell { hooks = { gitleaks.enable = true; }; }`.
+    # A repo-root `.gitleaks.toml` is picked up by gitleaks automatically — no
+    # extra plumbing. v8.19+ invocation form (`gitleaks git --pre-commit`; the
+    # nixpkgs pin is 8.30.x). Refs #1172.
+    gitleaks = {
+      consumer = pkgs: {
+        enable = false;
+        name = "gitleaks";
+        entry = "${pkgs.gitleaks}/bin/gitleaks git --pre-commit --staged --redact --verbose";
+        language = "system";
+        pass_filenames = false;
+      };
+    };
     # GitHub Actions workflow linter (#995). Runner-only and devkit-only: it
     # lints THIS repo's own .github/workflows/ via actionlint's auto-discovery
     # (pass_filenames = false). Not scaffolded to consumers and not in the

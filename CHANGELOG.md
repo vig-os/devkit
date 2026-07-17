@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Opt-in `gitleaks` secret-scanning hook** ([#1172](https://github.com/vig-os/devkit/issues/1172))
+  - `gitleaks` joins the shared toolchain (`nix/devtools.nix` → dev-shell,
+    image, and `vigos.packages`) and is defined as a `language: system`
+    pre-commit hook resolved from the pinned nixpkgs binary — no upstream
+    pre-commit repo clone, works offline. It is **default-disabled** and lives
+    only on the `mkProjectShell` consumer generation surface: absent from
+    devkit's own committed `.pre-commit-config.yaml`, the scaffold copy, and the
+    sandbox `checks.pre-commit` gate, so no devkit lane runs it. A secret-bearing
+    consumer opts in with `mkProjectShell { hooks = { gitleaks.enable = true; }; }`;
+    the hook runs `gitleaks git --pre-commit --staged --redact --verbose` and a
+    repo-root `.gitleaks.toml` is honored automatically. Off by default because
+    false-positive tuning is repo-specific (`docs/NIX.md`). Backward compatible:
+    zero behavior change for consumers that do not enable it.
 - **Document enabling the dependency graph on new public consumers** ([#1166](https://github.com/vig-os/devkit/issues/1166))
   - The scaffolded `ci.yml` Dependency Review gate reads GitHub's dependency
     graph, which the `vig-os` org leaves **disabled** on new repos
