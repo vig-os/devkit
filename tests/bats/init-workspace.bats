@@ -1548,6 +1548,20 @@ EOF
     assert_failure
 }
 
+@test "--preview does not list template .typos.toml as ADDED under a legacy _typos.toml (#1196)" {
+    # Regression (#1196, exo-pet/vault#31): the real copy rsync-excludes the
+    # template .typos.toml when the consumer carries _typos.toml (and no
+    # .typos.toml), yet --preview reported it as ADDED — advertising a file the
+    # upgrade then silently skips. Preview must mirror the copy's exclude set.
+    ws="$BATS_TEST_TMPDIR/e2e-1196-preview-typos"
+    mkdir -p "$ws"
+    printf '# SENTINEL-1196 legacy typos config\n' >"$ws/_typos.toml"
+    run _preview "$ws" --mode both
+    assert_success
+    # the copy skips template .typos.toml here, so preview must not add it
+    refute_output --partial "+  .typos.toml"
+}
+
 # ── upgrade must preserve customized lint configs .yamllint / .pymarkdown (#1099) ─
 # Same class as #878/#913: these are fully-managed scaffold files, yet lint
 # CONFIGS a consumer legitimately customizes (repo-specific `ignore:` globs, rule
