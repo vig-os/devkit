@@ -41,12 +41,36 @@ After final `release.yml` has pushed tag `X.Y.Z` and created a **draft** GitHub 
 
 1. **Validate** — semver, draft release for `X.Y.Z`, release PR not draft / approved / CI green
 2. **Promote** — `gh release edit --draft=false`
-3. **Merge** — merge `release/X.Y.Z` → `main` (triggers `sync-main-to-dev` when configured)
+3. **Merge** — merge `release/X.Y.Z` → `main` (triggers `sync-main-to-dev` under the gitflow model — see [Workflow models](#workflow-models))
 4. **Cleanup** (best-effort, does not fail the workflow) — delete remote git tags matching `${VERSION}-rc*` that have **no** GitHub Release
 
 **Upstream (`vig-os/devcontainer`) only:** Root `promote-release.yml` also prunes GHCR RC package versions via the org Packages API using **`GITHUB_TOKEN`** with **repo Admin** on the `devcontainer` package (one-time **Manage Actions access** grant). See [GitHub App Configuration](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#github-app-configuration) and [Registry and cleanup tokens](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#registry-and-cleanup-tokens-upstream) in `docs/RELEASE_CYCLE.md`.
 
 This template does **not** implement upstream-only steps (GHCR `:latest`, cosign, cross-repo smoke-test gate). Projects that need registry or deploy promotion after merge should run separate automation or extend their `release-extension.yml` / own workflows; see [Extension Hook](#extension-hook).
+
+## Workflow models
+
+The whole release flow above is the same under either **workflow model** a
+consumer selects with `DEVKIT_WORKFLOW` in `.vig-os` (`gitflow`, the default, or
+`trunk` — [#1205](https://github.com/vig-os/devkit/issues/1205)): `release/X.Y.Z`
+is still cut, driven through the RC train, finalized, and merged. The models
+differ only in the base the release branch forks from and merges back to, which
+is settled entirely at scaffold time (an anchored `dev -> main` render — see
+[`docs/rfcs/ADR-workflow-model.md`](https://github.com/vig-os/devkit/blob/main/docs/rfcs/ADR-workflow-model.md)).
+One release step is model-dependent:
+
+- **`sync-main-to-dev.yml` runs only under `gitflow`.** The gitflow model keeps a
+  long-lived `dev` integration branch, so a push to `main` (including a release
+  merge) opens a PR syncing `main` back into `dev`. The `trunk` model has no
+  `dev` branch — `feature`/`bugfix`/`chore` branches merge straight to `main` and
+  `release/X.Y.Z` merges back into `main` — so `sync-main-to-dev.yml` is never
+  scaffolded (copy-excluded, and pruned on a gitflow → trunk upgrade). The
+  promote-time back-merge referenced above is therefore a no-op under `trunk`.
+
+Consumer-facing opt-in, the destructive-switch preflight, and the orphan `dev`
+cleanup caveat are documented in
+[`docs/MIGRATION.md`](https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md#workflow-models); the branching topology in
+[`docs/RELEASE_CYCLE.md`](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#workflow-models).
 
 ## Workflow Interface
 

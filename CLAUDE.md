@@ -93,6 +93,8 @@ Types: `feature` | `bugfix` | `release`
 
 Use `gh issue develop` to create and link branches. Always confirm branch name with user before creating.
 
+The base/merge-target branch depends on the repo's workflow model (`DEVKIT_WORKFLOW` in `.vig-os`): `gitflow` (default) bases topic branches on `dev`; `trunk` bases them on `main`. This repo runs `gitflow`. See `docs/RELEASE_CYCLE.md` (Workflow models) and `docs/MIGRATION.md`.
+
 ### Single Source of Truth
 
 Every piece of knowledge lives in exactly one place. Reference it everywhere else. Don't copy -- link. Applies to docs, config, infra, rules, and comments.

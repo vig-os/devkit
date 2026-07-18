@@ -38,6 +38,13 @@ Manual Setup) without `--mode` to be prompted, where the default selection is
 also `both`. `devcontainer` scaffolds `.devcontainer/` only; `direnv` scaffolds
 `flake.nix` + `.envrc` only; `both` scaffolds everything.
 
+**Workflow model.** Independently of the delivery mode, `--workflow gitflow|trunk`
+selects the branching model (persisted as `DEVKIT_WORKFLOW` in `.vig-os`, default
+`gitflow`): `gitflow` keeps a long-lived `dev` branch with `sync-main-to-dev`,
+while `trunk` merges topic branches straight to `main` (releases still fork
+`release/X.Y.Z`, from `main`, and merge back). See
+[`docs/MIGRATION.md`](docs/MIGRATION.md#workflow-models).
+
 **Options:**
 
 ```bash

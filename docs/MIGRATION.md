@@ -162,6 +162,58 @@ belongs in a CI environment. Recipes should still avoid depending on env a
 `shellHook` sets **only for interactive convenience** — CI parity is best-effort
 for build machinery, but genuine `shellHook` exports are now forwarded.
 
+## Workflow models
+
+`install.sh … --workflow <gitflow|trunk>` selects a consumer's **branching
+model** ([#1205](https://github.com/vig-os/devkit/issues/1205)), independently of
+the delivery mode above. Empty/absent resolves to the `gitflow` default:
+
+- **`gitflow`** (default) — a long-lived `dev` integration branch alongside
+  `main`. `feature`/`bugfix` branches merge to `dev`, `release/X.Y.Z` is cut from
+  `dev`, finalize merges to `main` + tags, and `sync-main-to-dev.yml` back-merges
+  `main` into `dev`. This is the model existing consumers already run; nothing
+  changes for them.
+- **`trunk`** — no `dev` branch and no `sync-main-to-dev.yml`.
+  `feature`/`bugfix`/`chore` branches merge straight to `main`. Releases are
+  unchanged in every other respect: `release/X.Y.Z` is cut **from `main`**, run
+  through the same RC/vulnix-gate/promote train, and **merged back into `main`**
+  and tagged.
+
+The model is realized entirely at scaffold time — an anchored `dev -> main` render
+of the scaffolded workflows (`prepare-release`, `ci`, `codeql`, `sync-issues`),
+the branch-naming skill, and the pre-commit branch guard, plus a
+`sync-main-to-dev.yml` copy-exclude — mirroring how `DEVKIT_MODE` is applied and
+with no runtime workflow logic (see
+[`docs/rfcs/ADR-workflow-model.md`](rfcs/ADR-workflow-model.md) for the design and
+[`docs/RELEASE_CYCLE.md`](RELEASE_CYCLE.md#workflow-models) for the topology). On a
+fresh `trunk` install `init-workspace.sh` also skips creating the `dev` branch.
+
+The chosen model is persisted as `DEVKIT_WORKFLOW` in the `.vig-os` manifest
+(below) — **written back only for `trunk`**, so a `gitflow` `.vig-os` is
+byte-for-byte unchanged — and upgrades never need `--workflow` again.
+
+### Switching the workflow model
+
+Like mode switching, **switching the workflow model never happens implicitly**,
+and it is **destructive** in a way a mode switch is not: the scaffold renders
+files, but it cannot reshape a repository's branch topology. An explicit
+`--workflow` that contradicts the persisted `DEVKIT_WORKFLOW` **refuses** — inspect
+the would-be change with `--preview` first, then, if you really mean it, set
+`DEVKIT_WORKFLOW` in `.vig-os` yourself on a dedicated, clean upgrade branch (the
+[preflight-guard flow](#upgrade-preflight-guard-and-preview)) and re-run the
+upgrade.
+
+- **`gitflow` → `trunk`:** after the re-scaffold drops the `dev`-referencing
+  workflow content and prunes `sync-main-to-dev.yml`, the **remote `dev` branch is
+  orphaned** — the scaffold does not (and must not) delete branches. Once no open
+  work targets it, delete it manually: `git push origin --delete dev` (and
+  `git branch -D dev` locally). Re-point any default-branch or branch-protection
+  settings that named `dev` at `main`.
+- **`trunk` → `gitflow`:** the re-scaffold restores the `dev`-based workflows and
+  `sync-main-to-dev.yml`, but you must (re)create the `dev` branch yourself
+  (`git branch dev main && git push -u origin dev`) for the gitflow release flow
+  to work.
+
 ### Enable the dependency graph on new public consumers
 
 The scaffolded `ci.yml` also ships a **Dependency Review** gate that blocks PRs
@@ -231,6 +283,7 @@ unknown keys:
 |-----|---------|
 | `DEVCONTAINER_VERSION` | Scaffold/image version pin (managed by release automation; keeps its legacy name until the devkit rename, [#781](https://github.com/vig-os/devkit/issues/781)) |
 | `DEVKIT_MODE` | Delivery mode: `devcontainer` \| `direnv` \| `both` \| `bare` |
+| `DEVKIT_WORKFLOW` | Branching model: `gitflow` (default) \| `trunk`; written back only for `trunk` (see [Workflow models](#workflow-models), [#1205](https://github.com/vig-os/devkit/issues/1205)) |
 | `DEVKIT_PROJECT` | Persisted project short name (`SHORT_NAME`) |
 | `DEVKIT_ORG` | Persisted organization name (`ORG_NAME`) |
 | `DEVKIT_REPO` | Persisted GitHub `owner/repo` (Renovate preset) |

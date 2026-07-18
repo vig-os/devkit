@@ -48,6 +48,45 @@ graph LR
 - **dev**: Requires PR
 - **release/X.Y.Z**: Requires PR
 
+### Workflow models
+
+The branching strategy above is the **gitflow** model, and it is the default for
+this repository and every consumer scaffolded from `assets/workspace/`. Consumers
+can opt a repository into a **trunk** model instead, selected per project with the
+`DEVKIT_WORKFLOW` key in `.vig-os` (`--workflow gitflow|trunk` on
+`install.sh`/`init-workspace.sh`, [#1205](https://github.com/vig-os/devkit/issues/1205)). The two models differ **only** in
+the branch topology; the release/build/publish/promote choreography is identical.
+
+- **`gitflow` (default):** everything documented on this page — a long-lived
+  `dev` integration branch, `release/X.Y.Z` cut **from `dev`**, finalize merging
+  to `main` + tag, and `sync-main-to-dev.yml` back-merging `main` into `dev`.
+- **`trunk`:** `feature`/`bugfix`/`chore` branches merge straight to `main`;
+  there is no `dev` branch and no `sync-main-to-dev.yml`. Releases still run the
+  same RC train, but `release/X.Y.Z` is cut **from `main`** and **merged back
+  into `main`** at finalize:
+
+  ```mermaid
+  graph LR
+      main[main] -->|"fork"| release["release/X.Y.Z"]
+      release -->|"merge back"| main
+      main -->|"fork"| feature["feature/N-desc"]
+      feature -->|"merge"| main
+      main -->|"fork"| bugfix_main["bugfix/N-desc"]
+      bugfix_main -->|"merge"| main
+      release -->|"fork"| bugfix_rel["bugfix/N-desc"]
+      bugfix_rel -->|"merge"| release
+  ```
+
+The model is realized entirely at scaffold time (an anchored `dev -> main` render
+of the scaffolded workflows, branch-naming skill, and pre-commit branch guard,
+plus a `sync-main-to-dev.yml` copy-exclude), not by runtime workflow logic — see
+[`docs/rfcs/ADR-workflow-model.md`](rfcs/ADR-workflow-model.md). Consumer-facing
+opt-in and switching mechanics are documented in
+[`docs/MIGRATION.md`](MIGRATION.md#workflow-models); the downstream release
+implications in [`docs/DOWNSTREAM_RELEASE.md`](DOWNSTREAM_RELEASE.md). This
+repository itself runs `gitflow`, so the rest of this page describes the gitflow
+flow.
+
 ### Topic Branch Naming and Workflow
 
 Topic branches follow one of these patterns:
