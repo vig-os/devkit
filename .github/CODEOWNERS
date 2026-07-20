@@ -3,11 +3,10 @@
 #
 # Each line defines a file pattern and the GitHub users/teams required to review
 # changes to matching files. Later rules take precedence over earlier ones.
-
-# agent workflows
-.claude/skills/                 @gerchowl
-justfile.worktree               @gerchowl
-
+#
+# Scope is deliberately minimal (single active maintainer, #1219): only the key
+# control surfaces carry a code-owner gate; everything else goes through the
+# normal required-approval flow.
 
 # CI/CD workflows — require maintainer review for any workflow change
 .github/workflows/              @c-vigo
@@ -16,13 +15,6 @@ justfile.worktree               @gerchowl
 # Build and release scripts
 scripts/clean.sh                @c-vigo
 scripts/sync_manifest.py        @c-vigo
-
-# Developer tooling scripts
-packages/vig-utils/src/vig_utils/gh_issues.py                   @gerchowl
-packages/vig-utils/src/vig_utils/setup_labels.py                @gerchowl
-packages/vig-utils/src/vig_utils/shell/setup-labels.sh          @gerchowl
-packages/vig-utils/src/vig_utils/resolve_branch.py              @gerchowl
-packages/vig-utils/src/vig_utils/shell/resolve-branch.sh        @gerchowl
 
 # Dev environment setup
 scripts/init.sh                 @c-vigo
