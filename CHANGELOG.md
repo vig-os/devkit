@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renovate: update `github-backup` from `==0.64.0` to `==0.64.2`** ([#1213](https://github.com/vig-os/devkit/pull/1213))
+
 ### Deprecated
 
 ### Removed
