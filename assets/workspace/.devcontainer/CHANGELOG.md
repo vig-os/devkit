@@ -146,6 +146,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Detect host Nix probe scrubs the ambient `NIX_CONFIG`** ([#1216](https://github.com/vig-os/devkit/issues/1216))
+  - The direnv-mode "Detect host Nix" step captured `nix --version 2>&1` (#1198)
+    with the runner's ambient `NIX_CONFIG` still in effect. On a self-hosted
+    runner whose service environment carries a malformed `NIX_CONFIG` (observed
+    on exo-fleet's meatgrinder), nix rejects the config before printing the
+    version, so the detect log recorded a `syntax error in configuration` parse
+    error instead of the version string the diagnostic aims to capture. The probe
+    now runs `env -u NIX_CONFIG nix --version 2>&1`, keeping the `2>&1` fold for
+    other failure shapes, so the log shows the real version even when the
+    runner's environment is broken. Non-fatal before the fix (the "Configure host
+    Nix" step rewrites a clean `NIX_CONFIG`), diagnostic-only impact.
 - **uvx tools with native wheels load libstdc++ in direnv-mode CI** ([#1181](https://github.com/vig-os/devkit/issues/1181))
   - On a non-Python direnv-mode consumer the CI preamble keeps the Nix CPython
     on `PATH`, whose loader does not search `/usr/lib`, so a `uvx`-run tool's

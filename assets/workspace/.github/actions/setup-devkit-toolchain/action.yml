@@ -96,7 +96,10 @@ runs:
           echo "has-nix=true" >> "$GITHUB_OUTPUT"
           # Some multi-user host Nix wrappers print --version to stderr (#1198);
           # fold it into the capture so the log keeps the version, not empty ().
-          echo "Host Nix present: $(command -v nix) ($(nix --version 2>&1))"
+          # Scrub the ambient NIX_CONFIG (#1216): a self-hosted runner's service
+          # env may carry a malformed one that makes nix error on the config
+          # before printing the version, defeating the diagnostic.
+          echo "Host Nix present: $(command -v nix) ($(env -u NIX_CONFIG nix --version 2>&1))"
         else
           echo "has-nix=false" >> "$GITHUB_OUTPUT"
         fi

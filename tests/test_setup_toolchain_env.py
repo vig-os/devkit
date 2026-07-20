@@ -450,3 +450,81 @@ def test_detect_step_captures_version_from_stderr(tmp_path: Path) -> None:
         f"version missing from log line:\n{proc.stdout}"
     )
     assert "()" not in proc.stdout, f"empty version parens in log:\n{proc.stdout}"
+
+
+# ── Ambient NIX_CONFIG must not corrupt the version probe (#1216) ─────────────
+
+# A malformed ambient NIX_CONFIG as carried by a self-hosted runner's service
+# environment (exo-fleet's meatgrinder, exo-pet/exo-fleet#230): nix rejects it
+# before printing the version.
+MALFORMED_NIX_CONFIG = "experimental-features"
+NIX_CONFIG_PARSE_ERROR = (
+    "error: syntax error in configuration line "
+    "'experimental-features' in \"NIX_CONFIG\""
+)
+
+
+def _write_nix_config_sensitive_nix_stub(bin_dir: Path) -> None:
+    """A fake `nix` mimicking nix on exo-fleet's meatgrinder: a malformed ambient
+    `NIX_CONFIG` makes `--version` fail with a config parse error *before* the
+    version is printed, so a probe that inherits the ambient config captures the
+    error instead of the version. With `NIX_CONFIG` scrubbed it prints the
+    version normally (#1216).
+    """
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    stub = bin_dir / "nix"
+    stub.write_text(
+        "\n".join(
+            [
+                "#!/usr/bin/env bash",
+                'if [ "${1:-}" = "--version" ]; then',
+                '  if [ -n "${NIX_CONFIG:-}" ]; then',
+                f"    echo {_bash_squote(NIX_CONFIG_PARSE_ERROR)} >&2",
+                "    exit 1",
+                "  fi",
+                f"  echo {_bash_squote(HOST_NIX_VERSION)}",
+                "  exit 0",
+                "fi",
+                "exit 0",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    stub.chmod(0o755)
+
+
+def test_detect_step_probe_scrubs_ambient_nix_config(tmp_path: Path) -> None:
+    """A malformed ambient `NIX_CONFIG` (self-hosted runner service env) must not
+    corrupt the version probe: the detect log must show the real version, not the
+    config parse error the ambient value provokes.
+
+    Refs: #1216
+    """
+    step = _step_by_name(DETECT_STEP_NAME)
+
+    bin_dir = tmp_path / "stub-bin"
+    _write_nix_config_sensitive_nix_stub(bin_dir)
+
+    github_output = tmp_path / "github_output"
+    github_output.touch()
+
+    proc = subprocess.run(
+        ["bash", "-c", step["run"]],
+        env={
+            **os.environ,
+            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "GITHUB_OUTPUT": str(github_output),
+            "NIX_CONFIG": MALFORMED_NIX_CONFIG,
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "Host Nix present:" in proc.stdout
+    assert HOST_NIX_VERSION in proc.stdout, (
+        f"version missing from log line:\n{proc.stdout}"
+    )
+    assert "syntax error in configuration" not in proc.stdout, (
+        f"ambient NIX_CONFIG parse error leaked into probe:\n{proc.stdout}"
+    )
