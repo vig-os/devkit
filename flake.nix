@@ -244,6 +244,13 @@
           extraPackages ? [ ],
           hooks ? null,
           hooksExcludes ? [ ],
+          # Workflow model (#1224): gitflow (default) | trunk. Tunes the
+          # flake-generated branch guard so a trunk consumer's
+          # no-commit-to-branch pattern drops the `(?!dev$)` clause, mirroring
+          # what render_workflow_model does to the scaffolded config. The
+          # scaffold template reads this from the workspace `.vig-os`
+          # DEVKIT_WORKFLOW and forwards it here. Inert for gitflow.
+          workflow ? "gitflow",
           shellHook ? ''echo "devcontainer dev environment loaded (nix)"'',
           # Overridable CPython (#1038). Defaults to the pinned 3.14 so the
           # zero-argument shell is byte-identical to the pre-#1038 builder
@@ -342,7 +349,7 @@
           # tests/test_flake_devshell.py, tests/test_flake_hooks.py).
           # ------------------------------------------------------------------
           hooksEnabled = hooks != null || hooksExcludes != [ ];
-          consumerHooksBase = hooksModule.consumer pkgs;
+          consumerHooksBase = hooksModule.consumer pkgs workflow;
           # Base values at priority 999: they beat git-hooks.nix's own
           # built-in hook defaults (mkDefault, 1000 — equal priorities would
           # conflict, e.g. the built-in nixfmt entry vs the base one) and
@@ -528,6 +535,10 @@
             export PATH="${python}/bin:$PATH"
           '';
         in
+        assert pkgs.lib.assertMsg (builtins.elem workflow [
+          "gitflow"
+          "trunk"
+        ]) "mkProjectShell: workflow must be \"gitflow\" or \"trunk\", got \"${workflow}\"";
         pkgs.mkShell (
           # Module env first: the builder's attrset below wins any collision,
           # so a capability module can never break the Python bootstrap pins
