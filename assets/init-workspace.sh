@@ -1048,22 +1048,35 @@ render_workflow_model() {
     fi
 
     # ci.yml — drop `- dev` from the PR branch filter; retarget the commit-gate
-    # TRUNK anchor used to exclude already-merged history on release PRs.
+    # TRUNK anchor used to exclude already-merged history on release PRs. Also
+    # scrub the inert prose: the trigger-header comment and the origin/dev
+    # commit-gate rationale so a trunk repo carries no lying `dev` comments
+    # (#1226; no behavior change — comments only).
     local ci="$wf/ci.yml"
     if [[ -f "$ci" ]]; then
         sed -i '/^      - dev$/d' "$ci"
         sed -i 's|TRUNK="dev"|TRUNK="main"|' "$ci"
+        sed -i 's|Pull requests to dev, release/\*\*, and main|Pull requests to release/** and main|' "$ci"
+        sed -i 's|origin/dev — a no-op on a dev PR|origin/main — a no-op on a main PR|' "$ci"
+        sed -i 's|(its base IS dev)|(its base IS main)|' "$ci"
     fi
 
-    # codeql.yml — drop `- dev` from the PR branch filter (push is main-only).
-    [[ -f "$wf/codeql.yml" ]] && sed -i '/^      - dev$/d' "$wf/codeql.yml"
+    # codeql.yml — drop `- dev` from the PR branch filter (push is main-only)
+    # and scrub the trigger-header comment prose dev -> main (#1226).
+    local cq="$wf/codeql.yml"
+    if [[ -f "$cq" ]]; then
+        sed -i '/^      - dev$/d' "$cq"
+        sed -i 's|Pull requests to dev, release/\*\*, and main|Pull requests to release/** and main|' "$cq"
+    fi
 
-    # sync-issues.yml — default target branch + `|| 'dev'` fallbacks dev -> main
-    # (the illustrative `e.g., dev, …` description text is left alone).
+    # sync-issues.yml — default target branch + `|| 'dev'` fallbacks dev -> main,
+    # plus the illustrative `e.g., dev, …` description text so no stray `dev`
+    # prose survives (#1226).
     local si="$wf/sync-issues.yml"
     if [[ -f "$si" ]]; then
         sed -i -E "s|^([[:space:]]*default:) 'dev'\$|\1 'main'|" "$si"
         sed -i "s#|| 'dev'#|| 'main'#g" "$si"
+        sed -i 's|e.g., dev, release/x.y.z|e.g., main, release/x.y.z|' "$si"
     fi
 
     # branch-naming SKILL.md — base-branch default dev -> main. (Single-quoted

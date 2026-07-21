@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Trunk render scrubs residual `dev` prose from scaffolded workflows** ([#1226](https://github.com/vig-os/devkit/issues/1226))
+  - `render_workflow_model` now retargets the inert `dev` mentions in comments
+    and input descriptions as well as the functional literals, so a `trunk`
+    consumer no longer ships slightly-lying comments: the `ci.yml` and
+    `codeql.yml` trigger-header comments, the `origin/dev` commit-gate rationale
+    in `ci.yml`, and the `sync-issues.yml` `target-branch` example description
+    all read `main` instead of `dev`. Comments/descriptions only — no functional
+    change; gitflow is unaffected.
+
 ### Security
 
 ## [1.4.0](https://github.com/vig-os/devkit/releases/tag/1.4.0) - 2026-07-20
