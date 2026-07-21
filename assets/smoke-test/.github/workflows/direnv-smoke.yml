@@ -1,0 +1,234 @@
+name: Direnv Smoke
+
+# Direnv-mode smoke lane (Refs: vig-os/devkit#1194)
+#
+# The container-mode deploy PR (repository-dispatch.yml -> ci.yml) never runs
+# setup-devkit-toolchain's `if: inputs.mode == 'direnv'` branch, so two 1.4.0
+# blocking bugs escaped the pre-consumer gate: vig-os/devkit#1189 (the flake
+# shellHook banner corrupts GITHUB_ENV) and vig-os/devkit#1192 (install-nix-action
+# aborts on a runner with Nix already installed). This lane scaffolds a throwaway
+# `--mode direnv` workspace on a hosted runner and drives the direnv toolchain
+# path end to end (Detect host Nix -> install/configure Nix -> build dev-shell ->
+# forward shellHook env), so those code paths execute on every run.
+#
+# Why a fresh directory: install.sh refuses `--mode direnv` inside THIS repo
+# because its `.vig-os` pins `DEVKIT_MODE=both` (a mode contradiction is a hard
+# error). So the workspace is scaffolded into an empty `${GITHUB_WORKSPACE}` (no
+# checkout in the smoke job), where no `.vig-os` exists to contradict. The
+# scaffolded `.github/actions/setup-devkit-toolchain` composite is then invoked
+# from that root exactly as the managed ci.yml invokes it — same call site, same
+# inputs — so the lane validates the real shipped action, not a copy.
+#
+# Two legs force BOTH host-Nix branches of the composite:
+#   - fresh-install : no Nix on the runner  -> the install-nix-action branch runs
+#   - preinstalled  : Nix put on PATH first  -> "Detect host Nix" sees it and the
+#                     "Configure host Nix" branch runs. That is the self-hosted
+#                     DEVKIT_CI_RUNNER + preinstalled-Nix path that hit #1192,
+#                     faked here on a hosted runner so a public gate can cover it.
+#
+# NOTE (persistence): the smoke repo tree is fully regenerated on every
+# `--smoke-test` deploy (init-workspace.sh does `rsync --delete` from the devkit
+# template, then overlays `assets/smoke-test/`). A workflow that lives only here
+# is therefore wiped on the next deploy and is NOT present on the deploy PR head.
+# For this lane to persist and run on release-validation deploy PRs it must be
+# promoted into devkit `assets/smoke-test/.github/workflows/`. See the PR body.
+
+on:  # yamllint disable-line rule:truthy
+  pull_request:
+    branches:
+      - dev
+      - 'release/**'
+      - main
+  workflow_dispatch:
+    inputs:
+      devkit-version:
+        description: 'Devkit tag under test (default: DEVKIT_VERSION from .vig-os)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  resolve-version:
+    name: Resolve devkit version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - name: Checkout repository (.vig-os only)
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          persist-credentials: false
+          sparse-checkout: .vig-os
+          sparse-checkout-cone-mode: false
+
+      - name: Resolve devkit version under test
+        id: resolve
+        env:
+          INPUT_VERSION: ${{ inputs.devkit-version }}
+        run: |
+          set -euo pipefail
+          # workflow_dispatch override wins; otherwise read DEVKIT_VERSION (or the
+          # legacy DEVCONTAINER_VERSION) from .vig-os, mirroring resolve-toolchain.
+          VERSION="${INPUT_VERSION:-}"
+          LEGACY=""
+          if [ -z "${VERSION}" ] && [ -f .vig-os ]; then
+            while IFS= read -r line || [ -n "${line:-}" ]; do
+              case "$line" in
+                DEVKIT_VERSION=*) VERSION="${line#*=}" ;;
+                DEVCONTAINER_VERSION=*) LEGACY="${line#*=}" ;;
+              esac
+            done < .vig-os
+            VERSION="${VERSION:-${LEGACY}}"
+          fi
+          # Strip surrounding whitespace and quotes.
+          VERSION="${VERSION#"${VERSION%%[![:space:]]*}"}"
+          VERSION="${VERSION%"${VERSION##*[![:space:]]}"}"
+          VERSION="${VERSION%\"}"; VERSION="${VERSION#\"}"
+          VERSION="${VERSION%\'}"; VERSION="${VERSION#\'}"
+          if ! printf '%s' "${VERSION}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-rc[0-9]+)?$'; then
+            echo "::error::Could not resolve a valid devkit version (got '${VERSION}'). Expected X.Y.Z or X.Y.Z-rcN."
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "Devkit version under test: ${VERSION}"
+
+  direnv-smoke:
+    name: Direnv smoke (${{ matrix.leg }})
+    needs: [resolve-version]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # fresh-install -> install-nix-action branch; preinstalled -> the
+        # Detect/Configure host-Nix branch (#1192).
+        leg: [fresh-install, preinstalled]
+    env:
+      DEVKIT_VERSION: ${{ needs.resolve-version.outputs.version }}
+    steps:
+      - name: Configure git identity for scaffold commit
+        run: |
+          set -euo pipefail
+          # The installer runs `git init` + an initial commit when it scaffolds an
+          # empty target; a hosted runner has no default git identity, so set one.
+          git config --global user.name "vigos-smoke-test"
+          git config --global user.email "smoke-test@vig-os.invalid"
+          git config --global commit.gpgsign false
+          git config --global init.defaultBranch main
+
+      # preinstalled leg only: put Nix on PATH BEFORE the toolchain composite runs
+      # so its "Detect host Nix" step sees it and takes the "Configure host Nix"
+      # branch instead of installing — the #1192 code path, faked on a hosted
+      # runner. The fresh-install leg skips this, leaving the composite to install.
+      - name: Fake a preinstalled-Nix runner
+        if: matrix.leg == 'preinstalled'
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342  # v31.11.0
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: Scaffold a throwaway direnv workspace
+        env:
+          TAG: ${{ needs.resolve-version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Scaffold into the (empty) workspace root so the scaffolded composite at
+          # ./.github/actions/setup-devkit-toolchain is invocable below and its
+          # `nix develop` builds THIS scaffolded flake. `--mode direnv` is accepted
+          # because the fresh target has no .vig-os to contradict.
+          INSTALL_URL="https://raw.githubusercontent.com/vig-os/devkit/${TAG}/install.sh"
+          ATTEMPT=1
+          MAX_ATTEMPTS=3
+          until [ "${ATTEMPT}" -gt "${MAX_ATTEMPTS}" ]; do
+            if curl -sSf "${INSTALL_URL}" | bash -s -- --version "${TAG}" --mode direnv --smoke-test --force --docker .; then
+              break
+            fi
+            if [ "${ATTEMPT}" -eq "${MAX_ATTEMPTS}" ]; then
+              echo "ERROR: failed to download/install after ${MAX_ATTEMPTS} attempts: ${INSTALL_URL}"
+              exit 1
+            fi
+            echo "Install attempt ${ATTEMPT}/${MAX_ATTEMPTS} failed; retrying in 5s..."
+            ATTEMPT=$((ATTEMPT + 1))
+            sleep 5
+          done
+
+          # The docker scaffold writes bind-mounted files as root, so the whole
+          # tree is root-owned on a hosted runner. Repair ownership unconditionally
+          # (not just readability): `nix develop` must WRITE flake.lock, which a
+          # root-owned file/dir refuses ("Permission denied").
+          sudo chown -R "$(id -u):$(id -g)" .
+
+          # install.sh's own host-side git setup runs BEFORE this ownership
+          # repair and fails on the still-root-owned tree (".git: Permission
+          # denied") — its git phase warns rather than aborts. Initialize the
+          # repo here instead: `prek run --all-files` needs a git work tree
+          # with tracked files.
+          if [ ! -d .git ]; then
+            git init -b main
+            git add -A
+            git commit -m "chore: initial project scaffold"
+          fi
+
+          # Sanity: the direnv scaffold must ship the composite action and a
+          # repo-root flake for the dev-shell build.
+          test -f .github/actions/setup-devkit-toolchain/action.yml
+          test -f flake.nix
+          # A direnv scaffold owns no .devcontainer/ (host mode); assert it.
+          if [ -d .devcontainer ]; then
+            echo "ERROR: direnv scaffold unexpectedly contains .devcontainer/"
+            exit 1
+          fi
+
+      # The real shipped composite — same call site and inputs as the managed
+      # ci.yml. This is where #1189 (shellHook -> GITHUB_ENV forward) and #1192
+      # (host-Nix detect/configure) live.
+      - name: Set up devkit toolchain (direnv)
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: direnv
+          devkit-version: ${{ needs.resolve-version.outputs.version }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      # First step AFTER the composite: if #1189 corrupted GITHUB_ENV this step
+      # would fail to start. It also proves the dev-shell PATH was exported.
+      - name: Verify dev-shell toolchain on PATH
+        run: |
+          set -euo pipefail
+          echo "just:  $(command -v just)"
+          echo "prek:  $(command -v prek)"
+          just --version
+          prek --version
+
+      # The managed lint path (mirrors ci.yml's lint job): both run off the
+      # forwarded dev-shell PATH/env, exercising the direnv toolchain on real
+      # scaffolded files. `sync`/`test` are pyproject-guarded no-ops when the
+      # scaffold ships no Python project, so this lane asserts on `sync` +
+      # `precommit` (always meaningful) rather than a possibly-empty test run.
+      - name: Sync project dependencies
+        run: just sync
+
+      - name: Run pre-commit hooks
+        run: just precommit
+
+  summary:
+    name: Direnv Smoke Summary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    needs: [resolve-version, direnv-smoke]
+    if: always()
+    steps:
+      - name: Check results
+        run: |
+          set -euo pipefail
+          echo "Resolve version: ${{ needs.resolve-version.result }}"
+          echo "Direnv smoke:    ${{ needs.direnv-smoke.result }}"
+          if [ "${{ needs.resolve-version.result }}" != "success" ] || \
+             [ "${{ needs.direnv-smoke.result }}" != "success" ]; then
+            echo "ERROR: direnv smoke lane failed"
+            exit 1
+          fi
+          echo "Direnv smoke lane passed (both legs)."
