@@ -49,6 +49,25 @@
         extraPackages = pkgs: [
           # add project tools here
         ];
+
+        # Workflow model (#1224): read DEVKIT_WORKFLOW from .vig-os and forward
+        # it to mkProjectShell so the flake-generated pre-commit branch guard
+        # follows the model — a `trunk` workspace drops the dev-branch clause,
+        # mirroring the scaffolded .pre-commit-config.yaml. `gitflow` (the
+        # default) and an absent/blank value are inert. Managed line; leave it.
+        workflow =
+          let
+            vigOsPath = self + "/.vig-os";
+            declared = builtins.filter (l: nixpkgs.lib.hasPrefix "DEVKIT_WORKFLOW=" l) (
+              nixpkgs.lib.splitString "\n" (builtins.readFile vigOsPath)
+            );
+            value =
+              if declared == [ ] then
+                ""
+              else
+                nixpkgs.lib.removePrefix "DEVKIT_WORKFLOW=" (builtins.head declared);
+          in
+          if builtins.pathExists vigOsPath && value == "trunk" then "trunk" else "gitflow";
       in
       {
         # The dev shell = the shared vigOS toolchain + your extras.
@@ -56,6 +75,8 @@
         devShells.default = vigos.lib.mkProjectShell {
           inherit pkgs;
           extraPackages = extraPackages pkgs;
+          # Branch guard follows the workspace workflow model (#1224).
+          inherit workflow;
 
           # Opt-in: let the flake GENERATE .pre-commit-config.yaml from the
           # shared base hook set instead of hand-managing the scaffolded

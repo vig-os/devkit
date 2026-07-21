@@ -27,7 +27,22 @@ let
   # Topic-branch naming convention enforced by no-commit-to-branch:
   # chore/<summary>, <type>/<issue>-<summary>, worktree/<issue>; main and dev
   # are allowed (pushing there is blocked server-side, not here).
-  branchNamePattern = "^(?!main$)(?!dev$)(?!^(chore)/[a-z0-9]+(-[a-z0-9]+)*$)(?!^(feature|bugfix|hotfix|release|docs|test|refactor)/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$)(?!^worktree/[0-9]+$).+$";
+  #
+  # Workflow-model aware (#1224): the `(?!dev$)` clause protects the long-lived
+  # gitflow `dev` branch, which a trunk workspace does not have — so the trunk
+  # pattern drops it, mirroring EXACTLY the `s|(?!dev$)||` deletion
+  # `render_workflow_model` (assets/init-workspace.sh) applies to the scaffolded
+  # `.pre-commit-config.yaml`. The committed runner/scaffold YAML stays gitflow
+  # (its trunk render is the scaffold path's job); only the flake-generated
+  # consumer surface follows `workflow`.
+  branchNamePatternFor =
+    workflow:
+    let
+      devClause = lib.optionalString (workflow != "trunk") "(?!dev$)";
+    in
+    "^(?!main$)${devClause}(?!^(chore)/[a-z0-9]+(-[a-z0-9]+)*$)(?!^(feature|bugfix|hotfix|release|docs|test|refactor)/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$)(?!^worktree/[0-9]+$).+$";
+  # The gitflow default, used by the committed runner/scaffold YAML renders.
+  branchNamePattern = branchNamePatternFor "gitflow";
 
   # Top-level exclude — one regex string in the committed YAML, a list for
   # git-hooks.nix (which joins with `|`). Same paths, two spellings.
@@ -804,9 +819,26 @@ in
   };
 
   # Base hook set for the consumer generation surface
-  # (`mkProjectShell { hooks = …; }`). ctx: pkgs.
-  consumer = pkgs: {
-    excludes = baseExcludes;
-    hooks = collectFor "consumer" "consumerName" pkgs;
-  };
+  # (`mkProjectShell { hooks = …; }`). ctx: pkgs; `workflow` (gitflow default |
+  # trunk) tunes the branch guard so a flake-hooks consumer's no-commit-to-branch
+  # pattern follows DEVKIT_WORKFLOW, mirroring the scaffold render (#1224). For
+  # gitflow the override is a no-op, so the generated config stays byte-identical
+  # to the pre-#1224 render (zero-hooks parity + consumer-surface tests).
+  consumer =
+    pkgs: workflow:
+    let
+      base = collectFor "consumer" "consumerName" pkgs;
+    in
+    {
+      excludes = baseExcludes;
+      hooks =
+        base
+        // lib.optionalAttrs (workflow == "trunk") {
+          no-commit-to-branch = base.no-commit-to-branch // {
+            settings = base.no-commit-to-branch.settings // {
+              pattern = [ (branchNamePatternFor "trunk") ];
+            };
+          };
+        };
+    };
 }

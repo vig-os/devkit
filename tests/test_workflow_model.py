@@ -226,6 +226,27 @@ def test_trunk_precommit_drops_dev_clause(tmp_path: Path) -> None:
     assert "(?!main$)" in text
 
 
+def test_trunk_flake_forwards_workflow_to_hooks(tmp_path: Path) -> None:
+    """The flake-hooks path follows the workflow model too (#1224).
+
+    The scaffolded ``.pre-commit-config.yaml`` is workflow-model-aware, but a
+    direnv consumer on flake-generated hooks (#1167) gets its branch guard from
+    ``mkProjectShell`` (the ``nix/hooks.nix`` consumer render), not that file.
+    So the scaffolded ``flake.nix`` reads ``DEVKIT_WORKFLOW`` from ``.vig-os``
+    and forwards it as ``mkProjectShell``'s ``workflow`` argument, which drops
+    the ``(?!dev$)`` clause for trunk — mirroring the scaffold render. Here we
+    assert the forwarding wiring is present and the manifest it reads declares
+    trunk; the flake-eval half (the generated guard actually loses the clause)
+    is covered by ``tests/test_flake_hooks.py::TestWorkflowModelBranchGuard``.
+    """
+    rendered = _tree(tmp_path, "trunk")
+    flake = (rendered / "flake.nix").read_text(encoding="utf-8")
+    assert "DEVKIT_WORKFLOW=" in flake, "flake.nix does not read the workflow model"
+    assert "inherit workflow;" in flake, "flake.nix does not forward `workflow`"
+    manifest = (rendered / ".vig-os").read_text(encoding="utf-8")
+    assert "DEVKIT_WORKFLOW=trunk" in manifest
+
+
 def test_anchoring_preserves_dev_prefixed_and_device_tokens(tmp_path: Path) -> None:
     """Anchoring must not touch /dev/null, dev_sha, or development/devkit tokens.
 

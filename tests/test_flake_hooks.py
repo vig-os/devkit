@@ -105,6 +105,16 @@ def _normalize(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _branch_guard(config: dict[str, Any]) -> str:
+    """The no-commit-to-branch entry (carries the ``--pattern`` regex).
+
+    git-hooks.nix renders the ``settings.pattern`` into the hook's ``entry``
+    (``… --pattern <regex>``), so the branch-guard regex is read straight off
+    the generated config's no-commit-to-branch entry.
+    """
+    return _normalize(config)["hooks"]["no-commit-to-branch"]["entry"]
+
+
 def _diff_hooks(rendered: dict[str, Any], committed: dict[str, Any]) -> str:
     """Human-readable normalized diff (empty string == no drift)."""
     lines: list[str] = []
@@ -402,6 +412,93 @@ class TestGitleaksOptInHook:
         assert "gitleaks git --pre-commit --staged --redact --verbose" in entry
         assert hooks["gitleaks"]["language"] == "system"
         assert hooks["gitleaks"]["pass_filenames"] is False
+
+
+@pytest.fixture(scope="module")
+def trunk_consumer_config() -> dict[str, Any]:
+    """Generated config for a trunk-workflow consumer (#1224).
+
+    A ``DEVKIT_WORKFLOW=trunk`` workspace has no long-lived ``dev`` branch, so
+    the flake-generated branch guard must drop the ``(?!dev$)`` clause — exactly
+    what ``render_workflow_model`` does to the scaffolded YAML. Mirrors the
+    ``consumer_config`` fixture but threads ``workflow = "trunk"``.
+    """
+    expr = f"""
+    let
+      flake = builtins.getFlake "path:{REPO_ROOT}";
+      system = builtins.currentSystem;
+      pkgs = import flake.inputs.nixpkgs {{ inherit system; }};
+      shell = flake.lib.mkProjectShell {{
+        inherit pkgs;
+        workflow = "trunk";
+        hooks = {{ }};
+      }};
+    in
+    shell.hooksConfigFile
+    """
+    result = _run_nix(
+        ["build", "--impure", "--no-link", "--print-out-paths", "--expr", expr],
+        timeout=1800,
+    )
+    assert result.returncode == 0, (
+        "building the trunk-workflow hook config failed:\n" + result.stderr
+    )
+    return yaml.safe_load(Path(result.stdout.strip()).read_text())
+
+
+class TestWorkflowModelBranchGuard:
+    """The flake-generated branch guard follows DEVKIT_WORKFLOW (#1224).
+
+    The scaffolded ``.pre-commit-config.yaml`` is workflow-model-aware
+    (``render_workflow_model`` drops the ``(?!dev$)`` clause for trunk), but a
+    direnv consumer on flake-generated hooks (#1167) gets its guard from
+    ``mkProjectShell``. Passing ``workflow`` makes that generated guard mirror
+    the scaffold render, so the two artifacts can no longer disagree.
+    """
+
+    def test_gitflow_consumer_guards_dev(self, consumer_config: dict[str, Any]) -> None:
+        """The default (gitflow) consumer keeps the dev-branch protect-clause."""
+        entry = _branch_guard(consumer_config)
+        assert "(?!main$)" in entry
+        assert "(?!dev$)" in entry
+
+    def test_trunk_consumer_drops_dev_clause(
+        self, trunk_consumer_config: dict[str, Any]
+    ) -> None:
+        """A trunk consumer drops the ``(?!dev$)`` clause; main stays protected."""
+        entry = _branch_guard(trunk_consumer_config)
+        assert "(?!main$)" in entry
+        assert "(?!dev$)" not in entry
+
+    def test_trunk_guard_mirrors_scaffold_trunk_render(
+        self, consumer_config: dict[str, Any], trunk_consumer_config: dict[str, Any]
+    ) -> None:
+        """Trunk guard == gitflow guard minus the ``(?!dev$)`` clause.
+
+        The exact parity ``render_workflow_model`` produces on the scaffolded
+        path (a lone ``s|(?!dev$)||`` deletion), proven here on the flake path.
+        """
+        gitflow = _branch_guard(consumer_config)
+        trunk = _branch_guard(trunk_consumer_config)
+        assert trunk == gitflow.replace("(?!dev$)", "")
+
+    def test_invalid_workflow_is_rejected(self) -> None:
+        """An unknown ``workflow`` value is refused loudly at eval time."""
+        expr = f"""
+        let
+          flake = builtins.getFlake "path:{REPO_ROOT}";
+          system = builtins.currentSystem;
+          pkgs = import flake.inputs.nixpkgs {{ inherit system; }};
+        in
+        (flake.lib.mkProjectShell {{
+          inherit pkgs;
+          workflow = "bogus";
+          hooks = {{ }};
+        }}).drvPath
+        """
+        result = _run_nix(["eval", "--impure", "--raw", "--expr", expr])
+        assert result.returncode != 0
+        assert "workflow" in result.stderr
 
 
 @pytest.fixture(scope="module")
