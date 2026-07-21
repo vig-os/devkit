@@ -2151,6 +2151,88 @@ _upgrade_no_flags() {
     assert_success
 }
 
+# ── sync-issues target/schedule knobs (#1228) ─────────────────────────────────
+# Two optional .vig-os keys, realized at scaffold time, steer sync-issues.yml.
+# DEVKIT_SYNC_TARGET overrides the commit target branch (a protected-main mirror,
+# #1227) and injects a branch-bootstrap step; DEVKIT_SYNC_SCHEDULE overrides the
+# schedule cron. Both are guarded loudly and persisted like DEVKIT_CI_RUNNER.
+
+@test "template .vig-os ships the sync-issues keys empty (#1228)" {
+    run grep -x 'DEVKIT_SYNC_TARGET=' "$TEMPLATE_DIR/.vig-os"
+    assert_success
+    run grep -x 'DEVKIT_SYNC_SCHEDULE=' "$TEMPLATE_DIR/.vig-os"
+    assert_success
+}
+
+@test "a custom DEVKIT_SYNC_TARGET renders the mirror branch + bootstrap step (#1228)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1228-target"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF "default: 'sync/issue-mirror'" "$ws/.github/workflows/sync-issues.yml"
+    assert_success
+    run grep -qF "Bootstrap sync target branch if absent" "$ws/.github/workflows/sync-issues.yml"
+    assert_success
+    # The custom target is written back so the next upgrade preserves it.
+    run grep -x 'DEVKIT_SYNC_TARGET=sync/issue-mirror' "$ws/.vig-os"
+    assert_success
+}
+
+@test "a custom DEVKIT_SYNC_SCHEDULE overrides the sync cron (#1228)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1228-schedule"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_SCHEDULE=.*#DEVKIT_SYNC_SCHEDULE=0 5 * * 0#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF "cron: '0 5 * * 0'" "$ws/.github/workflows/sync-issues.yml"
+    assert_success
+    run grep -qF "cron: '0 2 * * *'" "$ws/.github/workflows/sync-issues.yml"
+    assert_failure
+}
+
+@test "an invalid DEVKIT_SYNC_TARGET fails the scaffold loudly (#1228)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1228-bad-target"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=bad..name#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_failure
+    assert_output --partial "Invalid DEVKIT_SYNC_TARGET"
+}
+
+@test "a hostile DEVKIT_SYNC_TARGET (shell metacharacters) fails the scaffold loudly (#1228)" {
+    # git check-ref-format alone accepts quotes/$/backticks/;/|/# — values that
+    # would render invalid YAML or inject commands into the bootstrap step's
+    # double-quoted shell assignment at sync runtime (with the App token in
+    # scope). The allowlist guard must refuse them with the clean message.
+    ws="$BATS_TEST_TMPDIR/e2e-1228-hostile-target"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    # shellcheck disable=SC2016  # literal $(id) is the hostile payload, not an expansion
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=x$(id)y#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_failure
+    assert_output --partial "Invalid DEVKIT_SYNC_TARGET"
+}
+
+@test "an invalid DEVKIT_SYNC_SCHEDULE fails the scaffold loudly (#1228)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1228-bad-cron"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_SCHEDULE=.*#DEVKIT_SYNC_SCHEDULE=0 2 * *#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_failure
+    assert_output --partial "Invalid DEVKIT_SYNC_SCHEDULE"
+}
+
 # ── legacy mode inference (#885) ──────────────────────────────────────────────
 # Consumers scaffolded before the manifest carry a version-only .vig-os (or
 # none): an upgrade without --mode must infer the delivery mode from the tree

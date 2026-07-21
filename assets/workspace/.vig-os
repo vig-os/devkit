@@ -54,3 +54,18 @@ DEVKIT_FLOATING_TAGS=
 # resolve-toolchain's `runner-json` output; the resolve-toolchain and
 # dependency-review jobs always stay on the hosted default (#1173).
 DEVKIT_CI_RUNNER=
+
+# Branch the scaffolded sync-issues job commits to. Empty (default) resolves to
+# the workflow-model default — `dev` (gitflow) / `main` (trunk) — unchanged for
+# existing consumers. A repo whose `main` carries a require-PR ruleset (which
+# refuses the sync job's direct API push, #1227) sets a dedicated UNPROTECTED
+# mirror branch, e.g. `sync/issue-mirror`; the sync job bootstraps it from the
+# default branch head if absent. The mirror diverges permanently and is never
+# merged back — each sync run regenerates full state (#1228).
+DEVKIT_SYNC_TARGET=
+
+# Cron override for the sync-issues schedule trigger (5-field cron, validated at
+# scaffold time). Empty (default) => the daily `0 2 * * *`. e.g. `0 5 * * 0` runs
+# the sync weekly on Sundays. Realized at scaffold time because schedule triggers
+# cannot take inputs (#1228).
+DEVKIT_SYNC_SCHEDULE=

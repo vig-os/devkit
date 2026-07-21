@@ -313,6 +313,22 @@ write_manifest_value() {
     fi
 }
 
+# Validate a 5-field cron expression (minute hour day-of-month month
+# day-of-week). A loose per-field charset check — digits, `*`, ranges, steps,
+# and lists — that rejects the wrong field count and stray characters so a
+# malformed DEVKIT_SYNC_SCHEDULE fails loudly at scaffold time rather than
+# silently disabling the schedule in GitHub Actions (#1228).
+is_valid_cron() {
+    local expr="$1" field
+    local -a fields
+    read -ra fields <<< "$expr"
+    [[ ${#fields[@]} -eq 5 ]] || return 1
+    for field in "${fields[@]}"; do
+        [[ "$field" =~ ^[0-9A-Za-z*,/-]+$ ]] || return 1
+    done
+    return 0
+}
+
 MANIFEST_MODE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_MODE || true)"
 MANIFEST_PROJECT="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_PROJECT || true)"
 MANIFEST_ORG="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_ORG || true)"
@@ -322,6 +338,8 @@ MANIFEST_TAG_PREFIX="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TAG_PREFIX 
 MANIFEST_FLOATING_TAGS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FLOATING_TAGS || true)"
 MANIFEST_CI_RUNNER="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_CI_RUNNER || true)"
 MANIFEST_WORKFLOW="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_WORKFLOW || true)"
+MANIFEST_SYNC_TARGET="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_TARGET || true)"
+MANIFEST_SYNC_SCHEDULE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_SCHEDULE || true)"
 
 # The OWNER/REPO placeholder (written when no origin was resolvable) must not
 # mask a now-detectable git origin on a later upgrade.
@@ -379,6 +397,31 @@ if [[ -n "$WORKFLOW_MODEL" && -n "$MANIFEST_WORKFLOW" && "$WORKFLOW_MODEL" != "$
     echo "  2. Keep the persisted model by omitting --workflow, or" >&2
     echo "  3. Switch deliberately: set DEVKIT_WORKFLOW=$WORKFLOW_MODEL in .vig-os on a dedicated," >&2
     echo "     clean upgrade branch and re-run the upgrade." >&2
+    exit 1
+fi
+
+# sync-issues target branch (#1228): the value is spliced into single-quoted
+# YAML, sed replacement text, and the bootstrap step's double-quoted shell
+# assignment (executed at sync runtime with the App token in scope) — so the
+# LOAD-BEARING guard is a strict charset allowlist. git check-ref-format alone
+# is NOT enough: it accepts quotes, `$`, backticks, `;`, `|`, `#`, `&` … which
+# would render invalid YAML, crash the render seds, or inject commands. The
+# ref-format check is kept on top to also refuse git-illegal shapes the
+# allowlist admits (e.g. `bad..name`, a trailing `/` or `.lock`). Pure
+# `.vig-os` key (no CLI flag), so only format guards — no contradiction guard
+# as for --mode / --workflow.
+if [[ -n "$MANIFEST_SYNC_TARGET" ]]; then
+    if [[ ! "$MANIFEST_SYNC_TARGET" =~ ^[A-Za-z0-9._/-]+$ ]] \
+        || ! git check-ref-format "refs/heads/$MANIFEST_SYNC_TARGET" >/dev/null 2>&1; then
+        echo "Error: Invalid DEVKIT_SYNC_TARGET in $VIG_OS_MANIFEST: $MANIFEST_SYNC_TARGET (expected a valid git branch name using only [A-Za-z0-9._/-])" >&2
+        exit 1
+    fi
+fi
+
+# sync-issues schedule (#1228): validate the 5-field cron loudly — a bad cron
+# silently disables the schedule trigger in GitHub Actions.
+if [[ -n "$MANIFEST_SYNC_SCHEDULE" ]] && ! is_valid_cron "$MANIFEST_SYNC_SCHEDULE"; then
+    echo "Error: Invalid DEVKIT_SYNC_SCHEDULE in $VIG_OS_MANIFEST: $MANIFEST_SYNC_SCHEDULE (expected a 5-field cron expression, e.g. '0 2 * * *')" >&2
     exit 1
 fi
 
@@ -1102,6 +1145,67 @@ render_workflow_model() {
     echo "Rendered workflow model: trunk (anchored dev -> main retarget)"
 }
 
+# Render the sync-issues.yml knobs (#1228): the commit target branch
+# (DEVKIT_SYNC_TARGET) and the schedule cron (DEVKIT_SYNC_SCHEDULE). Runs AFTER
+# render_workflow_model, so a custom target overrides the workflow-model default
+# already in the file (dev for gitflow / main for trunk). Both are no-ops when
+# their manifest key is unset, so an unconfigured workspace stays byte-for-byte
+# unchanged. When a custom target is set — a protected-main mirror branch such as
+# sync/issue-mirror (#1227) — the job also gains a bootstrap step that creates the
+# branch from the default branch head if absent; the mirror diverges permanently
+# and is never merged back (each sync regenerates full state).
+render_sync_settings() {
+    local si="$WORKSPACE_DIR/.github/workflows/sync-issues.yml"
+    [[ -f "$si" ]] || return 0
+
+    # Schedule override: the file carries a single `- cron: '…'` line.
+    if [[ -n "$MANIFEST_SYNC_SCHEDULE" ]]; then
+        local cron_esc
+        cron_esc=$(printf '%s' "$MANIFEST_SYNC_SCHEDULE" | sed 's/[&\]/\\&/g')
+        sed -i -E "s|^([[:space:]]*- cron:) '[^']*'\$|\1 '${cron_esc}'|" "$si"
+    fi
+
+    # Target-branch override: replace the workflow-model default (dev/main,
+    # already rendered above) with the consumer's mirror branch, then inject the
+    # bootstrap step so the subsequent checkout of the (possibly absent) branch
+    # succeeds.
+    if [[ -n "$MANIFEST_SYNC_TARGET" ]]; then
+        local model_default="dev"
+        [[ "$WORKFLOW_MODEL" == "trunk" ]] && model_default="main"
+        local tgt_esc
+        tgt_esc=$(printf '%s' "$MANIFEST_SYNC_TARGET" | sed 's/[&/\]/\\&/g')
+        sed -i -E "s|^([[:space:]]*default:) '${model_default}'\$|\1 '${tgt_esc}'|" "$si"
+        sed -i "s#|| '${model_default}'#|| '${tgt_esc}'#g" "$si"
+
+        # Insert the bootstrap step right after the app-token step (its
+        # `private-key:` line is unique — the sync action uses `app-private-key:`),
+        # before the checkout. `sed r` appends the block file after the match.
+        local block
+        block="$(mktemp)"
+        cat > "$block" <<YAML
+
+      - name: Bootstrap sync target branch if absent
+        env:
+          GH_TOKEN: \${{ steps.generate-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          TARGET="\${{ github.event.inputs.target-branch || '${MANIFEST_SYNC_TARGET}' }}"
+          if gh api "repos/\${{ github.repository }}/git/ref/heads/\${TARGET}" >/dev/null 2>&1; then
+            echo "Sync target branch '\${TARGET}' already exists."
+          else
+            echo "Sync target branch '\${TARGET}' absent — creating it from the default branch head."
+            DEFAULT_BRANCH="\$(gh api "repos/\${{ github.repository }}" --jq .default_branch)"
+            SHA="\$(gh api "repos/\${{ github.repository }}/git/ref/heads/\${DEFAULT_BRANCH}" --jq .object.sha)"
+            gh api "repos/\${{ github.repository }}/git/refs" -f "ref=refs/heads/\${TARGET}" -f "sha=\${SHA}"
+          fi
+YAML
+        sed -i "/^          private-key: /r $block" "$si"
+        rm -f "$block"
+    fi
+
+    echo "Rendered sync-issues settings (target=${MANIFEST_SYNC_TARGET:-default}, schedule=${MANIFEST_SYNC_SCHEDULE:-default})"
+}
+
 # Warn if forcing (prompt user) - show which files would be overwritten
 if [[ "$FORCE" == "true" ]]; then
     echo ""
@@ -1653,6 +1757,9 @@ render_codeql_matrix
 # trunk workflow model (#1205): retarget the copied release workflows dev ->
 # main. A no-op for the gitflow default, so a gitflow scaffold is unchanged.
 render_workflow_model "$WORKFLOW_MODEL"
+# sync-issues knobs (#1228): override the target branch + schedule cron on top of
+# the workflow-model default. A no-op when both keys are unset.
+render_sync_settings
 
 # Persist the resolved manifest (#885). The scaffolded .vig-os is a managed
 # file (template-overwritten on upgrade), so the resolved delivery mode and
@@ -1692,6 +1799,16 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     # same conditional-writeback shape as DEVKIT_TAG_PREFIX above.
     if [[ "$WORKFLOW_MODEL" == "trunk" ]]; then
         write_manifest_value DEVKIT_WORKFLOW "$WORKFLOW_MODEL"
+    fi
+    # sync-issues knobs (#1228): bare in the template (DEVKIT_SYNC_TARGET= /
+    # DEVKIT_SYNC_SCHEDULE=), so a consumer's mirror branch + cron override are
+    # written back — else an upgrade silently resets the sync job onto the
+    # workflow-model default branch and the daily cron.
+    if [[ -n "$MANIFEST_SYNC_TARGET" ]]; then
+        write_manifest_value DEVKIT_SYNC_TARGET "$MANIFEST_SYNC_TARGET"
+    fi
+    if [[ -n "$MANIFEST_SYNC_SCHEDULE" ]]; then
+        write_manifest_value DEVKIT_SYNC_SCHEDULE "$MANIFEST_SYNC_SCHEDULE"
     fi
 fi
 

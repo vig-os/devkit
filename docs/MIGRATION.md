@@ -272,6 +272,64 @@ whose org **cannot run any hosted job at all** therefore still needs those two
 lanes handled separately (e.g. a repo-specific static render); this v1 keeps the
 managed workflow minimal and does not cover that case.
 
+### Point sync-issues at an unprotected mirror branch (protected `main`)
+
+The scaffolded `sync-issues.yml` commits its regenerated issue/PR archive with a
+**direct API push** to a target branch. That target is workflow-model-aware:
+`dev` under `gitflow` (whose ruleset admits the commit App) and `main` under
+`trunk`. On a `trunk` repo whose `main` carries a **require-PR ruleset** the
+direct push is *refused* — `Changes must be made through a pull request` — so the
+scheduled sync fails every run
+([#1227](https://github.com/vig-os/devkit/issues/1227), first seen on
+`vig-os/org-config`).
+
+**Do not add the commit App as a ruleset bypass actor on `main`.** It is the
+cheapest fix but was **rejected for security**: a bot that can write a protected
+`main` can change whatever that branch controls (for `org-config`, the *applied*
+organization configuration). Instead, set the optional `.vig-os` key
+`DEVKIT_SYNC_TARGET` to a dedicated **unprotected mirror branch**:
+
+```ini
+# .vig-os
+DEVKIT_SYNC_TARGET=sync/issue-mirror
+```
+
+The scaffolded job then **bootstraps** that branch from the default branch head
+if it is absent (so its first run creates it) and pushes the archive there,
+outside the `main` ruleset. The mirror branch **diverges permanently and is never
+merged back** — every sync run regenerates the full issue/PR state from the
+GitHub API, so the branch is a standalone, self-healing archive, not integration
+work. Absent => the workflow-model default (`dev`/`main`), unchanged for every
+existing consumer.
+
+A second optional key, `DEVKIT_SYNC_SCHEDULE`, overrides the schedule trigger's
+cron (validated as a 5-field cron at scaffold time; a protected-main mirror is
+often paired with a lighter cadence):
+
+```ini
+# .vig-os
+DEVKIT_SYNC_SCHEDULE=0 5 * * 0   # weekly, Sundays 05:00 UTC (default: 0 2 * * *)
+```
+
+Both keys are realized entirely at scaffold time — schedule triggers cannot take
+inputs — and persisted across re-scaffolds like the other manifest keys, so an
+upgrade preserves them with no flags. A malformed branch name or cron fails
+loudly during `init-workspace.sh` rather than rendering a broken workflow
+([#1228](https://github.com/vig-os/devkit/issues/1228)).
+
+**Provisioning a new `trunk` consumer with a protected `main`:** set
+`DEVKIT_SYNC_TARGET` to an unprotected mirror branch (above) — **not** a ruleset
+bypass for the commit App.
+
+**Deliberate exclusion — PR-based sync mode.** A variant where the sync job opens
+a short-lived pull request into `main` (instead of pushing to a mirror) was
+**evaluated and deferred** ([#1228](https://github.com/vig-os/devkit/issues/1228),
+[#1227](https://github.com/vig-os/devkit/issues/1227) option (b)): the toil is
+inherent against a review-requiring ruleset (a human approval per sync), its
+safety value depends on ruleset state the knob cannot observe, and it needs
+Renovate-class stale-PR machinery with zero live consumers asking for
+human-gated sync. Revisit only when a consumer actually requests it.
+
 ## The `.vig-os` project manifest
 
 Since [#885](https://github.com/vig-os/devkit/issues/885), `.vig-os` is
@@ -289,6 +347,8 @@ unknown keys:
 | `DEVKIT_REPO` | Persisted GitHub `owner/repo` (Renovate preset) |
 | `DEVKIT_MODULES` | Reserved: space-separated capability modules mirroring `mkProjectShell`'s `modules = [ … ]` ([#884](https://github.com/vig-os/devkit/issues/884)) |
 | `DEVKIT_CI_RUNNER` | Comma-separated runner label list for the scaffolded `ci.yml` toolchain jobs; empty (default) => the hosted `ubuntu-24.04` runner ([#1173](https://github.com/vig-os/devkit/issues/1173)) |
+| `DEVKIT_SYNC_TARGET` | Branch the scaffolded sync-issues job commits to; empty (default) => the workflow-model default (`dev`/`main`). A protected-`main` consumer sets an unprotected mirror branch, e.g. `sync/issue-mirror` (see [Point sync-issues at an unprotected mirror branch](#point-sync-issues-at-an-unprotected-mirror-branch-protected-main), [#1228](https://github.com/vig-os/devkit/issues/1228)) |
+| `DEVKIT_SYNC_SCHEDULE` | Cron override (5-field) for the sync-issues schedule trigger; empty (default) => the daily `0 2 * * *` ([#1228](https://github.com/vig-os/devkit/issues/1228)) |
 
 How it behaves:
 

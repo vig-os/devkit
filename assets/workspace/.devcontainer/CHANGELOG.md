@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`sync-issues` target-branch and schedule knobs** ([#1228](https://github.com/vig-os/devkit/issues/1228))
+  - New optional `.vig-os` key `DEVKIT_SYNC_TARGET` overrides the branch the
+    scaffolded sync-issues job commits to. Default stays workflow-model-aware
+    (`dev` gitflow / `main` trunk), so existing consumers are unchanged.
+  - A `trunk` repo whose `main` carries a require-PR ruleset (which refuses the
+    sync job's direct API push, [#1227](https://github.com/vig-os/devkit/issues/1227))
+    sets an unprotected mirror branch, e.g. `sync/issue-mirror`; the job
+    bootstraps it from the default branch head if absent. No ruleset bypass for
+    the commit App is added (rejected for security).
+  - New optional `.vig-os` key `DEVKIT_SYNC_SCHEDULE` overrides the sync schedule
+    trigger's cron (default `0 2 * * *`). Both keys are validated loudly at
+    scaffold time (git ref-format for the branch, a 5-field cron check) and
+    persisted across re-scaffolds.
+
 ### Changed
 
 ### Deprecated
