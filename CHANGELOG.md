@@ -17,6 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Flake-generated pre-commit branch guard follows the workflow model** ([#1224](https://github.com/vig-os/devkit/issues/1224))
+  - `render_workflow_model` drops the `(?!dev$)` clause from the scaffolded
+    `.pre-commit-config.yaml` for `DEVKIT_WORKFLOW=trunk`, but a direnv consumer
+    on flake-generated hooks (#1167) gets its branch guard from `mkProjectShell`,
+    which was not workflow-aware — after switching to trunk it kept
+    `^(?!main$)(?!dev$)…`, guarding a `dev` branch a trunk repo does not have.
+  - `mkProjectShell` now takes a `workflow` argument (gitflow default | trunk)
+    threaded into the `nix/hooks.nix` consumer render, which drops the
+    `(?!dev$)` clause for trunk — mirroring the scaffold render exactly. The
+    scaffolded `flake.nix` reads `DEVKIT_WORKFLOW` from `.vig-os` and forwards
+    it, so a trunk direnv consumer's generated guard follows the model out of
+    the box. gitflow is a no-op, leaving existing consumers unchanged.
+
 ### Security
 
 ## [1.4.0](https://github.com/vig-os/devkit/releases/tag/1.4.0) - 2026-07-20
