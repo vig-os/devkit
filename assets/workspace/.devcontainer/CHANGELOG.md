@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Scheduled security scan now covers `dev` as well as `main`** ([#1237](https://github.com/vig-os/devkit/issues/1237))
+  - `security-scan.yml` gains a `ref` matrix (`main`, `dev`) so the nightly
+    vulnix gate scans the `dev` image closure alongside the default-branch one.
+    A weekly `nixpkgs` bump or an expiring `.vulnixignore` exception on `dev` now
+    surfaces as an ordinary tracking issue days early, instead of first tripping
+    the gate mid-release-train. Each leg reuses the existing machinery unchanged
+    (`check-expirations`, `devkitImageEnv` closure build, vulnix via the
+    nvd-mirror, `vulnix-gate`, deduplicated tracking issue) through its checkout
+    `ref`, files a ref-distinct tracking issue so the lanes never collide on
+    dedup, and runs with `fail-fast: false` so one lane never cancels the other.
 - **`sync-issues` target-branch and schedule knobs** ([#1228](https://github.com/vig-os/devkit/issues/1228))
   - New optional `.vig-os` key `DEVKIT_SYNC_TARGET` overrides the branch the
     scaffolded sync-issues job commits to. Default stays workflow-model-aware
@@ -39,6 +49,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `ModuleNotFoundError` later. The builder now prepends any such env in the
     shellHook (the same PATH-order mechanism the `python` override uses), so the
     consumer's interpreter and its `site-packages` own `python3`/`python`.
+- **`nix-dev` discovery image no longer drifts stale on baked-content pushes** ([#1236](https://github.com/vig-os/devkit/issues/1236))
+  - The `nix-image.yml` `dev` push trigger only watched `flake.nix`,
+    `flake.lock`, and the workflow file, but the image bakes broader repo content
+    at build time (the `assets/` scaffold tree, `docs/MIGRATION.md`, the
+    `packages/vig-utils` console scripts, the `nix/home` environment, `scripts/`).
+    A `dev` push touching only baked content left the mutable `nix-dev` tag stale
+    with no rebuild. Dropped the fragile `paths:` allowlist so every push to
+    `dev` (or the epic branch) rebuilds, tests, and repushes the tag; Cachix/eval
+    caching keeps no-op rebuilds cheap.
 - **Trunk render scrubs residual `dev` prose from scaffolded workflows** ([#1226](https://github.com/vig-os/devkit/issues/1226))
   - `render_workflow_model` now retargets the inert `dev` mentions in comments
     and input descriptions as well as the functional literals, so a `trunk`
@@ -59,8 +78,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     scaffolded `flake.nix` reads `DEVKIT_WORKFLOW` from `.vig-os` and forwards
     it, so a trunk direnv consumer's generated guard follows the model out of
     the box. gitflow is a no-op, leaving existing consumers unchanged.
+- **`install.sh --docker` restores scaffold ownership before the git phase** ([#1235](https://github.com/vig-os/devkit/issues/1235))
+  - Under docker the scaffold container runs as root, so its bind-mounted output
+    landed root-owned on the host and the host-side git phase (`setup_git_repo`,
+    warn-not-fail by design) could not write to it — the installer "succeeded"
+    but left a root-owned, git-less tree that every docker caller had to repair
+    by hand. `install.sh` now reuses the image in a throwaway container to
+    `chown` the tree back to the invoking user before the git phase, so the git
+    setup succeeds normally. Rootless podman already maps container-root to the
+    invoking user, so the repair runs on the docker runtime only.
 
 ### Security
+
+- **Extend gawk 5.4.0 CVE exception expiry to 2026-08-18** ([#1240](https://github.com/vig-os/devkit/issues/1240))
+  - The `.vulnixignore` exception for the gawk 5.4.0 CERT-PL batch
+    (`CVE-2026-40467`/`-40468`/`-40469`/`-40553`, from [#1071](https://github.com/vig-os/devkit/issues/1071))
+    is extended from 2026-07-28 to 2026-08-18. The upstream fix (gawk 5.4.1) is
+    still only on nixpkgs `staging` and has not reached the pinned `nixos-26.05`
+    channel, so the planned rev-advance remains unavailable.
 
 ## [1.4.0](https://github.com/vig-os/devkit/releases/tag/1.4.0) - 2026-07-20
 

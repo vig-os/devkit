@@ -851,6 +851,28 @@ if [ -n "$PREVIEW" ]; then
     exit 0
 fi
 
+# ── Restore scaffold ownership (docker only) ──────────────────────────────────
+# Under docker the scaffold container runs as root, so its bind-mounted output
+# lands root-owned on the host and the host-side git phase below can't write to
+# it (#1235). The host user usually can't chown root-owned files back directly,
+# so reuse the same image in a throwaway container to chown the tree to the
+# invoking user. Rootless podman already maps container-root to that user, so
+# its output is correctly owned — only docker needs the repair. Warn-not-fail to
+# match the git phase's CI/fresh-machine-friendly posture.
+if [ "$RUNTIME" = "docker" ]; then
+    HOST_UID="$(id -u)"
+    HOST_GID="$(id -g)"
+    info "Restoring ownership of scaffolded files to ${HOST_UID}:${HOST_GID}..."
+    if ! "$RUNTIME" run --rm \
+        -v "$PROJECT_PATH:/workspace" \
+        "$IMAGE" \
+        chown -R "${HOST_UID}:${HOST_GID}" /workspace; then
+        warn "Could not restore ownership of $PROJECT_PATH (non-fatal)"
+        echo "  Scaffolded files may remain root-owned. Fix manually with:"
+        echo "    sudo chown -R ${HOST_UID}:${HOST_GID} $PROJECT_PATH"
+    fi
+fi
+
 # ── Post-initialization: host-side setup ──────────────────────────────────────
 
 echo ""

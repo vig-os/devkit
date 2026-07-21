@@ -860,3 +860,52 @@ _run_install_stubbed() {
     assert_output --partial "Open in VS Code"
     assert_output --partial "direnv allow"
 }
+
+# ── docker ownership repair before the git phase (#1235) ──────────────────────
+# Under docker the scaffold container runs as root, so the bind-mounted output
+# lands root-owned and the host-side git phase (setup_git_repo) can't write to
+# it — warn-not-fail by design, so the installer "succeeds" leaving a root-owned,
+# git-less tree. install.sh must chown the tree back to the invoking user via a
+# throwaway container BEFORE the git phase. Rootless podman maps container-root
+# to the invoking user, so it needs no repair. Exercised against a logging stub
+# runtime (records each invocation) so nothing is pulled or actually chowned.
+_run_install_logging_stub() {
+    local dir="$1" runtime="$2" log="$3"
+    local stub="$BATS_TEST_TMPDIR/stub-$runtime"
+    mkdir -p "$stub"
+    cat >"$stub/$runtime" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$log"
+exit 0
+STUB
+    chmod +x "$stub/$runtime"
+    _make_repo "$dir"
+    run env PATH="$stub:$PATH" bash "$INSTALL_SH" \
+        "--$runtime" --skip-pull --mode direnv "$dir" </dev/null
+}
+
+@test "docker path chowns scaffold output to the invoking user (#1235)" {
+    log="$BATS_TEST_TMPDIR/docker-repair.log"
+    _run_install_logging_stub "$BATS_TEST_TMPDIR/repair-docker" docker "$log"
+    assert_success
+    run grep -F "chown -R $(id -u):$(id -g) /workspace" "$log"
+    assert_success
+}
+
+@test "podman path runs no ownership-repair container (#1235)" {
+    log="$BATS_TEST_TMPDIR/podman-repair.log"
+    _run_install_logging_stub "$BATS_TEST_TMPDIR/repair-podman" podman "$log"
+    assert_success
+    run grep -F "chown -R" "$log"
+    assert_failure
+}
+
+@test "ownership repair is ordered before the git phase on the docker path (#1235)" {
+    # The chown container run must appear ahead of the setup_git_repo invocation
+    # in source, so the host-side git phase writes to a user-owned tree (#1235).
+    chown_line="$(grep -n 'chown -R' "$INSTALL_SH" | head -1 | cut -d: -f1)"
+    git_line="$(grep -n 'if ! setup_git_repo' "$INSTALL_SH" | head -1 | cut -d: -f1)"
+    [ -n "$chown_line" ]
+    [ -n "$git_line" ]
+    [ "$chown_line" -lt "$git_line" ]
+}
