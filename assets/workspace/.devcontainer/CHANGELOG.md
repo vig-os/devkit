@@ -41,6 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Trunk render scrubs `sync-main-to-dev` prose from `promote-release.yml`** ([#1233](https://github.com/vig-os/devkit/issues/1233))
+  - Follow-up to [#1226](https://github.com/vig-os/devkit/issues/1226) for a file
+    `render_workflow_model` did not touch: the `promote-release.yml` header step
+    list and the Summary echo each named `sync-main-to-dev`, a workflow that is
+    copy-excluded in `trunk`. The trunk render now drops both parentheticals, so
+    a `trunk` consumer no longer ships comments referencing a workflow absent
+    from its repo. Comments only — no functional change; gitflow is unaffected.
 - **`nix-dev` discovery image no longer drifts stale on baked-content pushes** ([#1236](https://github.com/vig-os/devkit/issues/1236))
   - The `nix-image.yml` `dev` push trigger only watched `flake.nix`,
     `flake.lock`, and the workflow file, but the image bakes broader repo content

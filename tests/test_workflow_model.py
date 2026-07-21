@@ -36,6 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # excluded here: render_codeql_matrix rewrites it in every mode).
 NO_PLACEHOLDER_RENDER_FILES = (
     ".github/workflows/prepare-release.yml",
+    ".github/workflows/promote-release.yml",
     ".github/workflows/ci.yml",
     ".github/workflows/sync-issues.yml",
     ".claude/skills/branch-naming/SKILL.md",
@@ -178,6 +179,18 @@ def test_trunk_prepare_release_has_no_dev_cruft(tmp_path: Path) -> None:
         and not any(a in line for a in allowed)
     ]
     assert not stray, "stray dev tokens:\n" + "\n".join(stray)
+
+
+def test_trunk_promote_release_has_no_sync_main_to_dev_prose(tmp_path: Path) -> None:
+    """promote-release.yml carries no `sync-main-to-dev` prose in trunk (#1233).
+
+    sync-main-to-dev.yml is copy-excluded in trunk, so the two parenthetical
+    comments naming it (the header step list + the Summary echo) must be
+    scrubbed — otherwise a trunk repo ships comments referencing a workflow it
+    does not have. Follow-up to #1226 for a file the render did not touch.
+    """
+    text = _wf(_tree(tmp_path, "trunk"), "promote-release.yml")
+    assert "sync-main-to-dev" not in text
 
 
 def test_trunk_ci_pr_filter_excludes_dev(tmp_path: Path) -> None:

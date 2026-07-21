@@ -1090,6 +1090,16 @@ render_workflow_model() {
         sed -i 's|# sync merge and can never be silently dropped.*Keep a Changelog$|# releases land directly on main. Keep a Changelog|' "$pr"
     fi
 
+    # promote-release.yml — no behavioral `dev` literals, but two comments name
+    # sync-main-to-dev, which is copy-excluded in trunk (EXCLUDE_ARGS). Drop the
+    # parentheticals so a trunk repo carries no prose referencing a workflow it
+    # does not have (#1233; comments only, no behavior change).
+    local prom="$wf/promote-release.yml"
+    if [[ -f "$prom" ]]; then
+        sed -i 's| (triggers sync-main-to-dev)||' "$prom"
+        sed -i 's| (sync-main-to-dev may run next)||' "$prom"
+    fi
+
     # ci.yml — drop `- dev` from the PR branch filter; retarget the commit-gate
     # TRUNK anchor used to exclude already-merged history on release PRs. Also
     # scrub the inert prose: the trigger-header comment and the origin/dev
