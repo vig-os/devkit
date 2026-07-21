@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.4.1] - TBD
+
+### Added
+
 - **Scheduled security scan now covers `dev` as well as `main`** ([#1237](https://github.com/vig-os/devkit/issues/1237))
   - `security-scan.yml` gains a `ref` matrix (`main`, `dev`) so the nightly
     vulnix gate scans the `dev` image closure alongside the default-branch one.
@@ -32,12 +46,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     trigger's cron (default `0 2 * * *`). Both keys are validated loudly at
     scaffold time (git ref-format for the branch, a 5-field cron check) and
     persisted across re-scaffolds.
-
-### Changed
-
-### Deprecated
-
-### Removed
 
 ### Fixed
 
