@@ -534,6 +534,25 @@
           pythonOverrideHook = pkgs.lib.optionalString (python != pkgs.python314) ''
             export PATH="${python}/bin:$PATH"
           '';
+
+          # A `pythonXX.withPackages` env passed via `extraPackages` — the
+          # documented, natural way to add Python libraries to the shell — must
+          # own `python3`/`python` on PATH so the consumer actually gets their
+          # libraries. A plain `packages` entry does not: `vig-utils` (a devTools
+          # entry, pinned to 3.14) propagates its interpreter onto PATH and
+          # shadows the consumer's env, so they silently get the bare pinned
+          # interpreter with none of their libraries — surfacing only later as
+          # `ModuleNotFoundError`. Like `pythonOverrideHook`, win by PATH order:
+          # prepend each such env in the shellHook, where it beats the propagated
+          # interpreter. Envs carry a `python` passthru; the bare interpreter and
+          # plain library packages do not, so that attribute identifies them.
+          # Placed before `pythonOverrideHook` in the shellHook so an explicit
+          # `python` override (the primary interpreter knob, #1038) still wins.
+          # Refs #1230.
+          extraPythonEnvs = pkgs.lib.filter (p: p ? python) extraPackages;
+          extraPythonHook = pkgs.lib.concatMapStrings (env: ''
+            export PATH="${env}/bin:$PATH"
+          '') extraPythonEnvs;
         in
         assert pkgs.lib.assertMsg (builtins.elem workflow [
           "gitflow"
@@ -570,6 +589,7 @@
               + "\n"
               + nvimIsolationHook
               + "\n"
+              + extraPythonHook
               + pythonOverrideHook
               + githooksPathHook
               + moduleShellHook
