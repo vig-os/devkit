@@ -54,6 +54,16 @@ on:  # yamllint disable-line rule:truthy
       - 'dev'
   workflow_dispatch:
 
+# Cancel a superseded in-flight build when a newer push lands on the same ref
+# (#1250): with no `paths:` filter, a release train's changelog-freeze push to
+# `dev` starts a build whose baked-CHANGELOG checksum mismatch is guaranteed
+# red until the manifest-sync push one minute later — let the sync build cancel
+# it instead of painting a red run every train. Per-ref grouping keeps distinct
+# refs (epic branch, dispatch on other refs) independent.
+concurrency:
+  group: nix-image-${{ github.ref }}
+  cancel-in-progress: true
+
 # Least-privilege default (Scorecard TokenPermissions): top-level is read-only;
 # each job escalates `packages: write` for itself where it pushes to GHCR.
 permissions:
