@@ -900,6 +900,19 @@ STUB
     assert_failure
 }
 
+@test "docker path skips the ownership repair on an already-user-owned tree (#1248)" {
+    # Rootless podman behind a docker CLI compat shim maps container-root to
+    # the invoking user, so the scaffold output is already correctly owned;
+    # running the repair chown inside such a container would flip the tree to
+    # an unmapped subuid (#1248). The logging stub scaffold writes nothing, so
+    # the fixture tree stays user-owned — the repair container must not run.
+    log="$BATS_TEST_TMPDIR/docker-skip.log"
+    _run_install_logging_stub "$BATS_TEST_TMPDIR/repair-skip" docker "$log"
+    assert_success
+    run grep -F "chown -R" "$log"
+    assert_failure
+}
+
 @test "ownership repair is ordered before the git phase on the docker path (#1235)" {
     # The chown container run must appear ahead of the setup_git_repo invocation
     # in source, so the host-side git phase writes to a user-owned tree (#1235).
