@@ -93,6 +93,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     scaffolded `flake.nix` reads `DEVKIT_WORKFLOW` from `.vig-os` and forwards
     it, so a trunk direnv consumer's generated guard follows the model out of
     the box. gitflow is a no-op, leaving existing consumers unchanged.
+  - The template forwards `workflow` only when the resolved builder accepts it
+    ([#1249](https://github.com/vig-os/devkit/issues/1249)): the `vigos` input
+    deliberately floats on the default branch, so a fresh scaffold can resolve
+    a devkit `main` that predates the argument — unconditional forwarding then
+    failed eval on first shell entry (`called with unexpected argument
+    'workflow'`). The call site now gates `inherit workflow;` behind a
+    `builtins.functionArgs … ? workflow` check, so older builders fall back to
+    their gitflow default instead of breaking the scaffold.
 - **`install.sh --docker` restores scaffold ownership before the git phase, keyed on the observed post-scaffold state** ([#1235](https://github.com/vig-os/devkit/issues/1235), [#1248](https://github.com/vig-os/devkit/issues/1248))
   - Under real docker the scaffold container runs as root, so its bind-mounted
     output landed root-owned on the host and the host-side git phase

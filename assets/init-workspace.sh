@@ -846,16 +846,16 @@ activate_flake_hooks_default() {
     local tmp="${flake}.hooks-default"
     awk '
         { print }
-        /^          extraPackages = extraPackages pkgs;$/ && !inserted {
+        /^            extraPackages = extraPackages pkgs;$/ && !inserted {
             print ""
-            print "          # Host-runner hooks (#1167): direnv CI runs on the bare host"
-            print "          # runner, so let the flake GENERATE .pre-commit-config.yaml from"
-            print "          # the shared base hook set, resolved entirely from the Nix store"
-            print "          # (incl. pymarkdown, now a flake system hook, #1170) rather than"
-            print "          # building the committed YAML remote pre-commit repo hook envs"
-            print "          # per runner. Customize like the opt-in block below; the generated"
-            print "          # config is a gitignored /nix/store symlink."
-            print "          hooks = { };"
+            print "            # Host-runner hooks (#1167): direnv CI runs on the bare host"
+            print "            # runner, so let the flake GENERATE .pre-commit-config.yaml from"
+            print "            # the shared base hook set, resolved entirely from the Nix store"
+            print "            # (incl. pymarkdown, now a flake system hook, #1170) rather than"
+            print "            # building the committed YAML remote pre-commit repo hook envs"
+            print "            # per runner. Customize like the opt-in block below; the generated"
+            print "            # config is a gitignored /nix/store symlink."
+            print "            hooks = { };"
             inserted = 1
         }
     ' "$flake" >"$tmp" && mv "$tmp" "$flake"

@@ -272,6 +272,28 @@ def test_trunk_flake_forwards_workflow_to_hooks(tmp_path: Path) -> None:
     assert "DEVKIT_WORKFLOW=trunk" in manifest
 
 
+def test_template_flake_guards_workflow_forwarding() -> None:
+    """#1249: forward ``workflow`` only when the resolved builder accepts it.
+
+    The template's ``vigos`` input deliberately floats on the default branch,
+    so a fresh scaffold may resolve a devkit whose ``mkProjectShell`` predates
+    the ``workflow`` argument — unconditional forwarding then fails eval on
+    first shell entry (``called with unexpected argument 'workflow'``). The
+    call site must gate ``inherit workflow;`` behind a
+    ``builtins.functionArgs … ? workflow`` check so older builders fall back
+    to their gitflow default instead of breaking the scaffold.
+    """
+    flake = (WORKSPACE / "flake.nix").read_text(encoding="utf-8")
+    assert "inherit workflow;" in flake, "flake.nix does not forward `workflow`"
+    assert "builtins.functionArgs vigos.lib.mkProjectShell ? workflow" in flake, (
+        "flake.nix forwards `workflow` unconditionally — the floating vigos "
+        "input may resolve a devkit that predates the argument (#1249)"
+    )
+    assert "optionalAttrs" in flake, (
+        "flake.nix must merge the guarded `workflow` via lib.optionalAttrs"
+    )
+
+
 def test_anchoring_preserves_dev_prefixed_and_device_tokens(tmp_path: Path) -> None:
     """Anchoring must not touch /dev/null, dev_sha, or development/devkit tokens.
 

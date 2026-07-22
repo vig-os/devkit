@@ -72,37 +72,44 @@
       {
         # The dev shell = the shared vigOS toolchain + your extras.
         # `direnv allow` (via .envrc) or `nix develop` enters it.
-        devShells.default = vigos.lib.mkProjectShell {
-          inherit pkgs;
-          extraPackages = extraPackages pkgs;
-          # Branch guard follows the workspace workflow model (#1224).
-          inherit workflow;
+        devShells.default = vigos.lib.mkProjectShell (
+          {
+            inherit pkgs;
+            extraPackages = extraPackages pkgs;
 
-          # Opt-in: let the flake GENERATE .pre-commit-config.yaml from the
-          # shared base hook set instead of hand-managing the scaffolded
-          # YAML — toggle base hooks, add per-hook/global excludes, or add
-          # fully custom hooks; hook updates then flow with `nix flake
-          # update vigos`, and your customization lives HERE (preserved).
-          # Contract + migration steps:
-          # https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md ("Customizing
-          # pre-commit hooks from the project flake"). Uncomment to opt in, then
-          # delete .pre-commit-config.yaml (the generated config refuses to
-          # overwrite an existing file). The generated store symlink is ignored
-          # automatically on (re)scaffold (#1092); add durable root ignores you
-          # own to .gitignore.project.
-          #
-          #   hooks = {
-          #     typos.enable = false;                    # toggle a base hook
-          #     detect-private-keys.excludes = [ "worker/src/index\\.ts" ];
-          #     my-data-check = {                        # fully custom hook
-          #       enable = true;
-          #       entry = "./scripts/check-dat.sh";
-          #       files = "\\.dat$";
-          #       language = "system";
-          #     };
-          #   };
-          #   hooksExcludes = [ "^data/stopping/" "\\.dat$" ]; # global excludes
-        };
+            # Opt-in: let the flake GENERATE .pre-commit-config.yaml from the
+            # shared base hook set instead of hand-managing the scaffolded
+            # YAML — toggle base hooks, add per-hook/global excludes, or add
+            # fully custom hooks; hook updates then flow with `nix flake
+            # update vigos`, and your customization lives HERE (preserved).
+            # Contract + migration steps:
+            # https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md ("Customizing
+            # pre-commit hooks from the project flake"). Uncomment to opt in, then
+            # delete .pre-commit-config.yaml (the generated config refuses to
+            # overwrite an existing file). The generated store symlink is ignored
+            # automatically on (re)scaffold (#1092); add durable root ignores you
+            # own to .gitignore.project.
+            #
+            #   hooks = {
+            #     typos.enable = false;                    # toggle a base hook
+            #     detect-private-keys.excludes = [ "worker/src/index\\.ts" ];
+            #     my-data-check = {                        # fully custom hook
+            #       enable = true;
+            #       entry = "./scripts/check-dat.sh";
+            #       files = "\\.dat$";
+            #       language = "system";
+            #     };
+            #   };
+            #   hooksExcludes = [ "^data/stopping/" "\\.dat$" ]; # global excludes
+          }
+          # Forwarded only when the resolved devkit accepts it (#1249): the vigos
+          # input floats to main, which may predate the argument; older builders
+          # then fall back to their gitflow default instead of failing eval.
+          // nixpkgs.lib.optionalAttrs (builtins.functionArgs vigos.lib.mkProjectShell ? workflow) {
+            # Branch guard follows the workspace workflow model (#1224).
+            inherit workflow;
+          }
+        );
 
         # Opt-in local dev services (#795): a daemonless process-compose stack
         # (Postgres, SeaweedFS/S3, Redis, …) with service versions from the
