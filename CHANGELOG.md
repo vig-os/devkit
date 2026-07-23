@@ -149,6 +149,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     still only on nixpkgs `staging` and has not reached the pinned `nixos-26.05`
     channel, so the planned rev-advance remains unavailable.
 
+- **Renew lapsed curl + openssh `.vulnixignore` exceptions** ([#1257](https://github.com/vig-os/devkit/issues/1257))
+  - The curl 8.20.0 advisory batch (18 CVEs, from [#941](https://github.com/vig-os/devkit/issues/941))
+    and the openssh `CVE-2026-60002` client use-after-free (from [#963](https://github.com/vig-os/devkit/issues/963))
+    exceptions are extended to 2026-08-15 after the curl block lapsed on
+    2026-07-22 and reddened the nightly scan. The fixes (curl 8.21.0, openssh
+    10.4p1) exist upstream but have not reached the pinned `nixos-26.05` channel
+    (still curl 8.20.0 / openssh 10.3p1), so the planned rev-advance remains
+    unavailable.
+
 ## [1.4.0](https://github.com/vig-os/devkit/releases/tag/1.4.0) - 2026-07-20
 
 ### Added

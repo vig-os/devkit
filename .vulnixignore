@@ -225,9 +225,14 @@ CVE-2026-57231
 # and advance the pin once it does. curl is reachable (https/git-over-https,
 # the docker->podman shim, flake fetches), so exposure is NOT theoretical —
 # this is a time-boxed risk acceptance, not a dismissal.
+# Re-verified 2026-07-23 (#1257): curl 8.21.0 (2026-06-24) fixes the whole
+# batch and has reached nixpkgs-unstable, but the pinned channel (nixos-26.05)
+# still ships curl 8.20.0 — the rev-advance lever still has nowhere to land.
+# Expiry extended to 2026-08-15 (another short window) pending the backport
+# propagating to nixos-26.05; flip to a pin bump the moment 8.21.0 lands there.
 # ============================================================================
 
-Expiration: 2026-07-22
+Expiration: 2026-08-15
 # curl 8.20.0 — CVE-2026-10536 (9.8) HTTP/2 stream-dependency-tree UAF;
 #   CVE-2026-11856 (9.8) cross-origin Digest auth-state leak; CVE-2026-8925
 #   (9.8) SASL double-free; CVE-2026-9079 (9.8) stale proxy-password leak.
@@ -274,7 +279,11 @@ CVE-2026-9080
 #   staging-nixos-26.05, 2026-07-10) and has not reached nixos-26.05. Flip to a
 #   nixpkgs rev-advance once 10.4p1 lands in the pinned channel; short expiry to
 #   force near-term re-check.
-Expiration: 2026-07-24
+# Re-verified 2026-07-23 (#1257): nixos-26.05 still ships openssh 10.3p1; the
+#   10.4p1 fix has not propagated from the 26.05 staging pipeline to the pinned
+#   channel, so the rev-advance lever still has nowhere to land. Expiry extended
+#   to 2026-08-15 (another short window) pending that propagation.
+Expiration: 2026-08-15
 CVE-2026-60002
 
 # ============================================================================
