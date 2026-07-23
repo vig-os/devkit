@@ -860,3 +860,77 @@ _run_install_stubbed() {
     assert_output --partial "Open in VS Code"
     assert_output --partial "direnv allow"
 }
+
+# ── docker ownership repair before the git phase (#1235) ──────────────────────
+# Under docker the scaffold container runs as root, so the bind-mounted output
+# lands root-owned and the host-side git phase (setup_git_repo) can't write to
+# it — warn-not-fail by design, so the installer "succeeds" leaving a root-owned,
+# git-less tree. install.sh must chown the tree back to the invoking user via a
+# throwaway container BEFORE the git phase. Rootless podman maps container-root
+# to the invoking user, so it needs no repair. Exercised against a logging stub
+# runtime (records each invocation) so nothing is pulled or actually chowned.
+# The repair keys on the OBSERVED post-scaffold ownership, not the runtime name
+# (#1248): pass owned=foreign to simulate a tree with files not owned by the
+# invoking user (real docker's root-owned output) — an unprivileged test can't
+# create root-owned files, so a stub of install.sh's find(1) ownership probe
+# reporting a hit stands in for them (install.sh runs no other find).
+_run_install_logging_stub() {
+    local dir="$1" runtime="$2" log="$3" owned="${4:-user}"
+    local stub="$BATS_TEST_TMPDIR/stub-$runtime"
+    mkdir -p "$stub"
+    cat >"$stub/$runtime" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$log"
+exit 0
+STUB
+    chmod +x "$stub/$runtime"
+    if [ "$owned" = "foreign" ]; then
+        cat >"$stub/find" <<'STUB'
+#!/usr/bin/env bash
+echo "/workspace/root-owned-file"
+STUB
+        chmod +x "$stub/find"
+    fi
+    _make_repo "$dir"
+    run env PATH="$stub:$PATH" bash "$INSTALL_SH" \
+        "--$runtime" --skip-pull --mode direnv "$dir" </dev/null
+}
+
+@test "docker path chowns scaffold output to the invoking user (#1235)" {
+    log="$BATS_TEST_TMPDIR/docker-repair.log"
+    _run_install_logging_stub "$BATS_TEST_TMPDIR/repair-docker" docker "$log" foreign
+    assert_success
+    run grep -F "chown -R $(id -u):$(id -g) /workspace" "$log"
+    assert_success
+}
+
+@test "podman path runs no ownership-repair container (#1235)" {
+    log="$BATS_TEST_TMPDIR/podman-repair.log"
+    _run_install_logging_stub "$BATS_TEST_TMPDIR/repair-podman" podman "$log"
+    assert_success
+    run grep -F "chown -R" "$log"
+    assert_failure
+}
+
+@test "docker path skips the ownership repair on an already-user-owned tree (#1248)" {
+    # Rootless podman behind a docker CLI compat shim maps container-root to
+    # the invoking user, so the scaffold output is already correctly owned;
+    # running the repair chown inside such a container would flip the tree to
+    # an unmapped subuid (#1248). The logging stub scaffold writes nothing, so
+    # the fixture tree stays user-owned — the repair container must not run.
+    log="$BATS_TEST_TMPDIR/docker-skip.log"
+    _run_install_logging_stub "$BATS_TEST_TMPDIR/repair-skip" docker "$log"
+    assert_success
+    run grep -F "chown -R" "$log"
+    assert_failure
+}
+
+@test "ownership repair is ordered before the git phase on the docker path (#1235)" {
+    # The chown container run must appear ahead of the setup_git_repo invocation
+    # in source, so the host-side git phase writes to a user-owned tree (#1235).
+    chown_line="$(grep -n 'chown -R' "$INSTALL_SH" | head -1 | cut -d: -f1)"
+    git_line="$(grep -n 'if ! setup_git_repo' "$INSTALL_SH" | head -1 | cut -d: -f1)"
+    [ -n "$chown_line" ]
+    [ -n "$git_line" ]
+    [ "$chown_line" -lt "$git_line" ]
+}

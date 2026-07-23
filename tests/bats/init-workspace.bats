@@ -413,6 +413,120 @@ _scaffold() {
     assert_success
 }
 
+# ── upgrade never deploys the template YAML over flake-generated hooks (#1255) ─
+# On a flake-hooks consumer the generated .pre-commit-config.yaml is a
+# gitignored /nix/store symlink, so in a fresh checkout/worktree the file is
+# ABSENT — the preserve list cannot protect it, and the upgrade deployed the
+# scaffold template YAML. git-hooks.nix generation refuses to overwrite an
+# existing file, so the template silently SHADOWED the consumer's flake hook
+# customizations. The opt-in is detectable without the file: an ACTIVE
+# (uncommented) hooks/hooksExcludes argument in the preserved flake.nix —
+# exactly mkProjectShell's generation trigger.
+
+# A consumer flake.nix with an active flake-hooks opt-in, as #1167 activates it.
+_flake_hooks_consumer_flake() {
+    cat >"$1/flake.nix" <<'EOF'
+# SENTINEL-1255 consumer flake
+{
+  outputs = { self, vigos }: {
+    devShells.default = vigos.lib.mkProjectShell {
+      extraPackages = [ ];
+      hooks = { };
+    };
+  };
+}
+EOF
+}
+
+@test "upgrade does not deploy the template YAML over an absent flake-generated config (#1255)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1255-no-deploy"
+    mkdir -p "$ws"
+    _flake_hooks_consumer_flake "$ws"
+    run _scaffold direnv "$ws"
+    assert_success
+    # The generated config stays absent (the flake materializes it on shell
+    # entry); the consumer's flake is preserved untouched.
+    run test -e "$ws/.pre-commit-config.yaml"
+    assert_failure
+    run grep -q 'SENTINEL-1255' "$ws/flake.nix"
+    assert_success
+}
+
+@test "upgrade keeps the .pre-commit-config.yaml ignore for a flake-hooks consumer with absent config (#1255)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1255-gitignore"
+    mkdir -p "$ws"
+    _flake_hooks_consumer_flake "$ws"
+    run _scaffold direnv "$ws"
+    assert_success
+    # The #1092 seed must fire even though neither the store symlink exists nor
+    # the #1167 fresh-scaffold default applies (the flake pre-existed).
+    run grep -qxF '.pre-commit-config.yaml' "$ws/.gitignore"
+    assert_success
+}
+
+@test "a hooksExcludes-only opt-in is detected as a flake-hooks consumer (#1255)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1255-excludes-only"
+    mkdir -p "$ws"
+    cat >"$ws/flake.nix" <<'EOF'
+# SENTINEL-1255 consumer flake (hooksExcludes only)
+{
+  outputs = { self, vigos }: {
+    devShells.default = vigos.lib.mkProjectShell {
+      hooksExcludes = [ "^dist/" ];
+    };
+  };
+}
+EOF
+    run _scaffold direnv "$ws"
+    assert_success
+    run test -e "$ws/.pre-commit-config.yaml"
+    assert_failure
+}
+
+@test "a flake with only the COMMENTED template opt-in still receives the template YAML (#1255)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1255-commented"
+    mkdir -p "$ws"
+    # The scaffold template ships the opt-in commented out; that must never
+    # count as a flake-hooks consumer, or every direnv upgrade of a
+    # hand-managed-YAML repo would stop shipping the template config.
+    cat >"$ws/flake.nix" <<'EOF'
+# SENTINEL-1255 consumer flake (opt-in NOT active)
+{
+  outputs = { self, vigos }: {
+    devShells.default = vigos.lib.mkProjectShell {
+      extraPackages = [ ];
+      #   hooks = {
+      #     typos.enable = false;
+      #   };
+      #   hooksExcludes = [ "^data/" ];
+    };
+  };
+}
+EOF
+    run _scaffold direnv "$ws"
+    assert_success
+    run test -f "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "--preview does not advertise .pre-commit-config.yaml as ADDED for a flake-hooks consumer (#1255)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1255-preview"
+    mkdir -p "$ws"
+    _flake_hooks_consumer_flake "$ws"
+    local stub="$BATS_TEST_TMPDIR/stub-bin"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+    run env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --preview --no-prompts --mode direnv
+    assert_success
+    refute_line '  +  .pre-commit-config.yaml'
+}
+
 # ── opt-in .devcontainer/ prune on container-less mode upgrade (#990) ──────────
 # The #738 default is non-destructive: a container→direnv/bare re-scaffold keeps
 # a populated pre-existing .devcontainer/. On a real container→direnv migration
@@ -2151,6 +2265,88 @@ _upgrade_no_flags() {
     assert_success
 }
 
+# ── sync-issues target/schedule knobs (#1228) ─────────────────────────────────
+# Two optional .vig-os keys, realized at scaffold time, steer sync-issues.yml.
+# DEVKIT_SYNC_TARGET overrides the commit target branch (a protected-main mirror,
+# #1227) and injects a branch-bootstrap step; DEVKIT_SYNC_SCHEDULE overrides the
+# schedule cron. Both are guarded loudly and persisted like DEVKIT_CI_RUNNER.
+
+@test "template .vig-os ships the sync-issues keys empty (#1228)" {
+    run grep -x 'DEVKIT_SYNC_TARGET=' "$TEMPLATE_DIR/.vig-os"
+    assert_success
+    run grep -x 'DEVKIT_SYNC_SCHEDULE=' "$TEMPLATE_DIR/.vig-os"
+    assert_success
+}
+
+@test "a custom DEVKIT_SYNC_TARGET renders the mirror branch + bootstrap step (#1228)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1228-target"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF "default: 'sync/issue-mirror'" "$ws/.github/workflows/sync-issues.yml"
+    assert_success
+    run grep -qF "Bootstrap sync target branch if absent" "$ws/.github/workflows/sync-issues.yml"
+    assert_success
+    # The custom target is written back so the next upgrade preserves it.
+    run grep -x 'DEVKIT_SYNC_TARGET=sync/issue-mirror' "$ws/.vig-os"
+    assert_success
+}
+
+@test "a custom DEVKIT_SYNC_SCHEDULE overrides the sync cron (#1228)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1228-schedule"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_SCHEDULE=.*#DEVKIT_SYNC_SCHEDULE=0 5 * * 0#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF "cron: '0 5 * * 0'" "$ws/.github/workflows/sync-issues.yml"
+    assert_success
+    run grep -qF "cron: '0 2 * * *'" "$ws/.github/workflows/sync-issues.yml"
+    assert_failure
+}
+
+@test "an invalid DEVKIT_SYNC_TARGET fails the scaffold loudly (#1228)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1228-bad-target"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=bad..name#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_failure
+    assert_output --partial "Invalid DEVKIT_SYNC_TARGET"
+}
+
+@test "a hostile DEVKIT_SYNC_TARGET (shell metacharacters) fails the scaffold loudly (#1228)" {
+    # git check-ref-format alone accepts quotes/$/backticks/;/|/# — values that
+    # would render invalid YAML or inject commands into the bootstrap step's
+    # double-quoted shell assignment at sync runtime (with the App token in
+    # scope). The allowlist guard must refuse them with the clean message.
+    ws="$BATS_TEST_TMPDIR/e2e-1228-hostile-target"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    # shellcheck disable=SC2016  # literal $(id) is the hostile payload, not an expansion
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=x$(id)y#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_failure
+    assert_output --partial "Invalid DEVKIT_SYNC_TARGET"
+}
+
+@test "an invalid DEVKIT_SYNC_SCHEDULE fails the scaffold loudly (#1228)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1228-bad-cron"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_SCHEDULE=.*#DEVKIT_SYNC_SCHEDULE=0 2 * *#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_failure
+    assert_output --partial "Invalid DEVKIT_SYNC_SCHEDULE"
+}
+
 # ── legacy mode inference (#885) ──────────────────────────────────────────────
 # Consumers scaffolded before the manifest carry a version-only .vig-os (or
 # none): an upgrade without --mode must infer the delivery mode from the tree
@@ -2552,11 +2748,14 @@ _referenced_secrets() {
     assert_success
 }
 
-@test "actionlint passes over the smoke-test workflow template (#995)" {
-    # The smoke-test template ships a single, standalone workflow (no reusable
-    # siblings), so it is linted in-place by explicit path from the repo root.
+@test "actionlint passes over the smoke-test workflow templates (#995)" {
+    # The smoke-test overlay ships standalone workflows (no reusable siblings),
+    # so they are linted in-place by explicit path from the repo root. The repo
+    # actionlint hook is scoped to ^.github/workflows/, so this test is the only
+    # actionlint coverage the overlay workflows get in the devkit (#1194).
     run actionlint \
-        "$PROJECT_ROOT/assets/smoke-test/.github/workflows/repository-dispatch.yml"
+        "$PROJECT_ROOT/assets/smoke-test/.github/workflows/repository-dispatch.yml" \
+        "$PROJECT_ROOT/assets/smoke-test/.github/workflows/direnv-smoke.yml"
     assert_success
 }
 

@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-17T16:53:17Z
-updated: 2026-07-17T16:53:17Z
+updated: 2026-07-20T16:48:08Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1192
-comments: 0
+comments: 1
 labels: bug, priority:blocking, area:ci, area:workspace, effort:small, semver:patch
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-18T04:54:23.744Z
+synced: 2026-07-21T05:27:43.897Z
 ---
 
 # [Issue 1192]: [setup-devkit-toolchain direnv path breaks on self-hosted runners with preinstalled Nix](https://github.com/vig-os/devkit/issues/1192)
@@ -45,3 +45,11 @@ Targets `release/1.4.0` per the RC-validation runbook (third rc finding after #1
 ## Impact
 
 Blocks 1.4.0 for self-hosted direnv consumers (exo-fleet).
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 20, 2026 at 04:48 PM_
+
+Fixed via PR #1193 (merged into release/1.4.0 @37ef2fa5, rc4): "Detect host Nix" step gates install-nix-action on has-nix, and "Configure host Nix" writes a well-formed NIX_CONFIG. Live-proven end-to-end on exo-pet/exo-fleet#230 (meatgrinder) at rc4, and re-proven on rc5/rc6/final — "Configured preinstalled host Nix via NIX_CONFIG." in every toolchain job. Shipped in 1.4.0. Follow-up refinement of the detect probe (ambient NIX_CONFIG scrub) was #1216, also fixed and shipped in 1.4.0 via PR #1217.
+

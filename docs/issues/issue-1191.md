@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-17T15:08:46Z
-updated: 2026-07-17T15:51:52Z
+updated: 2026-07-20T16:48:11Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1191
-comments: 1
+comments: 2
 labels: bug, priority:medium, area:workspace, effort:small, semver:patch
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-18T04:54:24.087Z
+synced: 2026-07-21T05:27:44.263Z
 ---
 
 # [Issue 1191]: [Re-scaffold rewrites hand-managed .pre-commit-config.yaml over the flake-hooks symlink in fresh checkouts](https://github.com/vig-os/devkit/issues/1191)
@@ -46,4 +46,12 @@ Refs: 1.4.0-rc2 validation PRs vig-os/commit-action#108, vig-os/sync-issues-acti
 _Posted on July 17, 2026 at 03:51 PM_
 
 Additional evidence from the rc3 re-scaffold round: the clobber also reproduces in an **existing** worktree, not only fresh checkouts. On vig-os/org-config (worktree with the flake-hooks symlink present, pointing at `/nix/store/p4377pyr…-pre-commit-config.json`), re-running `init-workspace.sh --force` with the 1.4.0-rc3 image materialized the template `.pre-commit-config.yaml` as a regular file (6387 B) over the symlink. On vig-os/commit-action the same round **preserved** the file (`PRECOMMIT_CONFIG_PREEXISTED=true`), so the trigger is not simply presence/absence — possibly the symlink target's validity inside the scaffold container (the nix-store path is not mounted there, making the symlink dangle; #1117's `-e||-L` guard was supposed to cover that case). Recovery per the runbook (`rm` + direnv reload) worked in both repos.
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on July 20, 2026 at 04:48 PM_
+
+Closing on live non-recurrence evidence: after the foreign-git-worktree scaffold fixes shipped in 1.4.0 (#1197→PR #1202, #1203→PR #1204), the original repro repo (vig-os/org-config) went through two full --force re-scaffolds (rc5 @dc16779, rc6 @baaa1c5) with the flake-hooks symlink surviving intact both times — verified pre/post state each time (live symlink, same store target, not materialized). exo-pet/exo-fleet also clean across rc5/rc6/final re-scaffolds. The dangling-symlink-inside-scaffold-container trigger appears to have been an instance of the unreachable-gitdir class those PRs fixed. Reopen with fresh evidence if it recurs. Related residual (different, inert): #1224.
 

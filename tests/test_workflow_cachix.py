@@ -92,6 +92,32 @@ def test_release_build_and_test_opts_into_closure_push() -> None:
         )
 
 
+def test_nix_image_cancels_superseded_runs_per_ref() -> None:
+    """A newer push to the same ref cancels the in-flight discovery build.
+
+    Since #1236 dropped the ``paths:`` filter, every ``dev`` push rebuilds —
+    including a release train's changelog-freeze commit, whose baked-CHANGELOG
+    checksum mismatch guarantees a red run until the manifest-sync commit lands
+    one minute later. Per-ref grouping with ``cancel-in-progress`` lets the sync
+    push supersede the doomed freeze build instead of letting it complete red,
+    while keeping distinct refs (epic branch, dispatch on other refs)
+    independent.
+
+    Refs: #1250
+    """
+    wf = _load(NIX_IMAGE_WF)
+    concurrency = wf.get("concurrency")
+    assert isinstance(concurrency, dict), (
+        "nix-image.yml must declare a workflow-level concurrency block"
+    )
+    assert "${{ github.ref }}" in concurrency.get("group", ""), (
+        "the concurrency group must be per-ref so distinct refs stay independent"
+    )
+    assert concurrency.get("cancel-in-progress") is True, (
+        "a newer push to the same ref must cancel the superseded build"
+    )
+
+
 def test_release_vulnix_gate_pushes_scan_target_closure() -> None:
     """The release CVE gate pushes the scan-target closure so scans are cache-backed."""
     wf = _load(RELEASE_WF)

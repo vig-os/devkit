@@ -197,6 +197,17 @@ setup-labels --repo vig-os/devkit
 setup-labels --repo vig-os/devkit --prune
 ```
 
+#### Repo-local taxonomy extension
+
+An optional `.github/label-taxonomy.local.toml` (same `[[labels]]` schema)
+declares repo-specific labels. It is never devkit-managed — the scaffold/upgrade
+step neither creates nor overwrites it — mirroring the justfile layering
+(managed base -> repo-owned local layer). When present, `setup-labels` merges it
+into the effective taxonomy: its labels are created/updated alongside the
+canonical ones, `--prune` only deletes labels absent from *both* files, and on a
+`name` collision the local entry wins (overrides the canonical
+color/description). `--dry-run` previews the merged result.
+
 ### `vig-utils` (utility helper)
 
 General utility entrypoint used by sync/build tooling.

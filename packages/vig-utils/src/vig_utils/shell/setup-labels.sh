@@ -11,6 +11,10 @@ else
     REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 fi
 TAXONOMY_FILE="${REPO_ROOT}/.github/label-taxonomy.toml"
+# Optional repo-local extension: same [[labels]] schema, never devkit-managed
+# (mirrors the justfile layering: managed base -> repo-owned local layer).
+# Merged into the effective taxonomy; on a name collision the local entry wins.
+LOCAL_TAXONOMY_FILE="${REPO_ROOT}/.github/label-taxonomy.local.toml"
 
 REPO_ARGS=()
 PRUNE=false
@@ -54,8 +58,22 @@ current_name=""
 current_desc=""
 current_color=""
 
+# Append the pending label, or — local-wins collision policy — replace the
+# existing entry of the same name so a later file (the local extension)
+# overrides the canonical color/description without duplicating the entry.
 flush_label() {
+    local i
     if [[ -n "$current_name" ]]; then
+        for i in "${!NAMES[@]}"; do
+            if [[ "${NAMES[$i]}" == "$current_name" ]]; then
+                DESCRIPTIONS[i]="$current_desc"
+                COLORS[i]="$current_color"
+                current_name=""
+                current_desc=""
+                current_color=""
+                return
+            fi
+        done
         NAMES+=("$current_name")
         DESCRIPTIONS+=("$current_desc")
         COLORS+=("$current_color")
@@ -65,26 +83,36 @@ flush_label() {
     current_color=""
 }
 
-while IFS= read -r line || [[ -n "$line" ]]; do
-    [[ "$line" =~ ^[[:space:]]*# ]] && continue
-    [[ -z "${line// /}" ]] && continue
+parse_taxonomy() {
+    local file="$1" line
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "${line// /}" ]] && continue
 
-    if [[ "$line" =~ ^\[\[labels\]\] ]]; then
-        flush_label
-        continue
-    fi
+        if [[ "$line" =~ ^\[\[labels\]\] ]]; then
+            flush_label
+            continue
+        fi
 
-    if [[ "$line" =~ ^name[[:space:]]*=[[:space:]]*\"(.+)\" ]]; then
-        current_name="${BASH_REMATCH[1]}"
-    elif [[ "$line" =~ ^description[[:space:]]*=[[:space:]]*\"(.+)\" ]]; then
-        current_desc="${BASH_REMATCH[1]}"
-    elif [[ "$line" =~ ^color[[:space:]]*=[[:space:]]*\"(.+)\" ]]; then
-        current_color="${BASH_REMATCH[1]}"
-    fi
-done < "$TAXONOMY_FILE"
-flush_label
+        if [[ "$line" =~ ^name[[:space:]]*=[[:space:]]*\"(.+)\" ]]; then
+            current_name="${BASH_REMATCH[1]}"
+        elif [[ "$line" =~ ^description[[:space:]]*=[[:space:]]*\"(.+)\" ]]; then
+            current_desc="${BASH_REMATCH[1]}"
+        elif [[ "$line" =~ ^color[[:space:]]*=[[:space:]]*\"(.+)\" ]]; then
+            current_color="${BASH_REMATCH[1]}"
+        fi
+    done < "$file"
+    flush_label
+}
+
+parse_taxonomy "$TAXONOMY_FILE"
 
 echo "Taxonomy: ${#NAMES[@]} labels defined in $(basename "$TAXONOMY_FILE")"
+
+if [[ -f "$LOCAL_TAXONOMY_FILE" ]]; then
+    parse_taxonomy "$LOCAL_TAXONOMY_FILE"
+    echo "Extended: ${#NAMES[@]} labels after merging $(basename "$LOCAL_TAXONOMY_FILE") (local wins on collision)"
+fi
 
 mapfile -t EXISTING < <(gh label list "${REPO_ARGS[@]}" --limit 100 --json name --jq '.[].name')
 

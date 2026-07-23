@@ -19,6 +19,145 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [1.4.1](https://github.com/vig-os/devkit/releases/tag/1.4.1) - 2026-07-23
+
+### Added
+
+- **`setup-labels`: repo-local taxonomy extension file** ([#1254](https://github.com/vig-os/devkit/issues/1254))
+  - Optional, non-devkit-managed `.github/label-taxonomy.local.toml` (same
+    `[[labels]]` schema) lets a consuming repo declare repo-specific labels
+    that survive devkit upgrades.
+  - `setup-labels` treats the union of both files as the effective taxonomy:
+    extension labels are created/updated in the normal reconciliation pass, and
+    `--prune` only deletes labels absent from both files.
+  - Local-wins collision policy: an extension entry with the same `name`
+    overrides the canonical color/description.
+
+- **Scheduled security scan now covers `dev` as well as `main`** ([#1237](https://github.com/vig-os/devkit/issues/1237))
+  - `security-scan.yml` gains a `ref` matrix (`main`, `dev`) so the nightly
+    vulnix gate scans the `dev` image closure alongside the default-branch one.
+    A weekly `nixpkgs` bump or an expiring `.vulnixignore` exception on `dev` now
+    surfaces as an ordinary tracking issue days early, instead of first tripping
+    the gate mid-release-train. Each leg reuses the existing machinery unchanged
+    (`check-expirations`, `devkitImageEnv` closure build, vulnix via the
+    nvd-mirror, `vulnix-gate`, deduplicated tracking issue) through its checkout
+    `ref`, files a ref-distinct tracking issue so the lanes never collide on
+    dedup, and runs with `fail-fast: false` so one lane never cancels the other.
+- **`sync-issues` target-branch and schedule knobs** ([#1228](https://github.com/vig-os/devkit/issues/1228))
+  - New optional `.vig-os` key `DEVKIT_SYNC_TARGET` overrides the branch the
+    scaffolded sync-issues job commits to. Default stays workflow-model-aware
+    (`dev` gitflow / `main` trunk), so existing consumers are unchanged.
+  - A `trunk` repo whose `main` carries a require-PR ruleset (which refuses the
+    sync job's direct API push, [#1227](https://github.com/vig-os/devkit/issues/1227))
+    sets an unprotected mirror branch, e.g. `sync/issue-mirror`; the job
+    bootstraps it from the default branch head if absent. No ruleset bypass for
+    the commit App is added (rejected for security).
+  - New optional `.vig-os` key `DEVKIT_SYNC_SCHEDULE` overrides the sync schedule
+    trigger's cron (default `0 2 * * *`). Both keys are validated loudly at
+    scaffold time (git ref-format for the branch, a 5-field cron check) and
+    persisted across re-scaffolds.
+
+### Fixed
+
+- **Upgrade no longer deploys the template `.pre-commit-config.yaml` over flake-generated hooks** ([#1255](https://github.com/vig-os/devkit/issues/1255))
+  - On a flake-hooks consumer ([#1167](https://github.com/vig-os/devkit/issues/1167))
+    the generated config is a gitignored `/nix/store` symlink that only
+    materializes on shell entry, so a fresh checkout/worktree has no file for
+    the preserve list to protect — an `install.sh --force` upgrade then
+    deployed the scaffold template YAML, which silently shadowed the generated
+    config (git-hooks.nix refuses to overwrite an existing file) and dropped
+    the consumer's `hooks`/`hooksExcludes` customizations. Pre-existing since
+    1.4.0; gitignored, so CI and PRs were unaffected.
+  - The upgrade now detects the opt-in from the preserved `flake.nix` itself
+    (an active `hooks`/`hooksExcludes` argument — exactly `mkProjectShell`'s
+    generation trigger), skips the template YAML in both the copy and the
+    `--preview` report, and still seeds the `.pre-commit-config.yaml` gitignore
+    entry so the regenerated root `.gitignore` stays correct.
+- **`mkProjectShell`: `extraPackages` Python env no longer silently shadowed** ([#1230](https://github.com/vig-os/devkit/issues/1230))
+  - A `pythonXX.withPackages` env passed through `extraPackages` — the
+    documented way to add Python libraries to a project shell — was shadowed on
+    `PATH` by `vig-utils`'s propagated pinned 3.14 interpreter, so the consumer
+    got the bare interpreter with none of their libraries and only hit a
+    `ModuleNotFoundError` later. The builder now prepends any such env in the
+    shellHook (the same PATH-order mechanism the `python` override uses), so the
+    consumer's interpreter and its `site-packages` own `python3`/`python`.
+- **Trunk render scrubs `sync-main-to-dev` prose from `promote-release.yml`** ([#1233](https://github.com/vig-os/devkit/issues/1233))
+  - Follow-up to [#1226](https://github.com/vig-os/devkit/issues/1226) for a file
+    `render_workflow_model` did not touch: the `promote-release.yml` header step
+    list and the Summary echo each named `sync-main-to-dev`, a workflow that is
+    copy-excluded in `trunk`. The trunk render now drops both parentheticals, so
+    a `trunk` consumer no longer ships comments referencing a workflow absent
+    from its repo. Comments only — no functional change; gitflow is unaffected.
+- **`nix-dev` discovery image no longer drifts stale on baked-content pushes** ([#1236](https://github.com/vig-os/devkit/issues/1236))
+  - The `nix-image.yml` `dev` push trigger only watched `flake.nix`,
+    `flake.lock`, and the workflow file, but the image bakes broader repo content
+    at build time (the `assets/` scaffold tree, `docs/MIGRATION.md`, the
+    `packages/vig-utils` console scripts, the `nix/home` environment, `scripts/`).
+    A `dev` push touching only baked content left the mutable `nix-dev` tag stale
+    with no rebuild. Dropped the fragile `paths:` allowlist so every push to
+    `dev` (or the epic branch) rebuilds, tests, and repushes the tag; Cachix/eval
+    caching keeps no-op rebuilds cheap.
+- **Trunk render scrubs residual `dev` prose from scaffolded workflows** ([#1226](https://github.com/vig-os/devkit/issues/1226))
+  - `render_workflow_model` now retargets the inert `dev` mentions in comments
+    and input descriptions as well as the functional literals, so a `trunk`
+    consumer no longer ships slightly-lying comments: the `ci.yml` and
+    `codeql.yml` trigger-header comments, the `origin/dev` commit-gate rationale
+    in `ci.yml`, and the `sync-issues.yml` `target-branch` example description
+    all read `main` instead of `dev`. Comments/descriptions only — no functional
+    change; gitflow is unaffected.
+- **Flake-generated pre-commit branch guard follows the workflow model** ([#1224](https://github.com/vig-os/devkit/issues/1224))
+  - `render_workflow_model` drops the `(?!dev$)` clause from the scaffolded
+    `.pre-commit-config.yaml` for `DEVKIT_WORKFLOW=trunk`, but a direnv consumer
+    on flake-generated hooks (#1167) gets its branch guard from `mkProjectShell`,
+    which was not workflow-aware — after switching to trunk it kept
+    `^(?!main$)(?!dev$)…`, guarding a `dev` branch a trunk repo does not have.
+  - `mkProjectShell` now takes a `workflow` argument (gitflow default | trunk)
+    threaded into the `nix/hooks.nix` consumer render, which drops the
+    `(?!dev$)` clause for trunk — mirroring the scaffold render exactly. The
+    scaffolded `flake.nix` reads `DEVKIT_WORKFLOW` from `.vig-os` and forwards
+    it, so a trunk direnv consumer's generated guard follows the model out of
+    the box. gitflow is a no-op, leaving existing consumers unchanged.
+  - The template forwards `workflow` only when the resolved builder accepts it
+    ([#1249](https://github.com/vig-os/devkit/issues/1249)): the `vigos` input
+    deliberately floats on the default branch, so a fresh scaffold can resolve
+    a devkit `main` that predates the argument — unconditional forwarding then
+    failed eval on first shell entry (`called with unexpected argument
+    'workflow'`). The call site now gates `inherit workflow;` behind a
+    `builtins.functionArgs … ? workflow` check, so older builders fall back to
+    their gitflow default instead of breaking the scaffold.
+- **`install.sh --docker` restores scaffold ownership before the git phase, keyed on the observed post-scaffold state** ([#1235](https://github.com/vig-os/devkit/issues/1235), [#1248](https://github.com/vig-os/devkit/issues/1248))
+  - Under real docker the scaffold container runs as root, so its bind-mounted
+    output landed root-owned on the host and the host-side git phase
+    (`setup_git_repo`, warn-not-fail by design) could not write to it — the
+    installer "succeeded" but left a root-owned, git-less tree that every docker
+    caller had to repair by hand. `install.sh` now reuses the image in a
+    throwaway container to `chown` the tree back to the invoking user before the
+    git phase, so the git setup succeeds normally.
+  - The repair is conditioned on the observed post-scaffold ownership, not the
+    runtime CLI name: it runs only when the scaffolded tree contains files not
+    owned by the invoking user. Rootless podman — in any flavor, including a
+    `docker` compat shim — maps container-root to the invoking user, so its
+    output is already correctly owned and an unconditional in-container `chown`
+    would have flipped the tree to an unmapped subuid, breaking the git phase.
+
+### Security
+
+- **Extend gawk 5.4.0 CVE exception expiry to 2026-08-18** ([#1240](https://github.com/vig-os/devkit/issues/1240))
+  - The `.vulnixignore` exception for the gawk 5.4.0 CERT-PL batch
+    (`CVE-2026-40467`/`-40468`/`-40469`/`-40553`, from [#1071](https://github.com/vig-os/devkit/issues/1071))
+    is extended from 2026-07-28 to 2026-08-18. The upstream fix (gawk 5.4.1) is
+    still only on nixpkgs `staging` and has not reached the pinned `nixos-26.05`
+    channel, so the planned rev-advance remains unavailable.
+
+- **Renew lapsed curl + openssh `.vulnixignore` exceptions** ([#1257](https://github.com/vig-os/devkit/issues/1257))
+  - The curl 8.20.0 advisory batch (18 CVEs, from [#941](https://github.com/vig-os/devkit/issues/941))
+    and the openssh `CVE-2026-60002` client use-after-free (from [#963](https://github.com/vig-os/devkit/issues/963))
+    exceptions are extended to 2026-08-15 after the curl block lapsed on
+    2026-07-22 and reddened the nightly scan. The fixes (curl 8.21.0, openssh
+    10.4p1) exist upstream but have not reached the pinned `nixos-26.05` channel
+    (still curl 8.20.0 / openssh 10.3p1), so the planned rev-advance remains
+    unavailable.
+
 ## [1.4.0](https://github.com/vig-os/devkit/releases/tag/1.4.0) - 2026-07-20
 
 ### Added

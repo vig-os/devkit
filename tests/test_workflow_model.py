@@ -36,6 +36,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 # excluded here: render_codeql_matrix rewrites it in every mode).
 NO_PLACEHOLDER_RENDER_FILES = (
     ".github/workflows/prepare-release.yml",
+    ".github/workflows/promote-release.yml",
     ".github/workflows/ci.yml",
     ".github/workflows/sync-issues.yml",
     ".claude/skills/branch-naming/SKILL.md",
@@ -180,12 +181,31 @@ def test_trunk_prepare_release_has_no_dev_cruft(tmp_path: Path) -> None:
     assert not stray, "stray dev tokens:\n" + "\n".join(stray)
 
 
+def test_trunk_promote_release_has_no_sync_main_to_dev_prose(tmp_path: Path) -> None:
+    """promote-release.yml carries no `sync-main-to-dev` prose in trunk (#1233).
+
+    sync-main-to-dev.yml is copy-excluded in trunk, so the two parenthetical
+    comments naming it (the header step list + the Summary echo) must be
+    scrubbed — otherwise a trunk repo ships comments referencing a workflow it
+    does not have. Follow-up to #1226 for a file the render did not touch.
+    """
+    text = _wf(_tree(tmp_path, "trunk"), "promote-release.yml")
+    assert "sync-main-to-dev" not in text
+
+
 def test_trunk_ci_pr_filter_excludes_dev(tmp_path: Path) -> None:
     """ci.yml drops `- dev` from the PR branch filter; commit-gate TRUNK=main."""
     text = _wf(_tree(tmp_path, "trunk"), "ci.yml")
     assert "\n      - dev\n" not in text
     assert 'TRUNK="main"' in text
     assert 'TRUNK="dev"' not in text
+    # #1226: the trigger-header + origin/dev rationale prose retarget to main too
+    # so a trunk repo carries no lying `dev` comments.
+    assert "Pull requests to dev" not in text
+    assert "Pull requests to release/** and main" in text
+    assert "origin/dev" not in text
+    assert "a no-op on a main PR" in text
+    assert "its base IS main" in text
 
 
 def test_trunk_codeql_pr_filter_excludes_dev(tmp_path: Path) -> None:
@@ -193,6 +213,9 @@ def test_trunk_codeql_pr_filter_excludes_dev(tmp_path: Path) -> None:
     text = _wf(_tree(tmp_path, "trunk"), "codeql.yml")
     assert "\n      - dev\n" not in text
     assert "\n      - main\n" in text
+    # #1226: the trigger-header comment retargets to main too.
+    assert "Pull requests to dev" not in text
+    assert "Pull requests to release/** and main" in text
 
 
 def test_trunk_sync_issues_default_main(tmp_path: Path) -> None:
@@ -201,8 +224,10 @@ def test_trunk_sync_issues_default_main(tmp_path: Path) -> None:
     assert "default: 'main'" in text
     assert "|| 'dev'" not in text
     assert "|| 'main'" in text
-    # The illustrative `e.g., dev, release/x.y.z` description text is left alone.
-    assert "e.g., dev" in text
+    # #1226: the illustrative `e.g., dev, …` description retargets dev -> main too
+    # (previously left alone), so no stray `dev` prose survives.
+    assert "e.g., dev" not in text
+    assert "e.g., main, release/x.y.z" in text
 
 
 def test_trunk_skill_base_branch_main(tmp_path: Path) -> None:
@@ -224,6 +249,49 @@ def test_trunk_precommit_drops_dev_clause(tmp_path: Path) -> None:
     text = (rendered / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     assert "(?!dev$)" not in text
     assert "(?!main$)" in text
+
+
+def test_trunk_flake_forwards_workflow_to_hooks(tmp_path: Path) -> None:
+    """The flake-hooks path follows the workflow model too (#1224).
+
+    The scaffolded ``.pre-commit-config.yaml`` is workflow-model-aware, but a
+    direnv consumer on flake-generated hooks (#1167) gets its branch guard from
+    ``mkProjectShell`` (the ``nix/hooks.nix`` consumer render), not that file.
+    So the scaffolded ``flake.nix`` reads ``DEVKIT_WORKFLOW`` from ``.vig-os``
+    and forwards it as ``mkProjectShell``'s ``workflow`` argument, which drops
+    the ``(?!dev$)`` clause for trunk — mirroring the scaffold render. Here we
+    assert the forwarding wiring is present and the manifest it reads declares
+    trunk; the flake-eval half (the generated guard actually loses the clause)
+    is covered by ``tests/test_flake_hooks.py::TestWorkflowModelBranchGuard``.
+    """
+    rendered = _tree(tmp_path, "trunk")
+    flake = (rendered / "flake.nix").read_text(encoding="utf-8")
+    assert "DEVKIT_WORKFLOW=" in flake, "flake.nix does not read the workflow model"
+    assert "inherit workflow;" in flake, "flake.nix does not forward `workflow`"
+    manifest = (rendered / ".vig-os").read_text(encoding="utf-8")
+    assert "DEVKIT_WORKFLOW=trunk" in manifest
+
+
+def test_template_flake_guards_workflow_forwarding() -> None:
+    """#1249: forward ``workflow`` only when the resolved builder accepts it.
+
+    The template's ``vigos`` input deliberately floats on the default branch,
+    so a fresh scaffold may resolve a devkit whose ``mkProjectShell`` predates
+    the ``workflow`` argument — unconditional forwarding then fails eval on
+    first shell entry (``called with unexpected argument 'workflow'``). The
+    call site must gate ``inherit workflow;`` behind a
+    ``builtins.functionArgs … ? workflow`` check so older builders fall back
+    to their gitflow default instead of breaking the scaffold.
+    """
+    flake = (WORKSPACE / "flake.nix").read_text(encoding="utf-8")
+    assert "inherit workflow;" in flake, "flake.nix does not forward `workflow`"
+    assert "builtins.functionArgs vigos.lib.mkProjectShell ? workflow" in flake, (
+        "flake.nix forwards `workflow` unconditionally — the floating vigos "
+        "input may resolve a devkit that predates the argument (#1249)"
+    )
+    assert "optionalAttrs" in flake, (
+        "flake.nix must merge the guarded `workflow` via lib.optionalAttrs"
+    )
 
 
 def test_anchoring_preserves_dev_prefixed_and_device_tokens(tmp_path: Path) -> None:

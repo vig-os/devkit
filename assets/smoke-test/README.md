@@ -51,6 +51,12 @@ from `vig-os/devcontainer` and runs an automated deploy-and-test cycle:
 
 This flow applies to both RC tags and final tags.
 
+Alongside the container-mode CI on each deploy PR,
+`.github/workflows/direnv-smoke.yml` scaffolds a throwaway `--mode direnv`
+workspace and drives `setup-devkit-toolchain`'s direnv branch end to end, in two
+legs (fresh-install and preinstalled-Nix) that the container lane never
+executes ([vig-os/devkit#1194](https://github.com/vig-os/devkit/issues/1194)).
+
 ## Accepted Scorecard findings
 
 This repository is an **unattended deploy-validation target**, so a few OpenSSF

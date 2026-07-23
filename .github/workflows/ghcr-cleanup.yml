@@ -1,0 +1,65 @@
+# GHCR cleanup — prune stale devcontainer package versions
+#
+# Weekly sweep of the org package `vig-os/devcontainer`. Deletes untagged image
+# versions: orphaned `nix-dev*` discovery generations (every dev/epic push
+# re-points those tags, stranding the previous index + arch manifests) and
+# dangling attestation referrers left behind when promote-release prunes RC
+# images. The action is multi-arch and referrer aware: platform children of
+# tagged indexes and attestation/cosign referrers whose subject is a kept
+# (tagged) image are preserved.
+#
+# Triggers: weekly cron; manual dispatch (dry-run defaults to true so a manual
+# run is a safe preview — scheduled runs delete for real). Scheduled runs
+# execute from the default branch.
+#
+# Uses the default GITHUB_TOKEN with job-scoped `packages: write` — the repo
+# has admin on the org package (same mechanism as the promote-release GHCR
+# prune step). Devkit-only: not scaffolded to consumers.
+#
+# Refs #1238.
+
+name: GHCR Cleanup
+
+on:  # yamllint disable-line rule:truthy
+  schedule:
+    - cron: '0 4 * * 1'  # weekly, Mon 04:00 UTC
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Preview deletions without removing anything'
+        type: boolean
+        default: true
+
+# Restrict default permissions; the job declares its own.
+permissions: {}
+
+# Serialize with promote-release's RC prune window is not needed (disjoint
+# targets), but never let two cleanup passes interleave their delete sets.
+concurrency:
+  group: ghcr-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: Prune stale package versions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      packages: write
+    steps:
+      - name: Delete stale untagged devcontainer versions
+        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f  # v1.2.2
+        with:
+          token: ${{ github.token }}
+          owner: vig-os
+          package: devcontainer
+          delete-untagged: true
+          # delete-untagged skips dangling attestation referrers (their subject
+          # digest is gone but they are still referrer-shaped); this option
+          # reaps them plus orphaned sha256-* referrer tags.
+          delete-orphaned-images: true
+          # Age guard: in-flight artifacts (current release train, fresh
+          # discovery builds) survive until they are stale for real.
+          older-than: 7 days
+          validate: true
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}

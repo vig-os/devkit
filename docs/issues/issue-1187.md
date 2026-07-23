@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-17T13:49:35Z
-updated: 2026-07-17T13:49:35Z
+updated: 2026-07-20T16:48:00Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1187
-comments: 0
+comments: 1
 labels: bug, priority:blocking, area:ci, area:workspace, effort:small, semver:patch
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-18T04:54:24.634Z
+synced: 2026-07-21T05:27:45.181Z
 ---
 
 # [Issue 1187]: [Literal ${{ fromJSON(...) }} doc text breaks resolve-toolchain action manifest](https://github.com/vig-os/devkit/issues/1187)
@@ -48,3 +48,11 @@ Rephrase both doc strings without the `${{ }}` wrapper (e.g. "for use with `from
 ## Impact
 
 Blocks 1.4.0 (rc1 dead on arrival for every consumer using the managed CI workflow).
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 20, 2026 at 04:47 PM_
+
+Fixed via PR #1188 (merged into release/1.4.0 @6fe5f770): the runner-evaluated doc text no longer contains literal `${{ }}`. Proven by rc2 (run 29586749001 + smoke-test deploy PR #273 green) and every subsequent rc; shipped in 1.4.0. Lesson recorded: never write literal `${{ }}` in ANY action.yml/workflow scalar, including comments and descriptions.
+

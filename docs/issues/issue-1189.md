@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-17T14:55:42Z
-updated: 2026-07-17T14:55:42Z
+updated: 2026-07-20T16:48:02Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1189
-comments: 0
+comments: 1
 labels: bug, priority:blocking, area:ci, area:workspace, effort:small, semver:patch
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-18T04:54:24.374Z
+synced: 2026-07-21T05:27:44.716Z
 ---
 
 # [Issue 1189]: [setup-devkit-toolchain env forward corrupts GITHUB_ENV via shellHook stdout banner](https://github.com/vig-os/devkit/issues/1189)
@@ -52,3 +52,11 @@ Fix targets `release/1.4.0` per the RC-validation runbook (like #1187); rc3 foll
 ## Impact
 
 Blocks 1.4.0 — all three Wave-1 consumer validation PRs are red on this.
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 20, 2026 at 04:48 PM_
+
+Fixed via PR #1190 (merged into release/1.4.0 @b533ef98): env dump written to a file inside the shell command + non-identifier record names skipped, so shellHook stdout banners can no longer corrupt GITHUB_ENV. Live-proven on rc3 (all three Wave-1 direnv lanes: rc2 "Forwarded 31" incl. corrupted record → rc3 "Forwarded 30", zero errors) and every rc since; shipped in 1.4.0. The systemic gap this exposed is tracked in #1194.
+

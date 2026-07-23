@@ -617,3 +617,65 @@ def test_devshell_python_override_switches_interpreter(current_system: str) -> N
         f"python3 on the shell PATH must report 3.13 under the override; got {version_line!r} "
         f"(full stdout: {proc.stdout!r})"
     )
+
+
+def test_devshell_extrapackages_python_env_wins_on_path(current_system: str) -> None:
+    """A ``withPackages`` env in ``extraPackages`` must win ``python3`` on PATH (#1230).
+
+    ``extraPackages`` is documented as where a consumer's project tools go, so
+    the natural way to add Python libraries is to pass a
+    ``pythonXX.withPackages`` env through it. Before the fix the builder's own
+    bare ``python`` (pinned 3.14) preceded ``extraPackages`` in the shell's
+    ``packages``, so ``bin/python3`` from that bare interpreter won the PATH race
+    and the consumer silently got the pinned interpreter with none of their
+    libraries — surfacing only later as ``ModuleNotFoundError``.
+
+    Exercised with a 3.13 env carrying ``setuptools`` (both reliably cached):
+    the env's interpreter (3.13, distinct from the pinned 3.14) and its bundled
+    library must be the ones the shell's own ``python3`` resolves. Asserting the
+    version is the RED discriminator — under the bug ``python3`` reports 3.14.
+    """
+    expr = _mkprojectshell_expr(
+        current_system,
+        "extraPackages = [ (pkgs.python313.withPackages (ps: [ ps.setuptools ])) ];",
+    )
+    script = (
+        "python3 --version; "
+        'python3 -c "import setuptools, sys; print(setuptools.__file__)"'
+    )
+    proc = subprocess.run(
+        [
+            "nix",
+            "develop",
+            "--impure",
+            "--ignore-environment",
+            "--keep",
+            "HOME",
+            "--expr",
+            expr,
+            "-c",
+            "bash",
+            "-c",
+            script,
+        ],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=1800,
+    )
+    assert proc.returncode == 0, (
+        "failed to build/enter or import from the extraPackages python env "
+        f"dev-shell: {proc.stderr[-500:]}"
+    )
+    lines = proc.stdout.splitlines()
+    version_line = next((ln for ln in lines if ln.startswith("Python ")), "")
+    assert "3.13" in version_line, (
+        "python3 on the shell PATH must resolve to the extraPackages env "
+        f"interpreter (3.13), not the pinned 3.14; got {version_line!r} "
+        f"(full stdout: {proc.stdout!r})"
+    )
+    setuptools_file = lines[-1] if lines else ""
+    assert "python3.13" in setuptools_file, (
+        "setuptools must be imported from the extraPackages env's 3.13 "
+        f"site-packages; got {setuptools_file!r} (full stdout: {proc.stdout!r})"
+    )

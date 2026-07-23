@@ -1,11 +1,11 @@
 ---
 type: issue
 state: closed
-created: 2026-07-20T14:12:14Z
-updated: 2026-07-20T15:23:54Z
+created: 2026-07-23T12:58:29Z
+updated: 2026-07-23T15:05:17Z
 author: github-actions[bot]
 author_url: https://github.com/github-actions[bot]
-url: https://github.com/vig-os/devkit/issues/1218
+url: https://github.com/vig-os/devkit/issues/1261
 comments: 1
 labels: bug, area:ci
 assignees: none
@@ -13,19 +13,19 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-21T05:27:43.139Z
+synced: 2026-07-23T15:08:26.145Z
 ---
 
-# [Issue 1218]: [Release 1.4.0 failed -- automatic rollback](https://github.com/vig-os/devkit/issues/1218)
+# [Issue 1261]: [Release 1.4.1 failed -- automatic rollback](https://github.com/vig-os/devkit/issues/1261)
 
 
-Release 1.4.0 encountered an error during the automated release workflow.
+Release 1.4.1 encountered an error during the automated release workflow.
 
 **Failed Jobs:** validate, finalize, build-and-test, vulnix-gate, publish
 
-**Workflow Run:** [View logs](https://github.com/vig-os/devkit/actions/runs/29749319623)
+**Workflow Run:** [View logs](https://github.com/vig-os/devkit/actions/runs/30009077181)
 
-**Release PR:** #1186
+**Release PR:** #1247
 
 **Rollback Results:**
 - Branch rollback: success
@@ -41,7 +41,7 @@ Release 1.4.0 encountered an error during the automated release workflow.
 - This issue created for investigation
 
 **Manual Cleanup May Be Needed:**
-- If images were pushed to GHCR before the failure, they are **not** automatically deleted. Check `ghcr.io/vig-os/devcontainer:1.4.0-*` and remove any orphaned images manually.
+- If images were pushed to GHCR before the failure, they are **not** automatically deleted. Check `ghcr.io/vig-os/devcontainer:1.4.1-*` and remove any orphaned images manually.
 - If a **draft** GitHub Release exists for this tag, edit or manage it from the Releases UI (**publishing** locks the linked tag and assets when **immutable releases** are enabled).
 
 **Next Steps:**
@@ -56,7 +56,7 @@ For details, check the workflow run linked above.
 
 # [Comment #1]() by [c-vigo]()
 
-_Posted on July 20, 2026 at 03:23 PM_
+_Posted on July 23, 2026 at 03:05 PM_
 
-Forgot to approve PR
+Root cause: the final-mode `Validate Release` gate found PR #1247 with `reviewDecision: REVIEW_REQUIRED` — the finalize was dispatched before the maintainer approval landed (same gate as the 1.4.0 first-attempt failure). No mutation occurred: validation aborted before tagging/publishing, so the rollback job had nothing to undo. PR #1247 is now APPROVED; re-dispatching `release.yml` (final) for 1.4.1.
 

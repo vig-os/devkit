@@ -313,6 +313,22 @@ write_manifest_value() {
     fi
 }
 
+# Validate a 5-field cron expression (minute hour day-of-month month
+# day-of-week). A loose per-field charset check — digits, `*`, ranges, steps,
+# and lists — that rejects the wrong field count and stray characters so a
+# malformed DEVKIT_SYNC_SCHEDULE fails loudly at scaffold time rather than
+# silently disabling the schedule in GitHub Actions (#1228).
+is_valid_cron() {
+    local expr="$1" field
+    local -a fields
+    read -ra fields <<< "$expr"
+    [[ ${#fields[@]} -eq 5 ]] || return 1
+    for field in "${fields[@]}"; do
+        [[ "$field" =~ ^[0-9A-Za-z*,/-]+$ ]] || return 1
+    done
+    return 0
+}
+
 MANIFEST_MODE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_MODE || true)"
 MANIFEST_PROJECT="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_PROJECT || true)"
 MANIFEST_ORG="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_ORG || true)"
@@ -322,6 +338,8 @@ MANIFEST_TAG_PREFIX="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TAG_PREFIX 
 MANIFEST_FLOATING_TAGS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FLOATING_TAGS || true)"
 MANIFEST_CI_RUNNER="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_CI_RUNNER || true)"
 MANIFEST_WORKFLOW="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_WORKFLOW || true)"
+MANIFEST_SYNC_TARGET="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_TARGET || true)"
+MANIFEST_SYNC_SCHEDULE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_SCHEDULE || true)"
 
 # The OWNER/REPO placeholder (written when no origin was resolvable) must not
 # mask a now-detectable git origin on a later upgrade.
@@ -379,6 +397,31 @@ if [[ -n "$WORKFLOW_MODEL" && -n "$MANIFEST_WORKFLOW" && "$WORKFLOW_MODEL" != "$
     echo "  2. Keep the persisted model by omitting --workflow, or" >&2
     echo "  3. Switch deliberately: set DEVKIT_WORKFLOW=$WORKFLOW_MODEL in .vig-os on a dedicated," >&2
     echo "     clean upgrade branch and re-run the upgrade." >&2
+    exit 1
+fi
+
+# sync-issues target branch (#1228): the value is spliced into single-quoted
+# YAML, sed replacement text, and the bootstrap step's double-quoted shell
+# assignment (executed at sync runtime with the App token in scope) — so the
+# LOAD-BEARING guard is a strict charset allowlist. git check-ref-format alone
+# is NOT enough: it accepts quotes, `$`, backticks, `;`, `|`, `#`, `&` … which
+# would render invalid YAML, crash the render seds, or inject commands. The
+# ref-format check is kept on top to also refuse git-illegal shapes the
+# allowlist admits (e.g. `bad..name`, a trailing `/` or `.lock`). Pure
+# `.vig-os` key (no CLI flag), so only format guards — no contradiction guard
+# as for --mode / --workflow.
+if [[ -n "$MANIFEST_SYNC_TARGET" ]]; then
+    if [[ ! "$MANIFEST_SYNC_TARGET" =~ ^[A-Za-z0-9._/-]+$ ]] \
+        || ! git check-ref-format "refs/heads/$MANIFEST_SYNC_TARGET" >/dev/null 2>&1; then
+        echo "Error: Invalid DEVKIT_SYNC_TARGET in $VIG_OS_MANIFEST: $MANIFEST_SYNC_TARGET (expected a valid git branch name using only [A-Za-z0-9._/-])" >&2
+        exit 1
+    fi
+fi
+
+# sync-issues schedule (#1228): validate the 5-field cron loudly — a bad cron
+# silently disables the schedule trigger in GitHub Actions.
+if [[ -n "$MANIFEST_SYNC_SCHEDULE" ]] && ! is_valid_cron "$MANIFEST_SYNC_SCHEDULE"; then
+    echo "Error: Invalid DEVKIT_SYNC_SCHEDULE in $VIG_OS_MANIFEST: $MANIFEST_SYNC_SCHEDULE (expected a 5-field cron expression, e.g. '0 2 * * *')" >&2
     exit 1
 fi
 
@@ -771,12 +814,17 @@ render_gitignore() {
     # STRICTLY on the store-symlink condition so a hand-managed consumer who
     # commits a real .pre-commit-config.yaml file is never affected. A fresh
     # direnv scaffold defaults to flake-generated hooks (FLAKE_HOOKS_DEFAULT,
-    # #1167) before the store symlink exists, so seed the ignore for it too.
+    # #1167) before the store symlink exists, so seed the ignore for it too —
+    # as does an UPGRADED flake-hooks consumer whose generated config is absent
+    # from a fresh checkout/worktree (FLAKE_HOOKS_CONSUMER, #1255): without the
+    # seed the regenerated root .gitignore would drop the entry and the next
+    # shell entry would leave the store symlink dirtying git status.
     # Idempotent: skip when the assembled ignore (incl. .gitignore.project)
     # already lists it.
     local pcc="$WORKSPACE_DIR/.pre-commit-config.yaml"
     if { [[ -L "$pcc" ]] && readlink "$pcc" | grep -q '/nix/store/'; } \
-        || [[ "${FLAKE_HOOKS_DEFAULT:-false}" == "true" ]]; then
+        || [[ "${FLAKE_HOOKS_DEFAULT:-false}" == "true" ]] \
+        || [[ "${FLAKE_HOOKS_CONSUMER:-false}" == "true" ]]; then
         if ! grep -qxF '.pre-commit-config.yaml' "$gi"; then
             {
                 printf '\n# flake-hooks opt-in (#1092): the generated'
@@ -803,16 +851,16 @@ activate_flake_hooks_default() {
     local tmp="${flake}.hooks-default"
     awk '
         { print }
-        /^          extraPackages = extraPackages pkgs;$/ && !inserted {
+        /^            extraPackages = extraPackages pkgs;$/ && !inserted {
             print ""
-            print "          # Host-runner hooks (#1167): direnv CI runs on the bare host"
-            print "          # runner, so let the flake GENERATE .pre-commit-config.yaml from"
-            print "          # the shared base hook set, resolved entirely from the Nix store"
-            print "          # (incl. pymarkdown, now a flake system hook, #1170) rather than"
-            print "          # building the committed YAML remote pre-commit repo hook envs"
-            print "          # per runner. Customize like the opt-in block below; the generated"
-            print "          # config is a gitignored /nix/store symlink."
-            print "          hooks = { };"
+            print "            # Host-runner hooks (#1167): direnv CI runs on the bare host"
+            print "            # runner, so let the flake GENERATE .pre-commit-config.yaml from"
+            print "            # the shared base hook set, resolved entirely from the Nix store"
+            print "            # (incl. pymarkdown, now a flake system hook, #1170) rather than"
+            print "            # building the committed YAML remote pre-commit repo hook envs"
+            print "            # per runner. Customize like the opt-in block below; the generated"
+            print "            # config is a gitignored /nix/store symlink."
+            print "            hooks = { };"
             inserted = 1
         }
     ' "$flake" >"$tmp" && mv "$tmp" "$flake"
@@ -1000,6 +1048,25 @@ fi
 if [[ -f "$WORKSPACE_DIR/_typos.toml" && ! -f "$WORKSPACE_DIR/.typos.toml" ]]; then
     MODE_CONFIG_EXCLUDES+=(".typos.toml")
 fi
+# Flake-hooks consumer with an ABSENT generated config (#1255): the consumer's
+# .pre-commit-config.yaml is flake-GENERATED (#883/#1167) — a gitignored
+# /nix/store symlink that only materializes on shell entry — so in a fresh
+# checkout/worktree the file is absent and the preserve list cannot protect it.
+# Deploying the template YAML then SHADOWS the generated config (git-hooks.nix
+# refuses to overwrite an existing file): the shell silently runs the generic
+# template without the consumer's hooks/hooksExcludes customizations. The
+# opt-in is detectable without the file: an ACTIVE (uncommented)
+# hooks/hooksExcludes argument in the preserved flake.nix — exactly
+# mkProjectShell's generation trigger (hooks != null || hooksExcludes != [ ]);
+# the template's commented opt-in block never matches. Gated on the config
+# being absent: when it IS present the existing paths already handle it (store
+# symlink -> preserved #1117; regular file -> mid-migration, consumer-owned).
+FLAKE_HOOKS_CONSUMER=false
+if [[ "$FLAKE_PREEXISTED" == "true" && "$PRECOMMIT_CONFIG_PREEXISTED" == "false" ]] \
+    && grep -Eq '^[[:space:]]*hooks(Excludes)?[[:space:]]*=' "$WORKSPACE_DIR/flake.nix"; then
+    FLAKE_HOOKS_CONSUMER=true
+    MODE_CONFIG_EXCLUDES+=(".pre-commit-config.yaml")
+fi
 
 # Rewrite the scaffolded workspace from the gitflow default shape (long-lived
 # `dev` + `main` + sync-main-to-dev.yml) to the trunk shape (`main` only) when
@@ -1047,23 +1114,46 @@ render_workflow_model() {
         sed -i 's|# sync merge and can never be silently dropped.*Keep a Changelog$|# releases land directly on main. Keep a Changelog|' "$pr"
     fi
 
+    # promote-release.yml — no behavioral `dev` literals, but two comments name
+    # sync-main-to-dev, which is copy-excluded in trunk (EXCLUDE_ARGS). Drop the
+    # parentheticals so a trunk repo carries no prose referencing a workflow it
+    # does not have (#1233; comments only, no behavior change).
+    local prom="$wf/promote-release.yml"
+    if [[ -f "$prom" ]]; then
+        sed -i 's| (triggers sync-main-to-dev)||' "$prom"
+        sed -i 's| (sync-main-to-dev may run next)||' "$prom"
+    fi
+
     # ci.yml — drop `- dev` from the PR branch filter; retarget the commit-gate
-    # TRUNK anchor used to exclude already-merged history on release PRs.
+    # TRUNK anchor used to exclude already-merged history on release PRs. Also
+    # scrub the inert prose: the trigger-header comment and the origin/dev
+    # commit-gate rationale so a trunk repo carries no lying `dev` comments
+    # (#1226; no behavior change — comments only).
     local ci="$wf/ci.yml"
     if [[ -f "$ci" ]]; then
         sed -i '/^      - dev$/d' "$ci"
         sed -i 's|TRUNK="dev"|TRUNK="main"|' "$ci"
+        sed -i 's|Pull requests to dev, release/\*\*, and main|Pull requests to release/** and main|' "$ci"
+        sed -i 's|origin/dev — a no-op on a dev PR|origin/main — a no-op on a main PR|' "$ci"
+        sed -i 's|(its base IS dev)|(its base IS main)|' "$ci"
     fi
 
-    # codeql.yml — drop `- dev` from the PR branch filter (push is main-only).
-    [[ -f "$wf/codeql.yml" ]] && sed -i '/^      - dev$/d' "$wf/codeql.yml"
+    # codeql.yml — drop `- dev` from the PR branch filter (push is main-only)
+    # and scrub the trigger-header comment prose dev -> main (#1226).
+    local cq="$wf/codeql.yml"
+    if [[ -f "$cq" ]]; then
+        sed -i '/^      - dev$/d' "$cq"
+        sed -i 's|Pull requests to dev, release/\*\*, and main|Pull requests to release/** and main|' "$cq"
+    fi
 
-    # sync-issues.yml — default target branch + `|| 'dev'` fallbacks dev -> main
-    # (the illustrative `e.g., dev, …` description text is left alone).
+    # sync-issues.yml — default target branch + `|| 'dev'` fallbacks dev -> main,
+    # plus the illustrative `e.g., dev, …` description text so no stray `dev`
+    # prose survives (#1226).
     local si="$wf/sync-issues.yml"
     if [[ -f "$si" ]]; then
         sed -i -E "s|^([[:space:]]*default:) 'dev'\$|\1 'main'|" "$si"
         sed -i "s#|| 'dev'#|| 'main'#g" "$si"
+        sed -i 's|e.g., dev, release/x.y.z|e.g., main, release/x.y.z|' "$si"
     fi
 
     # branch-naming SKILL.md — base-branch default dev -> main. (Single-quoted
@@ -1087,6 +1177,67 @@ render_workflow_model() {
     fi
 
     echo "Rendered workflow model: trunk (anchored dev -> main retarget)"
+}
+
+# Render the sync-issues.yml knobs (#1228): the commit target branch
+# (DEVKIT_SYNC_TARGET) and the schedule cron (DEVKIT_SYNC_SCHEDULE). Runs AFTER
+# render_workflow_model, so a custom target overrides the workflow-model default
+# already in the file (dev for gitflow / main for trunk). Both are no-ops when
+# their manifest key is unset, so an unconfigured workspace stays byte-for-byte
+# unchanged. When a custom target is set — a protected-main mirror branch such as
+# sync/issue-mirror (#1227) — the job also gains a bootstrap step that creates the
+# branch from the default branch head if absent; the mirror diverges permanently
+# and is never merged back (each sync regenerates full state).
+render_sync_settings() {
+    local si="$WORKSPACE_DIR/.github/workflows/sync-issues.yml"
+    [[ -f "$si" ]] || return 0
+
+    # Schedule override: the file carries a single `- cron: '…'` line.
+    if [[ -n "$MANIFEST_SYNC_SCHEDULE" ]]; then
+        local cron_esc
+        cron_esc=$(printf '%s' "$MANIFEST_SYNC_SCHEDULE" | sed 's/[&\]/\\&/g')
+        sed -i -E "s|^([[:space:]]*- cron:) '[^']*'\$|\1 '${cron_esc}'|" "$si"
+    fi
+
+    # Target-branch override: replace the workflow-model default (dev/main,
+    # already rendered above) with the consumer's mirror branch, then inject the
+    # bootstrap step so the subsequent checkout of the (possibly absent) branch
+    # succeeds.
+    if [[ -n "$MANIFEST_SYNC_TARGET" ]]; then
+        local model_default="dev"
+        [[ "$WORKFLOW_MODEL" == "trunk" ]] && model_default="main"
+        local tgt_esc
+        tgt_esc=$(printf '%s' "$MANIFEST_SYNC_TARGET" | sed 's/[&/\]/\\&/g')
+        sed -i -E "s|^([[:space:]]*default:) '${model_default}'\$|\1 '${tgt_esc}'|" "$si"
+        sed -i "s#|| '${model_default}'#|| '${tgt_esc}'#g" "$si"
+
+        # Insert the bootstrap step right after the app-token step (its
+        # `private-key:` line is unique — the sync action uses `app-private-key:`),
+        # before the checkout. `sed r` appends the block file after the match.
+        local block
+        block="$(mktemp)"
+        cat > "$block" <<YAML
+
+      - name: Bootstrap sync target branch if absent
+        env:
+          GH_TOKEN: \${{ steps.generate-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          TARGET="\${{ github.event.inputs.target-branch || '${MANIFEST_SYNC_TARGET}' }}"
+          if gh api "repos/\${{ github.repository }}/git/ref/heads/\${TARGET}" >/dev/null 2>&1; then
+            echo "Sync target branch '\${TARGET}' already exists."
+          else
+            echo "Sync target branch '\${TARGET}' absent — creating it from the default branch head."
+            DEFAULT_BRANCH="\$(gh api "repos/\${{ github.repository }}" --jq .default_branch)"
+            SHA="\$(gh api "repos/\${{ github.repository }}/git/ref/heads/\${DEFAULT_BRANCH}" --jq .object.sha)"
+            gh api "repos/\${{ github.repository }}/git/refs" -f "ref=refs/heads/\${TARGET}" -f "sha=\${SHA}"
+          fi
+YAML
+        sed -i "/^          private-key: /r $block" "$si"
+        rm -f "$block"
+    fi
+
+    echo "Rendered sync-issues settings (target=${MANIFEST_SYNC_TARGET:-default}, schedule=${MANIFEST_SYNC_SCHEDULE:-default})"
 }
 
 # Warn if forcing (prompt user) - show which files would be overwritten
@@ -1364,6 +1515,11 @@ else
         if [[ "$excl" == ".typos.toml" ]]; then
             echo "Consumer carries legacy _typos.toml; not shipping template .typos.toml (#913)."
         fi
+        # Surface the flake-hooks skip so the upgrade report explains the
+        # missing template YAML (#1255).
+        if [[ "$excl" == ".pre-commit-config.yaml" ]]; then
+            echo "Flake-generated pre-commit hooks consumer; not shipping template .pre-commit-config.yaml (#1255)."
+        fi
     done
 
     # trunk workflow model (#1205): the long-lived dev branch and its sync
@@ -1640,6 +1796,9 @@ render_codeql_matrix
 # trunk workflow model (#1205): retarget the copied release workflows dev ->
 # main. A no-op for the gitflow default, so a gitflow scaffold is unchanged.
 render_workflow_model "$WORKFLOW_MODEL"
+# sync-issues knobs (#1228): override the target branch + schedule cron on top of
+# the workflow-model default. A no-op when both keys are unset.
+render_sync_settings
 
 # Persist the resolved manifest (#885). The scaffolded .vig-os is a managed
 # file (template-overwritten on upgrade), so the resolved delivery mode and
@@ -1679,6 +1838,16 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     # same conditional-writeback shape as DEVKIT_TAG_PREFIX above.
     if [[ "$WORKFLOW_MODEL" == "trunk" ]]; then
         write_manifest_value DEVKIT_WORKFLOW "$WORKFLOW_MODEL"
+    fi
+    # sync-issues knobs (#1228): bare in the template (DEVKIT_SYNC_TARGET= /
+    # DEVKIT_SYNC_SCHEDULE=), so a consumer's mirror branch + cron override are
+    # written back — else an upgrade silently resets the sync job onto the
+    # workflow-model default branch and the daily cron.
+    if [[ -n "$MANIFEST_SYNC_TARGET" ]]; then
+        write_manifest_value DEVKIT_SYNC_TARGET "$MANIFEST_SYNC_TARGET"
+    fi
+    if [[ -n "$MANIFEST_SYNC_SCHEDULE" ]]; then
+        write_manifest_value DEVKIT_SYNC_SCHEDULE "$MANIFEST_SYNC_SCHEDULE"
     fi
 fi
 

@@ -8,16 +8,23 @@
 #
 # Triggers:
 #   - Nightly schedule: 05:00 UTC
-#   - Manual dispatch (e.g. a pre-release run on dev — scheduled runs execute
-#     from the default branch, so this workflow never runs on dev otherwise)
+#   - Manual dispatch (e.g. an ad-hoc pre-release run)
+#
+# Refs scanned (matrix, #1237):
+#   - main — the default-branch closure consumers actually run (primary target)
+#   - dev  — reached purely via a `ref: dev` checkout, so a nixpkgs bump or an
+#            expiring `.vulnixignore` exception surfaces as a tracking issue days
+#            before a release branch is cut, not mid-release-train
 #
 # Jobs:
-#   1. scan-nix-image - build the image closure, run vulnix (+ Trivy SBOM)
+#   1. scan-nix-image - build the image closure, run vulnix (+ Trivy SBOM), once
+#      per matrix ref (main, dev)
 #
 # On failure:
-#   - A deduplicated `security-scan` tracking issue is opened (#965). Scheduled
-#     runs execute from the default branch with no other signal, so a red gate
-#     must surface as an issue, not just a red run.
+#   - A deduplicated `security-scan` tracking issue is opened per ref (#965,
+#     #1237), with a ref-distinct title so the two lanes never collide on dedup.
+#     Scheduled runs execute from the default branch with no other signal, so a
+#     red gate must surface as an issue, not just a red run.
 #
 # Artifacts:
 #   - vulnix findings (JSON + table) and a CycloneDX SBOM (uploaded)
@@ -26,7 +33,7 @@ name: Scheduled Security Scan
 
 on:  # yamllint disable-line rule:truthy
   schedule:
-    # Nightly (staggered after nightly CI at 04:00 UTC)
+    # Nightly at 05:00 UTC — one matrix leg per ref (main, dev) runs on this tick
     - cron: '0 5 * * *'
   workflow_dispatch:
 
@@ -46,7 +53,17 @@ jobs:
   # scan, which opens a deduplicated tracking issue (#965). SARIF upload to the
   # Security tab can still be added alongside the actual publish-cutover.
   scan-nix-image:
-    name: Scan Nix image (vulnix + SBOM)
+    name: Scan Nix image (vulnix + SBOM) [${{ matrix.ref }}]
+    # Scan both the default-branch (main) closure — what consumers run — and the
+    # dev closure (#1237). Each leg reaches its ref's closure, `.vulnixignore`
+    # register and machinery purely through the checkout `ref` below; the run
+    # itself always executes from the default branch on a scheduled trigger.
+    # fail-fast: false so a red main lane never cancels the dev scan (or vice
+    # versa) — the two lanes are independent signals.
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: [main, dev]
     runs-on: ubuntu-24.04
     # Worst case is a cold NVD cache week plus retries against a throttled
     # nvd.nist.gov (~25 min per attempt); warm-cache runs finish in minutes.
@@ -58,6 +75,11 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        with:
+          # Scan this matrix leg's ref. The local composite actions, flake and
+          # `.vulnixignore` register all resolve from the checked-out tree, so
+          # the dev leg exercises dev's machinery unchanged (#1237).
+          ref: ${{ matrix.ref }}
 
       - name: Set up environment (Nix + flake toolchain for the gate utilities)
         uses: ./.github/actions/setup-env
@@ -170,7 +192,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: nix-image-cve-scan
+          # Ref-scoped so the two matrix legs never collide on artifact name.
+          name: nix-image-cve-scan-${{ matrix.ref }}
           path: |
             vulnix-findings.json
             vulnix-report.txt
@@ -179,11 +202,14 @@ jobs:
 
       - name: Write Nix image scan summary
         if: always()
+        env:
+          SCAN_REF: ${{ matrix.ref }}
         run: |
           set -euo pipefail
           {
             echo "## Nix image CVE scan (vulnix + SBOM)"
             echo ""
+            echo "- **Scanned ref:** \`${SCAN_REF}\`"
             echo "- **Scan target:** flake \`devkitImageEnv\` (image package closure)"
             echo "- **Primary scanner:** vulnix (nixpkgs-native)"
             echo "- **Date (UTC):** $(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -204,6 +230,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SECURITY_URL: ${{ github.server_url }}/${{ github.repository }}/security
+          SCAN_REF: ${{ matrix.ref }}
         run: |
           set -euo pipefail
           # Refresh the (Nix-era) label; --force updates an existing label's
@@ -214,8 +241,10 @@ jobs:
           # Dedup by the auto-issue's distinctive title, NOT the label alone, so
           # we never collide with human-filed security-scan issues (per-CVE
           # triage, this very regression, etc.). One open tracking issue at a
-          # time; it is closed when a later scheduled run passes the gate.
-          TITLE='Nightly security scan: unexcepted HIGH/CRITICAL vulnix findings'
+          # time; it is closed when a later scheduled run passes the gate. The
+          # ref is in the title so the main and dev lanes dedup independently
+          # and never collide on each other's issue (#1237).
+          TITLE="Nightly security scan (${SCAN_REF}): unexcepted HIGH/CRITICAL vulnix findings"
           EXISTING=$(gh issue list --state open --label security-scan \
             --search "\"$TITLE\" in:title" --json number -q '.[0].number // empty')
           if [ -n "$EXISTING" ]; then
@@ -223,12 +252,13 @@ jobs:
             exit 0
           fi
           BODY="$(cat <<EOF
-          The nightly vulnix gate found **unexcepted HIGH/CRITICAL** CVEs in the Nix image closure (after \`.vulnixignore\`).
+          The nightly vulnix gate found **unexcepted HIGH/CRITICAL** CVEs in the \`${SCAN_REF}\` Nix image closure (after \`.vulnixignore\`).
 
+          - **Scanned ref:** \`${SCAN_REF}\`
           - **Scan target:** flake \`devkitImageEnv\` (image package closure)
           - **Scan date (UTC):** $(date -u +%Y-%m-%dT%H:%M:%SZ)
           - **Workflow run:** ${RUN_URL}
-          - **Findings artifact:** \`nix-image-cve-scan\` on the run above (\`vulnix-findings.json\`, \`vulnix-report.txt\`)
+          - **Findings artifact:** \`nix-image-cve-scan-${SCAN_REF}\` on the run above (\`vulnix-findings.json\`, \`vulnix-report.txt\`)
           - **Security tab:** ${SECURITY_URL}
 
           **To remediate:** advance the pinned nixpkgs rev if a fix has landed, or add a time-boxed \`.vulnixignore\` exception with a rationale (see \`docs/CONTAINER_SECURITY.md\`). Close this issue once a later scheduled run passes the gate.
