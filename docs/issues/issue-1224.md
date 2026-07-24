@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-20T16:42:21Z
-updated: 2026-07-20T16:42:21Z
+updated: 2026-07-21T07:51:04Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1224
-comments: 0
+comments: 1
 labels: bug
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-21T05:27:42.766Z
+synced: 2026-07-22T05:26:42.646Z
 ---
 
 # [Issue 1224]: [Flake-generated pre-commit branch guard is not workflow-model-aware](https://github.com/vig-os/devkit/issues/1224)
@@ -27,3 +27,11 @@ Suggested fix: make the mkProjectShell hook definition read the workspace `.vig-
 Dev-targeted polish, not urgent (no functional breakage).
 
 Refs: #1205, #1167
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 21, 2026 at 07:51 AM_
+
+Fixed by PR #1231, merged to dev @436e7b59 (dev-targeted PRs don't auto-close). mkProjectShell now takes a validated `workflow` argument and the scaffolded consumer flake forwards `DEVKIT_WORKFLOW` from `.vig-os`. Note for existing trunk consumers (vault, exo-fleet): the preserved `flake.nix` needs a re-scaffold or a one-line `workflow = "trunk";` to pick this up — residual clause is inert meanwhile. Ships with 1.4.1.
+
