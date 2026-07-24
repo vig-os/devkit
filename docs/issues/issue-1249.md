@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-22T12:58:48Z
-updated: 2026-07-22T12:58:48Z
+updated: 2026-07-23T15:59:30Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1249
-comments: 0
+comments: 1
 labels: bug, priority:blocking, area:workspace, effort:small, semver:patch
 assignees: none
 milestone: 1.4.1
 projects: none
 parent: none
 children: none
-synced: 2026-07-23T05:31:50.433Z
+synced: 2026-07-24T05:27:31.286Z
 ---
 
 # [Issue 1249]: [Scaffolded flake breaks on fresh install while devkit main predates the workflow argument](https://github.com/vig-os/devkit/issues/1249)
@@ -55,4 +55,12 @@ This keeps the unpinned-input design (consumers ride main releases via `nix flak
 Fix targets `release/1.4.1` (rc respin), like #1216 in the 1.4.0 train.
 
 Found during 1.4.1-rc1 validation, 2026-07-21.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 23, 2026 at 03:59 PM_
+
+Fixed by PR #1252 (functionArgs-guarded `workflow` forwarding; follow-up e60518b0 for the #1167 awk anchor), merged into `release/1.4.1`. Live-proven by the automatic smoke-test chain (Direnv Smoke green at rc2–rc4 and final). Shipped in [1.4.1](https://github.com/vig-os/devkit/releases/tag/1.4.1). Closing.
 

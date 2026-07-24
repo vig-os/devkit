@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-21T18:16:49Z
-updated: 2026-07-21T18:16:49Z
+updated: 2026-07-23T15:59:27Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1248
-comments: 0
+comments: 1
 labels: bug, priority:blocking, area:workspace, effort:small, semver:patch
 assignees: none
 milestone: 1.4.1
 projects: none
 parent: none
 children: none
-synced: 2026-07-22T05:26:36.771Z
+synced: 2026-07-24T05:27:31.604Z
 ---
 
 # [Issue 1248]: [install.sh --docker ownership repair breaks scaffold under rootless-podman docker shim](https://github.com/vig-os/devkit/issues/1248)
@@ -53,4 +53,12 @@ The repair must run only when the scaffold output actually needs it. Condition o
 ## Impact
 
 Release-blocking for 1.4.1: shipping it breaks `--docker` installs on rootless-podman shim hosts that work on 1.4.0 (the vigo-nixos deploy targets are exactly such hosts).
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 23, 2026 at 03:59 PM_
+
+Fixed by PR #1253 (observed-ownership-conditioned docker repair), merged into `release/1.4.1` and live-verified on the rootless-podman docker-shim host (owner intact + git phase green, 103/103 bats). Shipped in [1.4.1](https://github.com/vig-os/devkit/releases/tag/1.4.1), promoted 2026-07-23. Closing.
 

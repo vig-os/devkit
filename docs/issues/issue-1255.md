@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-22T16:51:42Z
-updated: 2026-07-22T16:51:42Z
+updated: 2026-07-23T16:00:13Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1255
-comments: 0
+comments: 1
 labels: bug, priority:medium, area:workspace, effort:small, semver:patch
 assignees: none
-milestone: none
+milestone: 1.4.1
 projects: none
 parent: none
 children: none
-synced: 2026-07-23T05:31:49.395Z
+synced: 2026-07-24T05:27:30.358Z
 ---
 
 # [Issue 1255]: [Upgrade deploys template .pre-commit-config.yaml into direnv consumers, shadowing the flake-generated config](https://github.com/vig-os/devkit/issues/1255)
@@ -33,4 +33,12 @@ The upgrade path applies the same direnv-mode drop-hooks handling as a fresh sca
 ## Impact
 
 Gitignored, so CI and PRs are unaffected; local dev shells lose flake excludes silently until the file is deleted (regeneration resumes on next shell entry).
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 23, 2026 at 04:00 PM_
+
+Fixed by PR #1259 (flake-hooks opt-in detected from the preserved `flake.nix`; template YAML excluded from copy + preview, #1092 ignore seed kept firing), merged into `release/1.4.1`. Live-proven at rc4: a fresh commit-action worktree upgrade printed the #1255 skip notice, deployed no YAML, and kept the gitignore entry. Shipped in [1.4.1](https://github.com/vig-os/devkit/releases/tag/1.4.1).
 

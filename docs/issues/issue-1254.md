@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-22T16:32:39Z
-updated: 2026-07-22T17:09:15Z
+updated: 2026-07-23T15:59:34Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1254
-comments: 0
+comments: 1
 labels: feature, priority:medium, area:workspace, effort:medium, semver:minor
 assignees: none
 milestone: 1.4.1
 projects: none
 parent: none
 children: none
-synced: 2026-07-23T05:31:49.784Z
+synced: 2026-07-24T05:27:30.690Z
 ---
 
 # [Issue 1254]: [[FEATURE] setup-labels: support a repo-local, non-managed taxonomy extension file](https://github.com/vig-os/devkit/issues/1254)
@@ -155,4 +155,12 @@ prune loops — no change to the reconciliation logic itself.
 ## Changelog Category
 
 Added
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 23, 2026 at 03:59 PM_
+
+Implemented by PR #1256 (`.github/label-taxonomy.local.toml` extension, local-wins merge, prune only when absent from both files), merged into `release/1.4.1` per maintainer decision and live-accepted against org-config. Shipped in [1.4.1](https://github.com/vig-os/devkit/releases/tag/1.4.1). Closing.
 

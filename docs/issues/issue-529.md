@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-07-23T01:38:13Z
+updated: 2026-07-23T21:47:29Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-23T05:31:50.772Z
+synced: 2026-07-24T05:27:31.872Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -25,7 +25,7 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
  - [ ] <!-- unschedule-branch=renovate/github-codeql-action-digest -->chore(deps): update github/codeql-action digest to e4fba86
- - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update actions/checkout action to v7.0.1
+ - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update github-actions (minor and patch) (`actions/checkout`, `docker/login-action`, `ossf/scorecard-action`)
  - [ ] <!-- unschedule-branch=renovate/npm-(minor-and-patch) -->build(npm): update dependency @devcontainers/cli to v0.88.0
  - [ ] <!-- unschedule-branch=renovate/astral-sh-setup-uv-9.x -->ci(actions): update astral-sh/setup-uv action to v9
  - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
@@ -140,8 +140,8 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
  - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342`
  - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
- - `docker/login-action v4.4.0@af1e73f918a031802d376d3c8bbc3fe56130a9b0`
- - `docker/login-action v4.4.0@af1e73f918a031802d376d3c8bbc3fe56130a9b0`
+ - `docker/login-action v4.4.0@af1e73f918a031802d376d3c8bbc3fe56130a9b0` → [Updates: `v4.5.0`]
+ - `docker/login-action v4.4.0@af1e73f918a031802d376d3c8bbc3fe56130a9b0` → [Updates: `v4.5.0`]
  - `ubuntu 24.04`
 
 </details>
@@ -177,12 +177,12 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>.github/workflows/promote-release.yml (15)</summary>
 
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
- - `docker/login-action v4.4.0@af1e73f918a031802d376d3c8bbc3fe56130a9b0`
+ - `docker/login-action v4.4.0@af1e73f918a031802d376d3c8bbc3fe56130a9b0` → [Updates: `v4.5.0`]
  - `sigstore/cosign-installer v4.1.2@6f9f17788090df1f26f669e9d70d6ae9567deba6`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `docker/login-action v4.4.0@af1e73f918a031802d376d3c8bbc3fe56130a9b0`
+ - `docker/login-action v4.4.0@af1e73f918a031802d376d3c8bbc3fe56130a9b0` → [Updates: `v4.5.0`]
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
@@ -208,7 +208,7 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
  - `sigstore/cosign-installer v4.1.2@6f9f17788090df1f26f669e9d70d6ae9567deba6`
- - `docker/login-action v4.4.0@af1e73f918a031802d376d3c8bbc3fe56130a9b0`
+ - `docker/login-action v4.4.0@af1e73f918a031802d376d3c8bbc3fe56130a9b0` → [Updates: `v4.5.0`]
  - `actions/download-artifact v8.0.1@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`
  - `anchore/sbom-action v0.24.0@e22c389904149dbc22b58101806040fa8d37a610`
  - `anchore/sbom-action v0.24.0@e22c389904149dbc22b58101806040fa8d37a610`
@@ -263,7 +263,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>.github/workflows/scorecard.yml (4)</summary>
 
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
- - `ossf/scorecard-action v2.4.3@4eaacf0543bb3f2c246792bd56e8cdeffafb205a`
+ - `ossf/scorecard-action v2.4.3@4eaacf0543bb3f2c246792bd56e8cdeffafb205a` → [Updates: `v2.4.4`]
  - `github/codeql-action v4@7188fc363630916deb702c7fdcf4e481b751f97a` → [Updates: `v4`]
  - `ubuntu 24.04`
 
@@ -493,7 +493,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>assets/workspace/.github/workflows/scorecard.yml (4)</summary>
 
  - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
- - `ossf/scorecard-action v2.4.3@4eaacf0543bb3f2c246792bd56e8cdeffafb205a`
+ - `ossf/scorecard-action v2.4.3@4eaacf0543bb3f2c246792bd56e8cdeffafb205a` → [Updates: `v2.4.4`]
  - `github/codeql-action v4@7188fc363630916deb702c7fdcf4e481b751f97a` → [Updates: `v4`]
  - `ubuntu 24.04`
 

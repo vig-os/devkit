@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-22T12:59:04Z
-updated: 2026-07-22T12:59:04Z
+updated: 2026-07-23T15:59:32Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1250
-comments: 0
+comments: 1
 labels: bug, priority:low, area:ci, effort:small, semver:patch
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-23T05:31:50.099Z
+synced: 2026-07-24T05:27:30.964Z
 ---
 
 # [Issue 1250]: [Release freeze commit paints a guaranteed-red nix-image run on dev](https://github.com/vig-os/devkit/issues/1250)
@@ -37,4 +37,12 @@ No structurally-guaranteed red run per release train. Options:
 - a `concurrency` group on the `dev` push trigger with `cancel-in-progress: true`, so the freeze build is superseded by the sync build instead of completing red.
 
 Cosmetic/noise only — no artifact is wrong — but a red run every train trains people to ignore red.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 23, 2026 at 03:59 PM_
+
+Fixed by PR #1251 (cancel superseded nix-image builds per ref), merged into `release/1.4.1` and shipped in [1.4.1](https://github.com/vig-os/devkit/releases/tag/1.4.1). Closing.
 
