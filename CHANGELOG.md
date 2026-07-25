@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renovate: update `astral-sh/setup-uv` from `v8.3.2` to `v9.0.0`** ([#1270](https://github.com/vig-os/devkit/pull/1270))
 - **Renovate dependency update** ([#1267](https://github.com/vig-os/devkit/pull/1267))
   - Update `actions/checkout` from `v7.0.0` to `v7.0.1`
   - Update `docker/login-action` from `v4.4.0` to `v4.5.1`
