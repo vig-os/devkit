@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renovate dependency update** ([#1267](https://github.com/vig-os/devkit/pull/1267))
+  - Update `actions/checkout` from `v7.0.0` to `v7.0.1`
+  - Update `docker/login-action` from `v4.4.0` to `v4.5.1`
+  - Update `ossf/scorecard-action` from `v2.4.3` to `v2.4.4`
 - **Renovate: update `github/codeql-action` from `7188fc3` to `e4fba86`** ([#1266](https://github.com/vig-os/devkit/pull/1266))
 
 ### Deprecated
