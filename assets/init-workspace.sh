@@ -1693,8 +1693,11 @@ if [[ -n "${VIG_OS_VERSION:-}" && -f "$WORKSPACE_DIR/.vig-os" ]]; then
     # delivered through the flake input). Bumping only the scaffold while a pinned
     # `vigos` ref lags behind silently breaks every commit. We cannot fix it for
     # the consumer — flake.nix is a PRESERVE_FILE they own — but we can warn.
-    # A FLOATING input (no ?ref=) is intentionally unpinned, so it never warns;
-    # only a pin that differs from the target does.
+    # A FLOATING input (no ?ref=) never warns HERE — not because it cannot skew
+    # (it does, via the rev flake.lock last locked, #1263), but because that
+    # case is handled elsewhere: install.sh advances the lock host-side on
+    # --force upgrades, and mkProjectShell's shell-entry guard warns until the
+    # lock catches up. Only a pin that differs from the target warns here.
     if [[ "$FORCE" == "true" && ( "$MODE" == "direnv" || "$MODE" == "both" ) \
         && -f "$WORKSPACE_DIR/flake.nix" ]]; then
         # `|| true`: a floating input yields no grep match (exit 1), which would
