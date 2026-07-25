@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renovate: update `github/codeql-action` from `7188fc3` to `e4fba86`** ([#1266](https://github.com/vig-os/devkit/pull/1266))
+
 ### Deprecated
 
 ### Removed
