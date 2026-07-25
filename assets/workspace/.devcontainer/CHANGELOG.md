@@ -17,6 +17,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Consumer adoption no longer strands the dev-shell toolchain a release behind** ([#1263](https://github.com/vig-os/devkit/issues/1263))
+  - A `--force` upgrade of a direnv/`both` consumer with a floating `vigos`
+    flake input now runs `nix flake update vigos` host-side after the scaffold,
+    so `flake.lock` (which governs the dev shell: `vig-utils`, hook sets,
+    `mkProjectShell`) advances together with the `.vig-os` `DEVKIT_VERSION`
+    pin. Non-fatal when `nix` is missing or offline — the manual step is
+    printed instead. Pinned (`?ref=`) inputs keep the existing #1093 warning.
+  - `mkProjectShell` gains a shell-entry version-skew guard: the shellHook
+    compares the flake's own release (the devkit `.vig-os` at the locked input
+    rev) against the workspace `.vig-os` pin and warns with the
+    `nix flake update vigos` remedy on every entry until the lock is advanced.
+    Silent for matching versions, prerelease (`-rc*`) pins, and bare
+    `mkProjectShell` consumers without a manifest.
+  - `docs/MIGRATION.md` documents the lock-advance step in the upgrade
+    checklist and corrects the claim that a floating input needs no manual
+    bump — it skews via `flake.lock` instead.
+
 ### Security
 
 ## [1.4.1](https://github.com/vig-os/devkit/releases/tag/1.4.1) - 2026-07-23
