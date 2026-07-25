@@ -978,6 +978,43 @@ if ! setup_git_repo "$PROJECT_PATH"; then
     echo "    cd $PROJECT_PATH && git init -b main && git add -A && git commit -m 'chore: initial project scaffold'"
 fi
 
+# 3. Floating vigos flake-lock advance (#1263)
+# An upgrade advances .vig-os DEVKIT_VERSION (scaffold + image), but a FLOATING
+# `vigos` input's dev shell is governed by flake.lock, which stays wherever the
+# last `nix flake update vigos` left it — so the direnv toolchain (vig-utils,
+# hook sets) silently keeps running the previous release. Advance the lock
+# here, on the host, after the ownership repair and git phase: a direnv
+# consumer has nix by definition, and the scaffold container must not write the
+# lock (network dependence + root-owned output hazards, #1235/#1248). Pinned
+# (?ref=) inputs are the consumer's explicit choice and get the #1093
+# init-workspace.sh warning instead; a missing flake.lock (fresh scaffold)
+# locks current content on first shell entry anyway. Upgrades only (--force):
+# the skew needs a pre-existing lock to lag behind. Non-fatal on failure
+# (e.g. offline): print the manual step. The anchored grep matches the REAL
+# floating input line only — the doc-comment example and any ?ref= pin do not
+# match (same anchoring rationale as #1110).
+if [ -n "$FORCE" ] && { [ "$MODE" = "direnv" ] || [ "$MODE" = "both" ]; } \
+    && [ -f "$PROJECT_PATH/flake.nix" ] && [ -f "$PROJECT_PATH/flake.lock" ] \
+    && grep -qE '^[[:space:]]*vigos\.url[[:space:]]*=[[:space:]]*"github:vig-os/devkit"' \
+        "$PROJECT_PATH/flake.nix"; then
+    if command -v nix >/dev/null 2>&1; then
+        info "Advancing the floating vigos flake input (nix flake update vigos)..."
+        if nix --extra-experimental-features "nix-command flakes" \
+            flake update vigos --flake "$PROJECT_PATH"; then
+            info "flake.lock advanced; review and commit it with the upgrade."
+        else
+            warn "nix flake update vigos failed (non-fatal)"
+            echo "  The dev-shell toolchain still points at the previously locked release."
+            echo "  Advance it manually:"
+            echo "    cd $PROJECT_PATH && nix flake update vigos"
+        fi
+    else
+        warn "nix not found on PATH; the dev-shell toolchain keeps the previously locked release"
+        echo "  Advance it from a machine with nix:"
+        echo "    cd $PROJECT_PATH && nix flake update vigos"
+    fi
+fi
+
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 echo ""
