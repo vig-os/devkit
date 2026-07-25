@@ -521,6 +521,49 @@
             unset _gitTop
           '';
 
+          # Shell-entry version-skew guard (#1263). The workspace `.vig-os`
+          # DEVKIT_VERSION (advanced by the scaffold upgrade) and the `vigos`
+          # flake input (frozen by the consumer's flake.lock) deliver coupled
+          # halves of each release, but a FLOATING input only advances when
+          # someone runs `nix flake update vigos` — the #1093 scaffold warning
+          # covers pinned (?ref=) inputs only, so a floating consumer's shell
+          # silently ran last release's toolchain (vig-utils, hook sets) under
+          # this release's scaffold. The flake knows its own release purely:
+          # the devkit repo-root `.vig-os` (read here at the locked input rev)
+          # is already the version SSoT for `nix build`. Bake it into the
+          # shellHook and compare against the workspace `.vig-os` on every
+          # shell entry — the one place both halves of the skew are visible.
+          # Silent when: no workspace `.vig-os` (bare mkProjectShell consumer),
+          # versions match, or the workspace pin is a prerelease (`-rc*`) —
+          # release-train lanes bump consumers to rc tags whose content lives
+          # on the release branch, which a floating update (default branch)
+          # cannot reach, so the warning would be unactionable there.
+          # Warn-only: never fails the shell.
+          devkitVersion =
+            let
+              manifestLines = pkgs.lib.splitString "\n" (builtins.readFile ./.vig-os);
+              pinMatches = builtins.filter (m: m != null) (
+                map (builtins.match "DEVKIT_VERSION=(.*)") manifestLines
+              );
+            in
+            if pinMatches == [ ] then "" else builtins.head (builtins.head pinMatches);
+          versionSkewHook = pkgs.lib.optionalString (devkitVersion != "") ''
+            _vigosWs=$(${pkgs.gitMinimal}/bin/git rev-parse --show-toplevel 2>/dev/null || pwd)
+            if [ -f "$_vigosWs/.vig-os" ]; then
+              _vigosPin=$(sed -n 's/^DEVKIT_VERSION=//p' "$_vigosWs/.vig-os" | head -n1 | tr -d '[:space:]')
+              case "$_vigosPin" in
+                "" | *-rc* | "${devkitVersion}") : ;;
+                *)
+                  echo 1>&2 "WARNING: vigos: dev-shell toolchain is devkit ${devkitVersion}, but .vig-os pins DEVKIT_VERSION=$_vigosPin."
+                  echo 1>&2 "         The scaffold and the vigos flake input deliver coupled halves of each release;"
+                  echo 1>&2 "         run 'nix flake update vigos' (then reload the shell) to advance the toolchain."
+                  echo 1>&2 "         Refs: https://github.com/vig-os/devkit/issues/1263"
+                  ;;
+              esac
+            fi
+            unset _vigosWs _vigosPin
+          '';
+
           # When the interpreter is overridden (#1038), prepend it to PATH so the
           # bare `python`/`python3` follow the override too — not just uv's
           # `UV_PYTHON` pin. `vig-utils` (a devTools entry) is built against the
@@ -585,7 +628,8 @@
               ++ extraPackages
               ++ modulePackages;
             shellHook =
-              ldLibraryPathHook
+              versionSkewHook
+              + ldLibraryPathHook
               + "\n"
               + nvimIsolationHook
               + "\n"
