@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renovate: update `@devcontainers/cli` from `0.87.0` to `0.88.0`** ([#1268](https://github.com/vig-os/devkit/pull/1268))
+
 ### Deprecated
 
 ### Removed
