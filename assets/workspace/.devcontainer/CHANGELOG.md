@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renovate: update `testcontainers` from `==4.14.2` to `==4.15.0`** ([#1269](https://github.com/vig-os/devkit/pull/1269))
 - **Renovate: update `@devcontainers/cli` from `0.87.0` to `0.88.0`** ([#1268](https://github.com/vig-os/devkit/pull/1268))
 - **Renovate: update `astral-sh/setup-uv` from `v8.3.2` to `v9.0.0`** ([#1270](https://github.com/vig-os/devkit/pull/1270))
 - **Renovate dependency update** ([#1267](https://github.com/vig-os/devkit/pull/1267))

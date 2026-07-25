@@ -30,7 +30,7 @@ test = [
   "pytest-testinfra==10.2.2",
   "pytest-docker==3.2.5",
   "pexpect==4.9.0",
-  "testcontainers==4.14.2",
+  "testcontainers==4.15.0",
   "bcrypt==5.0.0",
 ]
 
