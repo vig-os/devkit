@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renovate: update `testcontainers` from `==4.14.2` to `==4.15.0`** ([#1269](https://github.com/vig-os/devkit/pull/1269))
+
 ### Deprecated
 
 ### Removed
