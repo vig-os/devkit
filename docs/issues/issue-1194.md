@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-17T18:43:37Z
-updated: 2026-07-17T18:43:37Z
+updated: 2026-07-21T08:37:34Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1194
-comments: 0
+comments: 1
 labels: chore, priority:high, area:ci, effort:medium, area:testing
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-18T04:54:23.439Z
+synced: 2026-07-22T05:26:43.122Z
 ---
 
 # [Issue 1194]: [devkit-smoke-test has no direnv-mode lane — two blocking rc bugs escaped to consumers](https://github.com/vig-os/devkit/issues/1194)
@@ -44,3 +44,16 @@ A self-hosted-runner leg (the #1173 path that hit #1192) is harder to add to a p
 Process gap, not a runtime bug — but it is the direct cause of two extra RC round-trips (rc2, rc3→rc4) this cycle. Highest-value item in the post-1.4.0 cleanup.
 
 Refs: rollout validation PRs vig-os/org-config#54, vig-os/sync-issues-action#143, exo-pet/exo-fleet#230; findings #1189, #1192.
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 21, 2026 at 08:37 AM_
+
+Done. Direnv-mode lane added to the pre-consumer gate (option 1 from the issue), plus a fake-preinstalled-Nix leg covering the #1192 host-Nix branch on a hosted runner:
+
+- devkit-smoke-test#286 (merged @a45009eb): `.github/workflows/direnv-smoke.yml` — 2-leg matrix scaffolds a throwaway `--mode direnv` workspace and invokes the scaffolded `setup-devkit-toolchain` from the same call site as the managed ci.yml. Live proof (run 29813431342): fresh-install leg takes the install-nix-action branch; preinstalled leg logs the #1192 detect/configure host-Nix branch; both verify the #1189 shellHook→GITHUB_ENV forward (30 vars) with subsequent steps running off the forwarded env.
+- devkit#1234 (merged to dev): persists the workflow in the `assets/smoke-test/` overlay (repository-dispatch.yml pattern) so `--smoke-test` deploys don't wipe it, extends the overlay actionlint bats test to cover it, and documents the lane in the overlay README.
+
+Follow-up filed: #1235 (install.sh --docker should chown scaffold output before the git phase — root cause of the lane's chown+git-init workaround). Note: the self-hosted `DEVKIT_CI_RUNNER` + genuinely-preinstalled-Nix path remains exercised only by downstream consumers; the fake-preinstalled leg covers the code branch itself.
+

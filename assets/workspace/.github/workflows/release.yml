@@ -64,7 +64,7 @@ jobs:
       tag-prefix: ${{ steps.resolve.outputs.tag-prefix }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           sparse-checkout: |
             .vig-os
@@ -187,7 +187,7 @@ jobs:
       # in direnv mode, the repo flake) resolves; the guarded checkout below
       # re-checks out the release branch with the commit token when needed.
       - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Set up devkit toolchain
         uses: ./.github/actions/setup-devkit-toolchain
@@ -213,7 +213,7 @@ jobs:
 
       - name: Checkout release branch
         if: ${{ needs.core.outputs.pre_finalize_sha != '' }}
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0  # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           fetch-depth: 0
           token: ${{ steps.commit_app_token.outputs.token }}

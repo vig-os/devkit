@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-23T08:25:56Z
-updated: 2026-07-23T11:00:20Z
+updated: 2026-07-23T16:00:15Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1257
-comments: 1
+comments: 2
 labels: security, security-scan
 assignees: none
 milestone: 1.4.1
 projects: none
 parent: none
 children: none
-synced: 2026-07-23T15:08:26.896Z
+synced: 2026-07-24T05:27:30.012Z
 ---
 
 # [Issue 1257]: [Renew lapsed curl + openssh .vulnixignore exceptions (nightly scan red)](https://github.com/vig-os/devkit/issues/1257)
@@ -56,4 +56,12 @@ Update (2026-07-23, after PR #1258 merged): the pinned channel has now advanced 
 (verified via `nix eval --raw github:NixOS/nixpkgs/nixos-26.05#curl.version` / `#openssh.version`; the pinned rev `34268251` still ships 8.20.0/10.3p1.)
 
 Per this register's protocol the flip-to-rev-advance now has a landing spot: bump the `nixpkgs` pin and drop both blocks (plus re-check the podman `CVE-2026-57231` and gawk #1240 entries at the new rev while at it). Given the renewed expiries run to 2026-08-15 and the 1.4.1 train is promote-ready, the pin bump is best done as a follow-up on `dev` after promote rather than folded into the train.
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on July 23, 2026 at 04:00 PM_
+
+Shipped in [1.4.1](https://github.com/vig-os/devkit/releases/tag/1.4.1) (promoted 2026-07-23). Reminder from the update above: `nixos-26.05` now carries curl 8.21.0 + openssh 10.4p1, so the flip-to-rev-advance (pin bump on `dev` + drop both blocks, re-check podman/gawk entries) is the follow-up before the 2026-08-15 expiry.
 

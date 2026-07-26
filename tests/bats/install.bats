@@ -934,3 +934,116 @@ STUB
     [ -n "$git_line" ]
     [ "$chown_line" -lt "$git_line" ]
 }
+
+# ── floating vigos flake-lock advance on upgrade (#1263) ──────────────────────
+# A --force upgrade advances .vig-os DEVKIT_VERSION (the scaffold + image), but
+# a FLOATING `vigos` input's dev shell is governed by flake.lock, which stays
+# wherever the last `nix flake update vigos` left it — so direnv consumers
+# silently keep running the previous release's toolchain (vig-utils, hook
+# sets). install.sh must advance the lock HOST-SIDE after the scaffold (the
+# container must not write it: network dependence + ownership hazards,
+# #1235/#1248) when the workspace is a direnv/both consumer with a floating
+# input and an existing flake.lock. Pinned (?ref=) inputs stay the consumer's
+# explicit choice (covered by the #1093 scaffold warning); a missing lock
+# (fresh scaffold) locks current content on first shell entry anyway.
+# Exercised against a stub `docker` (scaffold no-op) + logging stub `nix`.
+
+# Build an upgradeable consumer fixture at $1: clean feature-branch repo with a
+# .vig-os manifest (mode $4, default direnv), a flake.nix whose vigos input is
+# $2 (a full `vigos.url = ...` line), and — unless $3=nolock — a flake.lock.
+_make_flake_workspace() {
+    local dir="$1" url_line="$2" with_lock="${3:-lock}" mode="${4:-direnv}"
+    _make_repo "$dir"
+    printf 'DEVKIT_VERSION=1.4.1\nDEVKIT_MODE=%s\n' "$mode" >"$dir/.vig-os"
+    cat >"$dir/flake.nix" <<FLAKE
+{
+  inputs = {
+    #   vigos.url = "github:vig-os/devkit?ref=<tag>";
+    $url_line
+    nixpkgs.follows = "vigos/nixpkgs";
+  };
+}
+FLAKE
+    if [ "$with_lock" = "lock" ]; then
+        echo '{}' >"$dir/flake.lock"
+    fi
+    _git -C "$dir" add -A
+    _git -C "$dir" commit -q -m "chore: fixture"
+}
+
+# Run install.sh against stub docker + a logging stub nix (exit code $3).
+# Extra install.sh args (e.g. --force) follow.
+_run_install_nix_stub() {
+    local dir="$1" nixlog="$2" nix_exit="${3:-0}"
+    shift 3
+    local stub="$BATS_TEST_TMPDIR/stub-flake-bin"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/docker"
+    chmod +x "$stub/docker"
+    cat >"$stub/nix" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$nixlog"
+exit $nix_exit
+STUB
+    chmod +x "$stub/nix"
+    run env PATH="$stub:$PATH" bash "$INSTALL_SH" --docker --skip-pull "$@" "$dir" </dev/null
+}
+
+@test "upgrade advances a floating vigos flake lock (#1263)" {
+    dir="$BATS_TEST_TMPDIR/flake-floating"
+    log="$BATS_TEST_TMPDIR/flake-floating-nix.log"
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit";'
+    _run_install_nix_stub "$dir" "$log" 0 --force
+    assert_success
+    run grep -F "flake update vigos --flake $dir" "$log"
+    assert_success
+}
+
+@test "upgrade leaves a pinned vigos input alone (#1263)" {
+    dir="$BATS_TEST_TMPDIR/flake-pinned"
+    log="$BATS_TEST_TMPDIR/flake-pinned-nix.log"
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.1";'
+    _run_install_nix_stub "$dir" "$log" 0 --force
+    assert_success
+    run grep -F "flake update" "$log"
+    assert_failure
+}
+
+@test "upgrade without a flake.lock skips the advance (#1263)" {
+    dir="$BATS_TEST_TMPDIR/flake-nolock"
+    log="$BATS_TEST_TMPDIR/flake-nolock-nix.log"
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit";' nolock
+    _run_install_nix_stub "$dir" "$log" 0 --force
+    assert_success
+    run grep -F "flake update" "$log"
+    assert_failure
+}
+
+@test "fresh install (no --force) runs no lock advance (#1263)" {
+    dir="$BATS_TEST_TMPDIR/flake-fresh"
+    log="$BATS_TEST_TMPDIR/flake-fresh-nix.log"
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit";'
+    _run_install_nix_stub "$dir" "$log" 0
+    assert_success
+    run grep -F "flake update" "$log"
+    assert_failure
+}
+
+@test "devcontainer-mode upgrade runs no lock advance (#1263)" {
+    dir="$BATS_TEST_TMPDIR/flake-container-mode"
+    log="$BATS_TEST_TMPDIR/flake-container-mode-nix.log"
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit";' lock devcontainer
+    _run_install_nix_stub "$dir" "$log" 0 --force
+    assert_success
+    run grep -F "flake update" "$log"
+    assert_failure
+}
+
+@test "failed lock advance is non-fatal and prints the manual step (#1263)" {
+    dir="$BATS_TEST_TMPDIR/flake-fail"
+    log="$BATS_TEST_TMPDIR/flake-fail-nix.log"
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit";'
+    _run_install_nix_stub "$dir" "$log" 1 --force
+    assert_success
+    assert_output --partial "nix flake update vigos"
+}

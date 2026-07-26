@@ -19,6 +19,53 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [1.4.2](https://github.com/vig-os/devkit/releases/tag/1.4.2) - 2026-07-26
+
+### Changed
+
+- **Renovate: update `testcontainers` from `==4.14.2` to `==4.15.0`** ([#1269](https://github.com/vig-os/devkit/pull/1269))
+- **Renovate: update `@devcontainers/cli` from `0.87.0` to `0.88.0`** ([#1268](https://github.com/vig-os/devkit/pull/1268))
+- **Renovate: update `astral-sh/setup-uv` from `v8.3.2` to `v9.0.0`** ([#1270](https://github.com/vig-os/devkit/pull/1270))
+- **Renovate dependency update** ([#1267](https://github.com/vig-os/devkit/pull/1267))
+  - Update `actions/checkout` from `v7.0.0` to `v7.0.1`
+  - Update `docker/login-action` from `v4.4.0` to `v4.5.1`
+  - Update `ossf/scorecard-action` from `v2.4.3` to `v2.4.4`
+- **Renovate: update `github/codeql-action` from `7188fc3` to `e4fba86`** ([#1266](https://github.com/vig-os/devkit/pull/1266))
+
+### Fixed
+
+- **Consumer adoption no longer strands the dev-shell toolchain a release behind** ([#1263](https://github.com/vig-os/devkit/issues/1263))
+  - A `--force` upgrade of a direnv/`both` consumer with a floating `vigos`
+    flake input now runs `nix flake update vigos` host-side after the scaffold,
+    so `flake.lock` (which governs the dev shell: `vig-utils`, hook sets,
+    `mkProjectShell`) advances together with the `.vig-os` `DEVKIT_VERSION`
+    pin. Non-fatal when `nix` is missing or offline — the manual step is
+    printed instead. Pinned (`?ref=`) inputs keep the existing #1093 warning.
+  - `mkProjectShell` gains a shell-entry version-skew guard: the shellHook
+    compares the flake's own release (the devkit `.vig-os` at the locked input
+    rev) against the workspace `.vig-os` pin and warns with the
+    `nix flake update vigos` remedy on every entry until the lock is advanced.
+    Silent for matching versions, prerelease (`-rc*`) pins, and bare
+    `mkProjectShell` consumers without a manifest.
+  - `docs/MIGRATION.md` documents the lock-advance step in the upgrade
+    checklist and corrects the claim that a floating input needs no manual
+    bump — it skews via `flake.lock` instead.
+
+### Security
+
+- **vulnix register: except the unbound 1.25.2 CVE batch, extend the openssl block** ([#1264](https://github.com/vig-os/devkit/issues/1264), [#1265](https://github.com/vig-os/devkit/issues/1265))
+  - New time-boxed `.vulnixignore` block (expires 2026-08-31) for the five
+    HIGH/CRITICAL unbound 1.25.1 CVEs disclosed 2026-07-22 (CVE-2026-50252,
+    -32665, -40691, -44690, -55973) that turned the nightly security scan red
+    on both refs. All are daemon/resolver-context flaws; the image only links
+    libunbound via podman → systemd → gnutls and never runs an unbound daemon.
+    Fixed upstream in unbound 1.25.2; the nixpkgs bump has only reached
+    staging-26.05, so a rev-advance is not yet available.
+  - openssl block re-verified online (was "unverified offline" per #762):
+    all ten CVEs fixed in openssl 3.6.3, which has now reached nixos-26.05 —
+    expiry extended to 2026-08-15; the block is dropped entirely at the next
+    nixpkgs pin advance ([#1273](https://github.com/vig-os/devkit/issues/1273)).
+
 ## [1.4.1](https://github.com/vig-os/devkit/releases/tag/1.4.1) - 2026-07-23
 
 ### Added

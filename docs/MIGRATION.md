@@ -638,9 +638,22 @@ The contract:
 
 ## Updating
 
-- **Downstream dev environment:** `nix flake update vigos` (or re-run
-  `install.sh --force` to refresh the scaffold; your `flake.nix`/`.envrc`/
+A devkit release reaches a consumer through **two coupled channels** that must
+move together ([#1263](https://github.com/vig-os/devkit/issues/1263)):
+
+- **Scaffold + image** — `install.sh --force` rewrites the managed files and
+  advances `DEVKIT_VERSION` in `.vig-os` (your `flake.nix`/`.envrc`/
   `pyproject.toml` and a populated `.devcontainer/` are preserved).
+- **Dev-shell toolchain** (`vig-utils`, hook sets, `mkProjectShell`) — governed
+  by the `vigos` input in `flake.lock`, advanced by `nix flake update vigos`.
+
+The upgrade takes care of both: after the scaffold, `install.sh --force` runs
+`nix flake update vigos` itself when the workspace is a direnv/`both` consumer
+with a floating input and host `nix` is available; otherwise it prints the
+manual step. Review and commit the `flake.lock` change together with the
+scaffold diff. Should the two ever drift anyway (e.g. a raw `podman run`
+upgrade), the dev shell warns on every entry until the lock is advanced.
+
 - **Toolchain versions / CVEs:** advance the pinned `nixpkgs` revision
   (Renovate's `nix` manager opens the PR); `flake.lock` is the controlling
   version document.
@@ -984,6 +997,12 @@ nix flake update vigos
 ```
 
 A `--force` upgrade whose scaffold version differs from a pinned `vigos` ref now
-prints a warning to that effect. A **floating** input
-(`vigos.url = "github:vig-os/devkit"`, no `?ref=`) tracks the branch and needs no
-manual bump — it is exempt.
+prints a warning to that effect.
+
+A **floating** input (`vigos.url = "github:vig-os/devkit"`, no `?ref=`) needs no
+manual `ref` bump, but it is **not** exempt from skew: the dev shell runs
+whatever `flake.lock` last locked, so the lock must still advance with every
+upgrade ([#1263](https://github.com/vig-os/devkit/issues/1263)). `install.sh
+--force` runs `nix flake update vigos` for you when it can (direnv/`both` mode,
+host `nix` available), and the dev shell warns at entry whenever its own release
+differs from the `.vig-os` `DEVKIT_VERSION` pin — see [Updating](#updating).

@@ -71,7 +71,17 @@ CVE-2022-36883
 #   the specific per-CVE CVSS could not be confirmed offline. Given the high
 #   reachability and a CRITICAL in the set, this block carries the SHORTEST
 #   expiry of the register to force the soonest re-review.
-Expiration: 2026-07-31
+# Re-verified 2026-07-26 ONLINE (#1264 train) against the upstream openssl
+#   advisories: all ten are fixed in openssl 3.6.3, and upstream rates them
+#   Low/Moderate plus ONE High (CVE-2026-45447, PKCS7_verify use-after-free) —
+#   well below the NVD scores that gate here. 3.6.3 HAS reached nixos-26.05
+#   (NixOS/nixpkgs#530964 via staging, backport #531387), so the rev-advance
+#   lever is NOW AVAILABLE — the pinned rev (2026-06-22) simply predates it.
+#   Kept as exceptions for the 1.4.2 patch train (a pin advance is a mass
+#   rebuild; tracked in #1273); expiry extended to 2026-08-15 to align with
+#   the curl/openssh blocks. Drop this whole block at the next flake.lock
+#   nixpkgs advance (#1273).
+Expiration: 2026-08-15
 # CVE-2026-7383 — openssl (TLS, reachable); CVSS/specifics unverified offline.
 CVE-2026-7383
 # CVE-2026-9076 — openssl (TLS, reachable); CVSS/specifics unverified offline.
@@ -327,3 +337,45 @@ CVE-2026-40467
 #   reachable when the opt-in readdir extension is loaded (`-l readdir`) on a
 #   crafted directory tree — not used by any tooling here.
 CVE-2026-40553
+
+# ============================================================================
+# Triage 2026-07-26 — unbound 1.25.2 security batch (nightly-scan fix, #1264).
+# Disclosed upstream 2026-07-22 with the unbound 1.25.2 release; surfaced in
+# the vulnix feed 2026-07-25 (nightly security-scan went red on BOTH refs, run
+# 30148910775 -> issues #1264 dev / #1265 main). Verified ONLINE against the
+# NLnet Labs security advisories, the upstream release notes, and the nixpkgs
+# branch contents (nixos-26.05, release-26.05, staging-26.05) on 2026-07-26.
+# Real product match (NLnet Labs unbound, no CPE collision). All five are
+# fixed upstream in unbound 1.25.2 (2026-07-22); the nixpkgs bump merged to
+# *staging* (NixOS/nixpkgs#544542, 2026-07-22) with a staging-26.05 backport
+# (NixOS/nixpkgs#544610, merged 2026-07-24) and has NOT reached nixos-26.05 —
+# the "advance the rev" lever has nowhere to land today (re-check at #1273).
+#
+# Closure provenance (nix why-depends): unbound enters ONLY as libunbound via
+# podman -> systemd -> gnutls (DNSSEC/DANE support) — the image never runs an
+# unbound daemon (systemd is not PID 1; no resolver service exists). All five
+# CVEs are daemon/resolver-context flaws (per-CVE notes below), so the
+# vulnerable code paths are effectively not exercised in this single-user dev
+# container — LOWEST-reachability class of the register, same as
+# libmicrohttpd. Flip to a nixpkgs rev-advance once 1.25.2 lands in the
+# pinned channel; short expiry to force near-term re-check.
+# ============================================================================
+
+Expiration: 2026-08-31
+# unbound 1.25.1 — CVE-2026-50252 (NVD 9.3 CRITICAL; upstream rates Medium):
+#   cache poisoning via per-thread source-port population under SO_REUSEPORT —
+#   resolver daemon behavior; no daemon runs here.
+CVE-2026-50252
+# unbound 1.25.1 — CVE-2026-32665 (7.5): DNS-over-QUIC memory-budget bypass
+#   (DoS) — requires the DoQ server listener, never started here.
+CVE-2026-32665
+# unbound 1.25.1 — CVE-2026-40691 (7.5): "packet of death" heap overflow in
+#   DNSCrypt over TCP — requires the DNSCrypt server role, not enabled here.
+CVE-2026-40691
+# unbound 1.25.1 — CVE-2026-44690 (7.5): cache poisoning via RRSIG.labels
+#   manipulation in wildcard handling — resolver cache validation, daemon
+#   only.
+CVE-2026-44690
+# unbound 1.25.1 — CVE-2026-55973 (7.5): stack buffer overflow with the
+#   opt-in dns-error-reporting option — daemon config, not enabled here.
+CVE-2026-55973
