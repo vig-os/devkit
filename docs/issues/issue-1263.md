@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-24T08:23:15Z
-updated: 2026-07-24T08:23:15Z
+updated: 2026-07-25T15:02:33Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1263
-comments: 0
+comments: 1
 labels: bug, priority:medium, area:workspace
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-25T05:21:56.141Z
+synced: 2026-07-26T05:38:57.399Z
 ---
 
 # [Issue 1263]: [Consumer adoption bumps .vig-os but not the vigos flake pin — dev-shell toolchain lags a release behind](https://github.com/vig-os/devkit/issues/1263)
@@ -38,3 +38,13 @@ Adopting devkit X.Y.Z should advance the shell toolchain too. Options to triage:
 ## Impact
 
 Every direnv consumer, every release: flake-shipped fixes (vig-utils scripts, hook sets, mkProjectShell changes) do not reach consumers until someone remembers a manual `nix flake update vigos`.
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 25, 2026 at 03:02 PM_
+
+Implemented in one pass on dev via PR #1272 (merge ead23720): (1) mkProjectShell shell-entry version-skew guard — the shellHook compares the flake's own release (repo-root .vig-os at the locked input rev) against the workspace pin and warns with the `nix flake update vigos` remedy; silent on matching versions, `-rc*` pins, and bare consumers. (2) `install.sh --force` now advances a floating vigos flake lock host-side for direnv/both consumers with an existing flake.lock (non-fatal when nix is missing/offline — manual step printed). (3) MIGRATION.md documents the two coupled delivery channels in the Updating checklist and corrects the floating-input exemption; the #1093 comment premise is fixed likewise.
+
+Ships with the next release. Note the guard itself is flake-delivered, so the five current consumers first see it after their next lock advance — which the upgrade path now performs for them.
+

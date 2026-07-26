@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-07-25T04:24:31Z
+updated: 2026-07-25T17:56:51Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-25T05:21:56.598Z
+synced: 2026-07-26T05:38:57.673Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -24,24 +24,7 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
- - [ ] <!-- unschedule-branch=renovate/github-codeql-action-digest -->chore(deps): update github/codeql-action digest to e4fba86
- - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update github-actions (minor and patch) (`actions/checkout`, `docker/login-action`, `ossf/scorecard-action`)
- - [ ] <!-- unschedule-branch=renovate/npm-(minor-and-patch) -->build(npm): update dependency @devcontainers/cli to v0.88.0
- - [ ] <!-- unschedule-branch=renovate/python-(minor-and-patch) -->build(pip): update dependency testcontainers to v4.15.0
- - [ ] <!-- unschedule-branch=renovate/astral-sh-setup-uv-9.x -->ci(actions): update astral-sh/setup-uv action to v9
  - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
- - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
-
-
----
-
-> [!WARNING]
-> Renovate failed to look up the following dependencies: `Failed to look up github-releases package aquasecurity/trivy: no-result`.
-> 
-> Files affected: `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/workflows/security-scan.yml`
-
----
-
 
 ## Detected Dependencies
 
@@ -58,19 +41,19 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>.github/actions/test-image/action.yml (1)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
 
 </details>
 
 <details><summary>.github/actions/test-integration/action.yml (1)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
 
 </details>
 
 <details><summary>.github/actions/test-project/action.yml (3)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
 
@@ -78,23 +61,23 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>.github/workflows/ci.yml (29)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/download-artifact v8.0.1@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/download-artifact v8.0.1@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/download-artifact v8.0.1@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`
  - `aquasecurity/trivy-action v0.36.0@ed142fd0673e97e23eac54620cfb913e5ce36c25`
  - `aquasecurity/trivy-action v0.36.0@ed142fd0673e97e23eac54620cfb913e5ce36c25`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/dependency-review-action v5.0.0@a1d282b36b6f3519aa1f3fc636f609c47dddb294`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -112,9 +95,9 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>.github/workflows/codeql.yml (4)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
- - `github/codeql-action v4@7188fc363630916deb702c7fdcf4e481b751f97a` → [Updates: `v4`]
- - `github/codeql-action v4@7188fc363630916deb702c7fdcf4e481b751f97a` → [Updates: `v4`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `github/codeql-action v4@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81`
+ - `github/codeql-action v4@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81`
  - `ubuntu 24.04`
 
 </details>
@@ -128,10 +111,10 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>.github/workflows/home-matrix.yml (7)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342`
  - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342`
  - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
  - `ubuntu 24.04-arm`
@@ -140,7 +123,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>.github/workflows/nix-cachix.yml (4)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342`
  - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
  - `ubuntu 24.04`
@@ -149,11 +132,11 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>.github/workflows/nix-image.yml (6)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342`
  - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
- - `docker/login-action v4.4.0@af1e73f918a031802d376d3c8bbc3fe56130a9b0` → [Updates: `v4.5.1`]
- - `docker/login-action v4.4.0@af1e73f918a031802d376d3c8bbc3fe56130a9b0` → [Updates: `v4.5.1`]
+ - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7`
+ - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7`
  - `ubuntu 24.04`
 
 </details>
@@ -161,7 +144,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>.github/workflows/prepare-release-extension.yml (5)</summary>
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
  - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
  - `ubuntu 24.04`
@@ -170,14 +153,14 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>.github/workflows/prepare-release.yml (13)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -188,16 +171,16 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>.github/workflows/promote-release.yml (15)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
- - `docker/login-action v4.4.0@af1e73f918a031802d376d3c8bbc3fe56130a9b0` → [Updates: `v4.5.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7`
  - `sigstore/cosign-installer v4.1.2@6f9f17788090df1f26f669e9d70d6ae9567deba6`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `docker/login-action v4.4.0@af1e73f918a031802d376d3c8bbc3fe56130a9b0` → [Updates: `v4.5.1`]
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -208,19 +191,19 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>.github/workflows/release.yml (35)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `aquasecurity/trivy-action v0.36.0@ed142fd0673e97e23eac54620cfb913e5ce36c25`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `sigstore/cosign-installer v4.1.2@6f9f17788090df1f26f669e9d70d6ae9567deba6`
- - `docker/login-action v4.4.0@af1e73f918a031802d376d3c8bbc3fe56130a9b0` → [Updates: `v4.5.1`]
+ - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7`
  - `actions/download-artifact v8.0.1@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`
  - `anchore/sbom-action v0.24.0@e22c389904149dbc22b58101806040fa8d37a610`
  - `anchore/sbom-action v0.24.0@e22c389904149dbc22b58101806040fa8d37a610`
@@ -230,11 +213,11 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/attest v4.2.0@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6`
  - `actions/attest v4.2.0@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/github-script v9.0.0@3a2844b7e9c422d3c10d287c895573f7108da1b3`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/github-script v9.0.0@3a2844b7e9c422d3c10d287c895573f7108da1b3`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -248,7 +231,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>.github/workflows/renovate-changelog-build.yml (3)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `ubuntu 24.04`
 
@@ -265,7 +248,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>.github/workflows/renovate-validate.yml (4)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/setup-node v7.0.0@820762786026740c76f36085b0efc47a31fe5020`
  - `ubuntu 24.04`
  - `node 24`
@@ -274,16 +257,16 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>.github/workflows/scorecard.yml (4)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
- - `ossf/scorecard-action v2.4.3@4eaacf0543bb3f2c246792bd56e8cdeffafb205a` → [Updates: `v2.4.4`]
- - `github/codeql-action v4@7188fc363630916deb702c7fdcf4e481b751f97a` → [Updates: `v4`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
+ - `github/codeql-action v4@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81`
  - `ubuntu 24.04`
 
 </details>
 
 <details><summary>.github/workflows/security-scan.yml (8)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
  - `aquasecurity/trivy-action v0.36.0@ed142fd0673e97e23eac54620cfb913e5ce36c25`
  - `aquasecurity/trivy-action v0.36.0@ed142fd0673e97e23eac54620cfb913e5ce36c25`
@@ -297,7 +280,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>.github/workflows/sync-issues.yml (7)</summary>
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
  - `vig-os/sync-issues-action v0.4.0@285a0af876bac99a0e914a64a1cb925dd913f38a`
  - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
@@ -308,9 +291,9 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>.github/workflows/sync-main-to-dev.yml (6)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -320,7 +303,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>.github/workflows/update-nixpkgs-unstable.yml (6)</summary>
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342`
  - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
@@ -330,7 +313,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>assets/smoke-test/.github/workflows/direnv-smoke.yml (5)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -342,7 +325,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
@@ -369,17 +352,17 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342`
  - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
- - `astral-sh/setup-uv v8.3.2@11f9893b081a58869d3b5fccaea48c9e9e46f990` → [Updates: `v9.0.0`]
+ - `astral-sh/setup-uv v9.0.0@c771a70e6277c0a99b617c7a806ffedaca235ff9`
 
 </details>
 
 <details><summary>assets/workspace/.github/workflows/ci.yml (8)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/dependency-review-action v5.0.0@a1d282b36b6f3519aa1f3fc636f609c47dddb294`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -388,9 +371,9 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>assets/workspace/.github/workflows/codeql.yml (4)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
- - `github/codeql-action v4@7188fc363630916deb702c7fdcf4e481b751f97a` → [Updates: `v4`]
- - `github/codeql-action v4@7188fc363630916deb702c7fdcf4e481b751f97a` → [Updates: `v4`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `github/codeql-action v4@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81`
+ - `github/codeql-action v4@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81`
  - `ubuntu 24.04`
 
 </details>
@@ -403,14 +386,14 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>assets/workspace/.github/workflows/prepare-release.yml (13)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -421,16 +404,16 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>assets/workspace/.github/workflows/promote-release.yml (17)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -444,13 +427,13 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>assets/workspace/.github/workflows/release-core.yml (11)</summary>
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -466,18 +449,18 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>assets/workspace/.github/workflows/release-publish.yml (3)</summary>
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ubuntu 24.04`
 
 </details>
 
 <details><summary>assets/workspace/.github/workflows/release.yml (7)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
 
@@ -485,8 +468,8 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>assets/workspace/.github/workflows/renovate-changelog-build.yml (5)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -504,18 +487,18 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>assets/workspace/.github/workflows/scorecard.yml (4)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
- - `ossf/scorecard-action v2.4.3@4eaacf0543bb3f2c246792bd56e8cdeffafb205a` → [Updates: `v2.4.4`]
- - `github/codeql-action v4@7188fc363630916deb702c7fdcf4e481b751f97a` → [Updates: `v4`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
+ - `github/codeql-action v4@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81`
  - `ubuntu 24.04`
 
 </details>
 
 <details><summary>assets/workspace/.github/workflows/sync-issues.yml (9)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
  - `vig-os/sync-issues-action v0.4.0@285a0af876bac99a0e914a64a1cb925dd913f38a`
  - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
@@ -527,10 +510,10 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>assets/workspace/.github/workflows/sync-main-to-dev.yml (8)</summary>
 
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.0@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0` → [Updates: `v7.0.1`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -546,7 +529,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>package.json (1)</summary>
 
- - `@devcontainers/cli 0.87.0` → [Updates: `0.88.0`]
+ - `@devcontainers/cli 0.88.0`
 
 </details>
 
@@ -579,7 +562,7 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `pytest-testinfra ==10.2.2`
  - `pytest-docker ==3.2.5`
  - `pexpect ==4.9.0`
- - `testcontainers ==4.14.2` → [Updates: `==4.15.0`]
+ - `testcontainers ==4.15.0`
  - `bcrypt ==5.0.0`
 
 </details>
