@@ -45,6 +45,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **vulnix register: except the unbound 1.25.2 CVE batch, extend the openssl block** ([#1264](https://github.com/vig-os/devkit/issues/1264), [#1265](https://github.com/vig-os/devkit/issues/1265))
+  - New time-boxed `.vulnixignore` block (expires 2026-08-31) for the five
+    HIGH/CRITICAL unbound 1.25.1 CVEs disclosed 2026-07-22 (CVE-2026-50252,
+    -32665, -40691, -44690, -55973) that turned the nightly security scan red
+    on both refs. All are daemon/resolver-context flaws; the image only links
+    libunbound via podman → systemd → gnutls and never runs an unbound daemon.
+    Fixed upstream in unbound 1.25.2; the nixpkgs bump has only reached
+    staging-26.05, so a rev-advance is not yet available.
+  - openssl block re-verified online (was "unverified offline" per #762):
+    all ten CVEs fixed in openssl 3.6.3, which has now reached nixos-26.05 —
+    expiry extended to 2026-08-15; the block is dropped entirely at the next
+    nixpkgs pin advance ([#1273](https://github.com/vig-os/devkit/issues/1273)).
+
 ## [1.4.1](https://github.com/vig-os/devkit/releases/tag/1.4.1) - 2026-07-23
 
 ### Added
