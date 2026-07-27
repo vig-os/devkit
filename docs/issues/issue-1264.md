@@ -2,18 +2,18 @@
 type: issue
 state: closed
 created: 2026-07-25T07:14:44Z
-updated: 2026-07-26T12:51:19Z
+updated: 2026-07-26T15:28:28Z
 author: github-actions[bot]
 author_url: https://github.com/github-actions[bot]
 url: https://github.com/vig-os/devkit/issues/1264
-comments: 1
+comments: 2
 labels: security, security-scan
 assignees: none
 milestone: 1.4.2
 projects: none
 parent: none
 children: none
-synced: 2026-07-26T14:51:12.305Z
+synced: 2026-07-27T05:57:39.859Z
 ---
 
 # [Issue 1264]: [Nightly security scan (dev): unexcepted HIGH/CRITICAL vulnix findings](https://github.com/vig-os/devkit/issues/1264)
@@ -39,4 +39,12 @@ Remediated in PR #1274 (merged to dev @ba5093ca): time-boxed `.vulnixignore` exc
 **Gate live-proven on dev**: dispatched security-scan run https://github.com/vig-os/devkit/actions/runs/30194392375 — `Scan Nix image (vulnix + SBOM) [dev]` **success**.
 
 Shipping in 1.4.2 (rc1 in flight).
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on July 26, 2026 at 03:28 PM_
+
+Post-promote confirmation: both scan legs green on run https://github.com/vig-os/devkit/actions/runs/30208092212 (1.4.2 on main). Trail complete.
 
