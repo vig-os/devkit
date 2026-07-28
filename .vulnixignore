@@ -64,45 +64,6 @@ CVE-2022-36883
 #     FORCE near-term re-review with proper CVE data rather than to certify
 #     safety. ---
 
-# openssl 3.6.2 — TLS/crypto library. In-closure via rsync, and also curl,
-#   openssh, nix and python (network-facing crypto). GENUINELY REACHABLE
-#   whenever the container does TLS (git fetch over https, curl, ssh). This
-#   block is expected to hold the CRITICAL openssl finding called out in #762;
-#   the specific per-CVE CVSS could not be confirmed offline. Given the high
-#   reachability and a CRITICAL in the set, this block carries the SHORTEST
-#   expiry of the register to force the soonest re-review.
-# Re-verified 2026-07-26 ONLINE (#1264 train) against the upstream openssl
-#   advisories: all ten are fixed in openssl 3.6.3, and upstream rates them
-#   Low/Moderate plus ONE High (CVE-2026-45447, PKCS7_verify use-after-free) —
-#   well below the NVD scores that gate here. 3.6.3 HAS reached nixos-26.05
-#   (NixOS/nixpkgs#530964 via staging, backport #531387), so the rev-advance
-#   lever is NOW AVAILABLE — the pinned rev (2026-06-22) simply predates it.
-#   Kept as exceptions for the 1.4.2 patch train (a pin advance is a mass
-#   rebuild; tracked in #1273); expiry extended to 2026-08-15 to align with
-#   the curl/openssh blocks. Drop this whole block at the next flake.lock
-#   nixpkgs advance (#1273).
-Expiration: 2026-08-15
-# CVE-2026-7383 — openssl (TLS, reachable); CVSS/specifics unverified offline.
-CVE-2026-7383
-# CVE-2026-9076 — openssl (TLS, reachable); CVSS/specifics unverified offline.
-CVE-2026-9076
-# CVE-2026-34180 — openssl (TLS, reachable); CVSS/specifics unverified offline.
-CVE-2026-34180
-# CVE-2026-34181 — openssl (TLS, reachable); CVSS/specifics unverified offline.
-CVE-2026-34181
-# CVE-2026-34182 — openssl (TLS, reachable); CVSS/specifics unverified offline.
-CVE-2026-34182
-# CVE-2026-34183 — openssl (TLS, reachable); CVSS/specifics unverified offline.
-CVE-2026-34183
-# CVE-2026-42764 — openssl (TLS, reachable); CVSS/specifics unverified offline.
-CVE-2026-42764
-# CVE-2026-42765 — openssl (TLS, reachable); CVSS/specifics unverified offline.
-CVE-2026-42765
-# CVE-2026-45445 — openssl (TLS, reachable); CVSS/specifics unverified offline.
-CVE-2026-45445
-# CVE-2026-45447 — openssl (TLS, reachable); CVSS/specifics unverified offline.
-CVE-2026-45447
-
 # glibc 2.42 — the base C library. Loaded by essentially every process in the
 #   closure, so unconditionally present; most glibc CVEs need a specific local
 #   vector (crafted input/locale/regex), mitigated by the single-user model but
@@ -161,17 +122,15 @@ Expiration: 2026-08-03
 #   needs a dev-initiated connection to a malicious SSH server. Patch merged to
 #   staging-26.05 (nixpkgs #537259, 2026-07-01) — flip to rev-advance when it
 #   reaches release-26.05; re-check weekly.
+# Re-verified 2026-07-28 (#1273): the pin was advanced to nixos-26.05 @
+#   2026-07-26 (rev 8623c4c2) and rebuilt; libssh2 is still 1.11.1 (no fix in
+#   the pinned channel), so this exception is retained.
 CVE-2026-55200
 # socat 1.8.1.1 — CLI relay, in-closure via claude-code. Overflow only when
 #   socat runs as a SOCKS5 *client* through a malicious proxy; no such usage
 #   here, no untrusted listeners. Fixed upstream 1.8.1.2; nixpkgs bump on
 #   staging (#535404/#535779).
 CVE-2026-56123
-# jq 1.8.1 — JSON processor, direct devTools member (also CI scripts). Heap
-#   OOB write needs `--rawfile` on a hostile oversized file; jq here only sees
-#   developer/CI-chosen JSON. Fix (1.8.2) merged to staging-26.05 (nixpkgs
-#   #534087) — next channel advance should fix; re-check at expiry.
-CVE-2026-49839
 
 Expiration: 2026-08-17
 # gzip 1.14 — stdenv closure member. OOB *read* in the legacy LZH decoder
@@ -184,6 +143,9 @@ CVE-2026-41992
 #   upstream fix commit — this image is 64-bit; 53433 is CPU-DoS of fzf's own
 #   opt-in localhost --listen server. Availability-only; fixed in 0.73.1
 #   (unstable via nixpkgs #524290; no 26.05 backport yet).
+# Re-verified 2026-07-28 (#1273): the pin was advanced to nixos-26.05 @
+#   2026-07-26 (rev 8623c4c2) and rebuilt; the closure still ships fzf 0.72.0
+#   (0.73.1 has not reached the pinned channel), so this block is retained.
 CVE-2026-53432
 CVE-2026-53433
 
@@ -199,6 +161,9 @@ CVE-2026-11979
 #   the subsystem is not called by curl/libgit2 — unreachable on this 64-bit
 #   image. No upstream fix published yet (verified NVD/Debian/libssh2 repo,
 #   2026-07-04).
+# Re-verified 2026-07-28 (#1273): the pin was advanced to nixos-26.05 @
+#   2026-07-26 (rev 8623c4c2) and rebuilt; libssh2 is still 1.11.1 with no
+#   upstream fix, so this exception is retained.
 CVE-2026-58050
 
 # ============================================================================
@@ -220,81 +185,10 @@ Expiration: 2026-08-06
 #   master/staging/unstable (5.8.4) but NOT in the pinned release-26.05 (still
 #   5.8.2) — backport PR NixOS/nixpkgs#536367 is open (draft, base
 #   release-26.05). Flip to a nixpkgs rev-advance when it lands; re-check weekly.
+# Re-verified 2026-07-28 (#1273): the pin was advanced to nixos-26.05 @
+#   2026-07-26 (rev 8623c4c2) and rebuilt; the closure still ships podman 5.8.2
+#   (the 5.8.4 fix has not reached the pinned channel), so this is retained.
 CVE-2026-57231
-
-# ============================================================================
-# Triage 2026-07-08 — curl 8.20.0 advisory batch (release-cycle fix, #941).
-# Fresh disclosure published 2026-06-24; surfaced in the vulnix feed 2026-07-08
-# (nightly security-scan went red that morning) and blocks the 0.5.0-rc1
-# publish at the vulnix gate. Real product match (curl the CLI/library, no CPE
-# collision). NO fixed release exists to bump to: curl is 8.20.0 in the pinned
-# rev, latest nixos-26.05, AND nixpkgs-unstable, and upstream curl has no
-# release newer than 8.20.0. The "advance the rev" lever has nowhere to land,
-# so these are accepted as awaiting-upstream with a short expiry pending a
-# patched curl. Renovate's nix manager should surface the bump; drop this block
-# and advance the pin once it does. curl is reachable (https/git-over-https,
-# the docker->podman shim, flake fetches), so exposure is NOT theoretical —
-# this is a time-boxed risk acceptance, not a dismissal.
-# Re-verified 2026-07-23 (#1257): curl 8.21.0 (2026-06-24) fixes the whole
-# batch and has reached nixpkgs-unstable, but the pinned channel (nixos-26.05)
-# still ships curl 8.20.0 — the rev-advance lever still has nowhere to land.
-# Expiry extended to 2026-08-15 (another short window) pending the backport
-# propagating to nixos-26.05; flip to a pin bump the moment 8.21.0 lands there.
-# ============================================================================
-
-Expiration: 2026-08-15
-# curl 8.20.0 — CVE-2026-10536 (9.8) HTTP/2 stream-dependency-tree UAF;
-#   CVE-2026-11856 (9.8) cross-origin Digest auth-state leak; CVE-2026-8925
-#   (9.8) SASL double-free; CVE-2026-9079 (9.8) stale proxy-password leak.
-CVE-2026-10536
-CVE-2026-11856
-CVE-2026-8925
-CVE-2026-9079
-# curl 8.20.0 — CVSS 9.1 batch (parser/state-handling advisories in the same
-#   2026-06-24 disclosure); no fixed release upstream or in nixpkgs yet.
-CVE-2026-11564
-CVE-2026-8924
-CVE-2026-8926
-CVE-2026-8927
-# curl 8.20.0 — CVE-2026-8286 (8.1); remaining HIGH advisories from the batch.
-CVE-2026-8286
-CVE-2026-11352
-CVE-2026-11586
-CVE-2026-12064
-CVE-2026-8932
-CVE-2026-9545
-CVE-2026-9546
-CVE-2026-9547
-CVE-2026-9080
-
-# ============================================================================
-# Triage 2026-07-10 — openssh client use-after-free (release-cycle fix, #963).
-# Verified ONLINE against NVD/MITRE/GHSA, the upstream OpenSSH release, and the
-# nixpkgs branch contents (nixos-26.05, release-26.05, staging-26.05, master,
-# nixpkgs-unstable) on 2026-07-10. Real product match (openssh the SSH client,
-# no CPE collision). Surfaced in the vulnix feed 2026-07-10 (nightly
-# security-scan went red that morning, run 29079456127).
-# ============================================================================
-
-# openssh 10.3p1 — CVE-2026-60002 (CVSS 7.7 HIGH per MITRE; NVD scores 9.4
-#   CRITICAL): use-after-free in the ssh(1) CLIENT (not sshd) when a
-#   malicious/compromised server changes its host key during key re-exchange
-#   (CWE-416). openssh is in-closure (a direct dev tool; git-over-ssh). The
-#   client is genuinely reachable, but exploitation needs a dev-initiated
-#   connection OUT to an attacker-controlled SSH server that mutates its host
-#   key mid-rekey — bounded by the single-user dev model and typically-known
-#   hosts. Fixed upstream in 10.4p1 (2026-07-06) but NOT yet in any nixpkgs
-#   branch (all still 10.3p1); the bump is merged into the 26.05 staging
-#   pipeline (nixpkgs #539452 -> staging-nixos, backport #539933 ->
-#   staging-nixos-26.05, 2026-07-10) and has not reached nixos-26.05. Flip to a
-#   nixpkgs rev-advance once 10.4p1 lands in the pinned channel; short expiry to
-#   force near-term re-check.
-# Re-verified 2026-07-23 (#1257): nixos-26.05 still ships openssh 10.3p1; the
-#   10.4p1 fix has not propagated from the 26.05 staging pipeline to the pinned
-#   channel, so the rev-advance lever still has nowhere to land. Expiry extended
-#   to 2026-08-15 (another short window) pending that propagation.
-Expiration: 2026-08-15
-CVE-2026-60002
 
 # ============================================================================
 # Triage 2026-07-14 — gawk 5.4.0 CERT-PL batch (release-cycle fix, #1071).
@@ -316,6 +210,9 @@ CVE-2026-60002
 # 5.4.0; the staging fix (5.4.1) has not yet propagated to the pinned channel,
 # so the rev-advance lever still has nowhere to land. Expiry extended to
 # 2026-08-18 (another short window) pending that propagation.
+# Re-verified 2026-07-28 (#1273): the pin was advanced to nixos-26.05 @
+# 2026-07-26 (rev 8623c4c2) and rebuilt; the closure still ships gawk 5.4.0
+# (5.4.1 still not in the pinned channel), so this block is retained.
 # ============================================================================
 
 Expiration: 2026-08-18
@@ -359,6 +256,9 @@ CVE-2026-40553
 # container — LOWEST-reachability class of the register, same as
 # libmicrohttpd. Flip to a nixpkgs rev-advance once 1.25.2 lands in the
 # pinned channel; short expiry to force near-term re-check.
+# Re-verified 2026-07-28 (#1273): the pin was advanced to nixos-26.05 @
+# 2026-07-26 (rev 8623c4c2) and rebuilt; the closure still ships unbound 1.25.1
+# (the 1.25.2 fix has not reached the pinned channel), so this block is retained.
 # ============================================================================
 
 Expiration: 2026-08-31

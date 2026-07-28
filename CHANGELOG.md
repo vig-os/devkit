@@ -19,6 +19,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Advance the nixpkgs pin and drop the propagated vulnix exception blocks** ([#1273](https://github.com/vig-os/devkit/issues/1273))
+  - Advanced the pinned `nixpkgs` rev (`flake.lock`) from nixos-26.05
+    @ `34268251` (2026-06-22) to @ `8623c4c2` (2026-07-26). The before/after
+    `vulnix` closure diff cut the reported CVE surface from 112 to 56 unique
+    advisories with no new HIGH/CRITICAL (CVSS ≥ 7.0) findings.
+  - Dropped four `.vulnixignore` blocks whose fixes reached the pinned channel:
+    openssl 3.6.2 → 3.6.3 (10 CVEs), curl 8.20.0 → 8.21.0 (17 CVEs),
+    openssh 10.3p1 → 10.4p1 (CVE-2026-60002), and the jq CVE-2026-49839 entry
+    (jq 1.8.1 → 1.8.2). jq 1.8.2 surfaces three unrelated sub-7.0 advisories
+    (CVE-2026-33948, -39979, -44777) that are awareness-only and do not gate.
+  - Retained the unbound (1.25.1), gawk (5.4.0), podman (5.8.2), fzf (0.72.0)
+    and libssh2 (1.11.1) blocks — the rebuilt closure confirms those fixes have
+    still not propagated to the pinned channel; their re-verification notes were
+    refreshed to 2026-07-28 with the new pin context.
+
 ## [1.4.2](https://github.com/vig-os/devkit/releases/tag/1.4.2) - 2026-07-26
 
 ### Changed
