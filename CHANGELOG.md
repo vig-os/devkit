@@ -17,6 +17,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **sync-issues cache cleanup no longer silently skips on early job failure** ([#1278](https://github.com/vig-os/devkit/issues/1278))
+  - The `if: always()` "Delete old cache" step calls the `retry` shim, which
+    only exists after toolchain setup. When the job died beforehand the shim
+    was absent and the `retry ... | head -1` assignment masked the
+    `command not found`, so the step took the "No cache found" branch. A
+    one-shot fallback shim now runs a single unretried attempt when `retry` is
+    missing; healthy runs still use the real wrapper.
+
 ### Security
 
 ## [1.4.2](https://github.com/vig-os/devkit/releases/tag/1.4.2) - 2026-07-26
