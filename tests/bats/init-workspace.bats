@@ -2347,6 +2347,21 @@ _upgrade_no_flags() {
     assert_output --partial "Invalid DEVKIT_SYNC_SCHEDULE"
 }
 
+# ── cache-cleanup retry fallback shim (#1278) ─────────────────────────────────
+# The "Delete old cache" cleanup step runs `if: always()` and calls the `retry`
+# wrapper, which only exists after toolchain setup. A job that dies before setup
+# leaves the shim absent, so the step must define a one-shot fallback so the
+# `retry ... | head -1` assignment cannot silently mask a `command not found`.
+
+@test "sync-issues cleanup step guards against a missing retry shim (#1278)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1278-retry-fallback"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run grep -qF 'command -v retry >/dev/null 2>&1 || retry()' "$ws/.github/workflows/sync-issues.yml"
+    assert_success
+}
+
 # ── legacy mode inference (#885) ──────────────────────────────────────────────
 # Consumers scaffolded before the manifest carry a version-only .vig-os (or
 # none): an upgrade without --mode must infer the delivery mode from the tree
