@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-07-27T00:45:27Z
+updated: 2026-07-28T02:07:11Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,18 +13,20 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-27T05:57:40.128Z
+synced: 2026-07-28T05:21:33.036Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.<br>[View this repository on the Mend.io Web Portal](https://developer.mend.io/github/vig-os/devkit).
 
-## Other Branches
+## Awaiting Schedule
 
-The following updates are pending. To force the creation of a PR, click on a checkbox below.
+The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
- - [ ] <!-- other-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
+ - [ ] <!-- unschedule-branch=renovate/python-(minor-and-patch) -->build(pip): update dependency github-backup to v0.65.0
+ - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
+ - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
 
 ## Detected Dependencies
 
@@ -546,7 +548,7 @@ The following updates are pending. To force the creation of a PR, click on a che
 
 <details><summary>pyproject.toml (18)</summary>
 
- - `github-backup ==0.64.2`
+ - `github-backup ==0.64.2` → [Updates: `==0.65.0`]
  - `jinja2 ==3.1.6`
  - `pexpect ==4.9.0`
  - `pytest ==9.1.1`
