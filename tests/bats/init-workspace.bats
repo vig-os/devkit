@@ -2295,6 +2295,32 @@ _upgrade_no_flags() {
     assert_success
 }
 
+@test "the bootstrap step routes the target input through env, not inline (#1279)" {
+    # zizmor flags a template-injection (High) when the workflow_dispatch input
+    # is interpolated straight into the run: block. The bootstrap step must
+    # instead forward the input via an env var and reference it as a shell
+    # parameter expansion, matching the template's existing TARGET_BRANCH pattern.
+    ws="$BATS_TEST_TMPDIR/e2e-1279-env-indirection"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    si="$ws/.github/workflows/sync-issues.yml"
+    # (a) the bootstrap step forwards the dispatch input via env
+    # shellcheck disable=SC2016  # literal GitHub expression, not a shell expansion
+    run grep -qF 'TARGET_INPUT: ${{ github.event.inputs.target-branch }}' "$si"
+    assert_success
+    # (b) the run body no longer interpolates the input directly into the shell
+    run grep -qF "TARGET=\"\${{ github.event.inputs" "$si"
+    assert_failure
+    # (c) the scaffold-time default still lands, via shell parameter expansion
+    # shellcheck disable=SC2016  # literal shell parameter expansion in rendered YAML
+    run grep -qF 'TARGET="${TARGET_INPUT:-sync/issue-mirror}"' "$si"
+    assert_success
+}
+
 @test "a custom DEVKIT_SYNC_SCHEDULE overrides the sync cron (#1228)" {
     ws="$BATS_TEST_TMPDIR/e2e-1228-schedule"
     mkdir -p "$ws"
