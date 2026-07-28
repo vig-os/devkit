@@ -1221,9 +1221,14 @@ render_sync_settings() {
       - name: Bootstrap sync target branch if absent
         env:
           GH_TOKEN: \${{ steps.generate-token.outputs.token }}
+          # Env indirection instead of inline \${{ }} in the run block: the
+          # dispatch input would otherwise expand as code (zizmor
+          # template-injection, High). The scaffold-time default is the safe,
+          # allowlist-validated literal shell fallback.
+          TARGET_INPUT: \${{ github.event.inputs.target-branch }}
         run: |
           set -euo pipefail
-          TARGET="\${{ github.event.inputs.target-branch || '${MANIFEST_SYNC_TARGET}' }}"
+          TARGET="\${TARGET_INPUT:-${MANIFEST_SYNC_TARGET}}"
           if gh api "repos/\${{ github.repository }}/git/ref/heads/\${TARGET}" >/dev/null 2>&1; then
             echo "Sync target branch '\${TARGET}' already exists."
           else

@@ -19,6 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Route the sync-issues bootstrap step's target input through env, not inline** ([#1279](https://github.com/vig-os/devkit/issues/1279))
+  - The scaffolded `sync-issues.yml` "Bootstrap sync target branch if absent"
+    step (rendered only when `DEVKIT_SYNC_TARGET` is set) interpolated the
+    `workflow_dispatch` `target-branch` input straight into its `run:` block,
+    which `zizmor` flags as a template-injection (High). The input is now
+    forwarded via a `TARGET_INPUT` env var and referenced as a shell parameter
+    expansion (`TARGET="${TARGET_INPUT:-<target>}"`), matching the template's
+    existing `TARGET_BRANCH` pattern; the allowlist-validated scaffold default
+    stays the safe literal fallback. First consumer hit: vig-os/org-config#80,
+    which carried a local forward-port of this fix until the template shipped it.
+
 ## [1.4.2](https://github.com/vig-os/devkit/releases/tag/1.4.2) - 2026-07-26
 
 ### Changed
