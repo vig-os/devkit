@@ -17,7 +17,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **sync-issues cache cleanup no longer silently skips on early job failure** ([#1278](https://github.com/vig-os/devkit/issues/1278))
+  - The `if: always()` "Delete old cache" step calls the `retry` shim, which
+    only exists after toolchain setup. When the job died beforehand the shim
+    was absent and the `retry ... | head -1` assignment masked the
+    `command not found`, so the step took the "No cache found" branch. A
+    one-shot fallback shim now runs a single unretried attempt when `retry` is
+    missing; healthy runs still use the real wrapper.
+
 ### Security
+
+- **Route the sync-issues bootstrap step's target input through env, not inline** ([#1279](https://github.com/vig-os/devkit/issues/1279))
+  - The scaffolded `sync-issues.yml` "Bootstrap sync target branch if absent"
+    step (rendered only when `DEVKIT_SYNC_TARGET` is set) interpolated the
+    `workflow_dispatch` `target-branch` input straight into its `run:` block,
+    which `zizmor` flags as a template-injection (High). The input is now
+    forwarded via a `TARGET_INPUT` env var and referenced as a shell parameter
+    expansion (`TARGET="${TARGET_INPUT:-<target>}"`), matching the template's
+    existing `TARGET_BRANCH` pattern; the allowlist-validated scaffold default
+    stays the safe literal fallback. First consumer hit: vig-os/org-config#80,
+    which carried a local forward-port of this fix until the template shipped it.
 
 - **Advance the nixpkgs pin and drop the propagated vulnix exception blocks** ([#1273](https://github.com/vig-os/devkit/issues/1273))
   - Advanced the pinned `nixpkgs` rev (`flake.lock`) from nixos-26.05
