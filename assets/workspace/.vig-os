@@ -69,3 +69,14 @@ DEVKIT_SYNC_TARGET=
 # the sync weekly on Sundays. Realized at scaffold time because schedule triggers
 # cannot take inputs (#1228).
 DEVKIT_SYNC_SCHEDULE=
+
+# Scaffold feature groups this repo opts OUT of — a comma-separated,
+# whitespace-tolerant subset of: release, renovate, sync-issues, scanning,
+# gh-templates, skills, worktree. Empty (default) => every group is scaffolded
+# (no change for existing consumers). A disabled group is never shipped, and a
+# copy left by a prior scaffold is pruned on upgrade; clearing the key re-ships
+# it on the next `--force`. Consumer-owned extension seams
+# (release-extension.yml, prepare-release-extension.yml) and renovate.json are
+# left in place if present (never pruned). Governs scaffold SHAPE only, not the
+# flake — an unknown name aborts the scaffold loudly (#1284).
+DEVKIT_FEATURES_DISABLED=

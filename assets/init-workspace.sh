@@ -342,6 +342,7 @@ MANIFEST_CI_RUNNER="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_CI_RUNNER ||
 MANIFEST_WORKFLOW="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_WORKFLOW || true)"
 MANIFEST_SYNC_TARGET="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_TARGET || true)"
 MANIFEST_SYNC_SCHEDULE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_SCHEDULE || true)"
+MANIFEST_FEATURES_DISABLED="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FEATURES_DISABLED || true)"
 
 # The OWNER/REPO placeholder (written when no origin was resolvable) must not
 # mask a now-detectable git origin on a later upgrade.
@@ -425,6 +426,51 @@ fi
 if [[ -n "$MANIFEST_SYNC_SCHEDULE" ]] && ! is_valid_cron "$MANIFEST_SYNC_SCHEDULE"; then
     echo "Error: Invalid DEVKIT_SYNC_SCHEDULE in $VIG_OS_MANIFEST: $MANIFEST_SYNC_SCHEDULE (expected a 5-field cron expression, e.g. '0 2 * * *')" >&2
     exit 1
+fi
+
+# Scaffold feature opt-outs (#1284): DEVKIT_FEATURES_DISABLED is a
+# comma-separated (whitespace-tolerant, like DEVKIT_FLOATING_TAGS/CI_RUNNER)
+# subset of the seven scaffold feature groups. Parse + validate it loudly here —
+# an unknown name must abort, never silently disable nothing — into
+# DISABLED_FEATURES[], with a feature_disabled helper the copy/prune/notice
+# mechanisms below all consult. Pure `.vig-os` key (no CLI flag), so only a
+# format guard: no contradiction guard as for --mode / --workflow.
+VALID_FEATURES=(release renovate sync-issues scanning gh-templates skills worktree)
+DISABLED_FEATURES=()
+if [[ -n "$MANIFEST_FEATURES_DISABLED" ]]; then
+    IFS=',' read -ra _raw_features <<< "$MANIFEST_FEATURES_DISABLED"
+    for _feat in "${_raw_features[@]}"; do
+        # Trim surrounding whitespace (leading + trailing).
+        _feat="${_feat#"${_feat%%[![:space:]]*}"}"
+        _feat="${_feat%"${_feat##*[![:space:]]}"}"
+        [[ -z "$_feat" ]] && continue
+        _valid_feat=false
+        for _v in "${VALID_FEATURES[@]}"; do
+            [[ "$_feat" == "$_v" ]] && { _valid_feat=true; break; }
+        done
+        if [[ "$_valid_feat" != "true" ]]; then
+            echo "Error: Invalid DEVKIT_FEATURES_DISABLED in $VIG_OS_MANIFEST: $_feat (expected a comma-separated subset of: release, renovate, sync-issues, scanning, gh-templates, skills, worktree)" >&2
+            exit 1
+        fi
+        DISABLED_FEATURES+=("$_feat")
+    done
+fi
+
+# True when scaffold feature group $1 is in DISABLED_FEATURES (#1284).
+feature_disabled() {
+    local name="$1" f
+    for f in "${DISABLED_FEATURES[@]}"; do
+        [[ "$f" == "$name" ]] && return 0
+    done
+    return 1
+}
+
+# Contradiction notice (#1284): a disabled sync-issues feature removes
+# sync-issues.yml, so DEVKIT_SYNC_TARGET / DEVKIT_SYNC_SCHEDULE have nothing to
+# steer. Warn (never abort — the keys are inert, not invalid) so the combination
+# is not silently confusing.
+if feature_disabled sync-issues && [[ -n "$MANIFEST_SYNC_TARGET" || -n "$MANIFEST_SYNC_SCHEDULE" ]]; then
+    echo "Notice: sync-issues feature disabled (DEVKIT_FEATURES_DISABLED); DEVKIT_SYNC_TARGET/DEVKIT_SYNC_SCHEDULE will have no effect (#1284)." >&2
 fi
 
 # Get SHORT_NAME - from env var, manifest, or prompt (#885)
@@ -1078,6 +1124,79 @@ if [[ "$FLAKE_PREEXISTED" == "true" && "$PRECOMMIT_CONFIG_PREEXISTED" == "false"
     MODE_CONFIG_EXCLUDES+=(".pre-commit-config.yaml")
 fi
 
+# Feature opt-outs (#1284): expand a disabled feature group into its
+# transfer-root rel-paths — the SSoT feature->path map. The skills/worktree
+# groups are enumerated from the template tree at runtime (the filesystem is the
+# SSoT; skills = every .claude/skills/* dir EXCEPT worktree_*, worktree = the
+# worktree_* dirs plus the optional justfile.worktree import), so the ~24 skill
+# names are never hardcoded. A directory entry (an ISSUE_TEMPLATE or skill dir)
+# covers its whole subtree for the copy-exclude + preview classifier below.
+feature_paths() {
+    local feature="$1" d name
+    case "$feature" in
+        release)
+            printf '%s\n' \
+                ".github/workflows/release.yml" \
+                ".github/workflows/release-core.yml" \
+                ".github/workflows/release-extension.yml" \
+                ".github/workflows/release-publish.yml" \
+                ".github/workflows/prepare-release.yml" \
+                ".github/workflows/prepare-release-extension.yml" \
+                ".github/workflows/promote-release.yml" \
+                ".github/workflows/sync-main-to-dev.yml" \
+                "docs/DOWNSTREAM_RELEASE.md"
+            ;;
+        renovate)
+            printf '%s\n' \
+                "renovate.json" \
+                ".github/renovate-default.json" \
+                ".github/workflows/renovate-changelog-build.yml" \
+                ".github/workflows/renovate-changelog-commit.yml"
+            ;;
+        sync-issues)
+            printf '%s\n' \
+                ".github/workflows/sync-issues.yml" \
+                ".github/label-taxonomy.toml"
+            ;;
+        scanning)
+            printf '%s\n' \
+                ".github/workflows/codeql.yml" \
+                ".github/workflows/scorecard.yml"
+            ;;
+        gh-templates)
+            printf '%s\n' \
+                ".github/ISSUE_TEMPLATE" \
+                ".github/pull_request_template.md"
+            ;;
+        skills)
+            for d in "$TEMPLATE_DIR"/.claude/skills/*/; do
+                [[ -d "$d" ]] || continue
+                name="$(basename "$d")"
+                [[ "$name" == worktree_* ]] && continue
+                printf '%s\n' ".claude/skills/$name"
+            done
+            ;;
+        worktree)
+            for d in "$TEMPLATE_DIR"/.claude/skills/worktree_*/; do
+                [[ -d "$d" ]] || continue
+                printf '%s\n' ".claude/skills/$(basename "$d")"
+            done
+            printf '%s\n' ".devcontainer/justfile.worktree"
+            ;;
+    esac
+}
+
+# Feature opt-outs (#1284): append each disabled feature's paths to
+# MODE_CONFIG_EXCLUDES, which both the --preview ADDED classifier and the rsync
+# copy consult — so a disabled feature is never shipped and never advertised.
+# The post-copy prune + DELETIONS report (with the preserved-class carve-out)
+# handle a pre-existing copy left by an earlier scaffold.
+for _feat in "${DISABLED_FEATURES[@]}"; do
+    while IFS= read -r _p; do
+        [[ -n "$_p" ]] && MODE_CONFIG_EXCLUDES+=("$_p")
+    done < <(feature_paths "$_feat")
+done
+
 # Rewrite the scaffolded workspace from the gitflow default shape (long-lived
 # `dev` + `main` + sync-main-to-dev.yml) to the trunk shape (`main` only) when
 # the resolved DEVKIT_WORKFLOW is `trunk` (#1205). A pure no-op for gitflow (the
@@ -1355,6 +1474,30 @@ if [[ "$FORCE" == "true" ]]; then
         DELETIONS+=(".github/workflows/sync-main-to-dev.yml")
     fi
 
+    # Feature opt-outs (#1284): a disabled feature's pre-existing paths are
+    # pruned on upgrade — list them under DELETIONS (mirrors the trunk
+    # sync-main-to-dev entry above). EXCEPT the preserved class
+    # (release-extension.yml, prepare-release-extension.yml, renovate.json),
+    # which carry consumer implementation and are never pruned: report a
+    # left-in-place notice instead (preview only — the post-copy prune echoes it
+    # on a real --force run). sync-main-to-dev.yml is skipped when trunk already
+    # listed it, so a trunk + release-disabled upgrade reports it exactly once.
+    for _feat in "${DISABLED_FEATURES[@]}"; do
+        while IFS= read -r _p; do
+            [[ -n "$_p" && -e "$WORKSPACE_DIR/$_p" ]] || continue
+            if [[ "$WORKFLOW_MODEL" == "trunk" \
+                && "$_p" == ".github/workflows/sync-main-to-dev.yml" ]]; then
+                continue
+            fi
+            if is_preserved_file "$_p"; then
+                [[ "$PREVIEW" == "true" ]] && \
+                    echo "  Note: $_p left in place (preserved); delete manually if unwanted (#1284)."
+                continue
+            fi
+            DELETIONS+=("$_p")
+        done < <(feature_paths "$_feat")
+    done
+
     # Show preserved files
     if [[ ${#PRESERVED[@]} -gt 0 ]]; then
         echo ""
@@ -1408,6 +1551,12 @@ if [[ "$FORCE" == "true" ]]; then
                 echo "  +  $added"
             done
             echo "─────────────────────────────────────────────────────────────"
+        fi
+        # Feature opt-outs (#1284): surface the disabled set so the preview is
+        # self-explaining — the skipped paths are absent from ADDED above.
+        if [[ ${#DISABLED_FEATURES[@]} -gt 0 ]]; then
+            echo ""
+            echo "Disabled features (DEVKIT_FEATURES_DISABLED): ${DISABLED_FEATURES[*]}"
         fi
         # trunk workflow model (#1205): the copied release workflows are
         # rendered dev -> main after the copy, so call it out in the preview.
@@ -1662,6 +1811,29 @@ if [[ "$WORKFLOW_MODEL" == "trunk" \
     rm -f "$WORKSPACE_DIR/.github/workflows/sync-main-to-dev.yml"
 fi
 
+# Feature opt-outs (#1284): prune a disabled feature's pre-existing paths left
+# by an earlier scaffold (the rsync copy already excludes them via
+# MODE_CONFIG_EXCLUDES; this removes the upgrade leftover). Preserved-class files
+# (release-extension.yml, prepare-release-extension.yml, renovate.json) carry
+# consumer implementation and are never pruned — print a left-in-place notice
+# instead. Composes with the trunk sync-main-to-dev prune above: that one path
+# is skipped under trunk so it is pruned + echoed exactly once.
+for _feat in "${DISABLED_FEATURES[@]}"; do
+    while IFS= read -r _p; do
+        [[ -n "$_p" && -e "$WORKSPACE_DIR/$_p" ]] || continue
+        if [[ "$WORKFLOW_MODEL" == "trunk" \
+            && "$_p" == ".github/workflows/sync-main-to-dev.yml" ]]; then
+            continue
+        fi
+        if is_preserved_file "$_p"; then
+            echo "Feature '$_feat' disabled: $_p left in place (preserved); delete manually if unwanted (#1284)."
+            continue
+        fi
+        echo "Pruning $_p for disabled feature '$_feat' (#1284)..."
+        rm -rf "${WORKSPACE_DIR:?}/$_p"
+    done < <(feature_paths "$_feat")
+done
+
 # 0.4.0 retired .devcontainer/justfile.base (recipes relocated to
 # justfile.project), so drop the stale copy an upgraded 0.3.x repo carries —
 # nothing imports it anymore (#877). Only when this scaffold manages
@@ -1817,8 +1989,14 @@ render_codeql_matrix
 # main. A no-op for the gitflow default, so a gitflow scaffold is unchanged.
 render_workflow_model "$WORKFLOW_MODEL"
 # sync-issues knobs (#1228): override the target branch + schedule cron on top of
-# the workflow-model default. A no-op when both keys are unset.
-render_sync_settings
+# the workflow-model default. A no-op when both keys are unset. Skipped entirely
+# when the sync-issues feature is disabled (#1284) — the file it seds no longer
+# exists, so the render would be a silent no-op anyway; skip it explicitly.
+if feature_disabled sync-issues; then
+    echo "Skipping sync-issues render (feature disabled via DEVKIT_FEATURES_DISABLED, #1284)."
+else
+    render_sync_settings
+fi
 
 # Persist the resolved manifest (#885). The scaffolded .vig-os is a managed
 # file (template-overwritten on upgrade), so the resolved delivery mode and
@@ -1868,6 +2046,13 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     fi
     if [[ -n "$MANIFEST_SYNC_SCHEDULE" ]]; then
         write_manifest_value DEVKIT_SYNC_SCHEDULE "$MANIFEST_SYNC_SCHEDULE"
+    fi
+    # Feature opt-outs (#1284): bare in the template (DEVKIT_FEATURES_DISABLED=),
+    # so a consumer's disabled-feature list is read before the overwrite and
+    # written back — else an upgrade silently re-ships the pruned features. The
+    # raw value round-trips (like DEVKIT_TAG_PREFIX); clearing it re-enables.
+    if [[ -n "$MANIFEST_FEATURES_DISABLED" ]]; then
+        write_manifest_value DEVKIT_FEATURES_DISABLED "$MANIFEST_FEATURES_DISABLED"
     fi
 fi
 

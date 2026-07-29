@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Manifest-driven scaffold feature opt-outs (DEVKIT_FEATURES_DISABLED)** ([#1284](https://github.com/vig-os/devkit/issues/1284))
+  - New `.vig-os` key: a comma-separated, whitespace-tolerant list of scaffold
+    feature groups a repo opts out of. Disabled groups are never scaffolded,
+    pruned if a prior scaffold left them, reported by `--preview`, and stable
+    across `--force` upgrades; clearing the key re-ships them. Absent/empty
+    scaffolds identically to before; an unknown name aborts loudly.
+  - Seven groups: `release` (the release/prepare/promote workflows + downstream
+    docs), `renovate` (renovate config + changelog workflows), `sync-issues`
+    (the sync workflow + label taxonomy), `scanning` (CodeQL + Scorecard),
+    `gh-templates` (issue templates + PR template), `skills` (every
+    `.claude/skills/` dir except `worktree_*`), and `worktree` (the
+    `worktree_*` skills + `justfile.worktree`).
+  - Consumer-owned extension seams (`release-extension.yml`,
+    `prepare-release-extension.yml`) and `renovate.json` are never pruned when
+    their feature is disabled — they are left in place with a notice.
+
 ### Changed
 
 ### Deprecated

@@ -349,6 +349,46 @@ unknown keys:
 | `DEVKIT_CI_RUNNER` | Comma-separated runner label list for the scaffolded `ci.yml` toolchain jobs; empty (default) => the hosted `ubuntu-24.04` runner ([#1173](https://github.com/vig-os/devkit/issues/1173)) |
 | `DEVKIT_SYNC_TARGET` | Branch the scaffolded sync-issues job commits to; empty (default) => the workflow-model default (`dev`/`main`). A protected-`main` consumer sets an unprotected mirror branch, e.g. `sync/issue-mirror` (see [Point sync-issues at an unprotected mirror branch](#point-sync-issues-at-an-unprotected-mirror-branch-protected-main), [#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_SYNC_SCHEDULE` | Cron override (5-field) for the sync-issues schedule trigger; empty (default) => the daily `0 2 * * *` ([#1228](https://github.com/vig-os/devkit/issues/1228)) |
+| `DEVKIT_FEATURES_DISABLED` | Comma-separated scaffold feature groups this repo opts OUT of; empty (default) => every group is scaffolded. A disabled group is never shipped and a prior scaffold's copy is pruned on upgrade (see [Scaffold feature opt-outs](#scaffold-feature-opt-outs), [#1284](https://github.com/vig-os/devkit/issues/1284)) |
+
+### Scaffold feature opt-outs
+
+`DEVKIT_FEATURES_DISABLED` is a comma-separated (whitespace-tolerant) subset of
+the scaffold feature groups a repo declines. A disabled group is never
+scaffolded, pruned if an earlier scaffold left it, reported truthfully by
+`init-workspace.sh --preview`, and stable across `--force` upgrades (the value
+round-trips in `.vig-os` like `DEVKIT_TAG_PREFIX`). Clearing the key re-ships the
+group on the next `--force`; an empty/absent key scaffolds byte-identically to
+before. An unknown group name aborts the scaffold loudly. The key governs
+scaffold **shape** only — it does not touch the flake or the dev-shell modules
+(`DEVKIT_MODULES`).
+
+The seven groups:
+
+- `release` — the release/prepare/promote workflows (`release*.yml`,
+  `prepare-release*.yml`, `promote-release.yml`, `sync-main-to-dev.yml`) and
+  `docs/DOWNSTREAM_RELEASE.md`.
+- `renovate` — `renovate.json`, `.github/renovate-default.json`, and the
+  renovate-changelog workflows.
+- `sync-issues` — `sync-issues.yml` and `.github/label-taxonomy.toml`. With this
+  group disabled, `DEVKIT_SYNC_TARGET`/`DEVKIT_SYNC_SCHEDULE` become inert (a
+  notice is printed).
+- `scanning` — `codeql.yml` and `scorecard.yml` (not `zizmor.yml`, a lint
+  config).
+- `gh-templates` — `.github/ISSUE_TEMPLATE/` and `pull_request_template.md`.
+- `skills` — every `.claude/skills/` directory except `worktree_*`.
+- `worktree` — the `.claude/skills/worktree_*` directories and
+  `.devcontainer/justfile.worktree`.
+
+`ci.yml` is intentionally out of scope (v1): it stays a single atomic,
+mode-aware workflow.
+
+**Preserved-class caveat.** The consumer-owned extension seams
+`release-extension.yml` and `prepare-release-extension.yml`, and `renovate.json`
+(all in the upgrade preserve list) are **never pruned** when their feature is
+disabled — an existing one is left in place with a notice, and `--preview`
+reports it as left-in-place rather than under DELETIONS. Delete it by hand if you
+truly want it gone.
 
 How it behaves:
 

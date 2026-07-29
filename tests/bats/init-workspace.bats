@@ -3925,3 +3925,311 @@ _RELEASE_RESOLVERS_991=(
     assert_success
     refute_output --partial "contradicts the persisted DEVKIT_WORKFLOW"
 }
+
+# ── manifest-driven scaffold feature opt-outs (#1284) ─────────────────────────
+# DEVKIT_FEATURES_DISABLED is a comma-separated, whitespace-tolerant list of
+# scaffold feature groups (release, renovate, sync-issues, scanning,
+# gh-templates, skills, worktree). A disabled group is never scaffolded, pruned
+# if a prior scaffold left it, truthfully reported by --preview, and stable
+# across --force upgrades. Absent/empty => byte-identical scaffold to today;
+# unknown name => loud abort. Round-trips like DEVKIT_TAG_PREFIX (#1116).
+
+# Seed a manifest key=value into an already-scaffolded workspace .vig-os.
+_seed_features_disabled() {
+    local ws="$1" value="$2"
+    sed -i "s#^DEVKIT_FEATURES_DISABLED=.*#DEVKIT_FEATURES_DISABLED=${value}#" "$ws/.vig-os"
+}
+
+# Fresh scaffold with DEVKIT_FEATURES_DISABLED pre-seeded in .vig-os BEFORE the
+# first copy: the key is read before the rsync overwrite, so the disabled paths
+# are never scaffolded (copy-exclude only — no prune involved).
+_scaffold_seeded() {
+    local mode="$1" ws="$2" value="$3"
+    printf 'DEVKIT_FEATURES_DISABLED=%s\n' "$value" >"$ws/.vig-os"
+    _scaffold "$mode" "$ws"
+}
+
+@test "template .vig-os ships the feature opt-out key empty (#1284)" {
+    run grep -x 'DEVKIT_FEATURES_DISABLED=' "$TEMPLATE_DIR/.vig-os"
+    assert_success
+}
+
+@test "an unknown feature name fails the scaffold loudly (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-unknown"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_features_disabled "$ws" "renovate,bogus"
+    run _upgrade_no_flags "$ws"
+    assert_failure
+    assert_output --partial "Invalid DEVKIT_FEATURES_DISABLED"
+}
+
+@test "a whitespace-padded feature list is accepted (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-whitespace"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_features_disabled "$ws" " renovate ,  scanning "
+    run _upgrade_no_flags "$ws"
+    assert_success
+    refute_output --partial "Invalid DEVKIT_FEATURES_DISABLED"
+}
+
+@test "upgrade writes back a persisted DEVKIT_FEATURES_DISABLED value (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-writeback"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_features_disabled "$ws" "renovate,scanning"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -x 'DEVKIT_FEATURES_DISABLED=renovate,scanning' "$ws/.vig-os"
+    assert_success
+}
+
+@test "an absent DEVKIT_FEATURES_DISABLED scaffolds every feature group (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-absent"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    refute_output --partial "disabled feature"
+    # A representative file from each of the seven groups is present.
+    run test -f "$ws/.github/workflows/release.yml"
+    assert_success
+    run test -f "$ws/renovate.json"
+    assert_success
+    run test -f "$ws/.github/workflows/sync-issues.yml"
+    assert_success
+    run test -f "$ws/.github/workflows/codeql.yml"
+    assert_success
+    run test -d "$ws/.github/ISSUE_TEMPLATE"
+    assert_success
+    run test -d "$ws/.claude/skills/tdd"
+    assert_success
+    run test -d "$ws/.claude/skills/worktree_execute"
+    assert_success
+}
+
+@test "disabling a feature keeps its files out of the scaffold (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-absent-files"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "release,renovate,sync-issues,scanning,gh-templates"
+    assert_success
+    # release
+    run test -e "$ws/.github/workflows/release.yml"
+    assert_failure
+    run test -e "$ws/.github/workflows/prepare-release.yml"
+    assert_failure
+    run test -e "$ws/docs/DOWNSTREAM_RELEASE.md"
+    assert_failure
+    # renovate
+    run test -e "$ws/.github/renovate-default.json"
+    assert_failure
+    run test -e "$ws/.github/workflows/renovate-changelog-build.yml"
+    assert_failure
+    # sync-issues
+    run test -e "$ws/.github/workflows/sync-issues.yml"
+    assert_failure
+    run test -e "$ws/.github/label-taxonomy.toml"
+    assert_failure
+    # scanning
+    run test -e "$ws/.github/workflows/codeql.yml"
+    assert_failure
+    run test -e "$ws/.github/workflows/scorecard.yml"
+    assert_failure
+    # gh-templates
+    run test -e "$ws/.github/ISSUE_TEMPLATE"
+    assert_failure
+    run test -e "$ws/.github/pull_request_template.md"
+    assert_failure
+    # untouched: ci.yml stays atomic (v1 scope), and a non-disabled workflow
+    run test -f "$ws/.github/workflows/ci.yml"
+    assert_success
+}
+
+@test "disabling worktree keeps the other skill dirs (dir-granularity, #1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-worktree-only"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "worktree"
+    assert_success
+    run test -e "$ws/.claude/skills/worktree_execute"
+    assert_failure
+    run test -e "$ws/.devcontainer/justfile.worktree"
+    assert_failure
+    # non-worktree skills survive
+    run test -d "$ws/.claude/skills/tdd"
+    assert_success
+    run test -d "$ws/.claude/skills/code_review"
+    assert_success
+}
+
+@test "disabling skills keeps the worktree_* dirs (dir-granularity, #1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-skills-only"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "skills"
+    assert_success
+    run test -e "$ws/.claude/skills/tdd"
+    assert_failure
+    run test -e "$ws/.claude/skills/branch-naming"
+    assert_failure
+    # worktree_* skills survive, as does justfile.worktree
+    run test -d "$ws/.claude/skills/worktree_execute"
+    assert_success
+    run test -f "$ws/.devcontainer/justfile.worktree"
+    assert_success
+}
+
+@test "disabling both skills and worktree empties .claude/skills/ (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-skills-worktree"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "skills,worktree"
+    assert_success
+    # no skill directories remain (the parent dir may be absent or empty)
+    run bash -c 'shopt -s nullglob; d=("'"$ws"'"/.claude/skills/*/); echo "${#d[@]}"'
+    assert_output "0"
+}
+
+@test "--preview never lists a disabled feature's files as ADDED and names the disabled set (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-preview-added"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_features_disabled "$ws" "scanning"
+    # Remove the group's files so they WOULD be re-added by an ordinary upgrade.
+    rm -f "$ws/.github/workflows/codeql.yml" "$ws/.github/workflows/scorecard.yml"
+    run _preview "$ws" --mode both
+    assert_success
+    assert_output --partial "Disabled features"
+    assert_output --partial "scanning"
+    # the disabled files are not advertised as additions
+    refute_output --partial "+  .github/workflows/codeql.yml"
+    refute_output --partial "+  .github/workflows/scorecard.yml"
+}
+
+@test "adding the key on an upgrade prunes a previously scaffolded feature (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-upgrade-prune"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run test -f "$ws/.github/workflows/release.yml"
+    assert_success
+    _seed_features_disabled "$ws" "release,skills"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "Pruning"
+    run test -e "$ws/.github/workflows/release.yml"
+    assert_failure
+    run test -e "$ws/.github/workflows/promote-release.yml"
+    assert_failure
+    run test -e "$ws/.claude/skills/tdd"
+    assert_failure
+    # written back so the prune is stable on the next upgrade
+    run grep -x 'DEVKIT_FEATURES_DISABLED=release,skills' "$ws/.vig-os"
+    assert_success
+}
+
+@test "--preview lists a pre-existing disabled feature's files under DELETIONS (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-preview-delete"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_features_disabled "$ws" "scanning"
+    run _preview "$ws" --mode both
+    assert_success
+    assert_output --partial "DELETED"
+    assert_output --partial ".github/workflows/codeql.yml"
+    # side-effect-free: the preview left the file in place
+    run test -f "$ws/.github/workflows/codeql.yml"
+    assert_success
+}
+
+@test "a preserved-class extension seam survives a disabled feature with a notice (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-preserved"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    # Consumer customization sentinel in the extension seam + renovate.json.
+    printf '# SENTINEL-EXT\n' >>"$ws/.github/workflows/release-extension.yml"
+    printf '{ "SENTINEL": true }\n' >"$ws/renovate.json"
+    _seed_features_disabled "$ws" "release,renovate"
+    # preview: the seam is reported as left-in-place, never under DELETIONS
+    run _preview "$ws" --mode both
+    assert_success
+    assert_output --partial "left in place (preserved)"
+    refute_output --partial "✗  .github/workflows/release-extension.yml"
+    refute_output --partial "✗  renovate.json"
+    # a real upgrade keeps the seam + its sentinel, and does not prune it
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "left in place (preserved)"
+    run grep -qF "SENTINEL-EXT" "$ws/.github/workflows/release-extension.yml"
+    assert_success
+    run grep -qF '"SENTINEL": true' "$ws/renovate.json"
+    assert_success
+    # but the non-preserved release workflows are gone
+    run test -e "$ws/.github/workflows/release.yml"
+    assert_failure
+}
+
+@test "clearing the key re-ships a previously disabled feature (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-reenable"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_features_disabled "$ws" "scanning"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run test -e "$ws/.github/workflows/codeql.yml"
+    assert_failure
+    # clear the opt-out and upgrade again — the feature returns
+    _seed_features_disabled "$ws" ""
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run test -f "$ws/.github/workflows/codeql.yml"
+    assert_success
+    run test -f "$ws/.github/workflows/scorecard.yml"
+    assert_success
+}
+
+@test "disabling sync-issues with a sync target set warns but does not abort (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-contradiction"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
+    _seed_features_disabled "$ws" "sync-issues"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "will have no effect"
+    # the sync workflow really is gone, and no sed error tripped the scaffold
+    run test -e "$ws/.github/workflows/sync-issues.yml"
+    assert_failure
+    refute_output --partial "No such file or directory"
+    refute_output --partial "Rendered sync-issues settings"
+}
+
+@test "trunk workflow plus a disabled release feature compose without double-reporting (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-compose"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run test -f "$ws/.github/workflows/sync-main-to-dev.yml"
+    assert_success
+    _seed_features_disabled "$ws" "release"
+    # preview a gitflow->trunk switch with release disabled: sync-main-to-dev.yml
+    # is a member of BOTH the trunk deletion and the release group, yet it must
+    # be listed exactly once and the preview must not error.
+    run _preview "$ws" --mode both --workflow trunk
+    assert_success
+    count="$(printf '%s\n' "$output" | grep -c 'sync-main-to-dev.yml')"
+    assert_equal "$count" "1"
+    # and a real upgrade composes the prunes without error
+    sed -i 's/^DEVKIT_WORKFLOW=$/DEVKIT_WORKFLOW=trunk/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run test -e "$ws/.github/workflows/sync-main-to-dev.yml"
+    assert_failure
+    run test -e "$ws/.github/workflows/release.yml"
+    assert_failure
+}
