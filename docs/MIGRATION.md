@@ -443,6 +443,11 @@ How it behaves:
   [#883](https://github.com/vig-os/devkit/issues/883)). `.vig-os` is a
   managed file: the devkit-known keys are re-read and written back on upgrade —
   do not park unrelated custom keys in it.
+- **Combining keys for a solo/private repo.** Several of these keys assemble into
+  a documented **solo adoption profile** — a single-user, private repo that keeps
+  the hook stack and upgrade path but drops the team/traceability layer. See
+  [`docs/SOLO_ADOPTION.md`](./SOLO_ADOPTION.md)
+  ([#1285](https://github.com/vig-os/devkit/issues/1285)).
 
 ## What a consumer needs to know
 
