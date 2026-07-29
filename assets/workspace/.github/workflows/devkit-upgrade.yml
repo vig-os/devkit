@@ -147,10 +147,12 @@ jobs:
           # rc1 -> rc2 -> final within a train reuse the same issue/branch/PR; the
           # commit + PR title carry the exact installed version.
           TRAIN="${TARGET%%-*}"
-          echo "proceed=true" >> "$GITHUB_OUTPUT"
-          echo "target=${TARGET}" >> "$GITHUB_OUTPUT"
-          echo "train=${TRAIN}" >> "$GITHUB_OUTPUT"
-          echo "branch-suffix=$(echo "${TRAIN}" | tr '.' '-')" >> "$GITHUB_OUTPUT"
+          {
+            echo "proceed=true"
+            echo "target=${TARGET}"
+            echo "train=${TRAIN}"
+            echo "branch-suffix=$(echo "${TRAIN}" | tr '.' '-')"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Find or create the adoption issue
         id: issue
