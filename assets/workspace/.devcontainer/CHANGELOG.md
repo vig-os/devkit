@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Preflight abort on non-main default branches** ([#1283](https://github.com/vig-os/devkit/issues/1283))
+  - Scaffolding assumes the default branch is `main` (the branch-name hook,
+    `ci.yml` and its workflow triggers all key off it). On a legacy `master`
+    repo the scaffold used to succeed silently, then block every subsequent
+    commit with a confusing hook error. `install.sh` now detects a non-`main`
+    default branch (via `origin/HEAD`, a best-effort `gh api` lookup, or the
+    local branch) and refuses **before** writing anything, printing the rename
+    recipe. A topic/`dev` branch of a repo that already has `main` proceeds
+    unchanged; `--preview` warns without aborting; `--skip-preflight` bypasses.
+
 - **Manifest-driven scaffold feature opt-outs (DEVKIT_FEATURES_DISABLED)** ([#1284](https://github.com/vig-os/devkit/issues/1284))
   - New `.vig-os` key: a comma-separated, whitespace-tolerant list of scaffold
     feature groups a repo opts out of. Disabled groups are never scaffolded,

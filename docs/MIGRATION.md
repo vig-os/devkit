@@ -214,6 +214,24 @@ upgrade.
   (`git branch dev main && git push -u origin dev`) for the gitflow release flow
   to work.
 
+### Legacy default branches (`master`)
+
+Both models assume the repository's **default branch is `main`**: the scaffolded
+branch-name hook, `ci.yml`'s trunk rewrite and its workflow triggers all key off
+it. On a legacy `master` repo the scaffold would otherwise succeed silently and
+then every commit would be rejected by the branch-name hook. `install.sh`
+therefore **refuses to scaffold until the default branch is `main`** — including
+on a first-time install — pointing you here. Rename it first:
+
+```bash
+git branch -m master main && git push -u origin main
+gh repo edit --default-branch main
+```
+
+Then re-run the installer. A topic or `dev` branch of a repo that already has a
+`main` proceeds normally; `--preview` reports the finding without aborting, and
+`--skip-preflight` bypasses the check.
+
 ### Enable the dependency graph on new public consumers
 
 The scaffolded `ci.yml` also ships a **Dependency Review** gate that blocks PRs
