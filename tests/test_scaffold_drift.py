@@ -97,6 +97,23 @@ def test_resolve_toolchain_emits_drift_check_output() -> None:
     assert "drift-check" in action["outputs"]
 
 
+def test_resolve_toolchain_emits_drift_image_output() -> None:
+    """resolve-toolchain declares an all-modes image ref for the drift job."""
+    action = _load(RESOLVE_ACTION)
+    assert "drift-image" in action["outputs"]
+
+
+def test_drift_image_is_all_modes_ghcr_ref(tmp_path: Path) -> None:
+    """A host-mode (direnv) pin still yields a non-empty devcontainer image ref.
+
+    The `image` output is an explicit empty string for host modes, so the drift
+    job — which docker-runs the image on the host — needs a separate ref.
+    """
+    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_VERSION=1.2.3\n")
+    assert outputs["image"] == ""
+    assert outputs["drift-image"] == "ghcr.io/vig-os/devcontainer:1.2.3"
+
+
 def test_drift_check_defaults_true_when_key_absent(tmp_path: Path) -> None:
     """No DEVKIT_DRIFT_CHECK => the enabled default (`true`)."""
     outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\n")
@@ -158,6 +175,17 @@ def test_scaffold_drift_runs_rescaffold_and_diff() -> None:
     assert "init-workspace.sh" in run_blocks
     assert "--force" in run_blocks
     assert "git" in run_blocks and "diff" in run_blocks
+
+
+def test_scaffold_drift_uses_resolved_image_ref() -> None:
+    """The job docker-runs the resolved image ref, not a hardcoded ghcr literal.
+
+    The #991 SSoT invariant keeps ghcr.io/vig-os/devcontainer out of ci.yml.
+    """
+    workflow = _load(WORKFLOWS / "ci.yml")
+    job_text = yaml.safe_dump(workflow["jobs"][DRIFT_JOB])
+    assert "drift-image" in job_text
+    assert "ghcr.io/vig-os/devcontainer" not in job_text
 
 
 def test_scaffold_drift_honors_runner_override() -> None:

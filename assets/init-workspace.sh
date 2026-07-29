@@ -346,6 +346,8 @@ MANIFEST_FEATURES_DISABLED="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FEAT
 
 MANIFEST_REFS_POLICY="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REFS_POLICY || true)"
 
+MANIFEST_DRIFT_CHECK="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_DRIFT_CHECK || true)"
+
 # The OWNER/REPO placeholder (written when no origin was resolvable) must not
 # mask a now-detectable git origin on a later upgrade.
 [[ "$MANIFEST_REPO" == "OWNER/REPO" ]] && MANIFEST_REPO=""
@@ -483,6 +485,18 @@ case "$MANIFEST_REFS_POLICY" in
     ""|chore-optional|optional|required) ;;
     *)
         echo "Error: Invalid DEVKIT_REFS_POLICY in $VIG_OS_MANIFEST: $MANIFEST_REFS_POLICY (expected: chore-optional | optional | required)" >&2
+        exit 1
+        ;;
+esac
+
+# Scaffold-drift gate (#1295): pure runtime toggle for the ci.yml scaffold-drift
+# job (empty resolves to the enabled `true` default). No scaffold render — the CI
+# job reads it via resolve-toolchain's `drift-check` output — so only a value
+# guard here, refusing an unexpected literal loudly (mirrors DEVKIT_REFS_POLICY).
+case "$MANIFEST_DRIFT_CHECK" in
+    ""|true|false) ;;
+    *)
+        echo "Error: Invalid DEVKIT_DRIFT_CHECK in $VIG_OS_MANIFEST: $MANIFEST_DRIFT_CHECK (expected: true | false)" >&2
         exit 1
         ;;
 esac
@@ -2108,6 +2122,12 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     # resets the commit-msg/commit-range Refs enforcement to chore-optional.
     if [[ -n "$MANIFEST_REFS_POLICY" ]]; then
         write_manifest_value DEVKIT_REFS_POLICY "$MANIFEST_REFS_POLICY"
+    fi
+    # Scaffold-drift gate (#1295): bare in the template (DEVKIT_DRIFT_CHECK=), so a
+    # consumer's explicit false (opt-out) is written back — else an upgrade
+    # silently re-enables the drift gate the consumer disabled.
+    if [[ -n "$MANIFEST_DRIFT_CHECK" ]]; then
+        write_manifest_value DEVKIT_DRIFT_CHECK "$MANIFEST_DRIFT_CHECK"
     fi
 fi
 

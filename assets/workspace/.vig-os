@@ -90,3 +90,13 @@ DEVKIT_FEATURES_DISABLED=
 # anchored render of the hook arg + resolve-toolchain's `refs-optional-types`
 # output); written back only for a non-default value (#1282).
 DEVKIT_REFS_POLICY=
+
+# Scaffold-drift CI gate: true (default) | false. Empty (= unset) resolves to
+# `true` — ci.yml's `scaffold-drift` job re-runs the pinned devkit version's
+# scaffold over the checkout and fails a PR whose managed files diverge from it
+# (DEVKIT_VERSION bumped without re-scaffold, or a managed file hand-edited).
+# `*.project` files and persisted values in this manifest are exempt by
+# construction (the scaffold never overwrites them). Pure runtime gate — CI reads
+# it via resolve-toolchain's `drift-check` output, so flipping it takes effect
+# with no re-scaffold; the value round-trips across `--force` upgrades (#1295).
+DEVKIT_DRIFT_CHECK=
