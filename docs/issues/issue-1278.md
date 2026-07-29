@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-27T14:51:19Z
-updated: 2026-07-27T14:51:36Z
+updated: 2026-07-28T13:42:39Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1278
-comments: 0
+comments: 1
 labels: bug, priority:low, area:workflow, effort:small, semver:patch
 assignees: none
-milestone: none
+milestone: 1.4.3
 projects: none
 parent: none
 children: none
-synced: 2026-07-28T05:21:32.790Z
+synced: 2026-07-29T05:28:56.912Z
 ---
 
 # [Issue 1278]: [sync-issues template: always()-cleanup steps assume the retry shim that may not exist on early job failure](https://github.com/vig-os/devkit/issues/1278)
@@ -46,4 +46,12 @@ command -v retry >/dev/null || retry() { shift $(( $(echo "$@" | grep -c '^--') 
 Cosmetic/robustness only — healthy runs are unaffected.
 
 Surfaced during the 2026-07-27 sync-issues failure diagnosis (exo-pet consumer credential gap).
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 28, 2026 at 01:42 PM_
+
+Fixed by PR #1286 (merged to dev, milestone 1.4.3). Both the scaffold template and devkit's own sync-issues.yml now carry a one-shot retry fallback in the always()-cleanup step.
 
