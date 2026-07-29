@@ -1106,6 +1106,79 @@ if [[ "$FLAKE_PREEXISTED" == "true" && "$PRECOMMIT_CONFIG_PREEXISTED" == "false"
     MODE_CONFIG_EXCLUDES+=(".pre-commit-config.yaml")
 fi
 
+# Feature opt-outs (#1284): expand a disabled feature group into its
+# transfer-root rel-paths — the SSoT feature->path map. The skills/worktree
+# groups are enumerated from the template tree at runtime (the filesystem is the
+# SSoT; skills = every .claude/skills/* dir EXCEPT worktree_*, worktree = the
+# worktree_* dirs plus the optional justfile.worktree import), so the ~24 skill
+# names are never hardcoded. A directory entry (an ISSUE_TEMPLATE or skill dir)
+# covers its whole subtree for the copy-exclude + preview classifier below.
+feature_paths() {
+    local feature="$1" d name
+    case "$feature" in
+        release)
+            printf '%s\n' \
+                ".github/workflows/release.yml" \
+                ".github/workflows/release-core.yml" \
+                ".github/workflows/release-extension.yml" \
+                ".github/workflows/release-publish.yml" \
+                ".github/workflows/prepare-release.yml" \
+                ".github/workflows/prepare-release-extension.yml" \
+                ".github/workflows/promote-release.yml" \
+                ".github/workflows/sync-main-to-dev.yml" \
+                "docs/DOWNSTREAM_RELEASE.md"
+            ;;
+        renovate)
+            printf '%s\n' \
+                "renovate.json" \
+                ".github/renovate-default.json" \
+                ".github/workflows/renovate-changelog-build.yml" \
+                ".github/workflows/renovate-changelog-commit.yml"
+            ;;
+        sync-issues)
+            printf '%s\n' \
+                ".github/workflows/sync-issues.yml" \
+                ".github/label-taxonomy.toml"
+            ;;
+        scanning)
+            printf '%s\n' \
+                ".github/workflows/codeql.yml" \
+                ".github/workflows/scorecard.yml"
+            ;;
+        gh-templates)
+            printf '%s\n' \
+                ".github/ISSUE_TEMPLATE" \
+                ".github/pull_request_template.md"
+            ;;
+        skills)
+            for d in "$TEMPLATE_DIR"/.claude/skills/*/; do
+                [[ -d "$d" ]] || continue
+                name="$(basename "$d")"
+                [[ "$name" == worktree_* ]] && continue
+                printf '%s\n' ".claude/skills/$name"
+            done
+            ;;
+        worktree)
+            for d in "$TEMPLATE_DIR"/.claude/skills/worktree_*/; do
+                [[ -d "$d" ]] || continue
+                printf '%s\n' ".claude/skills/$(basename "$d")"
+            done
+            printf '%s\n' ".devcontainer/justfile.worktree"
+            ;;
+    esac
+}
+
+# Feature opt-outs (#1284): append each disabled feature's paths to
+# MODE_CONFIG_EXCLUDES, which both the --preview ADDED classifier and the rsync
+# copy consult — so a disabled feature is never shipped and never advertised.
+# The post-copy prune + DELETIONS report (with the preserved-class carve-out)
+# handle a pre-existing copy left by an earlier scaffold.
+for _feat in "${DISABLED_FEATURES[@]}"; do
+    while IFS= read -r _p; do
+        [[ -n "$_p" ]] && MODE_CONFIG_EXCLUDES+=("$_p")
+    done < <(feature_paths "$_feat")
+done
+
 # Rewrite the scaffolded workspace from the gitflow default shape (long-lived
 # `dev` + `main` + sync-main-to-dev.yml) to the trunk shape (`main` only) when
 # the resolved DEVKIT_WORKFLOW is `trunk` (#1205). A pure no-op for gitflow (the
@@ -1435,6 +1508,12 @@ if [[ "$FORCE" == "true" ]]; then
                 echo "  +  $added"
             done
             echo "─────────────────────────────────────────────────────────────"
+        fi
+        # Feature opt-outs (#1284): surface the disabled set so the preview is
+        # self-explaining — the skipped paths are absent from ADDED above.
+        if [[ ${#DISABLED_FEATURES[@]} -gt 0 ]]; then
+            echo ""
+            echo "Disabled features (DEVKIT_FEATURES_DISABLED): ${DISABLED_FEATURES[*]}"
         fi
         # trunk workflow model (#1205): the copied release workflows are
         # rendered dev -> main after the copy, so call it out in the preview.
