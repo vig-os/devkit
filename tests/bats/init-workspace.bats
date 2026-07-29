@@ -3859,3 +3859,79 @@ _RELEASE_RESOLVERS_991=(
     assert_success
     refute_output --partial "contradicts the persisted DEVKIT_WORKFLOW"
 }
+
+# ── manifest-driven scaffold feature opt-outs (#1284) ─────────────────────────
+# DEVKIT_FEATURES_DISABLED is a comma-separated, whitespace-tolerant list of
+# scaffold feature groups (release, renovate, sync-issues, scanning,
+# gh-templates, skills, worktree). A disabled group is never scaffolded, pruned
+# if a prior scaffold left it, truthfully reported by --preview, and stable
+# across --force upgrades. Absent/empty => byte-identical scaffold to today;
+# unknown name => loud abort. Round-trips like DEVKIT_TAG_PREFIX (#1116).
+
+# Seed a manifest key=value into an already-scaffolded workspace .vig-os.
+_seed_features_disabled() {
+    local ws="$1" value="$2"
+    sed -i "s#^DEVKIT_FEATURES_DISABLED=.*#DEVKIT_FEATURES_DISABLED=${value}#" "$ws/.vig-os"
+}
+
+@test "template .vig-os ships the feature opt-out key empty (#1284)" {
+    run grep -x 'DEVKIT_FEATURES_DISABLED=' "$TEMPLATE_DIR/.vig-os"
+    assert_success
+}
+
+@test "an unknown feature name fails the scaffold loudly (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-unknown"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_features_disabled "$ws" "renovate,bogus"
+    run _upgrade_no_flags "$ws"
+    assert_failure
+    assert_output --partial "Invalid DEVKIT_FEATURES_DISABLED"
+}
+
+@test "a whitespace-padded feature list is accepted (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-whitespace"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_features_disabled "$ws" " renovate ,  scanning "
+    run _upgrade_no_flags "$ws"
+    assert_success
+    refute_output --partial "Invalid DEVKIT_FEATURES_DISABLED"
+}
+
+@test "upgrade writes back a persisted DEVKIT_FEATURES_DISABLED value (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-writeback"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_features_disabled "$ws" "renovate,scanning"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -x 'DEVKIT_FEATURES_DISABLED=renovate,scanning' "$ws/.vig-os"
+    assert_success
+}
+
+@test "an absent DEVKIT_FEATURES_DISABLED scaffolds every feature group (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-absent"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    refute_output --partial "disabled feature"
+    # A representative file from each of the seven groups is present.
+    run test -f "$ws/.github/workflows/release.yml"
+    assert_success
+    run test -f "$ws/renovate.json"
+    assert_success
+    run test -f "$ws/.github/workflows/sync-issues.yml"
+    assert_success
+    run test -f "$ws/.github/workflows/codeql.yml"
+    assert_success
+    run test -d "$ws/.github/ISSUE_TEMPLATE"
+    assert_success
+    run test -d "$ws/.claude/skills/tdd"
+    assert_success
+    run test -d "$ws/.claude/skills/worktree_execute"
+    assert_success
+}
