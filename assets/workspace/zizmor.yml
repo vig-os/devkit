@@ -35,7 +35,8 @@
 # Residual (baselined below), why each is intentional:
 #   - artipacked        → checkouts that push or fetch from a private remote and
 #                         therefore rely on the persisted git credential
-#                         (ci.yml commit-checks, all release/sync branch work).
+#                         (ci.yml commit-checks, all release/sync branch work,
+#                         devkit-upgrade's self-upgrade branch push).
 #   - dangerous-triggers → renovate-changelog-commit.yml runs on `workflow_run`
 #                         by design (it commits the built changelog).
 #   - github-app        → create-github-app-token intentionally mints a
@@ -51,6 +52,7 @@ rules:
   artipacked:
     ignore:
       - ci.yml
+      - devkit-upgrade.yml
       - prepare-release.yml
       - promote-release.yml
       - release-core.yml
