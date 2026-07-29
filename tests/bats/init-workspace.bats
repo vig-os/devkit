@@ -4040,3 +4040,88 @@ _scaffold_seeded() {
     refute_output --partial "+  .github/workflows/codeql.yml"
     refute_output --partial "+  .github/workflows/scorecard.yml"
 }
+
+@test "adding the key on an upgrade prunes a previously scaffolded feature (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-upgrade-prune"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run test -f "$ws/.github/workflows/release.yml"
+    assert_success
+    _seed_features_disabled "$ws" "release,skills"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "Pruning"
+    run test -e "$ws/.github/workflows/release.yml"
+    assert_failure
+    run test -e "$ws/.github/workflows/promote-release.yml"
+    assert_failure
+    run test -e "$ws/.claude/skills/tdd"
+    assert_failure
+    # written back so the prune is stable on the next upgrade
+    run grep -x 'DEVKIT_FEATURES_DISABLED=release,skills' "$ws/.vig-os"
+    assert_success
+}
+
+@test "--preview lists a pre-existing disabled feature's files under DELETIONS (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-preview-delete"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_features_disabled "$ws" "scanning"
+    run _preview "$ws" --mode both
+    assert_success
+    assert_output --partial "DELETED"
+    assert_output --partial ".github/workflows/codeql.yml"
+    # side-effect-free: the preview left the file in place
+    run test -f "$ws/.github/workflows/codeql.yml"
+    assert_success
+}
+
+@test "a preserved-class extension seam survives a disabled feature with a notice (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-preserved"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    # Consumer customization sentinel in the extension seam + renovate.json.
+    printf '# SENTINEL-EXT\n' >>"$ws/.github/workflows/release-extension.yml"
+    printf '{ "SENTINEL": true }\n' >"$ws/renovate.json"
+    _seed_features_disabled "$ws" "release,renovate"
+    # preview: the seam is reported as left-in-place, never under DELETIONS
+    run _preview "$ws" --mode both
+    assert_success
+    assert_output --partial "left in place (preserved)"
+    refute_output --partial "✗  .github/workflows/release-extension.yml"
+    refute_output --partial "✗  renovate.json"
+    # a real upgrade keeps the seam + its sentinel, and does not prune it
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "left in place (preserved)"
+    run grep -qF "SENTINEL-EXT" "$ws/.github/workflows/release-extension.yml"
+    assert_success
+    run grep -qF '"SENTINEL": true' "$ws/renovate.json"
+    assert_success
+    # but the non-preserved release workflows are gone
+    run test -e "$ws/.github/workflows/release.yml"
+    assert_failure
+}
+
+@test "clearing the key re-ships a previously disabled feature (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-reenable"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_features_disabled "$ws" "scanning"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run test -e "$ws/.github/workflows/codeql.yml"
+    assert_failure
+    # clear the opt-out and upgrade again — the feature returns
+    _seed_features_disabled "$ws" ""
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run test -f "$ws/.github/workflows/codeql.yml"
+    assert_success
+    run test -f "$ws/.github/workflows/scorecard.yml"
+    assert_success
+}
