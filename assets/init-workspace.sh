@@ -340,6 +340,7 @@ MANIFEST_CI_RUNNER="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_CI_RUNNER ||
 MANIFEST_WORKFLOW="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_WORKFLOW || true)"
 MANIFEST_SYNC_TARGET="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_TARGET || true)"
 MANIFEST_SYNC_SCHEDULE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_SCHEDULE || true)"
+MANIFEST_FEATURES_DISABLED="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FEATURES_DISABLED || true)"
 
 # The OWNER/REPO placeholder (written when no origin was resolvable) must not
 # mask a now-detectable git origin on a later upgrade.
@@ -424,6 +425,43 @@ if [[ -n "$MANIFEST_SYNC_SCHEDULE" ]] && ! is_valid_cron "$MANIFEST_SYNC_SCHEDUL
     echo "Error: Invalid DEVKIT_SYNC_SCHEDULE in $VIG_OS_MANIFEST: $MANIFEST_SYNC_SCHEDULE (expected a 5-field cron expression, e.g. '0 2 * * *')" >&2
     exit 1
 fi
+
+# Scaffold feature opt-outs (#1284): DEVKIT_FEATURES_DISABLED is a
+# comma-separated (whitespace-tolerant, like DEVKIT_FLOATING_TAGS/CI_RUNNER)
+# subset of the seven scaffold feature groups. Parse + validate it loudly here —
+# an unknown name must abort, never silently disable nothing — into
+# DISABLED_FEATURES[], with a feature_disabled helper the copy/prune/notice
+# mechanisms below all consult. Pure `.vig-os` key (no CLI flag), so only a
+# format guard: no contradiction guard as for --mode / --workflow.
+VALID_FEATURES=(release renovate sync-issues scanning gh-templates skills worktree)
+DISABLED_FEATURES=()
+if [[ -n "$MANIFEST_FEATURES_DISABLED" ]]; then
+    IFS=',' read -ra _raw_features <<< "$MANIFEST_FEATURES_DISABLED"
+    for _feat in "${_raw_features[@]}"; do
+        # Trim surrounding whitespace (leading + trailing).
+        _feat="${_feat#"${_feat%%[![:space:]]*}"}"
+        _feat="${_feat%"${_feat##*[![:space:]]}"}"
+        [[ -z "$_feat" ]] && continue
+        _valid_feat=false
+        for _v in "${VALID_FEATURES[@]}"; do
+            [[ "$_feat" == "$_v" ]] && { _valid_feat=true; break; }
+        done
+        if [[ "$_valid_feat" != "true" ]]; then
+            echo "Error: Invalid DEVKIT_FEATURES_DISABLED in $VIG_OS_MANIFEST: $_feat (expected a comma-separated subset of: release, renovate, sync-issues, scanning, gh-templates, skills, worktree)" >&2
+            exit 1
+        fi
+        DISABLED_FEATURES+=("$_feat")
+    done
+fi
+
+# True when scaffold feature group $1 is in DISABLED_FEATURES (#1284).
+feature_disabled() {
+    local name="$1" f
+    for f in "${DISABLED_FEATURES[@]}"; do
+        [[ "$f" == "$name" ]] && return 0
+    done
+    return 1
+}
 
 # Get SHORT_NAME - from env var, manifest, or prompt (#885)
 if [[ -z "${SHORT_NAME:-}" && -n "$MANIFEST_PROJECT" ]]; then
@@ -1856,6 +1894,13 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     fi
     if [[ -n "$MANIFEST_SYNC_SCHEDULE" ]]; then
         write_manifest_value DEVKIT_SYNC_SCHEDULE "$MANIFEST_SYNC_SCHEDULE"
+    fi
+    # Feature opt-outs (#1284): bare in the template (DEVKIT_FEATURES_DISABLED=),
+    # so a consumer's disabled-feature list is read before the overwrite and
+    # written back — else an upgrade silently re-ships the pruned features. The
+    # raw value round-trips (like DEVKIT_TAG_PREFIX); clearing it re-enables.
+    if [[ -n "$MANIFEST_FEATURES_DISABLED" ]]; then
+        write_manifest_value DEVKIT_FEATURES_DISABLED "$MANIFEST_FEATURES_DISABLED"
     fi
 fi
 
