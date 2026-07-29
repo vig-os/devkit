@@ -80,6 +80,9 @@ jobs:
       image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
       runner-json: ${{ steps.resolve.outputs.runner-json }}
+      # Refs policy (#1282): re-export the composite action's mapped
+      # --refs-optional-types list so commit-checks can consume it via needs.
+      refs-optional-types: ${{ steps.resolve.outputs.refs-optional-types }}
 
     steps:
       - name: Checkout repository

@@ -229,6 +229,21 @@ def _commit_checks_step(workflow: dict) -> dict:
     raise AssertionError(f"commit-checks step {COMMIT_CHECKS_STEP!r} not found")
 
 
+def test_resolve_toolchain_job_reexports_refs_optional_types() -> None:
+    """ci.yml's resolve-toolchain job maps the action output to a job output.
+
+    `needs.resolve-toolchain.outputs.*` reads JOB outputs, not the composite
+    action's — without this mapping the commit-checks env resolves empty and
+    the policy silently reverts to the chore default (actionlint catches it).
+    """
+    workflow = _load(WORKFLOWS / "ci.yml")
+    outputs = workflow["jobs"]["resolve-toolchain"]["outputs"]
+    assert (
+        outputs.get("refs-optional-types")
+        == "${{ steps.resolve.outputs.refs-optional-types }}"
+    )
+
+
 def test_commit_checks_step_routes_refs_policy_through_env() -> None:
     """The commit-checks step consumes the resolved list via env, not inline."""
     workflow = _load(WORKFLOWS / "ci.yml")
