@@ -1455,6 +1455,30 @@ if [[ "$FORCE" == "true" ]]; then
         DELETIONS+=(".github/workflows/sync-main-to-dev.yml")
     fi
 
+    # Feature opt-outs (#1284): a disabled feature's pre-existing paths are
+    # pruned on upgrade — list them under DELETIONS (mirrors the trunk
+    # sync-main-to-dev entry above). EXCEPT the preserved class
+    # (release-extension.yml, prepare-release-extension.yml, renovate.json),
+    # which carry consumer implementation and are never pruned: report a
+    # left-in-place notice instead (preview only — the post-copy prune echoes it
+    # on a real --force run). sync-main-to-dev.yml is skipped when trunk already
+    # listed it, so a trunk + release-disabled upgrade reports it exactly once.
+    for _feat in "${DISABLED_FEATURES[@]}"; do
+        while IFS= read -r _p; do
+            [[ -n "$_p" && -e "$WORKSPACE_DIR/$_p" ]] || continue
+            if [[ "$WORKFLOW_MODEL" == "trunk" \
+                && "$_p" == ".github/workflows/sync-main-to-dev.yml" ]]; then
+                continue
+            fi
+            if is_preserved_file "$_p"; then
+                [[ "$PREVIEW" == "true" ]] && \
+                    echo "  Note: $_p left in place (preserved); delete manually if unwanted (#1284)."
+                continue
+            fi
+            DELETIONS+=("$_p")
+        done < <(feature_paths "$_feat")
+    done
+
     # Show preserved files
     if [[ ${#PRESERVED[@]} -gt 0 ]]; then
         echo ""
@@ -1766,6 +1790,29 @@ if [[ "$WORKFLOW_MODEL" == "trunk" \
     echo "Pruning sync-main-to-dev.yml for the trunk workflow model (#1205)..."
     rm -f "$WORKSPACE_DIR/.github/workflows/sync-main-to-dev.yml"
 fi
+
+# Feature opt-outs (#1284): prune a disabled feature's pre-existing paths left
+# by an earlier scaffold (the rsync copy already excludes them via
+# MODE_CONFIG_EXCLUDES; this removes the upgrade leftover). Preserved-class files
+# (release-extension.yml, prepare-release-extension.yml, renovate.json) carry
+# consumer implementation and are never pruned — print a left-in-place notice
+# instead. Composes with the trunk sync-main-to-dev prune above: that one path
+# is skipped under trunk so it is pruned + echoed exactly once.
+for _feat in "${DISABLED_FEATURES[@]}"; do
+    while IFS= read -r _p; do
+        [[ -n "$_p" && -e "$WORKSPACE_DIR/$_p" ]] || continue
+        if [[ "$WORKFLOW_MODEL" == "trunk" \
+            && "$_p" == ".github/workflows/sync-main-to-dev.yml" ]]; then
+            continue
+        fi
+        if is_preserved_file "$_p"; then
+            echo "Feature '$_feat' disabled: $_p left in place (preserved); delete manually if unwanted (#1284)."
+            continue
+        fi
+        echo "Pruning $_p for disabled feature '$_feat' (#1284)..."
+        rm -rf "${WORKSPACE_DIR:?}/$_p"
+    done < <(feature_paths "$_feat")
+done
 
 # 0.4.0 retired .devcontainer/justfile.base (recipes relocated to
 # justfile.project), so drop the stale copy an upgraded 0.3.x repo carries —
