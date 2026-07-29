@@ -488,7 +488,9 @@ class TestInstallScriptUnit:
 
         Uses a clean feature-branch git fixture: the upgrade preflight guard
         (#886) refuses --force on non-git directories, protected branches,
-        and dirty trees.
+        and dirty trees. A `main` branch exists alongside, as in any conforming
+        checkout — the default-branch preflight (#1283) refuses when no `main`
+        can be resolved at all.
         """
         git_env = [
             "git",
@@ -515,6 +517,11 @@ class TestInstallScriptUnit:
                 "-m",
                 "chore: init",
             ],
+            check=True,
+            timeout=10,
+        )
+        subprocess.run(
+            [*git_env, "-C", str(tmp_path), "branch", "main"],
             check=True,
             timeout=10,
         )
