@@ -368,6 +368,7 @@ unknown keys:
 | `DEVKIT_SYNC_TARGET` | Branch the scaffolded sync-issues job commits to; empty (default) => the workflow-model default (`dev`/`main`). A protected-`main` consumer sets an unprotected mirror branch, e.g. `sync/issue-mirror` (see [Point sync-issues at an unprotected mirror branch](#point-sync-issues-at-an-unprotected-mirror-branch-protected-main), [#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_SYNC_SCHEDULE` | Cron override (5-field) for the sync-issues schedule trigger; empty (default) => the daily `0 2 * * *` ([#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_FEATURES_DISABLED` | Comma-separated scaffold feature groups this repo opts OUT of; empty (default) => every group is scaffolded. A disabled group is never shipped and a prior scaffold's copy is pruned on upgrade (see [Scaffold feature opt-outs](#scaffold-feature-opt-outs), [#1284](https://github.com/vig-os/devkit/issues/1284)) |
+| `DEVKIT_REFS_POLICY` | Refs-line enforcement policy driving both the `validate-commit-msg` hook and CI's `validate-commit-range`: `chore-optional` (default/empty — only `chore` may omit `Refs:`) \| `optional` (never required) \| `required` (every type needs `Refs:`) ([#1282](https://github.com/vig-os/devkit/issues/1282)) |
 
 ### Scaffold feature opt-outs
 
@@ -428,6 +429,15 @@ How it behaves:
   with `--preview` first, then either keep the persisted mode or set
   `DEVKIT_MODE` in `.vig-os` yourself on a dedicated, clean upgrade branch (the
   preflight-guard flow below) and re-run the upgrade.
+- **Manifest keys govern scaffold shape and policy rendering; `flake.nix`
+  governs the toolchain and hooks.** A `.vig-os` key steers *what the scaffold
+  renders* (branching model, tag scheme, CI runner, Refs policy — realized at
+  scaffold time into workflows and configs); the dev-shell toolchain and the
+  flake-generated pre-commit hooks are `flake.nix`'s domain. A knob that drives
+  two enforcement points (e.g. `DEVKIT_REFS_POLICY` renders both the
+  `validate-commit-msg` hook arg and CI's `validate-commit-range` from one key,
+  [#1282](https://github.com/vig-os/devkit/issues/1282)) keeps its mapping in
+  lockstep across both renderers.
 - **Future flags live here.** The manifest is the home for upcoming per-project
   devkit switches (e.g. the raw-YAML hook opt-out planned in
   [#883](https://github.com/vig-os/devkit/issues/883)). `.vig-os` is a
