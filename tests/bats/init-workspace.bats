@@ -4125,3 +4125,45 @@ _scaffold_seeded() {
     run test -f "$ws/.github/workflows/scorecard.yml"
     assert_success
 }
+
+@test "disabling sync-issues with a sync target set warns but does not abort (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-contradiction"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
+    _seed_features_disabled "$ws" "sync-issues"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "will have no effect"
+    # the sync workflow really is gone, and no sed error tripped the scaffold
+    run test -e "$ws/.github/workflows/sync-issues.yml"
+    assert_failure
+    refute_output --partial "No such file or directory"
+    refute_output --partial "Rendered sync-issues settings"
+}
+
+@test "trunk workflow plus a disabled release feature compose without double-reporting (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-compose"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run test -f "$ws/.github/workflows/sync-main-to-dev.yml"
+    assert_success
+    _seed_features_disabled "$ws" "release"
+    # preview a gitflow->trunk switch with release disabled: sync-main-to-dev.yml
+    # is a member of BOTH the trunk deletion and the release group, yet it must
+    # be listed exactly once and the preview must not error.
+    run _preview "$ws" --mode both --workflow trunk
+    assert_success
+    count="$(printf '%s\n' "$output" | grep -c 'sync-main-to-dev.yml')"
+    assert_equal "$count" "1"
+    # and a real upgrade composes the prunes without error
+    sed -i 's/^DEVKIT_WORKFLOW=$/DEVKIT_WORKFLOW=trunk/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run test -e "$ws/.github/workflows/sync-main-to-dev.yml"
+    assert_failure
+    run test -e "$ws/.github/workflows/release.yml"
+    assert_failure
+}
