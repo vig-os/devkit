@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Scaffold-drift CI gate (DEVKIT_DRIFT_CHECK)** ([#1295](https://github.com/vig-os/devkit/issues/1295))
+  - The scaffolded `ci.yml` gains a `scaffold-drift` job that re-runs the pinned
+    devkit version's scaffold over the checkout and fails a PR whose managed
+    files diverge from it — `DEVKIT_VERSION` bumped without re-scaffolding, or a
+    managed file hand-edited. A pin-only bump otherwise merges green. `*.project`
+    files and persisted `.vig-os` values are exempt by construction (the scaffold
+    never overwrites them), and `.gitignore`d files (e.g. `*.local`) are ignored.
+  - Mechanism: re-scaffold + `git diff` (the `install.sh --preview` report
+    classifies OVERWRITTEN by path existence, not content, so it cannot tell
+    drift from an up-to-date file). The job `docker run`s the in-image scaffold on
+    the host so a direnv/bare consumer (which resolves an empty container image)
+    is covered too; `resolve-toolchain` emits the all-modes image ref.
+  - Opt-out via the new `.vig-os` key `DEVKIT_DRIFT_CHECK` (`true` default,
+    `false` disables). It is a runtime gate — CI reads it through
+    `resolve-toolchain`'s `drift-check` output, so flipping it needs no
+    re-scaffold — and the value round-trips across `--force` upgrades. Runs on
+    PRs only (the ~1.5 GiB image pull); an invalid value fails the scaffold.
+
 - **Solo/private-repo adoption profile** ([#1285](https://github.com/vig-os/devkit/issues/1285))
   - New `docs/SOLO_ADOPTION.md`: the one document a single-user, private repo
     follows to adopt devkit without the team/traceability layer, expressed as a
