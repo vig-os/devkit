@@ -3874,6 +3874,15 @@ _seed_features_disabled() {
     sed -i "s#^DEVKIT_FEATURES_DISABLED=.*#DEVKIT_FEATURES_DISABLED=${value}#" "$ws/.vig-os"
 }
 
+# Fresh scaffold with DEVKIT_FEATURES_DISABLED pre-seeded in .vig-os BEFORE the
+# first copy: the key is read before the rsync overwrite, so the disabled paths
+# are never scaffolded (copy-exclude only — no prune involved).
+_scaffold_seeded() {
+    local mode="$1" ws="$2" value="$3"
+    printf 'DEVKIT_FEATURES_DISABLED=%s\n' "$value" >"$ws/.vig-os"
+    _scaffold "$mode" "$ws"
+}
+
 @test "template .vig-os ships the feature opt-out key empty (#1284)" {
     run grep -x 'DEVKIT_FEATURES_DISABLED=' "$TEMPLATE_DIR/.vig-os"
     assert_success
@@ -3934,4 +3943,100 @@ _seed_features_disabled() {
     assert_success
     run test -d "$ws/.claude/skills/worktree_execute"
     assert_success
+}
+
+@test "disabling a feature keeps its files out of the scaffold (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-absent-files"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "release,renovate,sync-issues,scanning,gh-templates"
+    assert_success
+    # release
+    run test -e "$ws/.github/workflows/release.yml"
+    assert_failure
+    run test -e "$ws/.github/workflows/prepare-release.yml"
+    assert_failure
+    run test -e "$ws/docs/DOWNSTREAM_RELEASE.md"
+    assert_failure
+    # renovate
+    run test -e "$ws/.github/renovate-default.json"
+    assert_failure
+    run test -e "$ws/.github/workflows/renovate-changelog-build.yml"
+    assert_failure
+    # sync-issues
+    run test -e "$ws/.github/workflows/sync-issues.yml"
+    assert_failure
+    run test -e "$ws/.github/label-taxonomy.toml"
+    assert_failure
+    # scanning
+    run test -e "$ws/.github/workflows/codeql.yml"
+    assert_failure
+    run test -e "$ws/.github/workflows/scorecard.yml"
+    assert_failure
+    # gh-templates
+    run test -e "$ws/.github/ISSUE_TEMPLATE"
+    assert_failure
+    run test -e "$ws/.github/pull_request_template.md"
+    assert_failure
+    # untouched: ci.yml stays atomic (v1 scope), and a non-disabled workflow
+    run test -f "$ws/.github/workflows/ci.yml"
+    assert_success
+}
+
+@test "disabling worktree keeps the other skill dirs (dir-granularity, #1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-worktree-only"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "worktree"
+    assert_success
+    run test -e "$ws/.claude/skills/worktree_execute"
+    assert_failure
+    run test -e "$ws/.devcontainer/justfile.worktree"
+    assert_failure
+    # non-worktree skills survive
+    run test -d "$ws/.claude/skills/tdd"
+    assert_success
+    run test -d "$ws/.claude/skills/code_review"
+    assert_success
+}
+
+@test "disabling skills keeps the worktree_* dirs (dir-granularity, #1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-skills-only"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "skills"
+    assert_success
+    run test -e "$ws/.claude/skills/tdd"
+    assert_failure
+    run test -e "$ws/.claude/skills/branch-naming"
+    assert_failure
+    # worktree_* skills survive, as does justfile.worktree
+    run test -d "$ws/.claude/skills/worktree_execute"
+    assert_success
+    run test -f "$ws/.devcontainer/justfile.worktree"
+    assert_success
+}
+
+@test "disabling both skills and worktree empties .claude/skills/ (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-skills-worktree"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "skills,worktree"
+    assert_success
+    # no skill directories remain (the parent dir may be absent or empty)
+    run bash -c 'shopt -s nullglob; d=("'"$ws"'"/.claude/skills/*/); echo "${#d[@]}"'
+    assert_output "0"
+}
+
+@test "--preview never lists a disabled feature's files as ADDED and names the disabled set (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-preview-added"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_features_disabled "$ws" "scanning"
+    # Remove the group's files so they WOULD be re-added by an ordinary upgrade.
+    rm -f "$ws/.github/workflows/codeql.yml" "$ws/.github/workflows/scorecard.yml"
+    run _preview "$ws" --mode both
+    assert_success
+    assert_output --partial "Disabled features"
+    assert_output --partial "scanning"
+    # the disabled files are not advertised as additions
+    refute_output --partial "+  .github/workflows/codeql.yml"
+    refute_output --partial "+  .github/workflows/scorecard.yml"
 }
