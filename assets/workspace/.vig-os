@@ -80,3 +80,13 @@ DEVKIT_SYNC_SCHEDULE=
 # left in place if present (never pruned). Governs scaffold SHAPE only, not the
 # flake — an unknown name aborts the scaffold loudly (#1284).
 DEVKIT_FEATURES_DISABLED=
+
+# Refs-line enforcement policy for the commit-message gate, driving BOTH the
+# validate-commit-msg pre-commit hook and CI's validate-commit-range from this
+# one key. Empty (default) resolves to `chore-optional` — every type but `chore`
+# requires a `Refs:` line — unchanged for devkit or existing consumers.
+# `optional` never requires Refs (any approved type may omit it); `required`
+# demands Refs on every type, `chore` included. Realized at scaffold time (an
+# anchored render of the hook arg + resolve-toolchain's `refs-optional-types`
+# output); written back only for a non-default value (#1282).
+DEVKIT_REFS_POLICY=
