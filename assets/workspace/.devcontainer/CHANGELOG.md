@@ -17,6 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Undotted `typos.toml` no longer collides with the template `.typos.toml`** ([#1280](https://github.com/vig-os/devkit/issues/1280))
+  - The `typos` tool reads config from `.typos.toml`, `_typos.toml`, or the
+    undotted `typos.toml`. The scaffold guarded the first two (a preserved
+    `.typos.toml` via the preserve list; a legacy `_typos.toml` via a copy-time
+    exclude) but not the undotted spelling, so a consumer carrying `typos.toml`
+    also received the template `.typos.toml` — two active configs, the curated
+    allowlist silently shadowed. An undotted `typos.toml` (with no `.typos.toml`)
+    is now treated exactly like the legacy `_typos.toml` case: the consumer file
+    stays the single active config, the template copy is not shipped, and the
+    skip is mirrored in `--preview` and named in the scaffold surface message.
+
 - **sync-issues cache cleanup no longer silently skips on early job failure** ([#1278](https://github.com/vig-os/devkit/issues/1278))
   - The `if: always()` "Delete old cache" step calls the `retry` shim, which
     only exists after toolchain setup. When the job died beforehand the shim
