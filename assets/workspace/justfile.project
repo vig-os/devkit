@@ -43,15 +43,15 @@ precommit:
 # TESTING
 # -------------------------------------------------------------------------------
 
-# Run tests with pytest
+# Run tests with pytest (exit 5 = "no tests collected" is a no-op, not a failure)
 [group('test')]
 test *args:
-    @if [ -f pyproject.toml ]; then uv run pytest {{ args }}; fi
+    @if [ -f pyproject.toml ]; then uv run pytest {{ args }} || { rc=$?; [ "$rc" -eq 5 ] || exit "$rc"; }; fi
 
-# Run tests with coverage
+# Run tests with coverage (exit 5 = "no tests collected" is a no-op, not a failure)
 [group('test')]
 test-cov *args:
-    @if [ -f pyproject.toml ]; then uv run pytest --cov --cov-report=term-missing {{ args }}; fi
+    @if [ -f pyproject.toml ]; then uv run pytest --cov --cov-report=term-missing {{ args }} || { rc=$?; [ "$rc" -eq 5 ] || exit "$rc"; }; fi
 
 # -------------------------------------------------------------------------------
 # DEPENDENCIES

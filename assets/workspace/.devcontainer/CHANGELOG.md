@@ -33,6 +33,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`just test` no longer fails a Python repo with zero collected tests** ([#1281](https://github.com/vig-os/devkit/issues/1281))
+  - The scaffolded `justfile.project` `test`/`test-cov` recipes gate on
+    `pyproject.toml` presence, so a consumer with a `pyproject.toml` but no test
+    suite ran `uv run pytest` → exit 5 ("no tests collected") → red `just test`
+    and red CI out of the box. Both recipes now treat pytest's exit 5 as a green
+    no-op — "nothing to test" is not a failure, matching how non-Python
+    consumers silently skip — while every other nonzero exit still fails. This
+    is a template-only change; preserved consumer copies of `justfile.project`
+    keep their own recipes (the #877 repair only appends missing ones).
+
 - **Undotted `typos.toml` no longer collides with the template `.typos.toml`** ([#1280](https://github.com/vig-os/devkit/issues/1280))
   - The `typos` tool reads config from `.typos.toml`, `_typos.toml`, or the
     undotted `typos.toml`. The scaffold guarded the first two (a preserved

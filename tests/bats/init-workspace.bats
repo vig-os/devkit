@@ -4233,3 +4233,56 @@ _scaffold_seeded() {
     run test -e "$ws/.github/workflows/release.yml"
     assert_failure
 }
+
+# ── test/test-cov tolerate pytest's no-tests-collected exit (#1281) ───────────
+# A Python consumer with a pyproject.toml but no test suite runs `uv run pytest`
+# → exit 5 ("no tests collected"). "Nothing to test" is not a failure: `just
+# test` / `just test-cov` must no-op green, matching how non-Python consumers
+# silently skip. Every OTHER nonzero pytest exit must still fail the recipe.
+# Exercised with the real `just` binary against a scaffolded workspace, so the
+# recipe runs under the root justfile's pipefail shell (#854).
+
+# Scaffold a Python workspace ($2) and drop a stub `uv` that exits $3 on any
+# invocation, simulating pytest's exit code. Leaves the stub in $2/stub-bin.
+_py_ws_uv_exit() {
+    local mode="$1" ws="$2" code="$3"
+    mkdir -p "$ws"
+    _scaffold "$mode" "$ws"
+    printf '# SENTINEL-1281 minimal project, no test suite\n' >"$ws/pyproject.toml"
+    local stub="$ws/stub-bin"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit %s\n' "$code" >"$stub/uv"
+    chmod +x "$stub/uv"
+}
+
+@test "just test succeeds on a Python repo with zero collected tests (#1281)" {
+    real_just="$(command -v just)"
+    ws="$BATS_TEST_TMPDIR/e2e-1281-test-nocollect"
+    _py_ws_uv_exit both "$ws" 5
+    run bash -c "cd '$ws' && PATH='$ws/stub-bin:$PATH' '$real_just' test"
+    assert_success
+}
+
+@test "just test still fails on a genuinely failing suite (#1281)" {
+    real_just="$(command -v just)"
+    ws="$BATS_TEST_TMPDIR/e2e-1281-test-fail"
+    _py_ws_uv_exit both "$ws" 1
+    run bash -c "cd '$ws' && PATH='$ws/stub-bin:$PATH' '$real_just' test"
+    assert_failure 1
+}
+
+@test "just test-cov succeeds on a Python repo with zero collected tests (#1281)" {
+    real_just="$(command -v just)"
+    ws="$BATS_TEST_TMPDIR/e2e-1281-cov-nocollect"
+    _py_ws_uv_exit both "$ws" 5
+    run bash -c "cd '$ws' && PATH='$ws/stub-bin:$PATH' '$real_just' test-cov"
+    assert_success
+}
+
+@test "just test-cov still fails on a genuinely failing suite (#1281)" {
+    real_just="$(command -v just)"
+    ws="$BATS_TEST_TMPDIR/e2e-1281-cov-fail"
+    _py_ws_uv_exit both "$ws" 1
+    run bash -c "cd '$ws' && PATH='$ws/stub-bin:$PATH' '$real_just' test-cov"
+    assert_failure 1
+}
