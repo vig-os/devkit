@@ -2439,6 +2439,91 @@ _upgrade_no_flags() {
     assert_output --partial "Invalid DEVKIT_SYNC_SCHEDULE"
 }
 
+# ── Refs policy knob (#1282) ──────────────────────────────────────────────────
+# DEVKIT_REFS_POLICY steers the validate-commit-msg hook's --refs-optional-types
+# arg at scaffold time (the CI validate-commit-range surface is driven from the
+# same key via resolve-toolchain, covered in tests/test_ci_runner.py). Values:
+# chore-optional (default, byte-identical) | optional (full types list) |
+# required (a `none` sentinel type => every real type requires Refs). Persisted
+# like DEVKIT_CI_RUNNER; invalid values fail the scaffold loudly.
+
+@test "template .vig-os ships the Refs policy key empty (#1282)" {
+    run grep -x 'DEVKIT_REFS_POLICY=' "$TEMPLATE_DIR/.vig-os"
+    assert_success
+}
+
+@test "default scaffold keeps the chore-optional refs-optional-types arg (#1282)" {
+    # No DEVKIT_REFS_POLICY key => the template default is untouched, so the
+    # validate-commit-msg hook keeps its byte-identical `chore` arg.
+    ws="$BATS_TEST_TMPDIR/e2e-1282-default"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run grep -qF '"--refs-optional-types", "chore",' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "DEVKIT_REFS_POLICY=optional renders the full types list + writes back (#1282)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1282-optional"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=optional/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '"--refs-optional-types", "feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -x 'DEVKIT_REFS_POLICY=optional' "$ws/.vig-os"
+    assert_success
+}
+
+@test "DEVKIT_REFS_POLICY=required renders the none sentinel + writes back (#1282)" {
+    # required means every real type requires Refs. The CLI treats an empty
+    # --refs-optional-types as falsy and reverts to the {chore} default, so the
+    # renderer emits a `none` sentinel type (no real commit is type `none`).
+    ws="$BATS_TEST_TMPDIR/e2e-1282-required"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=required/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '"--refs-optional-types", "none",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -x 'DEVKIT_REFS_POLICY=required' "$ws/.vig-os"
+    assert_success
+}
+
+@test "an invalid DEVKIT_REFS_POLICY fails the scaffold loudly (#1282)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1282-bad-policy"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=garbage/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_failure
+    assert_output --partial "Invalid DEVKIT_REFS_POLICY"
+}
+
+@test "DEVKIT_REFS_POLICY composes with the trunk workflow render (#1282)" {
+    # render_workflow_model (trunk) and render_refs_policy both sed
+    # .pre-commit-config.yaml on distinct anchors — they must compose.
+    ws="$BATS_TEST_TMPDIR/e2e-1282-compose-trunk"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_WORKFLOW=.*/DEVKIT_WORKFLOW=trunk/' "$ws/.vig-os"
+    sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=optional/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    # (a) the refs policy rendered the full types list
+    run grep -qF '"--refs-optional-types", "feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    # (b) the trunk render still dropped the dev protect-clause on the same file
+    run grep -qF '(?!dev$)' "$ws/.pre-commit-config.yaml"
+    assert_failure
+}
+
 # ── cache-cleanup retry fallback shim (#1278) ─────────────────────────────────
 # The "Delete old cache" cleanup step runs `if: always()` and calls the `retry`
 # wrapper, which only exists after toolchain setup. A job that dies before setup
