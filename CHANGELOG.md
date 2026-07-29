@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Solo/private-repo adoption profile** ([#1285](https://github.com/vig-os/devkit/issues/1285))
+  - New `docs/SOLO_ADOPTION.md`: the one document a single-user, private repo
+    follows to adopt devkit without the team/traceability layer, expressed as a
+    combination of existing `.vig-os` knobs (`--mode`/`--workflow`,
+    `DEVKIT_FEATURES_DISABLED`, `DEVKIT_REFS_POLICY`). States what is kept (hook
+    stack, commit-msg validation, agent-identity enforcement, managed upgrade
+    path, justfiles, dev environment) as clearly as what is dropped, calls out
+    the `renovate` judgment call and forward-drift on upgrades, and cross-links
+    the adoption notes that trip solo adopters (#1280, #1281, #1283). Linked
+    from the README install section and `docs/MIGRATION.md`.
+
 - **Scaffold-time Refs policy knob (DEVKIT_REFS_POLICY)** ([#1282](https://github.com/vig-os/devkit/issues/1282))
   - A new `.vig-os` manifest key drives the `Refs:`-line enforcement of both the
     `validate-commit-msg` pre-commit hook and CI's `validate-commit-range` from a

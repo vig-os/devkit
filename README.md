@@ -71,6 +71,10 @@ curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bas
 curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --podman ~/my-project
 ```
 
+**Adopting solo?** For a single-user, private repo without the team/traceability
+layer (no release train, issue sync, or scanning), follow the
+[solo adoption profile](docs/SOLO_ADOPTION.md).
+
 > **Note:** If podman or docker is not installed, the script provides OS-specific installation instructions for macOS, Ubuntu/Debian, Fedora, Arch Linux, and Windows.
 
 ### Manual Setup
