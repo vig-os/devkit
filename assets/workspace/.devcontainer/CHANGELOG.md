@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Scaffold-time Refs policy knob (DEVKIT_REFS_POLICY)** ([#1282](https://github.com/vig-os/devkit/issues/1282))
+  - A new `.vig-os` manifest key drives the `Refs:`-line enforcement of both the
+    `validate-commit-msg` pre-commit hook and CI's `validate-commit-range` from a
+    single value: `chore-optional` (default — only `chore` may omit `Refs:`,
+    today's behavior), `optional` (any approved type may omit it), and `required`
+    (every type, `chore` included, must carry a `Refs:` line). Absent key => a
+    byte-identical scaffold; the value round-trips across `--force` upgrades.
+
 - **Preflight abort on non-main default branches** ([#1283](https://github.com/vig-os/devkit/issues/1283))
   - Scaffolding assumes the default branch is `main` (the branch-name hook,
     `ci.yml` and its workflow triggers all key off it). On a legacy `master`

@@ -344,6 +344,8 @@ MANIFEST_SYNC_TARGET="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_TARGE
 MANIFEST_SYNC_SCHEDULE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_SCHEDULE || true)"
 MANIFEST_FEATURES_DISABLED="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FEATURES_DISABLED || true)"
 
+MANIFEST_REFS_POLICY="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REFS_POLICY || true)"
+
 # The OWNER/REPO placeholder (written when no origin was resolvable) must not
 # mask a now-detectable git origin on a later upgrade.
 [[ "$MANIFEST_REPO" == "OWNER/REPO" ]] && MANIFEST_REPO=""
@@ -472,6 +474,18 @@ feature_disabled() {
 if feature_disabled sync-issues && [[ -n "$MANIFEST_SYNC_TARGET" || -n "$MANIFEST_SYNC_SCHEDULE" ]]; then
     echo "Notice: sync-issues feature disabled (DEVKIT_FEATURES_DISABLED); DEVKIT_SYNC_TARGET/DEVKIT_SYNC_SCHEDULE will have no effect (#1284)." >&2
 fi
+
+# Refs policy (#1282): scaffold-time knob steering the Refs enforcement of the
+# validate-commit-msg hook and CI's validate-commit-range. Pure `.vig-os` key
+# (no CLI flag), so only a value guard — empty resolves to the chore-optional
+# default. Refuse an unknown value loudly (mirrors the DEVKIT_WORKFLOW guard).
+case "$MANIFEST_REFS_POLICY" in
+    ""|chore-optional|optional|required) ;;
+    *)
+        echo "Error: Invalid DEVKIT_REFS_POLICY in $VIG_OS_MANIFEST: $MANIFEST_REFS_POLICY (expected: chore-optional | optional | required)" >&2
+        exit 1
+        ;;
+esac
 
 # Get SHORT_NAME - from env var, manifest, or prompt (#885)
 if [[ -z "${SHORT_NAME:-}" && -n "$MANIFEST_PROJECT" ]]; then
@@ -1374,6 +1388,35 @@ YAML
     echo "Rendered sync-issues settings (target=${MANIFEST_SYNC_TARGET:-default}, schedule=${MANIFEST_SYNC_SCHEDULE:-default})"
 }
 
+# Render the Refs policy knob (#1282): DEVKIT_REFS_POLICY steers the
+# validate-commit-msg hook's `--refs-optional-types` arg in the scaffolded
+# .pre-commit-config.yaml. The IDENTICAL policy->types mapping drives CI's
+# validate-commit-range from the same key in
+# .github/actions/resolve-toolchain/action.yml (two renderers, one key) — keep
+# them in lockstep. Empty/absent or `chore-optional` is a pure no-op, so a
+# default scaffold's .pre-commit-config.yaml stays byte-identical. The anchored
+# sed targets only the quoted arg value, distinct from render_workflow_model's
+# `(?!dev$)` sed on the same file, so the two compose.
+render_refs_policy() {
+    [[ -z "$MANIFEST_REFS_POLICY" || "$MANIFEST_REFS_POLICY" == "chore-optional" ]] && return 0
+
+    local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
+    [[ -f "$pc" ]] || return 0
+
+    # `optional` mirrors the hook entry's `--types` list verbatim; `required`
+    # uses a `none` sentinel type (no real commit is type `none`, and the CLI
+    # treats an empty --refs-optional-types as falsy => the {chore} default), so
+    # every real type requires Refs.
+    local types
+    case "$MANIFEST_REFS_POLICY" in
+        optional) types="feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style" ;;
+        required) types="none" ;;
+    esac
+
+    sed -i -E "s|^([[:space:]]*\"--refs-optional-types\", \")[^\"]*(\",)\$|\1${types}\2|" "$pc"
+    echo "Rendered Refs policy: ${MANIFEST_REFS_POLICY} (refs-optional-types=${types})"
+}
+
 # Warn if forcing (prompt user) - show which files would be overwritten
 if [[ "$FORCE" == "true" ]]; then
     echo ""
@@ -1997,6 +2040,12 @@ if feature_disabled sync-issues; then
 else
     render_sync_settings
 fi
+# Refs policy (#1282): render the validate-commit-msg hook's --refs-optional-types
+# from DEVKIT_REFS_POLICY (paired with the CI mapping in resolve-toolchain). A
+# no-op for the chore-optional default, so a default scaffold is unchanged. Runs
+# after render_workflow_model (both sed .pre-commit-config.yaml on distinct
+# anchors) so the trunk render and the refs policy compose.
+render_refs_policy
 
 # Persist the resolved manifest (#885). The scaffolded .vig-os is a managed
 # file (template-overwritten on upgrade), so the resolved delivery mode and
@@ -2053,6 +2102,12 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     # raw value round-trips (like DEVKIT_TAG_PREFIX); clearing it re-enables.
     if [[ -n "$MANIFEST_FEATURES_DISABLED" ]]; then
         write_manifest_value DEVKIT_FEATURES_DISABLED "$MANIFEST_FEATURES_DISABLED"
+    fi
+    # Refs policy (#1282): bare in the template (DEVKIT_REFS_POLICY=), so a
+    # consumer's non-default policy is written back — else an upgrade silently
+    # resets the commit-msg/commit-range Refs enforcement to chore-optional.
+    if [[ -n "$MANIFEST_REFS_POLICY" ]]; then
+        write_manifest_value DEVKIT_REFS_POLICY "$MANIFEST_REFS_POLICY"
     fi
 fi
 

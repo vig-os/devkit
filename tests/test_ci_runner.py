@@ -158,3 +158,102 @@ def test_runner_json_emitted_in_every_mode(tmp_path: Path, mode: str) -> None:
     )
     outputs = _run_resolve(tmp_path, manifest)
     assert json.loads(outputs["runner-json"]) == ["self-hosted"]
+
+
+# ── Refs policy knob (#1282) ──────────────────────────────────────────────────
+# DEVKIT_REFS_POLICY drives CI's validate-commit-range Refs enforcement from the
+# same key that steers the validate-commit-msg hook at scaffold time. The
+# policy->types mapping lives once in resolve-toolchain (single mapping point for
+# the CI surface) and mirrors render_refs_policy in init-workspace.sh. The
+# `commit-checks` step consumes the resolved list via env, never inline (the
+# env-routing pattern the zizmor gate / #1279 require).
+
+# The full approved-types list `optional` expands to (mirrors the hook `--types`).
+FULL_REFS_TYPES = "feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style"
+
+# The step that validates commit messages / PR title in the commit-checks job.
+COMMIT_CHECKS_STEP = "Validate commit messages and PR title"
+
+
+def test_resolve_toolchain_emits_refs_optional_types_output() -> None:
+    """resolve-toolchain declares a refs-optional-types output for CI to consume."""
+    action = _load(RESOLVE_ACTION)
+    assert "refs-optional-types" in action["outputs"]
+
+
+def test_refs_optional_types_defaults_to_chore_when_key_absent(tmp_path: Path) -> None:
+    """No DEVKIT_REFS_POLICY => the chore-optional default (only chore optional)."""
+    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\n")
+    assert outputs["refs-optional-types"] == "chore"
+
+
+def test_refs_optional_types_chore_optional_maps_to_chore(tmp_path: Path) -> None:
+    """chore-optional is today's behavior => the bare `chore` list."""
+    outputs = _run_resolve(
+        tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_REFS_POLICY=chore-optional\n"
+    )
+    assert outputs["refs-optional-types"] == "chore"
+
+
+def test_refs_optional_types_optional_maps_to_full_list(tmp_path: Path) -> None:
+    """optional never requires Refs => every approved type is optional."""
+    outputs = _run_resolve(
+        tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_REFS_POLICY=optional\n"
+    )
+    assert outputs["refs-optional-types"] == FULL_REFS_TYPES
+
+
+def test_refs_optional_types_required_maps_to_none_sentinel(tmp_path: Path) -> None:
+    """required => the `none` sentinel so every real type requires Refs."""
+    outputs = _run_resolve(
+        tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_REFS_POLICY=required\n"
+    )
+    assert outputs["refs-optional-types"] == "none"
+
+
+def test_refs_optional_types_invalid_falls_back_to_chore(tmp_path: Path) -> None:
+    """An unexpected value falls back to the safe chore-optional default.
+
+    The loud guard lives at the write path (init-workspace.sh); by the time CI
+    reads .vig-os the value was validated at scaffold, so a defensive fallback
+    keeps CI from breaking on an unexpected literal.
+    """
+    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_REFS_POLICY=garbage\n")
+    assert outputs["refs-optional-types"] == "chore"
+
+
+def _commit_checks_step(workflow: dict) -> dict:
+    for step in workflow["jobs"]["commit-checks"]["steps"]:
+        if step.get("name") == COMMIT_CHECKS_STEP:
+            return step
+    raise AssertionError(f"commit-checks step {COMMIT_CHECKS_STEP!r} not found")
+
+
+def test_resolve_toolchain_job_reexports_refs_optional_types() -> None:
+    """ci.yml's resolve-toolchain job maps the action output to a job output.
+
+    `needs.resolve-toolchain.outputs.*` reads JOB outputs, not the composite
+    action's — without this mapping the commit-checks env resolves empty and
+    the policy silently reverts to the chore default (actionlint catches it).
+    """
+    workflow = _load(WORKFLOWS / "ci.yml")
+    outputs = workflow["jobs"]["resolve-toolchain"]["outputs"]
+    assert (
+        outputs.get("refs-optional-types")
+        == "${{ steps.resolve.outputs.refs-optional-types }}"
+    )
+
+
+def test_commit_checks_step_routes_refs_policy_through_env() -> None:
+    """The commit-checks step consumes the resolved list via env, not inline."""
+    workflow = _load(WORKFLOWS / "ci.yml")
+    step = _commit_checks_step(workflow)
+    env_values = step["env"].values()
+    assert "${{ needs.resolve-toolchain.outputs.refs-optional-types }}" in env_values
+
+
+def test_commit_checks_step_passes_refs_optional_types_flag() -> None:
+    """The run block forwards the env value to validate-commit-range."""
+    workflow = _load(WORKFLOWS / "ci.yml")
+    step = _commit_checks_step(workflow)
+    assert "--refs-optional-types" in step["run"]

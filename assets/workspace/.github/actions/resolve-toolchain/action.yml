@@ -65,6 +65,12 @@ outputs:
       use with fromJSON() in `runs-on`. Defaults to ["ubuntu-24.04"] when the
       key is absent.
     value: ${{ steps.resolve.outputs.runner-json }}
+  refs-optional-types:
+    description: >-
+      Comma-separated commit types whose Refs line is optional, mapped from
+      DEVKIT_REFS_POLICY for validate-commit-range. `chore` (default/absent),
+      the full types list (`optional`), or the `none` sentinel (`required`).
+    value: ${{ steps.resolve.outputs.refs-optional-types }}
 
 runs:
   using: composite
@@ -83,6 +89,7 @@ runs:
         TAG_PREFIX=""
         FLOATING_TAGS=""
         CI_RUNNER=""
+        REFS_POLICY=""
 
         if [[ -f .vig-os ]]; then
           # Tolerant KEY=VALUE parsing shared with resolve-image (#781): capture
@@ -94,7 +101,7 @@ runs:
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
 
             case "$line" in
-              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*)
+              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_REFS_POLICY=*)
                 key="${line%%=*}"
                 value="${line#*=}"
                 value="${value#"${value%%[![:space:]]*}"}"
@@ -113,6 +120,7 @@ runs:
                   DEVKIT_TAG_PREFIX) TAG_PREFIX="$value" ;;
                   DEVKIT_FLOATING_TAGS) FLOATING_TAGS="$value" ;;
                   DEVKIT_CI_RUNNER) CI_RUNNER="$value" ;;
+                  DEVKIT_REFS_POLICY) REFS_POLICY="$value" ;;
                 esac
                 ;;
             esac
@@ -166,6 +174,22 @@ runs:
         [[ "$runner_first" -eq 1 ]] && RUNNER_JSON+="\"ubuntu-24.04\""
         RUNNER_JSON+="]"
         echo "runner-json=$RUNNER_JSON" >> "$GITHUB_OUTPUT"
+
+        # Refs policy (#1282): map DEVKIT_REFS_POLICY to the --refs-optional-types
+        # list validate-commit-range consumes in the commit-checks job. This is
+        # the single mapping point for the CI surface; it MIRRORS render_refs_policy
+        # in assets/init-workspace.sh (two renderers, one key — keep in lockstep).
+        # The loud enum guard lives at the write path (init-workspace.sh); here an
+        # unexpected/absent value defaults safely to `chore` (today's behavior) so
+        # CI never breaks on a surprise literal. `required` uses a `none` sentinel
+        # type (no real commit is type `none`) because an empty list is parsed as
+        # falsy by the tool and reverts to the {chore} default.
+        case "$REFS_POLICY" in
+          optional) REFS_OPTIONAL_TYPES="feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style" ;;
+          required) REFS_OPTIONAL_TYPES="none" ;;
+          *)        REFS_OPTIONAL_TYPES="chore" ;;
+        esac
+        echo "refs-optional-types=$REFS_OPTIONAL_TYPES" >> "$GITHUB_OUTPUT"
 
         # Resolve the version tag: explicit override wins, else DEVKIT_VERSION,
         # else the legacy DEVCONTAINER_VERSION.
