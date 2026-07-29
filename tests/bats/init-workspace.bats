@@ -1717,6 +1717,72 @@ EOF
     refute_output --partial "+  .typos.toml"
 }
 
+# ── the undotted `typos.toml` spelling gets the same guard as _typos.toml (#1280) ─
+# The `typos` tool reads .typos.toml, _typos.toml AND undotted typos.toml. The
+# #913 guard only covered _typos.toml; a consumer carrying undotted typos.toml
+# (and no .typos.toml) still received the template .typos.toml alongside it,
+# leaving two active configs (the curated allowlist silently shadowed). Treat
+# undotted typos.toml exactly like the legacy _typos.toml case.
+
+@test "upgrade with an undotted typos.toml does not leave dual typos configs (#1280)" {
+    # consumer carries typos.toml and no .typos.toml. Shipping the template
+    # .typos.toml alongside it would give two active configs.
+    ws="$BATS_TEST_TMPDIR/e2e-1280-undotted"
+    mkdir -p "$ws"
+    printf '# SENTINEL-1280 undotted typos config\n[default.extend-words]\nmyterm = "myterm"\n' \
+        >"$ws/typos.toml"
+    run _upgrade both "$ws"
+    assert_success
+    # undotted config preserved verbatim
+    run grep -q 'SENTINEL-1280' "$ws/typos.toml"
+    assert_success
+    # template .typos.toml NOT shipped -> single active config
+    run test -e "$ws/.typos.toml"
+    assert_failure
+}
+
+@test "--preview does not list template .typos.toml as ADDED under an undotted typos.toml (#1280)" {
+    # Preview must mirror the copy's exclude set: the real copy skips the
+    # template .typos.toml when the consumer carries undotted typos.toml (and no
+    # .typos.toml), so --preview must not advertise it as ADDED.
+    ws="$BATS_TEST_TMPDIR/e2e-1280-preview-undotted"
+    mkdir -p "$ws"
+    printf '# SENTINEL-1280 undotted typos config\n' >"$ws/typos.toml"
+    run _preview "$ws" --mode both
+    assert_success
+    refute_output --partial "+  .typos.toml"
+}
+
+@test "upgrade surface message names the undotted typos.toml (#1280)" {
+    # The otherwise-silent skip is surfaced so the consumer knows their undotted
+    # typos.toml stands as the single config.
+    ws="$BATS_TEST_TMPDIR/e2e-1280-message"
+    mkdir -p "$ws"
+    printf '# SENTINEL-1280 undotted typos config\n' >"$ws/typos.toml"
+    run _upgrade both "$ws"
+    assert_success
+    assert_output --partial 'typos.toml'
+    assert_output --partial 'not shipping template .typos.toml'
+    assert_output --partial '#1280'
+}
+
+@test "upgrade with BOTH typos.toml and .typos.toml preserves .typos.toml, no misfire (#1280)" {
+    # When a curated .typos.toml IS present it takes precedence: it is preserved
+    # via the preserve list (#913) and the undotted-file exclusion must not
+    # misfire (the guard is gated on .typos.toml being absent).
+    ws="$BATS_TEST_TMPDIR/e2e-1280-combo"
+    mkdir -p "$ws"
+    printf '# SENTINEL-1280-DOTTED curated typos config\n' >"$ws/.typos.toml"
+    printf '# SENTINEL-1280-UNDOTTED stale typos config\n' >"$ws/typos.toml"
+    run _upgrade both "$ws"
+    assert_success
+    # curated .typos.toml preserved verbatim (preserve-list path)
+    run grep -q 'SENTINEL-1280-DOTTED' "$ws/.typos.toml"
+    assert_success
+    # the undotted-file exclusion did not misfire
+    refute_output --partial 'not shipping template .typos.toml'
+}
+
 # ── upgrade must preserve customized lint configs .yamllint / .pymarkdown (#1099) ─
 # Same class as #878/#913: these are fully-managed scaffold files, yet lint
 # CONFIGS a consumer legitimately customizes (repo-specific `ignore:` globs, rule

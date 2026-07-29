@@ -109,7 +109,9 @@ PRESERVE_FILES=(
     # repo-specific extend-words/extend-exclude that a template overwrite
     # silently destroyed, so the typos hook then flagged legitimate domain
     # terms. Preserved like .pre-commit-config.yaml; the upgrade prints a diff
-    # against the template below. (Legacy `_typos.toml` handled at copy time.)
+    # against the template below. (The alternate spellings the `typos` tool also
+    # reads — legacy `_typos.toml` and undotted `typos.toml` — are handled at
+    # copy time, #913/#1280.)
     ".typos.toml"
     # The consumer owns its lint-rule exceptions (#1099): repos add repo-specific
     # yamllint `ignore:` globs / rule disables and pymarkdown rule tweaks that a
@@ -1041,11 +1043,19 @@ MODE_CONFIG_EXCLUDES=()
 if [[ "$MODE" == "direnv" || "$MODE" == "bare" ]]; then
     MODE_CONFIG_EXCLUDES+=(".devcontainer" "docs/container-ci-quirks.md")
 fi
-# Legacy typos config (#913): the `typos` tool reads .typos.toml AND _typos.toml.
-# A consumer still carrying _typos.toml (and no .typos.toml) keeps it as the
-# single config — do not also ship the template .typos.toml, or two active
-# configs collide. (A *preserved* .typos.toml is handled by the preserve list.)
-if [[ -f "$WORKSPACE_DIR/_typos.toml" && ! -f "$WORKSPACE_DIR/.typos.toml" ]]; then
+# Alternate typos config spellings (#913, #1280): the `typos` tool reads
+# .typos.toml, the legacy _typos.toml AND the undotted typos.toml. A consumer
+# carrying an alternate spelling (and no .typos.toml) keeps it as the single
+# config — do not also ship the template .typos.toml, or two active configs
+# collide (the curated allowlist gets silently shadowed). Record which
+# spelling(s) triggered the skip so the copy can name them; (a *preserved*
+# .typos.toml is handled by the preserve list).
+TYPOS_ALT_CONFIGS=()
+if [[ ! -f "$WORKSPACE_DIR/.typos.toml" ]]; then
+    [[ -f "$WORKSPACE_DIR/typos.toml" ]] && TYPOS_ALT_CONFIGS+=("typos.toml")
+    [[ -f "$WORKSPACE_DIR/_typos.toml" ]] && TYPOS_ALT_CONFIGS+=("_typos.toml")
+fi
+if [[ ${#TYPOS_ALT_CONFIGS[@]} -gt 0 ]]; then
     MODE_CONFIG_EXCLUDES+=(".typos.toml")
 fi
 # Flake-hooks consumer with an ABSENT generated config (#1255): the consumer's
@@ -1261,10 +1271,11 @@ if [[ "$FORCE" == "true" ]]; then
 
         # Mode/config copy excludes (#1196): skip the template paths the real
         # rsync copy skips for the resolved mode and the consumer's config
-        # (.devcontainer/ #738, docs/container-ci-quirks.md #989, the legacy
-        # .typos.toml #913), so --preview never lists them as ADDED. SSoT:
-        # MODE_CONFIG_EXCLUDES, also consumed by the rsync copy below; a
-        # directory entry (.devcontainer) matches its whole subtree.
+        # (.devcontainer/ #738, docs/container-ci-quirks.md #989, the template
+        # .typos.toml when the consumer carries an alternate spelling #913/#1280),
+        # so --preview never lists them as ADDED. SSoT: MODE_CONFIG_EXCLUDES, also
+        # consumed by the rsync copy below; a directory entry (.devcontainer)
+        # matches its whole subtree.
         skip_excluded=false
         for excl in "${MODE_CONFIG_EXCLUDES[@]}"; do
             if [[ "$rel_path" == "$excl" || "$rel_path" == "$excl"/* ]]; then
@@ -1509,16 +1520,17 @@ else
     # Mode/config copy excludes (#1196): the same SSoT the --preview ADDED report
     # consults (MODE_CONFIG_EXCLUDES) — so preview and copy never disagree —
     # covering the mode-pruned .devcontainer/ (#738) and container-ci-quirks.md
-    # (#989) plus the legacy .typos.toml (#913). Root-anchored (leading slash) to
+    # (#989) plus the template .typos.toml when the consumer carries an alternate
+    # spelling (#913/#1280). Root-anchored (leading slash) to
     # match is_preserved_file's exact transfer-root semantics (#953); a directory
     # entry (.devcontainer) excludes its whole subtree. Excluding these from the
     # copy (rather than copying-then-pruning) keeps a real .devcontainer/ intact.
     for excl in "${MODE_CONFIG_EXCLUDES[@]}"; do
         EXCLUDE_ARGS+=("--exclude=/$excl")
-        # Surface the otherwise-silent legacy-typos skip so the consumer knows
-        # their _typos.toml stands as the single config (#913).
+        # Surface the otherwise-silent alternate-typos skip so the consumer knows
+        # which spelling of their config stands as the single config (#913, #1280).
         if [[ "$excl" == ".typos.toml" ]]; then
-            echo "Consumer carries legacy _typos.toml; not shipping template .typos.toml (#913)."
+            echo "Consumer carries ${TYPOS_ALT_CONFIGS[*]}; not shipping template .typos.toml (#1280)."
         fi
         # Surface the flake-hooks skip so the upgrade report explains the
         # missing template YAML (#1255).
