@@ -463,6 +463,14 @@ feature_disabled() {
     return 1
 }
 
+# Contradiction notice (#1284): a disabled sync-issues feature removes
+# sync-issues.yml, so DEVKIT_SYNC_TARGET / DEVKIT_SYNC_SCHEDULE have nothing to
+# steer. Warn (never abort — the keys are inert, not invalid) so the combination
+# is not silently confusing.
+if feature_disabled sync-issues && [[ -n "$MANIFEST_SYNC_TARGET" || -n "$MANIFEST_SYNC_SCHEDULE" ]]; then
+    echo "Notice: sync-issues feature disabled (DEVKIT_FEATURES_DISABLED); DEVKIT_SYNC_TARGET/DEVKIT_SYNC_SCHEDULE will have no effect (#1284)." >&2
+fi
+
 # Get SHORT_NAME - from env var, manifest, or prompt (#885)
 if [[ -z "${SHORT_NAME:-}" && -n "$MANIFEST_PROJECT" ]]; then
     SHORT_NAME="$MANIFEST_PROJECT"
@@ -1969,8 +1977,14 @@ render_codeql_matrix
 # main. A no-op for the gitflow default, so a gitflow scaffold is unchanged.
 render_workflow_model "$WORKFLOW_MODEL"
 # sync-issues knobs (#1228): override the target branch + schedule cron on top of
-# the workflow-model default. A no-op when both keys are unset.
-render_sync_settings
+# the workflow-model default. A no-op when both keys are unset. Skipped entirely
+# when the sync-issues feature is disabled (#1284) — the file it seds no longer
+# exists, so the render would be a silent no-op anyway; skip it explicitly.
+if feature_disabled sync-issues; then
+    echo "Skipping sync-issues render (feature disabled via DEVKIT_FEATURES_DISABLED, #1284)."
+else
+    render_sync_settings
+fi
 
 # Persist the resolved manifest (#885). The scaffolded .vig-os is a managed
 # file (template-overwritten on upgrade), so the resolved delivery mode and
