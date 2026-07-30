@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Renovate: update `github-backup` from `==0.64.2` to `==0.65.0`** ([#1314](https://github.com/vig-os/devkit/pull/1314))
+- **Renovate: update `github/codeql-action` from `e4fba86` to `f205ea1`** ([#1312](https://github.com/vig-os/devkit/pull/1312))
 
 ### Deprecated
 
