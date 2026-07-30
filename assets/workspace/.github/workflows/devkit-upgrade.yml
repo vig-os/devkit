@@ -67,6 +67,13 @@ jobs:
         with:
           app-id: ${{ secrets.DEVKIT_UPGRADE_APP_ID }}
           private-key: ${{ secrets.DEVKIT_UPGRADE_APP_PRIVATE_KEY }}
+          # Least-privilege mint (zizmor github-app): the token carries exactly
+          # the four permissions this workflow exercises, independent of any
+          # broader grants on the App installation.
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+          permission-workflows: write
 
       - name: Checkout base branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

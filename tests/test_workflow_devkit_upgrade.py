@@ -145,6 +145,16 @@ def test_requires_app_identity_and_never_uses_github_token_for_pr() -> None:
         assert re.search(r"create-github-app-token@[0-9a-f]{40}", s["uses"]), (
             "app-token action must be SHA-pinned"
         )
+        # Least-privilege mint (zizmor github-app audit): the token must be
+        # scoped to exactly the permissions the workflow exercises.
+        with_block = s.get("with", {})
+        for perm in (
+            "permission-contents",
+            "permission-pull-requests",
+            "permission-issues",
+            "permission-workflows",
+        ):
+            assert with_block.get(perm) == "write", f"missing {perm}: write"
     # The PR step authenticates gh with the minted token (not github.token),
     # otherwise the created PR would not trigger CI.
     pr_steps = [s for s in steps if "gh pr create" in str(s.get("run", ""))]
