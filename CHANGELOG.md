@@ -193,6 +193,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renovate: update `github-backup` from `==0.64.2` to `==0.65.0`** ([#1314](https://github.com/vig-os/devkit/pull/1314))
+- **Renovate dependency update** ([#1313](https://github.com/vig-os/devkit/pull/1313))
+  - Update `actions/attest` from `v4.2.0` to `v4.2.1`
+  - Update `docker/login-action` from `v4.5.1` to `v4.6.0`
+- **Renovate: update `github/codeql-action` from `e4fba86` to `f205ea1`** ([#1312](https://github.com/vig-os/devkit/pull/1312))
 - **Renovate: update `testcontainers` from `==4.14.2` to `==4.15.0`** ([#1269](https://github.com/vig-os/devkit/pull/1269))
 - **Renovate: update `@devcontainers/cli` from `0.87.0` to `0.88.0`** ([#1268](https://github.com/vig-os/devkit/pull/1268))
 - **Renovate: update `astral-sh/setup-uv` from `v8.3.2` to `v9.0.0`** ([#1270](https://github.com/vig-os/devkit/pull/1270))
