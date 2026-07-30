@@ -228,6 +228,30 @@ runs:
         fi
         echo "podman $(podman --version)"
 
+        # Pair the host podman with the flake's pinned crun (#1299). Podman
+        # itself stays on the host path (rootless setuid newuidmap
+        # integration, #632), but the OCI runtime it execs has no such host
+        # dependency — and the runner image pairs them loosely: the
+        # 2026-07-26 ubuntu-24.04 image bumped preinstalled podman
+        # 4.9.3 → 5.8.4 while keeping Ubuntu's stale crun (< 1.14.3), which
+        # rejects the OCI spec v1.2.x config.json podman ≥ 5 writes
+        # ("crun: unknown version specified") — every `podman run` died at
+        # container start. The dev-shell closure already carries the crun
+        # nixpkgs pairs with podman 5.8.x, so point the rootless `crun`
+        # runtime at that store path via a containers.conf drop-in: the
+        # pairing is then pinned by flake.lock, immune to runner-image
+        # drift, and backward-compatible with older host podman.
+        NIX_CRUN="$(nix-store --query --requisites "$RUNNER_TEMP/dev-profile" \
+          | grep -E -- '-crun-[0-9]' | head -n1 || true)"
+        if [ -n "$NIX_CRUN" ] && [ -x "$NIX_CRUN/bin/crun" ]; then
+          mkdir -p "$HOME/.config/containers/containers.conf.d"
+          printf '[engine.runtimes]\ncrun = ["%s/bin/crun"]\n' "$NIX_CRUN" \
+            > "$HOME/.config/containers/containers.conf.d/50-flake-crun.conf"
+          echo "podman crun runtime pinned: $("$NIX_CRUN/bin/crun" --version | head -n1) ($NIX_CRUN)"
+        else
+          echo "WARNING: no crun in dev-shell closure; podman keeps the host OCI runtime"
+        fi
+
     # ── Node.js ─────────────────────────────────────────────────────────
     # Also installed when install-devcontainer-cli is true (npm is required)
     - name: Install Node.js
