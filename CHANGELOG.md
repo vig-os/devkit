@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.5.1] - TBD
+
+### Added
+
 - **Self-polling devkit-upgrade workflow** ([#1296](https://github.com/vig-os/devkit/issues/1296))
   - New managed `devkit-upgrade.yml` scaffolded into every consumer: a weekly
     schedule (Monday, aligned with the Renovate window) polls devkit's public
