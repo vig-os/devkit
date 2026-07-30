@@ -172,6 +172,37 @@ def test_requires_app_identity_and_never_uses_github_token_for_pr() -> None:
         )
 
 
+def test_publishes_a_verified_commit_via_api_not_git_push() -> None:
+    """The adoption commit reaching the remote must be GitHub-signed (#1308):
+    the in-shell commit is a staging artifact, its tree is replayed through
+    the git-data API (blobs -> tree -> commit -> ref) with the App token, so
+    consumers' Signed-commits rulesets stay fully enforced — no bypasses."""
+    text = TEMPLATE.read_text(encoding="utf-8")
+    # The staging commit must never be pushed directly.
+    assert "git push" not in text
+    steps = _steps(text)
+    publish_steps = [s for s in steps if "git/commits" in str(s.get("run", ""))]
+    assert publish_steps, "no API publish step found"
+    (publish,) = publish_steps
+    run = str(publish["run"])
+    # Full git-data flow with the minted App token.
+    assert publish.get("env", {}).get("GH_TOKEN") == (
+        "${{ steps.app-token.outputs.token }}"
+    )
+    assert "git/blobs" in run
+    assert "git/trees" in run
+    assert "git/refs" in run
+    # Deletions are replayed as null-sha tree entries (the scaffold prunes
+    # files; commit-action v0.3.x cannot express this, hence inline REST).
+    assert "sha:null" in run.replace(" ", "")
+    # Executable bits survive the replay (createCommitOnBranch would drop
+    # them; the tree API carries an explicit mode per entry).
+    assert "100755" in run
+    # The branch ref is created on first use and force-updated within a train
+    # (rc -> rc -> final reuse semantics).
+    assert "force" in run
+
+
 def test_bootstraps_installsh_and_commits_in_project_shell() -> None:
     """The upgrade runs install.sh --force --version and commits inside nix develop."""
     text = TEMPLATE.read_text(encoding="utf-8")
