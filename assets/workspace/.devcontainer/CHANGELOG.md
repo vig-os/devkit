@@ -9,20 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-### Changed
-
-### Deprecated
-
-### Removed
-
-### Fixed
-
-### Security
-
-## [1.5.0] - TBD
-
-### Added
-
 - **Self-polling devkit-upgrade workflow** ([#1296](https://github.com/vig-os/devkit/issues/1296))
   - New managed `devkit-upgrade.yml` scaffolded into every consumer: a weekly
     schedule (Monday, aligned with the Renovate window) polls devkit's public
@@ -40,10 +26,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (manual dispatch still works); `DEVKIT_UPGRADE_EXCLUDE` lists paths reset
     before the adoption commit. The whole file opts out via the new
     `devkit-upgrade` feature group (`DEVKIT_FEATURES_DISABLED`).
-  - Requires a dedicated `DEVKIT_UPGRADE_TOKEN` secret (the default
-    `GITHUB_TOKEN` cannot open a PR that triggers CI); the workflow fails fast
-    with a clear message when it is absent, and the commit identity is
-    configurable and kept off the agent blocklist.
+  - Requires a dedicated GitHub App identity
+    ([#1302](https://github.com/vig-os/devkit/issues/1302)): the
+    `DEVKIT_UPGRADE_APP_ID` and `DEVKIT_UPGRADE_APP_PRIVATE_KEY` secrets feed a
+    per-run installation token minted in-workflow (the default `GITHUB_TOKEN`
+    cannot open a PR that triggers CI, and a static PAT is not supported —
+    user-bound, expiring, single-owner). The workflow fails fast with a clear
+    message when the secrets are absent, and the commit identity is configurable
+    and kept off the agent blocklist.
+  - The published adoption commit is **GitHub-signed**
+    ([#1308](https://github.com/vig-os/devkit/issues/1308)): the in-shell commit
+    stays a staging artifact (hooks run, message validated) and its tree is
+    replayed through the git-data API with the App token — blobs → tree (with
+    explicit per-entry modes, so executable bits survive) → commit → ref, with
+    deletions as null-sha entries and a force-updated branch ref for the
+    within-train reuse semantics. Consumers' Signed-commits rulesets stay fully
+    enforced; no bypass actors are needed anywhere.
 - **Scaffold-drift CI gate (DEVKIT_DRIFT_CHECK)** ([#1295](https://github.com/vig-os/devkit/issues/1295))
   - The scaffolded `ci.yml` gains a `scaffold-drift` job that re-runs the pinned
     devkit version's scaffold over the checkout and fails a PR whose managed
@@ -108,6 +106,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     their feature is disabled — they are left in place with a notice.
 
 ### Fixed
+
+- **`install.sh` prefers a responsive docker over podman in runtime auto-detection** ([#1305](https://github.com/vig-os/devkit/issues/1305))
+  - With both runtimes on PATH (GitHub `ubuntu-latest` runners), auto-detection
+    picked the preinstalled podman, whose stale system crun rejects podman ≥ 5's
+    OCI configs (`crun: unknown version specified`) — the first live
+    `devkit-upgrade` dispatch died at the install step on exactly this.
+    Detection now prefers docker when its daemon responds and falls back to
+    podman: podman-only hosts are unchanged, a dead docker daemon still yields
+    podman, and explicit `--docker`/`--podman` keep overriding. The
+    `devkit-upgrade.yml` template also passes `--docker` explicitly, so the
+    choice rides in the scaffold independent of the fetched installer.
 
 - **`just test` no longer fails a Python repo with zero collected tests** ([#1281](https://github.com/vig-os/devkit/issues/1281))
   - The scaffolded `justfile.project` `test`/`test-cov` recipes gate on

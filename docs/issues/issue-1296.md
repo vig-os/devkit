@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-29T13:34:25Z
-updated: 2026-07-29T13:34:25Z
+updated: 2026-07-30T08:54:41Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1296
-comments: 0
+comments: 1
 labels: feature, priority:medium, area:workflow, effort:large, semver:minor
 assignees: none
 milestone: 1.5.0
 projects: none
 parent: none
 children: none
-synced: 2026-07-30T05:15:33.355Z
+synced: 2026-07-30T11:51:50.591Z
 ---
 
 # [Issue 1296]: [feat(workflow): self-polling devkit-upgrade workflow (auto adoption PR in consumers)](https://github.com/vig-os/devkit/issues/1296)
@@ -77,4 +77,12 @@ All 5 consumers; each adoption PR becomes review-and-merge. Steady-state upgrade
 ### Changelog Category
 
 Added
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 30, 2026 at 08:54 AM_
+
+Implemented in PR #1298, merged to dev @4772c62f. Ships with 1.5.0.
 

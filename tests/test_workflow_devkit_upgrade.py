@@ -10,9 +10,10 @@ release time. These tests pin the deliverable without executing the workflow:
   commit), both shipping empty;
 - the template carries the managed banner, both triggers, the public
   ``releases/latest`` version check with prerelease-aware compare, the dedicated
-  ``DEVKIT_UPGRADE_TOKEN`` (fail-fast when absent; never the default
-  ``GITHUB_TOKEN`` for the PR), the ``install.sh`` bootstrap and the
-  ``nix develop`` commit;
+  GitHub App identity (a per-run installation token minted from
+  ``DEVKIT_UPGRADE_APP_ID`` + ``DEVKIT_UPGRADE_APP_PRIVATE_KEY``, fail-fast when
+  absent; never the default ``GITHUB_TOKEN`` for the PR — #1302), the
+  ``install.sh`` bootstrap and the ``nix develop`` commit;
 - no ``run:`` block interpolates a dispatch input or event field directly
   (zizmor template-injection: every such value is routed through ``env:``);
 - the base branch is workflow-model aware (``dev`` gitflow / ``main`` trunk),
@@ -24,6 +25,7 @@ Refs: #1296
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -122,19 +124,83 @@ def test_version_compare_is_prerelease_aware() -> None:
     assert "prerelease" in text.lower()
 
 
-def test_requires_dedicated_token_and_never_uses_github_token_for_pr() -> None:
-    """A missing DEVKIT_UPGRADE_TOKEN fails fast; the PR uses the dedicated token."""
+def test_requires_app_identity_and_never_uses_github_token_for_pr() -> None:
+    """The GitHub App is the ONLY identity: a per-run installation token is
+    minted from DEVKIT_UPGRADE_APP_ID + DEVKIT_UPGRADE_APP_PRIVATE_KEY
+    (fail-fast when absent), and no static token secret remains (#1302)."""
     text = TEMPLATE.read_text(encoding="utf-8")
-    assert "secrets.DEVKIT_UPGRADE_TOKEN" in text
-    # A clear fail-fast guard when the secret is absent.
-    assert "DEVKIT_UPGRADE_TOKEN secret is not configured" in text
-    # The PR step authenticates gh with the dedicated token (not github.token),
-    # otherwise the created PR would not trigger CI.
+    assert "secrets.DEVKIT_UPGRADE_APP_ID" in text
+    assert "secrets.DEVKIT_UPGRADE_APP_PRIVATE_KEY" in text
+    # The static-secret path is gone entirely — App-only, no PAT fallback.
+    assert "DEVKIT_UPGRADE_TOKEN" not in text
+    # A clear fail-fast guard when either secret is absent.
+    assert "not configured" in text
     steps = _steps(text)
+    # A SHA-pinned create-github-app-token step mints the per-run token.
+    mint_steps = [
+        s for s in steps if "create-github-app-token" in str(s.get("uses", ""))
+    ]
+    assert mint_steps, "no create-github-app-token step found"
+    for s in mint_steps:
+        assert re.search(r"create-github-app-token@[0-9a-f]{40}", s["uses"]), (
+            "app-token action must be SHA-pinned"
+        )
+        # Least-privilege mint (zizmor github-app audit): the token must be
+        # scoped to exactly the permissions the workflow exercises.
+        with_block = s.get("with", {})
+        for perm in (
+            "permission-contents",
+            "permission-pull-requests",
+            "permission-issues",
+            "permission-workflows",
+        ):
+            assert with_block.get(perm) == "write", f"missing {perm}: write"
+    # The PR step authenticates gh with the minted token (not github.token),
+    # otherwise the created PR would not trigger CI.
     pr_steps = [s for s in steps if "gh pr create" in str(s.get("run", ""))]
     assert pr_steps, "no PR-creating step found"
     for s in pr_steps:
-        assert s.get("env", {}).get("GH_TOKEN") == "${{ secrets.DEVKIT_UPGRADE_TOKEN }}"
+        assert s.get("env", {}).get("GH_TOKEN") == (
+            "${{ steps.app-token.outputs.token }}"
+        )
+    # Checkout persists the minted token so the push authenticates as the App.
+    checkout_steps = [s for s in steps if "actions/checkout" in str(s.get("uses", ""))]
+    assert checkout_steps, "no checkout step found"
+    for s in checkout_steps:
+        assert s.get("with", {}).get("token") == (
+            "${{ steps.app-token.outputs.token }}"
+        )
+
+
+def test_publishes_a_verified_commit_via_api_not_git_push() -> None:
+    """The adoption commit reaching the remote must be GitHub-signed (#1308):
+    the in-shell commit is a staging artifact, its tree is replayed through
+    the git-data API (blobs -> tree -> commit -> ref) with the App token, so
+    consumers' Signed-commits rulesets stay fully enforced — no bypasses."""
+    text = TEMPLATE.read_text(encoding="utf-8")
+    # The staging commit must never be pushed directly.
+    assert "git push" not in text
+    steps = _steps(text)
+    publish_steps = [s for s in steps if "git/commits" in str(s.get("run", ""))]
+    assert publish_steps, "no API publish step found"
+    (publish,) = publish_steps
+    run = str(publish["run"])
+    # Full git-data flow with the minted App token.
+    assert publish.get("env", {}).get("GH_TOKEN") == (
+        "${{ steps.app-token.outputs.token }}"
+    )
+    assert "git/blobs" in run
+    assert "git/trees" in run
+    assert "git/refs" in run
+    # Deletions are replayed as null-sha tree entries (the scaffold prunes
+    # files; commit-action v0.3.x cannot express this, hence inline REST).
+    assert "sha:null" in run.replace(" ", "")
+    # Executable bits survive the replay (createCommitOnBranch would drop
+    # them; the tree API carries an explicit mode per entry).
+    assert "100755" in run
+    # The branch ref is created on first use and force-updated within a train
+    # (rc -> rc -> final reuse semantics).
+    assert "force" in run
 
 
 def test_bootstraps_installsh_and_commits_in_project_shell() -> None:
