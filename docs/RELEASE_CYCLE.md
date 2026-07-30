@@ -188,6 +188,7 @@ This section applies to **`vig-os/devcontainer`** (this repo) and, for matching 
 - **Final releases (`X.Y.Z`)**: After build/publish, automation creates a **draft** GitHub Release (see GitHub’s [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) and [draft-first best practice](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases#best-practices-for-publishing-immutable-releases)). A human **publishes** the draft from the **Releases** UI when satisfied; with **immutable releases** enabled, **publishing** makes the linked tag and assets immutable.
 - **Candidates (`X.Y.Z-rcN`)**: Candidate mode creates and pushes the **git tag**, publishes **GHCR** images (and related signing/attestations), and triggers smoke-test dispatch. It does **not** create a GitHub **Release** object for the RC—only **final** runs use `gh release create` (as a draft). The RC tag is therefore **not** locked by immutable releases until/unless you add a published release or a tag ruleset applies.
 - **Forward-fix (automation)**: Rollback **does not** delete remote tags—this is a **workflow choice** to avoid rewriting history, not GitHub declaring the tag immutable. Recovery is **forward-fix** (new RC, then final when ready). If a retry publishes the same tag, the workflow skips re-creating the tag when it already points at the finalized commit.
+- **Deleting a published release tombstones its tag name**: with **immutable releases** enabled (org-enforced), deleting a **published** GitHub Release permanently retires the tag name — neither the tag nor a release for it can ever be re-created (attempts fail with `GH013: … creations restricted`). The version is **burned**; the only recovery is re-cutting the content as the next patch version. **Draft** releases never tombstone — deleting a draft is always safe. This is how the 1.5.0 train became a ghost ([#1301](https://github.com/vig-os/devkit/issues/1301)): a finalize restart deleted `devkit-smoke-test`'s published `1.5.0` release, tombstoning the tag, leaving the promote gate unpassable, and forcing a re-cut as `1.5.1` ([#1311](https://github.com/vig-os/devkit/pull/1311)). See [Restarting a Finalized Release — the Point of No Return](#restarting-a-finalized-release--the-point-of-no-return).
 - **Post-promote RC cleanup**: After a successful **`promote-release`** merge to `main`, automation may delete stale **git** RC tags (only when no GitHub Release is associated) and matching **GHCR** RC package versions for that base semver; see step 6 under [Release Phases](#release-phases). Tags tied to a published or draft GitHub Release are not removed by this job.
 - **Repository settings** (manual; not stored in git): enable **immutable releases** and **tag rulesets** as appropriate for `vig-os/devcontainer` and `vig-os/devkit-smoke-test`. See GitHub: [Preventing changes to your releases](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/preventing-changes-to-your-releases). Use **RELEASE_APP** in bypass lists only where tag creation requires it.
 
@@ -1027,6 +1028,40 @@ git push --force-with-lease origin release/X.Y.Z
 # Fix forward with a new RC, then re-run the final workflow when ready.
 just finalize-release X.Y.Z
 ```
+
+#### Restarting a Finalized Release — the Point of No Return
+
+Sometimes a finalize needs to be restarted from scratch (e.g. a bad finalized
+commit discovered late), which means deleting the release objects the previous
+attempt created so the pipeline can re-run. **Whether that is safe depends
+entirely on draft status** (see
+[Immutable releases, tag rulesets, and forward-fix policy](#immutable-releases-tag-rulesets-and-forward-fix-policy)):
+
+- **Restarts are cheap only while every GitHub Release object in the pipeline —
+  this repo's draft release AND `devkit-smoke-test`'s — is still a draft.**
+  Drafts never tombstone; deleting them is always safe.
+- **The point of no return is the moment `devkit-smoke-test` publishes its
+  final release for `X.Y.Z`.** From then on the version is committed: a restart
+  requires deleting a *published* release, which permanently tombstones the tag
+  name. The smoke-test can never re-publish that version (`GH013`), so the
+  promote gate becomes unpassable and the train is stuck.
+- **Restarting past the point of no return means burning the version.** The
+  only way forward is to re-cut the identical, already-validated content as the
+  next patch version (`X.Y.Z+1`) and run the train again — as happened with the
+  1.5.0 ghost, re-released as 1.5.1
+  ([#1301](https://github.com/vig-os/devkit/issues/1301),
+  [#1311](https://github.com/vig-os/devkit/pull/1311)).
+
+Before restarting, check both repos:
+
+```bash
+# Both must report isDraft: true (or no release at all) for a restart to be free
+gh release view X.Y.Z --repo vig-os/devkit --json isDraft
+gh release view X.Y.Z --repo vig-os/devkit-smoke-test --json isDraft
+```
+
+If either release is already **published**, do not restart — fix forward
+(new RC → final), or accept burning the version and re-cut it as `X.Y.Z+1`.
 
 ---
 

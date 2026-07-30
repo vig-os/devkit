@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Release runbook: restart point of no return** ([#1318](https://github.com/vig-os/devkit/issues/1318))
+  - `docs/RELEASE_CYCLE.md` now documents that deleting a **published** GitHub
+    Release under org-enforced immutability permanently tombstones its tag name
+    (`GH013`), and adds a recovery-procedures subsection: finalize restarts are
+    free only while every release object in the pipeline (devkit **and**
+    `devkit-smoke-test`) is still a draft; once smoke-test publishes its final,
+    the version is committed and a restart means burning it (re-cut as the next
+    patch). Lesson from the 1.5.0 ghost.
+
 ### Deprecated
 
 ### Removed
