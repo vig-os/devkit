@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-07-30T09:47:39Z
-updated: 2026-07-30T09:47:39Z
+updated: 2026-07-30T15:45:46Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1302
-comments: 0
+comments: 2
 labels: feature, priority:high, area:workflow, effort:small, semver:minor
 assignees: none
 milestone: 1.5.0
 projects: none
 parent: none
 children: none
-synced: 2026-07-30T11:51:49.877Z
+synced: 2026-07-30T17:15:04.387Z
 ---
 
 # [Issue 1302]: [feat(workflow): devkit-upgrade must authenticate via a dedicated GitHub App (drop the PAT path)](https://github.com/vig-os/devkit/issues/1302)
@@ -41,3 +41,19 @@ Dedicated App (do **not** reuse the release/commit App — its private key must 
 - Webhook: disabled. Public (so exoma-ch / exo-pet orgs can install it later); installed per org on the consumer repos.
 
 Refs: #1296
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 30, 2026 at 02:34 PM_
+
+Provisioning addendum (live-proven 2026-07-30): consumers' **Signed commits** ruleset must grant the App (`vigos-devkit-upgrade`, id 4434545) a bypass (`bypass_mode: always`) — the workflow's in-shell worktree commit cannot be API-signed without losing hook fidelity. Applied by hand to devkit-smoke-test; fleet-wide rollout tracked in vig-os/org-config#81. With the bypass in place the full path is live-proven end to end: fail-fast → App token mint → adoption-issue reuse (devkit-smoke-test#310) → `install.sh --force` (docker-pinned, #1305) → in-shell commit → push → adoption PR devkit-smoke-test#316 opened by the App with CI triggering.
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on July 30, 2026 at 03:45 PM_
+
+Correction to the provisioning addendum above (maintainer review): ruleset bypasses are **not** part of the provisioning model — verified signatures on protected branches are policy. The interim bypass on devkit-smoke-test is reverted and org-config#81 closed as superseded. The workflow will publish verified App-signed commits via API tree replay instead: #1308. Evidence standing from the live runs: every leg except the final publish is proven (fail-fast, mint, issue reuse, docker-pinned install with real diff, in-shell commit, PR mechanics); the publish leg's live proof lands with #1308.
+
