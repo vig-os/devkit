@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-29T13:33:54Z
-updated: 2026-07-29T13:33:54Z
+updated: 2026-07-30T08:54:39Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1295
-comments: 0
+comments: 1
 labels: feature, priority:high, area:workflow, effort:medium, semver:minor
 assignees: none
 milestone: 1.5.0
 projects: none
 parent: none
 children: none
-synced: 2026-07-30T05:15:33.766Z
+synced: 2026-07-30T11:51:50.975Z
 ---
 
 # [Issue 1295]: [feat(workflow): scaffold-drift check in consumer CI (pin bumped without re-scaffold)](https://github.com/vig-os/devkit/issues/1295)
@@ -47,4 +47,12 @@ Consumers gain a hard gate against skewed upgrades; devkit's own repo is unaffec
 ### Changelog Category
 
 Added
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 30, 2026 at 08:54 AM_
+
+Implemented in PR #1297, merged to dev @b8056ffe. Ships with 1.5.0.
 
