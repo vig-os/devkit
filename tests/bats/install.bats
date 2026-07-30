@@ -191,14 +191,53 @@ setup() {
     assert_success
 }
 
-@test "install.sh prefers podman over docker" {
+@test "install.sh auto-detection guards docker behind a daemon probe (#1305)" {
+    run grep 'docker info' "$INSTALL_SH"
+    assert_success
+}
+
+@test "install.sh falls back to podman if docker unavailable (#1305)" {
     run grep 'command -v podman' "$INSTALL_SH"
     assert_success
 }
 
-@test "install.sh falls back to docker if podman unavailable" {
-    run grep 'command -v docker' "$INSTALL_SH"
+# ── runtime auto-detection order (#1305) ──────────────────────────────────────
+# ubuntu-latest runners pair a preinstalled podman with a stale system crun
+# that rejects podman >= 5's OCI configs ("crun: unknown version specified"),
+# so with both runtimes on PATH auto-detection must prefer a docker whose
+# daemon responds — the #1299 regression on the consumer side, where the
+# setup-env crun pin does not apply. Podman-only hosts are unchanged, and a
+# dead docker daemon still falls back to podman. Explicit --docker/--podman
+# keep overriding. Exercised end to end against PATH stubs (nothing pulled).
+_run_install_autodetect() {
+    local dir="$1" docker_stub="$2"
+    local stub="$BATS_TEST_TMPDIR/stub-rt"
+    rm -rf "$stub"
+    mkdir -p "$stub"
+    printf '%s\n' "$docker_stub" >"$stub/docker"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/podman"
+    chmod +x "$stub/docker" "$stub/podman"
+    _make_repo "$dir"
+    run env PATH="$stub:$PATH" bash "$INSTALL_SH" \
+        --skip-pull --mode direnv "$dir" </dev/null
+}
+
+@test "auto-detection prefers docker with a responsive daemon over podman (#1305)" {
+    _run_install_autodetect "$BATS_TEST_TMPDIR/rt-docker" \
+        '#!/usr/bin/env bash
+exit 0'
     assert_success
+    assert_output --partial "Using docker"
+}
+
+@test "auto-detection falls back to podman when the docker daemon is dead (#1305)" {
+    # shellcheck disable=SC2016  # stub body is a literal script, no expansion
+    _run_install_autodetect "$BATS_TEST_TMPDIR/rt-podman" \
+        '#!/usr/bin/env bash
+[ "$1" = "info" ] && exit 1
+exit 0'
+    assert_success
+    assert_output --partial "Using podman"
 }
 
 # ── os detection ──────────────────────────────────────────────────────────────
@@ -462,6 +501,11 @@ _make_repo() {
     mkdir -p "$dir"
     _git init -q -b "$branch" "$dir"
     _git -C "$dir" commit -q --allow-empty -m "chore: init"
+    # A realistic topic-branch checkout has a `main` alongside it. The
+    # default-branch preflight (#1283) refuses a non-main default only when no
+    # `main` exists anywhere, so give every non-main fixture a `main` branch —
+    # the gitflow accept-path — leaving the #886 guard's assertions unchanged.
+    [ "$branch" = main ] || _git -C "$dir" branch main
 }
 
 @test "preflight: --force refuses on main with the branch hint (#886)" {
@@ -648,6 +692,94 @@ _make_repo() {
     run bash "$INSTALL_SH" --dry-run "$dir" </dev/null
     assert_success
     assert_output --partial "Would execute:"
+}
+
+# ── default-branch preflight (#1283) ──────────────────────────────────────────
+# Scaffolding assumes the default branch is `main` (the branch-name hook, ci.yml
+# and its workflow triggers all key off it). On a legacy `master` repo the
+# scaffold would succeed silently, then block every commit. A preflight detects a
+# non-`main` default branch and aborts BEFORE anything is written, with the
+# rename recipe. Unlike the #886 guard it runs on fresh installs too;
+# --skip-preflight and --smoke-test skip it, --preview only warns, and a `main`
+# default (or a topic/dev branch of a repo that has `main`) proceeds unchanged.
+
+# A repo whose default branch is `master` via origin/HEAD, with no `main`
+# anywhere. Not built through _make_repo (which would add a `main`).
+_make_master_origin_repo() {
+    local work="$1" origin="$1.origin.git"
+    _git init -q -b master --bare "$origin"
+    mkdir -p "$work"
+    _git init -q -b master "$work"
+    _git -C "$work" commit -q --allow-empty -m "chore: init"
+    _git -C "$work" remote add origin "$origin"
+    _git -C "$work" push -q origin master
+    _git -C "$work" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/master
+}
+
+# A local-only repo (no origin) checked out on `master`, no `main`.
+_make_local_master_repo() {
+    local dir="$1"
+    mkdir -p "$dir"
+    _git init -q -b master "$dir"
+    _git -C "$dir" commit -q --allow-empty -m "chore: init"
+}
+
+@test "preflight: master default via origin/HEAD aborts pre-copy with rename recipe (#1283)" {
+    repo="$BATS_TEST_TMPDIR/master-origin"
+    _make_master_origin_repo "$repo"
+    run bash "$INSTALL_SH" --dry-run "$repo" </dev/null
+    assert_failure
+    assert_output --partial "git branch -m master main && git push -u origin main"
+    assert_output --partial "gh repo edit --default-branch main"
+    assert_output --partial "MIGRATION.md"
+    # aborts before the copy step: never reaches the container command
+    refute_output --partial "Would execute:"
+}
+
+@test "preflight: main default proceeds unchanged (#1283)" {
+    repo="$BATS_TEST_TMPDIR/main-default-1283"
+    _make_repo "$repo" main
+    run bash "$INSTALL_SH" --dry-run "$repo" </dev/null
+    assert_success
+    assert_output --partial "Would execute:"
+}
+
+@test "preflight: --skip-preflight proceeds on a master repo (#1283)" {
+    repo="$BATS_TEST_TMPDIR/master-skip-1283"
+    _make_local_master_repo "$repo"
+    run bash "$INSTALL_SH" --dry-run --skip-preflight "$repo" </dev/null
+    assert_success
+    assert_output --partial "Would execute:"
+}
+
+@test "preflight: --preview warns on a master repo without aborting (#1283)" {
+    repo="$BATS_TEST_TMPDIR/master-preview-1283"
+    _make_local_master_repo "$repo"
+    run bash "$INSTALL_SH" --dry-run --preview "$repo" </dev/null
+    assert_success
+    assert_output --partial "not 'main'"
+    assert_output --partial "Would execute:"
+}
+
+@test "preflight: dev branch of a repo that has main proceeds (#1283)" {
+    repo="$BATS_TEST_TMPDIR/gitflow-dev-1283"
+    mkdir -p "$repo"
+    _git init -q -b main "$repo"
+    _git -C "$repo" commit -q --allow-empty -m "chore: init"
+    _git -C "$repo" checkout -q -b dev
+    run bash "$INSTALL_SH" --dry-run "$repo" </dev/null
+    assert_success
+    assert_output --partial "Would execute:"
+}
+
+@test "preflight: local-only master repo (no origin) aborts with the same guidance (#1283)" {
+    repo="$BATS_TEST_TMPDIR/master-local-1283"
+    _make_local_master_repo "$repo"
+    run bash "$INSTALL_SH" --dry-run "$repo" </dev/null
+    assert_failure
+    assert_output --partial "git branch -m master main && git push -u origin main"
+    assert_output --partial "gh repo edit --default-branch main"
+    refute_output --partial "Would execute:"
 }
 
 # ── --preview forwarding and docs (#886) ──────────────────────────────────────

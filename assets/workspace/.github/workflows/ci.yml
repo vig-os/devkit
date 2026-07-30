@@ -34,8 +34,9 @@
 #   2. lint              — Pre-commit hooks
 #   3. test              — Run tests
 #   4. commit-checks     — Commit message + PR title validation (PRs only)
-#   5. dependency-review — Vulnerable-dependency gate (public-repo PRs only)
-#   6. summary           — Aggregate results for branch protection
+#   5. scaffold-drift    — Managed-file drift gate (PRs only; DEVKIT_DRIFT_CHECK)
+#   6. dependency-review — Vulnerable-dependency gate (public-repo PRs only)
+#   7. summary           — Aggregate results for branch protection
 #
 # Triggers:
 #   - Pull requests to dev, release/**, and main
@@ -80,6 +81,15 @@ jobs:
       image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
       runner-json: ${{ steps.resolve.outputs.runner-json }}
+      # Refs policy (#1282): re-export the composite action's mapped
+      # --refs-optional-types list so commit-checks can consume it via needs.
+      refs-optional-types: ${{ steps.resolve.outputs.refs-optional-types }}
+      # Scaffold-drift gate (#1295): re-export the DEVKIT_DRIFT_CHECK toggle so
+      # the scaffold-drift job's `if:` can self-skip when a consumer opts out,
+      # plus the all-modes image ref it `docker run`s (keeps the ghcr literal in
+      # resolve-toolchain, the #991 SSoT, out of this file).
+      drift-check: ${{ steps.resolve.outputs.drift-check }}
+      drift-image: ${{ steps.resolve.outputs.drift-image }}
 
     steps:
       - name: Checkout repository
@@ -219,6 +229,11 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Refs policy (#1282): the resolved --refs-optional-types list reaches
+          # the validator via env, never inline ${{ }} in the run block (the
+          # zizmor template-injection gate / #1279 env-routing pattern). Mapped
+          # once from DEVKIT_REFS_POLICY by resolve-toolchain.
+          REFS_OPTIONAL_TYPES: ${{ needs.resolve-toolchain.outputs.refs-optional-types }}
         run: |
           set -euo pipefail
           BASE_SHA="$(git merge-base "origin/${BASE_REF}" "${HEAD_SHA}")"
@@ -238,6 +253,7 @@ jobs:
             --base "${BASE_SHA}" \
             --head "${HEAD_SHA}" \
             --title "${PR_TITLE}" \
+            --refs-optional-types "${REFS_OPTIONAL_TYPES}" \
             --blocked-patterns .github/agent-blocklist.toml \
             ${EXCLUDE[@]+"${EXCLUDE[@]}"}
 
@@ -251,6 +267,90 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}
         run: uv run check-pr-agent-fingerprints
+
+  # Scaffold-drift gate (#1295): re-run the pinned devkit version's scaffold over
+  # the checkout and fail if any managed file diverges — DEVKIT_VERSION bumped
+  # without re-scaffolding, or a managed file hand-edited. A pin-only bump PR
+  # otherwise merges green: nothing else re-runs the scaffold or diffs against it.
+  #
+  # Mechanism: re-scaffold + `git diff`, NOT `install.sh --preview`. The preview
+  # report classifies OVERWRITTEN by path existence, not content, so it fires for
+  # every managed file that exists and cannot distinguish drift from an
+  # up-to-date file. Re-running init-workspace.sh --force rewrites the managed
+  # files to exactly what the pin produces while preserving *.project files and
+  # persisted .vig-os values by construction; `git diff` (which honors .gitignore,
+  # so *.local files are exempt too) then surfaces any real divergence.
+  #
+  # This runs the in-image scaffold via `docker run` on the host runner rather
+  # than a job-level `container:`, because a direnv/bare consumer resolves an
+  # EMPTY image (its jobs run on the host) yet the scaffold assets live only
+  # inside the devcontainer image. Passing VIG_OS_VERSION=<current pin> keeps the
+  # .vig-os DEVKIT_VERSION line stable (the image's baked full version would
+  # otherwise rewrite a floating pin and read as spurious drift).
+  #
+  # Cost control: PRs only (the ~1.5 GiB image pull). A single workflow cannot
+  # apply a per-job `paths` filter, so the job rides the same pull_request-only
+  # gate as commit-checks/dependency-review; the DEVKIT_DRIFT_CHECK knob
+  # self-skips it at runtime (no re-scaffold needed to flip).
+  scaffold-drift:
+    name: Scaffold Drift
+    needs: [resolve-toolchain]
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
+    timeout-minutes: 15
+    if: >-
+      github.event_name == 'pull_request' &&
+      needs.resolve-toolchain.outputs.drift-check != 'false'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      # All ${{ }} values reach the shell via env (never inline in run:), per the
+      # zizmor template-injection gate. The inner `docker run` script is a
+      # single-quoted literal — it reads only the -e env it is handed.
+      - name: Check for scaffold drift
+        env:
+          IMAGE: ${{ needs.resolve-toolchain.outputs.drift-image }}
+          IMAGE_TAG: ${{ needs.resolve-toolchain.outputs.image-tag }}
+          REGISTRY_TOKEN: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
+          REGISTRY_USERNAME: ${{ github.actor }}
+          CONSUMER_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$IMAGE" ]]; then
+            echo "::error::Could not resolve DEVKIT_VERSION from .vig-os — cannot run the scaffold-drift check."
+            exit 1
+          fi
+
+          echo "Authenticating to ghcr.io as '${REGISTRY_USERNAME}'"
+          echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_USERNAME" --password-stdin
+          echo "Pulling $IMAGE"
+          docker pull --quiet "$IMAGE"
+
+          # Re-scaffold in place inside the pinned image, then diff. The scaffold
+          # writes root-owned files into the mounted checkout, so run git in the
+          # same container (as root) with the mount marked a safe directory.
+          docker run --rm \
+            -e VIG_OS_VERSION="$IMAGE_TAG" \
+            -e GITHUB_REPOSITORY="$CONSUMER_REPOSITORY" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            "$IMAGE" \
+            bash -c '
+              set -euo pipefail
+              git config --global --add safe.directory /workspace
+              /root/assets/init-workspace.sh --force --no-prompts
+              cd /workspace
+              git add -A
+              if git diff --cached --quiet; then
+                echo "No scaffold drift detected — managed files match devkit ${VIG_OS_VERSION}."
+                exit 0
+              fi
+              echo "::error::Scaffold drift detected: the working tree diverges from what devkit ${VIG_OS_VERSION} would scaffold. Re-run the devkit upgrade (install.sh --force) and commit the result, or set DEVKIT_DRIFT_CHECK=false in .vig-os to opt out."
+              git --no-pager diff --cached
+              exit 1
+            '
 
   # Blocks PRs that introduce known-vulnerable dependencies, off GitHub's
   # dependency graph (lockfiles + action pins alike) — no toolchain, no
@@ -289,7 +389,7 @@ jobs:
     name: CI Summary
     runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
     timeout-minutes: 5
-    needs: [resolve-toolchain, lint, test, commit-checks, dependency-review]
+    needs: [resolve-toolchain, lint, test, commit-checks, scaffold-drift, dependency-review]
     if: always()
 
     steps:
@@ -302,6 +402,7 @@ jobs:
           echo "Lint: ${{ needs.lint.result }}"
           echo "Test: ${{ needs.test.result }}"
           echo "Commit messages: ${{ needs.commit-checks.result }}"
+          echo "Scaffold drift: ${{ needs.scaffold-drift.result }}"
           echo "Dependency review: ${{ needs.dependency-review.result }}"
           echo ""
 
@@ -324,6 +425,13 @@ jobs:
 
           if [ "${{ needs.commit-checks.result }}" = "failure" ]; then
             echo "ERROR: Commit message checks failed"
+            FAILED=true
+          fi
+
+          # Skipped on push/dispatch and when DEVKIT_DRIFT_CHECK=false; only a
+          # genuine failure (managed-file drift) trips the gate.
+          if [ "${{ needs.scaffold-drift.result }}" = "failure" ]; then
+            echo "ERROR: Scaffold drift detected"
             FAILED=true
           fi
 

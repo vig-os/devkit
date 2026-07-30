@@ -1717,6 +1717,72 @@ EOF
     refute_output --partial "+  .typos.toml"
 }
 
+# ── the undotted `typos.toml` spelling gets the same guard as _typos.toml (#1280) ─
+# The `typos` tool reads .typos.toml, _typos.toml AND undotted typos.toml. The
+# #913 guard only covered _typos.toml; a consumer carrying undotted typos.toml
+# (and no .typos.toml) still received the template .typos.toml alongside it,
+# leaving two active configs (the curated allowlist silently shadowed). Treat
+# undotted typos.toml exactly like the legacy _typos.toml case.
+
+@test "upgrade with an undotted typos.toml does not leave dual typos configs (#1280)" {
+    # consumer carries typos.toml and no .typos.toml. Shipping the template
+    # .typos.toml alongside it would give two active configs.
+    ws="$BATS_TEST_TMPDIR/e2e-1280-undotted"
+    mkdir -p "$ws"
+    printf '# SENTINEL-1280 undotted typos config\n[default.extend-words]\nmyterm = "myterm"\n' \
+        >"$ws/typos.toml"
+    run _upgrade both "$ws"
+    assert_success
+    # undotted config preserved verbatim
+    run grep -q 'SENTINEL-1280' "$ws/typos.toml"
+    assert_success
+    # template .typos.toml NOT shipped -> single active config
+    run test -e "$ws/.typos.toml"
+    assert_failure
+}
+
+@test "--preview does not list template .typos.toml as ADDED under an undotted typos.toml (#1280)" {
+    # Preview must mirror the copy's exclude set: the real copy skips the
+    # template .typos.toml when the consumer carries undotted typos.toml (and no
+    # .typos.toml), so --preview must not advertise it as ADDED.
+    ws="$BATS_TEST_TMPDIR/e2e-1280-preview-undotted"
+    mkdir -p "$ws"
+    printf '# SENTINEL-1280 undotted typos config\n' >"$ws/typos.toml"
+    run _preview "$ws" --mode both
+    assert_success
+    refute_output --partial "+  .typos.toml"
+}
+
+@test "upgrade surface message names the undotted typos.toml (#1280)" {
+    # The otherwise-silent skip is surfaced so the consumer knows their undotted
+    # typos.toml stands as the single config.
+    ws="$BATS_TEST_TMPDIR/e2e-1280-message"
+    mkdir -p "$ws"
+    printf '# SENTINEL-1280 undotted typos config\n' >"$ws/typos.toml"
+    run _upgrade both "$ws"
+    assert_success
+    assert_output --partial 'typos.toml'
+    assert_output --partial 'not shipping template .typos.toml'
+    assert_output --partial '#1280'
+}
+
+@test "upgrade with BOTH typos.toml and .typos.toml preserves .typos.toml, no misfire (#1280)" {
+    # When a curated .typos.toml IS present it takes precedence: it is preserved
+    # via the preserve list (#913) and the undotted-file exclusion must not
+    # misfire (the guard is gated on .typos.toml being absent).
+    ws="$BATS_TEST_TMPDIR/e2e-1280-combo"
+    mkdir -p "$ws"
+    printf '# SENTINEL-1280-DOTTED curated typos config\n' >"$ws/.typos.toml"
+    printf '# SENTINEL-1280-UNDOTTED stale typos config\n' >"$ws/typos.toml"
+    run _upgrade both "$ws"
+    assert_success
+    # curated .typos.toml preserved verbatim (preserve-list path)
+    run grep -q 'SENTINEL-1280-DOTTED' "$ws/.typos.toml"
+    assert_success
+    # the undotted-file exclusion did not misfire
+    refute_output --partial 'not shipping template .typos.toml'
+}
+
 # ── upgrade must preserve customized lint configs .yamllint / .pymarkdown (#1099) ─
 # Same class as #878/#913: these are fully-managed scaffold files, yet lint
 # CONFIGS a consumer legitimately customizes (repo-specific `ignore:` globs, rule
@@ -2295,6 +2361,32 @@ _upgrade_no_flags() {
     assert_success
 }
 
+@test "the bootstrap step routes the target input through env, not inline (#1279)" {
+    # zizmor flags a template-injection (High) when the workflow_dispatch input
+    # is interpolated straight into the run: block. The bootstrap step must
+    # instead forward the input via an env var and reference it as a shell
+    # parameter expansion, matching the template's existing TARGET_BRANCH pattern.
+    ws="$BATS_TEST_TMPDIR/e2e-1279-env-indirection"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    si="$ws/.github/workflows/sync-issues.yml"
+    # (a) the bootstrap step forwards the dispatch input via env
+    # shellcheck disable=SC2016  # literal GitHub expression, not a shell expansion
+    run grep -qF 'TARGET_INPUT: ${{ github.event.inputs.target-branch }}' "$si"
+    assert_success
+    # (b) the run body no longer interpolates the input directly into the shell
+    run grep -qF "TARGET=\"\${{ github.event.inputs" "$si"
+    assert_failure
+    # (c) the scaffold-time default still lands, via shell parameter expansion
+    # shellcheck disable=SC2016  # literal shell parameter expansion in rendered YAML
+    run grep -qF 'TARGET="${TARGET_INPUT:-sync/issue-mirror}"' "$si"
+    assert_success
+}
+
 @test "a custom DEVKIT_SYNC_SCHEDULE overrides the sync cron (#1228)" {
     ws="$BATS_TEST_TMPDIR/e2e-1228-schedule"
     mkdir -p "$ws"
@@ -2345,6 +2437,140 @@ _upgrade_no_flags() {
     run _upgrade_no_flags "$ws"
     assert_failure
     assert_output --partial "Invalid DEVKIT_SYNC_SCHEDULE"
+}
+
+# ── Refs policy knob (#1282) ──────────────────────────────────────────────────
+# DEVKIT_REFS_POLICY steers the validate-commit-msg hook's --refs-optional-types
+# arg at scaffold time (the CI validate-commit-range surface is driven from the
+# same key via resolve-toolchain, covered in tests/test_ci_runner.py). Values:
+# chore-optional (default, byte-identical) | optional (full types list) |
+# required (a `none` sentinel type => every real type requires Refs). Persisted
+# like DEVKIT_CI_RUNNER; invalid values fail the scaffold loudly.
+
+@test "template .vig-os ships the Refs policy key empty (#1282)" {
+    run grep -x 'DEVKIT_REFS_POLICY=' "$TEMPLATE_DIR/.vig-os"
+    assert_success
+}
+
+@test "default scaffold keeps the chore-optional refs-optional-types arg (#1282)" {
+    # No DEVKIT_REFS_POLICY key => the template default is untouched, so the
+    # validate-commit-msg hook keeps its byte-identical `chore` arg.
+    ws="$BATS_TEST_TMPDIR/e2e-1282-default"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run grep -qF '"--refs-optional-types", "chore",' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "DEVKIT_REFS_POLICY=optional renders the full types list + writes back (#1282)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1282-optional"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=optional/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '"--refs-optional-types", "feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -x 'DEVKIT_REFS_POLICY=optional' "$ws/.vig-os"
+    assert_success
+}
+
+@test "DEVKIT_REFS_POLICY=required renders the none sentinel + writes back (#1282)" {
+    # required means every real type requires Refs. The CLI treats an empty
+    # --refs-optional-types as falsy and reverts to the {chore} default, so the
+    # renderer emits a `none` sentinel type (no real commit is type `none`).
+    ws="$BATS_TEST_TMPDIR/e2e-1282-required"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=required/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '"--refs-optional-types", "none",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -x 'DEVKIT_REFS_POLICY=required' "$ws/.vig-os"
+    assert_success
+}
+
+@test "an invalid DEVKIT_REFS_POLICY fails the scaffold loudly (#1282)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1282-bad-policy"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=garbage/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_failure
+    assert_output --partial "Invalid DEVKIT_REFS_POLICY"
+}
+
+@test "DEVKIT_REFS_POLICY composes with the trunk workflow render (#1282)" {
+    # render_workflow_model (trunk) and render_refs_policy both sed
+    # .pre-commit-config.yaml on distinct anchors — they must compose.
+    ws="$BATS_TEST_TMPDIR/e2e-1282-compose-trunk"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_WORKFLOW=.*/DEVKIT_WORKFLOW=trunk/' "$ws/.vig-os"
+    sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=optional/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    # (a) the refs policy rendered the full types list
+    run grep -qF '"--refs-optional-types", "feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    # (b) the trunk render still dropped the dev protect-clause on the same file
+    run grep -qF '(?!dev$)' "$ws/.pre-commit-config.yaml"
+    assert_failure
+}
+
+# ── scaffold-drift opt-out knob (#1295) ───────────────────────────────────────
+# DEVKIT_DRIFT_CHECK is a pure runtime gate for the ci.yml scaffold-drift job
+# (empty/absent => enabled). It steers no scaffold render — the CI job reads it
+# via resolve-toolchain (covered in tests/test_scaffold_drift.py). init-workspace
+# only guards its value and persists it across upgrades, like DEVKIT_REFS_POLICY.
+
+@test "template .vig-os ships the drift-check key empty (#1295)" {
+    run grep -x 'DEVKIT_DRIFT_CHECK=' "$TEMPLATE_DIR/.vig-os"
+    assert_success
+}
+
+@test "upgrade writes back a persisted DEVKIT_DRIFT_CHECK value (#1295)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1295-writeback"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_DRIFT_CHECK=.*/DEVKIT_DRIFT_CHECK=false/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -x 'DEVKIT_DRIFT_CHECK=false' "$ws/.vig-os"
+    assert_success
+}
+
+@test "an invalid DEVKIT_DRIFT_CHECK fails the scaffold loudly (#1295)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1295-bad-value"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_DRIFT_CHECK=.*/DEVKIT_DRIFT_CHECK=garbage/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_failure
+    assert_output --partial "Invalid DEVKIT_DRIFT_CHECK"
+}
+
+# ── cache-cleanup retry fallback shim (#1278) ─────────────────────────────────
+# The "Delete old cache" cleanup step runs `if: always()` and calls the `retry`
+# wrapper, which only exists after toolchain setup. A job that dies before setup
+# leaves the shim absent, so the step must define a one-shot fallback so the
+# `retry ... | head -1` assignment cannot silently mask a `command not found`.
+
+@test "sync-issues cleanup step guards against a missing retry shim (#1278)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1278-retry-fallback"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run grep -qF 'command -v retry >/dev/null 2>&1 || retry()' "$ws/.github/workflows/sync-issues.yml"
+    assert_success
 }
 
 # ── legacy mode inference (#885) ──────────────────────────────────────────────
@@ -3817,4 +4043,370 @@ _RELEASE_RESOLVERS_991=(
     run _preview "$ws" --mode both --workflow gitflow
     assert_success
     refute_output --partial "contradicts the persisted DEVKIT_WORKFLOW"
+}
+
+# ── manifest-driven scaffold feature opt-outs (#1284) ─────────────────────────
+# DEVKIT_FEATURES_DISABLED is a comma-separated, whitespace-tolerant list of
+# scaffold feature groups (release, renovate, sync-issues, scanning,
+# gh-templates, skills, worktree). A disabled group is never scaffolded, pruned
+# if a prior scaffold left it, truthfully reported by --preview, and stable
+# across --force upgrades. Absent/empty => byte-identical scaffold to today;
+# unknown name => loud abort. Round-trips like DEVKIT_TAG_PREFIX (#1116).
+
+# Seed a manifest key=value into an already-scaffolded workspace .vig-os.
+_seed_features_disabled() {
+    local ws="$1" value="$2"
+    sed -i "s#^DEVKIT_FEATURES_DISABLED=.*#DEVKIT_FEATURES_DISABLED=${value}#" "$ws/.vig-os"
+}
+
+# Fresh scaffold with DEVKIT_FEATURES_DISABLED pre-seeded in .vig-os BEFORE the
+# first copy: the key is read before the rsync overwrite, so the disabled paths
+# are never scaffolded (copy-exclude only — no prune involved).
+_scaffold_seeded() {
+    local mode="$1" ws="$2" value="$3"
+    printf 'DEVKIT_FEATURES_DISABLED=%s\n' "$value" >"$ws/.vig-os"
+    _scaffold "$mode" "$ws"
+}
+
+@test "template .vig-os ships the feature opt-out key empty (#1284)" {
+    run grep -x 'DEVKIT_FEATURES_DISABLED=' "$TEMPLATE_DIR/.vig-os"
+    assert_success
+}
+
+@test "an unknown feature name fails the scaffold loudly (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-unknown"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_features_disabled "$ws" "renovate,bogus"
+    run _upgrade_no_flags "$ws"
+    assert_failure
+    assert_output --partial "Invalid DEVKIT_FEATURES_DISABLED"
+}
+
+@test "a whitespace-padded feature list is accepted (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-whitespace"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_features_disabled "$ws" " renovate ,  scanning "
+    run _upgrade_no_flags "$ws"
+    assert_success
+    refute_output --partial "Invalid DEVKIT_FEATURES_DISABLED"
+}
+
+@test "upgrade writes back a persisted DEVKIT_FEATURES_DISABLED value (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-writeback"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_features_disabled "$ws" "renovate,scanning"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -x 'DEVKIT_FEATURES_DISABLED=renovate,scanning' "$ws/.vig-os"
+    assert_success
+}
+
+@test "an absent DEVKIT_FEATURES_DISABLED scaffolds every feature group (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-absent"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    refute_output --partial "disabled feature"
+    # A representative file from each of the eight groups is present.
+    run test -f "$ws/.github/workflows/devkit-upgrade.yml"
+    assert_success
+    run test -f "$ws/.github/workflows/release.yml"
+    assert_success
+    run test -f "$ws/renovate.json"
+    assert_success
+    run test -f "$ws/.github/workflows/sync-issues.yml"
+    assert_success
+    run test -f "$ws/.github/workflows/codeql.yml"
+    assert_success
+    run test -d "$ws/.github/ISSUE_TEMPLATE"
+    assert_success
+    run test -d "$ws/.claude/skills/tdd"
+    assert_success
+    run test -d "$ws/.claude/skills/worktree_execute"
+    assert_success
+}
+
+@test "disabling a feature keeps its files out of the scaffold (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-absent-files"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "release,renovate,sync-issues,scanning,gh-templates,devkit-upgrade"
+    assert_success
+    # devkit-upgrade
+    run test -e "$ws/.github/workflows/devkit-upgrade.yml"
+    assert_failure
+    # release
+    run test -e "$ws/.github/workflows/release.yml"
+    assert_failure
+    run test -e "$ws/.github/workflows/prepare-release.yml"
+    assert_failure
+    run test -e "$ws/docs/DOWNSTREAM_RELEASE.md"
+    assert_failure
+    # renovate
+    run test -e "$ws/.github/renovate-default.json"
+    assert_failure
+    run test -e "$ws/.github/workflows/renovate-changelog-build.yml"
+    assert_failure
+    # sync-issues
+    run test -e "$ws/.github/workflows/sync-issues.yml"
+    assert_failure
+    run test -e "$ws/.github/label-taxonomy.toml"
+    assert_failure
+    # scanning
+    run test -e "$ws/.github/workflows/codeql.yml"
+    assert_failure
+    run test -e "$ws/.github/workflows/scorecard.yml"
+    assert_failure
+    # gh-templates
+    run test -e "$ws/.github/ISSUE_TEMPLATE"
+    assert_failure
+    run test -e "$ws/.github/pull_request_template.md"
+    assert_failure
+    # untouched: ci.yml stays atomic (v1 scope), and a non-disabled workflow
+    run test -f "$ws/.github/workflows/ci.yml"
+    assert_success
+}
+
+@test "disabling worktree keeps the other skill dirs (dir-granularity, #1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-worktree-only"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "worktree"
+    assert_success
+    run test -e "$ws/.claude/skills/worktree_execute"
+    assert_failure
+    run test -e "$ws/.devcontainer/justfile.worktree"
+    assert_failure
+    # non-worktree skills survive
+    run test -d "$ws/.claude/skills/tdd"
+    assert_success
+    run test -d "$ws/.claude/skills/code_review"
+    assert_success
+}
+
+@test "disabling skills keeps the worktree_* dirs (dir-granularity, #1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-skills-only"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "skills"
+    assert_success
+    run test -e "$ws/.claude/skills/tdd"
+    assert_failure
+    run test -e "$ws/.claude/skills/branch-naming"
+    assert_failure
+    # worktree_* skills survive, as does justfile.worktree
+    run test -d "$ws/.claude/skills/worktree_execute"
+    assert_success
+    run test -f "$ws/.devcontainer/justfile.worktree"
+    assert_success
+}
+
+@test "disabling both skills and worktree empties .claude/skills/ (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-skills-worktree"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "skills,worktree"
+    assert_success
+    # no skill directories remain (the parent dir may be absent or empty)
+    run bash -c 'shopt -s nullglob; d=("'"$ws"'"/.claude/skills/*/); echo "${#d[@]}"'
+    assert_output "0"
+}
+
+@test "--preview never lists a disabled feature's files as ADDED and names the disabled set (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-preview-added"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_features_disabled "$ws" "scanning"
+    # Remove the group's files so they WOULD be re-added by an ordinary upgrade.
+    rm -f "$ws/.github/workflows/codeql.yml" "$ws/.github/workflows/scorecard.yml"
+    run _preview "$ws" --mode both
+    assert_success
+    assert_output --partial "Disabled features"
+    assert_output --partial "scanning"
+    # the disabled files are not advertised as additions
+    refute_output --partial "+  .github/workflows/codeql.yml"
+    refute_output --partial "+  .github/workflows/scorecard.yml"
+}
+
+@test "adding the key on an upgrade prunes a previously scaffolded feature (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-upgrade-prune"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run test -f "$ws/.github/workflows/release.yml"
+    assert_success
+    _seed_features_disabled "$ws" "release,skills"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "Pruning"
+    run test -e "$ws/.github/workflows/release.yml"
+    assert_failure
+    run test -e "$ws/.github/workflows/promote-release.yml"
+    assert_failure
+    run test -e "$ws/.claude/skills/tdd"
+    assert_failure
+    # written back so the prune is stable on the next upgrade
+    run grep -x 'DEVKIT_FEATURES_DISABLED=release,skills' "$ws/.vig-os"
+    assert_success
+}
+
+@test "--preview lists a pre-existing disabled feature's files under DELETIONS (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-preview-delete"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_features_disabled "$ws" "scanning"
+    run _preview "$ws" --mode both
+    assert_success
+    assert_output --partial "DELETED"
+    assert_output --partial ".github/workflows/codeql.yml"
+    # side-effect-free: the preview left the file in place
+    run test -f "$ws/.github/workflows/codeql.yml"
+    assert_success
+}
+
+@test "a preserved-class extension seam survives a disabled feature with a notice (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-preserved"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    # Consumer customization sentinel in the extension seam + renovate.json.
+    printf '# SENTINEL-EXT\n' >>"$ws/.github/workflows/release-extension.yml"
+    printf '{ "SENTINEL": true }\n' >"$ws/renovate.json"
+    _seed_features_disabled "$ws" "release,renovate"
+    # preview: the seam is reported as left-in-place, never under DELETIONS
+    run _preview "$ws" --mode both
+    assert_success
+    assert_output --partial "left in place (preserved)"
+    refute_output --partial "✗  .github/workflows/release-extension.yml"
+    refute_output --partial "✗  renovate.json"
+    # a real upgrade keeps the seam + its sentinel, and does not prune it
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "left in place (preserved)"
+    run grep -qF "SENTINEL-EXT" "$ws/.github/workflows/release-extension.yml"
+    assert_success
+    run grep -qF '"SENTINEL": true' "$ws/renovate.json"
+    assert_success
+    # but the non-preserved release workflows are gone
+    run test -e "$ws/.github/workflows/release.yml"
+    assert_failure
+}
+
+@test "clearing the key re-ships a previously disabled feature (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-reenable"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_features_disabled "$ws" "scanning"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run test -e "$ws/.github/workflows/codeql.yml"
+    assert_failure
+    # clear the opt-out and upgrade again — the feature returns
+    _seed_features_disabled "$ws" ""
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run test -f "$ws/.github/workflows/codeql.yml"
+    assert_success
+    run test -f "$ws/.github/workflows/scorecard.yml"
+    assert_success
+}
+
+@test "disabling sync-issues with a sync target set warns but does not abort (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-contradiction"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
+    _seed_features_disabled "$ws" "sync-issues"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "will have no effect"
+    # the sync workflow really is gone, and no sed error tripped the scaffold
+    run test -e "$ws/.github/workflows/sync-issues.yml"
+    assert_failure
+    refute_output --partial "No such file or directory"
+    refute_output --partial "Rendered sync-issues settings"
+}
+
+@test "trunk workflow plus a disabled release feature compose without double-reporting (#1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1284-compose"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run test -f "$ws/.github/workflows/sync-main-to-dev.yml"
+    assert_success
+    _seed_features_disabled "$ws" "release"
+    # preview a gitflow->trunk switch with release disabled: sync-main-to-dev.yml
+    # is a member of BOTH the trunk deletion and the release group, yet it must
+    # be listed exactly once and the preview must not error.
+    run _preview "$ws" --mode both --workflow trunk
+    assert_success
+    count="$(printf '%s\n' "$output" | grep -c 'sync-main-to-dev.yml')"
+    assert_equal "$count" "1"
+    # and a real upgrade composes the prunes without error
+    sed -i 's/^DEVKIT_WORKFLOW=$/DEVKIT_WORKFLOW=trunk/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run test -e "$ws/.github/workflows/sync-main-to-dev.yml"
+    assert_failure
+    run test -e "$ws/.github/workflows/release.yml"
+    assert_failure
+}
+
+# ── test/test-cov tolerate pytest's no-tests-collected exit (#1281) ───────────
+# A Python consumer with a pyproject.toml but no test suite runs `uv run pytest`
+# → exit 5 ("no tests collected"). "Nothing to test" is not a failure: `just
+# test` / `just test-cov` must no-op green, matching how non-Python consumers
+# silently skip. Every OTHER nonzero pytest exit must still fail the recipe.
+# Exercised with the real `just` binary against a scaffolded workspace, so the
+# recipe runs under the root justfile's pipefail shell (#854).
+
+# Scaffold a Python workspace ($2) and drop a stub `uv` that exits $3 on any
+# invocation, simulating pytest's exit code. Leaves the stub in $2/stub-bin.
+_py_ws_uv_exit() {
+    local mode="$1" ws="$2" code="$3"
+    mkdir -p "$ws"
+    _scaffold "$mode" "$ws"
+    printf '# SENTINEL-1281 minimal project, no test suite\n' >"$ws/pyproject.toml"
+    local stub="$ws/stub-bin"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit %s\n' "$code" >"$stub/uv"
+    chmod +x "$stub/uv"
+}
+
+@test "just test succeeds on a Python repo with zero collected tests (#1281)" {
+    real_just="$(command -v just)"
+    ws="$BATS_TEST_TMPDIR/e2e-1281-test-nocollect"
+    _py_ws_uv_exit both "$ws" 5
+    run bash -c "cd '$ws' && PATH='$ws/stub-bin:$PATH' '$real_just' test"
+    assert_success
+}
+
+@test "just test still fails on a genuinely failing suite (#1281)" {
+    real_just="$(command -v just)"
+    ws="$BATS_TEST_TMPDIR/e2e-1281-test-fail"
+    _py_ws_uv_exit both "$ws" 1
+    run bash -c "cd '$ws' && PATH='$ws/stub-bin:$PATH' '$real_just' test"
+    assert_failure 1
+}
+
+@test "just test-cov succeeds on a Python repo with zero collected tests (#1281)" {
+    real_just="$(command -v just)"
+    ws="$BATS_TEST_TMPDIR/e2e-1281-cov-nocollect"
+    _py_ws_uv_exit both "$ws" 5
+    run bash -c "cd '$ws' && PATH='$ws/stub-bin:$PATH' '$real_just' test-cov"
+    assert_success
+}
+
+@test "just test-cov still fails on a genuinely failing suite (#1281)" {
+    real_just="$(command -v just)"
+    ws="$BATS_TEST_TMPDIR/e2e-1281-cov-fail"
+    _py_ws_uv_exit both "$ws" 1
+    run bash -c "cd '$ws' && PATH='$ws/stub-bin:$PATH' '$real_just' test-cov"
+    assert_failure 1
 }

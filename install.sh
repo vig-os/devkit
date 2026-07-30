@@ -159,7 +159,16 @@ detect_runtime() {
         return
     fi
 
-    if command -v podman &> /dev/null; then
+    # Prefer a docker whose daemon responds, then podman (#1305). With both on
+    # PATH (GitHub ubuntu-latest runners), the preinstalled podman can pair
+    # with a stale system crun that rejects podman >= 5's OCI configs
+    # ("crun: unknown version specified") — the #1299 runner regression on the
+    # consumer side, where devkit's own setup-env crun pin does not apply.
+    # The daemon probe keeps a both-present host with a dead docker daemon on
+    # podman; podman-only hosts are unchanged. --docker/--podman still win.
+    if command -v docker &> /dev/null && docker info &> /dev/null; then
+        echo "docker"
+    elif command -v podman &> /dev/null; then
         echo "podman"
     elif command -v docker &> /dev/null; then
         echo "docker"
@@ -405,6 +414,84 @@ run_preflight_guard() {
             fi
             ;;
     esac
+}
+
+# Refuse to scaffold when the default branch is not `main` (#1283). The
+# scaffolded branch-name hook, ci.yml's TRUNK sed and its workflow triggers all
+# assume `main`; on a legacy `master` repo the scaffold would succeed silently
+# and then every commit would hit a confusing branch-name hook error. This fails
+# loudly BEFORE anything is written, with the rename recipe. Unlike
+# run_preflight_guard (#886, --force only) it ALSO runs on fresh installs —
+# first-time adoption on a legacy master repo is the core case. Resolution order:
+# origin/HEAD, then a best-effort `gh api` default_branch (GitHub origin only,
+# offline-safe), then the local current branch when there is no origin. A
+# non-main default is accepted when a `main` branch already exists (local or
+# origin) — the gitflow case of scaffolding from a topic/dev branch of a
+# conforming repo. Non-git dirs are left to run_preflight_guard's warn+confirm
+# path. Under --preview it only warns; the caller skips it for --smoke-test and
+# --skip-preflight.
+check_default_branch() {
+    local path="$1"
+    local skip_hint="Re-run with --skip-preflight to bypass this check."
+    local default_branch="" url repo
+
+    # Non-git (or git unavailable): owned by run_preflight_guard's non-git path.
+    if ! command -v git >/dev/null 2>&1 \
+        || ! git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if default_branch="$(git -C "$path" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null)"; then
+        default_branch="${default_branch#refs/remotes/origin/}"
+    else
+        default_branch=""
+    fi
+
+    if [ -z "$default_branch" ]; then
+        url="$(git -C "$path" remote get-url origin 2>/dev/null || true)"
+        if [ -n "$url" ]; then
+            # Origin exists but origin/HEAD is unset: ask GitHub, best-effort.
+            # Must never hang or fail the preflight because gh failed/offline.
+            if command -v gh >/dev/null 2>&1 && repo="$(parse_github_remote "$url" 2>/dev/null)"; then
+                if command -v timeout >/dev/null 2>&1; then
+                    default_branch="$(timeout 5 gh api "repos/$repo" --jq .default_branch 2>/dev/null || true)"
+                else
+                    default_branch="$(gh api "repos/$repo" --jq .default_branch 2>/dev/null || true)"
+                fi
+            fi
+        else
+            # Local-only repo (no origin): fall back to the current branch.
+            default_branch="$(git -C "$path" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+        fi
+    fi
+
+    # Unresolvable (e.g. detached HEAD with no origin, gh offline): defer to
+    # run_preflight_guard rather than guess.
+    [ -n "$default_branch" ] || return 0
+    [ "$default_branch" = main ] && return 0
+
+    # A non-main default is fine when `main` already exists (local or origin).
+    if git -C "$path" rev-parse --verify --quiet main >/dev/null 2>&1 \
+        || git -C "$path" rev-parse --verify --quiet refs/remotes/origin/main >/dev/null 2>&1; then
+        return 0
+    fi
+
+    if [ -n "$PREVIEW" ]; then
+        warn "preflight: default branch is '$default_branch', not 'main' — a real scaffold would refuse."
+        warn "  Rename it first: git branch -m $default_branch main && git push -u origin main"
+        warn "  then: gh repo edit --default-branch main (see docs/MIGRATION.md)."
+        return 0
+    fi
+
+    err "preflight: refusing to scaffold — the default branch is '$default_branch', not 'main'."
+    echo "  vigOS scaffolding assumes 'main': the branch-name hook, ci.yml and its"
+    echo "  workflow triggers key off it, so every commit here would be blocked."
+    echo "  Rename the default branch to 'main' first:"
+    echo "    git branch -m $default_branch main && git push -u origin main"
+    echo "    gh repo edit --default-branch main"
+    echo "  Then re-run. See docs/MIGRATION.md (Legacy default branches)."
+    echo "  $skip_hint"
+    exit 1
 }
 
 # Parse arguments
@@ -656,6 +743,14 @@ if [ -z "$GITHUB_REPOSITORY" ] && [ -d "$PROJECT_PATH/.git" ]; then
 fi
 if [ -z "$GITHUB_REPOSITORY" ]; then
     GITHUB_REPOSITORY="OWNER/REPO"
+fi
+
+# Default-branch preflight (#1283): a non-`main` default branch (legacy master)
+# would let the scaffold succeed silently, then block every commit via the
+# branch-name hook. Runs on fresh installs too (first-time adoption is the core
+# case); --smoke-test and --skip-preflight skip it, --preview only warns.
+if [ -z "$SMOKE_TEST" ] && [ "$SKIP_PREFLIGHT" = false ]; then
+    check_default_branch "$PROJECT_PATH"
 fi
 
 # Preflight-gate --force upgrades (#886). Exemptions:

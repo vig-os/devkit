@@ -124,6 +124,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # This step runs `if: always()`, so it can fire after the job died
+          # before toolchain setup — before the `retry` shim exists. Without a
+          # fallback, `retry` in the CACHE_ID assignment below would emit
+          # "command not found" and `head` would still exit 0, silently masking
+          # the failure. Define a one-shot fallback (no retries) so a healthy
+          # run still uses the real shim and an early-failure run degrades
+          # gracefully. This cleanup is best-effort (continue-on-error).
+          command -v retry >/dev/null 2>&1 || retry() { while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do shift; done; shift; "$@"; }
           echo "Attempting to delete old cache to prevent save collisions..."
           # Wait a moment to ensure any previous cache saves have completed
           sleep 2

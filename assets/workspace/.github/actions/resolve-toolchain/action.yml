@@ -50,6 +50,12 @@ outputs:
   image:
     description: Container image (ghcr.io/... for container modes, empty string for host modes)
     value: ${{ steps.resolve.outputs.image }}
+  drift-image:
+    description: >-
+      Devcontainer image ref for EVERY mode (empty only when no tag resolved),
+      for the scaffold-drift job that `docker run`s the scaffold on the host.
+      Keeps the ghcr.io/vig-os/devcontainer literal out of ci.yml (#1295).
+    value: ${{ steps.resolve.outputs.drift-image }}
   image-tag:
     description: Resolved image/version tag
     value: ${{ steps.resolve.outputs.tag }}
@@ -65,6 +71,18 @@ outputs:
       use with fromJSON() in `runs-on`. Defaults to ["ubuntu-24.04"] when the
       key is absent.
     value: ${{ steps.resolve.outputs.runner-json }}
+  refs-optional-types:
+    description: >-
+      Comma-separated commit types whose Refs line is optional, mapped from
+      DEVKIT_REFS_POLICY for validate-commit-range. `chore` (default/absent),
+      the full types list (`optional`), or the `none` sentinel (`required`).
+    value: ${{ steps.resolve.outputs.refs-optional-types }}
+  drift-check:
+    description: >-
+      Scaffold-drift gate toggle from DEVKIT_DRIFT_CHECK: `true` (default/absent)
+      keeps ci.yml's scaffold-drift job enabled, `false` self-skips it. Emitted
+      for every mode so the job's `if:` can gate on it with no re-scaffold.
+    value: ${{ steps.resolve.outputs.drift-check }}
 
 runs:
   using: composite
@@ -83,6 +101,8 @@ runs:
         TAG_PREFIX=""
         FLOATING_TAGS=""
         CI_RUNNER=""
+        REFS_POLICY=""
+        DRIFT_CHECK=""
 
         if [[ -f .vig-os ]]; then
           # Tolerant KEY=VALUE parsing shared with resolve-image (#781): capture
@@ -94,7 +114,7 @@ runs:
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
 
             case "$line" in
-              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*)
+              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_REFS_POLICY=*|DEVKIT_DRIFT_CHECK=*)
                 key="${line%%=*}"
                 value="${line#*=}"
                 value="${value#"${value%%[![:space:]]*}"}"
@@ -113,6 +133,8 @@ runs:
                   DEVKIT_TAG_PREFIX) TAG_PREFIX="$value" ;;
                   DEVKIT_FLOATING_TAGS) FLOATING_TAGS="$value" ;;
                   DEVKIT_CI_RUNNER) CI_RUNNER="$value" ;;
+                  DEVKIT_REFS_POLICY) REFS_POLICY="$value" ;;
+                  DEVKIT_DRIFT_CHECK) DRIFT_CHECK="$value" ;;
                 esac
                 ;;
             esac
@@ -167,6 +189,33 @@ runs:
         RUNNER_JSON+="]"
         echo "runner-json=$RUNNER_JSON" >> "$GITHUB_OUTPUT"
 
+        # Refs policy (#1282): map DEVKIT_REFS_POLICY to the --refs-optional-types
+        # list validate-commit-range consumes in the commit-checks job. This is
+        # the single mapping point for the CI surface; it MIRRORS render_refs_policy
+        # in assets/init-workspace.sh (two renderers, one key — keep in lockstep).
+        # The loud enum guard lives at the write path (init-workspace.sh); here an
+        # unexpected/absent value defaults safely to `chore` (today's behavior) so
+        # CI never breaks on a surprise literal. `required` uses a `none` sentinel
+        # type (no real commit is type `none`) because an empty list is parsed as
+        # falsy by the tool and reverts to the {chore} default.
+        case "$REFS_POLICY" in
+          optional) REFS_OPTIONAL_TYPES="feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style" ;;
+          required) REFS_OPTIONAL_TYPES="none" ;;
+          *)        REFS_OPTIONAL_TYPES="chore" ;;
+        esac
+        echo "refs-optional-types=$REFS_OPTIONAL_TYPES" >> "$GITHUB_OUTPUT"
+
+        # Scaffold-drift gate (#1295): DEVKIT_DRIFT_CHECK toggles ci.yml's
+        # scaffold-drift job. Absent/empty => `true` (enabled), so existing
+        # consumers gain the gate on adoption; only an explicit `false` disables
+        # it. Emitted for every mode; the loud value guard lives at the write path
+        # (init-workspace.sh), so any non-`false` literal here defaults to enabled
+        # (fail-safe: the drift check runs). The job self-skips on `false` via its
+        # `if:`, so flipping the knob needs no re-scaffold.
+        DRIFT_CHECK="${DRIFT_CHECK:-true}"
+        [[ "$DRIFT_CHECK" == "false" ]] || DRIFT_CHECK="true"
+        echo "drift-check=$DRIFT_CHECK" >> "$GITHUB_OUTPUT"
+
         # Resolve the version tag: explicit override wins, else DEVKIT_VERSION,
         # else the legacy DEVCONTAINER_VERSION.
         TAG="$INPUT_IMAGE_TAG"
@@ -193,6 +242,18 @@ runs:
             ;;
         esac
         echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+        # Scaffold-drift image (#1295): the devcontainer image ref for EVERY mode
+        # (empty only when no tag resolved). Unlike `image` above — which is an
+        # explicit empty string for host modes so downstream `container:` runs on
+        # the host — the scaffold-drift job `docker run`s the image itself (the
+        # scaffold assets live only in the image, and a direnv/bare consumer's
+        # jobs otherwise never pull it). Emitting the ref here keeps the
+        # `ghcr.io/vig-os/devcontainer` literal out of the scaffolded ci.yml (the
+        # #991 single-source-of-truth invariant).
+        DRIFT_IMAGE=""
+        [[ -n "$TAG" ]] && DRIFT_IMAGE="ghcr.io/vig-os/devcontainer:${TAG}"
+        echo "drift-image=$DRIFT_IMAGE" >> "$GITHUB_OUTPUT"
         echo "Resolved mode=$MODE tag=${TAG:-<none>} image=${IMAGE:-<host>}"
 
     - name: Validate image accessibility

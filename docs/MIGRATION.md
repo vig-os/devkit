@@ -214,6 +214,24 @@ upgrade.
   (`git branch dev main && git push -u origin dev`) for the gitflow release flow
   to work.
 
+### Legacy default branches (`master`)
+
+Both models assume the repository's **default branch is `main`**: the scaffolded
+branch-name hook, `ci.yml`'s trunk rewrite and its workflow triggers all key off
+it. On a legacy `master` repo the scaffold would otherwise succeed silently and
+then every commit would be rejected by the branch-name hook. `install.sh`
+therefore **refuses to scaffold until the default branch is `main`** — including
+on a first-time install — pointing you here. Rename it first:
+
+```bash
+git branch -m master main && git push -u origin main
+gh repo edit --default-branch main
+```
+
+Then re-run the installer. A topic or `dev` branch of a repo that already has a
+`main` proceeds normally; `--preview` reports the finding without aborting, and
+`--skip-preflight` bypasses the check.
+
 ### Enable the dependency graph on new public consumers
 
 The scaffolded `ci.yml` also ships a **Dependency Review** gate that blocks PRs
@@ -349,6 +367,53 @@ unknown keys:
 | `DEVKIT_CI_RUNNER` | Comma-separated runner label list for the scaffolded `ci.yml` toolchain jobs; empty (default) => the hosted `ubuntu-24.04` runner ([#1173](https://github.com/vig-os/devkit/issues/1173)) |
 | `DEVKIT_SYNC_TARGET` | Branch the scaffolded sync-issues job commits to; empty (default) => the workflow-model default (`dev`/`main`). A protected-`main` consumer sets an unprotected mirror branch, e.g. `sync/issue-mirror` (see [Point sync-issues at an unprotected mirror branch](#point-sync-issues-at-an-unprotected-mirror-branch-protected-main), [#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_SYNC_SCHEDULE` | Cron override (5-field) for the sync-issues schedule trigger; empty (default) => the daily `0 2 * * *` ([#1228](https://github.com/vig-os/devkit/issues/1228)) |
+| `DEVKIT_FEATURES_DISABLED` | Comma-separated scaffold feature groups this repo opts OUT of; empty (default) => every group is scaffolded. A disabled group is never shipped and a prior scaffold's copy is pruned on upgrade (see [Scaffold feature opt-outs](#scaffold-feature-opt-outs), [#1284](https://github.com/vig-os/devkit/issues/1284)) |
+| `DEVKIT_REFS_POLICY` | Refs-line enforcement policy driving both the `validate-commit-msg` hook and CI's `validate-commit-range`: `chore-optional` (default/empty — only `chore` may omit `Refs:`) \| `optional` (never required) \| `required` (every type needs `Refs:`) ([#1282](https://github.com/vig-os/devkit/issues/1282)) |
+| `DEVKIT_AUTO_UPGRADE` | Opt-out for the scaffolded `devkit-upgrade.yml` weekly schedule; empty (default) or any value but `false` keeps the auto-adoption poll on. `false` disables only the schedule — manual `workflow_dispatch` always runs ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
+| `DEVKIT_UPGRADE_EXCLUDE` | Comma-separated (whitespace-tolerant) paths the `devkit-upgrade` workflow resets before the adoption commit, so generated-doc churn never rides along in the upgrade diff; empty (default) => no exclusions ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
+
+### Scaffold feature opt-outs
+
+`DEVKIT_FEATURES_DISABLED` is a comma-separated (whitespace-tolerant) subset of
+the scaffold feature groups a repo declines. A disabled group is never
+scaffolded, pruned if an earlier scaffold left it, reported truthfully by
+`init-workspace.sh --preview`, and stable across `--force` upgrades (the value
+round-trips in `.vig-os` like `DEVKIT_TAG_PREFIX`). Clearing the key re-ships the
+group on the next `--force`; an empty/absent key scaffolds byte-identically to
+before. An unknown group name aborts the scaffold loudly. The key governs
+scaffold **shape** only — it does not touch the flake or the dev-shell modules
+(`DEVKIT_MODULES`).
+
+The eight groups:
+
+- `release` — the release/prepare/promote workflows (`release*.yml`,
+  `prepare-release*.yml`, `promote-release.yml`, `sync-main-to-dev.yml`) and
+  `docs/DOWNSTREAM_RELEASE.md`.
+- `renovate` — `renovate.json`, `.github/renovate-default.json`, and the
+  renovate-changelog workflows.
+- `sync-issues` — `sync-issues.yml` and `.github/label-taxonomy.toml`. With this
+  group disabled, `DEVKIT_SYNC_TARGET`/`DEVKIT_SYNC_SCHEDULE` become inert (a
+  notice is printed).
+- `scanning` — `codeql.yml` and `scorecard.yml` (not `zizmor.yml`, a lint
+  config).
+- `gh-templates` — `.github/ISSUE_TEMPLATE/` and `pull_request_template.md`.
+- `skills` — every `.claude/skills/` directory except `worktree_*`.
+- `worktree` — the `.claude/skills/worktree_*` directories and
+  `.devcontainer/justfile.worktree`.
+- `devkit-upgrade` — the `devkit-upgrade.yml` self-polling upgrade workflow
+  ([#1296](https://github.com/vig-os/devkit/issues/1296)). Disabling it (rather
+  than the runtime `DEVKIT_AUTO_UPGRADE=false` knob) stops the file from shipping
+  at all.
+
+`ci.yml` is intentionally out of scope (v1): it stays a single atomic,
+mode-aware workflow.
+
+**Preserved-class caveat.** The consumer-owned extension seams
+`release-extension.yml` and `prepare-release-extension.yml`, and `renovate.json`
+(all in the upgrade preserve list) are **never pruned** when their feature is
+disabled — an existing one is left in place with a notice, and `--preview`
+reports it as left-in-place rather than under DELETIONS. Delete it by hand if you
+truly want it gone.
 
 How it behaves:
 
@@ -370,11 +435,25 @@ How it behaves:
   with `--preview` first, then either keep the persisted mode or set
   `DEVKIT_MODE` in `.vig-os` yourself on a dedicated, clean upgrade branch (the
   preflight-guard flow below) and re-run the upgrade.
+- **Manifest keys govern scaffold shape and policy rendering; `flake.nix`
+  governs the toolchain and hooks.** A `.vig-os` key steers *what the scaffold
+  renders* (branching model, tag scheme, CI runner, Refs policy — realized at
+  scaffold time into workflows and configs); the dev-shell toolchain and the
+  flake-generated pre-commit hooks are `flake.nix`'s domain. A knob that drives
+  two enforcement points (e.g. `DEVKIT_REFS_POLICY` renders both the
+  `validate-commit-msg` hook arg and CI's `validate-commit-range` from one key,
+  [#1282](https://github.com/vig-os/devkit/issues/1282)) keeps its mapping in
+  lockstep across both renderers.
 - **Future flags live here.** The manifest is the home for upcoming per-project
   devkit switches (e.g. the raw-YAML hook opt-out planned in
   [#883](https://github.com/vig-os/devkit/issues/883)). `.vig-os` is a
   managed file: the devkit-known keys are re-read and written back on upgrade —
   do not park unrelated custom keys in it.
+- **Combining keys for a solo/private repo.** Several of these keys assemble into
+  a documented **solo adoption profile** — a single-user, private repo that keeps
+  the hook stack and upgrade path but drops the team/traceability layer. See
+  [`docs/SOLO_ADOPTION.md`](./SOLO_ADOPTION.md)
+  ([#1285](https://github.com/vig-os/devkit/issues/1285)).
 
 ## What a consumer needs to know
 

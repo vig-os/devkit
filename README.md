@@ -71,6 +71,10 @@ curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bas
 curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --podman ~/my-project
 ```
 
+**Adopting solo?** For a single-user, private repo without the team/traceability
+layer (no release train, issue sync, or scanning), follow the
+[solo adoption profile](docs/SOLO_ADOPTION.md).
+
 > **Note:** If podman or docker is not installed, the script provides OS-specific installation instructions for macOS, Ubuntu/Debian, Fedora, Arch Linux, and Windows.
 
 ### Manual Setup
@@ -206,7 +210,7 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 - **Registry**: `ghcr.io/vig-os/devcontainer`
 - **Architecture**: Multi-platform support (AMD64, ARM64)
 - **License**: Apache
-- **Latest Version**: [1.4.2](https://github.com/vig-os/devkit/releases/tag/1.4.2) - 2026-07-26
+- **Latest Version**: [1.5.1](https://github.com/vig-os/devkit/releases/tag/1.5.1) - 2026-07-30
 - **Image tags**: bare semver (`0.2.1`, `latest`) — git tags use `v` prefix (`v0.2.1`) but image tags do not
 
 ## Features
