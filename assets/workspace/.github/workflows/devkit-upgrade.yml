@@ -206,8 +206,12 @@ jobs:
           # docker is present on ubuntu-latest (install.sh auto-detects it); nix
           # (installed above) advances the floating `vigos` flake.lock node. The
           # workflow owns the branch, so bypass install.sh's own preflight guard.
+          # --docker pins the runner's first-class runtime explicitly: the
+          # preinstalled podman can pair with a stale system crun that rejects
+          # podman >= 5's OCI configs (#1305) — auto-detection now prefers a
+          # responsive docker anyway, this makes the choice self-documenting.
           curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh \
-            | bash -s -- --force --version "$TARGET" --skip-preflight .
+            | bash -s -- --force --version "$TARGET" --skip-preflight --docker .
 
       - name: Reset excluded paths
         if: steps.resolve.outputs.proceed == 'true'
