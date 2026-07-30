@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Tombstoned tag names fail with the real cause** ([#1319](https://github.com/vig-os/devkit/issues/1319))
+  - The downstream `release-publish.yml` template now recognizes the `GH013`
+    "creations restricted" signature on tag push and release creation — the mark
+    of a tag name permanently retired because its published release was deleted
+    under org-enforced immutability — and fails with a "version burned — re-cut
+    required" diagnosis instead of a generic push/create error.
+  - Devkit's `promote-release.yml` cross-repo gate no longer only advises
+    "wait and retry" when no downstream release exists: it names the tombstone
+    as a possible cause and points at the point-of-no-return runbook.
+
 ### Changed
 
 - **Release runbook: restart point of no return** ([#1318](https://github.com/vig-os/devkit/issues/1318))
