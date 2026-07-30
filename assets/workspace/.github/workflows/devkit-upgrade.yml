@@ -270,20 +270,80 @@ jobs:
           fi
           # Commit INSIDE the project shell so consumer hooks run (dist rebuild in
           # commit-action, trailer strip, validate-commit-msg). chore is
-          # Refs-exempt but include it for traceability.
+          # Refs-exempt but include it for traceability. This LOCAL commit is a
+          # staging artifact only — the next step replays its tree through the
+          # API as a GitHub-signed commit; the unsigned one never leaves the
+          # runner (#1308).
           printf 'chore: adopt devkit %s\n\nRefs: #%s\n' "$TARGET" "$ISSUE" > "${RUNNER_TEMP}/commit-msg"
           nix develop -c git commit -F "${RUNNER_TEMP}/commit-msg"
           echo "changed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Push the upgrade branch
+      - name: Publish the adoption commit via API (verified)
         if: steps.resolve.outputs.proceed == 'true' && steps.commit.outputs.changed == 'true'
         env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           BRANCH: ${{ steps.branch.outputs.name }}
         run: |
           set -euo pipefail
-          # Force-update: within a train an earlier rc may already have pushed
-          # this branch; the PR is refreshed to the latest bump.
-          git push --force origin "HEAD:${BRANCH}"
+          # The in-shell commit above is a STAGING artifact — hooks ran and the
+          # message validated, but a worktree commit is unsigned and consumers'
+          # Signed-commits rulesets rightfully reject it. Replay its tree
+          # through the git-data API with the App token instead: API-created
+          # commits are signed by GitHub as the App, so the published commit is
+          # verified and no ruleset needs a bypass (#1308). The tree API also
+          # carries an explicit mode per entry, so executable bits survive —
+          # createCommitOnBranch would silently drop them.
+          REPO="${GITHUB_REPOSITORY}"
+          MESSAGE="$(git log -1 --format=%B)"
+          BASE_SHA="$(git rev-parse HEAD^)"
+          BASE_TREE="$(gh api "repos/${REPO}/git/commits/${BASE_SHA}" --jq .tree.sha)"
+
+          # One tree entry per path the staging commit touched. --no-renames
+          # keeps the status alphabet to A/M/D (a rename becomes A + D).
+          entries='[]'
+          while IFS=$'\t' read -r status path; do
+            [ -n "$path" ] || continue
+            if [ "$status" = "D" ]; then
+              # Deletion: a null-sha entry removes the path from the tree.
+              entries="$(jq --arg p "$path" \
+                '. + [{path: $p, mode: "100644", type: "blob", sha: null}]' \
+                <<<"$entries")"
+            else
+              mode=100644
+              [ -x "$path" ] && mode=100755
+              blob="$(gh api -X POST "repos/${REPO}/git/blobs" \
+                -f content="$(base64 -w0 "$path")" -f encoding=base64 --jq .sha)"
+              entries="$(jq --arg p "$path" --arg m "$mode" --arg s "$blob" \
+                '. + [{path: $p, mode: $m, type: "blob", sha: $s}]' \
+                <<<"$entries")"
+            fi
+          done < <(git diff --name-status --no-renames "${BASE_SHA}" HEAD)
+
+          COUNT="$(jq length <<<"$entries")"
+          if [ "$COUNT" -eq 0 ]; then
+            echo "Empty delta after staging; nothing to publish."
+            exit 0
+          fi
+          echo "Publishing ${COUNT} tree entries..."
+
+          TREE="$(jq -n --argjson t "$entries" --arg b "$BASE_TREE" \
+            '{base_tree: $b, tree: $t}' \
+            | gh api -X POST "repos/${REPO}/git/trees" --input - --jq .sha)"
+          COMMIT="$(jq -n --arg m "$MESSAGE" --arg t "$TREE" --arg p "$BASE_SHA" \
+            '{message: $m, tree: $t, parents: [$p]}' \
+            | gh api -X POST "repos/${REPO}/git/commits" --input - --jq .sha)"
+
+          # Create the branch ref on first use; force-update within a train so
+          # rc -> rc -> final reuse refreshes the same branch/PR to the latest
+          # bump (the semantics the old force-push provided).
+          if gh api "repos/${REPO}/git/ref/heads/${BRANCH}" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/${REPO}/git/refs/heads/${BRANCH}" \
+              -f sha="$COMMIT" -F force=true >/dev/null
+          else
+            gh api -X POST "repos/${REPO}/git/refs" \
+              -f ref="refs/heads/${BRANCH}" -f sha="$COMMIT" >/dev/null
+          fi
+          echo "Published verified commit ${COMMIT} to ${BRANCH}."
 
       - name: Open or update the adoption PR
         if: steps.resolve.outputs.proceed == 'true' && steps.commit.outputs.changed == 'true'

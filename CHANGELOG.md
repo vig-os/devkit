@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-## [1.5.0](https://github.com/vig-os/devkit/releases/tag/1.5.0) - 2026-07-30
+## [1.5.0] - TBD
 
 ### Added
 
@@ -48,6 +48,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     user-bound, expiring, single-owner). The workflow fails fast with a clear
     message when the secrets are absent, and the commit identity is configurable
     and kept off the agent blocklist.
+  - The published adoption commit is **GitHub-signed**
+    ([#1308](https://github.com/vig-os/devkit/issues/1308)): the in-shell commit
+    stays a staging artifact (hooks run, message validated) and its tree is
+    replayed through the git-data API with the App token — blobs → tree (with
+    explicit per-entry modes, so executable bits survive) → commit → ref, with
+    deletions as null-sha entries and a force-updated branch ref for the
+    within-train reuse semantics. Consumers' Signed-commits rulesets stay fully
+    enforced; no bypass actors are needed anywhere.
 - **Scaffold-drift CI gate (DEVKIT_DRIFT_CHECK)** ([#1295](https://github.com/vig-os/devkit/issues/1295))
   - The scaffolded `ci.yml` gains a `scaffold-drift` job that re-runs the pinned
     devkit version's scaffold over the checkout and fails a PR whose managed
