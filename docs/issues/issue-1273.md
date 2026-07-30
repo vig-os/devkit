@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-26T06:36:38Z
-updated: 2026-07-26T06:36:38Z
+updated: 2026-07-29T08:28:22Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1273
-comments: 0
+comments: 1
 labels: chore, priority:medium, area:image, effort:medium, semver:patch, security
 assignees: none
-milestone: none
+milestone: 1.4.3
 projects: none
 parent: none
 children: none
-synced: 2026-07-26T14:51:11.549Z
+synced: 2026-07-30T05:15:37.187Z
 ---
 
 # [Issue 1273]: [Advance pinned nixpkgs rev to drop propagated vulnix exception blocks (openssl, curl, openssh, jq)](https://github.com/vig-os/devkit/issues/1273)
@@ -41,3 +41,11 @@ Still **not** in the channel (exceptions must stay): unbound 1.25.2 (staging-26.
 Deliberately kept out of the 1.4.2 patch train (mass rebuild + a month of channel churn); target the next content release.
 
 Refs: #1264, #1265, #638
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 29, 2026 at 08:28 AM_
+
+Fixed by PR #1288 (merged to dev, milestone 1.4.3). Pin advanced to nixos-26.05 @ 8623c4c2; openssl/curl/openssh blocks and the jq CVE-2026-49839 entry dropped; unbound/gawk/podman/fzf/libssh2 blocks retained (fixes not yet in the channel).
+

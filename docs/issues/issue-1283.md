@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-28T13:27:00Z
-updated: 2026-07-28T13:27:00Z
+updated: 2026-07-29T13:07:56Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1283
-comments: 0
+comments: 1
 labels: feature, priority:low, area:workspace, effort:small, semver:patch
 assignees: none
 milestone: Backlog
 projects: none
 parent: none
 children: none
-synced: 2026-07-29T05:28:55.542Z
+synced: 2026-07-30T05:15:35.152Z
 ---
 
 # [Issue 1283]: [feat(init): preflight failure for non-main default branches (legacy master lockout)](https://github.com/vig-os/devkit/issues/1283)
@@ -52,4 +52,12 @@ Surfaced while dry-running devkit adoption on a legacy repo still on `master`. R
 
 - Prevents a silent-lockout footgun for every legacy adopter.
 - No change for conforming repos; `semver:patch`.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 29, 2026 at 01:07 PM_
+
+Merged to dev via #1291 (dev-targeted PRs do not auto-close). Ships with the next release.
 
