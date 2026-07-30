@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-28T13:27:34Z
-updated: 2026-07-28T13:27:34Z
+updated: 2026-07-29T13:07:59Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1284
-comments: 0
+comments: 1
 labels: feature, priority:medium, area:workspace, effort:large, semver:minor
 assignees: none
 milestone: Backlog
 projects: none
 parent: none
 children: none
-synced: 2026-07-29T05:28:55.295Z
+synced: 2026-07-30T05:15:34.697Z
 ---
 
 # [Issue 1284]: [feat(workspace): manifest-driven scaffold feature opt-outs (release, sync-issues, scanning, skills, worktree)](https://github.com/vig-os/devkit/issues/1284)
@@ -72,4 +72,12 @@ A dry-run adoption of devkit on a private single-user data repo leaves ~10 dead 
 
 - Benefits solo/private consumers and subset-consumers across the org; removes the recurring prune tax and makes `--preview` reflect intent.
 - Backward compatible (`semver:minor`); absent key changes nothing.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 29, 2026 at 01:07 PM_
+
+Merged to dev via #1293 (dev-targeted PRs do not auto-close). Ships with the next release.
 

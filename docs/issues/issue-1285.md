@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-28T13:27:57Z
-updated: 2026-07-28T13:27:57Z
+updated: 2026-07-29T13:08:01Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1285
-comments: 0
+comments: 1
 labels: docs, priority:low, effort:small, area:docs
 assignees: none
 milestone: Backlog
 projects: none
 parent: none
 children: none
-synced: 2026-07-29T05:28:55.000Z
+synced: 2026-07-30T05:15:34.215Z
 ---
 
 # [Issue 1285]: [docs(workspace): solo/private-repo adoption profile](https://github.com/vig-os/devkit/issues/1285)
@@ -58,4 +58,12 @@ Added
 ### Additional Context
 
 Distilled from a full adoption evaluation of devkit for a private single-user data repo (beancount ledger): the solo-valuable core is the hook stack, commit hygiene, and the managed upgrade path; the friction is entirely in the issue/PR/release/scanning layer. That evaluation produced the five issues referenced above; this guide is the piece that turns them into a repeatable adoption story.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 29, 2026 at 01:08 PM_
+
+Merged to dev via #1294 (dev-targeted PRs do not auto-close). Ships with the next release.
 

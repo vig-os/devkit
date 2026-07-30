@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-28T13:26:56Z
-updated: 2026-07-28T13:26:56Z
+updated: 2026-07-29T13:07:51Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1281
-comments: 0
+comments: 1
 labels: bug, priority:medium, area:workspace, effort:small, semver:patch
 assignees: none
 milestone: Backlog
 projects: none
 parent: none
 children: none
-synced: 2026-07-29T05:28:56.052Z
+synced: 2026-07-30T05:15:36.151Z
 ---
 
 # [Issue 1281]: [fix(workspace): just test fails on Python repos with zero collected tests (pytest exit 5)](https://github.com/vig-os/devkit/issues/1281)
@@ -53,4 +53,12 @@ Treat exit code 5 as success in both recipes, e.g. `uv run pytest {{ args }} || 
 ### Changelog Category
 
 Fixed
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 29, 2026 at 01:07 PM_
+
+Merged to dev via #1290 (dev-targeted PRs do not auto-close). Ships with the next release.
 

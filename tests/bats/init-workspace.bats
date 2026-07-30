@@ -2524,6 +2524,40 @@ _upgrade_no_flags() {
     assert_failure
 }
 
+# ── scaffold-drift opt-out knob (#1295) ───────────────────────────────────────
+# DEVKIT_DRIFT_CHECK is a pure runtime gate for the ci.yml scaffold-drift job
+# (empty/absent => enabled). It steers no scaffold render — the CI job reads it
+# via resolve-toolchain (covered in tests/test_scaffold_drift.py). init-workspace
+# only guards its value and persists it across upgrades, like DEVKIT_REFS_POLICY.
+
+@test "template .vig-os ships the drift-check key empty (#1295)" {
+    run grep -x 'DEVKIT_DRIFT_CHECK=' "$TEMPLATE_DIR/.vig-os"
+    assert_success
+}
+
+@test "upgrade writes back a persisted DEVKIT_DRIFT_CHECK value (#1295)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1295-writeback"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_DRIFT_CHECK=.*/DEVKIT_DRIFT_CHECK=false/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -x 'DEVKIT_DRIFT_CHECK=false' "$ws/.vig-os"
+    assert_success
+}
+
+@test "an invalid DEVKIT_DRIFT_CHECK fails the scaffold loudly (#1295)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1295-bad-value"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_DRIFT_CHECK=.*/DEVKIT_DRIFT_CHECK=garbage/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_failure
+    assert_output --partial "Invalid DEVKIT_DRIFT_CHECK"
+}
+
 # ── cache-cleanup retry fallback shim (#1278) ─────────────────────────────────
 # The "Delete old cache" cleanup step runs `if: always()` and calls the `retry`
 # wrapper, which only exists after toolchain setup. A job that dies before setup

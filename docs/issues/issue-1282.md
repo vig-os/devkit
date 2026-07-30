@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-28T13:26:58Z
-updated: 2026-07-28T13:26:58Z
+updated: 2026-07-29T13:07:54Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1282
-comments: 0
+comments: 1
 labels: feature, priority:low, area:workspace, effort:medium, semver:minor
 assignees: none
 milestone: Backlog
 projects: none
 parent: none
 children: none
-synced: 2026-07-29T05:28:55.799Z
+synced: 2026-07-30T05:15:35.661Z
 ---
 
 # [Issue 1282]: [feat(workspace): scaffold-time Refs policy knob (DEVKIT_REFS_POLICY) for validate-commit-msg + validate-commit-range](https://github.com/vig-os/devkit/issues/1282)
@@ -55,4 +55,12 @@ Solo/private consumers without an issue-driven workflow (personal repos, data re
 
 - Benefits solo/private consumers and any org repo with a non-issue-driven workflow.
 - Backward compatible (`semver:minor`); default behavior unchanged.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on July 29, 2026 at 01:07 PM_
+
+Merged to dev via #1292 (dev-targeted PRs do not auto-close). Ships with the next release.
 

@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-07-28T14:02:17Z
+updated: 2026-07-29T21:16:01Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-29T05:28:57.594Z
+synced: 2026-07-30T05:15:37.616Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -24,7 +24,7 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
- - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update docker/login-action action to v4.5.2
+ - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update github-actions (minor and patch) (`actions/attest`, `docker/login-action`)
  - [ ] <!-- unschedule-branch=renovate/python-(minor-and-patch) -->build(pip): update dependency github-backup to v0.65.0
  - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
  - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
@@ -138,8 +138,8 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342`
  - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
- - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7` → [Updates: `v4.5.2`]
- - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7` → [Updates: `v4.5.2`]
+ - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7` → [Updates: `v4.6.0`]
+ - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7` → [Updates: `v4.6.0`]
  - `ubuntu 24.04`
 
 </details>
@@ -175,12 +175,12 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>.github/workflows/promote-release.yml (15)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7` → [Updates: `v4.5.2`]
+ - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7` → [Updates: `v4.6.0`]
  - `sigstore/cosign-installer v4.1.2@6f9f17788090df1f26f669e9d70d6ae9567deba6`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7` → [Updates: `v4.5.2`]
+ - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7` → [Updates: `v4.6.0`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
@@ -206,15 +206,15 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `sigstore/cosign-installer v4.1.2@6f9f17788090df1f26f669e9d70d6ae9567deba6`
- - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7` → [Updates: `v4.5.2`]
+ - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7` → [Updates: `v4.6.0`]
  - `actions/download-artifact v8.0.1@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`
  - `anchore/sbom-action v0.24.0@e22c389904149dbc22b58101806040fa8d37a610`
  - `anchore/sbom-action v0.24.0@e22c389904149dbc22b58101806040fa8d37a610`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `actions/attest-build-provenance v4.1.1@0f67c3f4856b2e3261c31976d6725780e5e4c373`
  - `actions/attest-build-provenance v4.1.1@0f67c3f4856b2e3261c31976d6725780e5e4c373`
- - `actions/attest v4.2.0@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6`
- - `actions/attest v4.2.0@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6`
+ - `actions/attest v4.2.0@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6` → [Updates: `v4.2.1`]
+ - `actions/attest v4.2.0@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6` → [Updates: `v4.2.1`]
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/github-script v9.0.0@3a2844b7e9c422d3c10d287c895573f7108da1b3`
@@ -359,8 +359,9 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/ci.yml (8)</summary>
+<details><summary>assets/workspace/.github/workflows/ci.yml (9)</summary>
 
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
