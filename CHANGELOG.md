@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renovate dependency update** ([#1313](https://github.com/vig-os/devkit/pull/1313))
+  - Update `actions/attest` from `v4.2.0` to `v4.2.1`
+  - Update `docker/login-action` from `v4.5.1` to `v4.6.0`
 - **Renovate: update `github/codeql-action` from `e4fba86` to `f205ea1`** ([#1312](https://github.com/vig-os/devkit/pull/1312))
 
 ### Deprecated
