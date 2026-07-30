@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-07-30T16:17:24Z
+updated: 2026-07-30T20:29:35Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-30T17:15:04.674Z
+synced: 2026-07-30T21:18:17.468Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -24,11 +24,7 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
- - [ ] <!-- unschedule-branch=renovate/github-codeql-action-digest -->chore(deps): update github/codeql-action digest to f205ea1
- - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update github-actions (minor and patch) (`actions/attest`, `docker/login-action`)
- - [ ] <!-- unschedule-branch=renovate/python-(minor-and-patch) -->build(pip): update dependency github-backup to v0.65.0
  - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
- - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
 
 ## Detected Dependencies
 
@@ -100,8 +96,8 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>.github/workflows/codeql.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `github/codeql-action v4@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81` → [Updates: `v4`]
- - `github/codeql-action v4@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81` → [Updates: `v4`]
+ - `github/codeql-action v4@f205ea1c3313d32999d8d6a48b4f6530d4437b38`
+ - `github/codeql-action v4@f205ea1c3313d32999d8d6a48b4f6530d4437b38`
  - `ubuntu 24.04`
 
 </details>
@@ -139,8 +135,8 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342`
  - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
- - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7` → [Updates: `v4.6.0`]
- - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7` → [Updates: `v4.6.0`]
+ - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
+ - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
  - `ubuntu 24.04`
 
 </details>
@@ -176,12 +172,12 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>.github/workflows/promote-release.yml (15)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7` → [Updates: `v4.6.0`]
+ - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
  - `sigstore/cosign-installer v4.1.2@6f9f17788090df1f26f669e9d70d6ae9567deba6`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7` → [Updates: `v4.6.0`]
+ - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
@@ -207,15 +203,15 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `sigstore/cosign-installer v4.1.2@6f9f17788090df1f26f669e9d70d6ae9567deba6`
- - `docker/login-action v4.5.1@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7` → [Updates: `v4.6.0`]
+ - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
  - `actions/download-artifact v8.0.1@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`
  - `anchore/sbom-action v0.24.0@e22c389904149dbc22b58101806040fa8d37a610`
  - `anchore/sbom-action v0.24.0@e22c389904149dbc22b58101806040fa8d37a610`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `actions/attest-build-provenance v4.1.1@0f67c3f4856b2e3261c31976d6725780e5e4c373`
  - `actions/attest-build-provenance v4.1.1@0f67c3f4856b2e3261c31976d6725780e5e4c373`
- - `actions/attest v4.2.0@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6` → [Updates: `v4.2.1`]
- - `actions/attest v4.2.0@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6` → [Updates: `v4.2.1`]
+ - `actions/attest v4.2.1@508db95dd578ae2727ebd6217d5ba78e4fbda05d`
+ - `actions/attest v4.2.1@508db95dd578ae2727ebd6217d5ba78e4fbda05d`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/github-script v9.0.0@3a2844b7e9c422d3c10d287c895573f7108da1b3`
@@ -263,7 +259,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
- - `github/codeql-action v4@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81` → [Updates: `v4`]
+ - `github/codeql-action v4@f205ea1c3313d32999d8d6a48b4f6530d4437b38`
  - `ubuntu 24.04`
 
 </details>
@@ -377,14 +373,15 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>assets/workspace/.github/workflows/codeql.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `github/codeql-action v4@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81` → [Updates: `v4`]
- - `github/codeql-action v4@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81` → [Updates: `v4`]
+ - `github/codeql-action v4@f205ea1c3313d32999d8d6a48b4f6530d4437b38`
+ - `github/codeql-action v4@f205ea1c3313d32999d8d6a48b4f6530d4437b38`
  - `ubuntu 24.04`
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/devkit-upgrade.yml (2)</summary>
+<details><summary>assets/workspace/.github/workflows/devkit-upgrade.yml (3)</summary>
 
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342`
 
@@ -501,7 +498,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
- - `github/codeql-action v4@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81` → [Updates: `v4`]
+ - `github/codeql-action v4@f205ea1c3313d32999d8d6a48b4f6530d4437b38`
  - `ubuntu 24.04`
 
 </details>
@@ -558,7 +555,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>pyproject.toml (18)</summary>
 
- - `github-backup ==0.64.2` → [Updates: `==0.65.0`]
+ - `github-backup ==0.65.0`
  - `jinja2 ==3.1.6`
  - `pexpect ==4.9.0`
  - `pytest ==9.1.1`
