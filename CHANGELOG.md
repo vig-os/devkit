@@ -40,10 +40,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (manual dispatch still works); `DEVKIT_UPGRADE_EXCLUDE` lists paths reset
     before the adoption commit. The whole file opts out via the new
     `devkit-upgrade` feature group (`DEVKIT_FEATURES_DISABLED`).
-  - Requires a dedicated `DEVKIT_UPGRADE_TOKEN` secret (the default
-    `GITHUB_TOKEN` cannot open a PR that triggers CI); the workflow fails fast
-    with a clear message when it is absent, and the commit identity is
-    configurable and kept off the agent blocklist.
+  - Requires a dedicated GitHub App identity
+    ([#1302](https://github.com/vig-os/devkit/issues/1302)): the
+    `DEVKIT_UPGRADE_APP_ID` and `DEVKIT_UPGRADE_APP_PRIVATE_KEY` secrets feed a
+    per-run installation token minted in-workflow (the default `GITHUB_TOKEN`
+    cannot open a PR that triggers CI, and a static PAT is not supported —
+    user-bound, expiring, single-owner). The workflow fails fast with a clear
+    message when the secrets are absent, and the commit identity is configurable
+    and kept off the agent blocklist.
 - **Scaffold-drift CI gate (DEVKIT_DRIFT_CHECK)** ([#1295](https://github.com/vig-os/devkit/issues/1295))
   - The scaffolded `ci.yml` gains a `scaffold-drift` job that re-runs the pinned
     devkit version's scaffold over the checkout and fails a PR whose managed
