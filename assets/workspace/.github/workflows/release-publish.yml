@@ -178,7 +178,18 @@ jobs:
           # Compose the actual tag name (prefix + bare publish version) (#1044).
           PUBLISH_TAG="${TAG_PREFIX}${PUBLISH_VERSION}"
           git tag -a "$PUBLISH_TAG" -m "Release $PUBLISH_TAG"
-          if ! retry --retries 3 --backoff 5 --max-backoff 30 -- git push origin "$PUBLISH_TAG"; then
+          if ! PUSH_OUTPUT=$(retry --retries 3 --backoff 5 --max-backoff 30 -- git push origin "$PUBLISH_TAG" 2>&1); then
+            printf '%s\n' "$PUSH_OUTPUT"
+            # A tag name whose published release was deleted under release
+            # immutability is permanently retired; pushing it is rejected with
+            # GH013 and no retry or wait can ever succeed.
+            if printf '%s' "$PUSH_OUTPUT" | grep -Eqi "GH013|creations restricted"; then
+              echo "ERROR: Tag name $PUBLISH_TAG is tombstoned by release immutability:"
+              echo "a published GitHub Release for this tag was deleted, permanently retiring the name."
+              echo "This version is burned — re-cut the content as the next patch version."
+              echo "See https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md ('Restarting a Finalized Release — the Point of No Return')."
+              exit 1
+            fi
             if retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags --refs origin "$PUBLISH_TAG" | grep -q "refs/tags/$PUBLISH_TAG$"; then
               LOCAL_TAG_TARGET_SHA=$(git rev-parse "$PUBLISH_TAG^{}")
               REMOTE_TAG_TARGET_SHA=$(retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags origin "refs/tags/$PUBLISH_TAG^{}" | awk '{print $1}')
@@ -243,19 +254,25 @@ jobs:
             echo "ERROR: Published (non-draft) GitHub Release already exists for tag $PUBLISH_TAG"
             exit 1
           fi
+          CREATE_ARGS=(--title "$PUBLISH_TAG" --notes-file /tmp/release-notes.md --verify-tag --draft)
           if [ "$RELEASE_KIND" = "candidate" ]; then
-            retry --retries 3 --backoff 5 --max-backoff 30 -- gh release create "$PUBLISH_TAG" \
-              --title "$PUBLISH_TAG" \
-              --notes-file /tmp/release-notes.md \
-              --verify-tag \
-              --draft \
-              --prerelease
-          else
-            retry --retries 3 --backoff 5 --max-backoff 30 -- gh release create "$PUBLISH_TAG" \
-              --title "$PUBLISH_TAG" \
-              --notes-file /tmp/release-notes.md \
-              --verify-tag \
-              --draft
+            CREATE_ARGS+=(--prerelease)
+          fi
+          if ! CREATE_OUTPUT=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh release create "$PUBLISH_TAG" "${CREATE_ARGS[@]}" 2>&1); then
+            printf '%s\n' "$CREATE_OUTPUT"
+            # A tag name whose published release was deleted under release
+            # immutability is retired forever: release creation for it fails
+            # with GH013 and no retry or wait can ever succeed.
+            if printf '%s' "$CREATE_OUTPUT" | grep -Eqi "GH013|creations restricted"; then
+              echo "ERROR: Tag name $PUBLISH_TAG is tombstoned by release immutability:"
+              echo "a published GitHub Release for this tag was deleted, permanently retiring the name."
+              echo "This version is burned — re-cut the content as the next patch version."
+              echo "See https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md ('Restarting a Finalized Release — the Point of No Return')."
+            fi
+            exit 1
+          fi
+          printf '%s\n' "$CREATE_OUTPUT"
+          if [ "$RELEASE_KIND" = "final" ]; then
             echo "Draft GitHub Release created; publish from ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases when review is complete."
           fi
 

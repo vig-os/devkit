@@ -269,6 +269,13 @@ jobs:
               echo "$LAST_ERROR"
             fi
             echo "Wait for the smoke-test workflow to publish its final release, then retry."
+            echo ""
+            echo "EXCEPTION: if a PUBLISHED smoke-test release for $VERSION was deleted, waiting is"
+            echo "futile — release immutability permanently tombstones the tag name, so smoke-test"
+            echo "can never re-publish it (its release run fails with GH013 'creations restricted';"
+            echo "check the latest devkit-smoke-test release run for that signature). In that case"
+            echo "the version is burned — re-cut the content as the next patch version. See"
+            echo "docs/RELEASE_CYCLE.md: 'Restarting a Finalized Release — the Point of No Return'."
             exit 1
           fi
           IS_DRAFT=$(printf '%s' "$RELEASE_JSON" | jq -r '.draft')
