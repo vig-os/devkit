@@ -8,11 +8,14 @@
 # project shell so consumer hooks run — then opens the adoption PR. Renovate-style
 # pull: no devkit-side action at release time, no consumer registry.
 #
-# Requires the DEVKIT_UPGRADE_TOKEN secret — a dedicated identity (fine-grained
-# PAT or GitHub App token with contents:write + pull-requests:write +
-# issues:write). The default GITHUB_TOKEN cannot open the PR: PRs it creates do
-# not trigger CI. The workflow fails fast when the secret is absent. Provisioning
-# + rotation: https://github.com/vig-os/devkit/issues/1296
+# Requires a dedicated GitHub App identity: DEVKIT_UPGRADE_APP_ID +
+# DEVKIT_UPGRADE_APP_PRIVATE_KEY (repo or org secrets) feed a per-run
+# installation token minted in-workflow — contents:write + pull-requests:write +
+# issues:write + workflows:write on this repo. The default GITHUB_TOKEN cannot
+# open the PR: PRs it creates do not trigger CI. A static PAT is not supported
+# (#1302: user-bound, expiring, single-owner). The workflow fails fast when the
+# secrets are absent. App provisioning + rotation:
+# https://github.com/vig-os/devkit/issues/1302
 
 name: Devkit Upgrade
 
@@ -42,20 +45,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      # The branch, issue and PR are all created with DEVKIT_UPGRADE_TOKEN (a
+      # The branch, issue and PR are all created with the minted App token (a
       # dedicated identity, so the PR triggers CI); the default token stays
       # read-only for the public releases/latest query.
       contents: read
     steps:
-      - name: Require the dedicated upgrade token
+      - name: Require the upgrade App identity
         env:
-          DEVKIT_UPGRADE_TOKEN: ${{ secrets.DEVKIT_UPGRADE_TOKEN }}
+          APP_ID: ${{ secrets.DEVKIT_UPGRADE_APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.DEVKIT_UPGRADE_APP_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "${DEVKIT_UPGRADE_TOKEN}" ]; then
-            echo "::error::DEVKIT_UPGRADE_TOKEN secret is not configured. This workflow needs a dedicated identity (fine-grained PAT or GitHub App token with contents:write + pull-requests:write + issues:write): the default GITHUB_TOKEN cannot open a PR that triggers CI. See https://github.com/vig-os/devkit/issues/1296."
+          if [ -z "${APP_ID}" ] || [ -z "${APP_PRIVATE_KEY}" ]; then
+            echo "::error::DEVKIT_UPGRADE_APP_ID / DEVKIT_UPGRADE_APP_PRIVATE_KEY secrets are not configured. This workflow needs a dedicated GitHub App identity (contents:write + pull-requests:write + issues:write + workflows:write): the default GITHUB_TOKEN cannot open a PR that triggers CI, and a static PAT is not supported. See https://github.com/vig-os/devkit/issues/1302."
             exit 1
           fi
+
+      - name: Mint the upgrade App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
+        with:
+          app-id: ${{ secrets.DEVKIT_UPGRADE_APP_ID }}
+          private-key: ${{ secrets.DEVKIT_UPGRADE_APP_PRIVATE_KEY }}
 
       - name: Checkout base branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -63,9 +74,9 @@ jobs:
           # Base branch per workflow model: gitflow -> dev, trunk -> main
           # (retargeted to `main` at scaffold time for a trunk repo).
           ref: dev
-          # Persist the dedicated token so the later push authenticates as the
+          # Persist the minted token so the later push authenticates as the
           # upgrade identity (whose PR triggers CI).
-          token: ${{ secrets.DEVKIT_UPGRADE_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
       - name: Resolve target version
@@ -158,7 +169,7 @@ jobs:
         id: issue
         if: steps.resolve.outputs.proceed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.DEVKIT_UPGRADE_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TRAIN: ${{ steps.resolve.outputs.train }}
         run: |
           set -euo pipefail
@@ -266,7 +277,7 @@ jobs:
       - name: Open or update the adoption PR
         if: steps.resolve.outputs.proceed == 'true' && steps.commit.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.DEVKIT_UPGRADE_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TARGET: ${{ steps.resolve.outputs.target }}
           ISSUE: ${{ steps.issue.outputs.number }}
           BRANCH: ${{ steps.branch.outputs.name }}
