@@ -159,7 +159,16 @@ detect_runtime() {
         return
     fi
 
-    if command -v podman &> /dev/null; then
+    # Prefer a docker whose daemon responds, then podman (#1305). With both on
+    # PATH (GitHub ubuntu-latest runners), the preinstalled podman can pair
+    # with a stale system crun that rejects podman >= 5's OCI configs
+    # ("crun: unknown version specified") — the #1299 runner regression on the
+    # consumer side, where devkit's own setup-env crun pin does not apply.
+    # The daemon probe keeps a both-present host with a dead docker daemon on
+    # podman; podman-only hosts are unchanged. --docker/--podman still win.
+    if command -v docker &> /dev/null && docker info &> /dev/null; then
+        echo "docker"
+    elif command -v podman &> /dev/null; then
         echo "podman"
     elif command -v docker &> /dev/null; then
         echo "docker"

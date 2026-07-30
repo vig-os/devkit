@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-## [1.5.0](https://github.com/vig-os/devkit/releases/tag/1.5.0) - 2026-07-30
+## [1.5.0] - TBD
 
 ### Added
 
@@ -112,6 +112,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     their feature is disabled — they are left in place with a notice.
 
 ### Fixed
+
+- **`install.sh` prefers a responsive docker over podman in runtime auto-detection** ([#1305](https://github.com/vig-os/devkit/issues/1305))
+  - With both runtimes on PATH (GitHub `ubuntu-latest` runners), auto-detection
+    picked the preinstalled podman, whose stale system crun rejects podman ≥ 5's
+    OCI configs (`crun: unknown version specified`) — the first live
+    `devkit-upgrade` dispatch died at the install step on exactly this.
+    Detection now prefers docker when its daemon responds and falls back to
+    podman: podman-only hosts are unchanged, a dead docker daemon still yields
+    podman, and explicit `--docker`/`--podman` keep overriding. The
+    `devkit-upgrade.yml` template also passes `--docker` explicitly, so the
+    choice rides in the scaffold independent of the fetched installer.
 
 - **`just test` no longer fails a Python repo with zero collected tests** ([#1281](https://github.com/vig-os/devkit/issues/1281))
   - The scaffolded `justfile.project` `test`/`test-cov` recipes gate on

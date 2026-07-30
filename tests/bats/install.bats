@@ -191,14 +191,53 @@ setup() {
     assert_success
 }
 
-@test "install.sh prefers podman over docker" {
+@test "install.sh auto-detection guards docker behind a daemon probe (#1305)" {
+    run grep 'docker info' "$INSTALL_SH"
+    assert_success
+}
+
+@test "install.sh falls back to podman if docker unavailable (#1305)" {
     run grep 'command -v podman' "$INSTALL_SH"
     assert_success
 }
 
-@test "install.sh falls back to docker if podman unavailable" {
-    run grep 'command -v docker' "$INSTALL_SH"
+# ── runtime auto-detection order (#1305) ──────────────────────────────────────
+# ubuntu-latest runners pair a preinstalled podman with a stale system crun
+# that rejects podman >= 5's OCI configs ("crun: unknown version specified"),
+# so with both runtimes on PATH auto-detection must prefer a docker whose
+# daemon responds — the #1299 regression on the consumer side, where the
+# setup-env crun pin does not apply. Podman-only hosts are unchanged, and a
+# dead docker daemon still falls back to podman. Explicit --docker/--podman
+# keep overriding. Exercised end to end against PATH stubs (nothing pulled).
+_run_install_autodetect() {
+    local dir="$1" docker_stub="$2"
+    local stub="$BATS_TEST_TMPDIR/stub-rt"
+    rm -rf "$stub"
+    mkdir -p "$stub"
+    printf '%s\n' "$docker_stub" >"$stub/docker"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/podman"
+    chmod +x "$stub/docker" "$stub/podman"
+    _make_repo "$dir"
+    run env PATH="$stub:$PATH" bash "$INSTALL_SH" \
+        --skip-pull --mode direnv "$dir" </dev/null
+}
+
+@test "auto-detection prefers docker with a responsive daemon over podman (#1305)" {
+    _run_install_autodetect "$BATS_TEST_TMPDIR/rt-docker" \
+        '#!/usr/bin/env bash
+exit 0'
     assert_success
+    assert_output --partial "Using docker"
+}
+
+@test "auto-detection falls back to podman when the docker daemon is dead (#1305)" {
+    # shellcheck disable=SC2016  # stub body is a literal script, no expansion
+    _run_install_autodetect "$BATS_TEST_TMPDIR/rt-podman" \
+        '#!/usr/bin/env bash
+[ "$1" = "info" ] && exit 1
+exit 0'
+    assert_success
+    assert_output --partial "Using podman"
 }
 
 # ── os detection ──────────────────────────────────────────────────────────────
