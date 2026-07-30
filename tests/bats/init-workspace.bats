@@ -4113,7 +4113,9 @@ _scaffold_seeded() {
     run _scaffold both "$ws"
     assert_success
     refute_output --partial "disabled feature"
-    # A representative file from each of the seven groups is present.
+    # A representative file from each of the eight groups is present.
+    run test -f "$ws/.github/workflows/devkit-upgrade.yml"
+    assert_success
     run test -f "$ws/.github/workflows/release.yml"
     assert_success
     run test -f "$ws/renovate.json"
@@ -4133,8 +4135,11 @@ _scaffold_seeded() {
 @test "disabling a feature keeps its files out of the scaffold (#1284)" {
     ws="$BATS_TEST_TMPDIR/e2e-1284-absent-files"
     mkdir -p "$ws"
-    run _scaffold_seeded both "$ws" "release,renovate,sync-issues,scanning,gh-templates"
+    run _scaffold_seeded both "$ws" "release,renovate,sync-issues,scanning,gh-templates,devkit-upgrade"
     assert_success
+    # devkit-upgrade
+    run test -e "$ws/.github/workflows/devkit-upgrade.yml"
+    assert_failure
     # release
     run test -e "$ws/.github/workflows/release.yml"
     assert_failure

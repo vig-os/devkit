@@ -369,6 +369,8 @@ unknown keys:
 | `DEVKIT_SYNC_SCHEDULE` | Cron override (5-field) for the sync-issues schedule trigger; empty (default) => the daily `0 2 * * *` ([#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_FEATURES_DISABLED` | Comma-separated scaffold feature groups this repo opts OUT of; empty (default) => every group is scaffolded. A disabled group is never shipped and a prior scaffold's copy is pruned on upgrade (see [Scaffold feature opt-outs](#scaffold-feature-opt-outs), [#1284](https://github.com/vig-os/devkit/issues/1284)) |
 | `DEVKIT_REFS_POLICY` | Refs-line enforcement policy driving both the `validate-commit-msg` hook and CI's `validate-commit-range`: `chore-optional` (default/empty — only `chore` may omit `Refs:`) \| `optional` (never required) \| `required` (every type needs `Refs:`) ([#1282](https://github.com/vig-os/devkit/issues/1282)) |
+| `DEVKIT_AUTO_UPGRADE` | Opt-out for the scaffolded `devkit-upgrade.yml` weekly schedule; empty (default) or any value but `false` keeps the auto-adoption poll on. `false` disables only the schedule — manual `workflow_dispatch` always runs ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
+| `DEVKIT_UPGRADE_EXCLUDE` | Comma-separated (whitespace-tolerant) paths the `devkit-upgrade` workflow resets before the adoption commit, so generated-doc churn never rides along in the upgrade diff; empty (default) => no exclusions ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
 
 ### Scaffold feature opt-outs
 
@@ -382,7 +384,7 @@ before. An unknown group name aborts the scaffold loudly. The key governs
 scaffold **shape** only — it does not touch the flake or the dev-shell modules
 (`DEVKIT_MODULES`).
 
-The seven groups:
+The eight groups:
 
 - `release` — the release/prepare/promote workflows (`release*.yml`,
   `prepare-release*.yml`, `promote-release.yml`, `sync-main-to-dev.yml`) and
@@ -398,6 +400,10 @@ The seven groups:
 - `skills` — every `.claude/skills/` directory except `worktree_*`.
 - `worktree` — the `.claude/skills/worktree_*` directories and
   `.devcontainer/justfile.worktree`.
+- `devkit-upgrade` — the `devkit-upgrade.yml` self-polling upgrade workflow
+  ([#1296](https://github.com/vig-os/devkit/issues/1296)). Disabling it (rather
+  than the runtime `DEVKIT_AUTO_UPGRADE=false` knob) stops the file from shipping
+  at all.
 
 `ci.yml` is intentionally out of scope (v1): it stays a single atomic,
 mode-aware workflow.

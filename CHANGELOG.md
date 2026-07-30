@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Self-polling devkit-upgrade workflow** ([#1296](https://github.com/vig-os/devkit/issues/1296))
+  - New managed `devkit-upgrade.yml` scaffolded into every consumer: a weekly
+    schedule (Monday, aligned with the Renovate window) polls devkit's public
+    `releases/latest` and, when this repo's `DEVKIT_VERSION` is behind, runs the
+    full-fidelity `install.sh --force` upgrade — the `.vig-os` pin, the
+    `flake.lock` `vigos` node and the whole scaffold move together, committed
+    inside the project shell so consumer hooks run — then opens the adoption PR.
+    `workflow_dispatch` takes an explicit `version` (final or rc) for the
+    release-train / lane-re-bump path.
+  - The version check is prerelease-aware: a consumer on an rc of a newer train
+    is never downgraded (no-op when current **or ahead**). Within a train the
+    adoption issue, branch and PR are reused across rc→rc→final, force-updated to
+    the latest bump.
+  - Two `.vig-os` knobs: `DEVKIT_AUTO_UPGRADE=false` disables the schedule only
+    (manual dispatch still works); `DEVKIT_UPGRADE_EXCLUDE` lists paths reset
+    before the adoption commit. The whole file opts out via the new
+    `devkit-upgrade` feature group (`DEVKIT_FEATURES_DISABLED`).
+  - Requires a dedicated `DEVKIT_UPGRADE_TOKEN` secret (the default
+    `GITHUB_TOKEN` cannot open a PR that triggers CI); the workflow fails fast
+    with a clear message when it is absent, and the commit identity is
+    configurable and kept off the agent blocklist.
 - **Scaffold-drift CI gate (DEVKIT_DRIFT_CHECK)** ([#1295](https://github.com/vig-os/devkit/issues/1295))
   - The scaffolded `ci.yml` gains a `scaffold-drift` job that re-runs the pinned
     devkit version's scaffold over the checkout and fails a PR whose managed

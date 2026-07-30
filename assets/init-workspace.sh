@@ -346,6 +346,11 @@ MANIFEST_FEATURES_DISABLED="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FEAT
 
 MANIFEST_REFS_POLICY="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REFS_POLICY || true)"
 
+# devkit-upgrade knobs (#1296): runtime-only keys consumed by the scaffolded
+# devkit-upgrade.yml at run time (not rendered here) — read them solely to write
+# them back below, so an upgrade preserves a consumer's opt-out / exclusions.
+MANIFEST_AUTO_UPGRADE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_AUTO_UPGRADE || true)"
+MANIFEST_UPGRADE_EXCLUDE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_UPGRADE_EXCLUDE || true)"
 MANIFEST_DRIFT_CHECK="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_DRIFT_CHECK || true)"
 
 # The OWNER/REPO placeholder (written when no origin was resolvable) must not
@@ -434,12 +439,12 @@ fi
 
 # Scaffold feature opt-outs (#1284): DEVKIT_FEATURES_DISABLED is a
 # comma-separated (whitespace-tolerant, like DEVKIT_FLOATING_TAGS/CI_RUNNER)
-# subset of the seven scaffold feature groups. Parse + validate it loudly here —
+# subset of the eight scaffold feature groups. Parse + validate it loudly here —
 # an unknown name must abort, never silently disable nothing — into
 # DISABLED_FEATURES[], with a feature_disabled helper the copy/prune/notice
 # mechanisms below all consult. Pure `.vig-os` key (no CLI flag), so only a
 # format guard: no contradiction guard as for --mode / --workflow.
-VALID_FEATURES=(release renovate sync-issues scanning gh-templates skills worktree)
+VALID_FEATURES=(release renovate sync-issues scanning gh-templates skills worktree devkit-upgrade)
 DISABLED_FEATURES=()
 if [[ -n "$MANIFEST_FEATURES_DISABLED" ]]; then
     IFS=',' read -ra _raw_features <<< "$MANIFEST_FEATURES_DISABLED"
@@ -453,7 +458,7 @@ if [[ -n "$MANIFEST_FEATURES_DISABLED" ]]; then
             [[ "$_feat" == "$_v" ]] && { _valid_feat=true; break; }
         done
         if [[ "$_valid_feat" != "true" ]]; then
-            echo "Error: Invalid DEVKIT_FEATURES_DISABLED in $VIG_OS_MANIFEST: $_feat (expected a comma-separated subset of: release, renovate, sync-issues, scanning, gh-templates, skills, worktree)" >&2
+            echo "Error: Invalid DEVKIT_FEATURES_DISABLED in $VIG_OS_MANIFEST: $_feat (expected a comma-separated subset of: release, renovate, sync-issues, scanning, gh-templates, skills, worktree, devkit-upgrade)" >&2
             exit 1
         fi
         DISABLED_FEATURES+=("$_feat")
@@ -1211,6 +1216,10 @@ feature_paths() {
             done
             printf '%s\n' ".devcontainer/justfile.worktree"
             ;;
+        devkit-upgrade)
+            printf '%s\n' \
+                ".github/workflows/devkit-upgrade.yml"
+            ;;
     esac
 }
 
@@ -1311,6 +1320,16 @@ render_workflow_model() {
         sed -i -E "s|^([[:space:]]*default:) 'dev'\$|\1 'main'|" "$si"
         sed -i "s#|| 'dev'#|| 'main'#g" "$si"
         sed -i 's|e.g., dev, release/x.y.z|e.g., main, release/x.y.z|' "$si"
+    fi
+
+    # devkit-upgrade.yml — retarget the self-upgrade base branch dev -> main:
+    # the checkout `ref:` and the PR `BASE:` env value (the only behavioral `dev`
+    # literals; both full-line anchored, #1296). Absent when the devkit-upgrade
+    # feature is disabled — the -f guard skips it then.
+    local du="$wf/devkit-upgrade.yml"
+    if [[ -f "$du" ]]; then
+        sed -i -E 's|^([[:space:]]*ref:) dev$|\1 main|' "$du"
+        sed -i -E 's|^([[:space:]]*BASE:) dev$|\1 main|' "$du"
     fi
 
     # branch-naming SKILL.md — base-branch default dev -> main. (Single-quoted
@@ -2122,6 +2141,16 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     # resets the commit-msg/commit-range Refs enforcement to chore-optional.
     if [[ -n "$MANIFEST_REFS_POLICY" ]]; then
         write_manifest_value DEVKIT_REFS_POLICY "$MANIFEST_REFS_POLICY"
+    fi
+    # devkit-upgrade knobs (#1296): bare in the template (DEVKIT_AUTO_UPGRADE= /
+    # DEVKIT_UPGRADE_EXCLUDE=), so a consumer's opt-out / exclusion list is read
+    # before the overwrite and written back — else an upgrade silently re-enables
+    # auto-upgrade and drops the exclusions. Round-trips like DEVKIT_FEATURES_DISABLED.
+    if [[ -n "$MANIFEST_AUTO_UPGRADE" ]]; then
+        write_manifest_value DEVKIT_AUTO_UPGRADE "$MANIFEST_AUTO_UPGRADE"
+    fi
+    if [[ -n "$MANIFEST_UPGRADE_EXCLUDE" ]]; then
+        write_manifest_value DEVKIT_UPGRADE_EXCLUDE "$MANIFEST_UPGRADE_EXCLUDE"
     fi
     # Scaffold-drift gate (#1295): bare in the template (DEVKIT_DRIFT_CHECK=), so a
     # consumer's explicit false (opt-out) is written back — else an upgrade

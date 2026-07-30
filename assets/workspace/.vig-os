@@ -72,7 +72,7 @@ DEVKIT_SYNC_SCHEDULE=
 
 # Scaffold feature groups this repo opts OUT of — a comma-separated,
 # whitespace-tolerant subset of: release, renovate, sync-issues, scanning,
-# gh-templates, skills, worktree. Empty (default) => every group is scaffolded
+# gh-templates, skills, worktree, devkit-upgrade. Empty (default) => every group is scaffolded
 # (no change for existing consumers). A disabled group is never shipped, and a
 # copy left by a prior scaffold is pruned on upgrade; clearing the key re-ships
 # it on the next `--force`. Consumer-owned extension seams
@@ -90,6 +90,23 @@ DEVKIT_FEATURES_DISABLED=
 # anchored render of the hook arg + resolve-toolchain's `refs-optional-types`
 # output); written back only for a non-default value (#1282).
 DEVKIT_REFS_POLICY=
+
+# Auto-upgrade opt-out for the scaffolded devkit-upgrade.yml workflow. Empty
+# (default) or any value other than `false` keeps the WEEKLY schedule path
+# enabled — it polls devkit's latest release and, when this repo's DEVKIT_VERSION
+# is behind, opens the adoption PR. `false` disables ONLY the schedule; manual
+# `workflow_dispatch` (the release-train / rc re-bump path) always runs. A
+# runtime gate read from this file — no re-scaffold to flip. Written back only
+# for a non-default (`false`) value, so a default .vig-os is unchanged (#1296).
+DEVKIT_AUTO_UPGRADE=
+
+# Paths the devkit-upgrade workflow resets (git checkout --) after the scaffold
+# regeneration but before the adoption commit, so they never ride along in the
+# upgrade diff — e.g. a consumer's generated-doc churn. Comma-separated,
+# whitespace-tolerant (like DEVKIT_FEATURES_DISABLED). Empty (default) => no
+# exclusions. A runtime gate read from this file; written back only for a
+# non-empty value (#1296).
+DEVKIT_UPGRADE_EXCLUDE=
 
 # Scaffold-drift CI gate: true (default) | false. Empty (= unset) resolves to
 # `true` — ci.yml's `scaffold-drift` job re-runs the pinned devkit version's
