@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-07-30T20:29:35Z
+updated: 2026-08-02T01:12:28Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-30T21:18:17.468Z
+synced: 2026-08-02T05:34:25.488Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -24,7 +24,9 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
+ - [ ] <!-- unschedule-branch=renovate/python-(minor-and-patch) -->build(pip): update dependency github-backup to v0.65.1
  - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
+ - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
 
 ## Detected Dependencies
 
@@ -555,7 +557,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 <details><summary>pyproject.toml (18)</summary>
 
- - `github-backup ==0.65.0`
+ - `github-backup ==0.65.0` → [Updates: `==0.65.1`]
  - `jinja2 ==3.1.6`
  - `pexpect ==4.9.0`
  - `pytest ==9.1.1`
