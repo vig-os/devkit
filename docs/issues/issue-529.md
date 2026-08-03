@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-08-02T01:12:28Z
+updated: 2026-08-03T04:34:17Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,20 +13,24 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-02T05:34:25.488Z
+synced: 2026-08-03T05:50:04.693Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.<br>[View this repository on the Mend.io Web Portal](https://developer.mend.io/github/vig-os/devkit).
 
-## Awaiting Schedule
+## PR Edited (Blocked)
 
-The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
+The following updates have been manually edited so Renovate will no longer make changes. To discard all commits and start over, click on a checkbox below.
 
- - [ ] <!-- unschedule-branch=renovate/python-(minor-and-patch) -->build(pip): update dependency github-backup to v0.65.1
- - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
- - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
+ - [ ] <!-- rebase-branch=renovate/python-(minor-and-patch) -->[build(pip): update dependency github-backup to v0.65.1](../pull/1324)
+
+## Open
+
+The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
+
+ - [ ] <!-- rebase-branch=renovate/lock-file-maintenance -->[build(pip): lock file maintenance](../pull/1325)
 
 ## Detected Dependencies
 
