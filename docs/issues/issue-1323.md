@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-07-31T07:50:03Z
-updated: 2026-07-31T07:50:03Z
+updated: 2026-08-04T06:57:27Z
 author: github-actions[bot]
 author_url: https://github.com/github-actions[bot]
 url: https://github.com/vig-os/devkit/issues/1323
-comments: 0
+comments: 1
 labels: security, security-scan
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-01T05:33:57.600Z
+synced: 2026-08-04T12:17:56.764Z
 ---
 
 # [Issue 1323]: [Nightly security scan (main): unexcepted HIGH/CRITICAL vulnix findings](https://github.com/vig-os/devkit/issues/1323)
@@ -28,3 +28,13 @@ The nightly vulnix gate found **unexcepted HIGH/CRITICAL** CVEs in the `main` Ni
 - **Security tab:** https://github.com/vig-os/devkit/security
 
 **To remediate:** advance the pinned nixpkgs rev if a fix has landed, or add a time-boxed `.vulnixignore` exception with a rationale (see `docs/CONTAINER_SECURITY.md`). Close this issue once a later scheduled run passes the gate.
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on August 4, 2026 at 06:57 AM_
+
+Fixed on `dev` by #1329 (merge `13417e40`), tracked in #1327. Same closure and same three libssh2 findings as #1322 — `dev` and `main` share the nixpkgs pin, so one register fix covers both.
+
+Verified by replaying `vulnix-gate` against this run's own `nix-image-cve-scan-main` artifact (exit 0). Note that `main` only picks the fix up at the next **promote**, so the nightly `main` leg stays red until then.
+
