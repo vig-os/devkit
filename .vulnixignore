@@ -20,6 +20,19 @@
 # Each accepted entry should record WHY (patched-in-nixpkgs / not-exploitable /
 # awaiting-upstream) per docs/CONTAINER_SECURITY.md.
 #
+# EXPIRY GRID (#1337): every `Expiration:` date lands on a WEDNESDAY, so the
+# entry turns red on the Thursday AFTER the week's Renovate nixpkgs bump has
+# merged and the first nightly scan has produced a findings delta against the
+# new closure — the moment a review can delete entries instead of extending
+# them. Rationale and the snapping rule (nearest Wednesday, shift <= 3 days)
+# live in docs/CONTAINER_SECURITY.md; it is a convention enforced by review,
+# not by `check-expirations`.
+#
+# All dates below were snapped onto that grid on 2026-08-04 (#1337): one block
+# shortened by 3 days, five extended by 2, two by 1. A snap is a scheduling
+# adjustment ONLY — no risk assessment below was re-opened, re-verified or
+# changed by it, and every rationale stands as previously written.
+#
 # Tracking: https://github.com/vig-os/devkit/issues/637
 
 # ============================================================================
@@ -68,7 +81,7 @@ CVE-2022-36883
 #   closure, so unconditionally present; most glibc CVEs need a specific local
 #   vector (crafted input/locale/regex), mitigated by the single-user model but
 #   NOT individually verified here.
-Expiration: 2026-08-15
+Expiration: 2026-08-12
 # CVE-2025-15281 — glibc (base libc, loaded everywhere); specifics unverified offline.
 CVE-2025-15281
 # CVE-2026-4046 — glibc (base libc, loaded everywhere); specifics unverified offline.
@@ -84,7 +97,7 @@ CVE-2026-5928
 
 # Remaining lower-reachability components (provenance per note). Specifics
 # unverified offline; medium-near expiry to force re-review.
-Expiration: 2026-08-31
+Expiration: 2026-09-02
 # zlib 1.3.2 — ubiquitous compression dep (curl, openssh, git, nix, python).
 #   Reachable on any decompression path; specifics unverified offline.
 CVE-2026-27820
@@ -124,7 +137,7 @@ CVE-2025-62689
 #      2026-07-28 "no fix in the pinned channel" note was already stale.
 #    - CVE-2026-56123: the pin ships socat 1.8.1.3, past the 1.8.1.2 fix.)
 
-Expiration: 2026-08-17
+Expiration: 2026-08-19
 # (gzip CVE-2026-41992 removed 2026-08-04 (#1327): contrary to the "no nixpkgs
 #   patch yet" note above, the pinned rev applies CVE-2026-41992.patch to gzip
 #   1.14, so vulnix no longer reports it.)
@@ -139,7 +152,7 @@ Expiration: 2026-08-17
 CVE-2026-53432
 CVE-2026-53433
 
-Expiration: 2026-09-01
+Expiration: 2026-09-02
 # (libxml2 CVE-2026-11979 removed 2026-08-04 (#1327): the pinned rev applies
 #   CVE-2026-11979.patch to both libxml2 attrs (2.13.9 and 2.15.3), so vulnix
 #   no longer reports it.)
@@ -162,7 +175,7 @@ CVE-2026-58050
 # 2026-07-07. Real product match (no CPE collision).
 # ============================================================================
 
-Expiration: 2026-08-31
+Expiration: 2026-09-02
 # podman 5.8.2 — container engine, a direct devTools member (nix/devtools.nix)
 #   and the binary backing the docker->podman shim (flake.nix). CVE-2026-57231
 #   (CVSS 7.5 HIGH): a malicious image manifest with malformed `Env` entries (a
@@ -209,7 +222,7 @@ CVE-2026-57231
 # (5.4.1 still not in the pinned channel), so this block is retained.
 # ============================================================================
 
-Expiration: 2026-08-18
+Expiration: 2026-08-19
 # gawk 5.4.0 — CVE-2026-40468 (9.1): integer overflow in builtin.c; memory
 #   exhaustion / heap-metadata overwrite with attacker-controlled bytes.
 #   Requires gawk to run a crafted awk program or input — developer-chosen
@@ -255,7 +268,7 @@ CVE-2026-40553
 # (the 1.25.2 fix has not reached the pinned channel), so this block is retained.
 # ============================================================================
 
-Expiration: 2026-08-31
+Expiration: 2026-09-02
 # unbound 1.25.1 — CVE-2026-50252 (NVD 9.3 CRITICAL; upstream rates Medium):
 #   cache poisoning via per-thread source-port population under SO_REUSEPORT —
 #   resolver daemon behavior; no daemon runs here.
@@ -302,7 +315,7 @@ CVE-2026-55973
 # out on their own once it does. Short expiry to force near-term re-check.
 # ============================================================================
 
-Expiration: 2026-08-31
+Expiration: 2026-09-02
 # libssh2 1.11.1 — CVE-2026-66033 (7.5): pre-auth integer underflow in
 #   ssh2_cipher_crypt() (src/openssl.c); a malicious server negotiating AES-GCM
 #   triggers an OOB read and a memcpy with a near-SIZE_MAX length, crashing the
