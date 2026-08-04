@@ -77,6 +77,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The nightly scan keeps its SBOM when the vulnix gate goes red** ([#1342](https://github.com/vig-os/devkit/issues/1342))
+  - `security-scan.yml` generated the CycloneDX SBOM and ran the Trivy
+    defence-in-depth view *after* the blocking `vulnix-gate` step, with no `if:`
+    condition, so a red gate ended the job before they ran. The uploaded
+    artifact was complete on green runs and stripped on red ones — the inverse
+    of what triage needs (17 kB on the red 2026-08-03 dev run vs ~466 kB on the
+    green 2026-07-30 one).
+  - The SBOM steps now run before the gate, which stays last, blocking and
+    unchanged — so it remains the job's verdict and the tracking-issue
+    automation that keys on its outcome is unaffected.
 - **Trunk consumers' Renovate preset now targets `main`** ([#1336](https://github.com/vig-os/devkit/issues/1336))
   - The trunk render (`render_workflow_model`) retargets `baseBranchPatterns`
     from `["dev"]` to `["main"]` in the scaffolded `.github/renovate-default.json`.
