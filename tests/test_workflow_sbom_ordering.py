@@ -81,21 +81,22 @@ def test_sbom_steps_precede_the_blocking_gate() -> None:
     )
 
 
-def test_gate_is_the_last_verdict_step() -> None:
-    """Only the always-run upload may follow the gate.
+def test_nothing_unconditioned_follows_the_gate() -> None:
+    """Every step after the gate states its own run condition.
 
     Keeping the gate last preserves it as the job's unambiguous pass/fail
-    signal; anything scheduled after it must be unconditional, or it silently
-    inherits the gate's outcome the way the SBOM steps used to.
+    signal. A step scheduled after it with no ``if:`` silently inherits the
+    gate's outcome — the #1342 defect. The conditions themselves differ by
+    intent: the upload and summary use ``always()``, while the tracking-issue
+    step deliberately fires only on ``failure()``.
     """
     steps = _steps()
     gate = _index_of(steps, _is_gate)
 
     for step in steps[gate + 1 :]:
-        condition = str(step.get("if", ""))
-        assert "always()" in condition, (
-            f"step {step.get('name')!r} follows the blocking gate without "
-            f"`if: always()`, so a red gate would skip it (#1342)"
+        assert "if" in step, (
+            f"step {step.get('name')!r} follows the blocking gate with no `if:` "
+            f"condition, so a red gate would silently skip it (#1342)"
         )
 
 
