@@ -94,9 +94,8 @@ CVE-2026-27820
 CVE-2026-11822
 # sqlite 3.51.2 — see CVE-2026-11822 note; specifics unverified offline.
 CVE-2026-11824
-# ldns 1.9.0 — in-closure via openssh (DNSSEC/SSHFP support). Reachable only on
-#   ssh hostname-resolution paths; specifics unverified offline.
-CVE-2026-10846
+# (ldns CVE-2026-10846 removed 2026-08-04 (#1327): the #1273 pin advance took
+#   ldns 1.9.0 -> 1.9.2, which carries the fix; vulnix no longer reports it.)
 # libmicrohttpd 1.0.2 — in-closure via podman -> systemd. The container does not
 #   run systemd as PID 1 and podman is used as a rootless CLI, so this embedded
 #   HTTP server is effectively not exercised — LOWEST reachability of the set.
@@ -116,28 +115,19 @@ CVE-2025-62689
 # upstream. Closure provenance verified via `nix why-depends` per package.
 # ============================================================================
 
-Expiration: 2026-08-03
-# libssh2 1.11.1 — SSH client lib, in-closure via curl (sftp/scp backend);
-#   plain git uses openssh. CVE-2026-55200 client-side OOB write (public PoC)
-#   needs a dev-initiated connection to a malicious SSH server. Patch merged to
-#   staging-26.05 (nixpkgs #537259, 2026-07-01) — flip to rev-advance when it
-#   reaches release-26.05; re-check weekly.
-# Re-verified 2026-07-28 (#1273): the pin was advanced to nixos-26.05 @
-#   2026-07-26 (rev 8623c4c2) and rebuilt; libssh2 is still 1.11.1 (no fix in
-#   the pinned channel), so this exception is retained.
-CVE-2026-55200
-# socat 1.8.1.1 — CLI relay, in-closure via claude-code. Overflow only when
-#   socat runs as a SOCKS5 *client* through a malicious proxy; no such usage
-#   here, no untrusted listeners. Fixed upstream 1.8.1.2; nixpkgs bump on
-#   staging (#535404/#535779).
-CVE-2026-56123
+# (The 2026-08-03 block — libssh2 CVE-2026-55200 and socat CVE-2026-56123 —
+#  was removed on 2026-08-04 (#1327). Both are fixed at the pinned rev by the
+#  #1273 pin advance, which the register was not reconciled against:
+#    - CVE-2026-55200: nixpkgs applies CVE-2026-55200.patch (commit f6ae2642 on
+#      nixos-26.05, 2026-07-01 — inside the pinned rev). vulnix credits
+#      CVE-named `patches` entries, so it no longer reports the CVE; the
+#      2026-07-28 "no fix in the pinned channel" note was already stale.
+#    - CVE-2026-56123: the pin ships socat 1.8.1.3, past the 1.8.1.2 fix.)
 
 Expiration: 2026-08-17
-# gzip 1.14 — stdenv closure member. OOB *read* in the legacy LZH decoder
-#   needs crafted LZW+LZH files decompressed in one `gzip -d` run;
-#   developer-chosen inputs only (CERT.PL CVSS4 6.9/AV:L; Debian no-dsa). Upstream
-#   fix commit unreleased; no nixpkgs patch yet — re-evaluate at expiry.
-CVE-2026-41992
+# (gzip CVE-2026-41992 removed 2026-08-04 (#1327): contrary to the "no nixpkgs
+#   patch yet" note above, the pinned rev applies CVE-2026-41992.patch to gzip
+#   1.14, so vulnix no longer reports it.)
 # fzf 0.72.0 — interactive fuzzy finder, in-closure via zoxide. 53432
 #   (FuzzyMatchV2 int-overflow panic) affects 32-bit Go builds only per the
 #   upstream fix commit — this image is 64-bit; 53433 is CPU-DoS of fzf's own
@@ -150,13 +140,12 @@ CVE-2026-53432
 CVE-2026-53433
 
 Expiration: 2026-09-01
-# libxml2 2.15.3 — transitive lib dep (podman -> systemd -> libarchive).
-#   Stack overflow in xmlcatalog's interactive --shell mode only, not the
-#   parsing library; nothing here invokes xmlcatalog. Upstream disputes it
-#   (CERT.PL CVSS4 1.8 LOW; Debian: unimportant). Fix for 2.15.x pending in
-#   nixpkgs #537486 (staging); drop once backported.
-CVE-2026-11979
-# libssh2 1.11.1 — see CVE-2026-55200 note for provenance. Integer-overflow
+# (libxml2 CVE-2026-11979 removed 2026-08-04 (#1327): the pinned rev applies
+#   CVE-2026-11979.patch to both libxml2 attrs (2.13.9 and 2.15.3), so vulnix
+#   no longer reports it.)
+# libssh2 1.11.1 — SSH client lib, in-closure via curl (sftp/scp backend);
+#   plain git uses openssh, so nothing here initiates a libssh2 SSH session
+#   unless a developer points curl at an scp://sftp:// URL. Integer-overflow
 #   heap overflow in the publickey subsystem wraps only on 32-bit size_t and
 #   the subsystem is not called by curl/libgit2 — unreachable on this 64-bit
 #   image. No upstream fix published yet (verified NVD/Debian/libssh2 repo,
@@ -173,7 +162,7 @@ CVE-2026-58050
 # 2026-07-07. Real product match (no CPE collision).
 # ============================================================================
 
-Expiration: 2026-08-06
+Expiration: 2026-08-31
 # podman 5.8.2 — container engine, a direct devTools member (nix/devtools.nix)
 #   and the binary backing the docker->podman shim (flake.nix). CVE-2026-57231
 #   (CVSS 7.5 HIGH): a malicious image manifest with malformed `Env` entries (a
@@ -188,6 +177,11 @@ Expiration: 2026-08-06
 # Re-verified 2026-07-28 (#1273): the pin was advanced to nixos-26.05 @
 #   2026-07-26 (rev 8623c4c2) and rebuilt; the closure still ships podman 5.8.2
 #   (the 5.8.4 fix has not reached the pinned channel), so this is retained.
+# Re-verified 2026-08-04 (#1327): nixos-26.05 HEAD still ships podman 5.8.2 and
+#   the release-26.05 backport (NixOS/nixpkgs#536367) is still a DRAFT,
+#   untouched since 2026-07-20 — the rev-advance lever still has nowhere to
+#   land. Expiry extended 2026-08-06 -> 2026-08-31 to align with the libssh2
+#   and unbound blocks, so the register gets one combined re-review pass.
 CVE-2026-57231
 
 # ============================================================================
@@ -279,3 +273,48 @@ CVE-2026-44690
 # unbound 1.25.1 — CVE-2026-55973 (7.5): stack buffer overflow with the
 #   opt-in dns-error-reporting option — daemon config, not enabled here.
 CVE-2026-55973
+
+# ============================================================================
+# Triage 2026-08-04 — libssh2 1.11.1 malicious-server batch (nightly-scan fix,
+# #1327). Published on NVD 2026-07-24, surfaced in the vulnix feed 2026-07-30;
+# the nightly security scan went red on BOTH refs from 2026-07-31 (run
+# 30614074169 -> issues #1322 dev / #1323 main) and stayed red on 08-01..08-03.
+# A findings diff against the last green run (30523258723, 2026-07-30) confirms
+# these three are the ONLY delta. Verified ONLINE against NVD, the upstream
+# libssh2 repo/PR, the nixpkgs security tracker and the nixpkgs branch contents
+# (nixos-26.05, release-26.05, staging-26.05, master, nixpkgs-unstable) on
+# 2026-08-04. Real product match (libssh2, no CPE collision).
+#
+# Closure provenance: libssh2 enters ONLY as curl's scp/sftp backend (plain git
+# uses openssh; nothing in the image drives libssh2 SSH sessions). All three
+# are CLIENT-side flaws that require connecting to a MALICIOUS SSH server, so
+# they are reachable only if a developer points curl at a hostile scp://sftp://
+# endpoint — the same reachability class as CVE-2026-58050 above.
+#
+# Remediation lever: NONE today. Upstream has fixes in git (commit a2ed82d4,
+# libssh2/libssh2#2401) but has published no release since 1.11.1 (2024-10-16).
+# In nixpkgs, NixOS/nixpkgs#547491 ("apply debian patches for
+# CVE-2026-6603[2345]", tracker #545668) is open against *staging*, is not
+# merged, is gated behind NixOS/nixpkgs#546446 and still needs a release-26.05
+# backport afterwards; nixos-26.05 HEAD ships libssh2 1.11.1 with no 6603x
+# patch. Flip to a rev-advance once the patched derivation reaches the pinned
+# channel — vulnix credits CVE-named `patches` entries, so the findings drop
+# out on their own once it does. Short expiry to force near-term re-check.
+# ============================================================================
+
+Expiration: 2026-08-31
+# libssh2 1.11.1 — CVE-2026-66033 (7.5): pre-auth integer underflow in
+#   ssh2_cipher_crypt() (src/openssl.c); a malicious server negotiating AES-GCM
+#   triggers an OOB read and a memcpy with a near-SIZE_MAX length, crashing the
+#   client before authentication. Availability only.
+CVE-2026-66033
+# libssh2 1.11.1 — CVE-2026-66034 (7.5): publickey subsystem accepts a
+#   server-supplied unsafe length and reads past the heap buffer; the error
+#   path may free an uninitialized pointer. Same subsystem as CVE-2026-58050,
+#   which curl/libgit2 do not call.
+CVE-2026-66034
+# libssh2 1.11.1 — CVE-2026-66035 (7.5): pre-auth heap buffer overflow in
+#   fullpacket() (src/transport.c); with Encrypt-then-MAC negotiated, a
+#   malicious server sends a packet smaller than the cipher block size and the
+#   library copies more data than it allocated.
+CVE-2026-66035
