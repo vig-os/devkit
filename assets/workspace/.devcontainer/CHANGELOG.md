@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renovate: update `github-backup` from `==0.65.0` to `==0.65.1`** ([#1324](https://github.com/vig-os/devkit/pull/1324))
 - **Release runbook: restart point of no return** ([#1318](https://github.com/vig-os/devkit/issues/1318))
   - `docs/RELEASE_CYCLE.md` now documents that deleting a **published** GitHub
     Release under org-enforced immutability permanently tombstones its tag name
@@ -37,6 +38,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 ### Security
+
+- **vulnix register: except the libssh2 malicious-server batch, prune five dead exceptions** ([#1327](https://github.com/vig-os/devkit/issues/1327), [#1322](https://github.com/vig-os/devkit/issues/1322), [#1323](https://github.com/vig-os/devkit/issues/1323))
+  - New time-boxed `.vulnixignore` block (expires 2026-08-31) for the three
+    HIGH libssh2 1.11.1 CVEs disclosed 2026-07-24 (CVE-2026-66033, -66034,
+    -66035) that turned the nightly security scan red on both refs from
+    2026-07-31. All three are client-side flaws requiring a connection to a
+    malicious SSH server; libssh2 enters the closure only as curl's scp/sftp
+    backend. Upstream has published no release since 1.11.1 and the nixpkgs
+    patches (NixOS/nixpkgs#547491) are still on `staging`, so no rev-advance is
+    available.
+  - Five exceptions removed as dead — each already fixed at the pinned rev by
+    the #1273 pin advance, which the register was never reconciled against:
+    libssh2 CVE-2026-55200, gzip CVE-2026-41992 and libxml2 CVE-2026-11979
+    (CVE-named nixpkgs patches, which vulnix credits), plus socat
+    CVE-2026-56123 (1.8.1.3) and ldns CVE-2026-10846 (1.9.2). Two of them had
+    lapsed on 2026-08-03, failing `check-expirations` on every branch.
+  - podman CVE-2026-57231 renewed to 2026-08-31 (re-verified: `nixos-26.05`
+    still ships 5.8.2 and the release-26.05 backport is still a draft).
 
 ## [1.5.1](https://github.com/vig-os/devkit/releases/tag/1.5.1) - 2026-07-30
 
