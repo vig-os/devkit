@@ -67,3 +67,51 @@ zizmor audit surfaces, update `zizmor.yml` (or fix the workflow) in the same PR.
 The zizmor version in the CI gate is pinned deliberately: a floating version
 would let a newly-released audit break CI unpredictably, so version bumps are an
 explicit, reviewed change that re-baselines any new findings at the same time.
+
+## Dependency maintenance for managed files (Renovate)
+
+The managed workflows and the two managed composite actions
+(`.github/actions/setup-devkit-toolchain`, `.github/actions/resolve-toolchain`)
+carry SHA-pinned third-party `uses:`. Because these files are devkit-owned and
+regenerated wholesale on every `devkit-upgrade`, **their dependency maintenance
+sits upstream in devkit, not in the consumer.** Devkit's own Renovate advances
+the digests and ships them with each release; the consumer picks them up on the
+next upgrade.
+
+To stop consumers from opening duplicate pin-bump PRs against files the next
+upgrade clobbers, the shipped preset
+([`assets/workspace/.github/renovate-default.json`](../assets/workspace/.github/renovate-default.json))
+ends with an `enabled: false` `packageRule` naming exactly the managed set (all
+shipped workflows **minus** the consumer-owned seams `release-extension.yml` and
+`prepare-release-extension.yml`, plus the two managed action directories). The
+enumeration is drift-gated by
+[`tests/test_renovate_preset_managed_exclusion.py`](../tests/test_renovate_preset_managed_exclusion.py)
+so a new or renamed managed workflow cannot silently reopen the gap.
+
+Accepted trade-off: disabling updates for managed files also suppresses
+Renovate's vulnerability PRs for those pins downstream. This is consistent with
+the doctrine that devkit is the patch channel for managed files — an emergency
+hand-bump downstream still works, and the next upgrade re-converges.
+
+**Opting back in.** The exclusion is the *last* rule in the preset, so a
+consumer's own later `packageRules` win. A consumer that deliberately wants to
+manage a specific managed file adds a re-enabling rule to its preserved root
+`renovate.json`, for example:
+
+```json
+{
+  "packageRules": [
+    {
+      "description": "Manage pins in this workflow locally despite the devkit preset",
+      "matchFileNames": [".github/workflows/ci.yml"],
+      "enabled": true
+    }
+  ]
+}
+```
+
+Devkit itself uses exactly this mechanism: it extends the same preset, so its
+root `renovate.json` re-enables `.github/workflows/**` and `.github/actions/**`
+to keep advancing the pins it owns (the shipped copies under `assets/workspace/`
+are unaffected — the preset's rooted `matchFileNames` globs do not match nested
+paths).
