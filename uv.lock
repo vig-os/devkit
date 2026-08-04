@@ -224,7 +224,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "github-backup", specifier = "==0.65.0" },
+    { name = "github-backup", specifier = "==0.65.1" },
     { name = "jinja2", specifier = "==3.1.6" },
     { name = "pexpect", specifier = "==4.9.0" },
     { name = "pytest", specifier = "==9.1.1" },
@@ -281,11 +281,11 @@ wheels = [
 
 [[package]]
 name = "github-backup"
-version = "0.65.0"
+version = "0.65.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/6f/c4/6be1123fd6dddebfd0df4b4c938fed44d3dde8a7cd942d0439f7a14ed130/github_backup-0.65.0.tar.gz", hash = "sha256:0a941bfe296d311357b78b6a0ba9138482bf17a81e545b86fc61c3e7423c65ac", size = 130169, upload-time = "2026-07-27T23:11:57.555Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b6/f6/3d4d51398c1f3f8a5efe03f768907f459555ff24609465e38c90d435c1ab/github_backup-0.65.1.tar.gz", hash = "sha256:cac20d6fb5eb1d46090d3e6d39fcaa743f7572f771ef5fa5db2bbd75f4edd2fe", size = 130586, upload-time = "2026-08-01T22:01:49.991Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e5/90/c9508c21d4c970efd540ddbee3db811ee0a23a433f5aeb5526dc71bd1266/github_backup-0.65.0-py3-none-any.whl", hash = "sha256:a9cc8284336bb3d7aca81002b5c008f40a6c2b5d2694a2b36bd945e4cebabf5c", size = 46479, upload-time = "2026-07-27T23:11:56.253Z" },
+    { url = "https://files.pythonhosted.org/packages/a6/aa/3df573ec10a5bb4dd3b0a0f62407fe6a67da9f19cce8e4da5d385eeab39f/github_backup-0.65.1-py3-none-any.whl", hash = "sha256:07b054a1e0cc6e4665d8964bfbe30e02a7c6dce43a4a8e480022043836bbc49d", size = 46582, upload-time = "2026-08-01T22:01:48.781Z" },
 ]
 
 [[package]]

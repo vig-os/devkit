@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renovate: update `github-backup` from `==0.65.0` to `==0.65.1`** ([#1324](https://github.com/vig-os/devkit/pull/1324))
 - **Release runbook: restart point of no return** ([#1318](https://github.com/vig-os/devkit/issues/1318))
   - `docs/RELEASE_CYCLE.md` now documents that deleting a **published** GitHub
     Release under org-enforced immutability permanently tombstones its tag name
