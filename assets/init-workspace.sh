@@ -1352,6 +1352,16 @@ render_workflow_model() {
         sed -i 's|(?!dev$)||' "$pc"
     fi
 
+    # renovate-default.json — retarget baseBranchPatterns dev -> main: Renovate
+    # restricted to a base-branch pattern matching no existing branch has
+    # nothing to operate on, so a trunk consumer keeping the gitflow-shaped
+    # ["dev"] runs no updates at all (#1336). Anchored to the exact preset
+    # line; the consumer-owned root renovate.json is preserved and untouched.
+    local rd="$WORKSPACE_DIR/.github/renovate-default.json"
+    if [[ -f "$rd" ]]; then
+        sed -i 's|"baseBranchPatterns": \["dev"\]|"baseBranchPatterns": ["main"]|' "$rd"
+    fi
+
     echo "Rendered workflow model: trunk (anchored dev -> main retarget)"
 }
 

@@ -50,6 +50,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Trunk consumers' Renovate preset now targets `main`** ([#1336](https://github.com/vig-os/devkit/issues/1336))
+  - The trunk render (`render_workflow_model`) retargets `baseBranchPatterns`
+    from `["dev"]` to `["main"]` in the scaffolded `.github/renovate-default.json`.
+    Previously a `DEVKIT_WORKFLOW=trunk` consumer kept `["dev"]` while having no
+    `dev` branch, leaving Renovate with nothing to operate on — effectively
+    inert. Existing trunk repos self-heal on their next `devkit-upgrade`.
+
 ### Security
 
 - **vulnix register: except the libssh2 malicious-server batch, prune five dead exceptions** ([#1327](https://github.com/vig-os/devkit/issues/1327), [#1322](https://github.com/vig-os/devkit/issues/1322), [#1323](https://github.com/vig-os/devkit/issues/1323))
