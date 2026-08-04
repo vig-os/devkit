@@ -77,6 +77,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Upgrades no longer skip same-size template changes on previously scaffolded consumers** ([#1344](https://github.com/vig-os/devkit/issues/1344))
+  - The scaffold's template copy (`rsync -avL`) relied on rsync's size+mtime
+    quick-check. The dereferenced template files carry the Nix store's canonical
+    epoch+1 mtime, and `-a` (`-t`) stamps that same mtime onto the workspace
+    copies — so a later template change that keeps the byte count identical (a
+    digest-for-digest action bump, like #1330's `codeql-action` update in
+    `scorecard.yml`) matched the consumer file on both size and mtime and was
+    silently never delivered by host-side upgrades of previously nix-scaffolded
+    consumers. CI paths were unaffected (fresh checkouts have current mtimes),
+    which is how the scaffold-drift gate (#1295) caught the divergence on its
+    first live exercise: four of five 1.6.0-rc1 consumer lanes went red on a
+    scaffold the upgrade itself had produced.
+  - All three template `rsync` invocations (consumer upgrade, smoke clean
+    deploy, smoke overlay) now pass `--checksum`, so delivery is decided by
+    content, not size+mtime coincidence.
 - **The nightly scan keeps its SBOM when the vulnix gate goes red** ([#1342](https://github.com/vig-os/devkit/issues/1342))
   - `security-scan.yml` generated the CycloneDX SBOM and ran the Trivy
     defence-in-depth view *after* the blocking `vulnix-gate` step, with no `if:`
