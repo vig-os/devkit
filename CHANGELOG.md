@@ -21,6 +21,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Security exception expiries land on a Wednesday** ([#1337](https://github.com/vig-os/devkit/issues/1337))
+  - `docs/CONTAINER_SECURITY.md` now documents an expiry grid for the exception
+    registers: every `Expiration:` date is picked on a Wednesday, so an entry
+    turns red on the Thursday *after* the week's Renovate `nixpkgs` bump has
+    merged and the first nightly scan has produced a findings delta against the
+    new closure — the point at which a review can delete entries instead of
+    blindly extending them. Earlier weekdays force that blind extension (or, on
+    a Sunday, take unrelated PRs red before the week's Renovate PRs even open);
+    later ones lapse over an unattended weekend, blocking every commit.
+  - All 12 non-conforming dates across `.vulnixignore`, `.trivyignore` and
+    `.github/dependency-review-allow.txt` were snapped onto the grid (shift
+    ≤ 3 days each). This is a scheduling change only — no risk assessment was
+    re-opened or altered. Notably the glibc block no longer expires on a
+    Saturday, where it would have turned red unattended on Sunday 2026-08-16.
+  - Convention enforced by review, not by `check-expirations`: the validator is
+    unchanged, since it is scaffolded into consumer repos whose release cadence
+    may differ.
 - **Consumer Renovate ignores devkit-managed workflows and actions** ([#1332](https://github.com/vig-os/devkit/issues/1332))
   - The shipped preset (`.github/renovate-default.json`) now disables Renovate
     for the managed workflow set and the two managed composite actions

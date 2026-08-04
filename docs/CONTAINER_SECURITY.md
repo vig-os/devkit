@@ -128,6 +128,49 @@ Both use the `Expiration: YYYY-MM-DD` directive format and are validated by
 `check-expirations` (pre-commit hook and CI). Expired entries fail CI, forcing
 periodic review consistent with the IEC 62304 exception-register model.
 
+#### Expiry dates land on a Wednesday
+
+**Convention:** pick every `Expiration:` date on a **Wednesday** — in both
+registers above and in the `.github/dependency-review-allow.txt` allow-list,
+which shares the format. This is a
+convention enforced by review, not by `check-expirations` — the validator only
+checks that a date has passed, and it is scaffolded into consumer repos whose
+release cadence may differ.
+
+`check-expirations` fails when `today > expiration`, so an entry dated `D` is
+valid through `D` and turns red on `D+1`. Wednesday is chosen so that `D+1` is
+the Thursday *after* the week's remediation data has arrived:
+
+1. Renovate opens the `nixpkgs`/`flake.lock` bump — the primary remediation
+   lever — in its Monday window (`schedule: ["before 9am on monday"]`, UTC, in
+   [`assets/workspace/.github/renovate-default.json`](../assets/workspace/.github/renovate-default.json);
+   **if that schedule changes, this convention should be re-derived**).
+2. The bump merges to `dev` on Monday or Tuesday. PR CI does **not** run
+   `vulnix` (the authoritative CVE gate is the nightly scan), so the PR itself
+   reveals nothing about which exceptions have gone dead.
+3. The first nightly `security-scan` after the merge (05:00 UTC, Tuesday or
+   Wednesday) produces the findings delta against the new closure.
+4. The register is reconciled against that delta — entries the bump fixed are
+   deleted rather than blindly extended.
+
+A Wednesday expiry therefore turns red on Thursday, once that data exists and
+with two working days before the weekend. Earlier weekdays force a blind
+extension or, at worst (Sunday), a register that is already red when the week's
+Renovate PRs open — which is how [#550](https://github.com/vig-os/devkit/issues/550)
+took 16 unrelated PRs red at once. Later weekdays lapse over an unattended
+weekend, blocking every commit (`check-expirations` runs in all PR CI, in
+pre-commit, and in the release train).
+
+**Snapping rule.** When renewing or adding an entry, choose the intended window,
+then move to the nearest Wednesday, shifting at most **3 days** and preferring
+the shorter window on ties. A snap is a scheduling adjustment only: it never
+re-opens the risk assessment, and the entry's rationale must stay as written.
+
+**Stagger across weeks, not weekdays.** Sharing one date gives the register a
+single combined re-review pass, which is the intent; but every block on the
+*same* Wednesday means one stalled review blocks the whole register. Spread
+renewals over different Wednesdays by choosing different week-multiples.
+
 ## Why pin `nixpkgs` (and not track an unpinned channel)?
 
 Building from an unpinned/rolling input has the same drawbacks the old

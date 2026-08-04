@@ -2,6 +2,9 @@
 # Allowed GitHub Security Advisories (GHSAs) for dependency-review-action.
 # Mirrors .trivyignore conventions: each GHSA entry requires an Expiration
 # directive. Expired exceptions cause CI to fail, forcing periodic review.
+# Expiration dates land on a Wednesday, per the expiry grid documented in
+# docs/CONTAINER_SECURITY.md (#1337); the date below was snapped onto that grid
+# on 2026-08-04 (+1 day), leaving its risk assessment unchanged.
 #
 # Format:
 #   # <GHSA-ID>: <short description>
@@ -18,5 +21,5 @@
 # - Upstream package.json has never updated its version field from 0.2.0
 # - The lock file records 0.2.0 regardless of which git tag is used
 # Mitigation: Source is verified GitHub repository, not npm registry
-Expiration: 2026-09-01
+Expiration: 2026-09-02
 GHSA-wvrr-2x4r-394v
