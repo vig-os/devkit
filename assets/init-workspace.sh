@@ -1710,14 +1710,22 @@ echo "Copying files from $TEMPLATE_DIR to $WORKSPACE_DIR..."
 # Note: Excluding .venv - it is used directly from the container image
 # via UV_PROJECT_ENVIRONMENT environment variable (set in docker-compose.yml)
 # Pre-commit cache is now at /opt/pre-commit-cache (not in assets/workspace)
+#
+# --checksum on every template copy (#1344): the dereferenced (-L) template
+# files carry the Nix store's canonical epoch+1 mtime, and -a (-t) stamps that
+# same mtime onto the workspace copies — so on the NEXT upgrade a template
+# change that keeps the byte count identical (a digest-for-digest action bump)
+# matches the consumer file on both size and mtime and rsync's quick-check
+# silently skips it. Content comparison is the only sound check here; the
+# template is small, so the cost is negligible.
 if [[ "$SMOKE_TEST" == "true" ]]; then
     # Smoke mode: clean deploy (--delete removes stale files), then overlay smoke-test assets
-    rsync -avL --delete --exclude='.git' --exclude='.venv' --exclude='docs/issues/' --exclude='docs/pull-requests/' "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
+    rsync -avL --checksum --delete --exclude='.git' --exclude='.venv' --exclude='docs/issues/' --exclude='docs/pull-requests/' "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
 
     SMOKE_TEST_DIR="$SCRIPT_DIR/smoke-test"
     if [[ -d "$SMOKE_TEST_DIR" ]]; then
         echo "Deploying smoke-test-specific files..."
-        rsync -avL "$SMOKE_TEST_DIR/" "$WORKSPACE_DIR/"
+        rsync -avL --checksum "$SMOKE_TEST_DIR/" "$WORKSPACE_DIR/"
     else
         echo "Warning: Smoke-test directory not found at $SMOKE_TEST_DIR" >&2
     fi
@@ -1781,7 +1789,7 @@ else
         EXCLUDE_ARGS+=("--exclude=/.github/workflows/sync-main-to-dev.yml")
     fi
 
-    rsync -avL --exclude='.git' --exclude='.venv' "${EXCLUDE_ARGS[@]}" "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
+    rsync -avL --checksum --exclude='.git' --exclude='.venv' "${EXCLUDE_ARGS[@]}" "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
 
     # ci.yml is a single mode-aware workflow (#991): it resolves DEVKIT_MODE at
     # run time via the resolve-toolchain job + setup-devkit-toolchain composite,

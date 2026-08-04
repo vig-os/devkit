@@ -894,12 +894,12 @@ _preview_symlinked_template_venv() {
 }
 
 @test "init-workspace.sh smoke mode uses rsync --delete for clean deploy" {
-    run grep 'rsync -avL --delete' "$INIT_WORKSPACE_SH"
+    run grep 'rsync -avL --checksum --delete' "$INIT_WORKSPACE_SH"
     assert_success
 }
 
 @test "init-workspace.sh smoke mode excludes synced docs directories from delete" {
-    run grep -A1 'rsync -avL --delete' "$INIT_WORKSPACE_SH"
+    run grep -A1 'rsync -avL --checksum --delete' "$INIT_WORKSPACE_SH"
     assert_success
     assert_output --partial "--exclude='docs/issues/'"
     assert_output --partial "--exclude='docs/pull-requests/'"
