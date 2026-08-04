@@ -155,13 +155,11 @@ jobs:
           nix run .#vulnix -- --mirror "$NVD_MIRROR" --closure ./result | tee vulnix-report.txt || rc=$?
           [ "$rc" -le 2 ] || { echo "::error::vulnix report failed (exit $rc)"; exit "$rc"; }
 
-      - name: Gate on unexcepted HIGH/CRITICAL vulnix findings
-        id: vulnix-gate
-        # BLOCKING (#639): fails the nightly scan on any HIGH/CRITICAL not covered
-        # by a non-expired entry in .vulnixignore. This is the go/no-go gate for
-        # the publish-cutover.
-        run: uv run vulnix-gate vulnix-findings.json --register .vulnixignore
-
+      # SBOM generation runs BEFORE the gate (#1342). These steps carry no `if:`,
+      # so scheduling them after the blocking gate meant a red gate ended the job
+      # first and the uploaded artifact lost its SBOM and Trivy view — exactly
+      # the runs where that evidence is needed to triage the finding. Ordering
+      # fixes it without conditions, keeping the gate the job's last word.
       - name: Build the Nix image for SBOM generation
         run: |
           set -euo pipefail
@@ -171,7 +169,7 @@ jobs:
       - name: Generate Nix image SBOM (CycloneDX)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          version: 'v0.72.0'
+          version: 'v0.73.0'
           input: /tmp/nix-image.tar.gz
           format: 'cyclonedx'
           output: 'sbom-nix-cyclonedx.json'
@@ -180,12 +178,21 @@ jobs:
         continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          version: 'v0.72.0'
+          version: 'v0.73.0'
           scan-type: 'sbom'
           scan-ref: 'sbom-nix-cyclonedx.json'
           format: 'table'
           severity: 'HIGH,CRITICAL'
           exit-code: '0'
+
+      - name: Gate on unexcepted HIGH/CRITICAL vulnix findings
+        id: vulnix-gate
+        # BLOCKING (#639): fails the nightly scan on any HIGH/CRITICAL not covered
+        # by a non-expired entry in .vulnixignore. This is the go/no-go gate for
+        # the publish-cutover. Deliberately LAST of the checking steps (#1342) so
+        # it stays the job's unambiguous verdict and nothing it fails can skip
+        # evidence collection; only the always() upload and summary follow it.
+        run: uv run vulnix-gate vulnix-findings.json --register .vulnixignore
 
       - name: Upload vulnix findings + SBOM (Trivy-vs-vulnix overlap evidence)
         # always(): a red vulnix-gate is exactly when the findings are needed

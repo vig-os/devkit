@@ -288,6 +288,53 @@ _scaffold() {
     assert_success
 }
 
+@test "upgrade delivers same-size template changes on epoch-mtime trees (#1344)" {
+    # A consumer scaffolded by a previous nix-image devkit carries managed files
+    # whose mtimes rsync -t stamped to the store's canonical epoch+1 — the same
+    # mtime every later template ships. A template change that keeps the byte
+    # count identical (a digest-for-digest action bump, #1330) then matches the
+    # consumer copy on BOTH size and mtime, and rsync's quick-check silently
+    # skips the transfer: the upgrade claims success but never delivers the
+    # change. Caught live by the scaffold-drift gate on 4 of 5 1.6.0-rc1 lanes.
+    tmpl="$BATS_TEST_TMPDIR/tmpl-1344"
+    cp -r "$PROJECT_ROOT/assets/workspace" "$tmpl"
+    ws="$BATS_TEST_TMPDIR/ws-1344"
+    mkdir -p "$ws"
+    stub="$BATS_TEST_TMPDIR/stub-bin"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+
+    # First scaffold: the consumer adopts the current template.
+    env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$tmpl" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode direnv
+    assert [ -f "$ws/.github/workflows/scorecard.yml" ]
+
+    # Upstream ships a same-length change to a managed file (digest swap class).
+    sed -i 's/sarif_file/sarif_fil3/' "$tmpl/.github/workflows/scorecard.yml"
+    run diff "$tmpl/.github/workflows/scorecard.yml" "$ws/.github/workflows/scorecard.yml"
+    assert_failure
+
+    # Both sides sit at the Nix store's epoch+1 — template by construction,
+    # consumer stamped by the previous scaffold's rsync -t.
+    touch -d '@1' "$tmpl/.github/workflows/scorecard.yml" \
+        "$ws/.github/workflows/scorecard.yml"
+
+    # Second scaffold (the upgrade) must still deliver the change.
+    env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$tmpl" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode direnv
+    run diff "$tmpl/.github/workflows/scorecard.yml" "$ws/.github/workflows/scorecard.yml"
+    assert_success
+}
+
 @test "init-workspace --mode=direnv yields a justfile that still loads (#641)" {
     # Regression guard: direnv mode prunes .devcontainer/, so the scaffolded
     # justfile's .devcontainer imports must be optional or `just` fails to parse.
@@ -847,12 +894,12 @@ _preview_symlinked_template_venv() {
 }
 
 @test "init-workspace.sh smoke mode uses rsync --delete for clean deploy" {
-    run grep 'rsync -avL --delete' "$INIT_WORKSPACE_SH"
+    run grep 'rsync -avL --checksum --delete' "$INIT_WORKSPACE_SH"
     assert_success
 }
 
 @test "init-workspace.sh smoke mode excludes synced docs directories from delete" {
-    run grep -A1 'rsync -avL --delete' "$INIT_WORKSPACE_SH"
+    run grep -A1 'rsync -avL --checksum --delete' "$INIT_WORKSPACE_SH"
     assert_success
     assert_output --partial "--exclude='docs/issues/'"
     assert_output --partial "--exclude='docs/pull-requests/'"

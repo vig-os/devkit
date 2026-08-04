@@ -39,6 +39,7 @@ NO_PLACEHOLDER_RENDER_FILES = (
     ".github/workflows/promote-release.yml",
     ".github/workflows/ci.yml",
     ".github/workflows/sync-issues.yml",
+    ".github/renovate-default.json",
     ".claude/skills/branch-naming/SKILL.md",
     ".pre-commit-config.yaml",
 )
@@ -249,6 +250,20 @@ def test_trunk_precommit_drops_dev_clause(tmp_path: Path) -> None:
     text = (rendered / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     assert "(?!dev$)" not in text
     assert "(?!main$)" in text
+
+
+def test_trunk_renovate_preset_targets_main(tmp_path: Path) -> None:
+    """renovate-default.json baseBranchPatterns dev -> main (#1336).
+
+    Renovate restricted to a base-branch pattern that matches no existing
+    branch has nothing to operate on, so a trunk consumer keeping the
+    gitflow-shaped ``["dev"]`` runs no updates at all. The trunk render must
+    retarget the shipped preset to main.
+    """
+    rendered = _tree(tmp_path, "trunk")
+    text = (rendered / ".github" / "renovate-default.json").read_text(encoding="utf-8")
+    assert '"baseBranchPatterns": ["main"]' in text
+    assert '["dev"]' not in text
 
 
 def test_trunk_flake_forwards_workflow_to_hooks(tmp_path: Path) -> None:

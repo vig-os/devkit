@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "github>vig-os/devcontainer//assets/workspace/.github/renovate-default"
+    "github>vig-os/devkit//assets/workspace/.github/renovate-default"
   ],
   "enabledManagers": ["github-actions", "pep621", "npm", "nix", "custom.regex"],
   "customManagers": [
@@ -30,6 +30,11 @@
       "matchDepNames": ["pip-licenses"],
       "semanticCommitType": "build",
       "semanticCommitScope": "nix"
+    },
+    {
+      "description": "Re-enable Renovate for devkit's OWN root workflows and composite actions. The extended preset (renovate-default) disables the managed set by rooted path so consumers stop bumping devkit-owned pins; devkit is the source of those files, so it must keep advancing them here. This rule merges after the preset's and wins; it is last so nothing shadows it. Refs #1332.",
+      "matchFileNames": [".github/workflows/**", ".github/actions/**"],
+      "enabled": true
     }
   ]
 }
