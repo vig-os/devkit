@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.6.0] - TBD
+
+### Added
+
 - **Tombstoned tag names fail with the real cause** ([#1319](https://github.com/vig-os/devkit/issues/1319))
   - The downstream `release-publish.yml` template now recognizes the `GH013`
     "creations restricted" signature on tag push and release creation — the mark
@@ -60,10 +74,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `devkit-smoke-test`) is still a draft; once smoke-test publishes its final,
     the version is committed and a restart means burning it (re-cut as the next
     patch). Lesson from the 1.5.0 ghost.
-
-### Deprecated
-
-### Removed
 
 ### Fixed
 
