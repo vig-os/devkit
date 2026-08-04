@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     their preserved `renovate.json` (later rules win). Devkit's own root
     `renovate.json` re-enables its root workflows/actions so devkit keeps
     advancing the pins it owns.
+- **Renovate: update `github/codeql-action` from `f205ea1` to `d1ba80a`** ([#1330](https://github.com/vig-os/devkit/pull/1330))
 - **Renovate: update `aquasecurity/trivy` from `v0.72.0` to `v0.73.0`** ([#1331](https://github.com/vig-os/devkit/pull/1331))
 - **Renovate: update `github-backup` from `==0.65.0` to `==0.65.1`** ([#1324](https://github.com/vig-os/devkit/pull/1324))
 - **Release runbook: restart point of no return** ([#1318](https://github.com/vig-os/devkit/issues/1318))
