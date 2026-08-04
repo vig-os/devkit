@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-08-03T11:46:11Z
+updated: 2026-08-04T08:03:19Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-04T05:21:14.244Z
+synced: 2026-08-04T12:17:58.513Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -24,21 +24,7 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
- - [ ] <!-- unschedule-branch=renovate/github-codeql-action-digest -->chore(deps): update github/codeql-action digest to d1ba80a
- - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update dependency aquasecurity/trivy to v0.73.0
- - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
-
-## PR Edited (Blocked)
-
-The following updates have been manually edited so Renovate will no longer make changes. To discard all commits and start over, click on a checkbox below.
-
- - [ ] <!-- rebase-branch=renovate/python-(minor-and-patch) -->[build(pip): update dependency github-backup to v0.65.1](../pull/1324)
-
-## Open
-
-The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
-
- - [ ] <!-- rebase-branch=renovate/lock-file-maintenance -->[build(pip): lock file maintenance](../pull/1325)
+ - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
 
 ## Detected Dependencies
 
@@ -100,8 +86,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
- - `aquasecurity/trivy v0.72.0` → [Updates: `v0.73.0`]
- - `aquasecurity/trivy v0.72.0` → [Updates: `v0.73.0`]
+ - `aquasecurity/trivy v0.73.0`
+ - `aquasecurity/trivy v0.73.0`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
 
@@ -110,8 +96,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>.github/workflows/codeql.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `github/codeql-action v4@f205ea1c3313d32999d8d6a48b4f6530d4437b38` → [Updates: `v4`]
- - `github/codeql-action v4@f205ea1c3313d32999d8d6a48b4f6530d4437b38` → [Updates: `v4`]
+ - `github/codeql-action v4@d1ba80a13dd99fba24a470575428917156a28b43`
+ - `github/codeql-action v4@d1ba80a13dd99fba24a470575428917156a28b43`
  - `ubuntu 24.04`
 
 </details>
@@ -235,7 +221,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/github-script v9.0.0@3a2844b7e9c422d3c10d287c895573f7108da1b3`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
- - `aquasecurity/trivy v0.72.0` → [Updates: `v0.73.0`]
+ - `aquasecurity/trivy v0.73.0`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -273,7 +259,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
- - `github/codeql-action v4@f205ea1c3313d32999d8d6a48b4f6530d4437b38` → [Updates: `v4`]
+ - `github/codeql-action v4@d1ba80a13dd99fba24a470575428917156a28b43`
  - `ubuntu 24.04`
 
 </details>
@@ -286,8 +272,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `aquasecurity/trivy-action v0.36.0@ed142fd0673e97e23eac54620cfb913e5ce36c25`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `ubuntu 24.04`
- - `aquasecurity/trivy v0.72.0` → [Updates: `v0.73.0`]
- - `aquasecurity/trivy v0.72.0` → [Updates: `v0.73.0`]
+ - `aquasecurity/trivy v0.73.0`
+ - `aquasecurity/trivy v0.73.0`
 
 </details>
 
@@ -387,8 +373,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>assets/workspace/.github/workflows/codeql.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `github/codeql-action v4@f205ea1c3313d32999d8d6a48b4f6530d4437b38` → [Updates: `v4`]
- - `github/codeql-action v4@f205ea1c3313d32999d8d6a48b4f6530d4437b38` → [Updates: `v4`]
+ - `github/codeql-action v4@d1ba80a13dd99fba24a470575428917156a28b43`
+ - `github/codeql-action v4@d1ba80a13dd99fba24a470575428917156a28b43`
  - `ubuntu 24.04`
 
 </details>
@@ -512,7 +498,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
- - `github/codeql-action v4@f205ea1c3313d32999d8d6a48b4f6530d4437b38` → [Updates: `v4`]
+ - `github/codeql-action v4@d1ba80a13dd99fba24a470575428917156a28b43`
  - `ubuntu 24.04`
 
 </details>
@@ -569,7 +555,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 <details><summary>pyproject.toml (18)</summary>
 
- - `github-backup ==0.65.0` → [Updates: `==0.65.1`]
+ - `github-backup ==0.65.1`
  - `jinja2 ==3.1.6`
  - `pexpect ==4.9.0`
  - `pytest ==9.1.1`
