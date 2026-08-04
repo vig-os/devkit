@@ -76,6 +76,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Advance the nixpkgs pin and drop the gawk exception block** ([#1328](https://github.com/vig-os/devkit/issues/1328))
+  - Advanced the pinned `nixpkgs` rev (`flake.lock`) from nixos-26.05
+    @ `8623c4c2` (2026-07-26) to @ `531670d8` (2026-08-03), which is the first
+    pinned-channel rev to ship **gawk 5.4.1**. The rebuilt closure confirms it.
+  - Removed the gawk 5.4.0 CERT-PL block (CVE-2026-40467, -40468, -40469,
+    -40553) instead of renewing it a third time. It had been extended at #1240
+    and again at the #1273 pin advance only because the fix sat in nixpkgs
+    `staging` as a stdenv mass-rebuild, leaving the "advance the rev" lever with
+    nowhere to land.
+  - The before/after `vulnix` closure diff is exactly those four CVEs
+    (59 → 55 unique advisories) with nothing new appearing, and the gate passes
+    on 27 exceptions (down from 31).
+  - The rest of the register was re-verified against the new rev and nothing
+    else became droppable: fzf (0.72.0), libssh2 (1.11.1, still carrying no
+    6603x patch), unbound (1.25.1) and podman (5.8.2) are all unchanged, so
+    those blocks are retained with a 2026-08-04 re-verification note.
 - **vulnix register: except the libssh2 malicious-server batch, prune five dead exceptions** ([#1327](https://github.com/vig-os/devkit/issues/1327), [#1322](https://github.com/vig-os/devkit/issues/1322), [#1323](https://github.com/vig-os/devkit/issues/1323))
   - New time-boxed `.vulnixignore` block (expires 2026-08-31) for the three
     HIGH libssh2 1.11.1 CVEs disclosed 2026-07-24 (CVE-2026-66033, -66034,

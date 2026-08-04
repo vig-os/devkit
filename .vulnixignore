@@ -149,6 +149,9 @@ Expiration: 2026-08-19
 # Re-verified 2026-07-28 (#1273): the pin was advanced to nixos-26.05 @
 #   2026-07-26 (rev 8623c4c2) and rebuilt; the closure still ships fzf 0.72.0
 #   (0.73.1 has not reached the pinned channel), so this block is retained.
+# Re-verified 2026-08-04 (#1328): the pin was advanced to nixos-26.05 @
+#   2026-08-03 (rev 531670d8) and rebuilt; the closure still ships fzf 0.72.0,
+#   so this block is retained.
 CVE-2026-53432
 CVE-2026-53433
 
@@ -166,6 +169,9 @@ Expiration: 2026-09-02
 # Re-verified 2026-07-28 (#1273): the pin was advanced to nixos-26.05 @
 #   2026-07-26 (rev 8623c4c2) and rebuilt; libssh2 is still 1.11.1 with no
 #   upstream fix, so this exception is retained.
+# Re-verified 2026-08-04 (#1328): the pin was advanced to nixos-26.05 @
+#   2026-08-03 (rev 531670d8) and rebuilt; libssh2 is still 1.11.1, so this
+#   exception is retained.
 CVE-2026-58050
 
 # ============================================================================
@@ -195,52 +201,22 @@ Expiration: 2026-09-02
 #   untouched since 2026-07-20 — the rev-advance lever still has nowhere to
 #   land. Expiry extended 2026-08-06 -> 2026-08-31 to align with the libssh2
 #   and unbound blocks, so the register gets one combined re-review pass.
+# Re-verified 2026-08-04 (#1328): the pin was advanced to nixos-26.05 @
+#   2026-08-03 (rev 531670d8) and rebuilt; the closure still ships podman 5.8.2,
+#   so this is retained.
 CVE-2026-57231
 
 # ============================================================================
-# Triage 2026-07-14 — gawk 5.4.0 CERT-PL batch (release-cycle fix, #1071).
-# Published 2026-07-13 (https://cert.pl/en/posts/2026/07/CVE-2026-40467/);
-# surfaced in the vulnix feed 2026-07-14 and failed the 1.2.0-rc1 publish at
-# the vulnix gate (run 29346662524). Verified ONLINE against CERT-PL, NVD, the
-# upstream gawk release, and the nixpkgs branch contents (nixos-26.05,
-# release-26.05, staging-26.05, master, nixpkgs-unstable) on 2026-07-14. Real
-# product match (GNU gawk, no CPE collision). All four are fixed upstream in
-# gawk 5.4.1; the nixpkgs bump (NixOS/nixpkgs#540158) merged to *staging* on
-# 2026-07-12 (gawk is a stdenv mass-rebuild) and has NOT reached nixos-26.05 —
-# every release branch and even master/unstable still ship 5.4.0 — so the
-# "advance the rev" lever has nowhere to land today. gawk is a stdenv closure
-# member; it processes developer/CI-chosen awk programs and inputs only (no
-# untrusted-input path in the single-user dev model). Flip to a nixpkgs
-# rev-advance once 5.4.1 lands in the pinned channel; short expiry to force
-# near-term re-check.
-# Re-verified 2026-07-21 (#1240): nixos-26.05 and release-26.05 still ship gawk
-# 5.4.0; the staging fix (5.4.1) has not yet propagated to the pinned channel,
-# so the rev-advance lever still has nowhere to land. Expiry extended to
-# 2026-08-18 (another short window) pending that propagation.
-# Re-verified 2026-07-28 (#1273): the pin was advanced to nixos-26.05 @
-# 2026-07-26 (rev 8623c4c2) and rebuilt; the closure still ships gawk 5.4.0
-# (5.4.1 still not in the pinned channel), so this block is retained.
+# (The 2026-07-14 gawk 5.4.0 CERT-PL block — CVE-2026-40467, -40468, -40469 and
+#  -40553 (#1071) — was removed on 2026-08-04 (#1328) rather than renewed a
+#  third time. It only ever existed because the fix (gawk 5.4.1) sat in nixpkgs
+#  *staging* as a stdenv mass-rebuild, leaving the "advance the rev" lever with
+#  nowhere to land — the reason it was extended at #1240 and again at the #1273
+#  pin advance. 5.4.1 reached nixos-26.05 on 2026-08-03, so #1328 advanced the
+#  pin 8623c4c2 (2026-07-26) -> 531670d8 (2026-08-03); the rebuilt closure
+#  ships gawk 5.4.1 and vulnix reports none of the four CVEs. They are the ONLY
+#  delta in the before/after findings diff (59 -> 55 unique CVEs, nothing new).)
 # ============================================================================
-
-Expiration: 2026-08-19
-# gawk 5.4.0 — CVE-2026-40468 (9.1): integer overflow in builtin.c; memory
-#   exhaustion / heap-metadata overwrite with attacker-controlled bytes.
-#   Requires gawk to run a crafted awk program or input — developer-chosen
-#   inputs only here.
-CVE-2026-40468
-# gawk 5.4.0 — CVE-2026-40469 (9.1): integer overflow in builtin.c do_sub();
-#   heap corruption -> crash. Affects 32-BIT builds only per the CERT-PL
-#   advisory — this image is 64-bit, so effectively not applicable (kept
-#   short-dated with the batch rather than yearly, pending NVD settling).
-CVE-2026-40469
-# gawk 5.4.0 — CVE-2026-40467 (7.5): use-after-free in io.c
-#   do_getline_redir(); crash (availability only).
-CVE-2026-40467
-# gawk 5.4.0 — CVE-2026-40553 (7.5): stack buffer overflow in
-#   extension/readdir.c ftype(); crash, code execution unconfirmed. Only
-#   reachable when the opt-in readdir extension is loaded (`-l readdir`) on a
-#   crafted directory tree — not used by any tooling here.
-CVE-2026-40553
 
 # ============================================================================
 # Triage 2026-07-26 — unbound 1.25.2 security batch (nightly-scan fix, #1264).
@@ -266,6 +242,9 @@ CVE-2026-40553
 # Re-verified 2026-07-28 (#1273): the pin was advanced to nixos-26.05 @
 # 2026-07-26 (rev 8623c4c2) and rebuilt; the closure still ships unbound 1.25.1
 # (the 1.25.2 fix has not reached the pinned channel), so this block is retained.
+# Re-verified 2026-08-04 (#1328): the pin was advanced to nixos-26.05 @
+# 2026-08-03 (rev 531670d8) and rebuilt; the closure still ships unbound 1.25.1,
+# so this block is retained.
 # ============================================================================
 
 Expiration: 2026-09-02
@@ -313,6 +292,9 @@ CVE-2026-55973
 # patch. Flip to a rev-advance once the patched derivation reaches the pinned
 # channel — vulnix credits CVE-named `patches` entries, so the findings drop
 # out on their own once it does. Short expiry to force near-term re-check.
+# Re-verified 2026-08-04 (#1328): the pin was advanced to nixos-26.05 @
+# 2026-08-03 (rev 531670d8) and rebuilt; libssh2 is still 1.11.1 and carries no
+# 6603x patch, so this block is retained.
 # ============================================================================
 
 Expiration: 2026-09-02
