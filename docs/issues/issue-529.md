@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-08-04T21:42:04Z
+updated: 2026-08-05T11:31:36Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-05T05:21:17.062Z
+synced: 2026-08-06T05:23:25.524Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -25,7 +25,7 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
  - [ ] <!-- unschedule-branch=renovate/github-codeql-action-digest -->chore(deps): update github/codeql-action digest to 5595cca
- - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update actions/attest action to v4.2.2
+ - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update github-actions (minor and patch) (`actions/attest`, `vig-os/commit-action`, `vig-os/sync-issues-action`)
  - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
  - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
 
@@ -148,8 +148,8 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
- - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
+ - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864` → [Updates: `v0.3.2`]
+ - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864` → [Updates: `v0.3.2`]
  - `ubuntu 24.04`
 
 </details>
@@ -159,12 +159,12 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
+ - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864` → [Updates: `v0.3.2`]
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
+ - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864` → [Updates: `v0.3.2`]
  - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -198,7 +198,7 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
+ - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864` → [Updates: `v0.3.2`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `aquasecurity/trivy-action v0.36.0@ed142fd0673e97e23eac54620cfb913e5ce36c25`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
@@ -244,7 +244,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/download-artifact v8.0.1@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`
- - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
+ - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864` → [Updates: `v0.3.2`]
  - `ubuntu 24.04`
 
 </details>
@@ -285,8 +285,8 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
- - `vig-os/sync-issues-action v0.4.0@285a0af876bac99a0e914a64a1cb925dd913f38a`
- - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
+ - `vig-os/sync-issues-action v0.4.0@285a0af876bac99a0e914a64a1cb925dd913f38a` → [Updates: `v0.4.1`]
+ - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864` → [Updates: `v0.3.2`]
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
  - `ubuntu 24.04`
 
@@ -308,7 +308,7 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342`
- - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
+ - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864` → [Updates: `v0.3.2`]
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `ubuntu 24.04`
 
@@ -329,7 +329,7 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
+ - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864` → [Updates: `v0.3.2`]
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
@@ -401,12 +401,12 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
+ - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864` → [Updates: `v0.3.2`]
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
+ - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864` → [Updates: `v0.3.2`]
  - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -443,7 +443,7 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
+ - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864` → [Updates: `v0.3.2`]
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ubuntu 24.04`
@@ -492,7 +492,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/download-artifact v8.0.1@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`
- - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
+ - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864` → [Updates: `v0.3.2`]
  - `ubuntu 24.04`
 
 </details>
@@ -512,8 +512,8 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
- - `vig-os/sync-issues-action v0.4.0@285a0af876bac99a0e914a64a1cb925dd913f38a`
- - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864`
+ - `vig-os/sync-issues-action v0.4.0@285a0af876bac99a0e914a64a1cb925dd913f38a` → [Updates: `v0.4.1`]
+ - `vig-os/commit-action v0.3.1@3a0588ec060d9647bf406e064cf9e6192a431864` → [Updates: `v0.3.2`]
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
