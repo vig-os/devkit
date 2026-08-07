@@ -80,6 +80,21 @@ _DEVSHELL_ENV = [
     ("AMBIENT_SHARED", "same-on-both-sides"),
 ]
 
+# The simulated dev-shell `$PATH` the stub `nix` reports, in dev-shell priority
+# order (highest first). It carries a wrapper/raw toolchain pair — the shape
+# every Nix stdenv shell has and the one that made the GITHUB_PATH ordering bug
+# visible: with the two dirs swapped, the raw compiler shadows its wrapper and
+# every C build dies with the unwrapped-gcc signature (#1351).
+GCC_WRAPPER_BIN = "/nix/store/wwwwwwww-gcc-wrapper-13/bin"
+GCC_RAW_BIN = "/nix/store/gggggggg-gcc-13/bin"
+STORE_BINS_IN_ORDER = [
+    "/nix/store/aaaaaaaa-foo/bin",
+    GCC_WRAPPER_BIN,
+    GCC_RAW_BIN,
+    "/nix/store/bbbbbbbb-bar/bin",
+]
+DEVSHELL_PATH = ":".join([*STORE_BINS_IN_ORDER, "/usr/bin"])
+
 
 def _devshell_step_script() -> str:
     action = yaml.safe_load(ACTION.read_text(encoding="utf-8"))
@@ -140,7 +155,7 @@ def _write_nix_stub(bin_dir: Path, *, banner: bool = False) -> None:
         "fi",
         'case "$joined" in',
         '  *"printf \\"%s\\" \\"\\$PATH\\""*)',
-        "    printf '%s' '/nix/store/aaaaaaaa-foo/bin:/nix/store/bbbbbbbb-bar/bin:/usr/bin'; exit 0 ;;",
+        f"    printf '%s' {_bash_squote(DEVSHELL_PATH)}; exit 0 ;;",
         "  *UV_PYTHON_DOWNLOADS_JSON_URL*)",
         "    printf 'UV_PYTHON_DOWNLOADS_JSON_URL=https://example.invalid/downloads.json\\n'; exit 0 ;;",
         "esac",
@@ -204,6 +219,21 @@ def _exec_devshell_step(
     )
     raw = github_env.read_text(encoding="utf-8")
     return _parse_github_env(raw), raw
+
+
+def _runner_path(github_path_text: str, base_path: str = "/usr/bin") -> list[str]:
+    """Reconstruct the runner PATH a GITHUB_PATH file produces.
+
+    The Actions runner reads the file top to bottom and *prepends* every
+    non-empty line to the PATH of the following steps, so the entry written
+    last in the file ends up first in PATH.
+    """
+    path = [base_path]
+    for line in github_path_text.splitlines():
+        if not line:
+            continue
+        path.insert(0, line)
+    return path
 
 
 def _parse_github_env(text: str) -> dict[str, str]:
@@ -292,6 +322,31 @@ def test_shellhook_stdout_banner_never_reaches_github_env(tmp_path: Path) -> Non
     assert BANNER not in raw, "shellHook stdout leaked into GITHUB_ENV"
     # The first env record must survive intact, not be eaten by the banner.
     assert env.get("OTTERDOG_TOKEN") == "placeholder-set-by-shellhook"
+
+
+def test_devshell_path_priority_survives_github_path(tmp_path: Path) -> None:
+    """The runner PATH must keep the dev-shell's own priority order.
+
+    The runner prepends every GITHUB_PATH line, so lines written first land
+    last in PATH: writing the dev-shell bin dirs highest-priority-first
+    reversed them on CI. Invisible while one tool means one store path, fatal
+    for a stdenv toolchain — the raw gcc shadowed gcc-wrapper and vig-os/h5v#2
+    failed its vendored HDF5 build with `ld.bfd: cannot find Scrt1.o`, while
+    the same build was green locally under `nix develop`.
+
+    Refs: #1351
+    """
+    _run_devshell_step(tmp_path)
+    path = _runner_path((tmp_path / "github_path").read_text(encoding="utf-8"))
+
+    for store_bin in STORE_BINS_IN_ORDER:
+        assert store_bin in path, f"{store_bin} missing from the runner PATH"
+    assert path.index(GCC_WRAPPER_BIN) < path.index(GCC_RAW_BIN), (
+        f"raw gcc shadows gcc-wrapper on the runner PATH: {path}"
+    )
+    assert [p for p in path if p.startswith("/nix/store")] == STORE_BINS_IN_ORDER, (
+        f"dev-shell PATH priority order not preserved on the runner: {path}"
+    )
 
 
 # ── Self-hosted runners with preinstalled Nix (#1192) ────────────────────────
