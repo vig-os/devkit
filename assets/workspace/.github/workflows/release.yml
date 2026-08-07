@@ -140,8 +140,6 @@ jobs:
       release_date: ${{ needs.core.outputs.release_date }}
       publish_version: ${{ needs.core.outputs.publish_version }}
       release_kind: ${{ needs.core.outputs.release_kind }}
-      git_user_name: ${{ inputs.git-user-name }}
-      git_user_email: ${{ inputs.git-user-email }}
       tag_already_exists: ${{ needs.core.outputs.tag_already_exists == 'true' }}
       create_release: ${{ inputs.create-release }}
       toolchain_mode: ${{ needs.resolve-toolchain.outputs.mode }}

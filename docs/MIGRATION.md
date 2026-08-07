@@ -1025,7 +1025,9 @@ move the tags, then revert:
 
 2. **Move the floating tags to the peeled release commit** — the same
    `move_tag` semantics as `promote-release.yml`. `release-publish.yml` creates
-   an **annotated** tag, so peel it to the underlying commit first:
+   a **lightweight** tag (a plain ref at the release commit), but releases
+   published by older scaffolds created an **annotated** tag, so peel it to the
+   underlying commit first (the snippet handles both):
 
    ```bash
    PREFIX=v; VERSION=X.Y.Z            # DEVKIT_TAG_PREFIX and the release version
