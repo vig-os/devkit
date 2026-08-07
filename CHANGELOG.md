@@ -57,6 +57,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Floating tags move via `git push` — first release of a new level no longer fails** ([#1377](https://github.com/vig-os/devkit/issues/1377))
+  - The scaffolded `promote-release.yml` created brand-new floating levels via
+    `POST /git/refs`, the one ref-mutation path where GitHub does not honor the
+    Release App's Integration ruleset bypass for the `creation` rule — so the
+    first release of every new `<prefix>X` / `<prefix>X.Y` level died with the
+    opaque `Reference does not exist` (HTTP 422) despite the App holding an
+    `always` bypass on the whole Tag ruleset (hit on `commit-action` 0.3.1 and
+    `sync-issues-action` 0.5.0).
+  - `move_tag()` now force-pushes `TARGET_SHA:refs/tags/<name>` over git with
+    the App installation token plumbed explicitly into the push URL (checkout's
+    persisted credentials are the default `github.token`, which has no bypass)
+    — the exact path `release-publish.yml` already uses to create release tags,
+    empirically bypassed fine. Create and move collapse into one branch-free
+    path; the idempotence read-and-skip guard and the loud `::error` +
+    MIGRATION.md fallback from #1158 stay, with the moot "grant a creation
+    bypass" remediation rewritten (the bypass already exists — the REST create
+    path simply ignores it).
 - **A no-diff devkit upgrade no longer strands its adoption issue** ([#1347](https://github.com/vig-os/devkit/issues/1347))
   - The scaffolded `devkit-upgrade.yml` opens the adoption issue *before*
     `install.sh --force` runs (the branch name embeds its number and the
