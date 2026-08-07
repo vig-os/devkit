@@ -17,6 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A no-diff devkit upgrade no longer strands its adoption issue** ([#1347](https://github.com/vig-os/devkit/issues/1347))
+  - The scaffolded `devkit-upgrade.yml` opens the adoption issue *before*
+    `install.sh --force` runs (the branch name embeds its number and the
+    in-shell commit needs the `Refs:` line), so a `workflow_dispatch` against an
+    already-current consumer created an issue, found zero diff, skipped publish
+    and PR, and exited green — leaving an issue open with no PR ever attached.
+    Every credential probe or repair run against a current consumer left one
+    behind.
+  - The find-or-create step now reports which branch it took, and a final
+    cleanup step on the no-diff path **closes an issue this run created** (with
+    a "no diff at `<version>`" comment) while **leaving a reused one open** — a
+    mid-train `rc1 → rc2 → final` issue can legitimately see a no-op bump, and
+    auto-closing it would be wrong. Comment only in that case.
+
 ### Security
 
 ## [1.6.0](https://github.com/vig-os/devkit/releases/tag/1.6.0) - 2026-08-04

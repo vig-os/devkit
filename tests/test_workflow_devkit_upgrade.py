@@ -221,6 +221,53 @@ def test_reset_excluded_paths_and_closes_issue() -> None:
     assert "Closes #" in text
 
 
+def test_no_diff_dispatch_cleans_up_the_issue_it_created() -> None:
+    """A no-diff run must not strand the adoption issue it opened (#1347).
+
+    The issue is created BEFORE install.sh runs (the branch name embeds its
+    number and the in-shell commit needs the ``Refs:`` line), so a dispatch
+    against an already-current consumer creates an issue, finds zero diff and
+    skips publish + PR — leaving it open forever. The find-or-create step must
+    expose which branch it took, and a final cleanup step gated on the no-diff
+    path must close a *freshly created* issue while leaving a *reused* one open
+    (auto-closing a live mid-train issue would be wrong).
+    """
+    text = TEMPLATE.read_text(encoding="utf-8")
+    steps = _steps(text)
+
+    # The find-or-create step exposes the branch it took as a step output.
+    issue_steps = [s for s in steps if s.get("id") == "issue"]
+    assert issue_steps, "no `issue` step found"
+    (issue_step,) = issue_steps
+    assert "created=true" in str(issue_step["run"])
+    assert "created=false" in str(issue_step["run"])
+
+    # A cleanup step runs on the no-diff path only.
+    cleanup_steps = [
+        s
+        for s in steps
+        if "gh issue close" in str(s.get("run", "")) and s.get("id") != "issue"
+    ]
+    assert cleanup_steps, "no no-diff cleanup step found"
+    (cleanup,) = cleanup_steps
+    cond = str(cleanup.get("if", ""))
+    assert "steps.resolve.outputs.proceed == 'true'" in cond
+    assert "steps.commit.outputs.changed != 'true'" in cond
+    # It authenticates as the App (the identity that owns the issue).
+    assert cleanup.get("env", {}).get("GH_TOKEN") == (
+        "${{ steps.app-token.outputs.token }}"
+    )
+    run = str(cleanup["run"])
+    # Only a freshly created issue is closed; a reused one is left open.
+    assert "steps.issue.outputs.created" not in run, (
+        "route the step output through env, never inline into run:"
+    )
+    assert cleanup.get("env", {}).get("CREATED") == (
+        "${{ steps.issue.outputs.created }}"
+    )
+    assert 'CREATED" = "true"' in run or 'CREATED" != "true"' in run
+
+
 # ── security: no template injection (zizmor) ──────────────────────────────────
 
 
