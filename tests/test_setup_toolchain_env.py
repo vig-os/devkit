@@ -71,6 +71,14 @@ _DEVSHELL_ENV = [
     ("dontUnpack", "1"),
     ("configurePhase", ":"),
     ("depsBuildBuild", ""),
+    # mkProjectShell's uv interpreter pins — Nix-host-only, must be denied
+    # (#1353). Kept next to their deliberate counterpart below, which must
+    # survive: the denylist matches names exactly, so `UV_PYTHON` cannot swallow
+    # `UV_PYTHON_DOWNLOADS_JSON_URL`.
+    ("UV_PYTHON", "/nix/store/pppppppp-python3-3.14.6/bin/python3.14"),
+    ("UV_PYTHON_DOWNLOADS", "never"),
+    # Forwarded ON PURPOSE by the same step (#632/#683/#1028) — must survive.
+    ("UV_PYTHON_DOWNLOADS_JSON_URL", "https://example.invalid/downloads.json"),
     # Shell session state — must be denied.
     ("PATH", "/nix/store/aaaaaaaa-foo/bin:/usr/bin"),
     ("HOME", "/home/dev-shell"),
@@ -206,6 +214,12 @@ def _exec_devshell_step(
         # Ambient var that the dev-shell leaves unchanged: must be filtered out.
         "AMBIENT_SHARED": "same-on-both-sides",
     }
+    # A CI runner carries none of the dev-shell's uv pins, but this test process
+    # is itself launched from a dev-shell (`nix develop -c uv run pytest`), which
+    # would make them ambient — and the step's unchanged-var filter would then
+    # mask the denylist behavior under test. Scrub them (#1353).
+    for uv_var in ("UV_PYTHON", "UV_PYTHON_DOWNLOADS", "UV_PYTHON_DOWNLOADS_JSON_URL"):
+        env.pop(uv_var, None)
 
     proc = subprocess.run(
         ["bash", "-c", script],
@@ -291,6 +305,9 @@ def test_multiline_value_survives_via_heredoc(tmp_path: Path) -> None:
         "dontUnpack",
         "configurePhase",
         "depsBuildBuild",
+        # Nix-host interpreter pins (#1353).
+        "UV_PYTHON",
+        "UV_PYTHON_DOWNLOADS",
         # Shell session state.
         "PATH",
         "HOME",
@@ -302,6 +319,34 @@ def test_denylisted_vars_are_not_forwarded(tmp_path: Path, denied: str) -> None:
     """Build machinery and shell session state never leak into GITHUB_ENV."""
     env = _run_devshell_step(tmp_path)
     assert denied not in env, f"{denied} must not be forwarded to GITHUB_ENV"
+
+
+def test_uv_interpreter_pins_do_not_defeat_the_manylinux_path(
+    tmp_path: Path,
+) -> None:
+    """The dev-shell's uv interpreter pins must not reach the CI environment.
+
+    Two correct mechanisms cancelled out: the step drops the bare Nix CPython
+    from the exported PATH and forwards ``UV_PYTHON_DOWNLOADS_JSON_URL`` so
+    ``uv sync`` builds the runner venv from a downloaded manylinux CPython
+    (#698/#703/#729), while the shellHook env forward (#1180) shipped
+    ``UV_PYTHON`` (mkProjectShell's store-path pin) and
+    ``UV_PYTHON_DOWNLOADS=never`` alongside it. ``UV_PYTHON`` wins over PATH
+    resolution, so the venv was built on the Nix interpreter anyway and every
+    C-extension wheel died under the Nix loader on Ubuntu with
+    ``ImportError: libstdc++.so.6: cannot open shared object file``
+    (exo-pet/playground-carlos#9, numpy 2.4.4). ``UV_PYTHON_DOWNLOADS=never``
+    goes with it: on its own it would forbid the very download the URL forward
+    exists to enable.
+
+    Refs: #1353
+    """
+    env = _run_devshell_step(tmp_path)
+    assert "UV_PYTHON" not in env
+    assert "UV_PYTHON_DOWNLOADS" not in env
+    assert env.get("UV_PYTHON_DOWNLOADS_JSON_URL") == (
+        "https://example.invalid/downloads.json"
+    ), "the deliberate uv download-metadata forward must survive the denylist"
 
 
 def test_unchanged_ambient_var_is_not_reforwarded(tmp_path: Path) -> None:
