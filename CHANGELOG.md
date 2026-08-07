@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renovate: update `github/codeql-action` from `d1ba80a` to `5595cca`** ([#1367](https://github.com/vig-os/devkit/pull/1367))
 - **Renovate dependency update** ([#1368](https://github.com/vig-os/devkit/pull/1368))
   - Update `actions/attest` from `v4.2.1` to `v4.2.2`
   - Update `actions/attest-build-provenance` from `v4.1.1` to `v4.2.2`
