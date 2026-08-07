@@ -205,7 +205,7 @@ def generate_docs() -> bool:
     # Generate each template
     templates_to_generate = [
         ("README.md.j2", "README.md"),
-        ("CONTRIBUTE.md.j2", "CONTRIBUTE.md"),
+        ("CONTRIBUTING.md.j2", "CONTRIBUTING.md"),
         ("TESTING.md.j2", "TESTING.md"),
         ("SKILL_PIPELINE.md.j2", "docs/SKILL_PIPELINE.md"),
     ]

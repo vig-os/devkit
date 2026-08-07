@@ -5,7 +5,7 @@ of truth for the development toolchain *and* the basis of the built devcontainer
 image, so the dev-shell and the image can never drift. This document is the
 consolidated reference for how the flake is structured and why. For day-one
 onboarding (clone → `direnv allow`) see the fast path in
-[`CONTRIBUTE.md`](../CONTRIBUTE.md); for the downstream production-image pattern
+[`CONTRIBUTING.md`](../CONTRIBUTING.md); for the downstream production-image pattern
 see [`docs/NIX2CONTAINER.md`](NIX2CONTAINER.md).
 
 ## The flake as the toolchain SSoT
@@ -538,7 +538,7 @@ re-entry is instant and the closure is never garbage-collected. nix-direnv
 self-bootstraps the pinned library on first allow, or uses your
 `~/.config/direnv/direnvrc` installation if you already source it; it falls back
 to bare `use flake` when unavailable. The full fast path lives in
-[`CONTRIBUTE.md`](../CONTRIBUTE.md).
+[`CONTRIBUTING.md`](../CONTRIBUTING.md).
 
 ### Image closures are cache-backed too (blocking push)
 
@@ -594,7 +594,7 @@ is the go/no-go signal for it.
   the org uses `pkgs.mkShell` + `nix-direnv` (not `devenv`/`devshell`), the
   three-axis framing (activation / shell definition / local services), and the
   `process-compose` + `services-flake` decision for local dev services.
-- [`CONTRIBUTE.md`](../CONTRIBUTE.md) — onboarding fast path (clone → `direnv allow`).
+- [`CONTRIBUTING.md`](../CONTRIBUTING.md) — onboarding fast path (clone → `direnv allow`).
 - [`docs/NIX2CONTAINER.md`](NIX2CONTAINER.md) — the downstream production-image
   pattern with `nix2container` (distinct from this image's `buildLayeredImage`).
 - [`docs/CONTAINER_SECURITY.md`](CONTAINER_SECURITY.md) — the full CVE-patching

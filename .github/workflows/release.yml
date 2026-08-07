@@ -567,7 +567,7 @@ jobs:
           echo "file_paths=$FILE_PATHS" >> "$GITHUB_OUTPUT"
           echo "Finalization files: $FILE_PATHS"
 
-          for expected_doc in README.md CONTRIBUTE.md TESTING.md docs/SKILL_PIPELINE.md; do
+          for expected_doc in README.md CONTRIBUTING.md TESTING.md docs/SKILL_PIPELINE.md; do
             if git diff --quiet -- "$expected_doc"; then
               continue
             fi
