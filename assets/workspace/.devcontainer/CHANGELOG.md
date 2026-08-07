@@ -318,6 +318,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     corrected wording. Existing annotated tags are left as they are
     (forward-fix policy); the change reaches consumers on their next devkit
     upgrade.
+- **Smoke-test orchestration gates the final release on a human approval instead of self-approving** ([#1391](https://github.com/vig-os/devkit/issues/1391))
+  - The dispatch listener approved its own release PR with the workflow token,
+    which the org now forbids (vig-os/org-config#122 sets
+    `can_approve_pull_request_reviews: false` org-wide) — the 1.7.0-rc3 smoke
+    chain died at that step.
+  - The approve step is replaced by a kind-aware gate: candidate dispatches
+    leave the PR unapproved (approval gates the final release only, matching
+    the deferred-approval model of [#902](https://github.com/vig-os/devkit/issues/902)),
+    while the final dispatch polls up to 30 minutes for a human to approve the
+    freshly created release PR before triggering the final release workflow,
+    and fails with re-run guidance if nobody does. Every dispatch still
+    recreates the smoke release branch and PR from scratch, by design.
 - **vulnix register: except CVE-2026-66032, completing the libssh2 malicious-server batch** ([#1386](https://github.com/vig-os/devkit/issues/1386))
   - The 1.7.0-rc1 Vulnix CVE Gate blocked on CVE-2026-66032 (CVSS 8.8, a
     double-free in libssh2's `sftp_open()`), the fourth member of the upstream
