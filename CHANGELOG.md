@@ -74,6 +74,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     MIGRATION.md fallback from #1158 stay, with the moot "grant a creation
     bypass" remediation rewritten (the bypass already exists — the REST create
     path simply ignores it).
+- **Flake pymarkdown excludes follow the `CONTRIBUTING.md` rename** ([#1380](https://github.com/vig-os/devkit/issues/1380))
+  - `nix/hooks.nix` (runner, check, and consumer profiles) and the scaffold
+    template `assets/workspace/.pre-commit-config.yaml` still excluded the
+    removed `CONTRIBUTE.md`, drifting from the root `.pre-commit-config.yaml`
+    updated in [#1372](https://github.com/vig-os/devkit/issues/1372); the
+    renamed contributing guide was no longer excluded from pymarkdown.
 - **A no-diff devkit upgrade no longer strands its adoption issue** ([#1347](https://github.com/vig-os/devkit/issues/1347))
   - The scaffolded `devkit-upgrade.yml` opens the adoption issue *before*
     `install.sh --force` runs (the branch name embeds its number and the

@@ -433,7 +433,7 @@ let
     # (pymarkdownlnt packaged in nix/pymarkdown.nix, #1170), retiring the last
     # runner-only remote-repo residual of the hook SSoT (#883). All three
     # artifacts run the SAME `-c .pymarkdown fix` command over the SAME
-    # `.pymarkdown` JSON config and README/CONTRIBUTE/TESTING excludes.
+    # `.pymarkdown` JSON config and README/CONTRIBUTING/TESTING excludes.
     #
     # `fix` (not `scan`) is deliberate and matches the runner/CI: pymarkdown fix
     # rewrites auto-fixable violations and exits 0 while *tolerating* unfixable
@@ -454,7 +454,7 @@ let
           ".pymarkdown"
           "fix"
         ];
-        exclude = "^(README\\.md|CONTRIBUTE\\.md|TESTING\\.md)";
+        exclude = "^(README\\.md|CONTRIBUTING\\.md|TESTING\\.md)";
       };
       check =
         { pkgs, ... }:
@@ -464,7 +464,7 @@ let
           entry = "${import ./pymarkdown.nix pkgs}/bin/pymarkdown -c .pymarkdown fix";
           language = "system";
           types = [ "markdown" ];
-          excludes = [ "^(README\\.md|CONTRIBUTE\\.md|TESTING\\.md)" ];
+          excludes = [ "^(README\\.md|CONTRIBUTING\\.md|TESTING\\.md)" ];
         };
       consumer = pkgs: {
         enable = true;
@@ -472,7 +472,7 @@ let
         entry = "${import ./pymarkdown.nix pkgs}/bin/pymarkdown -c .pymarkdown fix";
         language = "system";
         types = [ "markdown" ];
-        excludes = [ "^(README\\.md|CONTRIBUTE\\.md|TESTING\\.md)" ];
+        excludes = [ "^(README\\.md|CONTRIBUTING\\.md|TESTING\\.md)" ];
       };
     };
     # just formats justfiles. The runner rewrites in place; the Nix gate
