@@ -63,6 +63,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     shows the actual template changes. A template symlink whose target does not
     resolve is still treated as a missing template (no diff, no error), and the
     diff header keeps naming the file rather than an opaque store path.
+- **CI dev-shell PATH keeps its priority order** ([#1351](https://github.com/vig-os/devkit/issues/1351))
+  - The direnv-mode `setup-devkit-toolchain` wrote the dev-shell's `/nix/store`
+    bin dirs to `GITHUB_PATH` highest-priority-first, but the runner *prepends*
+    every line in file order — so the following steps ran with the dev-shell
+    PATH exactly reversed. The dirs are now written reversed, and the per-line
+    prepend rebuilds the dev-shell order verbatim.
+  - Only multi-store-path toolchains were affected: with one tool per store
+    path the order is unobservable. A stdenv toolchain is not — the raw `gcc`
+    shadowed `gcc-wrapper` (likewise `binutils`) and C builds failed with the
+    unwrapped-compiler signature `ld.bfd: cannot find Scrt1.o` /
+    `cannot find -lc`, while the same build stayed green locally under
+    `nix develop` (first hit: `vig-os/h5v`'s vendored HDF5 build).
 
 ### Security
 
