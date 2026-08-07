@@ -642,8 +642,10 @@ jobs:
           RELEASE_TAG="${TAG_PREFIX}${VERSION}"
 
           # Resolve the commit the release tag points at. release-publish.yml
-          # creates an ANNOTATED tag, so peel it (object.type == "tag") to the
-          # underlying commit; floating tags then point straight at the commit.
+          # creates a LIGHTWEIGHT tag (a plain ref at the release commit), but
+          # releases published by older scaffolds created an ANNOTATED tag, so
+          # keep peeling it (object.type == "tag") to the underlying commit;
+          # floating tags then point straight at the commit.
           REF_JSON=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
             gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}")
           TARGET_SHA=$(printf '%s' "$REF_JSON" | jq -r '.object.sha')

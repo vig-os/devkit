@@ -276,6 +276,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     skip are unchanged; the now-unused `git-user-name` / `git-user-email`
     dispatch inputs are removed from `release.yml` (`prepare-release.yml`, which
     actually writes commits, keeps its own).
+- **Consumer release tags are lightweight refs too — the scaffold stops publishing unsigned tag objects** ([#1378](https://github.com/vig-os/devkit/issues/1378))
+  - The scaffold's `release-publish.yml` still created every consumer's
+    `X.Y.Z` tag with `git tag -a` under a GitHub App identity — an **annotated
+    tag object** reporting `verification.reason: "unsigned"` forever, for the
+    same unreachable-signature reasons as [#1370](https://github.com/vig-os/devkit/issues/1370).
+    The scaffold was internally inconsistent: `promote-release.yml` already
+    creates the *floating* tags (`vX`, `vX.Y`) as lightweight refs, while the
+    version tag — the one users pin and audit — was an unsigned object.
+  - The publish step now POSTs `refs/tags/<prefix><version>` straight at the
+    release commit (`POST /git/refs`). Preserved behaviours: the
+    `tag_already_exists` skip, the create-race verification (a lost race is
+    accepted only when the existing ref already resolves to the release
+    commit), `TAG_PREFIX` composition ([#1044](https://github.com/vig-os/devkit/issues/1044)),
+    and the tombstone diagnosis ([#1319](https://github.com/vig-os/devkit/issues/1319))
+    — its signature match re-derived against the `POST /git/refs` HTTP 422
+    rule-violation error shape.
+  - The dead `git_user_name` / `git_user_email` `workflow_call` inputs are
+    removed from `release-publish.yml` and their pass-throughs from the
+    scaffold `release.yml` publish call; the scaffold's `git-user-name` /
+    `git-user-email` **dispatch** inputs stay — the rollback job still writes
+    commits with that identity.
+  - `promote-release.yml` and `docs/MIGRATION.md` keep the annotated-tag peel
+    as backward compatibility for tags published by older scaffolds, with
+    corrected wording. Existing annotated tags are left as they are
+    (forward-fix policy); the change reaches consumers on their next devkit
+    upgrade.
 
 ## [1.6.0](https://github.com/vig-os/devkit/releases/tag/1.6.0) - 2026-08-04
 

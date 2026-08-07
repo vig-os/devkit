@@ -18,11 +18,19 @@ no-downstream-release error must name the tombstone as a possible cause. The
 live GH013 path is only provable on a real tombstone, so these tests assert
 the script shape, not the choreography.
 
+Since #1378 the tag is created via ``POST /git/refs`` instead of ``git push``,
+so the tag-side signature is matched against the API error surface (HTTP 422
+JSON body, ``Cannot create ref due to creations being restricted.``) as well as
+the git-protocol ``GH013`` shape. The extracted grep pattern is exercised
+against both shapes — and against the benign lost-race shape, which must NOT
+match — so the detection cannot silently rot into matching neither.
+
 Refs: #1319
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -50,12 +58,43 @@ def _publish_step_run(step_name: str) -> str:
     return step["run"]
 
 
-def test_tag_push_detects_tombstone() -> None:
-    """A GH013-rejected tag push is diagnosed as a tombstone, not a generic failure."""
-    run = _publish_step_run("Create and push tag")
-    assert "GH013" in run
-    assert "creations restricted" in run
+# Observed error surfaces for a tombstoned tag name. The git-protocol shape is
+# live evidence from the 1.5.0 ghost (#1301); the API shape is the repository
+# rules engine's 422 body for a rule-rejected `POST /git/refs`, as `gh api`
+# prints it. The race shape ("Reference already exists") must NOT match: it is
+# the benign lost-race case, resolved by the remote-state verification instead.
+TOMBSTONE_GIT_SHAPE = (
+    "remote: error: GH013: Repository rule violations found for refs/tags/1.5.0.\n"
+    "remote: - Cannot create ref due to creations being restricted."
+)
+TOMBSTONE_API_SHAPE = (
+    "gh: Repository rule violations found\n"
+    "Cannot create ref due to creations being restricted. (HTTP 422)"
+)
+BENIGN_RACE_SHAPE = "gh: Reference already exists (HTTP 422)"
+
+
+def _extract_grep_pattern(run: str) -> str:
+    """Pull the tombstone signature out of the step's ``grep -Eqi`` line."""
+    match = re.search(r'grep -Eqi "([^"]+)"', run)
+    assert match, "the step must grep the captured output for the tombstone signature"
+    return match.group(1)
+
+
+def test_tag_create_detects_tombstone() -> None:
+    """A rule-rejected tag ref creation is diagnosed as a tombstone."""
+    run = _publish_step_run("Create release tag")
     assert "burned" in run
+    pattern = re.compile(_extract_grep_pattern(run), re.IGNORECASE)
+    assert pattern.search(TOMBSTONE_GIT_SHAPE), (
+        "the signature must still match the git-protocol GH013 shape"
+    )
+    assert pattern.search(TOMBSTONE_API_SHAPE), (
+        "the signature must match the POST /git/refs 422 rule-violation shape"
+    )
+    assert not pattern.search(BENIGN_RACE_SHAPE), (
+        "a benign lost race must not be diagnosed as a tombstone"
+    )
 
 
 def test_release_create_detects_tombstone() -> None:
@@ -67,7 +106,7 @@ def test_release_create_detects_tombstone() -> None:
 
 def test_tombstone_diagnosis_points_at_runbook() -> None:
     """The burned-version diagnosis points at the point-of-no-return runbook."""
-    run = _publish_step_run("Create and push tag")
+    run = _publish_step_run("Create release tag")
     assert "Point of No Return" in run
 
 
