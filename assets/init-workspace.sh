@@ -353,6 +353,16 @@ MANIFEST_AUTO_UPGRADE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_AUTO_UPGR
 MANIFEST_UPGRADE_EXCLUDE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_UPGRADE_EXCLUDE || true)"
 MANIFEST_DRIFT_CHECK="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_DRIFT_CHECK || true)"
 
+# The pin this workspace carried BEFORE this run rewrites it (#1348). Read here,
+# far ahead of the #852 rewrite further down, because it is the only evidence of
+# which devkit generation produced the tree we are upgrading — and the
+# retired-paths prune is gated on it. The legacy pre-#781 DEVCONTAINER_VERSION
+# key counts: repos still on it are the oldest ones, i.e. exactly the population
+# carrying the oldest leftovers. Empty on a fresh install (no manifest yet),
+# which disables the prune — no evidence, no deletion.
+PREVIOUS_PIN="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_VERSION \
+    || read_manifest_value "$VIG_OS_MANIFEST" DEVCONTAINER_VERSION || true)"
+
 # The OWNER/REPO placeholder (written when no origin was resolvable) must not
 # mask a now-detectable git origin on a later upgrade.
 [[ "$MANIFEST_REPO" == "OWNER/REPO" ]] && MANIFEST_REPO=""
@@ -1223,6 +1233,95 @@ feature_paths() {
     esac
 }
 
+# ── retired scaffold paths (#1348) ────────────────────────────────────────────
+# An upgrade regenerates what the CURRENT scaffold manages and prunes what the
+# current mode / workflow model / feature set excludes. A path that an OLD devkit
+# shipped and a later devkit RETIRED is managed by neither, so it rode along
+# through every upgrade — observed going 0.3.4 -> 1.6.0 in
+# exo-pet/playground-carlos#9. The `renovate-changelog.yml` case shows why this
+# is not merely cosmetic: the retired workflow coexists with the build/commit
+# pair that replaced it AND references the pruned `resolve-image` action, so it
+# breaks at its next trigger rather than at upgrade time.
+#
+# The cumulative manifest below is the missing knowledge — "version V no longer
+# ships path P" — and PREVIOUS_PIN says which generation produced this tree.
+#
+# Adding an entry: one `<version> <path>` line per path, `<version>` being the
+# first release that stopped shipping it. Paths are workspace-relative; a
+# directory prunes recursively. Sibling of the never-migrate denylist in
+# migrate_root_gitignore (#1145) — same "the template used to own this" spirit,
+# extended across versions instead of within one tree.
+#
+# NOT listed here: `.devcontainer/justfile.base` (also retired in 0.4.0). Its
+# prune is mode-guarded — a direnv/bare consumer's own .devcontainer/ is never
+# touched (#738) — which this version-only manifest cannot express, so it keeps
+# its dedicated block further down.
+retired_paths() {
+    # Split into the build/commit pair; the leftover referenced resolve-image.
+    printf '%s\n' '0.3.5 .github/workflows/renovate-changelog.yml'
+    # Agent rules/skills moved to .claude/ (the SSoT since 0.4.0).
+    printf '%s\n' '0.4.0 .cursor'
+    # Debian build path decommissioned: no Dockerfile-like artifact remains.
+    printf '%s\n' '0.4.0 .hadolint.yaml'
+    # Superseded by the mode-aware resolve-toolchain composite action.
+    printf '%s\n' '1.1.0 .github/actions/resolve-image'
+}
+
+# True (0) when semver $1 is STRICTLY lower than $2. Prerelease-aware in the one
+# direction that matters here: X.Y.Z-rcN sorts below X.Y.Z, so a consumer pinned
+# to an rc of the very release that retires a path is still pruned.
+version_lt() {
+    local a="$1" b="$2"
+    local acore="${a%%-*}" bcore="${b%%-*}"
+    local -a av bv
+    local i ai bi
+    IFS='.' read -ra av <<< "$acore"
+    IFS='.' read -ra bv <<< "$bcore"
+    for i in 0 1 2; do
+        ai="${av[$i]:-0}"; bi="${bv[$i]:-0}"
+        # 10# guards a zero-padded segment from being read as octal.
+        (( 10#$ai < 10#$bi )) && return 0
+        (( 10#$ai > 10#$bi )) && return 1
+    done
+    # Equal cores: a prerelease is lower than its release. Two prereleases of
+    # the same core are not ordered here — no retirement version is a
+    # prerelease, so that comparison never arises.
+    [[ "$a" != "$acore" && "$b" == "$bcore" ]]
+}
+
+# Emit (one workspace-relative path per line) the retired paths this upgrade
+# should delete. Consulted by BOTH the --preview DELETIONS report and the
+# post-copy prune, so the report can never lie about what the run removes.
+#
+# Four gates, each load-bearing:
+#  - a pin is present and semver-shaped. No pin (fresh install, hand-made tree)
+#    or a malformed one means no evidence about this tree's provenance, so
+#    nothing is deleted;
+#  - the pin PREDATES the retirement. This is the safety property: `.cursor/`
+#    and `.hadolint.yaml` are generic names, and a repo pinned at or past the
+#    retiring version was never shipped them by devkit — an identically named
+#    path there is the consumer's own. Under-pruning a repo that already
+#    upgraded past the retirement without this fix is the deliberate trade;
+#    those are cleaned by hand once (see #1348);
+#  - the current template does not ship the path. Defence in depth: a path can
+#    never be both retired and current, and if that invariant ever breaks the
+#    upgrade must not delete a file it is about to write;
+#  - the path is not consumer-owned (PRESERVE_FILES).
+retired_prune_paths() {
+    local ver path
+    [[ -n "$PREVIOUS_PIN" ]] || return 0
+    [[ "$PREVIOUS_PIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || return 0
+    while read -r ver path; do
+        [[ -n "$ver" && -n "$path" ]] || continue
+        version_lt "$PREVIOUS_PIN" "$ver" || continue
+        path_present "$WORKSPACE_DIR/$path" || continue
+        [[ ! -e "$TEMPLATE_DIR/$path" ]] || continue
+        if ! is_preserved_file "$path"; then
+            printf '%s\n' "$path"
+        fi
+    done < <(retired_paths)
+}
+
 # Feature opt-outs (#1284): append each disabled feature's paths to
 # MODE_CONFIG_EXCLUDES, which both the --preview ADDED classifier and the rsync
 # copy consult — so a disabled feature is never shipped and never advertised.
@@ -1584,6 +1683,13 @@ if [[ "$FORCE" == "true" ]]; then
         done < <(feature_paths "$_feat")
     done
 
+    # Retired scaffold paths (#1348): shipped by the consumer's old devkit,
+    # managed by no current mechanism. Reported like every other deletion so
+    # --preview shows them before anything is touched.
+    while IFS= read -r _p; do
+        [[ -n "$_p" ]] && DELETIONS+=("$_p (retired scaffold path — #1348)")
+    done < <(retired_prune_paths)
+
     # Show preserved files
     if [[ ${#PRESERVED[@]} -gt 0 ]]; then
         echo ""
@@ -1927,6 +2033,16 @@ for _feat in "${DISABLED_FEATURES[@]}"; do
         rm -rf "${WORKSPACE_DIR:?}/$_p"
     done < <(feature_paths "$_feat")
 done
+
+# Retired scaffold paths (#1348): delete what an older devkit shipped into this
+# tree and no current mechanism manages. Gating and rationale live in
+# retired_prune_paths above; this is purely its executor, so the --preview
+# report and the real run can never disagree.
+while IFS= read -r _p; do
+    [[ -n "$_p" ]] || continue
+    echo "Pruning retired scaffold path $_p (shipped before this repo's ${PREVIOUS_PIN} pin, #1348)..."
+    rm -rf "${WORKSPACE_DIR:?}/$_p"
+done < <(retired_prune_paths)
 
 # 0.4.0 retired .devcontainer/justfile.base (recipes relocated to
 # justfile.project), so drop the stale copy an upgraded 0.3.x repo carries —
