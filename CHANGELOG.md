@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.7.0] - TBD
+
+### Added
+
 - **`CODE_OF_CONDUCT.md`** ([#1372](https://github.com/vig-os/devkit/issues/1372))
   - Contributor Covenant 2.1 at the repository root. Enforcement reports go
     through the same [GitHub Private Vulnerability Reporting](https://github.com/vig-os/devkit/security/advisories/new)
@@ -50,10 +64,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Update `actions/attest-build-provenance` from `v4.1.1` to `v4.2.2`
   - Update `vig-os/commit-action` from `v0.3.1` to `v0.3.2`
   - Update `vig-os/sync-issues-action` from `v0.4.0` to `v0.5.0`
-
-### Deprecated
-
-### Removed
 
 ### Fixed
 
