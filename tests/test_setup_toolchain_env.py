@@ -57,6 +57,13 @@ STORE_ONLY_PYTHONPATH = (
     "/nix/store/qqqqqqqq-python3-3.14.6/lib/python3.14/site-packages"
 )
 
+# The bare Nix CPython the #1028 PATH filter targets on a Python consumer, and
+# mkProjectShell's matching `UV_PYTHON` pin into it. Declared here because the
+# simulated dev-shell env below needs the pin; the bin dir also takes its place
+# in the simulated dev-shell `$PATH` further down.
+PYTHON3_STORE_BIN = "/nix/store/pppppppp-python3-3.14.6/bin"
+UV_PYTHON_PIN = f"{PYTHON3_STORE_BIN}/python3.14"
+
 # The simulated dev-shell environment the stub `nix` emits (null-delimited). It
 # mixes shellHook exports (must forward), Nix/stdenv build machinery (must be
 # denied), shell session state (must be denied), and an ambient var unchanged
@@ -78,11 +85,11 @@ _DEVSHELL_ENV = [
     ("dontUnpack", "1"),
     ("configurePhase", ":"),
     ("depsBuildBuild", ""),
-    # mkProjectShell's uv interpreter pins — Nix-host-only, must be denied
-    # (#1353). Kept next to their deliberate counterpart below, which must
-    # survive: the denylist matches names exactly, so `UV_PYTHON` cannot swallow
-    # `UV_PYTHON_DOWNLOADS_JSON_URL`.
-    ("UV_PYTHON", "/nix/store/pppppppp-python3-3.14.6/bin/python3.14"),
+    # mkProjectShell's uv interpreter pins — denied on an FHS runner (#1353),
+    # forwarded on a NixOS one (#1360). Kept next to their deliberate
+    # counterpart below, which must survive on both: the denylist matches names
+    # exactly, so `UV_PYTHON` cannot swallow `UV_PYTHON_DOWNLOADS_JSON_URL`.
+    ("UV_PYTHON", UV_PYTHON_PIN),
     ("UV_PYTHON_DOWNLOADS", "never"),
     # Forwarded ON PURPOSE by the same step (#632/#683/#1028) — must survive.
     ("UV_PYTHON_DOWNLOADS_JSON_URL", "https://example.invalid/downloads.json"),
@@ -127,13 +134,16 @@ _SCRUBBED_AMBIENT_VARS = tuple(
 # order (highest first). It carries a wrapper/raw toolchain pair — the shape
 # every Nix stdenv shell has and the one that made the GITHUB_PATH ordering bug
 # visible: with the two dirs swapped, the raw compiler shadows its wrapper and
-# every C build dies with the unwrapped-gcc signature (#1351).
+# every C build dies with the unwrapped-gcc signature (#1351) — plus the bare
+# Nix CPython the pyproject-gated filter drops on an FHS runner and keeps on a
+# NixOS one (#1028, #1360).
 GCC_WRAPPER_BIN = "/nix/store/wwwwwwww-gcc-wrapper-13/bin"
 GCC_RAW_BIN = "/nix/store/gggggggg-gcc-13/bin"
 STORE_BINS_IN_ORDER = [
     "/nix/store/aaaaaaaa-foo/bin",
     GCC_WRAPPER_BIN,
     GCC_RAW_BIN,
+    PYTHON3_STORE_BIN,
     "/nix/store/bbbbbbbb-bar/bin",
 ]
 DEVSHELL_PATH = ":".join([*STORE_BINS_IN_ORDER, "/usr/bin"])
@@ -223,7 +233,11 @@ def _bash_squote(s: str) -> str:
 
 
 def _run_devshell_step(
-    tmp_path: Path, *, devshell_env: list[tuple[str, str]] | None = None
+    tmp_path: Path,
+    *,
+    devshell_env: list[tuple[str, str]] | None = None,
+    pyproject: bool = False,
+    nixos: bool = False,
 ) -> dict[str, str]:
     """Execute the devshell step and return the parsed GITHUB_ENV map.
 
@@ -231,7 +245,9 @@ def _run_devshell_step(
     assert on them; the presence of a heredoc is asserted separately on the raw
     text where it matters.
     """
-    return _exec_devshell_step(tmp_path, devshell_env=devshell_env)[0]
+    return _exec_devshell_step(
+        tmp_path, devshell_env=devshell_env, pyproject=pyproject, nixos=nixos
+    )[0]
 
 
 def _exec_devshell_step(
@@ -239,8 +255,15 @@ def _exec_devshell_step(
     *,
     banner: bool = False,
     devshell_env: list[tuple[str, str]] | None = None,
+    pyproject: bool = False,
+    nixos: bool = False,
 ) -> tuple[dict[str, str], str]:
-    """Execute the devshell step; return (parsed GITHUB_ENV map, raw text)."""
+    """Execute the devshell step; return (parsed GITHUB_ENV map, raw text).
+
+    ``pyproject`` writes a ``pyproject.toml`` into the step's cwd, which is what
+    the step reads to decide it is running for a Python consumer (#1028).
+    ``nixos`` creates the file the runner-OS probe looks for (#1360).
+    """
     script = _devshell_step_script()
 
     bin_dir = tmp_path / "stub-bin"
@@ -253,12 +276,28 @@ def _exec_devshell_step(
     github_path.touch()
     runner_temp.mkdir()
 
+    if pyproject:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "consumer"\nversion = "0.0.0"\n', encoding="utf-8"
+        )
+
+    # The runner-OS probe fixture (#1360). The step probes `/etc/NIXOS` — the
+    # established NixOS marker — through `DEVKIT_NIXOS_MARKER`, an override that
+    # exists for this harness only and is never set on CI. Pinning it here to a
+    # tmp_path file is what makes the tests hermetic: the default probe would
+    # otherwise fire on a NixOS *development* machine (where `/etc/NIXOS` really
+    # exists) and silently run every FHS-branch test against the NixOS branch.
+    nixos_marker = tmp_path / "etc-NIXOS"
+    if nixos:
+        nixos_marker.write_text("", encoding="utf-8")
+
     env = {
         **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
         "GITHUB_ENV": str(github_env),
         "GITHUB_PATH": str(github_path),
         "RUNNER_TEMP": str(runner_temp),
+        "DEVKIT_NIXOS_MARKER": str(nixos_marker),
         # Ambient var that the dev-shell leaves unchanged: must be filtered out.
         "AMBIENT_SHARED": "same-on-both-sides",
     }
@@ -272,7 +311,7 @@ def _exec_devshell_step(
 
     proc = subprocess.run(
         ["bash", "-c", script],
-        cwd=tmp_path,  # no pyproject.toml -> non-Python consumer path
+        cwd=tmp_path,  # pyproject.toml here (or not) picks the consumer path
         env=env,
         capture_output=True,
         text=True,
@@ -399,6 +438,9 @@ def test_uv_interpreter_pins_do_not_defeat_the_manylinux_path(
     goes with it: on its own it would forbid the very download the URL forward
     exists to enable.
 
+    Hosted (FHS) runners only — on a NixOS runner the same pins are correct and
+    must survive (#1360, pinned separately).
+
     Refs: #1353
     """
     env = _run_devshell_step(tmp_path)
@@ -494,6 +536,78 @@ def test_devshell_path_priority_survives_github_path(tmp_path: Path) -> None:
     assert [p for p in path if p.startswith("/nix/store")] == STORE_BINS_IN_ORDER, (
         f"dev-shell PATH priority order not preserved on the runner: {path}"
     )
+
+
+# ── Python consumers on a NixOS self-hosted runner (#1360) ───────────────────
+
+
+def _exported_runner_path(tmp_path: Path) -> list[str]:
+    """The runner PATH the executed step's GITHUB_PATH file produces."""
+    return _runner_path((tmp_path / "github_path").read_text(encoding="utf-8"))
+
+
+def test_python_consumer_on_an_fhs_runner_drops_the_nix_cpython(
+    tmp_path: Path,
+) -> None:
+    """The regression bar: on a hosted (FHS) runner nothing about #1028 changes.
+
+    A downloaded manylinux CPython runs fine there, so the bare Nix CPython is
+    dropped from the exported PATH and `uv sync` builds the venv on the
+    download (#698/#703/#729). Only the CPython goes — the rest of the
+    dev-shell PATH, priority order included, is untouched.
+
+    Refs: #1360
+    """
+    _run_devshell_step(tmp_path, pyproject=True)
+    path = _exported_runner_path(tmp_path)
+
+    assert PYTHON3_STORE_BIN not in path, (
+        f"the bare Nix CPython must not survive on an FHS runner: {path}"
+    )
+    expected = [p for p in STORE_BINS_IN_ORDER if p != PYTHON3_STORE_BIN]
+    assert [p for p in path if p.startswith("/nix/store")] == expected, (
+        f"only the CPython bin dir may be dropped: {path}"
+    )
+
+
+def test_python_consumer_on_a_nixos_runner_keeps_the_nix_cpython(
+    tmp_path: Path,
+) -> None:
+    """On a NixOS self-hosted runner the #1028 exclusion is wrong by design.
+
+    A downloaded manylinux CPython cannot execute on NixOS, so dropping the
+    store interpreter from PATH leaves a Python consumer with no usable
+    interpreter at all. The runner-OS probe (`/etc/NIXOS`) must keep it.
+
+    Refs: #1360
+    """
+    _run_devshell_step(tmp_path, pyproject=True, nixos=True)
+    path = _exported_runner_path(tmp_path)
+
+    assert PYTHON3_STORE_BIN in path, (
+        f"the Nix CPython must stay on PATH on a NixOS runner: {path}"
+    )
+    assert [p for p in path if p.startswith("/nix/store")] == STORE_BINS_IN_ORDER, (
+        f"dev-shell PATH priority order not preserved on the runner: {path}"
+    )
+
+
+def test_uv_interpreter_pins_are_forwarded_on_a_nixos_runner(tmp_path: Path) -> None:
+    """On a NixOS runner `mkProjectShell`'s uv pins are exactly right.
+
+    Keeping the interpreter on PATH is not enough on its own: uv's
+    python-preference can still favour a managed download, which is precisely
+    what cannot run here. `UV_PYTHON` points at a store interpreter the runner
+    *can* execute and `UV_PYTHON_DOWNLOADS=never` forbids the download — the
+    pair is Nix-host-*only* by construction, so the #1353 denial that fixed
+    hosted runners must not apply to this one.
+
+    Refs: #1360
+    """
+    env = _run_devshell_step(tmp_path, pyproject=True, nixos=True)
+
+    assert env.get("UV_PYTHON") == UV_PYTHON_PIN
+    assert env.get("UV_PYTHON_DOWNLOADS") == "never"
 
 
 # ── Self-hosted runners with preinstalled Nix (#1192) ────────────────────────
