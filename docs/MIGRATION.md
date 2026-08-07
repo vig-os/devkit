@@ -868,6 +868,32 @@ re-scaffold:
    from the current directory/`--name`; template-origin files (e.g.
    `tests/test_example.py`) may be rewritten to a name that differs from your
    original scaffold. Review the diff before committing.
+8. **Retired scaffold paths are pruned for you**
+   ([#1348](https://github.com/vig-os/devkit/issues/1348)) — files an *older*
+   devkit shipped and a later one retired used to survive every upgrade,
+   because no current mechanism claimed them. `--force` now consults a
+   cumulative retired-paths manifest against the pin your `.vig-os` carried
+   **before** the run and deletes what that old scaffold shipped:
+
+   | Path | Retired in | Superseded by |
+   |------|-----------|---------------|
+   | `.github/workflows/renovate-changelog.yml` | 0.3.5 | `renovate-changelog-build.yml` + `renovate-changelog-commit.yml` |
+   | `.cursor/` | 0.4.0 | `.claude/` |
+   | `.hadolint.yaml` | 0.4.0 | — (the Debian build path is gone) |
+   | `.github/actions/resolve-image/` | 1.1.0 | `resolve-toolchain` |
+
+   The stale `renovate-changelog.yml` is the one that bites: left in place it
+   is a **live** workflow that both duplicates its replacements and calls the
+   pruned `resolve-image` action, so it fails at its next trigger rather than
+   at upgrade time.
+
+   Every prune is listed under `DELETED` in the `--force --preview` report, so
+   you can see it before anything is touched. The prune is **gated on the
+   previous pin**: a repo pinned at or past the retiring version was never
+   shipped that path by devkit, so an identically named `.cursor/` or
+   `.hadolint.yaml` there is yours and is left alone. The flip side is that a
+   repo which already upgraded past a retirement *before* this fix keeps its
+   leftovers — delete those once by hand.
 
 ## First release after migrating to devkit
 

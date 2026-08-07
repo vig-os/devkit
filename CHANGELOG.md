@@ -30,6 +30,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     a "no diff at `<version>`" comment) while **leaving a reused one open** — a
     mid-train `rc1 → rc2 → final` issue can legitimately see a no-op bump, and
     auto-closing it would be wrong. Comment only in that case.
+- **Upgrades prune scaffold paths retired since the consumer's pin** ([#1348](https://github.com/vig-os/devkit/issues/1348))
+  - `install.sh --force` regenerated what the *current* scaffold manages and
+    pruned what the current mode / workflow model / feature set excludes — but a
+    path an **old** devkit shipped and a later one **retired** was claimed by
+    neither and rode along through every upgrade. Going 0.3.4 → 1.6.0 preserved
+    `.cursor/`, `.github/actions/resolve-image/`,
+    `.github/workflows/renovate-changelog.yml` and `.hadolint.yaml`. The
+    workflow file is the sharp one: left in place it is live, duplicates the
+    `renovate-changelog-build`/`-commit` pair that replaced it, and calls the
+    pruned `resolve-image` action — so it breaks at its next trigger rather
+    than at upgrade time.
+  - A cumulative retired-paths manifest (version → paths that version stopped
+    shipping) is now consulted against the pin `.vig-os` carried **before** the
+    run — the legacy `DEVCONTAINER_VERSION` key included, since repos still on
+    it are precisely the oldest. Each prune is announced on stdout and listed
+    under `DELETED` in the `--force --preview` report.
+  - The prune is gated on that pin: a repo pinned at or past the retiring
+    version was never shipped the path, so an identically named `.cursor/` or
+    `.hadolint.yaml` there is the consumer's own and is left untouched. A repo
+    that already upgraded past a retirement before this fix keeps its
+    leftovers — a one-time manual cleanup, documented in `docs/MIGRATION.md`.
 
 ### Security
 
