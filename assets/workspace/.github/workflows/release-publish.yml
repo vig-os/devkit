@@ -216,10 +216,18 @@ jobs:
       - name: Extract release notes from CHANGELOG
         env:
           VERSION: ${{ inputs.version }}
+          TAG_PREFIX: ${{ inputs.tag_prefix }}
         run: |
           set -euo pipefail
-          awk -v version="$VERSION" '
-            index($0, "## [" version "]") == 1 {found=1; next}
+          # A final release reads the heading `prepare-changelog finalize
+          # --tag-prefix` just wrote, which carries the prefix
+          # (`## [v1.0.0](…)`); matching the bare version found nothing there and
+          # published the fallback body (#1355). A candidate publishes before
+          # finalize runs, so its heading is still the bare `## [1.0.0] - TBD`.
+          # Accept both; with an empty prefix the two are the same string.
+          RELEASE_HEADING_TAG="${TAG_PREFIX}${VERSION}"
+          awk -v tag="$RELEASE_HEADING_TAG" -v version="$VERSION" '
+            index($0, "## [" tag "]") == 1 || index($0, "## [" version "]") == 1 {found=1; next}
             /^## \[/ && found {found=0}
             found
           ' CHANGELOG.md > /tmp/release-notes.md

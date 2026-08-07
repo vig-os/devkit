@@ -102,6 +102,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     only behind the shellHook's own `/etc/NIXOS` guard, so it never reaches a
     hosted runner and is the correct value on a NixOS self-hosted one — left
     forwardable. Nothing else the builder sets is host-specific.
+- **Prefixed-tag releases publish their changelog notes** ([#1355](https://github.com/vig-os/devkit/issues/1355))
+  - In a consumer that sets `DEVKIT_TAG_PREFIX`, the release pipeline wrote one
+    changelog heading and read back another. `release-core.yml` finalizes with
+    `prepare-changelog finalize … --tag-prefix "$TAG_PREFIX"`, which composes the
+    prefix into the heading (`## [v1.0.0](…/releases/tag/v1.0.0) - …`), while
+    `release-publish.yml` extracted the notes by matching `## [$VERSION]` on the
+    *bare* semver — a match that can never land on a prefixed heading.
+  - It failed soft: the empty extraction hit the fallback path, so the release
+    was published with the literal body `No changelog notes found for X.Y.Z`.
+    The tag and the release object were both correct and nothing went red, which
+    is why it survived (observed releasing `vig-os/org-config` `v1.0.0`).
+  - The extraction step now takes `tag_prefix` and accepts the composed tag
+    `## [${TAG_PREFIX}${VERSION}]` alongside the bare one. Both are needed: a
+    candidate publishes *before* the finalize step (which is gated on a final
+    `release_kind`), so its heading is still the unprefixed `## [X.Y.Z] - TBD` that
+    `prepare` wrote — matching only the composed tag would have moved the empty
+    notes onto the candidate path. Only prefixed repos were affected; an empty
+    prefix makes the two forms the same string.
 
 ### Security
 
