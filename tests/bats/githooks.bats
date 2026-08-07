@@ -15,19 +15,19 @@ setup() {
 # ── pre-commit ────────────────────────────────────────────────────────────────
 
 @test "pre-commit blocks when IN_CONTAINER is unset" {
-    run env -u IN_CONTAINER bash "$HOOKS_DIR/pre-commit"
+    run env -u IN_CONTAINER -u IN_NIX_SHELL bash "$HOOKS_DIR/pre-commit"
     assert_failure
     assert_output --partial "Please commit your changes within the dev container"
 }
 
 @test "pre-commit blocks when IN_CONTAINER is empty" {
-    run env IN_CONTAINER="" bash "$HOOKS_DIR/pre-commit"
+    run env -u IN_NIX_SHELL IN_CONTAINER="" bash "$HOOKS_DIR/pre-commit"
     assert_failure
     assert_output --partial "Please commit your changes within the dev container"
 }
 
 @test "pre-commit blocks when IN_CONTAINER is false" {
-    run env IN_CONTAINER="false" bash "$HOOKS_DIR/pre-commit"
+    run env -u IN_NIX_SHELL IN_CONTAINER="false" bash "$HOOKS_DIR/pre-commit"
     assert_failure
     assert_output --partial "Please commit your changes within the dev container"
 }
@@ -40,19 +40,19 @@ setup() {
 # ── prepare-commit-msg ────────────────────────────────────────────────────────
 
 @test "prepare-commit-msg blocks when IN_CONTAINER is unset" {
-    run env -u IN_CONTAINER bash "$HOOKS_DIR/prepare-commit-msg" /dev/null
+    run env -u IN_CONTAINER -u IN_NIX_SHELL bash "$HOOKS_DIR/prepare-commit-msg" /dev/null
     assert_failure
     assert_output --partial "Please commit your changes within the dev container"
 }
 
 @test "prepare-commit-msg blocks when IN_CONTAINER is empty" {
-    run env IN_CONTAINER="" bash "$HOOKS_DIR/prepare-commit-msg" /dev/null
+    run env -u IN_NIX_SHELL IN_CONTAINER="" bash "$HOOKS_DIR/prepare-commit-msg" /dev/null
     assert_failure
     assert_output --partial "Please commit your changes within the dev container"
 }
 
 @test "prepare-commit-msg blocks when IN_CONTAINER is false" {
-    run env IN_CONTAINER="false" bash "$HOOKS_DIR/prepare-commit-msg" /dev/null
+    run env -u IN_NIX_SHELL IN_CONTAINER="false" bash "$HOOKS_DIR/prepare-commit-msg" /dev/null
     assert_failure
     assert_output --partial "Please commit your changes within the dev container"
 }
@@ -65,19 +65,19 @@ setup() {
 # ── commit-msg ────────────────────────────────────────────────────────────────
 
 @test "commit-msg blocks when IN_CONTAINER is unset" {
-    run env -u IN_CONTAINER bash "$HOOKS_DIR/commit-msg" /dev/null
+    run env -u IN_CONTAINER -u IN_NIX_SHELL bash "$HOOKS_DIR/commit-msg" /dev/null
     assert_failure
     assert_output --partial "Please commit your changes within the dev container"
 }
 
 @test "commit-msg blocks when IN_CONTAINER is empty" {
-    run env IN_CONTAINER="" bash "$HOOKS_DIR/commit-msg" /dev/null
+    run env -u IN_NIX_SHELL IN_CONTAINER="" bash "$HOOKS_DIR/commit-msg" /dev/null
     assert_failure
     assert_output --partial "Please commit your changes within the dev container"
 }
 
 @test "commit-msg blocks when IN_CONTAINER is false" {
-    run env IN_CONTAINER="false" bash "$HOOKS_DIR/commit-msg" /dev/null
+    run env -u IN_NIX_SHELL IN_CONTAINER="false" bash "$HOOKS_DIR/commit-msg" /dev/null
     assert_failure
     assert_output --partial "Please commit your changes within the dev container"
 }
