@@ -137,7 +137,7 @@ jobs:
         id: sync
         uses: vig-os/sync-issues-action@b62c8eca72f4ee7177caee4f689ee080a5997164  # v0.5.0
         with:
-          app-id: ${{ secrets.COMMIT_APP_ID }}
+          client-id: ${{ secrets.COMMIT_APP_CLIENT_ID }}
           app-private-key: ${{ secrets.COMMIT_APP_PRIVATE_KEY }}
           output-dir: ${{ github.event.inputs.output-dir || 'docs' }}
           sync-issues: 'true'

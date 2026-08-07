@@ -17,6 +17,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Stamped workflows authenticate with App Client IDs — new org secret required** ([#1365](https://github.com/vig-os/devkit/issues/1365))
+  - **Action required before upgrading:** create a `DEVKIT_UPGRADE_APP_CLIENT_ID`
+    secret (org or repo) holding the upgrade App's Client ID (`Iv23li…`).
+    **Create the secret first, then upgrade** — config-first, always. For this
+    release the legacy numeric `DEVKIT_UPGRADE_APP_ID` still works as a
+    fallback (with a deprecation warning), so an upgrade that races the secret
+    is not bricked; the fallback is removed in a future release
+    ([#1366](https://github.com/vig-os/devkit/issues/1366)).
+  - `sync-issues.yml` now passes `COMMIT_APP_CLIENT_ID` through the `client-id`
+    input added in `vig-os/sync-issues-action` v0.5.0 — the numeric
+    `COMMIT_APP_ID` secret is no longer read anywhere and can be retired once
+    every consumer is on this release.
+  - `devkit-upgrade.yml` prefers `DEVKIT_UPGRADE_APP_CLIENT_ID` in its
+    preflight gate and `create-github-app-token` mint.
+  - Nothing in the auth path is numerically load-bearing: GitHub accepts either
+    the App ID or the Client ID as the App JWT issuer.
 - **`CONTRIBUTE.md` renamed to `CONTRIBUTING.md`** ([#1372](https://github.com/vig-os/devkit/issues/1372))
   - GitHub's community profile only recognises `CONTRIBUTING.md`, so the guide
     was invisible to it and no "Contributing guidelines" link appeared on new
