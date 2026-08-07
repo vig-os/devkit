@@ -426,9 +426,9 @@ The `release.yml` workflow performs the entire remaining release process. Behavi
    - If ANY test fails: entire workflow stops and triggers rollback
 
 4. ✅ **Publish** job (runs only if all builds/tests pass)
-   - Candidate mode: infers next `rcN`, creates annotated tag `X.Y.Z-rcN`, publishes candidate manifests
-   - Final mode: creates annotated tag `X.Y.Z` (or skips create/push if the tag already points at the finalized commit), publishes final manifests
-   - Pushes tag to origin when needed
+   - Candidate mode: infers next `rcN`, creates lightweight tag `X.Y.Z-rcN`, publishes candidate manifests
+   - Final mode: creates lightweight tag `X.Y.Z` (or skips creation if the tag already points at the finalized commit), publishes final manifests
+   - Tags are created as plain `refs/tags/<version>` refs at the release commit (`POST /git/refs`), never as annotated tag objects: a tag object written by the Release App would carry an unsignable bot tagger, whereas a lightweight tag has no tagger at all and resolves straight to the GitHub-verified release commit ([#1370](https://github.com/vig-os/devkit/issues/1370))
    - Final mode only: extracts release notes from finalized `CHANGELOG.md` and creates a **draft** GitHub Release for `X.Y.Z`
    - Downloads tested images from artifacts
    - Logs in to GitHub Container Registry
