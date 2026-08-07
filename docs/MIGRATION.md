@@ -143,18 +143,27 @@ host secrets — already in the runner env, unchanged inside the shell — out o
 delimiter so they survive intact.
 
 A denylist keeps shell-session state and Nix/stdenv build machinery from leaking
-into the CI environment. Never forwarded:
+into the CI environment. It covers three categories: **shell session state**
+(`PATH` — already handled via `GITHUB_PATH` — plus `HOME`, `TMPDIR` and the rest
+of the session/runtime set); **Nix/stdenv build machinery** (everything `NIX_*`,
+`IN_NIX_SHELL`, the stdenv attributes and phase controls, and the cc/binutils
+hook names stdenv sets in every dev shell, `CC`/`LD` among them); and
+**Nix-host interpreter pins** (`UV_PYTHON`, `UV_PYTHON_DOWNLOADS`), which name a
+store CPython a normal runner cannot execute — except on a **NixOS self-hosted
+runner**, where those pins are exactly correct and *are* forwarded
+([#1360](https://github.com/vig-os/devkit/issues/1360)).
 
-- **Session/runtime shell state** — `PATH` (already handled via `GITHUB_PATH`),
-  `HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `PWD`, `OLDPWD`, `SHLVL`, `IFS`,
-  `TMPDIR`/`TMP`/`TEMP`/`TEMPDIR`.
-- **Nix/stdenv build internals** — everything `NIX_*`; the stdenv scalars/lists
-  `out`, `outputs`, `src`, `stdenv`, `system`, `builder`, `name`, `pname`,
-  `version`, `shell`, `shellHook`, `buildInputs`, `nativeBuildInputs`,
-  `propagatedBuildInputs`, `propagatedNativeBuildInputs`, `SOURCE_DATE_EPOCH`,
-  `HOST_PATH`; and the build-machinery patterns `deps*`, `*Phase`, `phases`,
-  `dont*`, `configureFlags`/`cmakeFlags`/`mesonFlags`/`makeFlags`, `patches`,
-  `strictDeps`, `outputHash*`.
+One variable is transformed rather than denied: `PYTHONPATH` is forwarded with
+its `/nix/store` components removed — they would otherwise land on the `sys.path`
+of the downloaded CPython that CI runs — and skipped entirely when nothing is
+left ([#1358](https://github.com/vig-os/devkit/issues/1358)). A `shellHook`'s own
+`export PYTHONPATH="$PWD/src"` still arrives intact.
+
+The authoritative list is the `devkit_env_denied` function in your repo's
+`.github/actions/setup-devkit-toolchain/action.yml` (devkit source:
+`assets/workspace/.github/actions/setup-devkit-toolchain/action.yml`). That
+function is the single source of truth for what is denied, transformed or
+forwarded, and this document deliberately does not duplicate it — read it there.
 
 This is why the diff-plus-denylist approach is used instead of forwarding
 `nix print-dev-env` wholesale: that dumps the full build machinery, none of which

@@ -176,6 +176,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `prepare` wrote — matching only the composed tag would have moved the empty
     notes onto the candidate path. Only prefixed repos were affected; an empty
     prefix makes the two forms the same string.
+- **MIGRATION.md env-forward denylist prose replaced by an SSoT pointer** ([#1362](https://github.com/vig-os/devkit/issues/1362))
+  - The "direnv mode: `shellHook` environment forwarding" section enumerated the
+    denylist by hand and had fallen behind the shipped action: it predated the
+    `UV_PYTHON`/`UV_PYTHON_DOWNLOADS` denial (#1353), the stdenv additions and
+    the cc/binutils hook names (#1358), and the NixOS-runner exception that
+    forwards those uv pins after all (#1360) — and its two-bullet shape could
+    not express the `PYTHONPATH` store-component strip, which is a transform
+    rather than a deny.
+  - The enumeration is replaced by a description of the denied *categories* with
+    representative examples, the `PYTHONPATH` transform, and a pointer to the
+    `devkit_env_denied` function in the consumer's own
+    `.github/actions/setup-devkit-toolchain/action.yml` as the single source of
+    truth. The surrounding narrative is unchanged.
 
 ### Security
 
