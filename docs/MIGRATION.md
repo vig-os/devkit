@@ -999,18 +999,22 @@ release and `<prefix>X.Y` is missing — silently breaking the advertised
 `uses: owner/repo@<prefix>X` pin. The one-off bootstrap is to bypass the ruleset,
 move the tags, then revert:
 
-> **The same one-off recurs when a _new_ floating level first appears in steady
-> state** ([#1157](https://github.com/vig-os/devkit/issues/1157)). Once the
-> workflow is live it force-**updates** existing levels with the app token, but
-> the first release of a new level must **create** the ref (`POST /git/refs`),
-> and if the Tag ruleset does not bypass the Release App for its `creation` rule
-> that create is denied — surfaced as the opaque `Reference does not exist`
-> (HTTP 422). Example: a repo already carrying `<prefix>0` cuts its first
-> `<prefix>0.Y` release. `promote-release.yml` now fails loud with a `::error::`
-> naming the tag, target commit, and this remediation instead of a bare `gh`
-> error. Apply the same bypass-create-revert below (using the **create** call in
-> step 2), or grant the Release App a `creation` bypass so future levels move
-> automatically.
+> **On devkit versions before the git-push fix
+> ([#1377](https://github.com/vig-os/devkit/issues/1377)), the same one-off
+> recurs when a _new_ floating level first appears in steady state**
+> ([#1157](https://github.com/vig-os/devkit/issues/1157)). Those workflows
+> mutate tags via the REST refs API, and GitHub does not honor the Release
+> App's Integration ruleset bypass on `POST /git/refs` for the `creation`
+> rule — the first release of a new level (say a repo already carrying
+> `<prefix>0` cuts its first `<prefix>0.Y`) is denied as the opaque
+> `Reference does not exist` (HTTP 422), even though the App **is** a bypass
+> actor; granting further bypasses does not help, the REST create path simply
+> ignores them. The very same token pushing tags over git is bypassed fine,
+> so current `promote-release.yml` force-pushes the floating tags instead and
+> new levels move automatically. On a pre-fix version the workflow fails loud
+> with a `::error::` naming the tag, target commit, and this remediation —
+> apply the bypass-create-revert below (using the **create** call in step 2),
+> or upgrade devkit.
 
 1. **Temporarily grant repository admins a bypass.** In **Settings → Rules →
    Rulesets → (the Tag ruleset) → Bypass list**, add **Repository admin**
