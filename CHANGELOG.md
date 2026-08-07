@@ -136,6 +136,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The related NixOS-self-hosted-runner gap in the CPython `PATH` filter is
     tracked separately in
     [#1360](https://github.com/vig-os/devkit/issues/1360).
+- **Python consumers work on NixOS self-hosted runners** ([#1360](https://github.com/vig-os/devkit/issues/1360))
+  - The direnv-mode preamble dropped the bare Nix CPython from the exported
+    `PATH` whenever `pyproject.toml` was present — unconditionally. That is
+    right on a hosted FHS runner, where `uv` downloads a managed manylinux
+    CPython (#698/#703/#729), and wrong by construction on a **NixOS**
+    self-hosted runner, where such a download cannot execute at all. #1353 made
+    the gap reachable: the `UV_PYTHON` pin it stopped forwarding was what had
+    accidentally masked it. No consumer matched the combination yet (the one
+    NixOS-runner consumer has no `pyproject.toml`), so this was a latent
+    landmine rather than a live break.
+  - The step now probes the runner's own OS via `/etc/NIXOS` — the same marker
+    `mkProjectShell`'s `shellHook` uses to gate `LD_LIBRARY_PATH` — and takes
+    the matching branch. On a NixOS runner the `pyproject.toml`-gated CPython
+    exclusion is skipped, so the store interpreter stays on `PATH`, **and**
+    `mkProjectShell`'s `UV_PYTHON` / `UV_PYTHON_DOWNLOADS=never` pins are
+    forwarded instead of denied. Both halves are needed: `PATH` alone leaves
+    `uv`'s python-preference free to prefer a managed download, and the pins
+    are what make it use the Nix interpreter deterministically. The podman
+    exclusion stays unconditional, and `UV_PYTHON_DOWNLOADS_JSON_URL` is still
+    forwarded (harmless once the pin wins).
+  - On every non-NixOS runner the behavior is byte-identical to before,
+    #1353's denial of the same two pins included.
 - **Prefixed-tag releases publish their changelog notes** ([#1355](https://github.com/vig-os/devkit/issues/1355))
   - In a consumer that sets `DEVKIT_TAG_PREFIX`, the release pipeline wrote one
     changelog heading and read back another. `release-core.yml` finalizes with
