@@ -728,21 +728,46 @@ is_preserved_file() {
 # (#1197). `GIT_DIR=/dev/null` pins the git dir explicitly, so git skips
 # discovery entirely and the pure file comparison runs regardless of any
 # broken/foreign `.git` in the cwd.
+#
+# In the shipped image the devkit assets are /nix/store SYMLINKS (#1349), so
+# `git diff --no-index` compared the LINK against the consumer's regular file
+# and rendered a typechange (symlink deleted / file added) whose only "content"
+# was the store path — hiding the very divergence this preview exists for.
+# Dereference the template side first. The `-f` gate below already follows the
+# link, so a template symlink whose target does NOT resolve is treated as a
+# missing template (return 1) and never reaches the copy.
 print_preserved_template_diff() {
     local rel="$1"
     local preserved="$WORKSPACE_DIR/$rel"
     local template="$TEMPLATE_DIR/$rel"
     [[ -f "$preserved" && -f "$template" ]] || return 1
-    if GIT_DIR=/dev/null git diff --no-index --quiet -- "$template" "$preserved" \
-        > /dev/null 2>&1; then
-        return 1  # identical: nothing to surface
+    # Materialize the dereferenced content under the file's own name in a temp
+    # dir rather than diffing the resolved path directly: the diff header then
+    # still identifies the file instead of naming an opaque store path.
+    local scratch=""
+    if [[ -L "$template" ]]; then
+        scratch="$(mktemp -d)" || return 1
+        if ! mkdir -p "$scratch/$(dirname "$rel")" \
+            || ! cat "$template" > "$scratch/$rel"; then
+            rm -rf "$scratch"
+            return 1
+        fi
+        template="$scratch/$rel"
     fi
-    echo "Preserved $rel differs from the template (yours was kept)."
-    echo "Template changes NOT applied (fold in what you need, see MIGRATION.md):"
-    echo "─────────────────────────────────────────────────────────────"
-    GIT_DIR=/dev/null git diff --no-index -- "$template" "$preserved" || true
-    echo "─────────────────────────────────────────────────────────────"
-    return 0
+    local rc=1  # stays 1 when the files are identical: nothing to surface
+    if ! GIT_DIR=/dev/null git diff --no-index --quiet -- "$template" "$preserved" \
+        > /dev/null 2>&1; then
+        echo "Preserved $rel differs from the template (yours was kept)."
+        echo "Template changes NOT applied (fold in what you need, see MIGRATION.md):"
+        echo "─────────────────────────────────────────────────────────────"
+        GIT_DIR=/dev/null git diff --no-index -- "$template" "$preserved" || true
+        echo "─────────────────────────────────────────────────────────────"
+        rc=0
+    fi
+    if [[ -n "$scratch" ]]; then
+        rm -rf "$scratch"
+    fi
+    return "$rc"
 }
 
 # Record whether the consumer already had a populated .devcontainer/ before the
