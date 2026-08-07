@@ -189,8 +189,12 @@ jobs:
               --body "Automated adoption of devkit ${TRAIN}. Opened by the devkit-upgrade workflow (#1296).")"
             NUMBER="${URL##*/}"
             echo "Created adoption issue #${NUMBER}."
+            # Which branch was taken decides the no-diff cleanup below (#1347):
+            # only an issue THIS run created may be auto-closed.
+            echo "created=true" >> "$GITHUB_OUTPUT"
           else
             echo "Reusing open adoption issue #${NUMBER}."
+            echo "created=false" >> "$GITHUB_OUTPUT"
           fi
           echo "number=${NUMBER}" >> "$GITHUB_OUTPUT"
 
@@ -364,4 +368,33 @@ jobs:
           else
             gh pr create --base "$BASE" --head "$BRANCH" --title "$TITLE" --body "$BODY"
             echo "Opened the adoption PR."
+          fi
+
+      - name: Clean up the adoption issue on a no-diff run
+        if: steps.resolve.outputs.proceed == 'true' && steps.commit.outputs.changed != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TARGET: ${{ steps.resolve.outputs.target }}
+          ISSUE: ${{ steps.issue.outputs.number }}
+          CREATED: ${{ steps.issue.outputs.created }}
+        run: |
+          set -euo pipefail
+          # The adoption issue is opened BEFORE install.sh runs — the branch name
+          # embeds its number and the in-shell commit needs the `Refs:` line — so
+          # a run that finds no diff (any dispatch against an already-current
+          # consumer; cron no-ops earlier on "current or ahead") skips publish +
+          # PR and would strand the issue with no PR ever attached (#1347).
+          #
+          # Only an issue THIS run created is closed. A REUSED one belongs to a
+          # live train (rc1 -> rc2 -> final, where an interim bump can legitimately
+          # be a no-op) and must stay open — comment only.
+          if [ "$CREATED" = "true" ]; then
+            gh issue close "$ISSUE" \
+              --comment "No diff at ${TARGET}: this repository's scaffold is already current, so no adoption PR was opened. Closing the issue this run created (#1347)." \
+              --reason "not planned"
+            echo "Closed the adoption issue #${ISSUE} it created (no diff)."
+          else
+            gh issue comment "$ISSUE" \
+              --body "No diff at ${TARGET}: the scaffold is already current, so no adoption PR was opened by this run. Leaving this issue open — it predates this run (#1347)."
+            echo "Left the pre-existing adoption issue #${ISSUE} open (no diff)."
           fi
