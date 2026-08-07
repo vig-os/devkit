@@ -320,7 +320,7 @@ jobs:
           fi
 
       - name: Commit and push deploy changes via signed commit-action
-        uses: vig-os/commit-action@3a0588ec060d9647bf406e064cf9e6192a431864  # v0.3.1
+        uses: vig-os/commit-action@0361e9aa65b64711a18286ac5dfdcba7cc7a2ac7  # v0.3.2
         env:
           GH_TOKEN: ${{ steps.generate_commit_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
