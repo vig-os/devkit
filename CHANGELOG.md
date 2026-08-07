@@ -198,6 +198,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Release tags are lightweight refs, so no unsigned object remains in the release chain** ([#1370](https://github.com/vig-os/devkit/issues/1370))
+  - `release.yml` created the tag with `git tag -a` under
+    `vigOS Release Bot <release@vig-os.local>`, producing an **annotated tag
+    object** whose tagger was permanently unverifiable — live tag `1.6.0`
+    reports `verification.reason: "unsigned"`. Signing it was never reachable:
+    the tag is written under the Release **App** installation token and a GitHub
+    App has no registrable GPG/SSH key, while the server-side `POST /git/tags`
+    route stores the payload verbatim without signing it either.
+  - The publish job now creates the tag as a plain `refs/tags/<version>` ref at
+    the release commit (`POST /git/refs`). A lightweight tag has no tagger and
+    no payload, so there is nothing left that can report `unsigned`, and the
+    commit the ref resolves to is the GitHub-verified release commit. The
+    candidate-collision guard and the "already tagged at the finalize SHA"
+    skip are unchanged; the now-unused `git-user-name` / `git-user-email`
+    dispatch inputs are removed from `release.yml` (`prepare-release.yml`, which
+    actually writes commits, keeps its own).
+
 ## [1.6.0](https://github.com/vig-os/devkit/releases/tag/1.6.0) - 2026-08-04
 
 ### Added
