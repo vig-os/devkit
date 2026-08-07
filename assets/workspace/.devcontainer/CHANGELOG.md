@@ -75,6 +75,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     unwrapped-compiler signature `ld.bfd: cannot find Scrt1.o` /
     `cannot find -lc`, while the same build stayed green locally under
     `nix develop` (first hit: `vig-os/h5v`'s vendored HDF5 build).
+- **shellHook env forward no longer ships `UV_PYTHON` to CI** ([#1353](https://github.com/vig-os/devkit/issues/1353))
+  - Two correct mechanisms in the direnv-mode `setup-devkit-toolchain` cancelled
+    out. The step drops the bare Nix CPython from the exported `PATH` and
+    forwards `UV_PYTHON_DOWNLOADS_JSON_URL` so `uv sync` builds the runner venv
+    from a downloaded manylinux CPython (#698/#703/#729) — but the shellHook env
+    forward (#1180) diffs the dev-shell env against the ambient one and shipped
+    every added var, `mkProjectShell`'s `UV_PYTHON` store-path pin included.
+    `UV_PYTHON` beats PATH resolution, so the venv was built on the Nix
+    interpreter regardless and any C-extension wheel then failed under the Nix
+    loader on Ubuntu with `ImportError: libstdc++.so.6: cannot open shared
+    object file`. Existing direnv Python consumers were green only because their
+    test dependencies are pure-Python; first live hit
+    `exo-pet/playground-carlos#9` (numpy 2.4.4).
+  - `UV_PYTHON` and `UV_PYTHON_DOWNLOADS` are now denied by name in that
+    forward's denylist. Both are Nix-host-only by construction, and the second
+    is required for the first: on its own, a forwarded
+    `UV_PYTHON_DOWNLOADS=never` would forbid the very managed-CPython download
+    the `_JSON_URL` forward exists to enable, turning the wheel `ImportError`
+    into "no interpreter found". The patterns are exact, so the deliberate
+    `UV_PYTHON_DOWNLOADS_JSON_URL` forward is untouched — now pinned by a test.
+  - Audit of the other vars `mkProjectShell` puts in the dev-shell env: kept
+    `BATS_LIB_PATH` (a store path, but the store is realized on the runner and
+    `bats` runs from the dev-shell `PATH` there), `NVIM_APPNAME` (portable
+    config) and `UV_PYTHON_DOWNLOADS_JSON_URL`. `LD_LIBRARY_PATH` is exported
+    only behind the shellHook's own `/etc/NIXOS` guard, so it never reaches a
+    hosted runner and is the correct value on a NixOS self-hosted one — left
+    forwardable. Nothing else the builder sets is host-specific.
 
 ### Security
 
