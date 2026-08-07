@@ -246,7 +246,7 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 
 ## Contributing
 
-If you want to contribute to the development of this devcontainer image, see [CONTRIBUTE.md](CONTRIBUTE.md) for information about:
+If you want to contribute to the development of this devcontainer image, see [CONTRIBUTING.md](CONTRIBUTING.md) for information about:
 
 - Requirements and setup
 - Building and testing the image

@@ -9,8 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`CODE_OF_CONDUCT.md`** ([#1372](https://github.com/vig-os/devkit/issues/1372))
+  - Contributor Covenant 2.1 at the repository root. Enforcement reports go
+    through the same [GitHub Private Vulnerability Reporting](https://github.com/vig-os/devkit/security/advisories/new)
+    channel `SECURITY.md` already designates, so there is one private route to
+    the maintainers rather than two.
+
 ### Changed
 
+- **`CONTRIBUTE.md` renamed to `CONTRIBUTING.md`** ([#1372](https://github.com/vig-os/devkit/issues/1372))
+  - GitHub's community profile only recognises `CONTRIBUTING.md`, so the guide
+    was invisible to it and no "Contributing guidelines" link appeared on new
+    issues and pull requests.
+  - The file is generated, so the rename covers the whole chain:
+    `docs/templates/CONTRIBUTE.md.j2` -> `docs/templates/CONTRIBUTING.md.j2`,
+    `docs/generate.py`, the pymarkdown exclude in `.pre-commit-config.yaml`, the
+    `expected_doc` guard in `release.yml`, the `README.md` link (and its
+    template), `docs/NIX.md`, and the `docs.yml` issue template. Historical
+    records — released changelog entries, `docs/issues/`, `docs/pull-requests/`
+    — keep the old name.
 - **Renovate: update `github/codeql-action` from `d1ba80a` to `5595cca`** ([#1367](https://github.com/vig-os/devkit/pull/1367))
 - **Renovate dependency update** ([#1368](https://github.com/vig-os/devkit/pull/1368))
   - Update `actions/attest` from `v4.2.1` to `v4.2.2`
