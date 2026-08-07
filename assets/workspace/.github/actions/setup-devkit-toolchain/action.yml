@@ -178,7 +178,17 @@ runs:
           STORE_BINS="$(printf '%s\n' "$STORE_BINS" \
             | grep -Ev '/nix/store/[^/]*-python3-[0-9][^/]*/bin')"
         fi
-        printf '%s\n' "$STORE_BINS" >> "$GITHUB_PATH"
+        # Reversed on purpose: the runner *prepends* every GITHUB_PATH line to
+        # PATH in file order, so the line written last ends up first. STORE_BINS
+        # holds the dev-shell order (highest priority first), so writing it as
+        # is handed the following steps a PATH in reverse dev-shell priority.
+        # Harmless while one tool means one store path, fatal for a stdenv
+        # toolchain: raw gcc then shadows gcc-wrapper (likewise binutils) and
+        # every C build fails with `cannot find Scrt1.o` / `cannot find -lc`
+        # while the same build is green locally under `nix develop` (#1351,
+        # vig-os/h5v#2). `tac` makes the per-line prepend rebuild the dev-shell
+        # order verbatim.
+        printf '%s\n' "$STORE_BINS" | tac >> "$GITHUB_PATH"
 
         # Forward the dev-shell's uv Python-download metadata URL (GITHUB_PATH
         # carries PATH only): `uv sync` needs it to fetch the project's pinned
