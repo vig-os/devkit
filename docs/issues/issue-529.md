@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-08-05T11:31:36Z
+updated: 2026-08-06T21:51:46Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-06T05:23:25.524Z
+synced: 2026-08-07T04:30:28.688Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -25,7 +25,7 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
  - [ ] <!-- unschedule-branch=renovate/github-codeql-action-digest -->chore(deps): update github/codeql-action digest to 5595cca
- - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update github-actions (minor and patch) (`actions/attest`, `vig-os/commit-action`, `vig-os/sync-issues-action`)
+ - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update github-actions (minor and patch) (`actions/attest`, `actions/attest-build-provenance`, `vig-os/commit-action`, `vig-os/sync-issues-action`)
  - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
  - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
 
@@ -211,8 +211,8 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `anchore/sbom-action v0.24.0@e22c389904149dbc22b58101806040fa8d37a610`
  - `anchore/sbom-action v0.24.0@e22c389904149dbc22b58101806040fa8d37a610`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
- - `actions/attest-build-provenance v4.1.1@0f67c3f4856b2e3261c31976d6725780e5e4c373`
- - `actions/attest-build-provenance v4.1.1@0f67c3f4856b2e3261c31976d6725780e5e4c373`
+ - `actions/attest-build-provenance v4.1.1@0f67c3f4856b2e3261c31976d6725780e5e4c373` → [Updates: `v4.2.2`]
+ - `actions/attest-build-provenance v4.1.1@0f67c3f4856b2e3261c31976d6725780e5e4c373` → [Updates: `v4.2.2`]
  - `actions/attest v4.2.1@508db95dd578ae2727ebd6217d5ba78e4fbda05d` → [Updates: `v4.2.2`]
  - `actions/attest v4.2.1@508db95dd578ae2727ebd6217d5ba78e4fbda05d` → [Updates: `v4.2.2`]
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
