@@ -124,7 +124,6 @@ in `prepare-release.yml` / `release-core.yml`); see
 
 Downstream repositories are expected to provide both app credentials:
 
-- `COMMIT_APP_ID` (required by `vig-os/sync-issues-action` in `sync-issues.yml`)
 - `COMMIT_APP_CLIENT_ID`
 - `COMMIT_APP_PRIVATE_KEY`
 - `RELEASE_APP_CLIENT_ID`

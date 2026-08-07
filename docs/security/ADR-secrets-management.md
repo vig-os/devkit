@@ -53,7 +53,7 @@ provenance — no signing key is stored:
 |--------|-------------------|---------|
 | `CACHIX_AUTH_TOKEN` | `ci.yml:91,128,155,185`, `nix-cachix.yml:58`, `nix-image.yml:87`, `security-scan.yml:62`, `release.yml:767,827` | Push the Nix closure to the `vig-os` Cachix binary cache |
 | `RELEASE_APP_CLIENT_ID` / `RELEASE_APP_PRIVATE_KEY` | `release.yml:484`, `prepare-release.yml:169`, `promote-release.yml:219`, `sync-main-to-dev.yml:160` | GitHub App creds → short-lived installation token for PR/label/release ops |
-| `COMMIT_APP_CLIENT_ID` / `COMMIT_APP_PRIVATE_KEY` / `COMMIT_APP_ID` | `release.yml:491`, `prepare-release.yml:162`, `renovate-changelog-commit.yml:34`, `sync-issues.yml:84,130`, `sync-main-to-dev.yml:128` | GitHub App creds → short-lived installation token for least-privilege commit/ref identity |
+| `COMMIT_APP_CLIENT_ID` / `COMMIT_APP_PRIVATE_KEY` | `release.yml:491`, `prepare-release.yml:162`, `renovate-changelog-commit.yml:34`, `sync-issues.yml:60,140`, `sync-main-to-dev.yml:128` | GitHub App creds → short-lived installation token for least-privilege commit/ref identity |
 
 ## Decision — the pattern
 

@@ -605,7 +605,7 @@ Release automation relies on two GitHub Apps with different scopes:
 | App | Secrets | Permissions | Used by | Purpose |
 |-----|---------|-------------|---------|---------|
 | **RELEASE_APP** | `RELEASE_APP_CLIENT_ID`, `RELEASE_APP_PRIVATE_KEY` | Contents read/write, Issues read/write, Pull requests read/write, Actions read/write | `release.yml`, `prepare-release.yml`, `sync-main-to-dev.yml`, `promote-release.yml` | Release operations, PR creation/updates, rollback, cross-repo dispatch, and **promote-release** git RC tag cleanup (tag-ruleset bypass) |
-| **COMMIT_APP** | `COMMIT_APP_CLIENT_ID`, `COMMIT_APP_PRIVATE_KEY` (`COMMIT_APP_ID` still required by `vig-os/sync-issues-action` in `sync-issues.yml`) | Contents read/write, Issues read, Pull requests read | `sync-issues.yml`, `sync-main-to-dev.yml` | Commits to protected branches and git ref operations |
+| **COMMIT_APP** | `COMMIT_APP_CLIENT_ID`, `COMMIT_APP_PRIVATE_KEY` | Contents read/write, Issues read, Pull requests read | `sync-issues.yml`, `sync-main-to-dev.yml` | Commits to protected branches and git ref operations |
 
 #### Registry and cleanup tokens (upstream)
 
