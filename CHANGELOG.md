@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Renovate dependency update** ([#1368](https://github.com/vig-os/devkit/pull/1368))
+  - Update `actions/attest` from `v4.2.1` to `v4.2.2`
+  - Update `actions/attest-build-provenance` from `v4.1.1` to `v4.2.2`
+  - Update `vig-os/commit-action` from `v0.3.1` to `v0.3.2`
+  - Update `vig-os/sync-issues-action` from `v0.4.0` to `v0.5.0`
+
 ### Deprecated
 
 ### Removed
