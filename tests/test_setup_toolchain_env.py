@@ -50,6 +50,13 @@ DEVSHELL_STEP_NAME = "Build repo flake dev-shell and export PATH"
 # pipeline (#1189).
 BANNER = "devcontainer dev environment loaded (nix)"
 
+# A PYTHONPATH exactly as the nixpkgs python setup hook builds it inside the
+# dev-shell: store site-packages dirs only, no consumer component (#1358).
+STORE_ONLY_PYTHONPATH = (
+    "/nix/store/pppppppp-python3.14-vig-utils-0.1.0/lib/python3.14/site-packages:"
+    "/nix/store/qqqqqqqq-python3-3.14.6/lib/python3.14/site-packages"
+)
+
 # The simulated dev-shell environment the stub `nix` emits (null-delimited). It
 # mixes shellHook exports (must forward), Nix/stdenv build machinery (must be
 # denied), shell session state (must be denied), and an ambient var unchanged
@@ -79,6 +86,21 @@ _DEVSHELL_ENV = [
     ("UV_PYTHON_DOWNLOADS", "never"),
     # Forwarded ON PURPOSE by the same step (#632/#683/#1028) — must survive.
     ("UV_PYTHON_DOWNLOADS_JSON_URL", "https://example.invalid/downloads.json"),
+    # stdenv machinery and Nix-shell session state the forward still leaked
+    # after #1353 — same family, every one must be denied (#1358). The
+    # toolchain hook names are bare commands (`CC=gcc`), so stdenv sets them in
+    # EVERY dev shell and the forward shipped them to the whole CI job.
+    ("_PYTHON_HOST_PLATFORM", "linux-x86_64"),
+    ("_PYTHON_SYSCONFIGDATA_NAME", "_sysconfigdata__linux_x86_64-linux-gnu"),
+    ("DETERMINISTIC_BUILD", "1"),
+    ("CONFIG_SHELL", "/nix/store/cccccccc-bash-5.3p9/bin/bash"),
+    ("doCheck", "1"),
+    ("CC", "gcc"),
+    ("LD", "ld"),
+    ("IN_NIX_SHELL", "impure"),
+    # The nixpkgs python setup hook's PYTHONPATH: store components only, so
+    # nothing survives the store strip and the var must not be forwarded at all.
+    ("PYTHONPATH", STORE_ONLY_PYTHONPATH),
     # Shell session state — must be denied.
     ("PATH", "/nix/store/aaaaaaaa-foo/bin:/usr/bin"),
     ("HOME", "/home/dev-shell"),
@@ -87,6 +109,19 @@ _DEVSHELL_ENV = [
     # Ambient var, unchanged from the host env — must not be re-forwarded.
     ("AMBIENT_SHARED", "same-on-both-sides"),
 ]
+
+# Names to scrub from the harness subprocess environment. A CI runner carries
+# none of the simulated dev-shell's vars, but this test process runs inside
+# `nix develop`, where stdenv and mkProjectShell export many of them ambiently
+# (`CC`, `PYTHONPATH`, `IN_NIX_SHELL`, `UV_PYTHON`, …). Left in place, the
+# step's unchanged-var filter would drop them before the denylist ever ran and
+# every denial assertion would pass for the wrong reason (#1353, #1358). The
+# session state the subprocess genuinely needs, plus the var that is ambient on
+# purpose, are kept.
+_AMBIENT_ON_PURPOSE = frozenset({"PATH", "HOME", "SHLVL", "TMPDIR", "AMBIENT_SHARED"})
+_SCRUBBED_AMBIENT_VARS = tuple(
+    name for name, _ in _DEVSHELL_ENV if name not in _AMBIENT_ON_PURPOSE
+)
 
 # The simulated dev-shell `$PATH` the stub `nix` reports, in dev-shell priority
 # order (highest first). It carries a wrapper/raw toolchain pair — the shape
@@ -112,7 +147,12 @@ def _devshell_step_script() -> str:
     raise AssertionError(f"step {DEVSHELL_STEP_NAME!r} not found in {ACTION}")
 
 
-def _write_nix_stub(bin_dir: Path, *, banner: bool = False) -> None:
+def _write_nix_stub(
+    bin_dir: Path,
+    *,
+    banner: bool = False,
+    devshell_env: list[tuple[str, str]] | None = None,
+) -> None:
     """A fake `nix` covering every invocation the devshell step makes.
 
     - `nix develop … --command true`                  -> exit 0 (profile build)
@@ -123,7 +163,10 @@ def _write_nix_stub(bin_dir: Path, *, banner: bool = False) -> None:
 
     With ``banner=True`` the stub echoes the shellHook banner to stdout on
     every invocation, exactly as the real scaffolded flake does (#1189).
+    ``devshell_env`` replaces the simulated dev-shell env records, so a test can
+    pin one var's exact value (used for the PYTHONPATH cases, #1358).
     """
+    records = _DEVSHELL_ENV if devshell_env is None else devshell_env
     bin_dir.mkdir(parents=True, exist_ok=True)
     lines = [
         "#!/usr/bin/env bash",
@@ -147,7 +190,7 @@ def _write_nix_stub(bin_dir: Path, *, banner: bool = False) -> None:
         '  target="${cmd[-1]}"',
         '  : > "$target"',
     ]
-    for name, value in _DEVSHELL_ENV:
+    for name, value in records:
         lines.append(
             f"  printf '%s\\0' {_bash_squote(name + '=' + value)} >> \"$target\""
         )
@@ -156,7 +199,7 @@ def _write_nix_stub(bin_dir: Path, *, banner: bool = False) -> None:
         "fi",
         'if [ "${cmd[0]:-}" = "env" ]; then',
     ]
-    for name, value in _DEVSHELL_ENV:
+    for name, value in records:
         lines.append(f"  printf '%s\\0' {_bash_squote(name + '=' + value)}")
     lines += [
         "  exit 0",
@@ -179,24 +222,29 @@ def _bash_squote(s: str) -> str:
     return "'" + s.replace("'", "'\\''") + "'"
 
 
-def _run_devshell_step(tmp_path: Path) -> dict[str, str]:
+def _run_devshell_step(
+    tmp_path: Path, *, devshell_env: list[tuple[str, str]] | None = None
+) -> dict[str, str]:
     """Execute the devshell step and return the parsed GITHUB_ENV map.
 
     Multi-line heredoc values are collapsed with `\\n` joins so a caller can
     assert on them; the presence of a heredoc is asserted separately on the raw
     text where it matters.
     """
-    return _exec_devshell_step(tmp_path)[0]
+    return _exec_devshell_step(tmp_path, devshell_env=devshell_env)[0]
 
 
 def _exec_devshell_step(
-    tmp_path: Path, *, banner: bool = False
+    tmp_path: Path,
+    *,
+    banner: bool = False,
+    devshell_env: list[tuple[str, str]] | None = None,
 ) -> tuple[dict[str, str], str]:
     """Execute the devshell step; return (parsed GITHUB_ENV map, raw text)."""
     script = _devshell_step_script()
 
     bin_dir = tmp_path / "stub-bin"
-    _write_nix_stub(bin_dir, banner=banner)
+    _write_nix_stub(bin_dir, banner=banner, devshell_env=devshell_env)
 
     github_env = tmp_path / "github_env"
     github_path = tmp_path / "github_path"
@@ -214,12 +262,13 @@ def _exec_devshell_step(
         # Ambient var that the dev-shell leaves unchanged: must be filtered out.
         "AMBIENT_SHARED": "same-on-both-sides",
     }
-    # A CI runner carries none of the dev-shell's uv pins, but this test process
-    # is itself launched from a dev-shell (`nix develop -c uv run pytest`), which
-    # would make them ambient — and the step's unchanged-var filter would then
-    # mask the denylist behavior under test. Scrub them (#1353).
-    for uv_var in ("UV_PYTHON", "UV_PYTHON_DOWNLOADS", "UV_PYTHON_DOWNLOADS_JSON_URL"):
-        env.pop(uv_var, None)
+    # A CI runner carries none of the dev-shell's uv pins or stdenv machinery,
+    # but this test process is itself launched from a dev-shell
+    # (`nix develop -c uv run pytest`), which would make them ambient — and the
+    # step's unchanged-var filter would then mask the denylist behavior under
+    # test. Scrub them (#1353, #1358).
+    for ambient_var in _SCRUBBED_AMBIENT_VARS:
+        env.pop(ambient_var, None)
 
     proc = subprocess.run(
         ["bash", "-c", script],
@@ -308,6 +357,17 @@ def test_multiline_value_survives_via_heredoc(tmp_path: Path) -> None:
         # Nix-host interpreter pins (#1353).
         "UV_PYTHON",
         "UV_PYTHON_DOWNLOADS",
+        # stdenv machinery and Nix-shell session state (#1358), one per family:
+        # exact stdenv scalars, the `do*` build-flag glob (partner of `dont*`),
+        # the stdenv cc/binutils hook names, and the nix-shell marker.
+        "_PYTHON_HOST_PLATFORM",
+        "_PYTHON_SYSCONFIGDATA_NAME",
+        "DETERMINISTIC_BUILD",
+        "CONFIG_SHELL",
+        "doCheck",
+        "CC",
+        "LD",
+        "IN_NIX_SHELL",
         # Shell session state.
         "PATH",
         "HOME",
@@ -347,6 +407,48 @@ def test_uv_interpreter_pins_do_not_defeat_the_manylinux_path(
     assert env.get("UV_PYTHON_DOWNLOADS_JSON_URL") == (
         "https://example.invalid/downloads.json"
     ), "the deliberate uv download-metadata forward must survive the denylist"
+
+
+def test_store_only_pythonpath_is_not_forwarded(tmp_path: Path) -> None:
+    """A PYTHONPATH made only of store paths must not reach GITHUB_ENV.
+
+    ``python`` in the dev-shell ``packages`` makes the nixpkgs python setup hook
+    export ``PYTHONPATH=/nix/store/…/site-packages:…``. Forwarded to CI, those
+    Nix-built ``cp3xx`` site-packages land on the ``sys.path`` of the
+    *downloaded* manylinux CPython — same ABI tag, importable, exactly the
+    mixed-loader shape behind #1353's ``ImportError: libstdc++.so.6``.
+
+    Refs: #1358
+    """
+    env = _run_devshell_step(tmp_path)
+    assert "PYTHONPATH" not in env, (
+        "a store-only PYTHONPATH must not be forwarded to GITHUB_ENV"
+    )
+
+
+def test_pythonpath_keeps_consumer_components_and_drops_store_ones(
+    tmp_path: Path,
+) -> None:
+    """A mixed PYTHONPATH forwards only the consumer's own components.
+
+    A blanket deny would be wrong: ``export PYTHONPATH=$PWD/src`` in a
+    ``shellHook`` is exactly the #1180 use case. Only the ``/nix/store``
+    components are dropped.
+
+    Refs: #1358
+    """
+    env = _run_devshell_step(
+        tmp_path,
+        devshell_env=[("PYTHONPATH", f"{STORE_ONLY_PYTHONPATH}:/workspace/src")],
+    )
+    assert env.get("PYTHONPATH") == "/workspace/src"
+
+
+def test_consumer_only_pythonpath_is_forwarded_verbatim(tmp_path: Path) -> None:
+    """A PYTHONPATH with no store component is forwarded unchanged (#1358)."""
+    value = "/workspace/src:/workspace/lib"
+    env = _run_devshell_step(tmp_path, devshell_env=[("PYTHONPATH", value)])
+    assert env.get("PYTHONPATH") == value
 
 
 def test_unchanged_ambient_var_is_not_reforwarded(tmp_path: Path) -> None:
