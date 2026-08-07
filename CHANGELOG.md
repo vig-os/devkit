@@ -196,6 +196,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `devkit_env_denied` function in the consumer's own
     `.github/actions/setup-devkit-toolchain/action.yml` as the single source of
     truth. The surrounding narrative is unchanged.
+- **A cancelled CI job no longer leaves `Test Summary` green** ([#1371](https://github.com/vig-os/devkit/issues/1371))
+  - `Test Summary` is the only required status check on `dev`, and it flagged a
+    needed job only on `result == "failure"`. A job that was **cancelled** — job
+    timeout, concurrency cancel, runner eviction, a manual "Cancel workflow" —
+    produced no verdict at all, yet the aggregate printed "All executed test
+    suites passed" and exited 0, so a pull request whose CI never finished was
+    mergeable.
+  - All eight needed jobs now trip the gate on `cancelled` as well as `failure`.
+    `skipped` stays tolerated by design: `workflow_dispatch` takes a
+    `test-suite` subset input that every job is gated on, and
+    `commit-checks`/`dependency-review` are pull-request only.
 
 ### Security
 
