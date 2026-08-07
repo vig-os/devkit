@@ -102,6 +102,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     only behind the shellHook's own `/etc/NIXOS` guard, so it never reaches a
     hosted runner and is the correct value on a NixOS self-hosted one — left
     forwardable. Nothing else the builder sets is host-specific.
+- **shellHook env forward stops leaking Nix-host state** ([#1358](https://github.com/vig-os/devkit/issues/1358))
+  - `PYTHONPATH` is now forwarded **component-wise**: the direnv-mode preamble
+    splits it on `:`, drops every `/nix/store` entry and forwards what remains,
+    skipping the var when nothing is left. With `python` in the dev-shell
+    `packages` the nixpkgs setup hook fills `PYTHONPATH` with store
+    site-packages dirs; forwarded whole, those Nix-built `cp3xx` packages joined
+    the `sys.path` of the *downloaded* manylinux CPython — same ABI tag,
+    importable, the same mixed-loader shape as #1353's
+    `ImportError: libstdc++.so.6`. A blanket deny was not an option: a
+    `shellHook` exporting `PYTHONPATH=$PWD/src` is a legitimate #1180 use case
+    and still arrives on CI intact.
+  - The denylist gained the stdenv machinery it was still missing —
+    `_PYTHON_HOST_PLATFORM`, `_PYTHON_SYSCONFIGDATA_NAME`, `DETERMINISTIC_BUILD`,
+    `CONFIG_SHELL`, the `do[A-Z]*` build flags (`doCheck`, `doInstallCheck`,
+    `doDist`; the symmetric partner of the already-denied `dont*`) — and the
+    stdenv cc/binutils hook names `AR AS CC CXX LD NM OBJCOPY OBJDUMP RANLIB
+    READELF SIZE STRINGS STRIP`. stdenv sets those toolchain names in **every**
+    dev shell as bare commands (`CC=gcc`), so every direnv consumer was shipping
+    them to its whole CI job. Inside dev-shell context the wrapped toolchain
+    already wins via `PATH` after #1351; for a step that runs outside it
+    (`setup-python` plus `pip` building a C extension) a forwarded `CC`
+    resolving to the Nix wrapper recreates the #1353 mixed-toolchain hazard.
+    This deliberately supersedes the `shellHook` `CC`/`CXX` forward that
+    vig-os/h5v used pre-#1351 — #1351 removed the need for it. The `native`
+    module's generic `CC=cc`/`CXX=c++` exports likewise no longer reach CI; they
+    exist so build backends fall back to `PATH` discovery (#879/#893), which the
+    forwarded dev-shell `PATH` still provides. A CI step that needs a specific
+    compiler should set it in the workflow. Patterns are case-sensitive, so
+    `DOCKER_*`/`DO_SOMETHING` are unaffected.
+  - `IN_NIX_SHELL` is denied too: forwarding `IN_NIX_SHELL=impure` made every
+    subsequent CI step claim to be running inside a nix shell.
+  - The related NixOS-self-hosted-runner gap in the CPython `PATH` filter is
+    tracked separately in
+    [#1360](https://github.com/vig-os/devkit/issues/1360).
 - **Prefixed-tag releases publish their changelog notes** ([#1355](https://github.com/vig-os/devkit/issues/1355))
   - In a consumer that sets `DEVKIT_TAG_PREFIX`, the release pipeline wrote one
     changelog heading and read back another. `release-core.yml` finalizes with
