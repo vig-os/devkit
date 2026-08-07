@@ -51,6 +51,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `.hadolint.yaml` there is the consumer's own and is left untouched. A repo
     that already upgraded past a retirement before this fix keeps its
     leftovers — a one-time manual cleanup, documented in `docs/MIGRATION.md`.
+- **Preserved-file diffs show template content, not a symlink typechange** ([#1349](https://github.com/vig-os/devkit/issues/1349))
+  - A `--force` upgrade prints the divergence between each preserved consumer
+    file and the incoming template so the consumer can fold in template
+    evolution deliberately. In the shipped image the devkit assets are
+    `/nix/store` symlinks, so `git diff --no-index` compared the *link* against
+    the consumer's regular file and rendered a typechange — "symlink deleted /
+    file added", with the store path as its only line — instead of the content
+    diff. Seen on the `vig-os/scitadel` 0.3.3 → 1.6.0 migration.
+  - The template side is now dereferenced before the comparison, so the hunk
+    shows the actual template changes. A template symlink whose target does not
+    resolve is still treated as a missing template (no diff, no error), and the
+    diff header keeps naming the file rather than an opaque store path.
 
 ### Security
 
