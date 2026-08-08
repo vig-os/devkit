@@ -8,10 +8,12 @@
 # project shell so consumer hooks run — then opens the adoption PR. Renovate-style
 # pull: no devkit-side action at release time, no consumer registry.
 #
-# Requires a dedicated GitHub App identity: DEVKIT_UPGRADE_APP_ID +
+# Requires a dedicated GitHub App identity: DEVKIT_UPGRADE_APP_CLIENT_ID +
 # DEVKIT_UPGRADE_APP_PRIVATE_KEY (repo or org secrets) feed a per-run
 # installation token minted in-workflow — contents:write + pull-requests:write +
-# issues:write + workflows:write on this repo. The default GITHUB_TOKEN cannot
+# issues:write + workflows:write on this repo. The legacy numeric
+# DEVKIT_UPGRADE_APP_ID still works this release (either value is a valid App
+# JWT issuer); vig-os/devkit#1366 retires it. The default GITHUB_TOKEN cannot
 # open the PR: PRs it creates do not trigger CI. A static PAT is not supported
 # (#1302: user-bound, expiring, single-owner). The workflow fails fast when the
 # secrets are absent. App provisioning + rotation:
@@ -52,20 +54,26 @@ jobs:
     steps:
       - name: Require the upgrade App identity
         env:
-          APP_ID: ${{ secrets.DEVKIT_UPGRADE_APP_ID }}
+          APP_CLIENT_ID: ${{ secrets.DEVKIT_UPGRADE_APP_CLIENT_ID }}
+          APP_ID_LEGACY: ${{ secrets.DEVKIT_UPGRADE_APP_ID }}
           APP_PRIVATE_KEY: ${{ secrets.DEVKIT_UPGRADE_APP_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          if [ -z "${APP_ID}" ] || [ -z "${APP_PRIVATE_KEY}" ]; then
-            echo "::error::DEVKIT_UPGRADE_APP_ID / DEVKIT_UPGRADE_APP_PRIVATE_KEY secrets are not configured. This workflow needs a dedicated GitHub App identity (contents:write + pull-requests:write + issues:write + workflows:write): the default GITHUB_TOKEN cannot open a PR that triggers CI, and a static PAT is not supported. See https://github.com/vig-os/devkit/issues/1302."
+          if { [ -z "${APP_CLIENT_ID}" ] && [ -z "${APP_ID_LEGACY}" ]; } || [ -z "${APP_PRIVATE_KEY}" ]; then
+            echo "::error::DEVKIT_UPGRADE_APP_CLIENT_ID / DEVKIT_UPGRADE_APP_PRIVATE_KEY secrets are not configured. This workflow needs a dedicated GitHub App identity (contents:write + pull-requests:write + issues:write + workflows:write): the default GITHUB_TOKEN cannot open a PR that triggers CI, and a static PAT is not supported. See https://github.com/vig-os/devkit/issues/1302."
             exit 1
+          fi
+          if [ -z "${APP_CLIENT_ID}" ]; then
+            echo "::warning::DEVKIT_UPGRADE_APP_ID is deprecated; create a DEVKIT_UPGRADE_APP_CLIENT_ID secret with the App's Client ID. The numeric fallback is removed in a future release. See https://github.com/vig-os/devkit/issues/1366."
           fi
 
       - name: Mint the upgrade App token
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
         with:
-          app-id: ${{ secrets.DEVKIT_UPGRADE_APP_ID }}
+          # Either secret works as the App JWT issuer; the legacy numeric
+          # fallback is retired by vig-os/devkit#1366.
+          client-id: ${{ secrets.DEVKIT_UPGRADE_APP_CLIENT_ID || secrets.DEVKIT_UPGRADE_APP_ID }}
           private-key: ${{ secrets.DEVKIT_UPGRADE_APP_PRIVATE_KEY }}
           # Least-privilege mint (zizmor github-app): the token carries exactly
           # the four permissions this workflow exercises, independent of any
@@ -189,8 +197,12 @@ jobs:
               --body "Automated adoption of devkit ${TRAIN}. Opened by the devkit-upgrade workflow (#1296).")"
             NUMBER="${URL##*/}"
             echo "Created adoption issue #${NUMBER}."
+            # Which branch was taken decides the no-diff cleanup below (#1347):
+            # only an issue THIS run created may be auto-closed.
+            echo "created=true" >> "$GITHUB_OUTPUT"
           else
             echo "Reusing open adoption issue #${NUMBER}."
+            echo "created=false" >> "$GITHUB_OUTPUT"
           fi
           echo "number=${NUMBER}" >> "$GITHUB_OUTPUT"
 
@@ -364,4 +376,33 @@ jobs:
           else
             gh pr create --base "$BASE" --head "$BRANCH" --title "$TITLE" --body "$BODY"
             echo "Opened the adoption PR."
+          fi
+
+      - name: Clean up the adoption issue on a no-diff run
+        if: steps.resolve.outputs.proceed == 'true' && steps.commit.outputs.changed != 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TARGET: ${{ steps.resolve.outputs.target }}
+          ISSUE: ${{ steps.issue.outputs.number }}
+          CREATED: ${{ steps.issue.outputs.created }}
+        run: |
+          set -euo pipefail
+          # The adoption issue is opened BEFORE install.sh runs — the branch name
+          # embeds its number and the in-shell commit needs the `Refs:` line — so
+          # a run that finds no diff (any dispatch against an already-current
+          # consumer; cron no-ops earlier on "current or ahead") skips publish +
+          # PR and would strand the issue with no PR ever attached (#1347).
+          #
+          # Only an issue THIS run created is closed. A REUSED one belongs to a
+          # live train (rc1 -> rc2 -> final, where an interim bump can legitimately
+          # be a no-op) and must stay open — comment only.
+          if [ "$CREATED" = "true" ]; then
+            gh issue close "$ISSUE" \
+              --comment "No diff at ${TARGET}: this repository's scaffold is already current, so no adoption PR was opened. Closing the issue this run created (#1347)." \
+              --reason "not planned"
+            echo "Closed the adoption issue #${ISSUE} it created (no diff)."
+          else
+            gh issue comment "$ISSUE" \
+              --body "No diff at ${TARGET}: the scaffold is already current, so no adoption PR was opened by this run. Leaving this issue open — it predates this run (#1347)."
+            echo "Left the pre-existing adoption issue #${ISSUE} open (no diff)."
           fi

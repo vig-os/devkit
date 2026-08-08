@@ -154,6 +154,19 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        # Is the runner itself NixOS? In direnv mode this step runs on the
+        # runner host, so this is the host OS, and it decides two things below:
+        # whether a downloaded manylinux CPython could run here at all (#1360).
+        # `/etc/NIXOS` is the established probe — mkProjectShell's own shellHook
+        # uses it to gate LD_LIBRARY_PATH (#698). DEVKIT_NIXOS_MARKER exists
+        # SOLELY so the test harness can point the probe at a fixture path; CI
+        # never sets it, and neither should a consumer.
+        devkit_runner_is_nixos=false
+        if [ -e "${DEVKIT_NIXOS_MARKER:-/etc/NIXOS}" ]; then
+          devkit_runner_is_nixos=true
+        fi
+        echo "Runner is NixOS: $devkit_runner_is_nixos"
+
         # Build the consumer repo's own dev-shell (repo root flake) into a gcroot
         # profile — a warm Cachix pull — then prepend its nix-store bin dirs to
         # GITHUB_PATH so every following step runs as if inside `nix develop`.
@@ -171,14 +184,29 @@ runs:
         # manylinux CPython, not the Nix loader — the #698/#703/#729 libstdc++
         # regression. Library pkgs (python3.<ver>-<pkg>) are unaffected. On a
         # non-Python repo the Nix python stays on PATH (#1028).
+        # Not on a NixOS runner (#1360): there the exclusion is wrong by
+        # construction, since a downloaded manylinux CPython cannot execute on
+        # NixOS at all — dropping the store interpreter would leave the job with
+        # no usable Python. The Nix loader is the *only* one that works here, so
+        # the CPython stays and the uv pins below stay with it.
         STORE_BINS="$(printf '%s' "$SHELL_PATH" | tr ':' '\n' \
           | grep '^/nix/store' \
           | grep -v '/nix/store/[^/]*-podman[^/]*/bin')"
-        if [[ -f pyproject.toml ]]; then
+        if [[ -f pyproject.toml && "$devkit_runner_is_nixos" != true ]]; then
           STORE_BINS="$(printf '%s\n' "$STORE_BINS" \
             | grep -Ev '/nix/store/[^/]*-python3-[0-9][^/]*/bin')"
         fi
-        printf '%s\n' "$STORE_BINS" >> "$GITHUB_PATH"
+        # Reversed on purpose: the runner *prepends* every GITHUB_PATH line to
+        # PATH in file order, so the line written last ends up first. STORE_BINS
+        # holds the dev-shell order (highest priority first), so writing it as
+        # is handed the following steps a PATH in reverse dev-shell priority.
+        # Harmless while one tool means one store path, fatal for a stdenv
+        # toolchain: raw gcc then shadows gcc-wrapper (likewise binutils) and
+        # every C build fails with `cannot find Scrt1.o` / `cannot find -lc`
+        # while the same build is green locally under `nix develop` (#1351,
+        # vig-os/h5v#2). `tac` makes the per-line prepend rebuild the dev-shell
+        # order verbatim.
+        printf '%s\n' "$STORE_BINS" | tac >> "$GITHUB_PATH"
 
         # Forward the dev-shell's uv Python-download metadata URL (GITHUB_PATH
         # carries PATH only): `uv sync` needs it to fetch the project's pinned
@@ -215,16 +243,50 @@ runs:
 
         # Denylist: shell session state (must never override the CI shell) and
         # Nix/stdenv build machinery (PATH is already handled via GITHUB_PATH).
+        # mkProjectShell's uv interpreter pins go with them: `UV_PYTHON` (a store
+        # CPython) and `UV_PYTHON_DOWNLOADS=never` are Nix-host-only by
+        # construction — a NixOS host cannot run a downloaded managed CPython —
+        # and forwarding them cancels the mitigation above, since UV_PYTHON beats
+        # PATH resolution and `never` forbids the very download the
+        # UV_PYTHON_DOWNLOADS_JSON_URL forward exists to enable. `uv sync` then
+        # built the runner venv on the Nix interpreter and every C-extension
+        # wheel died under the Nix loader with `ImportError: libstdc++.so.6:
+        # cannot open shared object file` (#698/#703/#729, #1353). Exact
+        # patterns: UV_PYTHON_DOWNLOADS_JSON_URL must still forward.
+        # On a NixOS runner both pins are instead exactly correct and are
+        # forwarded (#1360): UV_PYTHON names a store interpreter the runner can
+        # execute, and `never` stops uv preferring a managed download that could
+        # not run there. Keeping the CPython on PATH above is not sufficient on
+        # its own — uv's python-preference can still pick the download — so the
+        # two halves of the NixOS branch go together.
+        # The stdenv cc/binutils hook names (AR…STRIP) go too (#1358): stdenv
+        # sets them in EVERY dev shell as bare command names (`CC=gcc`), so
+        # every consumer shipped them to the whole CI job. Inside dev-shell
+        # context the wrapped toolchain already wins via PATH (#1351); for steps
+        # that run OUTSIDE it (setup-python + pip building a C extension) a
+        # forwarded `CC` resolves to the Nix wrapper and recreates the #1353
+        # mixed-toolchain hazard. A step that needs a specific compiler sets it
+        # in the workflow. `do[A-Z]*` (doCheck/doInstallCheck/doDist) is the
+        # symmetric partner of `dont*`; case patterns are case-sensitive, so
+        # DOCKER_*/DO_SOMETHING are untouched (a consumer var literally spelled
+        # `doSomething` would be denied — accepted).
         devkit_env_denied() {
           case "$1" in
             PATH|HOME|USER|LOGNAME|SHELL|TERM|PWD|OLDPWD|SHLVL|IFS|_) return 0 ;;
             TMPDIR|TMP|TEMP|TEMPDIR) return 0 ;;
-            NIX_*) return 0 ;;
+            UV_PYTHON|UV_PYTHON_DOWNLOADS)
+              if [ "$devkit_runner_is_nixos" = true ]; then
+                return 1
+              fi
+              return 0 ;;
+            NIX_*|IN_NIX_SHELL) return 0 ;;
             out|outputs|src|stdenv|system|builder|name|pname|version|shell|shellHook) return 0 ;;
             buildInputs|nativeBuildInputs|propagatedBuildInputs|propagatedNativeBuildInputs) return 0 ;;
-            deps*|*Phase|phases|dont*) return 0 ;;
+            deps*|*Phase|phases|dont*|do[A-Z]*) return 0 ;;
             configureFlags|cmakeFlags|mesonFlags|makeFlags|patches|strictDeps|enableParallelBuilding) return 0 ;;
             SOURCE_DATE_EPOCH|HOST_PATH|__structuredAttrs|outputHash*|preferLocalBuild|allowSubstitutes|cmakeDir) return 0 ;;
+            _PYTHON_HOST_PLATFORM|_PYTHON_SYSCONFIGDATA_NAME|DETERMINISTIC_BUILD|CONFIG_SHELL) return 0 ;;
+            AR|AS|CC|CXX|LD|NM|OBJCOPY|OBJDUMP|RANLIB|READELF|SIZE|STRINGS|STRIP) return 0 ;;
             *) return 1 ;;
           esac
         }
@@ -254,6 +316,29 @@ runs:
           fi
           if devkit_env_denied "$devkit_name"; then
             continue
+          fi
+          # PYTHONPATH: forward the consumer's own components only (#1358). The
+          # nixpkgs python setup hook fills it with store site-packages dirs, and
+          # on CI those land on the sys.path of the *downloaded* manylinux
+          # CPython — same ABI tag, importable, exactly the mixed-loader shape
+          # behind the `ImportError: libstdc++.so.6` of #1353. A blanket deny
+          # would be wrong: `export PYTHONPATH=$PWD/src` in a shellHook is the
+          # #1180 use case. So drop the /nix/store components, keep the rest, and
+          # skip the var entirely when nothing is left. PYTHONPATH only, by
+          # design — the same split-and-filter fits any other path-like var that
+          # ever shows this leak.
+          if [[ "$devkit_name" == PYTHONPATH ]]; then
+            devkit_kept=()
+            IFS=':' read -r -a devkit_parts <<< "$devkit_value"
+            for devkit_part in "${devkit_parts[@]}"; do
+              if [[ "$devkit_part" != /nix/store/* ]]; then
+                devkit_kept+=("$devkit_part")
+              fi
+            done
+            if [[ "${#devkit_kept[@]}" -eq 0 ]]; then
+              continue
+            fi
+            devkit_value="$(IFS=':'; printf '%s' "${devkit_kept[*]}")"
           fi
           # Random heredoc delimiter: multi-line and special-character values
           # survive intact and cannot break GITHUB_ENV parsing (GitHub's own

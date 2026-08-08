@@ -19,6 +19,331 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [1.7.0](https://github.com/vig-os/devkit/releases/tag/1.7.0) - 2026-08-07
+
+### Added
+
+- **`CODE_OF_CONDUCT.md`** ([#1372](https://github.com/vig-os/devkit/issues/1372))
+  - Contributor Covenant 2.1 at the repository root. Enforcement reports go
+    through the same [GitHub Private Vulnerability Reporting](https://github.com/vig-os/devkit/security/advisories/new)
+    channel `SECURITY.md` already designates, so there is one private route to
+    the maintainers rather than two.
+
+### Changed
+
+- **Stamped workflows authenticate with App Client IDs — new org secret required** ([#1365](https://github.com/vig-os/devkit/issues/1365))
+  - **Action required before upgrading:** create a `DEVKIT_UPGRADE_APP_CLIENT_ID`
+    secret (org or repo) holding the upgrade App's Client ID (`Iv23li…`).
+    **Create the secret first, then upgrade** — config-first, always. For this
+    release the legacy numeric `DEVKIT_UPGRADE_APP_ID` still works as a
+    fallback (with a deprecation warning), so an upgrade that races the secret
+    is not bricked; the fallback is removed in a future release
+    ([#1366](https://github.com/vig-os/devkit/issues/1366)).
+  - `sync-issues.yml` now passes `COMMIT_APP_CLIENT_ID` through the `client-id`
+    input added in `vig-os/sync-issues-action` v0.5.0 — the numeric
+    `COMMIT_APP_ID` secret is no longer read anywhere and can be retired once
+    every consumer is on this release.
+  - `devkit-upgrade.yml` prefers `DEVKIT_UPGRADE_APP_CLIENT_ID` in its
+    preflight gate and `create-github-app-token` mint.
+  - Nothing in the auth path is numerically load-bearing: GitHub accepts either
+    the App ID or the Client ID as the App JWT issuer.
+- **`CONTRIBUTE.md` renamed to `CONTRIBUTING.md`** ([#1372](https://github.com/vig-os/devkit/issues/1372))
+  - GitHub's community profile only recognises `CONTRIBUTING.md`, so the guide
+    was invisible to it and no "Contributing guidelines" link appeared on new
+    issues and pull requests.
+  - The file is generated, so the rename covers the whole chain:
+    `docs/templates/CONTRIBUTE.md.j2` -> `docs/templates/CONTRIBUTING.md.j2`,
+    `docs/generate.py`, the pymarkdown exclude in `.pre-commit-config.yaml`, the
+    `expected_doc` guard in `release.yml`, the `README.md` link (and its
+    template), `docs/NIX.md`, and the `docs.yml` issue template. Historical
+    records — released changelog entries, `docs/issues/`, `docs/pull-requests/`
+    — keep the old name.
+- **Renovate: update `github/codeql-action` from `d1ba80a` to `5595cca`** ([#1367](https://github.com/vig-os/devkit/pull/1367))
+- **Renovate dependency update** ([#1368](https://github.com/vig-os/devkit/pull/1368))
+  - Update `actions/attest` from `v4.2.1` to `v4.2.2`
+  - Update `actions/attest-build-provenance` from `v4.1.1` to `v4.2.2`
+  - Update `vig-os/commit-action` from `v0.3.1` to `v0.3.2`
+  - Update `vig-os/sync-issues-action` from `v0.4.0` to `v0.5.0`
+
+### Fixed
+
+- **Floating tags move via `git push` — first release of a new level no longer fails** ([#1377](https://github.com/vig-os/devkit/issues/1377))
+  - The scaffolded `promote-release.yml` created brand-new floating levels via
+    `POST /git/refs`, the one ref-mutation path where GitHub does not honor the
+    Release App's Integration ruleset bypass for the `creation` rule — so the
+    first release of every new `<prefix>X` / `<prefix>X.Y` level died with the
+    opaque `Reference does not exist` (HTTP 422) despite the App holding an
+    `always` bypass on the whole Tag ruleset (hit on `commit-action` 0.3.1 and
+    `sync-issues-action` 0.5.0).
+  - `move_tag()` now force-pushes `TARGET_SHA:refs/tags/<name>` over git with
+    the App installation token plumbed explicitly into the push URL (checkout's
+    persisted credentials are the default `github.token`, which has no bypass)
+    — the exact path `release-publish.yml` already uses to create release tags,
+    empirically bypassed fine. Create and move collapse into one branch-free
+    path; the idempotence read-and-skip guard and the loud `::error` +
+    MIGRATION.md fallback from #1158 stay, with the moot "grant a creation
+    bypass" remediation rewritten (the bypass already exists — the REST create
+    path simply ignores it).
+- **Flake pymarkdown excludes follow the `CONTRIBUTING.md` rename** ([#1380](https://github.com/vig-os/devkit/issues/1380))
+  - `nix/hooks.nix` (runner, check, and consumer profiles) and the scaffold
+    template `assets/workspace/.pre-commit-config.yaml` still excluded the
+    removed `CONTRIBUTE.md`, drifting from the root `.pre-commit-config.yaml`
+    updated in [#1372](https://github.com/vig-os/devkit/issues/1372); the
+    renamed contributing guide was no longer excluded from pymarkdown.
+- **A no-diff devkit upgrade no longer strands its adoption issue** ([#1347](https://github.com/vig-os/devkit/issues/1347))
+  - The scaffolded `devkit-upgrade.yml` opens the adoption issue *before*
+    `install.sh --force` runs (the branch name embeds its number and the
+    in-shell commit needs the `Refs:` line), so a `workflow_dispatch` against an
+    already-current consumer created an issue, found zero diff, skipped publish
+    and PR, and exited green — leaving an issue open with no PR ever attached.
+    Every credential probe or repair run against a current consumer left one
+    behind.
+  - The find-or-create step now reports which branch it took, and a final
+    cleanup step on the no-diff path **closes an issue this run created** (with
+    a "no diff at `<version>`" comment) while **leaving a reused one open** — a
+    mid-train `rc1 → rc2 → final` issue can legitimately see a no-op bump, and
+    auto-closing it would be wrong. Comment only in that case.
+- **Upgrades prune scaffold paths retired since the consumer's pin** ([#1348](https://github.com/vig-os/devkit/issues/1348))
+  - `install.sh --force` regenerated what the *current* scaffold manages and
+    pruned what the current mode / workflow model / feature set excludes — but a
+    path an **old** devkit shipped and a later one **retired** was claimed by
+    neither and rode along through every upgrade. Going 0.3.4 → 1.6.0 preserved
+    `.cursor/`, `.github/actions/resolve-image/`,
+    `.github/workflows/renovate-changelog.yml` and `.hadolint.yaml`. The
+    workflow file is the sharp one: left in place it is live, duplicates the
+    `renovate-changelog-build`/`-commit` pair that replaced it, and calls the
+    pruned `resolve-image` action — so it breaks at its next trigger rather
+    than at upgrade time.
+  - A cumulative retired-paths manifest (version → paths that version stopped
+    shipping) is now consulted against the pin `.vig-os` carried **before** the
+    run — the legacy `DEVCONTAINER_VERSION` key included, since repos still on
+    it are precisely the oldest. Each prune is announced on stdout and listed
+    under `DELETED` in the `--force --preview` report.
+  - The prune is gated on that pin: a repo pinned at or past the retiring
+    version was never shipped the path, so an identically named `.cursor/` or
+    `.hadolint.yaml` there is the consumer's own and is left untouched. A repo
+    that already upgraded past a retirement before this fix keeps its
+    leftovers — a one-time manual cleanup, documented in `docs/MIGRATION.md`.
+- **Preserved-file diffs show template content, not a symlink typechange** ([#1349](https://github.com/vig-os/devkit/issues/1349))
+  - A `--force` upgrade prints the divergence between each preserved consumer
+    file and the incoming template so the consumer can fold in template
+    evolution deliberately. In the shipped image the devkit assets are
+    `/nix/store` symlinks, so `git diff --no-index` compared the *link* against
+    the consumer's regular file and rendered a typechange — "symlink deleted /
+    file added", with the store path as its only line — instead of the content
+    diff. Seen on the `vig-os/scitadel` 0.3.3 → 1.6.0 migration.
+  - The template side is now dereferenced before the comparison, so the hunk
+    shows the actual template changes. A template symlink whose target does not
+    resolve is still treated as a missing template (no diff, no error), and the
+    diff header keeps naming the file rather than an opaque store path.
+- **CI dev-shell PATH keeps its priority order** ([#1351](https://github.com/vig-os/devkit/issues/1351))
+  - The direnv-mode `setup-devkit-toolchain` wrote the dev-shell's `/nix/store`
+    bin dirs to `GITHUB_PATH` highest-priority-first, but the runner *prepends*
+    every line in file order — so the following steps ran with the dev-shell
+    PATH exactly reversed. The dirs are now written reversed, and the per-line
+    prepend rebuilds the dev-shell order verbatim.
+  - Only multi-store-path toolchains were affected: with one tool per store
+    path the order is unobservable. A stdenv toolchain is not — the raw `gcc`
+    shadowed `gcc-wrapper` (likewise `binutils`) and C builds failed with the
+    unwrapped-compiler signature `ld.bfd: cannot find Scrt1.o` /
+    `cannot find -lc`, while the same build stayed green locally under
+    `nix develop` (first hit: `vig-os/h5v`'s vendored HDF5 build).
+- **shellHook env forward no longer ships `UV_PYTHON` to CI** ([#1353](https://github.com/vig-os/devkit/issues/1353))
+  - Two correct mechanisms in the direnv-mode `setup-devkit-toolchain` cancelled
+    out. The step drops the bare Nix CPython from the exported `PATH` and
+    forwards `UV_PYTHON_DOWNLOADS_JSON_URL` so `uv sync` builds the runner venv
+    from a downloaded manylinux CPython (#698/#703/#729) — but the shellHook env
+    forward (#1180) diffs the dev-shell env against the ambient one and shipped
+    every added var, `mkProjectShell`'s `UV_PYTHON` store-path pin included.
+    `UV_PYTHON` beats PATH resolution, so the venv was built on the Nix
+    interpreter regardless and any C-extension wheel then failed under the Nix
+    loader on Ubuntu with `ImportError: libstdc++.so.6: cannot open shared
+    object file`. Existing direnv Python consumers were green only because their
+    test dependencies are pure-Python; first live hit
+    `exo-pet/playground-carlos#9` (numpy 2.4.4).
+  - `UV_PYTHON` and `UV_PYTHON_DOWNLOADS` are now denied by name in that
+    forward's denylist. Both are Nix-host-only by construction, and the second
+    is required for the first: on its own, a forwarded
+    `UV_PYTHON_DOWNLOADS=never` would forbid the very managed-CPython download
+    the `_JSON_URL` forward exists to enable, turning the wheel `ImportError`
+    into "no interpreter found". The patterns are exact, so the deliberate
+    `UV_PYTHON_DOWNLOADS_JSON_URL` forward is untouched — now pinned by a test.
+  - Audit of the other vars `mkProjectShell` puts in the dev-shell env: kept
+    `BATS_LIB_PATH` (a store path, but the store is realized on the runner and
+    `bats` runs from the dev-shell `PATH` there), `NVIM_APPNAME` (portable
+    config) and `UV_PYTHON_DOWNLOADS_JSON_URL`. `LD_LIBRARY_PATH` is exported
+    only behind the shellHook's own `/etc/NIXOS` guard, so it never reaches a
+    hosted runner and is the correct value on a NixOS self-hosted one — left
+    forwardable. Nothing else the builder sets is host-specific.
+- **shellHook env forward stops leaking Nix-host state** ([#1358](https://github.com/vig-os/devkit/issues/1358))
+  - `PYTHONPATH` is now forwarded **component-wise**: the direnv-mode preamble
+    splits it on `:`, drops every `/nix/store` entry and forwards what remains,
+    skipping the var when nothing is left. With `python` in the dev-shell
+    `packages` the nixpkgs setup hook fills `PYTHONPATH` with store
+    site-packages dirs; forwarded whole, those Nix-built `cp3xx` packages joined
+    the `sys.path` of the *downloaded* manylinux CPython — same ABI tag,
+    importable, the same mixed-loader shape as #1353's
+    `ImportError: libstdc++.so.6`. A blanket deny was not an option: a
+    `shellHook` exporting `PYTHONPATH=$PWD/src` is a legitimate #1180 use case
+    and still arrives on CI intact.
+  - The denylist gained the stdenv machinery it was still missing —
+    `_PYTHON_HOST_PLATFORM`, `_PYTHON_SYSCONFIGDATA_NAME`, `DETERMINISTIC_BUILD`,
+    `CONFIG_SHELL`, the `do[A-Z]*` build flags (`doCheck`, `doInstallCheck`,
+    `doDist`; the symmetric partner of the already-denied `dont*`) — and the
+    stdenv cc/binutils hook names `AR AS CC CXX LD NM OBJCOPY OBJDUMP RANLIB
+    READELF SIZE STRINGS STRIP`. stdenv sets those toolchain names in **every**
+    dev shell as bare commands (`CC=gcc`), so every direnv consumer was shipping
+    them to its whole CI job. Inside dev-shell context the wrapped toolchain
+    already wins via `PATH` after #1351; for a step that runs outside it
+    (`setup-python` plus `pip` building a C extension) a forwarded `CC`
+    resolving to the Nix wrapper recreates the #1353 mixed-toolchain hazard.
+    This deliberately supersedes the `shellHook` `CC`/`CXX` forward that
+    vig-os/h5v used pre-#1351 — #1351 removed the need for it. The `native`
+    module's generic `CC=cc`/`CXX=c++` exports likewise no longer reach CI; they
+    exist so build backends fall back to `PATH` discovery (#879/#893), which the
+    forwarded dev-shell `PATH` still provides. A CI step that needs a specific
+    compiler should set it in the workflow. Patterns are case-sensitive, so
+    `DOCKER_*`/`DO_SOMETHING` are unaffected.
+  - `IN_NIX_SHELL` is denied too: forwarding `IN_NIX_SHELL=impure` made every
+    subsequent CI step claim to be running inside a nix shell.
+  - The related NixOS-self-hosted-runner gap in the CPython `PATH` filter is
+    tracked separately in
+    [#1360](https://github.com/vig-os/devkit/issues/1360).
+- **Python consumers work on NixOS self-hosted runners** ([#1360](https://github.com/vig-os/devkit/issues/1360))
+  - The direnv-mode preamble dropped the bare Nix CPython from the exported
+    `PATH` whenever `pyproject.toml` was present — unconditionally. That is
+    right on a hosted FHS runner, where `uv` downloads a managed manylinux
+    CPython (#698/#703/#729), and wrong by construction on a **NixOS**
+    self-hosted runner, where such a download cannot execute at all. #1353 made
+    the gap reachable: the `UV_PYTHON` pin it stopped forwarding was what had
+    accidentally masked it. No consumer matched the combination yet (the one
+    NixOS-runner consumer has no `pyproject.toml`), so this was a latent
+    landmine rather than a live break.
+  - The step now probes the runner's own OS via `/etc/NIXOS` — the same marker
+    `mkProjectShell`'s `shellHook` uses to gate `LD_LIBRARY_PATH` — and takes
+    the matching branch. On a NixOS runner the `pyproject.toml`-gated CPython
+    exclusion is skipped, so the store interpreter stays on `PATH`, **and**
+    `mkProjectShell`'s `UV_PYTHON` / `UV_PYTHON_DOWNLOADS=never` pins are
+    forwarded instead of denied. Both halves are needed: `PATH` alone leaves
+    `uv`'s python-preference free to prefer a managed download, and the pins
+    are what make it use the Nix interpreter deterministically. The podman
+    exclusion stays unconditional, and `UV_PYTHON_DOWNLOADS_JSON_URL` is still
+    forwarded (harmless once the pin wins).
+  - On every non-NixOS runner the behavior is byte-identical to before,
+    #1353's denial of the same two pins included.
+- **Prefixed-tag releases publish their changelog notes** ([#1355](https://github.com/vig-os/devkit/issues/1355))
+  - In a consumer that sets `DEVKIT_TAG_PREFIX`, the release pipeline wrote one
+    changelog heading and read back another. `release-core.yml` finalizes with
+    `prepare-changelog finalize … --tag-prefix "$TAG_PREFIX"`, which composes the
+    prefix into the heading (`## [v1.0.0](…/releases/tag/v1.0.0) - …`), while
+    `release-publish.yml` extracted the notes by matching `## [$VERSION]` on the
+    *bare* semver — a match that can never land on a prefixed heading.
+  - It failed soft: the empty extraction hit the fallback path, so the release
+    was published with the literal body `No changelog notes found for X.Y.Z`.
+    The tag and the release object were both correct and nothing went red, which
+    is why it survived (observed releasing `vig-os/org-config` `v1.0.0`).
+  - The extraction step now takes `tag_prefix` and accepts the composed tag
+    `## [${TAG_PREFIX}${VERSION}]` alongside the bare one. Both are needed: a
+    candidate publishes *before* the finalize step (which is gated on a final
+    `release_kind`), so its heading is still the unprefixed `## [X.Y.Z] - TBD` that
+    `prepare` wrote — matching only the composed tag would have moved the empty
+    notes onto the candidate path. Only prefixed repos were affected; an empty
+    prefix makes the two forms the same string.
+- **MIGRATION.md env-forward denylist prose replaced by an SSoT pointer** ([#1362](https://github.com/vig-os/devkit/issues/1362))
+  - The "direnv mode: `shellHook` environment forwarding" section enumerated the
+    denylist by hand and had fallen behind the shipped action: it predated the
+    `UV_PYTHON`/`UV_PYTHON_DOWNLOADS` denial (#1353), the stdenv additions and
+    the cc/binutils hook names (#1358), and the NixOS-runner exception that
+    forwards those uv pins after all (#1360) — and its two-bullet shape could
+    not express the `PYTHONPATH` store-component strip, which is a transform
+    rather than a deny.
+  - The enumeration is replaced by a description of the denied *categories* with
+    representative examples, the `PYTHONPATH` transform, and a pointer to the
+    `devkit_env_denied` function in the consumer's own
+    `.github/actions/setup-devkit-toolchain/action.yml` as the single source of
+    truth. The surrounding narrative is unchanged.
+- **A cancelled CI job no longer leaves `Test Summary` green** ([#1371](https://github.com/vig-os/devkit/issues/1371))
+  - `Test Summary` is the only required status check on `dev`, and it flagged a
+    needed job only on `result == "failure"`. A job that was **cancelled** — job
+    timeout, concurrency cancel, runner eviction, a manual "Cancel workflow" —
+    produced no verdict at all, yet the aggregate printed "All executed test
+    suites passed" and exited 0, so a pull request whose CI never finished was
+    mergeable.
+  - All eight needed jobs now trip the gate on `cancelled` as well as `failure`.
+    `skipped` stays tolerated by design: `workflow_dispatch` takes a
+    `test-suite` subset input that every job is gated on, and
+    `commit-checks`/`dependency-review` are pull-request only.
+
+### Security
+
+- **Release tags are lightweight refs, so no unsigned object remains in the release chain** ([#1370](https://github.com/vig-os/devkit/issues/1370))
+  - `release.yml` created the tag with `git tag -a` under
+    `vigOS Release Bot <release@vig-os.local>`, producing an **annotated tag
+    object** whose tagger was permanently unverifiable — live tag `1.6.0`
+    reports `verification.reason: "unsigned"`. Signing it was never reachable:
+    the tag is written under the Release **App** installation token and a GitHub
+    App has no registrable GPG/SSH key, while the server-side `POST /git/tags`
+    route stores the payload verbatim without signing it either.
+  - The publish job now creates the tag as a plain `refs/tags/<version>` ref at
+    the release commit (`POST /git/refs`). A lightweight tag has no tagger and
+    no payload, so there is nothing left that can report `unsigned`, and the
+    commit the ref resolves to is the GitHub-verified release commit. The
+    candidate-collision guard and the "already tagged at the finalize SHA"
+    skip are unchanged; the now-unused `git-user-name` / `git-user-email`
+    dispatch inputs are removed from `release.yml` (`prepare-release.yml`, which
+    actually writes commits, keeps its own).
+- **Consumer release tags are lightweight refs too — the scaffold stops publishing unsigned tag objects** ([#1378](https://github.com/vig-os/devkit/issues/1378))
+  - The scaffold's `release-publish.yml` still created every consumer's
+    `X.Y.Z` tag with `git tag -a` under a GitHub App identity — an **annotated
+    tag object** reporting `verification.reason: "unsigned"` forever, for the
+    same unreachable-signature reasons as [#1370](https://github.com/vig-os/devkit/issues/1370).
+    The scaffold was internally inconsistent: `promote-release.yml` already
+    creates the *floating* tags (`vX`, `vX.Y`) as lightweight refs, while the
+    version tag — the one users pin and audit — was an unsigned object.
+  - The publish step now POSTs `refs/tags/<prefix><version>` straight at the
+    release commit (`POST /git/refs`). Preserved behaviours: the
+    `tag_already_exists` skip, the create-race verification (a lost race is
+    accepted only when the existing ref already resolves to the release
+    commit), `TAG_PREFIX` composition ([#1044](https://github.com/vig-os/devkit/issues/1044)),
+    and the tombstone diagnosis ([#1319](https://github.com/vig-os/devkit/issues/1319))
+    — its signature match re-derived against the `POST /git/refs` HTTP 422
+    rule-violation error shape.
+  - The dead `git_user_name` / `git_user_email` `workflow_call` inputs are
+    removed from `release-publish.yml` and their pass-throughs from the
+    scaffold `release.yml` publish call; the scaffold's `git-user-name` /
+    `git-user-email` **dispatch** inputs stay — the rollback job still writes
+    commits with that identity.
+  - `promote-release.yml` and `docs/MIGRATION.md` keep the annotated-tag peel
+    as backward compatibility for tags published by older scaffolds, with
+    corrected wording. Existing annotated tags are left as they are
+    (forward-fix policy); the change reaches consumers on their next devkit
+    upgrade.
+- **Smoke-test orchestration gates the final release on a human approval instead of self-approving** ([#1391](https://github.com/vig-os/devkit/issues/1391))
+  - The dispatch listener approved its own release PR with the workflow token,
+    which the org now forbids (vig-os/org-config#122 sets
+    `can_approve_pull_request_reviews: false` org-wide) — the 1.7.0-rc3 smoke
+    chain died at that step.
+  - The approve step is replaced by a kind-aware gate: candidate dispatches
+    leave the PR unapproved (approval gates the final release only, matching
+    the deferred-approval model of [#902](https://github.com/vig-os/devkit/issues/902)),
+    while the final dispatch polls up to 30 minutes for a human to approve the
+    freshly created release PR before triggering the final release workflow,
+    and fails with re-run guidance if nobody does. Every dispatch still
+    recreates the smoke release branch and PR from scratch, by design.
+- **vulnix register: except CVE-2026-66032, completing the libssh2 malicious-server batch** ([#1386](https://github.com/vig-os/devkit/issues/1386))
+  - The 1.7.0-rc1 Vulnix CVE Gate blocked on CVE-2026-66032 (CVSS 8.8, a
+    double-free in libssh2's `sftp_open()`), the fourth member of the upstream
+    batch whose siblings CVE-2026-66033/66034/66035 were already excepted in
+    the 2026-09-02 block ([#1327](https://github.com/vig-os/devkit/issues/1327)) —
+    it was absent from the findings when that block was triaged on 2026-08-04
+    and surfaced in the feed later.
+  - Same closure provenance and reachability as its siblings: libssh2 enters
+    the image only as curl's scp/sftp backend, and the flaw requires an
+    authenticated SFTP session against a malicious SSH server. Excepted in the
+    same 2026-09-02 block; the whole block drops on a nixpkgs rev-advance once
+    the merged upstream patches (NixOS/nixpkgs#547491) reach the pinned
+    nixos-26.05 channel via the still-open staging-26.05 backport.
+
 ## [1.6.0](https://github.com/vig-os/devkit/releases/tag/1.6.0) - 2026-08-04
 
 ### Added

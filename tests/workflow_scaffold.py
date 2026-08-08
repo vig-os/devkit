@@ -32,12 +32,15 @@ def scaffold(
     seed: Path | None = None,
     name: str = "workspace",
     check: bool = True,
+    preview: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Scaffold a workspace by executing the real init-workspace.sh.
 
     A ``just`` stub on PATH keeps the final ``just sync`` step a fast no-op;
     ``workflow`` appends ``--workflow``; ``seed`` pre-populates the workspace
-    (to exercise the upgrade path). Returns the CompletedProcess so callers can
+    (to exercise the upgrade path); ``preview`` appends ``--preview`` so the
+    run reports the add/overwrite/preserve/delete plan and exits without
+    touching the tree (#886). Returns the CompletedProcess so callers can
     assert on exit code / stderr.
     """
     dest = tmp_path / name
@@ -63,6 +66,8 @@ def scaffold(
     args = ["bash", str(INIT_WORKSPACE), "--force", "--no-prompts", "--mode", "both"]
     if workflow is not None:
         args += ["--workflow", workflow]
+    if preview:
+        args.append("--preview")
 
     return subprocess.run(args, env=env, check=check, capture_output=True, text=True)
 

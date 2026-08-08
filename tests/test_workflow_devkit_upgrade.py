@@ -11,8 +11,9 @@ release time. These tests pin the deliverable without executing the workflow:
 - the template carries the managed banner, both triggers, the public
   ``releases/latest`` version check with prerelease-aware compare, the dedicated
   GitHub App identity (a per-run installation token minted from
-  ``DEVKIT_UPGRADE_APP_ID`` + ``DEVKIT_UPGRADE_APP_PRIVATE_KEY``, fail-fast when
-  absent; never the default ``GITHUB_TOKEN`` for the PR — #1302), the
+  ``DEVKIT_UPGRADE_APP_CLIENT_ID`` + ``DEVKIT_UPGRADE_APP_PRIVATE_KEY``, with a
+  one-release legacy ``DEVKIT_UPGRADE_APP_ID`` fallback — #1365/#1366; fail-fast
+  when absent; never the default ``GITHUB_TOKEN`` for the PR — #1302), the
   ``install.sh`` bootstrap and the ``nix develop`` commit;
 - no ``run:`` block interpolates a dispatch input or event field directly
   (zizmor template-injection: every such value is routed through ``env:``);
@@ -126,10 +127,10 @@ def test_version_compare_is_prerelease_aware() -> None:
 
 def test_requires_app_identity_and_never_uses_github_token_for_pr() -> None:
     """The GitHub App is the ONLY identity: a per-run installation token is
-    minted from DEVKIT_UPGRADE_APP_ID + DEVKIT_UPGRADE_APP_PRIVATE_KEY
+    minted from DEVKIT_UPGRADE_APP_CLIENT_ID + DEVKIT_UPGRADE_APP_PRIVATE_KEY
     (fail-fast when absent), and no static token secret remains (#1302)."""
     text = TEMPLATE.read_text(encoding="utf-8")
-    assert "secrets.DEVKIT_UPGRADE_APP_ID" in text
+    assert "secrets.DEVKIT_UPGRADE_APP_CLIENT_ID" in text
     assert "secrets.DEVKIT_UPGRADE_APP_PRIVATE_KEY" in text
     # The static-secret path is gone entirely — App-only, no PAT fallback.
     assert "DEVKIT_UPGRADE_TOKEN" not in text
@@ -145,9 +146,15 @@ def test_requires_app_identity_and_never_uses_github_token_for_pr() -> None:
         assert re.search(r"create-github-app-token@[0-9a-f]{40}", s["uses"]), (
             "app-token action must be SHA-pinned"
         )
+        # The mint uses the preferred client-id input (with the one-release
+        # legacy fallback), never the deprecated numeric app-id input.
+        with_block = s.get("with", {})
+        assert with_block.get("client-id") == (
+            "${{ secrets.DEVKIT_UPGRADE_APP_CLIENT_ID || secrets.DEVKIT_UPGRADE_APP_ID }}"
+        )
+        assert "app-id" not in with_block
         # Least-privilege mint (zizmor github-app audit): the token must be
         # scoped to exactly the permissions the workflow exercises.
-        with_block = s.get("with", {})
         for perm in (
             "permission-contents",
             "permission-pull-requests",
@@ -170,6 +177,24 @@ def test_requires_app_identity_and_never_uses_github_token_for_pr() -> None:
         assert s.get("with", {}).get("token") == (
             "${{ steps.app-token.outputs.token }}"
         )
+
+
+def test_legacy_numeric_app_id_still_accepted_with_warning() -> None:
+    """The credential rename rides a minor (#1365): the legacy numeric
+    DEVKIT_UPGRADE_APP_ID keeps working for one release — GitHub accepts either
+    the App ID or the Client ID as the App JWT issuer, so the mint falls back to
+    it — the preflight gates on *either* name being present, and the legacy path
+    emits a deprecation warning. #1366 drops the fallback once the fleet has
+    upgraded; a consumer that upgrades before its org grew the new secret is
+    never bricked."""
+    text = TEMPLATE.read_text(encoding="utf-8")
+    # The fallback expression is the compatibility contract.
+    assert (
+        "secrets.DEVKIT_UPGRADE_APP_CLIENT_ID || secrets.DEVKIT_UPGRADE_APP_ID" in text
+    )
+    # The legacy path warns, pointing at the retirement issue.
+    assert "::warning::" in text
+    assert "1366" in text
 
 
 def test_publishes_a_verified_commit_via_api_not_git_push() -> None:
@@ -219,6 +244,53 @@ def test_reset_excluded_paths_and_closes_issue() -> None:
     assert "DEVKIT_UPGRADE_EXCLUDE" in text
     assert "git checkout --" in text
     assert "Closes #" in text
+
+
+def test_no_diff_dispatch_cleans_up_the_issue_it_created() -> None:
+    """A no-diff run must not strand the adoption issue it opened (#1347).
+
+    The issue is created BEFORE install.sh runs (the branch name embeds its
+    number and the in-shell commit needs the ``Refs:`` line), so a dispatch
+    against an already-current consumer creates an issue, finds zero diff and
+    skips publish + PR — leaving it open forever. The find-or-create step must
+    expose which branch it took, and a final cleanup step gated on the no-diff
+    path must close a *freshly created* issue while leaving a *reused* one open
+    (auto-closing a live mid-train issue would be wrong).
+    """
+    text = TEMPLATE.read_text(encoding="utf-8")
+    steps = _steps(text)
+
+    # The find-or-create step exposes the branch it took as a step output.
+    issue_steps = [s for s in steps if s.get("id") == "issue"]
+    assert issue_steps, "no `issue` step found"
+    (issue_step,) = issue_steps
+    assert "created=true" in str(issue_step["run"])
+    assert "created=false" in str(issue_step["run"])
+
+    # A cleanup step runs on the no-diff path only.
+    cleanup_steps = [
+        s
+        for s in steps
+        if "gh issue close" in str(s.get("run", "")) and s.get("id") != "issue"
+    ]
+    assert cleanup_steps, "no no-diff cleanup step found"
+    (cleanup,) = cleanup_steps
+    cond = str(cleanup.get("if", ""))
+    assert "steps.resolve.outputs.proceed == 'true'" in cond
+    assert "steps.commit.outputs.changed != 'true'" in cond
+    # It authenticates as the App (the identity that owns the issue).
+    assert cleanup.get("env", {}).get("GH_TOKEN") == (
+        "${{ steps.app-token.outputs.token }}"
+    )
+    run = str(cleanup["run"])
+    # Only a freshly created issue is closed; a reused one is left open.
+    assert "steps.issue.outputs.created" not in run, (
+        "route the step output through env, never inline into run:"
+    )
+    assert cleanup.get("env", {}).get("CREATED") == (
+        "${{ steps.issue.outputs.created }}"
+    )
+    assert 'CREATED" = "true"' in run or 'CREATED" != "true"' in run
 
 
 # ── security: no template injection (zizmor) ──────────────────────────────────

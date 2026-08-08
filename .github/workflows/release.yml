@@ -39,16 +39,6 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: false
         type: boolean
-      git-user-name:
-        description: 'Git user name for commits'
-        required: false
-        default: 'vigOS Release Bot'
-        type: string
-      git-user-email:
-        description: 'Git user email for commits'
-        required: false
-        default: 'release@vig-os.local'
-        type: string
 
 concurrency:
   # Prevent multiple releases from running simultaneously (race conditions on tags/manifests)
@@ -577,7 +567,7 @@ jobs:
           echo "file_paths=$FILE_PATHS" >> "$GITHUB_OUTPUT"
           echo "Finalization files: $FILE_PATHS"
 
-          for expected_doc in README.md CONTRIBUTE.md TESTING.md docs/SKILL_PIPELINE.md; do
+          for expected_doc in README.md CONTRIBUTING.md TESTING.md docs/SKILL_PIPELINE.md; do
             if git diff --quiet -- "$expected_doc"; then
               continue
             fi
@@ -589,7 +579,7 @@ jobs:
 
       - name: Commit finalization changes via API
         if: needs.validate.outputs.release_kind == 'final'
-        uses: vig-os/commit-action@3a0588ec060d9647bf406e064cf9e6192a431864  # v0.3.1
+        uses: vig-os/commit-action@0361e9aa65b64711a18286ac5dfdcba7cc7a2ac7  # v0.3.2
         env:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -938,7 +928,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
-      contents: write       # create and push tags
+      contents: write       # create the release tag ref
       packages: write       # push images to GHCR
       id-token: write       # keyless cosign signing via OIDC
       attestations: write   # build provenance attestations
@@ -965,28 +955,24 @@ jobs:
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
-      - name: Configure git
-        env:
-          GIT_USER_NAME: ${{ github.event.inputs.git-user-name }}
-          GIT_USER_EMAIL: ${{ github.event.inputs.git-user-email }}
-        run: |
-          git config user.name "$GIT_USER_NAME"
-          git config user.email "$GIT_USER_EMAIL"
-
-      - name: Create annotated tag
+      # The release tag is a LIGHTWEIGHT tag: a plain `refs/tags/<version>` ref
+      # POSTed straight at the release commit, with no tag object behind it.
+      # `git tag -a` (what this step used to do) writes a tag object carrying a
+      # tagger identity that nothing can sign: the tag is published under the
+      # Release App installation token, and a GitHub App has no registrable
+      # GPG/SSH key — nor does the server-side `POST /git/tags` route sign what
+      # it stores. Every tag produced that way reported `verification.reason:
+      # "unsigned"` forever (#1370). A lightweight tag has no tagger and no
+      # payload, so there is nothing left to be unsigned, and the commit the ref
+      # resolves to is the GitHub-verified release commit. Tag immutability is a
+      # separate concern, owned by the repository's Tag ruleset.
+      - name: Create release tag
         if: ${{ needs.finalize.outputs.tag_already_exists != 'true' }}
         env:
-          PUBLISH_VERSION: ${{ needs.validate.outputs.publish_version }}
-        run: |
-          set -euo pipefail
-          git tag -a "$PUBLISH_VERSION" -m "Release $PUBLISH_VERSION"
-          echo "✓ Tag created: $PUBLISH_VERSION"
-
-      - name: Push tag
-        if: ${{ needs.finalize.outputs.tag_already_exists != 'true' }}
-        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PUBLISH_VERSION: ${{ needs.validate.outputs.publish_version }}
           RELEASE_KIND: ${{ needs.validate.outputs.release_kind }}
+          FINALIZE_SHA: ${{ needs.finalize.outputs.finalize_sha }}
         run: |
           set -euo pipefail
           if [ "$RELEASE_KIND" = "candidate" ]; then
@@ -997,30 +983,36 @@ jobs:
             fi
           fi
 
-          if ! retry --retries 3 --backoff 5 --max-backoff 30 -- git push origin "$PUBLISH_VERSION"; then
-            if retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags --refs origin "$PUBLISH_VERSION" | grep -q "refs/tags/$PUBLISH_VERSION$"; then
-              LOCAL_TAG_TARGET_SHA=$(git rev-parse "$PUBLISH_VERSION^{}")
-              REMOTE_TAG_TARGET_SHA=$(retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags origin "refs/tags/$PUBLISH_VERSION^{}" | awk '{print $1}')
-              if [ -z "$REMOTE_TAG_TARGET_SHA" ]; then
-                REMOTE_TAG_TARGET_SHA=$(retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags origin "refs/tags/$PUBLISH_VERSION" | awk '{print $1}')
-              fi
-              if [ -z "$REMOTE_TAG_TARGET_SHA" ]; then
-                echo "ERROR: Remote tag exists but target SHA could not be resolved: $PUBLISH_VERSION"
-                exit 1
-              fi
-              if [ "$REMOTE_TAG_TARGET_SHA" != "$LOCAL_TAG_TARGET_SHA" ]; then
-                echo "ERROR: Remote tag target SHA mismatch for $PUBLISH_VERSION"
-                echo "Local tag target:  $LOCAL_TAG_TARGET_SHA"
-                echo "Remote tag target: $REMOTE_TAG_TARGET_SHA"
-                exit 1
-              fi
-              echo "Tag already present on origin with matching target SHA: $PUBLISH_VERSION"
-            else
-              echo "ERROR: Failed to push tag $PUBLISH_VERSION"
-              exit 1
-            fi
+          CREATE_OUTPUT=""
+          if CREATE_OUTPUT=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/tags/${PUBLISH_VERSION}" \
+              -f sha="$FINALIZE_SHA" 2>&1); then
+            echo "✓ Tag created: $PUBLISH_VERSION -> $FINALIZE_SHA"
+            exit 0
           fi
-          echo "✓ Tag pushed: $PUBLISH_VERSION"
+
+          # Creating the ref failed. The benign case is losing a race with a
+          # concurrent publish (or a response lost after the ref landed), which
+          # is only acceptable when the ref already resolves to this very commit.
+          echo "Tag ref creation did not succeed; verifying remote state:"
+          echo "$CREATE_OUTPUT"
+
+          REMOTE_TAG_TARGET_SHA=$(retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags origin "refs/tags/$PUBLISH_VERSION^{}" | awk '{print $1}')
+          if [ -z "$REMOTE_TAG_TARGET_SHA" ]; then
+            REMOTE_TAG_TARGET_SHA=$(retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags origin "refs/tags/$PUBLISH_VERSION" | awk '{print $1}')
+          fi
+          if [ -z "$REMOTE_TAG_TARGET_SHA" ]; then
+            echo "ERROR: Failed to create tag $PUBLISH_VERSION and no remote tag is present"
+            exit 1
+          fi
+          if [ "$REMOTE_TAG_TARGET_SHA" != "$FINALIZE_SHA" ]; then
+            echo "ERROR: Remote tag target SHA mismatch for $PUBLISH_VERSION"
+            echo "Expected (release commit): $FINALIZE_SHA"
+            echo "Remote tag target:         $REMOTE_TAG_TARGET_SHA"
+            exit 1
+          fi
+          echo "✓ Tag already present on origin at the release commit: $PUBLISH_VERSION"
 
       - name: Generate final release notes from CHANGELOG
         if: needs.validate.outputs.release_kind == 'final'
@@ -1200,7 +1192,7 @@ jobs:
       - name: Attest build provenance (attempt 1)
         id: attest_provenance
         continue-on-error: true
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
         with:
           subject-name: ghcr.io/vig-os/devcontainer
           subject-digest: ${{ steps.digest.outputs.digest }}
@@ -1212,7 +1204,7 @@ jobs:
 
       - name: Attest build provenance (retry)
         if: steps.attest_provenance.outcome == 'failure'
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
         with:
           subject-name: ghcr.io/vig-os/devcontainer
           subject-digest: ${{ steps.digest.outputs.digest }}
@@ -1221,7 +1213,7 @@ jobs:
       - name: Attest SBOM (attempt 1)
         id: attest_sbom
         continue-on-error: true
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d  # v4.2.1
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6  # v4.2.2
         with:
           subject-name: ghcr.io/vig-os/devcontainer
           subject-digest: ${{ steps.digest.outputs.digest }}
@@ -1234,7 +1226,7 @@ jobs:
 
       - name: Attest SBOM (retry)
         if: steps.attest_sbom.outcome == 'failure'
-        uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d  # v4.2.1
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6  # v4.2.2
         with:
           subject-name: ghcr.io/vig-os/devcontainer
           subject-digest: ${{ steps.digest.outputs.digest }}

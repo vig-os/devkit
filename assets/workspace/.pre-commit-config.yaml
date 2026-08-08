@@ -97,7 +97,7 @@ repos:
         language: system
         types: [markdown]
         args: ["-c", ".pymarkdown", "fix"]
-        exclude: ^(README\.md|CONTRIBUTE\.md|TESTING\.md)
+        exclude: ^(README\.md|CONTRIBUTING\.md|TESTING\.md)
 
   # Justfile formatting
   - repo: local

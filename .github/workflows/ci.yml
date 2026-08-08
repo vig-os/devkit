@@ -523,52 +523,58 @@ jobs:
           echo "Dependency Review: ${{ needs.dependency-review.result }}"
           echo ""
 
-          # Check if any job that ran has failed (skip 'skipped' jobs)
+          # Fail on 'failure' AND on 'cancelled': a cancelled job (timeout,
+          # concurrency cancel, runner eviction) produced no verdict, and this
+          # aggregate is the only required check on dev — treating it as green
+          # would let an unfinished CI run merge (#1371).
+          # 'skipped' stays tolerated: workflow_dispatch takes a `test-suite`
+          # subset input every job is gated on, and commit-checks /
+          # dependency-review are pull-request only.
           FAILED=false
 
-          if [ "${{ needs.build-image.result }}" = "failure" ]; then
-            echo "ERROR: Build image failed"
+          if [ "${{ needs.build-image.result }}" = "failure" ] || [ "${{ needs.build-image.result }}" = "cancelled" ]; then
+            echo "ERROR: Build image failed or was cancelled"
             FAILED=true
           fi
 
-          if [ "${{ needs.test-image.result }}" = "failure" ]; then
-            echo "ERROR: Image tests failed"
+          if [ "${{ needs.test-image.result }}" = "failure" ] || [ "${{ needs.test-image.result }}" = "cancelled" ]; then
+            echo "ERROR: Image tests failed or were cancelled"
             FAILED=true
           fi
 
-          if [ "${{ needs.test-integration.result }}" = "failure" ]; then
-            echo "ERROR: Integration tests failed"
+          if [ "${{ needs.test-integration.result }}" = "failure" ] || [ "${{ needs.test-integration.result }}" = "cancelled" ]; then
+            echo "ERROR: Integration tests failed or were cancelled"
             FAILED=true
           fi
 
-          if [ "${{ needs.project-checks.result }}" = "failure" ]; then
-            echo "ERROR: Project checks failed"
+          if [ "${{ needs.project-checks.result }}" = "failure" ] || [ "${{ needs.project-checks.result }}" = "cancelled" ]; then
+            echo "ERROR: Project checks failed or were cancelled"
             FAILED=true
           fi
 
-          if [ "${{ needs.commit-checks.result }}" = "failure" ]; then
-            echo "ERROR: Commit message checks failed"
+          if [ "${{ needs.commit-checks.result }}" = "failure" ] || [ "${{ needs.commit-checks.result }}" = "cancelled" ]; then
+            echo "ERROR: Commit message checks failed or were cancelled"
             FAILED=true
           fi
 
-          if [ "${{ needs.python-security.result }}" = "failure" ]; then
-            echo "ERROR: Python security scan failed"
+          if [ "${{ needs.python-security.result }}" = "failure" ] || [ "${{ needs.python-security.result }}" = "cancelled" ]; then
+            echo "ERROR: Python security scan failed or was cancelled"
             FAILED=true
           fi
 
-          if [ "${{ needs.security-scan.result }}" = "failure" ]; then
-            echo "ERROR: Security scan failed"
+          if [ "${{ needs.security-scan.result }}" = "failure" ] || [ "${{ needs.security-scan.result }}" = "cancelled" ]; then
+            echo "ERROR: Security scan failed or was cancelled"
             FAILED=true
           fi
 
-          if [ "${{ needs.dependency-review.result }}" = "failure" ]; then
-            echo "ERROR: Dependency review failed"
+          if [ "${{ needs.dependency-review.result }}" = "failure" ] || [ "${{ needs.dependency-review.result }}" = "cancelled" ]; then
+            echo "ERROR: Dependency review failed or was cancelled"
             FAILED=true
           fi
 
           if [ "$FAILED" = "true" ]; then
             echo ""
-            echo "One or more test suites failed"
+            echo "One or more test suites failed or were cancelled"
             exit 1
           fi
 

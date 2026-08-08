@@ -642,8 +642,10 @@ jobs:
           RELEASE_TAG="${TAG_PREFIX}${VERSION}"
 
           # Resolve the commit the release tag points at. release-publish.yml
-          # creates an ANNOTATED tag, so peel it (object.type == "tag") to the
-          # underlying commit; floating tags then point straight at the commit.
+          # creates a LIGHTWEIGHT tag (a plain ref at the release commit), but
+          # releases published by older scaffolds created an ANNOTATED tag, so
+          # keep peeling it (object.type == "tag") to the underlying commit;
+          # floating tags then point straight at the commit.
           REF_JSON=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
             gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}")
           TARGET_SHA=$(printf '%s' "$REF_JSON" | jq -r '.object.sha')
@@ -661,6 +663,17 @@ jobs:
           REST="${VERSION#*.}"
           MINOR="${REST%%.*}"
 
+          # Tag pushes must authenticate as the Release App EXPLICITLY: the
+          # checkout step's persisted credentials are the default github.token,
+          # which is not a bypass actor for the Tag ruleset.
+          REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          # `git push <sha>:<ref>` requires the commit object locally, and the
+          # checkout above is a shallow clone of the workflow head — fetch the
+          # release tag so its peeled commit is available to push.
+          retry --retries 3 --backoff 5 --max-backoff 30 -- \
+            git fetch --no-tags --depth 1 "$REMOTE_URL" "refs/tags/${RELEASE_TAG}"
+
           # Create-or-update a lightweight floating tag at the release commit,
           # idempotently (skip when it already points there). Force is required
           # because a floating tag is mutable by design (#1045).
@@ -671,28 +684,23 @@ jobs:
               echo "Floating tag ${name} already at ${TARGET_SHA}; skipping"
               return 0
             fi
-            if [ -n "$current" ]; then
-              retry --retries 3 --backoff 5 --max-backoff 30 -- \
-                gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${name}" \
-                -f sha="$TARGET_SHA" -F force=true >/dev/null
-              echo "Moved floating tag ${name} -> ${TARGET_SHA}"
-            else
-              # First time this floating level is published: promote must
-              # CREATE the ref (POST /git/refs), not move it. The Tag ruleset
-              # denies creation to everyone but the Release App, so if the app
-              # is not an effective bypass actor for the ruleset's `creation`
-              # rule the call is refused — surfaced as the opaque "Reference
-              # does not exist" / HTTP 422 (#1157). Publish + merge already
-              # succeeded, so fail loud with actionable remediation rather than
-              # leaving the advertised `@${name}` pin silently missing.
-              if ! retry --retries 3 --backoff 5 --max-backoff 30 -- \
-                  gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
-                  -f ref="refs/tags/${name}" -f sha="$TARGET_SHA" >/dev/null; then
-                echo "::error title=Floating tag ${name} not created::Could not create floating tag '${name}' at ${TARGET_SHA} (first release of this floating level). The repo Tag ruleset restricts tag creation; if the Release App is not a bypass actor for the ruleset's 'creation' rule the POST /git/refs is denied as 'Reference does not exist' (HTTP 422). The GitHub Release is published and the release PR merged — only this floating tag is missing, which silently breaks the advertised 'uses: ...@${name}' pin. Remediate once by hand (temporarily bypass the ruleset, create refs/tags/${name} -> ${TARGET_SHA}, then revert), or grant the Release App a 'creation' bypass so future levels move automatically. See https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md#first-release-floating-tags."
-                return 1
-              fi
-              echo "Created floating tag ${name} -> ${TARGET_SHA}"
+            # Mutate the ref via `git push`, NEVER via the REST refs API:
+            # GitHub does not honor the Release App's Integration ruleset
+            # bypass on `POST /git/refs` for the `creation` rule, so the first
+            # release of every new floating level was refused as the opaque
+            # "Reference does not exist" (HTTP 422) with no rule-suite entry
+            # (#1157, #1377) — while the very same installation token pushing
+            # tags over git is bypassed fine (exactly how release-publish.yml
+            # creates the release tags). Push also unifies create and move
+            # into one branch-free path. Publish + merge already succeeded, so
+            # on failure fail loud with actionable remediation rather than
+            # leaving the advertised `@${name}` pin silently missing or stale.
+            if ! retry --retries 3 --backoff 5 --max-backoff 30 -- \
+                git push --force "$REMOTE_URL" "${TARGET_SHA}:refs/tags/${name}"; then
+              echo "::error title=Floating tag ${name} not moved::Could not force-push floating tag '${name}' to ${TARGET_SHA}. The GitHub Release is published and the release PR merged — only this floating tag is missing or stale, which silently breaks the advertised 'uses: ...@${name}' pin. The push authenticates as the Release App, which the repo Tag ruleset must list as a bypass actor; verify the ruleset's bypass list and the RELEASE_APP_CLIENT_ID / RELEASE_APP_PRIVATE_KEY secrets, or remediate once by hand (temporarily add an admin bypass to the ruleset, force-move refs/tags/${name} -> ${TARGET_SHA}, then revert). See https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md#first-release-floating-tags."
+              return 1
             fi
+            echo "Floating tag ${name} -> ${TARGET_SHA}"
           }
 
           IFS=',' read -ra LEVELS <<< "$FLOATING_TAGS"

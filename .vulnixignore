@@ -295,9 +295,25 @@ CVE-2026-55973
 # Re-verified 2026-08-04 (#1328): the pin was advanced to nixos-26.05 @
 # 2026-08-03 (rev 531670d8) and rebuilt; libssh2 is still 1.11.1 and carries no
 # 6603x patch, so this block is retained.
+#
+# Extended 2026-08-07 (#1386): CVE-2026-66032 (8.8) — the fourth member of the
+# same upstream batch — was absent from the 2026-08-04 findings (published on
+# NVD 2026-07-24 but scored/ingested later) and first surfaced as the sole
+# blocker in the 1.7.0-rc1 Vulnix CVE Gate. Same closure provenance and
+# reachability class as the three below. nixpkgs status re-checked online
+# 2026-08-07: NixOS/nixpkgs#547491 merged to *master* 12:41Z that day, but the
+# 26.05 backport NixOS/nixpkgs#550166 targets staging-26.05 and is still open,
+# so the patched derivation has NOT reached the pinned nixos-26.05 channel.
+# Same expiry as the batch; the whole block drops on the rev-advance.
 # ============================================================================
 
 Expiration: 2026-09-02
+# libssh2 1.11.1 — CVE-2026-66032 (8.8): double-free in sftp_open()
+#   (src/sftp.c); a malicious server answers SSH_FXP_OPEN with an FX_OK status
+#   and a follow-up oversized packet, making the client free the same response
+#   buffer twice and corrupting the authenticated client's heap. Reachable
+#   only through curl's sftp:// backend against a hostile server.
+CVE-2026-66032
 # libssh2 1.11.1 — CVE-2026-66033 (7.5): pre-auth integer underflow in
 #   ssh2_cipher_crypt() (src/openssl.c); a malicious server negotiating AES-GCM
 #   triggers an OOB read and a memcpy with a near-SIZE_MAX length, crashing the

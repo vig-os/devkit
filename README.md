@@ -210,7 +210,7 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 - **Registry**: `ghcr.io/vig-os/devcontainer`
 - **Architecture**: Multi-platform support (AMD64, ARM64)
 - **License**: Apache
-- **Latest Version**: [1.6.0](https://github.com/vig-os/devkit/releases/tag/1.6.0) - 2026-08-04
+- **Latest Version**: [1.7.0](https://github.com/vig-os/devkit/releases/tag/1.7.0) - 2026-08-07
 - **Image tags**: bare semver (`0.2.1`, `latest`) — git tags use `v` prefix (`v0.2.1`) but image tags do not
 
 ## Features
@@ -246,7 +246,7 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 
 ## Contributing
 
-If you want to contribute to the development of this devcontainer image, see [CONTRIBUTE.md](CONTRIBUTE.md) for information about:
+If you want to contribute to the development of this devcontainer image, see [CONTRIBUTING.md](CONTRIBUTING.md) for information about:
 
 - Requirements and setup
 - Building and testing the image

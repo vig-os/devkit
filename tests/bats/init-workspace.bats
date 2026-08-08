@@ -1695,6 +1695,51 @@ EOF
     assert_output --partial 'default_language_version'
 }
 
+# ── preserved diff must dereference a symlinked template file (#1349) ─────────
+# In the shipped image the devkit assets are /nix/store SYMLINKS, so
+# `git diff --no-index <template-link> <consumer-file>` compares the LINK
+# against a regular file: git renders a typechange (deleted mode 120000 /
+# new file 100644) whose only "content" is the store path the link points at,
+# and the operator never sees the template evolution the preview exists for.
+# Observed live on the vig-os/scitadel 0.3.3 -> 1.6.0 migration. The template
+# side must be dereferenced so the diff compares CONTENT.
+
+@test "preserved diff dereferences a symlinked template file (#1349)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1349-ws"
+    tpl="$BATS_TEST_TMPDIR/e2e-1349-tpl"
+    store="$BATS_TEST_TMPDIR/e2e-1349-store"
+    mkdir -p "$ws" "$store"
+    # Image-shaped template tree: a copy of the real one whose preserved file
+    # is a symlink to content living elsewhere (stand-in for /nix/store).
+    cp -a "$PROJECT_ROOT/assets/workspace" "$tpl"
+    cat > "$store/pre-commit-config.yaml" <<'EOF'
+# SENTINEL-1349 template hook config
+default_language_version:
+    python: python3.12
+repos: []
+EOF
+    ln -sfn "$store/pre-commit-config.yaml" "$tpl/.pre-commit-config.yaml"
+    _custom_precommit_config "$ws"
+    local stub="$BATS_TEST_TMPDIR/stub-1349"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/uv"
+    chmod +x "$stub/uv"
+    run env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$tpl" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode both
+    assert_success
+    assert_output --partial 'Preserved .pre-commit-config.yaml differs from the template'
+    # the template CONTENT is what shows...
+    assert_output --partial 'SENTINEL-1349 template hook config'
+    assert_output --partial 'default_language_version'
+    # ...not a typechange rendering the link target as the whole diff.
+    refute_output --partial '120000'
+    refute_output --partial "$store/pre-commit-config.yaml"
+}
+
 # ── upgrade must preserve a customized .typos.toml, no dual configs (#913) ────
 # The typos hook reads a project's spell-check exceptions; a consumer curates
 # repo-specific extend-words/extend-exclude that a template overwrite silently
