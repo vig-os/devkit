@@ -1,10 +1,16 @@
 # Managed by vigOS devkit — regenerated on upgrade; local edits are lost.
 # Customize in justfile.project. Bugs / missing tools: https://github.com/vig-os/devkit/issues
 
-# Append Keep-a-Changelog Unreleased entries for Renovate dependency PRs (Refs: #506, #562, #863).
+# Append Keep-a-Changelog Unreleased entries for Renovate dependency PRs (Refs: #506, #562, #863)
+# and for devkit adoption PRs opened by the devkit-upgrade workflow (Refs: vig-os/devkit#1404) —
+# the CLI branches on the PR title. The workflow name predates the adoption case and stays
+# unchanged: the commit workflow references it by name from the default branch, so a rename
+# would strand in-flight PRs during the transition.
 # Read-only build on pull_request; privileged commit runs via workflow_run from default branch.
 # The sender-login guard skips synchronize events raised by the changelog commit bot's own
 # push (which uses an app token that re-triggers workflows), breaking the self-commit loop.
+# An rc -> final re-bump force-updates the adoption branch (wiping the changelog commit), but
+# the synchronize event it raises re-runs this build, which re-adds the entry — self-healing.
 
 name: Renovate changelog build
 
@@ -18,7 +24,8 @@ jobs:
   resolve-toolchain:
     name: Resolve toolchain
     if: >-
-      github.event.pull_request.user.login == 'renovate[bot]' &&
+      contains(fromJSON('["renovate[bot]", "vigos-devkit-upgrade[bot]"]'),
+        github.event.pull_request.user.login) &&
       github.event.sender.login != 'commit-action-bot[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
@@ -52,7 +59,8 @@ jobs:
   build:
     name: Build changelog artifact
     if: >-
-      github.event.pull_request.user.login == 'renovate[bot]' &&
+      contains(fromJSON('["renovate[bot]", "vigos-devkit-upgrade[bot]"]'),
+        github.event.pull_request.user.login) &&
       github.event.sender.login != 'commit-action-bot[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
     needs: [resolve-toolchain]

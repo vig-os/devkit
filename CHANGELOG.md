@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Changelog entries for devkit adoption PRs** ([#1404](https://github.com/vig-os/devkit/issues/1404))
+  - The scaffolded `renovate-changelog-build.yml` now also accepts PRs opened
+    by the devkit-upgrade App (`vigos-devkit-upgrade[bot]`), so an adoption PR
+    gets an `Adopt vigOS devkit X.Y.Z` entry under `## Unreleased` →
+    `### Changed`, linking the PR and the devkit release notes — the same
+    pipeline Renovate PRs already use
+  - `renovate-changelog-pr` branches on the PR title
+    (`chore: adopt devkit X.Y.Z[-rcN]`) and skips the Renovate dependency
+    parser for adoption PRs; it also no-ops instead of crashing when the
+    consumer has no `CHANGELOG.md`
+  - The privileged commit message is generalized to
+    `docs(changelog): add unreleased entry for PR N`
+
 ### Changed
 
 ### Deprecated

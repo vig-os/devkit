@@ -1,4 +1,9 @@
-"""Parse Renovate PR metadata and insert a Keep-a-Changelog entry (Refs: #506)."""
+"""Parse Renovate PR metadata and insert a Keep-a-Changelog entry (Refs: #506).
+
+Also handles devkit adoption PRs opened by the devkit-upgrade workflow: a title
+of the exact shape ``chore: adopt devkit X.Y.Z[-rcN]`` produces an "Adopt vigOS
+devkit" entry instead of running the Renovate dependency parser (Refs: #1404).
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,34 @@ import os
 import re
 import sys
 from pathlib import Path
+
+# The devkit-upgrade workflow's PR title, verbatim: bare semver with an
+# optional prerelease (devkit tags carry no `v` prefix). Anchored so arbitrary
+# chore titles never masquerade as adoptions.
+_ADOPTION_TITLE_RE = re.compile(
+    r"^chore: adopt devkit (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$"
+)
+
+
+def parse_adoption_title(title: str) -> str | None:
+    """Return the devkit version from an adoption PR title, or None."""
+    m = _ADOPTION_TITLE_RE.match(title.strip())
+    if m:
+        return m.group(1)
+    return None
+
+
+def format_adoption_entry(
+    pr_number: int,
+    repo_html_url: str,
+    version: str,
+) -> str:
+    base = repo_html_url.rstrip("/")
+    pr_link = f"[#{pr_number}]({base}/pull/{pr_number})"
+    notes_link = (
+        f"[release notes](https://github.com/vig-os/devkit/releases/tag/{version})"
+    )
+    return f"- **Adopt vigOS devkit {version}** ({pr_link}) — {notes_link}\n"
 
 
 def _strip_md_link(cell: str) -> str:
@@ -219,15 +252,29 @@ def main(argv: list[str] | None = None) -> int:
     if not args.repo_url:
         print("GITHUB_REPOSITORY_URL must be set", file=sys.stderr)
         return 1
-    body = args.body
-    if args.body_file:
-        body = Path(args.body_file).read_text(encoding="utf-8")
-    updates = parse_renovate_pr_updates(args.title, body)
-    if not updates:
-        print("No dependency updates parsed; skipping changelog edit", file=sys.stderr)
-        return 0
-    entry = format_changelog_entry(args.pr_number, args.repo_url, updates)
     path = Path(args.changelog)
+    if not path.is_file():
+        # Consumers without a changelog (e.g. trunk repos) are a no-op, not an
+        # error — the build workflow runs unconditionally where scaffolded.
+        print(f"{path} not found; skipping changelog edit", file=sys.stderr)
+        return 0
+    adoption_version = parse_adoption_title(args.title)
+    if adoption_version is not None:
+        # Devkit adoption PR (#1404): the body is workflow boilerplate, never
+        # a Renovate dependency table — format the entry from the title alone.
+        entry = format_adoption_entry(args.pr_number, args.repo_url, adoption_version)
+    else:
+        body = args.body
+        if args.body_file:
+            body = Path(args.body_file).read_text(encoding="utf-8")
+        updates = parse_renovate_pr_updates(args.title, body)
+        if not updates:
+            print(
+                "No dependency updates parsed; skipping changelog edit",
+                file=sys.stderr,
+            )
+            return 0
+        entry = format_changelog_entry(args.pr_number, args.repo_url, updates)
     text = path.read_text(encoding="utf-8")
     new_text, did = insert_renovate_changelog_entry(text, args.pr_number, entry)
     if not did:

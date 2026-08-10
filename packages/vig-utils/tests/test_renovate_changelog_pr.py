@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import textwrap
+from typing import TYPE_CHECKING
 
 import pytest
 from vig_utils.renovate_changelog_pr import (
+    format_adoption_entry,
     format_changelog_entry,
     insert_renovate_changelog_entry,
+    main,
+    parse_adoption_title,
     parse_renovate_pr_updates,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_parse_title_single_dependency_digest() -> None:
@@ -248,3 +255,151 @@ def test_insert_empty_changed_section(changelog: str) -> None:
     assert "### Changed" in new_content
     # Keep-a-Changelog: blank line between ### Changed heading and first list item
     assert "### Changed\n\n- **X**" in new_content
+
+
+# ---------------------------------------------------------------------------
+# Devkit adoption PRs (Refs: #1404)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_adoption_title_final() -> None:
+    assert parse_adoption_title("chore: adopt devkit 1.7.0") == "1.7.0"
+
+
+def test_parse_adoption_title_rc() -> None:
+    assert parse_adoption_title("chore: adopt devkit 1.8.0-rc2") == "1.8.0-rc2"
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "build(pip): update dependency urllib3 to v2.6.3",
+        "chore: adopt devkit",
+        "chore: adopt devkit v1.7.0",
+        "feat: adopt devkit 1.7.0",
+        "chore: adopt devkit 1.7.0 and more",
+    ],
+)
+def test_parse_adoption_title_rejects_non_adoption(title: str) -> None:
+    assert parse_adoption_title(title) is None
+
+
+def test_format_adoption_entry() -> None:
+    entry = format_adoption_entry(
+        141, "https://github.com/vig-os/commit-action", "1.7.0"
+    )
+    assert entry.startswith("- **Adopt vigOS devkit 1.7.0**")
+    assert "[#141](https://github.com/vig-os/commit-action/pull/141)" in entry
+    assert (
+        "[release notes](https://github.com/vig-os/devkit/releases/tag/1.7.0)" in entry
+    )
+    assert entry.endswith("\n")
+
+
+def test_adoption_entry_inserts_and_dedups() -> None:
+    changelog = textwrap.dedent(
+        """\
+        ## Unreleased
+
+        ### Changed
+
+        - **Existing** ([#1](https://github.com/o/r/pull/1))
+
+        ### Deprecated
+        """
+    )
+    entry = format_adoption_entry(141, "https://github.com/o/r", "1.7.0")
+    new_content, did = insert_renovate_changelog_entry(changelog, 141, entry)
+    assert did is True
+    assert new_content.index("Adopt vigOS devkit 1.7.0") < new_content.index(
+        "**Existing**"
+    )
+    again, did2 = insert_renovate_changelog_entry(new_content, 141, entry)
+    assert did2 is False
+    assert again == new_content
+
+
+def test_main_adoption_end_to_end(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        textwrap.dedent(
+            """\
+            ## Unreleased
+
+            ### Changed
+
+            ### Deprecated
+            """
+        ),
+        encoding="utf-8",
+    )
+    rc = main(
+        [
+            "--changelog",
+            str(changelog),
+            "--pr-number",
+            "141",
+            "--title",
+            "chore: adopt devkit 1.7.0",
+            "--repo-url",
+            "https://github.com/vig-os/commit-action",
+        ]
+    )
+    assert rc == 0
+    text = changelog.read_text(encoding="utf-8")
+    assert "### Changed\n\n- **Adopt vigOS devkit 1.7.0**" in text
+    assert "[#141](https://github.com/vig-os/commit-action/pull/141)" in text
+
+
+def test_main_adoption_ignores_body(tmp_path: Path) -> None:
+    """An adoption PR body must not be fed through the Renovate table parser."""
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        textwrap.dedent(
+            """\
+            ## Unreleased
+
+            ### Changed
+
+            ### Deprecated
+            """
+        ),
+        encoding="utf-8",
+    )
+    body = "| Package | Change |\n|---|---|\n| [x](https://x) | `1` -> `2` |"
+    rc = main(
+        [
+            "--changelog",
+            str(changelog),
+            "--pr-number",
+            "7",
+            "--title",
+            "chore: adopt devkit 1.8.0-rc1",
+            "--body",
+            body,
+            "--repo-url",
+            "https://github.com/o/r",
+        ]
+    )
+    assert rc == 0
+    text = changelog.read_text(encoding="utf-8")
+    assert "Adopt vigOS devkit 1.8.0-rc1" in text
+    assert "Renovate" not in text
+
+
+def test_main_missing_changelog_is_noop(tmp_path: Path) -> None:
+    """Consumers without a CHANGELOG.md (trunk repos) must no-op, not crash."""
+    rc = main(
+        [
+            "--changelog",
+            str(tmp_path / "CHANGELOG.md"),
+            "--pr-number",
+            "141",
+            "--title",
+            "chore: adopt devkit 1.7.0",
+            "--repo-url",
+            "https://github.com/o/r",
+        ]
+    )
+    assert rc == 0
+    assert not (tmp_path / "CHANGELOG.md").exists()
