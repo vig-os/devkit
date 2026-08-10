@@ -185,6 +185,14 @@ EOF
     assert_success
 }
 
+@test "smoke-test dispatch seeding awk is bounded and synthesizes ### Changed (#1403)" {
+    # The seeding awk must clear its Unreleased state at the next release
+    # heading (the old version leaked in_unreleased into released sections)
+    # and must synthesize a ### Changed heading when Unreleased lacks one.
+    run bash -lc 'grep -Fq -- "in_unreleased && !seeded && /^## \[/" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "print \"### Changed\"" assets/smoke-test/.github/workflows/repository-dispatch.yml'
+    assert_success
+}
+
 @test "smoke-test dispatch repairs ownership when installer leaves root-owned files" {
     run bash -lc 'grep -Fq -- "NEEDS_CHOWN=false" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "sudo chown -R" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "OWNER_UID_GID=\"\$(id -u):\$(id -g)\"" assets/smoke-test/.github/workflows/repository-dispatch.yml'
     assert_success
