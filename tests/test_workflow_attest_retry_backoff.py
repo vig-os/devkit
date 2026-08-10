@@ -38,9 +38,13 @@ ATTEMPT_IDS = ("attest_provenance", "attest_sbom")
 MINIMUM_WAIT_SECONDS = 300
 
 
-def _publish_steps() -> list[dict]:
+def _publish_job() -> dict:
     workflow = yaml.safe_load(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
-    return workflow["jobs"]["publish"]["steps"]
+    return workflow["jobs"]["publish"]
+
+
+def _publish_steps() -> list[dict]:
+    return _publish_job()["steps"]
 
 
 def _triple(attempt_id: str) -> tuple[dict, dict, dict]:
@@ -83,6 +87,23 @@ def test_attestation_waits_span_minutes() -> None:
             f"the wait after {attempt_id} allows only {deadline}s; a Rekor "
             f"incident needs at least {MINIMUM_WAIT_SECONDS}s of cover (#1399)"
         )
+
+
+def test_job_timeout_outlasts_both_waits() -> None:
+    """A wait longer than the job timeout would just fail the release later."""
+    job = _publish_job()
+    waits = sum(
+        int(_triple(attempt_id)[1]["env"]["REKOR_WAIT_SECONDS"])
+        for attempt_id in ATTEMPT_IDS
+    )
+    # Publishing itself runs ~5 minutes (measured across the 1.7.0 candidates);
+    # the rest is headroom for the attempts either side of each wait.
+    required = waits / 60 + 15
+    assert job["timeout-minutes"] >= required, (
+        f"publish times out after {job['timeout-minutes']}min but both waits "
+        f"can burn {waits / 60:.0f}min; the job needs >= {required:.0f}min or "
+        "the widened backoff dies on the timeout instead (#1399)"
+    )
 
 
 def test_wait_runs_only_when_the_first_attempt_failed() -> None:
