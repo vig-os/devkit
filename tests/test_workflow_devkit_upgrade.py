@@ -154,14 +154,15 @@ def test_requires_app_identity_and_never_uses_github_token_for_pr() -> None:
         )
         assert "app-id" not in with_block
         # Least-privilege mint (zizmor github-app audit): the token must be
-        # scoped to exactly the permissions the workflow exercises.
+        # scoped to exactly the permissions the workflow exercises. With the
+        # adoption issue gone (#1405) no issues permission remains.
         for perm in (
             "permission-contents",
             "permission-pull-requests",
-            "permission-issues",
             "permission-workflows",
         ):
             assert with_block.get(perm) == "write", f"missing {perm}: write"
+        assert "permission-issues" not in with_block
     # The PR step authenticates gh with the minted token (not github.token),
     # otherwise the created PR would not trigger CI.
     pr_steps = [s for s in steps if "gh pr create" in str(s.get("run", ""))]
@@ -238,59 +239,32 @@ def test_bootstraps_installsh_and_commits_in_project_shell() -> None:
     assert "install-nix-action" in text
 
 
-def test_reset_excluded_paths_and_closes_issue() -> None:
-    """DEVKIT_UPGRADE_EXCLUDE paths are reset and the PR closes its adoption issue."""
+def test_reset_excluded_paths() -> None:
+    """DEVKIT_UPGRADE_EXCLUDE paths are reset to the base branch before commit."""
     text = TEMPLATE.read_text(encoding="utf-8")
     assert "DEVKIT_UPGRADE_EXCLUDE" in text
     assert "git checkout --" in text
-    assert "Closes #" in text
 
 
-def test_no_diff_dispatch_cleans_up_the_issue_it_created() -> None:
-    """A no-diff run must not strand the adoption issue it opened (#1347).
+def test_no_adoption_issue_lifecycle() -> None:
+    """The workflow manages no adoption issue at all (#1405).
 
-    The issue is created BEFORE install.sh runs (the branch name embeds its
-    number and the in-shell commit needs the ``Refs:`` line), so a dispatch
-    against an already-current consumer creates an issue, finds zero diff and
-    skips publish + PR — leaving it open forever. The find-or-create step must
-    expose which branch it took, and a final cleanup step gated on the no-diff
-    path must close a *freshly created* issue while leaving a *reused* one open
-    (auto-closing a live mid-train issue would be wrong).
+    Adoption PRs are bot PRs like Renovate's: the PR is the traceable
+    artifact and the changelog entry (#1404) links it. Dropping the issue
+    removes the whole lifecycle — creation, the ``Refs:`` line, the
+    ``Closes #`` body marker, the issues:write grant, and the #1347 no-diff
+    cleanup step that existed only to garbage-collect stranded issues
+    (`Closes #` never auto-closes on a dev-targeted PR anyway).
     """
     text = TEMPLATE.read_text(encoding="utf-8")
-    steps = _steps(text)
-
-    # The find-or-create step exposes the branch it took as a step output.
-    issue_steps = [s for s in steps if s.get("id") == "issue"]
-    assert issue_steps, "no `issue` step found"
-    (issue_step,) = issue_steps
-    assert "created=true" in str(issue_step["run"])
-    assert "created=false" in str(issue_step["run"])
-
-    # A cleanup step runs on the no-diff path only.
-    cleanup_steps = [
-        s
-        for s in steps
-        if "gh issue close" in str(s.get("run", "")) and s.get("id") != "issue"
-    ]
-    assert cleanup_steps, "no no-diff cleanup step found"
-    (cleanup,) = cleanup_steps
-    cond = str(cleanup.get("if", ""))
-    assert "steps.resolve.outputs.proceed == 'true'" in cond
-    assert "steps.commit.outputs.changed != 'true'" in cond
-    # It authenticates as the App (the identity that owns the issue).
-    assert cleanup.get("env", {}).get("GH_TOKEN") == (
-        "${{ steps.app-token.outputs.token }}"
-    )
-    run = str(cleanup["run"])
-    # Only a freshly created issue is closed; a reused one is left open.
-    assert "steps.issue.outputs.created" not in run, (
-        "route the step output through env, never inline into run:"
-    )
-    assert cleanup.get("env", {}).get("CREATED") == (
-        "${{ steps.issue.outputs.created }}"
-    )
-    assert 'CREATED" = "true"' in run or 'CREATED" != "true"' in run
+    # No issue commands, no Refs/Closes markers, no issue-numbered branch.
+    assert "gh issue" not in text
+    assert "Refs: #" not in text
+    assert "Closes #" not in text
+    # The branch is the guard-legal chore/<summary> shape, keyed on the train.
+    assert 'BRANCH="chore/devkit-${SUFFIX}"' in text
+    # The PR body points reviewers at the devkit release notes instead.
+    assert "releases/tag/" in text
 
 
 # ── security: no template injection (zizmor) ──────────────────────────────────
