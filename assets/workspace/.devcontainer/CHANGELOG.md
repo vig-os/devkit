@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Smoke-test failure-notify job can mint its upstream App token again** ([#1396](https://github.com/vig-os/devkit/issues/1396))
+  - The listener's notify job requested an installation token for the
+    pre-rename `vig-os/devcontainer` repository, so the mint failed with 404
+    and no upstream failure issue was ever filed. It now targets
+    `vig-os/devkit`.
+
 ### Security
 
 ## [1.7.0](https://github.com/vig-os/devkit/releases/tag/1.7.0) - 2026-08-07
