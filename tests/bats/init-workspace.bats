@@ -905,6 +905,81 @@ _preview_symlinked_template_venv() {
     assert_output --partial "--exclude='docs/pull-requests/'"
 }
 
+# ── Smoke deploys preserve the consumer's root CHANGELOG (#1403) ───────────────
+# The smoke rsync used to clobber the consumer's root CHANGELOG.md and then cp
+# devkit's own changelog over it; the `prepare-changelog unprepare` safety valve
+# no-ops since #590 (first heading is always ## Unreleased), so devkit's dated
+# `## [X.Y.Z](…devkit…)` headings replaced the consumer's frozen
+# `## [X.Y.Z] - TBD` heading — a guaranteed main<->dev sync conflict whenever
+# the versions coincide (structural for devkit-smoke-test). The root changelog
+# is consumer state: root-anchored exclude preserves it (and shields it from
+# --delete); the scaffold skeleton is bootstrapped only when the file is absent.
+
+_smoke_deploy() {
+    local ws="$1"
+    local stub="$BATS_TEST_TMPDIR/stub-smoke-bin"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/uv"
+    chmod +x "$stub/just" "$stub/uv"
+    env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --smoke-test --mode both
+}
+
+@test "smoke rsync root-anchors a CHANGELOG.md exclude (#1403)" {
+    run grep -A1 'rsync -avL --checksum --delete' "$INIT_WORKSPACE_SH"
+    assert_success
+    assert_output --partial "--exclude='/CHANGELOG.md'"
+}
+
+@test "smoke deploy preserves the consumer's root CHANGELOG.md (#1403)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1403-preserve"
+    mkdir -p "$ws"
+    cat >"$ws/CHANGELOG.md" <<'EOF'
+# Changelog
+
+SENTINEL-1403 consumer changelog body
+
+## Unreleased
+
+### Changed
+
+## [9.9.9] - TBD
+
+### Changed
+
+- **Smoke-test deploy of 9.9.8** -- previous deploy entry
+EOF
+    run _smoke_deploy "$ws"
+    assert_success
+    # consumer content survives byte-relevant intact: sentinel + frozen heading
+    run grep -q 'SENTINEL-1403 consumer changelog body' "$ws/CHANGELOG.md"
+    assert_success
+    run grep -q '^## \[9\.9\.9\] - TBD$' "$ws/CHANGELOG.md"
+    assert_success
+    # no devkit release history leaked into the consumer file
+    run grep -q 'releases/tag' "$ws/CHANGELOG.md"
+    assert_failure
+}
+
+@test "smoke deploy bootstraps the scaffold CHANGELOG.md when absent (#1403)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1403-bootstrap"
+    mkdir -p "$ws"
+    run _smoke_deploy "$ws"
+    assert_success
+    run test -f "$ws/CHANGELOG.md"
+    assert_success
+    # scaffold skeleton: first ## heading is Unreleased, no release sections
+    first_h2=$(grep -m1 '^## ' "$ws/CHANGELOG.md")
+    [ "$first_h2" = "## Unreleased" ]
+    run grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' "$ws/CHANGELOG.md"
+    assert_failure
+}
+
 # ── Nix-image scaffold: real, writable files (#664) ───────────────────────────
 # The Nix image bakes the template as read-only /nix/store symlinks. The scaffold
 # rsync must --copy-links (-L) so a new workspace gets real files (not dangling

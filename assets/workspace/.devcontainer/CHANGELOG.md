@@ -43,6 +43,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Automated main→dev sync PR no longer opens conflicted on every release** ([#1403](https://github.com/vig-os/devkit/issues/1403))
+  - `sync-main-to-dev` now auto-resolves add/add conflicts on generated
+    `docs/issues/` / `docs/pull-requests/` snapshots: a GitHub-signed
+    commit-action commit aligns the sync branch with dev's copies (the
+    signed-commits ruleset forbids a runner merge commit; dev self-heals at
+    the next nightly sync-issues run), the merge is re-verified with
+    `git merge-tree`, and only then is auto-merge enabled. Any other
+    conflict keeps the manual `merge-conflict` path. Applied to both the
+    canonical workflow and the workspace template.
+  - Smoke deploys preserve the consumer's root `CHANGELOG.md` (root-anchored
+    rsync exclude; the scaffold skeleton is bootstrapped only when absent)
+    instead of overwriting it with devkit's release history — the old copy
+    rewrote the consumer's frozen `## [X.Y.Z] - TBD` heading with devkit's
+    dated release line, guaranteeing a sync conflict at every smoke release.
+  - The smoke-test deploy-entry seeding awk is bounded at the next release
+    heading and synthesizes `### Changed` when `## Unreleased` lacks one.
 - **Smoke-test failure-notify job can mint its upstream App token again** ([#1396](https://github.com/vig-os/devkit/issues/1396))
   - The listener's notify job requested an installation token for the
     pre-rename `vig-os/devcontainer` repository, so the mint failed with 404
