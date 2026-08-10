@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`devkit-upgrade` no longer opens a per-train adoption issue** ([#1405](https://github.com/vig-os/devkit/issues/1405))
+  - Adoption PRs are bot PRs like Renovate's: the PR is the traceable
+    artifact and the changelog entry ([#1404](https://github.com/vig-os/devkit/issues/1404))
+    links it. On gitflow consumers the dev-targeted `Closes #N` never
+    auto-closed anyway, stranding an open issue every train
+  - The upgrade branch becomes `chore/devkit-<train>` (the guard-legal
+    issue-less shape), the staging commit drops its `Refs:` line (`chore` is
+    exempt), and the PR body links the devkit release notes
+  - The #1347 no-diff cleanup step and the token's `issues: write` grant are
+    removed — a no-diff run now strands nothing by construction
+  - One-time migration: close any adoption issues left open by earlier
+    trains on the consumers
+
 ### Deprecated
 
 ### Removed
