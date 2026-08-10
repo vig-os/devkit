@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-05T08:17:12Z
-updated: 2026-08-05T08:17:12Z
+updated: 2026-08-07T09:05:44Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1347
-comments: 0
+comments: 1
 labels: bug, priority:low, area:workflow, effort:small, semver:patch
 assignees: none
-milestone: none
+milestone: 1.7.0
 projects: none
 parent: none
 children: none
-synced: 2026-08-06T05:23:25.158Z
+synced: 2026-08-07T21:31:06.708Z
 ---
 
 # [Issue 1347]: [devkit-upgrade: no-diff dispatch strands the adoption issue it created](https://github.com/vig-os/devkit/issues/1347)
@@ -40,4 +40,36 @@ The `Find or create the adoption issue` step already knows which branch was take
 ## Impact
 
 Cosmetic/paper-cut: one stray open issue per no-diff dispatch, discovered only by whoever audits open issues later.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on August 7, 2026 at 09:05 AM_
+
+Fixed by #1350, merged to `dev` @ `fb7af794`.
+
+**What changed** (`assets/workspace/.github/workflows/devkit-upgrade.yml`):
+
+- `Find or create the adoption issue` now emits a `created` step output —
+  `true` on the create branch, `false` on the reuse branch.
+- A new final step gated on `proceed == 'true' && changed != 'true'`:
+  - **created this run** → `gh issue close` with a "no diff at `<version>`"
+    comment and `--reason "not planned"`;
+  - **reused** → comment only, issue left open. A mid-train `rc1 → rc2 → final`
+    issue can legitimately see a no-op bump, so auto-closing it would be wrong.
+
+The `created` output is routed through `env:` like every other value the
+workflow's `run:` blocks consume, keeping the zizmor template-injection rule
+intact.
+
+**Verification:** new `test_no_diff_dispatch_cleans_up_the_issue_it_created` in
+`tests/test_workflow_devkit_upgrade.py` (RED → GREEN, committed separately);
+full CI green — 12 pass, 1 skipping.
+
+**Not yet proven live.** The cleanup path only executes on a real no-diff
+dispatch, and this shipped to `dev` — it reaches consumers at the next release.
+The natural live exercise is the next credential probe against an already-current
+consumer, i.e. the exact scenario that produced `exo-pet/exo-fleet#270`.
+Milestoned 1.6.1.
 

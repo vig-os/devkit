@@ -2,18 +2,18 @@
 type: issue
 state: closed
 created: 2026-07-16T17:40:25Z
-updated: 2026-07-16T19:44:01Z
+updated: 2026-08-07T15:04:52Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1157
-comments: 1
+comments: 2
 labels: bug, area:ci
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-17T05:20:01.555Z
+synced: 2026-08-07T21:31:07.289Z
 ---
 
 # [Issue 1157]: [promote-release: first-time floating minor/major tag creation fails (422 on POST /git/refs) after publish+merge](https://github.com/vig-os/devkit/issues/1157)
@@ -74,4 +74,12 @@ _Posted on July 16, 2026 at 07:44 PM_
 Fixed by #1158 (merged to `dev`). The floating-tag move step now guards the `POST /git/refs` create path and, on a ruleset-denied first-time floating-level create, fails loud with an actionable `::error::` annotation (tag, target commit, ruleset root cause, and the one-off remediation) instead of a cryptic `Reference does not exist`. `docs/MIGRATION.md#first-release-floating-tags` now also covers the steady-state trigger (a live consumer cutting the first release of a new floating level).
 
 Note: the genuine cure — the managed Tag ruleset bypassing the Release App for its `creation` rule — lives in per-consumer onboarding/org-config, not this workflow; tracked separately.
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on August 7, 2026 at 03:04 PM_
+
+The "genuine cure" deferred here was never filed — now tracked in #1377, with root-cause evidence from the vig-os/sync-issues-action v0.5.0 release (2026-08-07): the Release App's `always` bypass IS configured on the whole ruleset and works for creation via git push and for update/deletion via REST — only `POST /git/refs` fails to honor it (and logs no rule-suite entry). Proposed fix: switch `move_tag()` to git push.
 

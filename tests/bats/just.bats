@@ -210,6 +210,11 @@ EOF
     assert_success
 }
 
+@test "smoke-test dispatch gates the final release on human PR approval instead of self-approving" {
+    run bash -lc "grep -Fq -- 'Gate final release on human approval of release PR' assets/smoke-test/.github/workflows/repository-dispatch.yml && ! grep -Fq -- 'gh pr review' assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- 'reviewDecision' assets/smoke-test/.github/workflows/repository-dispatch.yml"
+    assert_success
+}
+
 @test "smoke-test dispatch preflight validates required workflow contract" {
     run bash -lc "grep -Fq -- 'Preflight check required release workflows on dispatch ref' assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- 'REQUIRED_WORKFLOWS=(prepare-release.yml release.yml promote-release.yml)' assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- 'for workflow_file in \"\${REQUIRED_WORKFLOWS[@]}\"; do' assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- 'WORKFLOW_CHECK_OUTPUT=\"\$(gh workflow view \"\${workflow_file}\" --ref \"\${WORKFLOW_REF}\" --yaml 2>&1 >/dev/null)\"' assets/smoke-test/.github/workflows/repository-dispatch.yml"
     assert_success
