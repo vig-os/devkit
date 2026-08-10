@@ -1,7 +1,7 @@
 name: Repository Dispatch Listener
 #
 # Purpose:
-# - Handle cross-repo `repository_dispatch` events from vig-os/devcontainer.
+# - Handle cross-repo `repository_dispatch` events from vig-os/devkit.
 # - Deploy the requested tag into the smoke-test repo.
 # - Always create a `chore/deploy-<tag>` branch and PR to `dev`.
 # - Create signed deploy commits via `vig-os/commit-action`.
@@ -1035,7 +1035,7 @@ jobs:
           client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           owner: vig-os
-          repositories: devcontainer
+          repositories: devkit
 
       - name: Create upstream failure issue
         env:
