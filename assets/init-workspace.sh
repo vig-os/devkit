@@ -1850,8 +1850,13 @@ echo "Copying files from $TEMPLATE_DIR to $WORKSPACE_DIR..."
 # silently skips it. Content comparison is the only sound check here; the
 # template is small, so the cost is negligible.
 if [[ "$SMOKE_TEST" == "true" ]]; then
-    # Smoke mode: clean deploy (--delete removes stale files), then overlay smoke-test assets
-    rsync -avL --checksum --delete --exclude='.git' --exclude='.venv' --exclude='docs/issues/' --exclude='docs/pull-requests/' "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
+    # Smoke mode: clean deploy (--delete removes stale files), then overlay
+    # smoke-test assets. /CHANGELOG.md is root-anchored (#953 semantics): the
+    # consumer's ROOT changelog is consumer state — its own frozen release
+    # history (## [X.Y.Z] - TBD) must survive re-deploys (#1403). The anchor
+    # keeps .devcontainer/CHANGELOG.md (devkit's manifest mirror) syncing, and
+    # the exclude also shields the root file from --delete.
+    rsync -avL --checksum --delete --exclude='.git' --exclude='.venv' --exclude='/CHANGELOG.md' --exclude='docs/issues/' --exclude='docs/pull-requests/' "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
 
     SMOKE_TEST_DIR="$SCRIPT_DIR/smoke-test"
     if [[ -d "$SMOKE_TEST_DIR" ]]; then
@@ -1861,16 +1866,17 @@ if [[ "$SMOKE_TEST" == "true" ]]; then
         echo "Warning: Smoke-test directory not found at $SMOKE_TEST_DIR" >&2
     fi
 
-    # Workspace scaffold CHANGELOG is empty; copy devcontainer changelog and
-    # rename top ## [version] - … to ## Unreleased for downstream prepare-release.
-    if [[ -f "$WORKSPACE_DIR/.devcontainer/CHANGELOG.md" ]]; then
-        echo "Syncing workspace CHANGELOG from .devcontainer/CHANGELOG.md (smoke-test)..."
-        cp "$WORKSPACE_DIR/.devcontainer/CHANGELOG.md" "$WORKSPACE_DIR/CHANGELOG.md"
-        if ! command -v prepare-changelog >/dev/null 2>&1; then
-            echo "ERROR: prepare-changelog not found (required for smoke-test CHANGELOG sync)" >&2
-            exit 1
-        fi
-        prepare-changelog unprepare "$WORKSPACE_DIR/CHANGELOG.md"
+    # First deploy only: bootstrap the workspace scaffold CHANGELOG
+    # (## Unreleased skeleton). Later deploys never touch the consumer's
+    # changelog; devkit's own history lives in .devcontainer/CHANGELOG.md.
+    # The old cp + `prepare-changelog unprepare` here rewrote the consumer's
+    # frozen ## [X.Y.Z] - TBD heading with devkit's dated release line
+    # (unprepare no-ops since #590 — the first heading is always
+    # ## Unreleased), guaranteeing a main<->dev sync conflict at every smoke
+    # release (#1403).
+    if [[ ! -f "$WORKSPACE_DIR/CHANGELOG.md" ]]; then
+        echo "Bootstrapping workspace CHANGELOG.md from template scaffold..."
+        cp -L "$TEMPLATE_DIR/CHANGELOG.md" "$WORKSPACE_DIR/CHANGELOG.md"
     fi
 else
     # Build exclude list for preserved files that already exist
