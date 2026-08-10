@@ -931,15 +931,23 @@ class TestSmokeRepo:
         root_content = root_changelog.read_text(encoding="utf-8")
         devcontainer_content = devcontainer_changelog.read_text(encoding="utf-8")
 
-        # Root changelog is a copy of .devcontainer/CHANGELOG.md with the top semver
-        # heading renamed via prepare-changelog unprepare; older release sections stay.
+        # The root changelog is the CONSUMER's own history: on a fresh deploy it
+        # is bootstrapped from the workspace scaffold (## Unreleased skeleton,
+        # no release sections). It must NOT be a copy of devkit's changelog —
+        # deploying devkit's dated/linked ## [X.Y.Z] headings into the consumer
+        # rewrites its frozen release sections and guarantees a main<->dev sync
+        # conflict at every smoke release (#1403).
         first_h2 = re.search(r"^## .+$", root_content, re.MULTILINE)
         assert first_h2 is not None, "Root changelog should have a top-level ## heading"
         assert first_h2.group(0).rstrip("\r\n") == "## Unreleased", (
-            "Root changelog top section should be ## Unreleased after smoke-test unprepare"
+            "Root changelog top section should be ## Unreleased"
         )
-        assert re.search(r"^## \[\d+\.\d+\.\d+\]", root_content, re.MULTILINE), (
-            "Root changelog should retain semver release sections below Unreleased"
+        assert not re.search(r"^## \[\d+\.\d+\.\d+\]", root_content, re.MULTILINE), (
+            "Root changelog must not carry devkit release sections (#1403); "
+            "a fresh smoke deploy bootstraps the scaffold skeleton only"
+        )
+        assert root_content != devcontainer_content, (
+            "Root changelog must not be a byte copy of devkit's changelog (#1403)"
         )
         assert re.search(
             r"^## \[\d+\.\d+\.\d+\]", devcontainer_content, re.MULTILINE
