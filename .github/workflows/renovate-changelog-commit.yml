@@ -1,4 +1,5 @@
-# Privileged commit for Renovate changelog updates (Refs: #506, #562).
+# Privileged commit for Renovate and devkit-adoption changelog updates
+# (Refs: #506, #562, vig-os/devkit#1404).
 # Runs from default branch via workflow_run; never checks out PR-head code.
 
 name: Renovate changelog commit
@@ -63,7 +64,7 @@ jobs:
           TARGET_BRANCH: refs/heads/${{ steps.metadata.outputs.head_ref }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
-            docs(changelog): add unreleased entry for renovate PR ${{ steps.metadata.outputs.pr_number }}
+            docs(changelog): add unreleased entry for PR ${{ steps.metadata.outputs.pr_number }}
 
             Refs: #${{ steps.metadata.outputs.pr_number }}
           FILE_PATHS: CHANGELOG.md,assets/workspace/.devcontainer/CHANGELOG.md
