@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-07T18:44:43Z
-updated: 2026-08-07T18:44:43Z
+updated: 2026-08-08T19:55:50Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1391
-comments: 0
+comments: 1
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-07T21:30:54.132Z
+synced: 2026-08-09T03:48:35.345Z
 ---
 
 # [Issue 1391]: [[BUG] smoke-test dispatch orchestration broken by org-wide workflow-approval block (org-config#122)](https://github.com/vig-os/devkit/issues/1391)
@@ -53,3 +53,17 @@ The org hardening and the autonomous smoke pipeline are now in direct conflict. 
 Maintainer manually approves the smoke release PR and manually dispatches the smoke `release.yml` legs (candidate + final) and `promote-release.yml`; validation value is unchanged since the rc3 scaffold is already deployed on smoke dev (deploy PR #339).
 
 Refs: vig-os/org-config#122, smoke run 31207370105, deploy PR vig-os/devkit-smoke-test#339, release PR vig-os/devkit-smoke-test#340
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on August 8, 2026 at 07:55 PM_
+
+Resolved for the 1.7.0 train:
+
+- Listener auto-approve replaced by a kind-aware human-approval gate (PR #1392 to release/1.7.0, shipped in 1.7.0; mirrored to smoke dev via devkit-smoke-test#342 and hotfixed to smoke main via devkit-smoke-test#345 — repository_dispatch executes from the default branch). Candidate path live-proven at rc5 (run 31219339055 fully green, PR left unapproved).
+- Human approval on smoke main made *required* (org-config#127) so `reviewDecision` computes — the gate's poll signal needs required reviews. Unblocked by the org-config slug fix (org-config#128/#129) after GitHub dropped numeric-id tolerance on /apps/{app_slug}.
+- Final leg completed 2026-08-08 morning: smoke 1.7.0 published 07:55Z, devkit promoted 08:39Z.
+
+Still open from this issue: the failure-notify token mint 404 ("Generate release app token for upstream issue creation" → Not Found) — splitting that into its own issue.
+
