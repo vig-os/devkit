@@ -926,7 +926,9 @@ jobs:
     name: Publish Release
     needs: [validate, finalize, build-and-test, vulnix-gate]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # Publishing runs ~5min; the headroom is for the two attestation waits,
+    # which can spend up to 10min each riding out a Rekor outage (#1399).
+    timeout-minutes: 45
     permissions:
       contents: write       # create the release tag ref
       packages: write       # push images to GHCR
@@ -1198,9 +1200,13 @@ jobs:
           subject-digest: ${{ steps.digest.outputs.digest }}
           push-to-registry: true
 
-      - name: Wait before retrying build provenance attestation
+      # The action's own Rekor retries cover only ~47s (#1399); wait for the
+      # transparency log to come back rather than burning a fixed interval.
+      - name: Wait for the transparency log before retrying provenance
         if: steps.attest_provenance.outcome == 'failure'
-        run: sleep 30
+        env:
+          REKOR_WAIT_SECONDS: '600'
+        run: bash "${GITHUB_WORKSPACE}/.github/scripts/wait-for-rekor.sh"
 
       - name: Attest build provenance (retry)
         if: steps.attest_provenance.outcome == 'failure'
@@ -1220,9 +1226,11 @@ jobs:
           sbom-path: /tmp/sbom.spdx.json
           push-to-registry: true
 
-      - name: Wait before retrying SBOM attestation
+      - name: Wait for the transparency log before retrying SBOM attestation
         if: steps.attest_sbom.outcome == 'failure'
-        run: sleep 30
+        env:
+          REKOR_WAIT_SECONDS: '600'
+        run: bash "${GITHUB_WORKSPACE}/.github/scripts/wait-for-rekor.sh"
 
       - name: Attest SBOM (retry)
         if: steps.attest_sbom.outcome == 'failure'
