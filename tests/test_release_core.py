@@ -120,6 +120,8 @@ def test_job_ceilings_are_pinned_read_only() -> None:
         "actions": "read",
         "contents": "read",
         "packages": "read",
+        # Bot-PR metadata reads for release-time changelog synthesis (#1423).
+        "pull-requests": "read",
     }
     assert "permissions" not in jobs["test"], (
         "the test job inherits the read-only workflow ceiling; adding its own "

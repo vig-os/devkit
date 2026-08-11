@@ -49,6 +49,9 @@ jobs:
     name: Validate Release Preparation
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read    # bot-PR metadata for changelog synthesis (#1423)
     outputs:
       version: ${{ steps.vars.outputs.version }}
       release_branch: ${{ steps.vars.outputs.release_branch }}
@@ -119,6 +122,16 @@ jobs:
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
+      # Synthesize bot-PR entries (Renovate, devkit adoptions) before gating on
+      # content: a train whose only changes are bot PRs must still pass (#1423).
+      - name: Synthesize bot changelog entries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          uv run synthesize-bot-changelog
+
       - name: Verify CHANGELOG has Unreleased section with content
         run: |
           set -euo pipefail
@@ -155,6 +168,7 @@ jobs:
     if: ${{ github.event.inputs.dry-run != 'true' }}
     permissions:
       contents: read          # checkout dev branch
+      pull-requests: read     # bot-PR metadata for changelog synthesis (#1423)
     # Exposed to the extension, open-pr, and rollback jobs (#1059). The PR body
     # (changelog) and the rollback anchors (pre-freeze/post-freeze SHAs) were step
     # outputs when this job also opened the PR and rolled back inline; the extension
@@ -195,6 +209,18 @@ jobs:
             gh api "repos/${{ github.repository }}/git/ref/heads/dev" --jq '.object.sha')
           echo "prepare_start_sha=$PREPARE_START_SHA" >> "$GITHUB_OUTPUT"
           echo "✓ Captured pre-prepare dev SHA: $PREPARE_START_SHA"
+
+      # Bot-PR entries (Renovate, devkit adoptions) are synthesized into
+      # Unreleased right before the freeze so they ride the freeze commit; the
+      # per-PR changelog pipeline they replace conflicted every open bot PR on
+      # the same Unreleased lines (#1423).
+      - name: Synthesize bot changelog entries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          uv run synthesize-bot-changelog
 
       - name: Prepare CHANGELOG (freeze + reset)
         env:

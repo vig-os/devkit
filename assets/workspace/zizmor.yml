@@ -28,7 +28,7 @@
 # Fixed upstream (NOT baselined — listed here as a record of what devkit fixed):
 #   - artipacked        → persist-credentials: false on read-only checkouts
 #                         (ci.yml lint/test/resolve/dependency-review, codeql.yml,
-#                         renovate-changelog-build.yml, sync-issues.yml resolve).
+#                         sync-issues.yml resolve).
 #   - template-injection → release-app token moved into step env in
 #                         sync-main-to-dev.yml.
 #
@@ -37,8 +37,6 @@
 #                         therefore rely on the persisted git credential
 #                         (ci.yml commit-checks, all release/sync branch work,
 #                         devkit-upgrade's self-upgrade branch push).
-#   - dangerous-triggers → renovate-changelog-commit.yml runs on `workflow_run`
-#                         by design (it commits the built changelog).
 #   - github-app        → create-github-app-token intentionally mints a
 #                         broadly-scoped installation token for release
 #                         orchestration; per-permission scoping would break the
@@ -59,9 +57,6 @@ rules:
       - release-publish.yml
       - release.yml
       - sync-main-to-dev.yml
-  dangerous-triggers:
-    ignore:
-      - renovate-changelog-commit.yml
   github-app:
     ignore:
       - prepare-release.yml
@@ -69,7 +64,6 @@ rules:
       - release-core.yml
       - release-publish.yml
       - release.yml
-      - renovate-changelog-commit.yml
       - sync-issues.yml
       - sync-main-to-dev.yml
   secrets-inherit:
@@ -84,6 +78,5 @@ rules:
       - release-core.yml
       - release-publish.yml
       - release.yml
-      - renovate-changelog-build.yml
       - sync-issues.yml
       - sync-main-to-dev.yml

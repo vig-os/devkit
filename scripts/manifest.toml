@@ -80,23 +80,6 @@ src = ".github/ISSUE_TEMPLATE/"
 # get the mode-aware `resolve-toolchain` + `setup-devkit-toolchain` composites
 # (authored directly under assets/workspace/.github/actions/, #994/#991) instead.
 
-# renovate-changelog-build.yml is de-coupled from this manifest (#996). The root
-# workflow now runs host+Nix via `./.github/actions/setup-env` (no resolve-image,
-# no container:), while the scaffold copy at
-# assets/workspace/.github/workflows/renovate-changelog-build.yml is the mode-aware
-# `resolve-toolchain` + `setup-devkit-toolchain` variant. The two no longer share a
-# structure that ReplaceBlock/Sed transforms could bridge — deriving the scaffold
-# variant from the converted root would mean re-synthesizing the resolve-toolchain
-# job and the container: block the root no longer has — so the scaffold copy is
-# maintained as an independently-authored file rather than derived from root
-# (precedent: #991 dropped the resolve-image action sync entry).
-
-[[entries]]
-src = ".github/workflows/renovate-changelog-commit.yml"
-transforms = [
-  { type = "Sed", pattern = ',assets/workspace/\.devcontainer/CHANGELOG\.md', replace = "" },
-]
-
 [[entries]]
 src = ".github/workflows/scorecard.yml"
 
@@ -109,6 +92,7 @@ dest = ".devcontainer/justfile.gh"
 transforms = [
   { type = "Sed", pattern = "uv run gh-issues", replace = "gh-issues" },
   { type = "Sed", pattern = "uv run prepare-changelog", replace = "prepare-changelog" },
+  { type = "Sed", pattern = "uv run synthesize-bot-changelog", replace = "synthesize-bot-changelog" },
   { type = "Sed", pattern = "finalize CHANGELOG, build/test images, create final tag, publish", replace = "finalize CHANGELOG, create final tag, publish" },
   { type = "Sed", pattern = "Promote final release: GHCR :latest, publish draft GitHub Release, merge release PR \\(after downstream smoke-test final release\\)", replace = "Promote final release: publish draft GitHub Release, merge release PR" },
   # Downstream release.yml declares create-release; upstream root justfile.gh does not pass it.

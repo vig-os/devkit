@@ -88,6 +88,12 @@ def test_zizmor_configs_carry_no_stale_pipeline_entries(path: Path) -> None:
 
 
 # ── synthesis at cut: prepare-release.yml (root + scaffold) ───────────────────
+#
+# Root and scaffold differ deliberately: devkit's validate job carries the Nix
+# toolchain, so it synthesizes before its content gate. The scaffold validate
+# job is host-only (it IS the toolchain resolver), so both synthesis and the
+# content gate live in the container-capable prepare job — still ahead of the
+# freeze, so a train whose only content is bot PRs passes either way.
 
 
 @pytest.mark.parametrize(
@@ -96,20 +102,24 @@ def test_zizmor_configs_carry_no_stale_pipeline_entries(path: Path) -> None:
     ids=("root", "scaffold"),
 )
 class TestSynthesisAtCut:
-    def test_validate_synthesizes_before_validating_content(
-        self, workflow: Path
-    ) -> None:
-        # A train whose only content is bot PRs must pass the non-empty gate.
-        steps = _steps(workflow, "validate")
-        assert _step_index(steps, SYNTH) < _step_index(
-            steps, "prepare-changelog validate"
-        )
-
     def test_prepare_synthesizes_before_freezing(self, workflow: Path) -> None:
         steps = _steps(workflow, "prepare")
         assert _step_index(steps, SYNTH) < _step_index(
             steps, "prepare-changelog prepare"
         )
+
+    def test_prepare_gates_content_after_synthesis(self, workflow: Path) -> None:
+        # The non-empty gate must see the synthesized entries, wherever it runs.
+        steps = _steps(workflow, "prepare")
+        synth = _step_index(steps, SYNTH)
+        try:
+            gate = _step_index(steps, "prepare-changelog validate")
+        except AssertionError:
+            # Root gates in the validate job (Nix toolchain available there).
+            steps = _steps(workflow, "validate")
+            synth = _step_index(steps, SYNTH)
+            gate = _step_index(steps, "prepare-changelog validate")
+        assert synth < gate
 
     @pytest.mark.parametrize("job", ["validate", "prepare"])
     def test_jobs_fetch_full_history_for_the_tag_window(
@@ -117,16 +127,27 @@ class TestSynthesisAtCut:
     ) -> None:
         assert _checkout_fetch_depth(_steps(workflow, job)) == 0
 
-    @pytest.mark.parametrize("job", ["validate", "prepare"])
-    def test_jobs_may_read_pr_metadata(self, workflow: Path, job: str) -> None:
-        permissions = _job(workflow, job).get("permissions") or {}
-        assert permissions.get("pull-requests") == "read"
+    def test_synthesizing_jobs_may_read_pr_metadata(self, workflow: Path) -> None:
+        found = False
+        for job in ("validate", "prepare"):
+            steps = _steps(workflow, job)
+            if not any(SYNTH in str(s.get("run", "")) for s in steps):
+                continue
+            found = True
+            permissions = _job(workflow, job).get("permissions") or {}
+            assert permissions.get("pull-requests") == "read", (
+                f"{workflow.name}:{job} synthesizes without pull-requests: read"
+            )
+        assert found
 
-    @pytest.mark.parametrize("job", ["validate", "prepare"])
-    def test_synthesis_step_authenticates_gh(self, workflow: Path, job: str) -> None:
-        steps = _steps(workflow, job)
-        env = steps[_step_index(steps, SYNTH)].get("env") or {}
-        assert "GH_TOKEN" in env
+    def test_synthesis_steps_authenticate_gh(self, workflow: Path) -> None:
+        found = False
+        for job in ("validate", "prepare"):
+            for step in _steps(workflow, job):
+                if SYNTH in str(step.get("run", "")):
+                    found = True
+                    assert "GH_TOKEN" in (step.get("env") or {})
+        assert found
 
 
 # ── synthesis at finalize: release.yml (root) / release-core.yml (scaffold) ───
