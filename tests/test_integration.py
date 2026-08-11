@@ -1960,17 +1960,23 @@ class TestVersionCheckScaffold:
         assert start != -1, "notify_update function not found"
         notify_body = content[start : content.find("\n}", start)]
 
-        assert "just devc-upgrade" in notify_body, (
-            "Notification should mention the 'just devc-upgrade' command"
+        assert "devc-upgrade" not in notify_body, (
+            "Notification must not point at the removed devc-upgrade recipe (#1421)"
         )
-        assert "To update: ${BOLD}just update${NC}" not in notify_body, (
-            "Notification should not suggest 'just update' for devcontainer upgrade"
+        assert "devkit-upgrade.yml" in notify_body, (
+            "Notification should branch on the devkit-upgrade workflow's presence"
+        )
+        assert "adoption PR" in notify_body, (
+            "Notification should point automation-wired repos at the adoption PR"
         )
         assert "curl" in notify_body and "install.sh" in notify_body, (
-            "Notification should show curl install.sh as fallback option"
+            "Notification should keep the install.sh one-liner as manual fallback"
+        )
+        assert "--force" in notify_body, (
+            "Notification fallback should run install.sh in upgrade (--force) mode"
         )
         assert "host terminal" in notify_body, (
-            "Notification should clarify upgrade runs on host terminal"
+            "Notification should clarify the manual upgrade runs on a host terminal"
         )
         assert "rebuild" in notify_body.lower(), (
             "Notification should remind user to rebuild container after upgrade"
@@ -2038,34 +2044,17 @@ class TestVersionCheckScaffold:
             "devc-check recipe doesn't default to verbose check mode"
         )
 
-    def test_devc_upgrade_recipe(self):
-        """justfile.devc's devc-upgrade recipe guards and upgrades correctly."""
+    def test_devc_upgrade_recipe_removed(self):
+        """devc-upgrade is gone: upgrades ride the devkit-upgrade adoption PRs.
+
+        The recipe wrapped ``install.sh --force`` and steered users around the
+        reviewed adoption flow; #1421 removed it (manual fallback: the
+        install.sh one-liner the notification shows).
+        """
         content = (_WORKSPACE_ASSETS / ".devcontainer" / "justfile.devc").read_text()
-
-        assert re.search(r"(?m)^devc-upgrade:", content), (
-            "devc-upgrade recipe not found in justfile.devc"
-        )
-        self._assert_in_info_group(content, r"^devc-upgrade:")
-
-        recipe = self._recipe_block(content, r"^devc-upgrade:")
-        # Refuses to run inside a container, pointing at a host terminal
-        assert "/.dockerenv" in recipe, (
-            "devc-upgrade recipe should detect the container environment"
-        )
-        assert "ERROR" in recipe.upper(), (
-            "devc-upgrade recipe should show an error message when run in container"
-        )
-        assert "host" in recipe.lower() and "terminal" in recipe.lower(), (
-            "devc-upgrade error message should mention running from a host terminal"
-        )
-        # Checks a container runtime is available before upgrading
-        assert "command -v podman" in recipe, (
-            "devc-upgrade recipe should check if podman/docker is available"
-        )
-        # Runs the installer in upgrade mode
-        assert "install.sh" in recipe, "devc-upgrade recipe should call install.sh"
-        assert "--force" in recipe, (
-            "devc-upgrade recipe should use --force flag for upgrades"
+        assert "devc-upgrade" not in content, (
+            "devc-upgrade was removed in #1421 — upgrades are driven by the "
+            "devkit-upgrade workflow's adoption PRs"
         )
 
     def test_project_recipe_split(self):
