@@ -24,6 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Refresh `CLAUDE.md` and add the green-CI dispatch rule** ([#1411](https://github.com/vig-os/devkit/issues/1411))
+  - `CLAUDE.md`: correct the project title to `vig-os/devkit`, add the missing
+    `/solve-and-pr` command row, and add a lean "Release Operations" section
+    pointing at the release doc set plus the agent-behavioral hard rules
+    (green-CI-before-dispatch, immutable-release forward-fix, automated
+    consumer adoption — no per-consumer lane dispatch)
+  - `docs/RELEASE_CYCLE.md` Phase 2: state the hard rule that `release.yml`
+    must never be dispatched until the release-branch PR CI is fully green —
+    the release PR opening is not the go-signal
+
 - **Document the smoke-test final-release human-approval gate** ([#1409](https://github.com/vig-os/devkit/issues/1409))
   - `docs/CROSS_REPO_RELEASE_GATE.md` now describes the approval gate shipped
     in 1.7.0 (candidates leave the smoke release PR unapproved; the final

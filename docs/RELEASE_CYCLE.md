@@ -317,6 +317,17 @@ This is the main quality gate. The release branch and draft PR serve as the coor
    create no GitHub Release, and are pruned at promote. Iterate freely until the
    image behaves as intended.
 
+   **Hard rule: never dispatch `release.yml` — candidate or final — until the
+   release-branch PR's CI is fully green.** The release PR being opened by
+   `prepare-release` is **not** the go-signal; CI is still running at that
+   point, and a dispatch against a red or still-running branch wastes a full
+   build/publish round-trip (and, for finals, risks publishing from an
+   unverified commit). Check first:
+
+   ```bash
+   gh pr checks <PR_NUMBER> --watch
+   ```
+
 4. **Local Testing** (optional)
 
    ```bash

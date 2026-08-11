@@ -1,4 +1,4 @@
-# Project: vigOS Devcontainer
+# Project: vigOS Devkit (`vig-os/devkit`)
 
 ## Custom Commands
 
@@ -26,6 +26,7 @@ Available slash commands (SSoT: `.claude/skills/`):
 | `/pr_create` | Prepare and submit a pull request |
 | `/pr_post-merge` | Cleanup after PR merge |
 | `/pr_solve` | Diagnose PR failures, plan fixes, execute them |
+| `/solve-and-pr` | Launch the autonomous worktree pipeline for an issue via `just worktree-start` |
 | `/worktree_ci-check` | Autonomous CI check -- polls until completion, triggers fix on failure |
 | `/worktree_ci-fix` | Autonomous CI fix -- diagnose, post diagnosis, fix, push, re-check |
 | `/worktree_brainstorm` | Autonomous design -- reads issue, posts design, never blocks |
@@ -111,3 +112,21 @@ See the `tdd` skill (`.claude/skills/tdd/SKILL.md`) for the scenario checklist a
 All commits must follow the Commit Message Standard. Never use `--no-verify`.
 
 Each phase gets its own commit. Do not write implementation before its test. Skip TDD only for non-testable changes (config, templates, docs) -- note why.
+
+---
+
+## Release Operations
+
+The recurring heavy workflow in this repo is the release train. The SSoT is
+[`docs/RELEASE_CYCLE.md`](docs/RELEASE_CYCLE.md); start there. Companion docs:
+
+- [`docs/CROSS_REPO_RELEASE_GATE.md`](docs/CROSS_REPO_RELEASE_GATE.md) -- smoke-test dispatch contract; the **final** dispatch pauses on a human approval of the smoke release PR
+- [`docs/DOWNSTREAM_RELEASE.md`](docs/DOWNSTREAM_RELEASE.md) -- release workflows in consumer repos
+- [`docs/MIGRATION.md`](docs/MIGRATION.md) and [`docs/SOLO_ADOPTION.md`](docs/SOLO_ADOPTION.md) -- consumer adoption paths
+- [`docs/WORKFLOW_SECURITY.md`](docs/WORKFLOW_SECURITY.md) -- App/token model behind the workflows
+
+Hard rules (rationale and detail live in the docs above, not here):
+
+1. **Never dispatch `release.yml` (candidate or final) until the release-branch PR CI is fully green.** The draft PR opening is not the go-signal.
+2. **Published releases are immutable org-wide; fix forward.** Deleting a published release tombstones its tag name permanently. Never delete published releases or tags -- cut the next RC or patch version instead.
+3. **Consumer rollout is automated.** `devkit-upgrade` opens adoption PRs in consumer repos on a schedule; release trains do not dispatch per-consumer lanes.
