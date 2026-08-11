@@ -378,6 +378,7 @@ jobs:
       actions: read
       contents: read
       packages: read
+      pull-requests: read    # bot-PR metadata for changelog synthesis (#1423)
     container:
       image: ${{ inputs.toolchain_image }}
       credentials:
@@ -432,6 +433,21 @@ jobs:
         with:
           mode: ${{ inputs.toolchain_mode }}
           devkit-version: ${{ inputs.devkit_version }}
+
+      # Regenerate the bot-entry block inside [VERSION] - TBD before stamping
+      # the date: any bot PR merged into the release branch mid-train is
+      # reachable from HEAD here, so it cannot ship unchronicled (#1423).
+      # Candidates stay changelog-neutral, matching the rest of finalize.
+      - name: Synthesize bot changelog entries
+        if: ${{ inputs.release_kind == 'final' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          TAG_PREFIX: ${{ inputs.tag_prefix }}
+        run: |
+          set -euo pipefail
+          synthesize-bot-changelog --version "$VERSION" --tag-prefix "$TAG_PREFIX"
 
       - name: Finalize CHANGELOG date
         if: ${{ inputs.release_kind == 'final' }}

@@ -1217,9 +1217,7 @@ feature_paths() {
         renovate)
             printf '%s\n' \
                 "renovate.json" \
-                ".github/renovate-default.json" \
-                ".github/workflows/renovate-changelog-build.yml" \
-                ".github/workflows/renovate-changelog-commit.yml"
+                ".github/renovate-default.json"
             ;;
         sync-issues)
             printf '%s\n' \
@@ -1290,6 +1288,9 @@ retired_paths() {
     printf '%s\n' '0.4.0 .hadolint.yaml'
     # Superseded by the mode-aware resolve-toolchain composite action.
     printf '%s\n' '1.1.0 .github/actions/resolve-image'
+    # Per-PR changelog pipeline replaced by release-time synthesis (#1423).
+    printf '%s\n' '1.8.0 .github/workflows/renovate-changelog-build.yml'
+    printf '%s\n' '1.8.0 .github/workflows/renovate-changelog-commit.yml'
 }
 
 # True (0) when semver $1 is STRICTLY lower than $2. Prerelease-aware in the one

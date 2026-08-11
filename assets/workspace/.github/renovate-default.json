@@ -76,8 +76,6 @@
         ".github/workflows/release-core.yml",
         ".github/workflows/release-publish.yml",
         ".github/workflows/release.yml",
-        ".github/workflows/renovate-changelog-build.yml",
-        ".github/workflows/renovate-changelog-commit.yml",
         ".github/workflows/scorecard.yml",
         ".github/workflows/sync-issues.yml",
         ".github/workflows/sync-main-to-dev.yml",

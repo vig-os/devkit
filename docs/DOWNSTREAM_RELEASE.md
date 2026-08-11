@@ -26,6 +26,21 @@ On failure, the orchestrator runs a single consolidated rollback that resets the
 
 Candidate mode keeps release branch content unchanged (no CHANGELOG date finalization). Final mode performs changelog finalization before publish.
 
+### Bot changelog entries (release-time synthesis)
+
+Changelog entries for bot PRs (Renovate dependency updates, lock file
+maintenance, devkit adoption PRs) are **synthesized at release time**, not
+committed into the bot PR branches ([vig-os/devkit#1423](https://github.com/vig-os/devkit/issues/1423)):
+`synthesize-bot-changelog` enumerates the merged bot PRs since the last stable
+release tag and regenerates a `#### Dependencies` block under `### Changed`,
+coalesced to the **net delta per dependency** (every contributing PR is cited).
+It runs twice — in `prepare-release.yml` before the changelog freeze, and in
+`release-core.yml` (final kind only) before the date stamp — so a bot PR merged
+into the release branch mid-train is picked up at finalize. Candidates stay
+changelog-neutral. Preview the pending block anytime with
+`just changelog-preview` (read-only). Bot PR branches never touch
+`CHANGELOG.md`, so Renovate's own conflict-driven rebase works unassisted.
+
 ## Immutable releases, tag rulesets, and forward-fix policy (downstream)
 
 - **Candidate (`X.Y.Z-rcN`)**: By default only the git tag is created. With **`create-release: true`**, `release-publish.yml` creates a **draft** GitHub **pre-release** (`gh release create --draft --prerelease`). Promote-time validation uses `gh api .../releases/tags/<tag>` and inspects `.draft` to ensure the expected draft pre-release exists; see [Cross-repo gate](https://github.com/vig-os/devkit/blob/main/docs/CROSS_REPO_RELEASE_GATE.md) for upstream enforcement status. With **immutable releases** enabled, **publishing** a pre-release locks the **linked** tag and assets (see [upstream policy](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#immutable-releases-tag-rulesets-and-forward-fix-policy)); iterate with a **new** RC tag.
@@ -90,7 +105,7 @@ release/automation set provisions its toolchain per `DEVKIT_MODE`
 
 - Each `workflow_dispatch`/event-triggered workflow (`release.yml`,
   `prepare-release.yml`, `promote-release.yml`, `sync-issues.yml`,
-  `renovate-changelog-build.yml`, `sync-main-to-dev.yml`) runs a leading
+  `sync-main-to-dev.yml`) runs a leading
   **`resolve-toolchain`** job that reads `.vig-os` and emits `mode`, `image`, and
   `image-tag`. The `image` is the devcontainer image in the container modes
   (`devcontainer`/`both`) and an **explicit empty string** in the host modes
@@ -110,11 +125,11 @@ This is a toolchain-provisioning change only — the release **choreography** (s
 logic, ordering, `workflow_call` inputs/outputs, and rollback semantics) is
 unchanged across all modes. Host-mode runners already provide `git`, `gh`, and
 `jq`; `just`, `uv`, `prek`, `retry`, and the `vig-utils` release scripts
-(`prepare-changelog`, `renovate-changelog-pr`) come from the composite, so the
+(`prepare-changelog`, `synthesize-bot-changelog`) come from the composite, so the
 choreography's bare `run:` invocations are identical in every mode. In `bare`
 mode the composite pins `vig-utils` to the `.vig-os` `DEVKIT_VERSION`
-(`renovate-changelog-pr` in `renovate-changelog-build.yml`, `prepare-changelog`
-in `prepare-release.yml` / `release-core.yml`); see
+(`synthesize-bot-changelog` and `prepare-changelog` in `prepare-release.yml` /
+`release-core.yml`); see
 [`docs/MIGRATION.md`](https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md#bare-mode-vig-utils-release-console-scripts).
 
 ## Required App Secrets

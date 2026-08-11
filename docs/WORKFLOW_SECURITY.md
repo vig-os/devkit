@@ -33,7 +33,6 @@ for devkit's output, re-triaging it on every upgrade (#1182).
    | Audit | Why it is intentional |
    |-------|-----------------------|
    | `artipacked` | The checkout pushes or fetches from a private remote and needs the persisted credential (release/sync branch work, the CI commit-checks base-diff). |
-   | `dangerous-triggers` | `renovate-changelog-commit.yml` runs on `workflow_run` by design to commit the built changelog. |
    | `github-app` | `create-github-app-token` mints a broadly-scoped installation token for multi-repo release orchestration; per-permission scoping would break those flows. |
    | `secrets-inherit` | `release.yml` / `prepare-release.yml` fan out to reusable workflows with `secrets: inherit` by design. |
    | `unpinned-images` | `image:` is the devkit toolchain image resolved at runtime; it cannot be SHA-pinned in source. |

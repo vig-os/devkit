@@ -482,8 +482,9 @@ jobs:
     timeout-minutes: 15
     if: ${{ github.event.inputs.dry-run != 'true' }}
     permissions:
-      contents: write    # read release branch (fetch/reset)
-      actions: write     # trigger sync-issues workflow
+      contents: write        # read release branch (fetch/reset)
+      actions: write         # trigger sync-issues workflow
+      pull-requests: read    # bot-PR metadata for changelog synthesis (#1423)
     outputs:
       finalize_sha: ${{ steps.finalize.outputs.finalize_sha }}
       tag_already_exists: ${{ steps.tag_state.outputs.tag_already_exists }}
@@ -509,6 +510,9 @@ jobs:
           ref: release/${{ needs.validate.outputs.version }}
           token: ${{ steps.app-token.outputs.token }}
           persist-credentials: true
+          # Full history + tags: the changelog synthesizer's window is
+          # last-stable-tag..HEAD (#1423).
+          fetch-depth: 0
 
       - name: Set up environment
         uses: ./.github/actions/setup-env
@@ -516,6 +520,20 @@ jobs:
           sync-dependencies: 'true'
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      # Regenerate the bot-entry block inside [VERSION] - TBD before stamping
+      # the date: any bot PR merged into the release branch mid-train is
+      # reachable from HEAD here, so it cannot ship unchronicled (#1423).
+      # Candidates stay changelog-neutral, matching the rest of finalize.
+      - name: Synthesize bot changelog entries
+        if: needs.validate.outputs.release_kind == 'final'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          uv run synthesize-bot-changelog --version "$VERSION"
 
       - name: Set release date in CHANGELOG
         if: needs.validate.outputs.release_kind == 'final'
