@@ -74,16 +74,14 @@ EOF
 # or legacy DEVCONTAINER_VERSION, #781) from .vig-os and upgrade to THAT
 # generation instead.
 
-@test "devc-upgrade reads DEVKIT_VERSION from .vig-os (#854, #781)" {
-    run grep -q 'DEVKIT_VERSION' \
-        assets/workspace/.devcontainer/justfile.devc
-    assert_success
-}
-
-@test "devc-upgrade still honors a legacy DEVCONTAINER_VERSION pin (#781)" {
-    run grep -q 'DEVCONTAINER_VERSION' \
-        assets/workspace/.devcontainer/justfile.devc
-    assert_success
+@test "devc-upgrade parses DEVKIT_VERSION and the legacy DEVCONTAINER_VERSION pin from .vig-os (#854, #781)" {
+    # Anchor on the awk parser patterns, not the bare key names: the recipe's
+    # comment also mentions both keys, so a bare grep could never fail.
+    for pattern in '/^DEVKIT_VERSION=/' '/^DEVCONTAINER_VERSION=/'; do
+        echo "pattern: $pattern"
+        run grep -F "$pattern" assets/workspace/.devcontainer/justfile.devc
+        assert_success
+    done
 }
 
 @test "devc-upgrade curls install.sh from the pinned ref, not hard-wired main (#854)" {
@@ -103,24 +101,22 @@ EOF
     assert_success
 }
 
-@test "prepare-release dispatches workflow from dev ref" {
-    run bash -lc "awk '/^prepare-release version ref=\"\" \\*flags:/{flag=1; next} /^$/{if(flag){exit}} flag' justfile.gh | grep -Fq -- 'REF=\"dev\"'"
-    assert_success
-}
-
-@test "finalize-release dispatches workflow from release branch ref" {
-    run bash -lc "awk '/^finalize-release version ref=\"\" \\*flags:/{flag=1; next} /^$/{if(flag){exit}} flag' justfile.gh | grep -Fq -- 'REF=\"release/{{ version }}\"'"
-    assert_success
-}
-
-@test "promote-release dispatches workflow from release branch ref" {
-    run bash -lc "awk '/^promote-release version ref=\"\" \\*flags:/{flag=1; next} /^$/{if(flag){exit}} flag' justfile.gh | grep -Fq -- 'REF=\"release/{{ version }}\"'"
-    assert_success
-}
-
-@test "publish-candidate dispatches workflow from release branch ref" {
-    run bash -lc "awk '/^publish-candidate version ref=\"\" \\*flags:/{flag=1; next} /^$/{if(flag){exit}} flag' justfile.gh | grep -Fq -- 'REF=\"release/{{ version }}\"'"
-    assert_success
+@test "release recipes dispatch their workflow from the expected ref" {
+    # recipe:expected-REF table; prepare-release cuts from dev, the rest act on
+    # the release branch.
+    local table=(
+        'prepare-release:REF="dev"'
+        'finalize-release:REF="release/{{ version }}"'
+        'promote-release:REF="release/{{ version }}"'
+        'publish-candidate:REF="release/{{ version }}"'
+    )
+    for entry in "${table[@]}"; do
+        recipe="${entry%%:*}"
+        expected="${entry#*:}"
+        echo "recipe: $recipe expects $expected"
+        run bash -lc "awk '/^$recipe version ref=\"\" \\*flags:/{flag=1; next} /^\$/{if(flag){exit}} flag' justfile.gh | grep -Fq -- '$expected'"
+        assert_success
+    done
 }
 
 @test "prepare-release workflow defines rollback job on failure or cancellation" {

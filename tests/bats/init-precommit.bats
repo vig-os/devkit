@@ -10,16 +10,6 @@ setup() {
     INIT_PRECOMMIT_SH="$PROJECT_ROOT/assets/workspace/.devcontainer/scripts/init-precommit.sh"
 }
 
-@test "init-precommit.sh does not hard-code /workspace/{{SHORT_NAME}} (#854)" {
-    run grep -F '/workspace/{{SHORT_NAME}}' "$INIT_PRECOMMIT_SH"
-    assert_failure
-}
-
-@test "init-precommit.sh derives the project root from its own location (#854)" {
-    run grep -q 'BASH_SOURCE' "$INIT_PRECOMMIT_SH"
-    assert_success
-}
-
 @test "init-precommit.sh runs prek from a root at an arbitrary mount point (#854)" {
     # Reproduce the on-disk layout: <root>/.devcontainer/scripts/init-precommit.sh
     root="$BATS_TEST_TMPDIR/some/other/mount/proj"

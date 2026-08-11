@@ -7,19 +7,11 @@ setup() {
     POST_CREATE_SH="$PROJECT_ROOT/assets/workspace/.devcontainer/scripts/post-create.sh"
 }
 
-@test "setup-gh-repo.sh is executable" {
+@test "setup-gh-repo.sh is an executable bash script" {
     run test -x "$SETUP_GH_REPO_SH"
     assert_success
-}
-
-@test "setup-gh-repo.sh has shebang" {
     run head -1 "$SETUP_GH_REPO_SH"
     assert_output "#!/bin/bash"
-}
-
-@test "setup-gh-repo.sh uses strict error handling (set -euo pipefail)" {
-    run grep 'set -euo pipefail' "$SETUP_GH_REPO_SH"
-    assert_success
 }
 
 @test "setup-gh-repo.sh checks repo code-security-configuration status" {

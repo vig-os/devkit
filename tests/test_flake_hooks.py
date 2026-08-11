@@ -25,7 +25,6 @@ Refs: #883
 from __future__ import annotations
 
 import json
-import os
 import shlex
 import shutil
 import subprocess
@@ -35,8 +34,8 @@ from typing import Any
 import pytest
 import yaml
 
-# Repository root (two levels up: tests/ -> repo root).
-REPO_ROOT = Path(__file__).resolve().parent.parent
+from .nix_helpers import REPO_ROOT
+from .nix_helpers import nix_env as _nix_env
 
 ROOT_CONFIG = REPO_ROOT / ".pre-commit-config.yaml"
 SCAFFOLD_CONFIG = REPO_ROOT / "assets" / "workspace" / ".pre-commit-config.yaml"
@@ -45,19 +44,6 @@ pytestmark = pytest.mark.skipif(
     shutil.which("nix") is None,
     reason="nix is not installed; flake hook fidelity tests require Nix",
 )
-
-
-def _nix_env() -> dict[str, str]:
-    """Environment for nix invocations with flakes enabled and the public cache."""
-    env = os.environ.copy()
-    env.setdefault(
-        "NIX_CONFIG",
-        "experimental-features = nix-command flakes\n"
-        "extra-substituters = https://vig-os.cachix.org\n"
-        "extra-trusted-public-keys = "
-        "vig-os.cachix.org-1:yoOYRi3bvnM6ThxO0joLt7vtzhTfkq3r6jykeUMg7Bk=",
-    )
-    return env
 
 
 def _run_nix(args: list[str], timeout: int = 600) -> subprocess.CompletedProcess[str]:
@@ -669,14 +655,12 @@ class TestZeroHooksParity:
         paths = json.loads(result.stdout)
         assert paths["default"] == paths["zeroHooks"]
 
-    def test_zero_hooks_shellhook_has_no_generation(self) -> None:
+    def test_zero_hooks_shellhook_has_no_generation(
+        self, default_shellhook: str
+    ) -> None:
         """The default shellHook carries no git-hooks.nix installation script."""
-        result = _run_nix(
-            ["eval", "--raw", ".#devShells.x86_64-linux.default.shellHook"],
-        )
-        assert result.returncode == 0, result.stderr
-        assert ".pre-commit-config.yaml" not in result.stdout
-        assert "git-hooks.nix" not in result.stdout
+        assert ".pre-commit-config.yaml" not in default_shellhook
+        assert "git-hooks.nix" not in default_shellhook
 
     def test_opted_in_shellhook_installs_config(self, opted_in_shellhook: str) -> None:
         """Opting in wires the config installation into the shellHook.

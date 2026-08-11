@@ -23,15 +23,29 @@ Refs: #1403
 
 from __future__ import annotations
 
-from pathlib import Path
+import re
+from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.test_workflow_sync_checkout import SYNC_WORKFLOWS, _load, _steps_of_job
+from tests.workflow_scaffold import (
+    REPO_ROOT,
+    both_copies,
+    load_workflow,
+    step_by_id,
+    step_by_name,
+    steps_of_job,
+)
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+if TYPE_CHECKING:
+    from pathlib import Path
 
-COMMIT_ACTION_PIN = "vig-os/commit-action@0361e9aa65b64711a18286ac5dfdcba7cc7a2ac7"
+SYNC_WORKFLOWS = both_copies("sync-main-to-dev.yml")
+
+# The resolution commit must use commit-action, SHA-pinned. Shape-checked (name
+# + 40-hex pin) rather than hardcoding the SHA, so a routine Renovate pin bump
+# does not red this test while an unpinned or foreign action still does.
+COMMIT_ACTION_PIN_RE = re.compile(r"^vig-os/commit-action@[0-9a-f]{40}$")
 EFFECTIVE_CONFLICT = (
     "steps.reverify.outputs.conflict || steps.merge-check.outputs.conflict"
 )
@@ -41,18 +55,6 @@ parametrized = pytest.mark.parametrize(
 )
 
 
-def _step_by_id(steps: list[dict], step_id: str) -> dict:
-    matches = [s for s in steps if s.get("id") == step_id]
-    assert matches, f"no step with id {step_id!r}"
-    return matches[0]
-
-
-def _step_by_name(steps: list[dict], fragment: str) -> dict:
-    matches = [s for s in steps if fragment in str(s.get("name", ""))]
-    assert matches, f"no step with name containing {fragment!r}"
-    return matches[0]
-
-
 def _index_of(steps: list[dict], step: dict) -> int:
     return steps.index(step)
 
@@ -60,11 +62,11 @@ def _index_of(steps: list[dict], step: dict) -> int:
 @parametrized
 def test_auto_resolve_step_shape_and_order(path: Path) -> None:
     """auto-resolve runs on the pushed sync branch, before the PR opens."""
-    steps = _steps_of_job(_load(path), "sync")
+    steps = steps_of_job(load_workflow(path), "sync")
 
-    create_branch = _step_by_name(steps, "Create sync branch from main")
-    auto_resolve = _step_by_id(steps, "auto-resolve")
-    create_pr = _step_by_id(steps, "create-pr")
+    create_branch = step_by_name(steps, "Create sync branch from main")
+    auto_resolve = step_by_id(steps, "auto-resolve")
+    create_pr = step_by_id(steps, "create-pr")
 
     # commit-action commits to the REMOTE branch, so the branch must already
     # be pushed; the PR must open only after the resolution commit landed.
@@ -95,11 +97,12 @@ def test_auto_resolve_step_shape_and_order(path: Path) -> None:
 @parametrized
 def test_signed_commit_via_commit_action(path: Path) -> None:
     """The resolution commit must be GitHub-signed (ruleset: all refs)."""
-    steps = _steps_of_job(_load(path), "sync")
-    commit = _step_by_name(steps, "Commit dev-side doc snapshots")
+    steps = steps_of_job(load_workflow(path), "sync")
+    commit = step_by_name(steps, "Commit dev-side doc snapshots")
 
-    assert str(commit.get("uses", "")).startswith(COMMIT_ACTION_PIN), (
-        "resolution must use the pinned commit-action (GraphQL signed commit)"
+    assert COMMIT_ACTION_PIN_RE.match(str(commit.get("uses", ""))), (
+        "resolution must use a SHA-pinned commit-action (GraphQL signed commit); "
+        f"found {commit.get('uses')!r}"
     )
     assert "steps.auto-resolve.outputs.eligible == 'true'" in str(
         commit.get("if", "")
@@ -120,8 +123,8 @@ def test_signed_commit_via_commit_action(path: Path) -> None:
 @parametrized
 def test_reverify_step(path: Path) -> None:
     """After the signed commit, the merge must be re-proven clean."""
-    steps = _steps_of_job(_load(path), "sync")
-    reverify = _step_by_id(steps, "reverify")
+    steps = steps_of_job(load_workflow(path), "sync")
+    reverify = step_by_id(steps, "reverify")
 
     assert "steps.auto-resolve.outputs.eligible == 'true'" in str(
         reverify.get("if", "")
@@ -138,14 +141,14 @@ def test_reverify_step(path: Path) -> None:
 @parametrized
 def test_effective_conflict_flag_wiring(path: Path) -> None:
     """PR body/label and auto-merge must consume the post-resolve flag."""
-    steps = _steps_of_job(_load(path), "sync")
+    steps = steps_of_job(load_workflow(path), "sync")
 
-    create_pr = _step_by_id(steps, "create-pr")
+    create_pr = step_by_id(steps, "create-pr")
     assert (
         create_pr.get("env", {}).get("CONFLICT") == "${{ " + EFFECTIVE_CONFLICT + " }}"
     ), "Create PR must consume the effective (post-resolve) conflict flag"
 
-    auto_merge = _step_by_name(steps, "Enable auto-merge")
+    auto_merge = step_by_name(steps, "Enable auto-merge")
     assert "(" + EFFECTIVE_CONFLICT + ") != 'true'" in str(auto_merge.get("if", "")), (
         "auto-merge must be gated on the effective (post-resolve) conflict flag"
     )
@@ -153,11 +156,11 @@ def test_effective_conflict_flag_wiring(path: Path) -> None:
 
 def test_new_steps_identical_across_copies() -> None:
     """The decoupled copies must not drift on the auto-resolve block."""
-    own, template = (_steps_of_job(_load(p), "sync") for p in SYNC_WORKFLOWS)
+    own, template = (steps_of_job(load_workflow(p), "sync") for p in SYNC_WORKFLOWS)
     for locate in (
-        lambda steps: _step_by_id(steps, "auto-resolve"),
-        lambda steps: _step_by_name(steps, "Commit dev-side doc snapshots"),
-        lambda steps: _step_by_id(steps, "reverify"),
+        lambda steps: step_by_id(steps, "auto-resolve"),
+        lambda steps: step_by_name(steps, "Commit dev-side doc snapshots"),
+        lambda steps: step_by_id(steps, "reverify"),
     ):
         assert locate(own) == locate(template), (
             "auto-resolve steps must stay byte-identical across the two copies"

@@ -27,7 +27,6 @@ import pytest
 
 from tests.workflow_scaffold import (
     INIT_WORKSPACE,
-    WORKSPACE,
     scaffold,
 )
 
@@ -74,13 +73,6 @@ def _sync_yaml(
 
 
 # ── production wiring seams ───────────────────────────────────────────────────
-
-
-def test_vig_os_declares_sync_keys() -> None:
-    """The scaffold manifest ships both opt-in keys (default empty)."""
-    text = (WORKSPACE / ".vig-os").read_text(encoding="utf-8")
-    assert "DEVKIT_SYNC_TARGET=" in text
-    assert "DEVKIT_SYNC_SCHEDULE=" in text
 
 
 def test_init_workspace_invokes_render_sync_settings() -> None:

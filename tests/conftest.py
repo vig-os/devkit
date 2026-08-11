@@ -30,10 +30,9 @@ import testinfra
 import yaml
 
 # Timeout (seconds) for `just sync` to finish during interactive init. The
-# test-project pulls heavy scientific extras (numpy, scipy, pandas, matplotlib,
-# jupyter) and the image ships no warm uv cache, so a cold/slow network can take
-# well over a minute to download them. Generous default, overridable via env for
-# fast-cache/CI tuning. Refs: #692.
+# scaffold ships a minimal project (no heavy extras), but the image ships no
+# warm uv cache, so a cold/slow network still needs headroom. Overridable via
+# env for fast-cache/CI tuning. Refs: #692.
 DEPS_SYNC_TIMEOUT = int(os.environ.get("INIT_DEPS_SYNC_TIMEOUT", "300"))
 
 
@@ -180,9 +179,31 @@ def _load_jsonc(path: Path) -> dict:
     return json.loads(body)
 
 
-def get_compose_project_name() -> str:
-    """Generate a unique compose project name for test isolation."""
-    return f"test-{int(time.time())}"
+def dc_exec(workspace_path, *cmd, **kwargs):
+    """Run a command inside the running devcontainer via ``devcontainer exec``.
+
+    Builds the argv boilerplate (workspace folder, config path, podman) shared
+    by every exec-based integration test. Extra keyword arguments pass through
+    to ``subprocess.run``; ``capture_output``, ``text``, ``cwd`` and ``env``
+    default to the values every call site used.
+    """
+    workspace = str(Path(workspace_path).resolve())
+    argv = [
+        "devcontainer",
+        "exec",
+        "--workspace-folder",
+        workspace,
+        "--config",
+        f"{workspace}/.devcontainer/devcontainer.json",
+        "--docker-path",
+        "podman",
+        *cmd,
+    ]
+    kwargs.setdefault("capture_output", True)
+    kwargs.setdefault("text", True)
+    kwargs.setdefault("cwd", workspace)
+    kwargs.setdefault("env", os.environ.copy())
+    return subprocess.run(argv, **kwargs)
 
 
 @pytest.fixture(scope="session")
@@ -313,6 +334,41 @@ def _run_noninteractive_init(cmd):
         )
 
 
+def _stage_timings(stages):
+    """Render the per-stage timing table for a timeout failure report."""
+    return "\n".join(
+        f"   {'✓' if stages[s] else '✗'} {s}: "
+        + (f"{stages[s] - stages['started']:.1f}s" if stages[s] else "not reached")
+        for s in stages
+    )
+
+
+def _fail_stage_timeout(
+    header, current_stage, stages, last_output, timeout=None, hint="", cmd=None
+):
+    """Fail with the standard stage-timeout progress report."""
+    stage_start = stages.get(current_stage) or stages.get("started") or time.time()
+    time_in_stage = time.time() - stage_start
+    timeout_note = f" (timeout: {timeout}s)" if timeout is not None else ""
+    parts = [
+        f"⏱️  {header}",
+        "",
+        "📊 Progress tracking:",
+        f"   Current stage: {current_stage}",
+        f"   Time in stage: {time_in_stage:.1f}s{timeout_note}",
+        "",
+        "📈 Stage timings:",
+        _stage_timings(stages),
+        "",
+    ]
+    if hint:
+        parts.extend([hint, ""])
+    if cmd:
+        parts.extend([f"Command: {cmd}", ""])
+    parts.append(f"📤 Last output:\n{last_output}")
+    pytest.fail("\n".join(parts))
+
+
 def _run_interactive_init(cmd, container_image):
     """Run init-workspace in interactive mode with pexpect progress tracking."""
     project_name = "test_project"
@@ -365,32 +421,18 @@ def _run_interactive_init(cmd, container_image):
             stages[stage_name] = time.time()
             current_stage = stage_name
         except pexpect.TIMEOUT:
-            stage_start = stages.get(current_stage) or stages["started"]
-            time_in_stage = time.time() - stage_start
-            pytest.fail(
-                f"⏱️  Timeout waiting for: '{pattern}'\n"
-                f"\n"
-                f"📊 Progress tracking:\n"
-                f"   Current stage: {current_stage}\n"
-                f"   Time in stage: {time_in_stage:.1f}s (timeout: {timeout}s)\n"
-                f"\n"
-                f"📈 Stage timings:\n"
-                + "\n".join(
-                    f"   {'✓' if stages[s] else '✗'} {s}: "
-                    + (
-                        f"{stages[s] - stages['started']:.1f}s"
-                        if stages[s]
-                        else "not reached"
-                    )
-                    for s in stages
-                )
-                + "\n\n"
-                "💡 If stuck on 'copying_files':\n"
-                "   - Check if .pre-commit-cache is being copied (should be excluded)\n"
-                "   - Volume mounts can be slow\n"
-                f"   - Check: podman run --rm {container_image} du -sh /root/assets/workspace/\n"
-                "\n"
-                f"📤 Last output:\n{child.before}"
+            _fail_stage_timeout(
+                f"Timeout waiting for: '{pattern}'",
+                current_stage,
+                stages,
+                child.before,
+                timeout=timeout,
+                hint=(
+                    "💡 If stuck on 'copying_files':\n"
+                    "   - Check if .pre-commit-cache is being copied (should be excluded)\n"
+                    "   - Volume mounts can be slow\n"
+                    f"   - Check: podman run --rm {container_image} du -sh /root/assets/workspace/"
+                ),
             )
 
         pattern = "Enter GitHub repository for Renovate"
@@ -403,29 +445,16 @@ def _run_interactive_init(cmd, container_image):
             current_stage = stage_name
             child.sendline(renovate_repo_answer)
         except pexpect.TIMEOUT:
-            stage_start = stages.get(current_stage) or stages["started"]
-            time_in_stage = time.time() - stage_start
-            pytest.fail(
-                f"⏱️  Timeout waiting for: '{pattern}'\n"
-                f"\n"
-                f"📊 Progress tracking:\n"
-                f"   Current stage: {current_stage}\n"
-                f"   Time in stage: {time_in_stage:.1f}s (timeout: {timeout}s)\n"
-                f"\n"
-                f"📈 Stage timings:\n"
-                + "\n".join(
-                    f"   {'✓' if stages[s] else '✗'} {s}: "
-                    + (
-                        f"{stages[s] - stages['started']:.1f}s"
-                        if stages[s]
-                        else "not reached"
-                    )
-                    for s in stages
-                )
-                + "\n\n"
-                "💡 If stuck here: init-workspace may need GITHUB_REPOSITORY or this prompt text changed.\n"
-                "\n"
-                f"📤 Last output:\n{child.before}"
+            _fail_stage_timeout(
+                f"Timeout waiting for: '{pattern}'",
+                current_stage,
+                stages,
+                child.before,
+                timeout=timeout,
+                hint=(
+                    "💡 If stuck here: init-workspace may need GITHUB_REPOSITORY "
+                    "or this prompt text changed."
+                ),
             )
 
         for pattern, stage_name, timeout in stage_patterns_after_copy:
@@ -434,32 +463,17 @@ def _run_interactive_init(cmd, container_image):
                 stages[stage_name] = time.time()
                 current_stage = stage_name
             except pexpect.TIMEOUT:
-                stage_start = stages.get(current_stage) or stages["started"]
-                time_in_stage = time.time() - stage_start
-                pytest.fail(
-                    f"⏱️  Timeout waiting for: '{pattern}'\n"
-                    f"\n"
-                    f"📊 Progress tracking:\n"
-                    f"   Current stage: {current_stage}\n"
-                    f"   Time in stage: {time_in_stage:.1f}s (timeout: {timeout}s)\n"
-                    f"\n"
-                    f"📈 Stage timings:\n"
-                    + "\n".join(
-                        f"   {'✓' if stages[s] else '✗'} {s}: "
-                        + (
-                            f"{stages[s] - stages['started']:.1f}s"
-                            if stages[s]
-                            else "not reached"
-                        )
-                        for s in stages
-                    )
-                    + "\n\n"
-                    "💡 If stuck on 'copying_files':\n"
-                    "   - Check if .pre-commit-cache is being copied (should be excluded)\n"
-                    "   - Volume mounts can be slow\n"
-                    f"   - Check: podman run --rm {container_image} du -sh /root/assets/workspace/\n"
-                    "\n"
-                    f"📤 Last output:\n{child.before}"
+                _fail_stage_timeout(
+                    f"Timeout waiting for: '{pattern}'",
+                    current_stage,
+                    stages,
+                    child.before,
+                    timeout=timeout,
+                    hint=(
+                        "💡 Check the last output below for the step that "
+                        "stalled (placeholder substitution, permissions, or "
+                        "`uv sync` downloads)."
+                    ),
                 )
 
         child.expect(pexpect.EOF, timeout=30)
@@ -475,29 +489,12 @@ def _run_interactive_init(cmd, container_image):
         print(f"[DEBUG] Workspace initialized in {total_time:.1f}s")
     except pexpect.TIMEOUT:
         output = child.before if "child" in locals() else "N/A"
-        stage_start = stages.get(current_stage) or stages.get("started") or time.time()
-        time_in_stage = time.time() - stage_start
-        pytest.fail(
-            "⏱️  Timeout while initializing workspace\n"
-            "\n"
-            "📊 Progress tracking:\n"
-            f"   Current stage: {current_stage}\n"
-            f"   Time in stage: {time_in_stage:.1f}s\n"
-            "\n"
-            "📈 Stage timings:\n"
-            + "\n".join(
-                f"   {'✓' if stages[s] else '✗'} {s}: "
-                + (
-                    f"{stages[s] - stages['started']:.1f}s"
-                    if stages[s]
-                    else "not reached"
-                )
-                for s in stages
-            )
-            + "\n\n"
-            f"Command: {' '.join(cmd)}\n"
-            "\n"
-            f"📤 Last output:\n{output}"
+        _fail_stage_timeout(
+            "Timeout while initializing workspace",
+            current_stage,
+            stages,
+            output,
+            cmd=" ".join(cmd),
         )
     except pexpect.EOF:
         output = child.before if "child" in locals() else "N/A"

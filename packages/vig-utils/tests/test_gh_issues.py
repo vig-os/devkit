@@ -5,6 +5,7 @@ No subprocess mocking, no Rich rendering tests - just data in, data out.
 Refs: #99
 """
 
+import pytest
 from vig_utils import gh_issues
 
 _styled = gh_issues._styled
@@ -190,21 +191,17 @@ class TestExtractLabel:
 
 
 class TestExtractType:
-    def test_feature_label(self):
-        labels = [{"name": "feature"}]
-        assert _extract_type(labels) == "[cyan]feature[/]"
-
-    def test_bug_label(self):
-        labels = [{"name": "bug"}]
-        assert _extract_type(labels) == "[bold red]bug[/]"
-
-    def test_discussion_label(self):
-        labels = [{"name": "discussion"}]
-        assert _extract_type(labels) == "[bright_magenta]discussion[/]"
-
-    def test_chore_label(self):
-        labels = [{"name": "chore"}]
-        assert _extract_type(labels) == "[dim]chore[/]"
+    @pytest.mark.parametrize(
+        ("label", "expected"),
+        [
+            ("feature", "[cyan]feature[/]"),
+            ("bug", "[bold red]bug[/]"),
+            ("discussion", "[bright_magenta]discussion[/]"),
+            ("chore", "[dim]chore[/]"),
+        ],
+    )
+    def test_type_label_styles(self, label: str, expected: str):
+        assert _extract_type([{"name": label}]) == expected
 
     def test_no_type_label(self):
         labels = [{"name": "priority:high"}, {"name": "area:ci"}]
@@ -232,20 +229,18 @@ class TestExtractScope:
 
 
 class TestCleanTitle:
-    def test_strips_feature_prefix(self):
-        assert _clean_title("[FEATURE] Add tests") == "Add tests"
-
-    def test_strips_bug_prefix(self):
-        assert _clean_title("[BUG] Fix crash") == "Fix crash"
-
-    def test_strips_task_prefix(self):
-        assert _clean_title("[TASK] Update deps") == "Update deps"
-
-    def test_strips_discussion_prefix(self):
-        assert _clean_title("[DISCUSSION] API design") == "API design"
-
-    def test_strips_chore_prefix(self):
-        assert _clean_title("[CHORE] Bump versions") == "Bump versions"
+    @pytest.mark.parametrize(
+        ("title", "expected"),
+        [
+            ("[FEATURE] Add tests", "Add tests"),
+            ("[BUG] Fix crash", "Fix crash"),
+            ("[TASK] Update deps", "Update deps"),
+            ("[DISCUSSION] API design", "API design"),
+            ("[CHORE] Bump versions", "Bump versions"),
+        ],
+    )
+    def test_strips_known_prefixes(self, title: str, expected: str):
+        assert _clean_title(title) == expected
 
     def test_no_prefix_unchanged(self):
         assert _clean_title("Plain title") == "Plain title"
@@ -382,30 +377,15 @@ class TestBuildCrossRefs:
         assert issue_to_pr == {42: 100}
         assert pr_to_issues == {100: [42]}
 
-    def test_closing_keyword_match(self):
+    @pytest.mark.parametrize(
+        "body", ["Closes #7", "Fixes #7", "Resolves #7", "closes #7"]
+    )
+    def test_closing_keyword_match(self, body: str):
         branches = {}
-        prs = [{"number": 100, "headRefName": "some-branch", "body": "Closes #42"}]
-        issue_to_pr, pr_to_issues = _build_cross_refs(branches, prs)
-        assert issue_to_pr == {42: 100}
-        assert pr_to_issues == {100: [42]}
-
-    def test_fixes_keyword(self):
-        branches = {}
-        prs = [{"number": 100, "headRefName": "x", "body": "Fixes #7"}]
+        prs = [{"number": 100, "headRefName": "x", "body": body}]
         issue_to_pr, pr_to_issues = _build_cross_refs(branches, prs)
         assert issue_to_pr == {7: 100}
-
-    def test_resolves_keyword(self):
-        branches = {}
-        prs = [{"number": 100, "headRefName": "x", "body": "Resolves #7"}]
-        issue_to_pr, pr_to_issues = _build_cross_refs(branches, prs)
-        assert issue_to_pr == {7: 100}
-
-    def test_case_insensitive_keywords(self):
-        branches = {}
-        prs = [{"number": 100, "headRefName": "x", "body": "closes #7"}]
-        issue_to_pr, pr_to_issues = _build_cross_refs(branches, prs)
-        assert issue_to_pr == {7: 100}
+        assert pr_to_issues == {100: [7]}
 
     def test_both_branch_and_keyword(self):
         branches = {42: "feature/42-stuff"}
@@ -504,12 +484,3 @@ class TestBuildPrTableIssueLinks:
         cell = self._issues_cell(table)
         assert "link=https://github.com/owner/repo/issues/100" in cell
         assert "link=https://github.com/owner/repo/issues/101" in cell
-
-    def test_linked_issues_contain_github_url(self):
-        """Each linked issue number should have a GitHub issues URL in link markup."""
-        pr = _minimal_pr(number=10)
-        pr_to_issues = {10: [55]}
-        table = _build_pr_table("PRs", [pr], pr_to_issues, "vig-os/devcontainer")
-
-        cell = self._issues_cell(table)
-        assert "link=https://github.com/vig-os/devcontainer/issues/55" in cell

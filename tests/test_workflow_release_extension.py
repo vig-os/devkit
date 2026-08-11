@@ -23,13 +23,9 @@ Refs: #1144
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import yaml
-
-# Repository root (tests/ -> repo root) and the consumer scaffold tree.
-REPO_ROOT = Path(__file__).resolve().parent.parent
-WORKSPACE = REPO_ROOT / "assets" / "workspace"
+from tests.workflow_scaffold import WORKSPACE
+from tests.workflow_scaffold import jobs as _jobs
+from tests.workflow_scaffold import load_workflow as _load
 
 SCAFFOLD_RELEASE = WORKSPACE / ".github" / "workflows" / "release.yml"
 SCAFFOLD_EXTENSION = WORKSPACE / ".github" / "workflows" / "release-extension.yml"
@@ -45,14 +41,6 @@ CEILING = {
 }
 
 
-def _load(path: Path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
-
-
-def _jobs(doc: dict) -> dict:
-    return doc.get("jobs") or {}
-
-
 def _extension_job(doc: dict) -> tuple[str, dict] | tuple[None, None]:
     """The (name, job) that calls the release-extension reusable workflow."""
     for name, job in _jobs(doc).items():
@@ -61,13 +49,6 @@ def _extension_job(doc: dict) -> tuple[str, dict] | tuple[None, None]:
         ):
             return name, job
     return None, None
-
-
-def test_scaffold_ships_release_extension() -> None:
-    """The scaffold ships the read-only extension seam."""
-    assert SCAFFOLD_EXTENSION.is_file(), (
-        "assets/workspace/.github/workflows/release-extension.yml must exist"
-    )
 
 
 def test_release_extension_caller_grants_documented_ceiling() -> None:

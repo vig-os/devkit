@@ -24,7 +24,6 @@ Refs: #795
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import signal
 import socket
@@ -32,12 +31,22 @@ import subprocess
 import time
 import urllib.error
 import urllib.request
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
-# Repository root (two levels up: tests/ -> repo root).
-REPO_ROOT = Path(__file__).resolve().parent.parent
+if TYPE_CHECKING:
+    from pathlib import Path
+
+from .nix_helpers import (
+    REPO_ROOT,
+)
+from .nix_helpers import (
+    current_system as _current_system,
+)
+from .nix_helpers import (
+    nix_env as _nix_env,
+)
 
 # Ports the PoC binds (flake.nix servicesPoC): postgres is non-default to
 # dodge a CI runner's own postgres (5432); 8333 is SeaweedFS's stock S3 port.
@@ -48,33 +57,6 @@ pytestmark = pytest.mark.skipif(
     shutil.which("nix") is None,
     reason="nix is not installed; services PoC tests require Nix",
 )
-
-
-def _nix_env() -> dict[str, str]:
-    """Environment for nix invocations with flakes enabled and the public cache."""
-    env = os.environ.copy()
-    env.setdefault(
-        "NIX_CONFIG",
-        "experimental-features = nix-command flakes\n"
-        "extra-substituters = https://vig-os.cachix.org\n"
-        "extra-trusted-public-keys = "
-        "vig-os.cachix.org-1:yoOYRi3bvnM6ThxO0joLt7vtzhTfkq3r6jykeUMg7Bk=",
-    )
-    return env
-
-
-def _current_system() -> str:
-    """The Nix system double for the host (e.g. x86_64-linux)."""
-    result = subprocess.run(
-        ["nix", "eval", "--raw", "--impure", "--expr", "builtins.currentSystem"],
-        capture_output=True,
-        text=True,
-        env=_nix_env(),
-        timeout=120,
-    )
-    if result.returncode != 0:
-        pytest.fail("Failed to resolve builtins.currentSystem:\n" + result.stderr)
-    return result.stdout.strip()
 
 
 def _free_port() -> int:

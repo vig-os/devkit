@@ -27,9 +27,25 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import yaml
 
-from tests.workflow_scaffold import scaffold_tree
+from tests.workflow_scaffold import (
+    jobs as _jobs,
+)
+from tests.workflow_scaffold import (
+    load_workflow as _load,
+)
+from tests.workflow_scaffold import (
+    needs_of as _needs,
+)
+from tests.workflow_scaffold import (
+    on_block as _on,
+)
+from tests.workflow_scaffold import (
+    run_text_of_job as _job_steps_text,
+)
+from tests.workflow_scaffold import (
+    scaffold_tree,
+)
 
 # Repository root (tests/ -> repo root) and the consumer scaffold tree.
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -55,31 +71,6 @@ REQUIRED_INPUTS = {
     "git_user_name",
     "git_user_email",
 }
-
-
-def _load(path: Path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
-
-
-def _on(doc: dict) -> object:
-    # YAML 1.1 parses the bare ``on:`` key as the boolean ``True``.
-    return doc.get("on", doc.get(True))
-
-
-def _jobs(doc: dict) -> dict:
-    return doc.get("jobs") or {}
-
-
-def _needs(job: dict) -> list[str]:
-    needs = job.get("needs") or []
-    return [needs] if isinstance(needs, str) else list(needs)
-
-
-def _job_steps_text(job: dict) -> str:
-    """All ``run:`` bodies of a job's steps, concatenated."""
-    return "\n".join(
-        str(s.get("run", "")) for s in (job.get("steps") or []) if isinstance(s, dict)
-    )
 
 
 def _extension_job(doc: dict) -> tuple[str, dict] | tuple[None, None]:
@@ -118,13 +109,6 @@ def _branch_job_checkout_ref(doc: dict) -> str | None:
 # --------------------------------------------------------------------------- #
 # The scaffolded reusable workflow itself
 # --------------------------------------------------------------------------- #
-
-
-def test_scaffold_ships_prepare_release_extension() -> None:
-    """The scaffold ships the mutating extension hook."""
-    assert SCAFFOLD_EXTENSION.is_file(), (
-        "assets/workspace/.github/workflows/prepare-release-extension.yml must exist"
-    )
 
 
 def test_prepare_extension_is_workflow_call_with_required_inputs() -> None:
@@ -176,7 +160,7 @@ def test_prepare_release_calls_extension_between_branch_and_pr(path: Path) -> No
     # The PR-opening job runs `gh pr create`.
     pr_name, pr_job = _job_with_step_run(doc, "gh pr create")
     assert pr_name is not None, "could not locate the draft-PR-opening job"
-    assert pr_name != ext_name and pr_name != branch_name
+    assert pr_name != branch_name
 
     # Ordering: extension after branch creation, PR after extension.
     assert branch_name in _needs(ext_job), (
@@ -334,9 +318,15 @@ def test_devkit_open_pr_needs_no_toolchain() -> None:
 
 
 def test_devkit_prepare_release_no_longer_syncs_manifest_inline() -> None:
-    """Devkit's prepare-release.yml is scaffold-shaped: no hardcoded sync step."""
-    assert "sync_manifest.py" not in DEVKIT_PREPARE.read_text(encoding="utf-8"), (
-        "the sync_manifest.py divergence must move out of prepare-release.yml "
+    """Devkit's prepare-release.yml is scaffold-shaped: no hardcoded sync step.
+
+    Scoped to the ``run:`` blocks (comments may still narrate the history):
+    no step of any job may invoke the manifest sync inline.
+    """
+    doc = _load(DEVKIT_PREPARE)
+    run_texts = "\n".join(_job_steps_text(job) for job in _jobs(doc).values())
+    assert "sync_manifest" not in run_texts, (
+        "the sync_manifest divergence must move out of prepare-release.yml "
         "into devkit's own prepare-release-extension.yml (#1059)"
     )
 

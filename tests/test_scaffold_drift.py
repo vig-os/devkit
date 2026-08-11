@@ -20,87 +20,26 @@ Refs: #1295
 
 from __future__ import annotations
 
-import os
-import subprocess
-from pathlib import Path
+from typing import TYPE_CHECKING
 
+import pytest
 import yaml
 
-# Repository root (tests/ -> repo root).
-REPO_ROOT = Path(__file__).resolve().parent.parent
-WORKSPACE = REPO_ROOT / "assets" / "workspace"
-WORKFLOWS = WORKSPACE / ".github" / "workflows"
-RESOLVE_ACTION = WORKFLOWS.parent / "actions" / "resolve-toolchain" / "action.yml"
+from tests.workflow_scaffold import (
+    WORKFLOWS,
+)
+from tests.workflow_scaffold import (
+    load_workflow as _load,
+)
+from tests.workflow_scaffold import (
+    run_resolve_toolchain as _run_resolve,
+)
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # The scaffold-drift job key in ci.yml.
 DRIFT_JOB = "scaffold-drift"
-
-
-def _load(path: Path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
-
-
-def _run_resolve(
-    tmp_path: Path, manifest: str | None, *, check: bool = True
-) -> dict[str, str]:
-    """Execute the resolve-toolchain step's real bash against a .vig-os manifest.
-
-    Returns the parsed GITHUB_OUTPUT key=value map. ``drift-check`` is emitted
-    early (before tag resolution), alongside runner-json.
-    """
-    action = _load(RESOLVE_ACTION)
-    script = action["runs"]["steps"][0]["run"]
-
-    if manifest is not None:
-        (tmp_path / ".vig-os").write_text(manifest, encoding="utf-8")
-
-    github_output = tmp_path / "github_output"
-    github_output.touch()
-
-    env = {
-        **os.environ,
-        "INPUT_IMAGE_TAG": "",
-        "GITHUB_OUTPUT": str(github_output),
-    }
-    subprocess.run(
-        ["bash", "-c", script],
-        cwd=tmp_path,
-        env=env,
-        check=check,
-        capture_output=True,
-        text=True,
-    )
-
-    outputs: dict[str, str] = {}
-    for line in github_output.read_text(encoding="utf-8").splitlines():
-        if "=" in line:
-            key, _, value = line.partition("=")
-            outputs[key] = value
-    return outputs
-
-
-# ── Manifest knob ─────────────────────────────────────────────────────────────
-
-
-def test_vig_os_declares_drift_check_key() -> None:
-    """The scaffold manifest ships the opt-out key (default empty => enabled)."""
-    text = (WORKSPACE / ".vig-os").read_text(encoding="utf-8")
-    assert "DEVKIT_DRIFT_CHECK=" in text
-
-
-# ── resolve-toolchain output ──────────────────────────────────────────────────
-
-
-def test_resolve_toolchain_emits_drift_check_output() -> None:
-    """resolve-toolchain declares a drift-check output for ci.yml to gate on."""
-    action = _load(RESOLVE_ACTION)
-    assert "drift-check" in action["outputs"]
-
-
-def test_resolve_toolchain_emits_drift_image_output() -> None:
-    """resolve-toolchain declares an all-modes image ref for the drift job."""
-    action = _load(RESOLVE_ACTION)
-    assert "drift-image" in action["outputs"]
 
 
 def test_drift_image_is_all_modes_ghcr_ref(tmp_path: Path) -> None:
@@ -114,22 +53,23 @@ def test_drift_image_is_all_modes_ghcr_ref(tmp_path: Path) -> None:
     assert outputs["drift-image"] == "ghcr.io/vig-os/devcontainer:1.2.3"
 
 
-def test_drift_check_defaults_true_when_key_absent(tmp_path: Path) -> None:
-    """No DEVKIT_DRIFT_CHECK => the enabled default (`true`)."""
-    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\n")
-    assert outputs["drift-check"] == "true"
-
-
-def test_drift_check_false_maps_to_false(tmp_path: Path) -> None:
-    """An explicit `false` disables the gate."""
-    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_DRIFT_CHECK=false\n")
-    assert outputs["drift-check"] == "false"
-
-
-def test_drift_check_true_maps_to_true(tmp_path: Path) -> None:
-    """An explicit `true` keeps the gate enabled."""
-    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_DRIFT_CHECK=true\n")
-    assert outputs["drift-check"] == "true"
+@pytest.mark.parametrize(
+    ("knob", "expected"),
+    [
+        pytest.param(None, "true", id="key-absent-defaults-true"),
+        pytest.param("true", "true", id="explicit-true"),
+        pytest.param("false", "false", id="explicit-false-disables"),
+    ],
+)
+def test_drift_check_resolution(
+    tmp_path: Path, knob: str | None, expected: str
+) -> None:
+    """DEVKIT_DRIFT_CHECK resolves to the gate value; absent => enabled."""
+    manifest = "DEVKIT_MODE=direnv\n"
+    if knob is not None:
+        manifest += f"DEVKIT_DRIFT_CHECK={knob}\n"
+    outputs = _run_resolve(tmp_path, manifest)
+    assert outputs["drift-check"] == expected
 
 
 def test_drift_check_emitted_in_every_mode(tmp_path: Path) -> None:

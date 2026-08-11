@@ -640,3 +640,21 @@ class TestManifestTransformedFlagCoversBanners:
         assert not by_src[".claude/worktrees.json"].is_transformed
         assert not by_src[".gitmessage"].is_transformed
         assert not by_src["CHANGELOG.md"].is_transformed
+
+
+class TestDownstreamReleaseDocSync:
+    """The scaffolded DOWNSTREAM_RELEASE.md tracks the devkit root SSoT (#1046)."""
+
+    def test_scaffold_doc_matches_root_ssot(self):
+        """The synced copy matches the devkit root SSoT once its banner is stripped.
+
+        The scaffold copy carries the #1043 provenance banner (a managed file),
+        so the comparison strips it with the Banner transform's own helper —
+        never a re-encoded banner shape — leaving a guard on real content drift.
+        """
+        doc_relpath = "docs/DOWNSTREAM_RELEASE.md"
+        workspace = project_root / "assets" / "workspace"
+        root = (project_root / doc_relpath).read_text(encoding="utf-8")
+        scaffold = (workspace / doc_relpath).read_text(encoding="utf-8")
+        strip_banner = _load_transforms().strip_banner
+        assert strip_banner(scaffold, style="html") == root

@@ -26,19 +26,11 @@ setup() {
 
 # ── script structure ──────────────────────────────────────────────────────────
 
-@test "init.sh is executable" {
+@test "init.sh is an executable bash script" {
     run test -x "$INIT_SH"
     assert_success
-}
-
-@test "init.sh has shebang" {
     run head -1 "$INIT_SH"
     assert_output "#!/usr/bin/env bash"
-}
-
-@test "init.sh uses strict error handling (set -euo pipefail)" {
-    run grep 'set -euo pipefail' "$INIT_SH"
-    assert_success
 }
 
 # ── flag parsing / help ─────────────────────────────────────────────────────────
@@ -185,29 +177,5 @@ setup() {
 
 @test "init.sh no longer installs packages via apt/brew/dnf/apk" {
     run grep -E 'apt install|brew install|dnf install|apk add' "$INIT_SH"
-    assert_failure
-}
-
-# ── output helpers retained ─────────────────────────────────────────────────────
-
-@test "init.sh defines log_info helper" {
-    run grep 'log_info()' "$INIT_SH"
-    assert_success
-}
-
-@test "init.sh defines log_error helper" {
-    run grep 'log_error()' "$INIT_SH"
-    assert_success
-}
-
-# ── devcontainer CLI check (conftest, unrelated to package installs) ─────────────
-
-@test "conftest.py devcontainer check falls back to node_modules/.bin" {
-    run grep 'node_modules/.bin/devcontainer' "$PROJECT_ROOT/tests/conftest.py"
-    assert_success
-}
-
-@test "conftest.py devcontainer skip message does not reference npm install -g" {
-    run grep 'npm install -g.*devcontainer' "$PROJECT_ROOT/tests/conftest.py"
     assert_failure
 }

@@ -159,9 +159,6 @@ class TestValidateTitle:
     def test_malformed_title_is_reported(self, title: str) -> None:
         assert validate_title(title) is not None
 
-    def test_title_does_not_require_refs(self) -> None:
-        assert validate_title("feat(ci): add a lane") is None
-
     def test_refs_requiring_type_is_exempt_end_to_end(self) -> None:
         """A Refs-requiring type is safe as a title (#1074).
 

@@ -1,12 +1,16 @@
-"""Flake quality-gate tests: formatter + ``nix flake check`` (issue #674).
+"""Flake output-schema tests: formatter, checks attrset, apps, modules (#674).
 
 The flake is the toolchain SSoT but was itself ungated. These tests assert the
-two quality gates the flake now exposes:
+output schema the CI gates rely on:
 
-* ``flake.formatter.<system>`` is ``nixfmt`` (so ``nix fmt`` formats nix files),
-* ``nix flake check`` succeeds (it evaluates the flake and runs the lightweight
-  ``checks`` — a ``nixfmt --check`` format gate, a dev-shell build, and an eval
-  of ``devShellTools``).
+* ``flake.formatter.<system>`` is the treefmt wrapper (so ``nix fmt`` works),
+* ``flake.checks.<system>`` names the quality gates (formatting, deadnix,
+  statix, dev-shell build, devShellTools eval, the prek pre-commit gate and
+  the home-manager CI matrix),
+* the ``install`` app, ``nix-fast-build`` driver, templates, and the NixOS /
+  home-manager module sets stay exposed,
+* ``nix flake check`` itself succeeds (deselected in CI, where nix-fast-build
+  builds the same checks — see ci.yml).
 
 The suite is skipped automatically when ``nix`` is not on PATH (mirroring the
 dev-shell parity test) so it never breaks unrelated CI lanes.
@@ -16,48 +20,18 @@ Refs: #674
 
 from __future__ import annotations
 
-import json
-import os
+import functools
 import shutil
 import subprocess
-from pathlib import Path
 
 import pytest
 
-# Repository root (two levels up: tests/ -> repo root).
-REPO_ROOT = Path(__file__).resolve().parent.parent
+from .nix_helpers import REPO_ROOT, current_system, nix_env, nix_eval_json
 
 pytestmark = pytest.mark.skipif(
     shutil.which("nix") is None,
     reason="nix is not installed; flake quality-gate tests require Nix",
 )
-
-
-def _nix_env() -> dict[str, str]:
-    """Environment for nix invocations with flakes enabled and the public cache."""
-    env = os.environ.copy()
-    env.setdefault(
-        "NIX_CONFIG",
-        "experimental-features = nix-command flakes\n"
-        "extra-substituters = https://vig-os.cachix.org\n"
-        "extra-trusted-public-keys = "
-        "vig-os.cachix.org-1:yoOYRi3bvnM6ThxO0joLt7vtzhTfkq3r6jykeUMg7Bk=",
-    )
-    return env
-
-
-def _current_system() -> str:
-    """The Nix system double for the host (e.g. x86_64-linux)."""
-    result = subprocess.run(
-        ["nix", "eval", "--raw", "--impure", "--expr", "builtins.currentSystem"],
-        capture_output=True,
-        text=True,
-        env=_nix_env(),
-        timeout=120,
-    )
-    if result.returncode != 0:
-        pytest.fail("Failed to resolve builtins.currentSystem:\n" + result.stderr)
-    return result.stdout.strip()
 
 
 def test_formatter_is_treefmt() -> None:
@@ -66,12 +40,12 @@ def test_formatter_is_treefmt() -> None:
     treefmt-nix unifies the per-language formatters (nixfmt, ruff-format, taplo)
     behind one ``nix fmt`` entrypoint; the wrapper derivation is named ``treefmt``.
     """
-    system = _current_system()
+    system = current_system()
     result = subprocess.run(
         ["nix", "eval", "--raw", f"{REPO_ROOT}#formatter.{system}.name"],
         capture_output=True,
         text=True,
-        env=_nix_env(),
+        env=nix_env(),
         timeout=600,
     )
     if result.returncode != 0:
@@ -89,24 +63,10 @@ def test_checks_output_exposes_quality_gates() -> None:
     formatting check, the dead-code (deadnix) and lint (statix) Nix gates, the
     dev-shell build, and the ``devShellTools`` eval.
     """
-    system = _current_system()
-    result = subprocess.run(
-        [
-            "nix",
-            "eval",
-            "--json",
-            f"{REPO_ROOT}#checks.{system}",
-            "--apply",
-            "builtins.attrNames",
-        ],
-        capture_output=True,
-        text=True,
-        env=_nix_env(),
-        timeout=600,
+    system = current_system()
+    names = set(
+        nix_eval_json(f"{REPO_ROOT}#checks.{system}", apply="builtins.attrNames")
     )
-    if result.returncode != 0:
-        pytest.fail("Failed to read checks.<system> attr names:\n" + result.stderr)
-    names = set(json.loads(result.stdout))
     required = {
         "formatting",
         "deadnix",
@@ -134,7 +94,7 @@ def test_nix_fast_build_driver_is_exposed() -> None:
     derivation in parallel (the Tier-0 gate, #779). Guard the package so removing
     it is caught here rather than as a cryptic failure of the CI check step.
     """
-    system = _current_system()
+    system = current_system()
     result = subprocess.run(
         [
             "nix",
@@ -144,7 +104,7 @@ def test_nix_fast_build_driver_is_exposed() -> None:
         ],
         capture_output=True,
         text=True,
-        env=_nix_env(),
+        env=nix_env(),
         timeout=600,
     )
     if result.returncode != 0:
@@ -163,59 +123,48 @@ def test_install_app_is_runnable() -> None:
     without a prior ``curl | bash``. Assert the app is well-formed (type ``app``
     with a program path) rather than executing it (which reaches the network).
     """
-    system = _current_system()
-    result = subprocess.run(
-        [
-            "nix",
-            "eval",
-            "--json",
-            f"{REPO_ROOT}#apps.{system}.install",
-            "--apply",
-            "a: { inherit (a) type; hasProgram = a ? program; }",
-        ],
-        capture_output=True,
-        text=True,
-        env=_nix_env(),
-        timeout=600,
+    system = current_system()
+    app = nix_eval_json(
+        f"{REPO_ROOT}#apps.{system}.install",
+        apply="a: { inherit (a) type; hasProgram = a ? program; }",
     )
-    if result.returncode != 0:
-        pytest.fail("Failed to read apps.<system>.install:\n" + result.stderr)
-    app = json.loads(result.stdout)
     assert app["type"] == "app", f"install app has wrong type: {app!r}"
     assert app["hasProgram"], "install app has no program attribute"
+
+
+@functools.cache
+def _module_set_info(output: str) -> dict:
+    """One eval per module-set output: names, default presence, importability.
+
+    Shared by the module-schema tests below so nixosModules/homeManagerModules/
+    homeModules are each evaluated once per run (#1413).
+    """
+    return nix_eval_json(
+        f"{REPO_ROOT}#{output}",
+        apply=(
+            "m: { names = builtins.attrNames m; "
+            "hasDefault = m ? default; "
+            "defaultImportable = builtins.isFunction (m.default or null) "
+            "|| builtins.isPath (m.default or null); "
+            "allImportable = builtins.all "
+            "(n: builtins.isPath m.${n} || builtins.isFunction m.${n}) "
+            "(builtins.attrNames m); }"
+        ),
+    )
 
 
 def test_toolchain_modules_are_exposed() -> None:
     """``nixosModules.default`` and ``homeManagerModules.default`` must exist.
 
     They expose the shared toolchain (``devTools``) as importable NixOS /
-    home-manager config. Both are module functions, so assert their presence and
-    that they evaluate to functions rather than converting them to JSON.
+    home-manager config. vigos home modules are exported as *paths* (the module
+    system dedups path imports, so ``default`` + a single module never
+    double-declare options); the NixOS module stays an inline function.
     """
     for output in ("nixosModules", "homeManagerModules"):
-        result = subprocess.run(
-            [
-                "nix",
-                "eval",
-                "--json",
-                f"{REPO_ROOT}#{output}",
-                "--apply",
-                "m: { hasDefault = m ? default; isImportable = "
-                "builtins.isFunction m.default || builtins.isPath m.default; }",
-            ],
-            capture_output=True,
-            text=True,
-            env=_nix_env(),
-            timeout=600,
-        )
-        if result.returncode != 0:
-            pytest.fail(f"Failed to read {output}:\n" + result.stderr)
-        info = json.loads(result.stdout)
+        info = _module_set_info(output)
         assert info["hasDefault"], f"{output} is missing a default module"
-        # vigos home modules are exported as *paths* (the module system dedups
-        # path imports, so `default` + a single module never double-declare
-        # options); the NixOS module stays an inline function. Both import.
-        assert info["isImportable"], f"{output}.default is not importable"
+        assert info["defaultImportable"], f"{output}.default is not importable"
 
 
 HM_MODULES = {
@@ -241,54 +190,18 @@ def test_vigos_home_module_set_is_exposed() -> None:
     default); the per-concern modules are individually importable. All are
     path-or-function modules.
     """
-    result = subprocess.run(
-        [
-            "nix",
-            "eval",
-            "--json",
-            f"{REPO_ROOT}#homeManagerModules",
-            "--apply",
-            "m: { names = builtins.attrNames m; importable = builtins.all "
-            "(n: builtins.isPath m.${n} || builtins.isFunction m.${n}) "
-            "(builtins.attrNames m); }",
-        ],
-        capture_output=True,
-        text=True,
-        env=_nix_env(),
-        timeout=600,
-    )
-    if result.returncode != 0:
-        pytest.fail("Failed to read homeManagerModules:\n" + result.stderr)
-    info = json.loads(result.stdout)
+    info = _module_set_info("homeManagerModules")
     missing = HM_MODULES - set(info["names"])
     assert not missing, f"homeManagerModules is missing: {sorted(missing)}"
-    assert info["importable"], "a homeManagerModules entry is not importable"
+    assert info["allImportable"], "a homeManagerModules entry is not importable"
 
 
 def test_home_modules_alias_matches() -> None:
     """``homeModules`` (newer convention) must mirror ``homeManagerModules``."""
-    names: dict[str, list[str]] = {}
-    for output in ("homeManagerModules", "homeModules"):
-        result = subprocess.run(
-            [
-                "nix",
-                "eval",
-                "--json",
-                f"{REPO_ROOT}#{output}",
-                "--apply",
-                "builtins.attrNames",
-            ],
-            capture_output=True,
-            text=True,
-            env=_nix_env(),
-            timeout=600,
-        )
-        if result.returncode != 0:
-            pytest.fail(f"Failed to read {output}:\n" + result.stderr)
-        names[output] = json.loads(result.stdout)
-    assert names["homeModules"] == names["homeManagerModules"], (
-        f"homeModules alias diverges: {names!r}"
-    )
+    assert (
+        _module_set_info("homeModules")["names"]
+        == _module_set_info("homeManagerModules")["names"]
+    ), "homeModules alias diverges from homeManagerModules"
 
 
 def test_home_configurations_matrix() -> None:
@@ -297,23 +210,9 @@ def test_home_configurations_matrix() -> None:
     ``ci-{minimal,full}-<system>`` for every supported system, including
     x86_64-darwin (which evaluates but is never built — best-effort tier).
     """
-    result = subprocess.run(
-        [
-            "nix",
-            "eval",
-            "--json",
-            f"{REPO_ROOT}#homeConfigurations",
-            "--apply",
-            "builtins.attrNames",
-        ],
-        capture_output=True,
-        text=True,
-        env=_nix_env(),
-        timeout=600,
+    names = set(
+        nix_eval_json(f"{REPO_ROOT}#homeConfigurations", apply="builtins.attrNames")
     )
-    if result.returncode != 0:
-        pytest.fail("Failed to read homeConfigurations:\n" + result.stderr)
-    names = set(json.loads(result.stdout))
     expected = {
         f"ci-{profile}-{system}"
         for profile in ("minimal", "full")
@@ -336,7 +235,7 @@ def test_home_configuration_evaluates_end_to_end() -> None:
         ],
         capture_output=True,
         text=True,
-        env=_nix_env(),
+        env=nix_env(),
         timeout=600,
     )
     if result.returncode != 0:
@@ -344,21 +243,16 @@ def test_home_configuration_evaluates_end_to_end() -> None:
     assert result.stdout.strip() == "26.05"
 
 
-def test_wave1_full_profile_config() -> None:
-    """Wave-1 modules must materialize in the full ci profile (#821).
+@functools.cache
+def _ci_full_config() -> dict:
+    """One eval of the interesting ci-full-x86_64-linux config slice.
 
-    One eval pulls the interesting config slice: every wave-1 program
-    enabled, git signing INACTIVE by default (signingKeyPath is null on
-    fresh hosts — first commits must not fail), and the secretsEnv hook
-    present but off by default.
+    Shared by the wave-1 (#821), claude-policy (#823) and wave-3 (#824) tests
+    below — previously three separate evals of the same configuration (#1413).
     """
-    result = subprocess.run(
-        [
-            "nix",
-            "eval",
-            "--json",
-            f'{REPO_ROOT}#homeConfigurations."ci-full-x86_64-linux".config',
-            "--apply",
+    return nix_eval_json(
+        f'{REPO_ROOT}#homeConfigurations."ci-full-x86_64-linux".config',
+        apply=(
             "c: { "
             "bash = c.programs.bash.enable; "
             "zsh = c.programs.zsh.enable; "
@@ -373,16 +267,26 @@ def test_wave1_full_profile_config() -> None:
             "lazygit = c.programs.lazygit.enable; "
             "signingKey = c.programs.git.signing.key; "
             "secretsEnvDefault = c.vigos.shell.secretsEnv.enable; "
-            "}",
-        ],
-        capture_output=True,
-        text=True,
-        env=_nix_env(),
-        timeout=600,
+            "autoupdater = c.home.sessionVariables.DISABLE_AUTOUPDATER or null; "
+            "workspaceFiles = c.vigos.claude.claudeMd.workspaceFiles; "
+            "claudeEnabled = c.vigos.claude.enable; "
+            "ghdash = c.programs.gh-dash.enable; "
+            "neovim = c.programs.neovim.enable; "
+            'seshToml = c.home.file ? ".config/sesh/sesh.toml"; '
+            "seshSessions = c.vigos.sesh.sessions; "
+            "}"
+        ),
     )
-    if result.returncode != 0:
-        pytest.fail("full-profile config does not evaluate:\n" + result.stderr)
-    cfg = json.loads(result.stdout)
+
+
+def test_wave1_full_profile_config() -> None:
+    """Wave-1 modules must materialize in the full ci profile (#821).
+
+    Every wave-1 program enabled, git signing INACTIVE by default
+    (signingKeyPath is null on fresh hosts — first commits must not fail),
+    and the secretsEnv hook present but off by default.
+    """
+    cfg = _ci_full_config()
     enabled = [
         "bash",
         "zsh",
@@ -402,50 +306,6 @@ def test_wave1_full_profile_config() -> None:
     assert cfg["secretsEnvDefault"] is False, "secretsEnv must default off"
 
 
-def test_personal_template_is_exposed() -> None:
-    """``templates.personal`` must point at the starter flake (#827)."""
-    result = subprocess.run(
-        [
-            "nix",
-            "eval",
-            "--json",
-            f"{REPO_ROOT}#templates.personal",
-            "--apply",
-            't: { hasPath = t ? path; hasDescription = (t.description or "") != ""; }',
-        ],
-        capture_output=True,
-        text=True,
-        env=_nix_env(),
-        timeout=600,
-    )
-    if result.returncode != 0:
-        pytest.fail("Failed to read templates.personal:\n" + result.stderr)
-    info = json.loads(result.stdout)
-    assert info["hasPath"] and info["hasDescription"]
-
-
-def test_python_template_is_exposed() -> None:
-    """``templates.python`` must expose the opt-in Python starter (#930)."""
-    result = subprocess.run(
-        [
-            "nix",
-            "eval",
-            "--json",
-            f"{REPO_ROOT}#templates.python",
-            "--apply",
-            't: { hasPath = t ? path; hasDescription = (t.description or "") != ""; }',
-        ],
-        capture_output=True,
-        text=True,
-        env=_nix_env(),
-        timeout=600,
-    )
-    if result.returncode != 0:
-        pytest.fail("Failed to read templates.python:\n" + result.stderr)
-    info = json.loads(result.stdout)
-    assert info["hasPath"] and info["hasDescription"]
-
-
 def test_claude_module_policy() -> None:
     """vigos.claude must honor the ADR Axis-5 policy (#823).
 
@@ -453,60 +313,29 @@ def test_claude_module_policy() -> None:
     workspace-CLAUDE.md management option present but empty by default, and
     no home-level skills directory managed.
     """
-    result = subprocess.run(
-        [
-            "nix",
-            "eval",
-            "--json",
-            f'{REPO_ROOT}#homeConfigurations."ci-full-x86_64-linux".config',
-            "--apply",
-            "c: { "
-            "autoupdater = c.home.sessionVariables.DISABLE_AUTOUPDATER or null; "
-            "workspaceFiles = c.vigos.claude.claudeMd.workspaceFiles; "
-            "enabled = c.vigos.claude.enable; "
-            "}",
-        ],
-        capture_output=True,
-        text=True,
-        env=_nix_env(),
-        timeout=600,
-    )
-    if result.returncode != 0:
-        pytest.fail("claude policy eval failed:\n" + result.stderr)
-    cfg = json.loads(result.stdout)
-    assert cfg["enabled"] is True
+    cfg = _ci_full_config()
+    assert cfg["claudeEnabled"] is True
     assert cfg["autoupdater"] == "1"
     assert cfg["workspaceFiles"] == {}
 
 
 def test_wave3_full_profile_config() -> None:
     """Wave-3 modules must materialize in the full ci profile (#824)."""
-    result = subprocess.run(
-        [
-            "nix",
-            "eval",
-            "--json",
-            f'{REPO_ROOT}#homeConfigurations."ci-full-x86_64-linux".config',
-            "--apply",
-            "c: { "
-            "ghdash = c.programs.gh-dash.enable; "
-            "neovim = c.programs.neovim.enable; "
-            'seshToml = c.home.file ? ".config/sesh/sesh.toml"; '
-            "seshSessions = c.vigos.sesh.sessions; "
-            "}",
-        ],
-        capture_output=True,
-        text=True,
-        env=_nix_env(),
-        timeout=600,
-    )
-    if result.returncode != 0:
-        pytest.fail("wave-3 profile eval failed:\n" + result.stderr)
-    cfg = json.loads(result.stdout)
+    cfg = _ci_full_config()
     assert cfg["ghdash"] is True
     assert cfg["neovim"] is True
     assert cfg["seshToml"] is True, "sesh.toml must be generated"
     assert cfg["seshSessions"] == [], "sesh sessions must default empty"
+
+
+@pytest.mark.parametrize("template", ["personal", "python"])
+def test_template_is_exposed(template: str) -> None:
+    """``templates.<name>`` must point at its starter flake (#827, #930)."""
+    info = nix_eval_json(
+        f"{REPO_ROOT}#templates.{template}",
+        apply='t: { hasPath = t ? path; hasDescription = (t.description or "") != ""; }',
+    )
+    assert info["hasPath"] and info["hasDescription"]
 
 
 def test_flake_check_succeeds() -> None:
@@ -515,7 +344,7 @@ def test_flake_check_succeeds() -> None:
         ["nix", "flake", "check", "--accept-flake-config", str(REPO_ROOT)],
         capture_output=True,
         text=True,
-        env=_nix_env(),
+        env=nix_env(),
         timeout=1800,
     )
     assert result.returncode == 0, (

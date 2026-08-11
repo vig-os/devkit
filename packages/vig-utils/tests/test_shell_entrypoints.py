@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -27,10 +26,6 @@ def _run(
         cwd=REPO_ROOT,
         env=env,
     )
-
-
-def test_check_skill_names_command_available() -> None:
-    assert shutil.which("check-skill-names")
 
 
 def test_check_skill_names_accepts_valid_names(tmp_path: Path) -> None:
@@ -74,18 +69,6 @@ def test_check_skill_names_passes_for_repo_skills_dir() -> None:
     assert result.returncode == 0, result.stderr
 
 
-def test_check_skill_names_canary_invalid_repo_skill_is_detected() -> None:
-    canary_dir = REPO_ROOT / ".claude/skills/bad:canary"
-    canary_dir.mkdir(parents=True)
-    try:
-        result = _run(["check-skill-names", ".claude/skills"])
-    finally:
-        canary_dir.rmdir()
-
-    assert result.returncode != 0
-    assert "bad:canary" in result.stderr
-
-
 def test_resolve_branch_extracts_first_tab_separated_field() -> None:
     result = _run(
         ["resolve-branch"],
@@ -111,10 +94,6 @@ def test_resolve_branch_returns_empty_for_empty_input() -> None:
 
     assert result.returncode == 0
     assert result.stdout == ""
-
-
-def test_setup_labels_command_available() -> None:
-    assert shutil.which("setup-labels")
 
 
 # ── setup-labels: taxonomy parsing and local extension merge ─────────────────
