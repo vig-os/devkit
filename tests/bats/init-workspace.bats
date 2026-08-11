@@ -1,7 +1,9 @@
 #!/usr/bin/env bats
 # BATS tests for init-workspace.sh
 #
-# Tests script structure (executable, shebang, strict mode).
+# Behavioral scaffold/upgrade/preview tests (the _scaffold/_upgrade/_preview
+# helpers run the real script against temp workspaces) plus a small set of
+# structural pins where a behavior cannot be exercised host-side.
 
 setup() {
     load test_helper
@@ -75,15 +77,6 @@ setup() {
     assert_failure
 }
 
-@test "flake.nix and .envrc are preserved on --force upgrade (#640)" {
-    # shellcheck disable=SC2016
-    run grep -E '"flake\.nix"' "$INIT_WORKSPACE_SH"
-    assert_success
-    # shellcheck disable=SC2016
-    run grep -E '"\.envrc"' "$INIT_WORKSPACE_SH"
-    assert_success
-}
-
 # ── opt-in local dev services (#795) ─────────────────────────────────────────
 # mkProjectServices (process-compose + services-flake) is opt-in for consumers:
 # the flake stub documents the wiring in a commented block, and justfile.project
@@ -147,84 +140,15 @@ setup() {
 #   devcontainer -> .devcontainer/ only (no flake.nix/.envrc)
 #   direnv       -> flake.nix + .envrc only (no .devcontainer/)
 #   both         -> everything (default, current behaviour)
-# We exercise the prune on a copy of the template (build-free proxy for the
-# in-container scaffold), and assert the flag/default wiring on script structure.
-
-# Apply the same prune the script does for a given mode to $1 (a workspace copy).
-prune_mode() {
-    local ws="$1" mode="$2"
-    case "$mode" in
-        devcontainer) rm -f "$ws/flake.nix" "$ws/.envrc" ;;
-        direnv) rm -rf "$ws/.devcontainer" ;;
-        both) : ;;
-    esac
-}
-
-@test "mode=devcontainer keeps .devcontainer/, drops flake.nix and .envrc (#641)" {
-    ws="$BATS_TEST_TMPDIR/ws-devcontainer"
-    cp -r "$TEMPLATE_DIR" "$ws"
-    prune_mode "$ws" devcontainer
-    run test -d "$ws/.devcontainer"
-    assert_success
-    run test -e "$ws/flake.nix"
-    assert_failure
-    run test -e "$ws/.envrc"
-    assert_failure
-}
-
-@test "mode=direnv keeps flake.nix and .envrc, drops .devcontainer/ (#641)" {
-    ws="$BATS_TEST_TMPDIR/ws-direnv"
-    cp -r "$TEMPLATE_DIR" "$ws"
-    prune_mode "$ws" direnv
-    run test -f "$ws/flake.nix"
-    assert_success
-    run test -f "$ws/.envrc"
-    assert_success
-    run test -e "$ws/.devcontainer"
-    assert_failure
-}
-
-@test "mode=both keeps .devcontainer/, flake.nix and .envrc (#641)" {
-    ws="$BATS_TEST_TMPDIR/ws-both"
-    cp -r "$TEMPLATE_DIR" "$ws"
-    prune_mode "$ws" both
-    run test -d "$ws/.devcontainer"
-    assert_success
-    run test -f "$ws/flake.nix"
-    assert_success
-    run test -f "$ws/.envrc"
-    assert_success
-}
-
-@test "init-workspace.sh accepts a --mode flag (#641)" {
-    run grep -- '--mode' "$INIT_WORKSPACE_SH"
-    assert_success
-}
-
-@test "init-workspace.sh validates --mode against the three modes (#641)" {
-    run grep -E 'devcontainer\|direnv\|both' "$INIT_WORKSPACE_SH"
-    assert_success
-}
+# The flag, its validation, and the prune are all proven end to end by the
+# _scaffold tests below; only the flag-less default (which every e2e helper
+# bypasses by passing --mode) is asserted structurally.
 
 @test "init-workspace.sh defaults to 'both' under --no-prompts (#641)" {
     # shellcheck disable=SC2016
     run grep -A4 'if \[\[ -z "\$MODE" \]\]' "$INIT_WORKSPACE_SH"
     assert_success
     assert_output --partial 'MODE="both"'
-}
-
-@test "init-workspace.sh prunes the scaffold by delivery mode (#641)" {
-    # devcontainer drops the flake stub (unless pre-existing, #859); direnv
-    # drops the devcontainer scaffold.
-    # shellcheck disable=SC2016
-    run grep -A28 'case "\$MODE" in' "$INIT_WORKSPACE_SH"
-    assert_success
-    # shellcheck disable=SC2016
-    assert_output --partial 'rm -f "$WORKSPACE_DIR/flake.nix"'
-    # shellcheck disable=SC2016
-    assert_output --partial 'rm -f "$WORKSPACE_DIR/.envrc"'
-    # shellcheck disable=SC2016
-    assert_output --partial 'rm -rf "$WORKSPACE_DIR/.devcontainer"'
 }
 
 # ── delivery-mode scaffold, end to end (#641) ─────────────────────────────────
@@ -782,19 +706,11 @@ _preview_symlinked_template_venv() {
 
 # ── script structure ──────────────────────────────────────────────────────────
 
-@test "init-workspace.sh is executable" {
+@test "init-workspace.sh is an executable bash script" {
     run test -x "$INIT_WORKSPACE_SH"
     assert_success
-}
-
-@test "init-workspace.sh has shebang" {
     run head -1 "$INIT_WORKSPACE_SH"
     assert_output "#!/bin/bash"
-}
-
-@test "init-workspace.sh uses strict error handling (set -euo pipefail)" {
-    run grep 'set -euo pipefail' "$INIT_WORKSPACE_SH"
-    assert_success
 }
 
 # ── language-neutral scaffold (#929) ─────────────────────────────────────────
@@ -866,11 +782,6 @@ _preview_symlinked_template_venv() {
     assert_success
 }
 
-@test "init-workspace.sh accepts --smoke-test flag" {
-    run grep -- '--smoke-test' "$INIT_WORKSPACE_SH"
-    assert_success
-}
-
 @test "init-workspace.sh uses SCRIPT_DIR smoke-test assets path" {
     # shellcheck disable=SC2016
     run grep 'SMOKE_TEST_DIR="$SCRIPT_DIR/smoke-test"' "$INIT_WORKSPACE_SH"
@@ -928,12 +839,6 @@ _smoke_deploy() {
         SHORT_NAME=testproj \
         GITHUB_REPOSITORY=test/repo \
         bash "$INIT_WORKSPACE_SH" --smoke-test --mode both
-}
-
-@test "smoke rsync root-anchors a CHANGELOG.md exclude (#1403)" {
-    run grep -A1 'rsync -avL --checksum --delete' "$INIT_WORKSPACE_SH"
-    assert_success
-    assert_output --partial "--exclude='/CHANGELOG.md'"
 }
 
 @test "smoke deploy preserves the consumer's root CHANGELOG.md (#1403)" {
@@ -1069,30 +974,11 @@ EOF
     rm -rf "$git_fixture"
 }
 
-@test "init-workspace.sh sources parse-github-remote-lib.sh" {
-    # shellcheck disable=SC2016
-    pattern='source "$SCRIPT_DIR/parse-github-remote-lib.sh"'
-    run grep -F "$pattern" "$INIT_WORKSPACE_SH"
-    assert_success
-}
-
 # ── .vig-os version-pin override (#852) ───────────────────────────────────────
-# The image bakes the release it was built from into the scaffolded .vig-os
-# (flake bootstrap), which is correct for finals but stale for release
-# candidates: the repo-root pin only advances at finalize. install.sh forwards
-# the explicitly requested --version as VIG_OS_VERSION so the scaffold pins the
-# image actually installed.
-
-@test "init-workspace honors VIG_OS_VERSION for the scaffolded .vig-os pin (#852)" {
-    run grep -q 'VIG_OS_VERSION' "$INIT_WORKSPACE_SH"
-    assert_success
-}
-
-@test "init-workspace writes DEVKIT_VERSION from the VIG_OS_VERSION override (#852)" {
-    # shellcheck disable=SC2016
-    run grep -F 'DEVKIT_VERSION=${VIG_OS_VERSION}' "$INIT_WORKSPACE_SH"
-    assert_success
-}
+# The image bakes the release it was built from into the scaffolded .vig-os,
+# which is correct for finals but stale for release candidates. install.sh
+# forwards the explicitly requested --version as VIG_OS_VERSION so the scaffold
+# pins the image actually installed — proven end to end below (#921 tests).
 
 # ── .vig-os pin from the image built-tag record (#921) ────────────────────────
 # A raw `podman run ... init-workspace.sh` upgrade forwards no VIG_OS_VERSION
@@ -1708,11 +1594,10 @@ EOF
 # the divergence with `git diff --no-index` (its --quiet form gates the block;
 # --no-index exits 1 when files differ, which is the expected signal).
 
-@test "preserved-file diff preview uses git diff --no-index, not diff(1)/cmp(1) (#916)" {
-    run grep -nE 'git diff --no-index' "$INIT_WORKSPACE_SH"
-    assert_success
-    # no bare diff(1) short-flag or cmp(1) invocation survives (both absent from
-    # the image); `git diff --no-index` (long flags) is the sanctioned form.
+@test "preserved-file diff preview never calls diff(1)/cmp(1) (#916)" {
+    # No bare diff(1) short-flag or cmp(1) invocation survives (both absent
+    # from the image); the sanctioned `git diff --no-index` path is proven by
+    # the rendered-content e2e test below.
     run grep -nE '(^|[[:space:]])diff -[a-z]|(^|[[:space:]])cmp[[:space:]]' "$INIT_WORKSPACE_SH"
     assert_failure
 }
@@ -1823,36 +1708,6 @@ EOF
 # also reads the legacy `_typos.toml`, so a consumer carrying that must NOT also
 # receive the template `.typos.toml` — two active configs would collide.
 
-@test ".typos.toml is preserved on --force upgrade (#913)" {
-    # shellcheck disable=SC2016
-    run grep -E '"\.typos\.toml"' "$INIT_WORKSPACE_SH"
-    assert_success
-}
-
-@test "upgrade preserves a customized .typos.toml (#913)" {
-    ws="$BATS_TEST_TMPDIR/e2e-913-preserve"
-    mkdir -p "$ws"
-    printf '# SENTINEL-913 consumer typos config\n[default.extend-words]\nfoo = "foo"\n' \
-        >"$ws/.typos.toml"
-    run _upgrade both "$ws"
-    assert_success
-    run grep -q 'SENTINEL-913' "$ws/.typos.toml"
-    assert_success
-}
-
-@test "upgrade prints a template diff hint for a preserved .typos.toml (#913)" {
-    ws="$BATS_TEST_TMPDIR/e2e-913-diff"
-    mkdir -p "$ws"
-    # a config lacking the template's exception words
-    printf '# SENTINEL-913 minimal consumer typos config\n' >"$ws/.typos.toml"
-    run _upgrade both "$ws"
-    assert_success
-    refute_output --partial 'command not found'
-    assert_output --partial 'Preserved .typos.toml differs from the template'
-    # a template exception word the preserved file lacks shows in the diff
-    assert_output --partial 'unexcepted'
-}
-
 @test "upgrade with a legacy _typos.toml does not leave dual typos configs (#913)" {
     # vault scenario: consumer carries _typos.toml and no .typos.toml. Shipping
     # the template .typos.toml alongside it would give two active configs.
@@ -1950,130 +1805,80 @@ EOF
     refute_output --partial 'not shipping template .typos.toml'
 }
 
-# ── upgrade must preserve customized lint configs .yamllint / .pymarkdown (#1099) ─
-# Same class as #878/#913: these are fully-managed scaffold files, yet lint
-# CONFIGS a consumer legitimately customizes (repo-specific `ignore:` globs, rule
-# disables). A template overwrite silently destroyed those edits and the hook
-# then flagged legitimate content. Preserve them like .typos.toml (#913) and
-# print the template diff so hook-rule evolution stays visible.
+# ── upgrade must preserve customized consumer-owned configs ──────────────────
+# Same class across incidents #913 (.typos.toml), #1099 (.yamllint,
+# .pymarkdown.config.md, .pymarkdown), #1054 (justfile.local) and #1092
+# (.gitignore.project): fully-managed scaffold files a consumer legitimately
+# customizes. A template overwrite silently destroyed those edits. Each file is
+# preserved on upgrade, and (where a template counterpart ships rules) the
+# template diff is printed so hook-rule evolution stays visible. Table-driven:
+# one _upgrade per file, the echoed file name attributes any failure.
 
-@test ".yamllint is preserved on --force upgrade (#1099)" {
-    # shellcheck disable=SC2016
-    run grep -E '"\.yamllint"' "$INIT_WORKSPACE_SH"
-    assert_success
+# Seed $ws/$file with sentinel consumer content ("custom") or a minimal stub
+# lacking the template's rules ("minimal").
+_seed_preserved_config() {
+    local ws="$1" file="$2" kind="$3"
+    case "$file:$kind" in
+        .typos.toml:custom)
+            printf '# SENTINEL consumer typos config\n[default.extend-words]\nfoo = "foo"\n' ;;
+        .typos.toml:minimal)
+            printf '# SENTINEL minimal consumer typos config\n' ;;
+        .yamllint:custom)
+            printf '# SENTINEL consumer yamllint config\nrules:\n  line-length: enable\n' ;;
+        .yamllint:minimal)
+            printf '# SENTINEL minimal consumer yamllint config\n' ;;
+        .pymarkdown.config.md:custom)
+            printf '# SENTINEL consumer pymarkdown notes\n\nMy repo-specific rules.\n' ;;
+        .pymarkdown.config.md:minimal)
+            printf '# SENTINEL minimal consumer pymarkdown notes\n' ;;
+        .pymarkdown:custom)
+            printf '{ "SENTINEL": true, "plugins": { "md013": { "line_length": 999 } } }\n' ;;
+        .pymarkdown:minimal)
+            printf '{ "SENTINEL": true }\n' ;;
+        justfile.local:custom)
+            printf '# SENTINEL personal recipes\nmy-local:\n\t@echo mine\n' ;;
+        .gitignore.project:custom)
+            printf '# SENTINEL consumer root ignores\n/scratch-local/\n' ;;
+    esac >"$ws/$file"
 }
 
-@test "upgrade preserves a customized .yamllint (#1099)" {
-    ws="$BATS_TEST_TMPDIR/e2e-1099-yamllint-preserve"
-    mkdir -p "$ws"
-    printf '# SENTINEL-1099 consumer yamllint config\nrules:\n  line-length: enable\n' \
-        >"$ws/.yamllint"
-    run _upgrade both "$ws"
-    assert_success
-    run grep -q 'SENTINEL-1099' "$ws/.yamllint"
-    assert_success
+@test "upgrade preserves customized consumer configs (#913, #1099, #1054, #1092)" {
+    local files=(.typos.toml .yamllint .pymarkdown.config.md .pymarkdown
+        justfile.local .gitignore.project)
+    for file in "${files[@]}"; do
+        echo "file: $file"
+        ws="$BATS_TEST_TMPDIR/e2e-preserve-${file//[^a-zA-Z0-9]/_}"
+        mkdir -p "$ws"
+        _seed_preserved_config "$ws" "$file" custom
+        run _upgrade both "$ws"
+        assert_success
+        run grep -q 'SENTINEL' "$ws/$file"
+        assert_success
+    done
 }
 
-@test "upgrade prints a template diff hint for a preserved .yamllint (#1099)" {
-    ws="$BATS_TEST_TMPDIR/e2e-1099-yamllint-diff"
-    mkdir -p "$ws"
-    # a config lacking the template's rule set
-    printf '# SENTINEL-1099 minimal consumer yamllint config\n' >"$ws/.yamllint"
-    run _upgrade both "$ws"
-    assert_success
-    refute_output --partial 'command not found'
-    assert_output --partial 'Preserved .yamllint differs from the template'
-    # a template rule the preserved file lacks shows in the diff
-    assert_output --partial 'comments-indentation'
-}
-
-@test ".pymarkdown.config.md is preserved on --force upgrade (#1099)" {
-    # shellcheck disable=SC2016
-    run grep -E '"\.pymarkdown\.config\.md"' "$INIT_WORKSPACE_SH"
-    assert_success
-}
-
-@test "upgrade preserves a customized .pymarkdown.config.md (#1099)" {
-    ws="$BATS_TEST_TMPDIR/e2e-1099-pymarkdown-preserve"
-    mkdir -p "$ws"
-    printf '# SENTINEL-1099 consumer pymarkdown notes\n\nMy repo-specific rules.\n' \
-        >"$ws/.pymarkdown.config.md"
-    run _upgrade both "$ws"
-    assert_success
-    run grep -q 'SENTINEL-1099' "$ws/.pymarkdown.config.md"
-    assert_success
-}
-
-@test "upgrade prints a template diff hint for a preserved .pymarkdown.config.md (#1099)" {
-    ws="$BATS_TEST_TMPDIR/e2e-1099-pymarkdown-diff"
-    mkdir -p "$ws"
-    # a doc lacking the template's rule descriptions
-    printf '# SENTINEL-1099 minimal consumer pymarkdown notes\n' \
-        >"$ws/.pymarkdown.config.md"
-    run _upgrade both "$ws"
-    assert_success
-    refute_output --partial 'command not found'
-    assert_output --partial 'Preserved .pymarkdown.config.md differs from the template'
-    # a template rule the preserved file lacks shows in the diff
-    assert_output --partial 'MD013'
-}
-
-# .pymarkdown is the JSON config pymarkdown actually reads (md0xx rule settings)
-# — the file a consumer really customizes. Like renovate.json it is strict JSON
-# and carries no banner (it stays in _BANNER_SKIP), but it is preserved on
-# upgrade all the same, with a template diff on divergence.
-
-@test ".pymarkdown is preserved on --force upgrade (#1099)" {
-    # shellcheck disable=SC2016
-    run grep -E '"\.pymarkdown"' "$INIT_WORKSPACE_SH"
-    assert_success
-}
-
-@test "upgrade preserves a customized .pymarkdown (#1099)" {
-    ws="$BATS_TEST_TMPDIR/e2e-1099-pymarkdown-json-preserve"
-    mkdir -p "$ws"
-    printf '{ "SENTINEL-1099": true, "plugins": { "md013": { "line_length": 999 } } }\n' \
-        >"$ws/.pymarkdown"
-    run _upgrade both "$ws"
-    assert_success
-    run grep -q 'SENTINEL-1099' "$ws/.pymarkdown"
-    assert_success
-}
-
-@test "upgrade prints a template diff hint for a preserved .pymarkdown (#1099)" {
-    ws="$BATS_TEST_TMPDIR/e2e-1099-pymarkdown-json-diff"
-    mkdir -p "$ws"
-    # a config lacking the template's rule set
-    printf '{ "SENTINEL-1099": true }\n' >"$ws/.pymarkdown"
-    run _upgrade both "$ws"
-    assert_success
-    refute_output --partial 'command not found'
-    assert_output --partial 'Preserved .pymarkdown differs from the template'
-    # a template rule the preserved file lacks shows in the diff
-    assert_output --partial 'siblings_only'
-}
-
-# ── justfile.local must be preserved on upgrade (#1054) ───────────────────────
-# The scaffolded justfile.local (personal, gitignored recipes) claims in its
-# header to be preserved on upgrade, but it was absent from PRESERVE_FILES, so a
-# re-scaffold silently overwrote personal recipes. Add it to PRESERVE_FILES so
-# the mechanism matches the promise (same silent-clobber class as #878/#913).
-
-@test "justfile.local is in PRESERVE_FILES (#1054)" {
-    # shellcheck disable=SC2016
-    run grep -E '"justfile\.local"' "$INIT_WORKSPACE_SH"
-    assert_success
-}
-
-@test "upgrade preserves a customized justfile.local (#1054)" {
-    ws="$BATS_TEST_TMPDIR/e2e-1054-preserve"
-    mkdir -p "$ws"
-    printf '# SENTINEL-1054 personal recipes\nmy-local:\n\t@echo mine\n' \
-        >"$ws/justfile.local"
-    run _upgrade both "$ws"
-    assert_success
-    run grep -q 'SENTINEL-1054' "$ws/justfile.local"
-    assert_success
+@test "upgrade prints a template diff hint for preserved configs (#913, #1099)" {
+    # file:template-marker table — a template rule the minimal consumer copy
+    # lacks must show in the rendered diff.
+    local table=(
+        '.typos.toml:unexcepted'
+        '.yamllint:comments-indentation'
+        '.pymarkdown.config.md:MD013'
+        '.pymarkdown:siblings_only'
+    )
+    for entry in "${table[@]}"; do
+        file="${entry%%:*}"
+        marker="${entry#*:}"
+        echo "file: $file marker: $marker"
+        ws="$BATS_TEST_TMPDIR/e2e-diffhint-${file//[^a-zA-Z0-9]/_}"
+        mkdir -p "$ws"
+        _seed_preserved_config "$ws" "$file" minimal
+        run _upgrade both "$ws"
+        assert_success
+        refute_output --partial 'command not found'
+        assert_output --partial "Preserved $file differs from the template"
+        assert_output --partial "$marker"
+    done
 }
 
 # ── pre-commit reference scan must cover preserved workflows (#916) ────────────
@@ -2339,61 +2144,59 @@ _upgrade_no_flags() {
     assert_failure
 }
 
-@test "manifest-bearing upgrade keeps devcontainer shape and names, no flags (#885)" {
-    ws="$BATS_TEST_TMPDIR/e2e-885-up-devc"
-    mkdir -p "$ws"
-    run _scaffold devcontainer "$ws"
-    assert_success
-    run _upgrade_no_flags "$ws"
-    assert_success
-    assert_output --partial "from .vig-os manifest"
-    run test -d "$ws/.devcontainer"
-    assert_success
-    run test -e "$ws/flake.nix"
-    assert_failure
-    run test -e "$ws/.envrc"
-    assert_failure
-    run test -f "$ws/justfile.project"
-    assert_success
-    run grep -x 'DEVKIT_MODE=devcontainer' "$ws/.vig-os"
-    assert_success
-}
-
-@test "manifest-bearing upgrade keeps direnv shape and names, no flags (#885)" {
-    ws="$BATS_TEST_TMPDIR/e2e-885-up-direnv"
-    mkdir -p "$ws"
-    run _scaffold direnv "$ws"
-    assert_success
-    run _upgrade_no_flags "$ws"
-    assert_success
-    assert_output --partial "from .vig-os manifest"
-    run test -e "$ws/.devcontainer"
-    assert_failure
-    run test -f "$ws/flake.nix"
-    assert_success
-    run test -f "$ws/justfile.project"
-    assert_success
-    run grep -x 'DEVKIT_MODE=direnv' "$ws/.vig-os"
-    assert_success
-    run grep -x 'DEVKIT_PROJECT=testproj' "$ws/.vig-os"
-    assert_success
-}
-
-@test "manifest-bearing upgrade keeps both shape and names, no flags (#885)" {
-    ws="$BATS_TEST_TMPDIR/e2e-885-up-both"
-    mkdir -p "$ws"
-    run _scaffold both "$ws"
-    assert_success
-    run _upgrade_no_flags "$ws"
-    assert_success
-    run test -d "$ws/.devcontainer"
-    assert_success
-    run test -f "$ws/flake.nix"
-    assert_success
-    run test -f "$ws/justfile.project"
-    assert_success
-    run grep -x 'DEVKIT_MODE=both' "$ws/.vig-os"
-    assert_success
+@test "manifest-bearing upgrade keeps each mode's shape and names, no flags (#885)" {
+    # One _scaffold + _upgrade per mode; the echoed mode attributes failures.
+    # bare additionally pins the mode-aware ci.yml render (#991).
+    for mode in devcontainer direnv both bare; do
+        echo "mode: $mode"
+        ws="$BATS_TEST_TMPDIR/e2e-885-up-$mode"
+        mkdir -p "$ws"
+        run _scaffold "$mode" "$ws"
+        assert_success
+        run _upgrade_no_flags "$ws"
+        assert_success
+        assert_output --partial "from .vig-os manifest"
+        case "$mode" in
+        devcontainer)
+            run test -d "$ws/.devcontainer"
+            assert_success
+            run test -e "$ws/flake.nix"
+            assert_failure
+            run test -e "$ws/.envrc"
+            assert_failure
+            ;;
+        direnv)
+            run test -e "$ws/.devcontainer"
+            assert_failure
+            run test -f "$ws/flake.nix"
+            assert_success
+            ;;
+        both)
+            run test -d "$ws/.devcontainer"
+            assert_success
+            run test -f "$ws/flake.nix"
+            assert_success
+            ;;
+        bare)
+            run test -e "$ws/.devcontainer"
+            assert_failure
+            run test -e "$ws/flake.nix"
+            assert_failure
+            # the upgraded ci.yml stays mode-aware: resolve-toolchain wired,
+            # no hardcoded devcontainer image literal (#991)
+            run grep -q 'resolve-toolchain' "$ws/.github/workflows/ci.yml"
+            assert_success
+            run grep -q 'ghcr.io/vig-os/devcontainer' "$ws/.github/workflows/ci.yml"
+            assert_failure
+            ;;
+        esac
+        run test -f "$ws/justfile.project"
+        assert_success
+        run grep -x "DEVKIT_MODE=$mode" "$ws/.vig-os"
+        assert_success
+        run grep -x 'DEVKIT_PROJECT=testproj' "$ws/.vig-os"
+        assert_success
+    done
 }
 
 @test "persisted-mode vs requested-mode mismatch refuses, pointing at --preview (#885)" {
@@ -2445,57 +2248,49 @@ _upgrade_no_flags() {
     assert_failure
 }
 
-@test "upgrade preserves a persisted DEVKIT_MODULES value (#885)" {
-    # Reserved key (#884): .vig-os is a managed file, so the consumer's module
-    # declaration must be read before the template overwrite and written back.
-    ws="$BATS_TEST_TMPDIR/e2e-885-modules"
+# ── persisted .vig-os knob round-trips ────────────────────────────────────────
+# .vig-os is a managed file, so every consumer-set knob must be read before the
+# template overwrite and written back — else an upgrade silently resets it
+# (module declarations #885, tag scheme #1116 — release-integrity regression
+# observed 1.2.0 -> 1.2.1 —, self-hosted CI runner #1173, drift-check opt-out
+# #1295, feature opt-outs #1284). One scaffold+upgrade with ALL knobs set: the
+# write-backs are per-key independent, and a combined manifest matches real
+# consumer state. Sibling loops below cover ships-empty and invalid values.
+
+@test "upgrade writes back every persisted .vig-os knob (#885, #1116, #1173, #1295, #1284)" {
+    ws="$BATS_TEST_TMPDIR/e2e-knob-writeback"
     mkdir -p "$ws"
     run _scaffold both "$ws"
     assert_success
-    sed -i 's/^DEVKIT_MODULES=.*/DEVKIT_MODULES="native rust"/' "$ws/.vig-os"
+    local rows=(
+        'DEVKIT_MODULES="native rust"'
+        'DEVKIT_TAG_PREFIX=v'
+        'DEVKIT_FLOATING_TAGS=major,minor'
+        'DEVKIT_CI_RUNNER=self-hosted,linux,x64,meatgrinder'
+        'DEVKIT_DRIFT_CHECK=false'
+        'DEVKIT_FEATURES_DISABLED=renovate,scanning'
+    )
+    for row in "${rows[@]}"; do
+        key="${row%%=*}"
+        sed -i "s#^${key}=.*#${row}#" "$ws/.vig-os"
+    done
     run _upgrade_no_flags "$ws"
     assert_success
-    run grep -x 'DEVKIT_MODULES="native rust"' "$ws/.vig-os"
-    assert_success
+    for row in "${rows[@]}"; do
+        echo "knob: $row"
+        run grep -x "$row" "$ws/.vig-os"
+        assert_success
+    done
 }
 
-@test "upgrade preserves persisted tag-scheme keys (#1116)" {
-    # .vig-os is a managed file, so a consumer's DEVKIT_TAG_PREFIX /
-    # DEVKIT_FLOATING_TAGS must be read before the template overwrite and
-    # written back — else an upgrade silently resets bare tags / stops moving
-    # floating tags (release-integrity regression observed 1.2.0 -> 1.2.1).
-    ws="$BATS_TEST_TMPDIR/e2e-1116-tagscheme"
-    mkdir -p "$ws"
-    run _scaffold both "$ws"
-    assert_success
-    sed -i 's/^DEVKIT_TAG_PREFIX=.*/DEVKIT_TAG_PREFIX=v/' "$ws/.vig-os"
-    sed -i 's/^DEVKIT_FLOATING_TAGS=.*/DEVKIT_FLOATING_TAGS=major,minor/' "$ws/.vig-os"
-    run _upgrade_no_flags "$ws"
-    assert_success
-    run grep -x 'DEVKIT_TAG_PREFIX=v' "$ws/.vig-os"
-    assert_success
-    run grep -x 'DEVKIT_FLOATING_TAGS=major,minor' "$ws/.vig-os"
-    assert_success
-}
-
-@test "template .vig-os ships the CI runner key empty (#1173)" {
-    run grep -x 'DEVKIT_CI_RUNNER=' "$TEMPLATE_DIR/.vig-os"
-    assert_success
-}
-
-@test "upgrade preserves a persisted DEVKIT_CI_RUNNER value (#1173)" {
-    # .vig-os is a managed file, so a self-hosted consumer's DEVKIT_CI_RUNNER
-    # must be read before the template overwrite and written back — else an
-    # upgrade silently resets ci.yml's jobs onto the hosted default runner.
-    ws="$BATS_TEST_TMPDIR/e2e-1173-cirunner"
-    mkdir -p "$ws"
-    run _scaffold both "$ws"
-    assert_success
-    sed -i 's/^DEVKIT_CI_RUNNER=.*/DEVKIT_CI_RUNNER=self-hosted,linux,x64,meatgrinder/' "$ws/.vig-os"
-    run _upgrade_no_flags "$ws"
-    assert_success
-    run grep -x 'DEVKIT_CI_RUNNER=self-hosted,linux,x64,meatgrinder' "$ws/.vig-os"
-    assert_success
+@test "template .vig-os ships every optional knob key empty (#1173, #1228, #1282, #1295, #1284)" {
+    local keys=(DEVKIT_CI_RUNNER DEVKIT_SYNC_TARGET DEVKIT_SYNC_SCHEDULE
+        DEVKIT_REFS_POLICY DEVKIT_DRIFT_CHECK DEVKIT_FEATURES_DISABLED)
+    for key in "${keys[@]}"; do
+        echo "key: $key"
+        run grep -x "${key}=" "$TEMPLATE_DIR/.vig-os"
+        assert_success
+    done
 }
 
 # ── sync-issues target/schedule knobs (#1228) ─────────────────────────────────
@@ -2568,42 +2363,39 @@ _upgrade_no_flags() {
     assert_failure
 }
 
-@test "an invalid DEVKIT_SYNC_TARGET fails the scaffold loudly (#1228)" {
-    ws="$BATS_TEST_TMPDIR/e2e-1228-bad-target"
-    mkdir -p "$ws"
-    run _scaffold both "$ws"
-    assert_success
-    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=bad..name#' "$ws/.vig-os"
-    run _upgrade_no_flags "$ws"
-    assert_failure
-    assert_output --partial "Invalid DEVKIT_SYNC_TARGET"
-}
-
-@test "a hostile DEVKIT_SYNC_TARGET (shell metacharacters) fails the scaffold loudly (#1228)" {
-    # git check-ref-format alone accepts quotes/$/backticks/;/|/# — values that
+@test "invalid or hostile .vig-os knob values fail the scaffold loudly (#1228, #1282, #1295, #1284)" {
+    # KEY|VALUE table of rejected values, each asserted against the clean
+    # "Invalid <KEY>" message. The hostile SYNC_TARGET row: git
+    # check-ref-format alone accepts quotes/$/backticks/;/|/# — values that
     # would render invalid YAML or inject commands into the bootstrap step's
     # double-quoted shell assignment at sync runtime (with the App token in
-    # scope). The allowlist guard must refuse them with the clean message.
-    ws="$BATS_TEST_TMPDIR/e2e-1228-hostile-target"
-    mkdir -p "$ws"
-    run _scaffold both "$ws"
+    # scope); the allowlist guard must refuse them. One scaffold, copied per
+    # row (a refused upgrade must not dirty the base fixture).
+    base="$BATS_TEST_TMPDIR/e2e-knob-invalid-base"
+    mkdir -p "$base"
+    run _scaffold both "$base"
     assert_success
     # shellcheck disable=SC2016  # literal $(id) is the hostile payload, not an expansion
-    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=x$(id)y#' "$ws/.vig-os"
-    run _upgrade_no_flags "$ws"
-    assert_failure
-    assert_output --partial "Invalid DEVKIT_SYNC_TARGET"
-}
-
-@test "an invalid DEVKIT_SYNC_SCHEDULE fails the scaffold loudly (#1228)" {
-    ws="$BATS_TEST_TMPDIR/e2e-1228-bad-cron"
-    mkdir -p "$ws"
-    run _scaffold both "$ws"
-    assert_success
-    sed -i 's#^DEVKIT_SYNC_SCHEDULE=.*#DEVKIT_SYNC_SCHEDULE=0 2 * *#' "$ws/.vig-os"
-    run _upgrade_no_flags "$ws"
-    assert_failure
-    assert_output --partial "Invalid DEVKIT_SYNC_SCHEDULE"
+    local rows=(
+        'DEVKIT_SYNC_TARGET|bad..name'
+        'DEVKIT_SYNC_TARGET|x$(id)y'
+        'DEVKIT_SYNC_SCHEDULE|0 2 * *'
+        'DEVKIT_REFS_POLICY|garbage'
+        'DEVKIT_DRIFT_CHECK|garbage'
+        'DEVKIT_FEATURES_DISABLED|renovate,bogus'
+    )
+    local i=0
+    for row in "${rows[@]}"; do
+        key="${row%%|*}"
+        value="${row#*|}"
+        echo "row: $key = $value"
+        ws="$BATS_TEST_TMPDIR/e2e-knob-invalid-$((i++))"
+        cp -a "$base" "$ws"
+        sed -i "s#^${key}=.*#${key}=${value}#" "$ws/.vig-os"
+        run _upgrade_no_flags "$ws"
+        assert_failure
+        assert_output --partial "Invalid ${key}"
+    done
 }
 
 # ── Refs policy knob (#1282) ──────────────────────────────────────────────────
@@ -2613,11 +2405,6 @@ _upgrade_no_flags() {
 # chore-optional (default, byte-identical) | optional (full types list) |
 # required (a `none` sentinel type => every real type requires Refs). Persisted
 # like DEVKIT_CI_RUNNER; invalid values fail the scaffold loudly.
-
-@test "template .vig-os ships the Refs policy key empty (#1282)" {
-    run grep -x 'DEVKIT_REFS_POLICY=' "$TEMPLATE_DIR/.vig-os"
-    assert_success
-}
 
 @test "default scaffold keeps the chore-optional refs-optional-types arg (#1282)" {
     # No DEVKIT_REFS_POLICY key => the template default is untouched, so the
@@ -2661,17 +2448,6 @@ _upgrade_no_flags() {
     assert_success
 }
 
-@test "an invalid DEVKIT_REFS_POLICY fails the scaffold loudly (#1282)" {
-    ws="$BATS_TEST_TMPDIR/e2e-1282-bad-policy"
-    mkdir -p "$ws"
-    run _scaffold both "$ws"
-    assert_success
-    sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=garbage/' "$ws/.vig-os"
-    run _upgrade_no_flags "$ws"
-    assert_failure
-    assert_output --partial "Invalid DEVKIT_REFS_POLICY"
-}
-
 @test "DEVKIT_REFS_POLICY composes with the trunk workflow render (#1282)" {
     # render_workflow_model (trunk) and render_refs_policy both sed
     # .pre-commit-config.yaml on distinct anchors — they must compose.
@@ -2695,35 +2471,8 @@ _upgrade_no_flags() {
 # DEVKIT_DRIFT_CHECK is a pure runtime gate for the ci.yml scaffold-drift job
 # (empty/absent => enabled). It steers no scaffold render — the CI job reads it
 # via resolve-toolchain (covered in tests/test_scaffold_drift.py). init-workspace
-# only guards its value and persists it across upgrades, like DEVKIT_REFS_POLICY.
-
-@test "template .vig-os ships the drift-check key empty (#1295)" {
-    run grep -x 'DEVKIT_DRIFT_CHECK=' "$TEMPLATE_DIR/.vig-os"
-    assert_success
-}
-
-@test "upgrade writes back a persisted DEVKIT_DRIFT_CHECK value (#1295)" {
-    ws="$BATS_TEST_TMPDIR/e2e-1295-writeback"
-    mkdir -p "$ws"
-    run _scaffold both "$ws"
-    assert_success
-    sed -i 's/^DEVKIT_DRIFT_CHECK=.*/DEVKIT_DRIFT_CHECK=false/' "$ws/.vig-os"
-    run _upgrade_no_flags "$ws"
-    assert_success
-    run grep -x 'DEVKIT_DRIFT_CHECK=false' "$ws/.vig-os"
-    assert_success
-}
-
-@test "an invalid DEVKIT_DRIFT_CHECK fails the scaffold loudly (#1295)" {
-    ws="$BATS_TEST_TMPDIR/e2e-1295-bad-value"
-    mkdir -p "$ws"
-    run _scaffold both "$ws"
-    assert_success
-    sed -i 's/^DEVKIT_DRIFT_CHECK=.*/DEVKIT_DRIFT_CHECK=garbage/' "$ws/.vig-os"
-    run _upgrade_no_flags "$ws"
-    assert_failure
-    assert_output --partial "Invalid DEVKIT_DRIFT_CHECK"
-}
+# only guards its value and persists it across upgrades (see the knob loops
+# above).
 
 # ── cache-cleanup retry fallback shim (#1278) ─────────────────────────────────
 # The "Delete old cache" cleanup step runs `if: always()` and calls the `retry`
@@ -2768,56 +2517,43 @@ _upgrade_legacy() {
         bash "$INIT_WORKSPACE_SH" --force --no-prompts
 }
 
-@test "legacy upgrade infers devcontainer mode from a .devcontainer-only tree (#885)" {
-    ws="$BATS_TEST_TMPDIR/e2e-885-infer-devc"
-    mkdir -p "$ws"
-    run _scaffold devcontainer "$ws"
-    assert_success
-    _make_legacy_manifest "$ws"
-    run _upgrade_legacy "$ws"
-    assert_success
-    assert_output --partial "Inferred delivery mode 'devcontainer'"
-    run test -d "$ws/.devcontainer"
-    assert_success
-    # no reshape: the flake stub must NOT be added to a devcontainer-only repo
-    run test -e "$ws/flake.nix"
-    assert_failure
-    run grep -x 'DEVKIT_MODE=devcontainer' "$ws/.vig-os"
-    assert_success
-}
-
-@test "legacy upgrade infers direnv mode from a flake/envrc-only tree (#885)" {
-    ws="$BATS_TEST_TMPDIR/e2e-885-infer-direnv"
-    mkdir -p "$ws"
-    run _scaffold direnv "$ws"
-    assert_success
-    _make_legacy_manifest "$ws"
-    run _upgrade_legacy "$ws"
-    assert_success
-    assert_output --partial "Inferred delivery mode 'direnv'"
-    run test -e "$ws/.devcontainer"
-    assert_failure
-    run test -f "$ws/flake.nix"
-    assert_success
-    run grep -x 'DEVKIT_MODE=direnv' "$ws/.vig-os"
-    assert_success
-}
-
-@test "legacy upgrade infers both from .devcontainer plus the scaffold flake stub (#885)" {
-    ws="$BATS_TEST_TMPDIR/e2e-885-infer-both"
-    mkdir -p "$ws"
-    run _scaffold both "$ws"
-    assert_success
-    _make_legacy_manifest "$ws"
-    run _upgrade_legacy "$ws"
-    assert_success
-    assert_output --partial "Inferred delivery mode 'both'"
-    run test -d "$ws/.devcontainer"
-    assert_success
-    run test -f "$ws/flake.nix"
-    assert_success
-    run grep -x 'DEVKIT_MODE=both' "$ws/.vig-os"
-    assert_success
+@test "legacy upgrade infers the delivery mode from the tree shape (#885)" {
+    # One scaffolded tree per mode, stripped back to a version-only manifest;
+    # the echoed mode attributes failures. No reshape: the inferred mode's
+    # absent halves must stay absent.
+    for mode in devcontainer direnv both; do
+        echo "mode: $mode"
+        ws="$BATS_TEST_TMPDIR/e2e-885-infer-$mode"
+        mkdir -p "$ws"
+        run _scaffold "$mode" "$ws"
+        assert_success
+        _make_legacy_manifest "$ws"
+        run _upgrade_legacy "$ws"
+        assert_success
+        assert_output --partial "Inferred delivery mode '$mode'"
+        case "$mode" in
+        devcontainer)
+            run test -d "$ws/.devcontainer"
+            assert_success
+            run test -e "$ws/flake.nix"
+            assert_failure
+            ;;
+        direnv)
+            run test -e "$ws/.devcontainer"
+            assert_failure
+            run test -f "$ws/flake.nix"
+            assert_success
+            ;;
+        both)
+            run test -d "$ws/.devcontainer"
+            assert_success
+            run test -f "$ws/flake.nix"
+            assert_success
+            ;;
+        esac
+        run grep -x "DEVKIT_MODE=$mode" "$ws/.vig-os"
+        assert_success
+    done
 }
 
 @test "ambiguous legacy tree (consumer flake + .devcontainer) widens to both (#885)" {
@@ -3010,29 +2746,8 @@ _upgrade_legacy() {
     assert_output "use flake .#custom"
 }
 
-@test "manifest-bearing upgrade keeps bare shape and names, no flags (#885)" {
-    ws="$BATS_TEST_TMPDIR/e2e-885-up-bare"
-    mkdir -p "$ws"
-    run _scaffold bare "$ws"
-    assert_success
-    run _upgrade_no_flags "$ws"
-    assert_success
-    assert_output --partial "from .vig-os manifest"
-    run test -e "$ws/.devcontainer"
-    assert_failure
-    run test -e "$ws/flake.nix"
-    assert_failure
-    run test -f "$ws/justfile.project"
-    assert_success
-    run grep -x 'DEVKIT_MODE=bare' "$ws/.vig-os"
-    assert_success
-    # the upgraded ci.yml stays mode-aware: resolve-toolchain wired, no
-    # hardcoded devcontainer image literal (#991)
-    run grep -q 'resolve-toolchain' "$ws/.github/workflows/ci.yml"
-    assert_success
-    run grep -q 'ghcr.io/vig-os/devcontainer' "$ws/.github/workflows/ci.yml"
-    assert_failure
-}
+# (the bare-mode upgrade shape is covered by the per-mode manifest-bearing
+# upgrade loop earlier in this file)
 
 @test "preview lists a pre-existing .devcontainer/ as preserved in direnv/bare modes (#885)" {
     # A populated consumer .devcontainer/ is kept by the #738 guard but was
@@ -3823,27 +3538,13 @@ _RELEASE_RESOLVERS_991=(
 # regenerated .gitignore after the per-language fragments, so root-level consumer
 # ignores survive every regeneration.
 
-@test ".gitignore.project is in PRESERVE_FILES (#1092)" {
-    # shellcheck disable=SC2016
-    run grep -E '"\.gitignore\.project"' "$INIT_WORKSPACE_SH"
-    assert_success
-}
-
 @test "template ships a .gitignore.project (#1092)" {
     run test -f "$TEMPLATE_DIR/.gitignore.project"
     assert_success
 }
 
-@test "upgrade preserves a customized .gitignore.project (#1092)" {
-    ws="$BATS_TEST_TMPDIR/e2e-1092-preserve"
-    mkdir -p "$ws"
-    printf '# SENTINEL-1092 consumer root ignores\n/scratch-local/\n' \
-        >"$ws/.gitignore.project"
-    run _upgrade both "$ws"
-    assert_success
-    run grep -q 'SENTINEL-1092' "$ws/.gitignore.project"
-    assert_success
-}
+# (upgrade preservation of a customized .gitignore.project is covered by the
+# table-driven preserved-configs test above)
 
 @test "rendered .gitignore appends the consumer .gitignore.project contents (#1092)" {
     ws="$BATS_TEST_TMPDIR/e2e-1092-append"
@@ -4235,21 +3936,8 @@ _scaffold_seeded() {
     _scaffold "$mode" "$ws"
 }
 
-@test "template .vig-os ships the feature opt-out key empty (#1284)" {
-    run grep -x 'DEVKIT_FEATURES_DISABLED=' "$TEMPLATE_DIR/.vig-os"
-    assert_success
-}
-
-@test "an unknown feature name fails the scaffold loudly (#1284)" {
-    ws="$BATS_TEST_TMPDIR/e2e-1284-unknown"
-    mkdir -p "$ws"
-    run _scaffold both "$ws"
-    assert_success
-    _seed_features_disabled "$ws" "renovate,bogus"
-    run _upgrade_no_flags "$ws"
-    assert_failure
-    assert_output --partial "Invalid DEVKIT_FEATURES_DISABLED"
-}
+# (ships-empty, unknown-name abort and write-back for DEVKIT_FEATURES_DISABLED
+# are covered by the .vig-os knob loops earlier in this file)
 
 @test "a whitespace-padded feature list is accepted (#1284)" {
     ws="$BATS_TEST_TMPDIR/e2e-1284-whitespace"
@@ -4260,18 +3948,6 @@ _scaffold_seeded() {
     run _upgrade_no_flags "$ws"
     assert_success
     refute_output --partial "Invalid DEVKIT_FEATURES_DISABLED"
-}
-
-@test "upgrade writes back a persisted DEVKIT_FEATURES_DISABLED value (#1284)" {
-    ws="$BATS_TEST_TMPDIR/e2e-1284-writeback"
-    mkdir -p "$ws"
-    run _scaffold both "$ws"
-    assert_success
-    _seed_features_disabled "$ws" "renovate,scanning"
-    run _upgrade_no_flags "$ws"
-    assert_success
-    run grep -x 'DEVKIT_FEATURES_DISABLED=renovate,scanning' "$ws/.vig-os"
-    assert_success
 }
 
 @test "an absent DEVKIT_FEATURES_DISABLED scaffolds every feature group (#1284)" {

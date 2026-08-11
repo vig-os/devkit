@@ -74,27 +74,6 @@ setup() {
     refute_output --partial "trust"
 }
 
-@test "worktree-start detects branch already checked out via worktree list" {
-    # Validates the detection pattern used in worktree-start's guard:
-    # git worktree list --porcelain | grep "branch refs/heads/$BRANCH"
-    TMPDIR_TEST="$(mktemp -d)"
-    git init "$TMPDIR_TEST/repo" >/dev/null 2>&1
-    git -C "$TMPDIR_TEST/repo" config user.email "test@test.local"
-    git -C "$TMPDIR_TEST/repo" config user.name "Test"
-    git -C "$TMPDIR_TEST/repo" commit --allow-empty -m "init" >/dev/null 2>&1
-    git -C "$TMPDIR_TEST/repo" checkout -b "feature/999997-test-branch" >/dev/null 2>&1
-
-    # The current checkout should appear in worktree list
-    run bash -c "git -C '$TMPDIR_TEST/repo' worktree list --porcelain | grep 'branch refs/heads/feature/999997-test-branch'"
-    assert_success
-
-    # A non-existent branch should NOT appear
-    run bash -c "git -C '$TMPDIR_TEST/repo' worktree list --porcelain | grep 'branch refs/heads/feature/000000-nonexistent'"
-    assert_failure
-
-    rm -rf "$TMPDIR_TEST"
-}
-
 # ── worktree-attach ───────────────────────────────────────────────────────────
 
 @test "worktree-attach errors when neither worktree dir nor session exists" {

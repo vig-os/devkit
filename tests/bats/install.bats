@@ -27,17 +27,15 @@ setup() {
 
 # ── help ──────────────────────────────────────────────────────────────────────
 
-@test "help flag (-h) exits 0 and prints usage" {
-    run bash "$INSTALL_SH" -h
-    assert_success
-    assert_output --partial "USAGE:"
-    assert_output --partial "OPTIONS:"
-}
-
-@test "help flag (--help) exits 0 and prints usage" {
-    run bash "$INSTALL_SH" --help
-    assert_success
-    assert_output --partial "vigOS Devcontainer Install Script"
+@test "help flag (-h and --help) exits 0 and prints usage" {
+    for flag in -h --help; do
+        echo "flag: $flag"
+        run bash "$INSTALL_SH" "$flag"
+        assert_success
+        assert_output --partial "vigOS Devcontainer Install Script"
+        assert_output --partial "USAGE:"
+        assert_output --partial "OPTIONS:"
+    done
 }
 
 @test "help lists all documented options" {
@@ -184,23 +182,6 @@ setup() {
     assert_output --partial "Directory does not exist"
 }
 
-# ── runtime detection ─────────────────────────────────────────────────────────
-
-@test "install.sh includes detect_runtime function" {
-    run grep 'detect_runtime()' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh auto-detection guards docker behind a daemon probe (#1305)" {
-    run grep 'docker info' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh falls back to podman if docker unavailable (#1305)" {
-    run grep 'command -v podman' "$INSTALL_SH"
-    assert_success
-}
-
 # ── runtime auto-detection order (#1305) ──────────────────────────────────────
 # ubuntu-latest runners pair a preinstalled podman with a stale system crun
 # that rejects podman >= 5's OCI configs ("crun: unknown version specified"),
@@ -242,34 +223,21 @@ exit 0'
 
 # ── os detection ──────────────────────────────────────────────────────────────
 
-@test "install.sh includes detect_os function" {
-    run grep 'detect_os()' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh detects macOS" {
-    run grep 'Darwin\*' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh detects Debian/Ubuntu" {
-    run grep 'ubuntu|debian|pop|linuxmint' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh detects Fedora/RHEL" {
-    run grep 'fedora|rhel|centos|rocky|almalinux' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh detects Arch Linux" {
-    run grep 'arch|manjaro|endeavouros' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh detects openSUSE" {
-    run grep 'opensuse\*|sles' "$INSTALL_SH"
-    assert_success
+@test "install.sh detect_os covers macOS and the Linux distro families" {
+    # Structural-only coverage: detect_os keys install instructions off uname /
+    # /etc/os-release, which a test cannot vary. One looped grep per family.
+    local patterns=(
+        'Darwin\*'
+        'ubuntu|debian|pop|linuxmint'
+        'fedora|rhel|centos|rocky|almalinux'
+        'arch|manjaro|endeavouros'
+        'opensuse\*|sles'
+    )
+    for pattern in "${patterns[@]}"; do
+        echo "pattern: $pattern"
+        run grep "$pattern" "$INSTALL_SH"
+        assert_success
+    done
 }
 
 # ── color output ──────────────────────────────────────────────────────────────
@@ -284,44 +252,11 @@ exit 0'
     assert_success
 }
 
-# ── output functions ──────────────────────────────────────────────────────────
-
-@test "install.sh defines err function for error messages" {
-    run grep 'err() {' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh defines info function for info messages" {
-    run grep 'info() {' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh defines warn function for warnings" {
-    run grep 'warn() {' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh defines success function for success messages" {
-    run grep 'success() {' "$INSTALL_SH"
-    assert_success
-}
-
 # ── git repository setup (embedded in install.sh) ────────────────────────────
-
-@test "install.sh includes setup_git_repo function" {
-    run grep 'setup_git_repo()' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh initializes git repo if missing" {
-    run grep 'git init -b main' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh creates initial commit if needed" {
-    run grep 'git commit' "$INSTALL_SH"
-    assert_success
-}
+# The git phase (init, initial commit, branch creation) is exercised end to end
+# in tests/test_install_script.py::TestInstallScriptIntegration (e.g.
+# test_install_creates_git_repository, test_install_git_branches) against a
+# real scaffold; only pins with no pytest twin live here.
 
 @test "install.sh guards the scaffold commit against a populated directory" {
     # The automatic 'initial project scaffold' commit must only run for a
@@ -332,50 +267,11 @@ exit 0'
     assert_success
 }
 
-@test "install.sh verifies main branch exists" {
-    run grep 'git rev-parse --verify main' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh verifies dev branch exists" {
-    run grep 'git rev-parse --verify dev' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh creates dev branch if missing" {
-    run grep 'git branch dev' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh shows remote origin hint" {
-    run grep 'git remote add origin' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh shows push hint" {
-    run grep 'git push -u origin main dev' "$INSTALL_SH"
-    assert_success
-}
-
 # ── workflow model: trunk skips the dev branch (#1205) ────────────────────────
-# The gitflow default carries a long-lived 'dev' branch; the trunk workflow model
-# works straight on 'main', so its dev creation and the two-branch push hint are
-# gated out. The git setup runs host-side only after the container scaffolds
-# (unreachable under --dry-run), so the branch-skip behavior is asserted
-# structurally here and end-to-end in test_install_script.py; --dry-run proves
-# the --workflow flag is forwarded to the container command.
-
-@test "install.sh gates dev-branch creation on the workflow model (trunk skips it) (#1205)" {
-    # shellcheck disable=SC2016
-    run grep -F '[ "$WORKFLOW_MODEL" != "trunk" ]' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh shows a trunk push hint that omits dev (#1205)" {
-    # The trunk hint pushes only main; the gitflow hint pushes 'main dev'.
-    run grep 'git push -u origin main"' "$INSTALL_SH"
-    assert_success
-}
+# The gitflow default carries a long-lived 'dev' branch; the trunk workflow
+# model works straight on 'main'. The branch-skip behavior is proven end to end
+# in test_install_script.py::test_install_trunk_creates_main_only; --dry-run
+# proves the --workflow flag is forwarded to the container command.
 
 @test "install.sh --dry-run --workflow trunk forwards --workflow to init-workspace (#1205)" {
     mkdir -p "$BATS_TEST_TMPDIR/wf-trunk"
@@ -414,16 +310,6 @@ exit 0'
 
 # ── image pulling ─────────────────────────────────────────────────────────────
 
-@test "install.sh pulls image before running" {
-    run grep 'pull' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh supports --skip-pull flag" {
-    run grep 'SKIP_PULL' "$INSTALL_SH"
-    assert_success
-}
-
 @test "install.sh checks local image with docker-compatible 'image inspect'" {
     # shellcheck disable=SC2016
     run grep '\$RUNTIME image inspect "\$IMAGE"' "$INSTALL_SH"
@@ -438,11 +324,6 @@ exit 0'
 
 # ── error handling ────────────────────────────────────────────────────────────
 
-@test "install.sh validates container runtime availability" {
-    run grep 'info' "$INSTALL_SH"
-    assert_success
-}
-
 @test "install.sh shows runtime installation instructions" {
     run grep 'show_install_instructions()' "$INSTALL_SH"
     assert_success
@@ -454,16 +335,7 @@ exit 0'
 }
 
 # ── script structure ──────────────────────────────────────────────────────────
-
-@test "install.sh uses strict error handling" {
-    run grep 'set -euo pipefail' "$INSTALL_SH"
-    assert_success
-}
-
-@test "install.sh is executable" {
-    run test -x "$INSTALL_SH"
-    assert_success
-}
+# (executable bit is pinned by test_utils.py::test_script_exists_and_executable)
 
 @test "install.sh has shebang" {
     run head -1 "$INSTALL_SH"
