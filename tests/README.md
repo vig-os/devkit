@@ -1,20 +1,20 @@
 # Running Tests
 
-This directory contains integration tests for the devcontainer setup.
+This directory contains the image and integration test suites for the
+devcontainer, plus the lightweight "shape" tests that need no container.
 
 ## Overview
 
-The tests support running from two environments:
+The container-backed tests support running from two environments:
 
-1. **Host machine** - Direct podman access with bind mounts
-2. **Inside devcontainer** - Docker-out-of-Docker (DooD) via podman socket
+1. **Host machine** — direct podman access with bind mounts
+2. **Inside a devcontainer** — Docker-out-of-Docker (DooD) via the podman socket
 
 When running from inside a devcontainer, the test infrastructure automatically:
+
 - Detects the container environment
 - Uses `podman` with named volumes for workspace initialization
-- Uses the shared workspace directory for temp files (accessible to both host and container)
 - Translates container paths to host paths using `HOST_WORKSPACE_PATH`
-- Handles all path translation transparently
 
 ## Image under test
 
@@ -37,27 +37,25 @@ To point the suite at a different build, set `TEST_CONTAINER_TAG` to that tag
 
 ## Prerequisites
 
-### From Host
+### From host
 
 ```bash
 # Install dependencies
-uv sync --group test
+uv sync
 
-# Ensure the devcontainer image is built
-make build
+# Ensure the devcontainer image is built (loads the :dev tag into podman)
+just build
 ```
 
-### From Inside Devcontainer
+### From inside a devcontainer
 
-When running tests from inside a devcontainer, **no special configuration is needed**. The test infrastructure will:
+Basic tests need no special configuration. For **devcontainer CLI tests**
+(which start nested devcontainers), the `HOST_WORKSPACE_PATH` environment
+variable is required so container paths can be translated for the host's
+podman daemon.
 
-- Automatically detect it's running in a container
-- Use `podman` with named volumes (avoiding host path issues)
-- Handle the `init-workspace` test correctly
-
-For **devcontainer CLI tests** (which start nested devcontainers), the `HOST_WORKSPACE_PATH` environment variable is required.
-
-**For THIS devcontainer** (developing the devcontainer itself), this is **automatically set** via `remoteEnv` in `.devcontainer/devcontainer.json`:
+**For THIS devcontainer** (developing the devcontainer itself), it is
+**automatically set** via `remoteEnv` in `.devcontainer/devcontainer.json`:
 
 ```json
 "remoteEnv": {
@@ -65,194 +63,78 @@ For **devcontainer CLI tests** (which start nested devcontainers), the `HOST_WOR
 }
 ```
 
-VS Code expands `${localWorkspaceFolder}` to the host path automatically.
-
-**For other devcontainers**, if you want to run these tests, you'll need to manually set:
+**For other devcontainers**, set it manually:
 
 ```bash
 export HOST_WORKSPACE_PATH=/path/on/host/to/workspace
 ```
 
-Without `HOST_WORKSPACE_PATH`, devcontainer CLI tests will be skipped (but compose-based tests will still run).
+Without `HOST_WORKSPACE_PATH`, devcontainer CLI tests are skipped.
 
-## Test Execution
-
-### Run all tests
+## Test execution
 
 ```bash
-# From host or container - works from both!
-make test
+# All suites (container tests + shape tests + bats + renovate validation)
+just test
 
-# Or explicitly with uv
-uv run pytest tests/
-```
+# Individual suites
+just test-image             # tests/test_image.py (builds the dev image if needed)
+just test-integration       # tests/test_integration.py (ditto)
+just test-utils             # tests/test_utils.py (no container needed)
+just test-install           # tests/test_install_script.py
+just test-vig-utils         # packages/vig-utils/tests
+just test-bats              # tests/bats/
 
-**Note**: When running from within the devcontainer, `HOST_WORKSPACE_PATH` is automatically set via `remoteEnv` in `devcontainer.json`, enabling full test functionality.
-
-### Run specific test categories
-
-```bash
-# Integration tests only
-make test-integration
-
-# Image tests only
-make test-image
-
-# Registry tests only
-make test-registry
-```
-
-### Run specific test files
-
-```bash
-uv run pytest tests/test_image.py       # ✓ Works from anywhere
-uv run pytest tests/test_integration.py # ✓ Works from anywhere
-uv run pytest tests/test_registry.py    # ✓ Works from anywhere
-```
-
-### Run specific tests
-
-```bash
+# Specific files or tests (uv directly)
+uv run pytest tests/test_image.py
 uv run pytest tests/test_integration.py::TestDevContainerStructure
-uv run pytest tests/test_integration.py::TestDevContainerStructure::test_devcontainer_directory_exists
 ```
 
-## Test Infrastructure
+See `TESTING.md` at the repo root for the overall testing strategy, and
+`tests/CLEANUP.md` for lingering-container cleanup
+(`just clean-test-containers`).
 
-### Named Volumes for Docker-out-of-Docker
+## Test infrastructure
 
-When running from inside a devcontainer, tests use **named volumes** instead of bind mounts. This solves the Docker-out-of-Docker path translation problem:
+### Named volumes for Docker-out-of-Docker
+
+When running from inside a devcontainer, workspace initialization uses
+**named volumes** instead of bind mounts (the host's podman cannot see
+container-local paths):
 
 ```bash
-# Create a named volume
+# What the fixtures do, in podman terms:
 podman volume create test-workspace-XXXX
-
-# Run with named volume (no host path needed!)
 podman run -it --rm \
   -v test-workspace-XXXX:/workspace \
   ghcr.io/vig-os/devcontainer:dev \
   /root/assets/init-workspace.sh
-
-# Copy files from volume to inspect results
-podman run --rm \
-  -v test-workspace-XXXX:/source:ro \
-  -v /tmp/local:/dest \
-  alpine cp -a /source/. /dest/
+# ...then copy the volume contents out to inspect results.
 ```
 
-The `docker-compose.test.yml` file is provided for reference but tests use direct `podman` commands for broader compatibility.
+### Container detection
 
-### Container Detection
+The fixtures detect a container environment via `IN_CONTAINER=true`,
+`/.dockerenv` / `/run/.containerenv`, or `/proc/1/cgroup` contents.
 
-The test fixtures automatically detect if they're running inside a container by checking:
+### Path translation
 
-1. `IN_CONTAINER=true` environment variable
-2. Presence of `/.dockerenv` or `/run/.containerenv`
-3. `/proc/1/cgroup` contents
-
-### Path Translation
-
-When running from inside a container with `HOST_WORKSPACE_PATH` set, the `get_host_path()` function translates container paths to host paths for:
-
-- Devcontainer CLI `--workspace-folder` arguments
-- Volume mount paths in docker-compose.project.yaml
-- Any operation that needs to communicate with the host's podman daemon
+With `HOST_WORKSPACE_PATH` set, `get_host_path()` translates container paths
+to host paths for devcontainer CLI `--workspace-folder` arguments and volume
+mounts in `docker-compose.project.yaml`.
 
 ## Troubleshooting
 
-### "no such file or directory" errors
+### "no such file or directory" volume-mount errors
 
-If you see volume mount errors like:
-
-```text
-Error: statfs /workspace/devcontainer/tests/tmp/...:
-no such file or directory
-```
-
-This means you're running from inside a container and the test is trying to use
-a bind mount with a container path. The solution:
-
-1. **For basic tests**: They should work automatically with the compose
-   infrastructure
-2. **For devcontainer CLI tests**: Set `HOST_WORKSPACE_PATH` environment
-   variable
-
-### Compose not found
-
-If you get "command not found: podman compose":
-
-```bash
-# Check podman compose is available
-podman compose version
-
-# If not, it may be a separate package on your system
-```
+You are running inside a container and a test tried to bind-mount a
+container-local path. Basic tests handle this automatically (named volumes);
+devcontainer CLI tests need `HOST_WORKSPACE_PATH`.
 
 ### Named volumes persist
 
-Named volumes created during tests are automatically cleaned up. If you need to manually remove them:
+Test volumes are cleaned up automatically. To remove leftovers manually:
 
 ```bash
-# List volumes
-podman volume ls | grep test-workspace
-
-# Remove specific volume
-podman volume rm test-workspace-XXXXXX
-
-# Remove all test volumes
 podman volume ls -q | grep test-workspace | xargs -r podman volume rm
 ```
-
-## Architecture
-
-```text
-Host Machine
-├── Devcontainer (you might be here)
-│   ├── Tests run via pytest
-│   │   ├── Use podman socket → Host's podman daemon
-│   │   ├── Create named volumes (managed by compose)
-│   │   └── Copy files from volumes to inspect results
-│   │
-│   └── For devcontainer CLI tests:
-│       ├── Translate paths with HOST_WORKSPACE_PATH
-│       └── CLI talks to host podman with host paths
-│
-└── Host Podman Daemon
-    ├── Manages all containers (including test containers)
-    ├── Manages named volumes
-    └── Executes container operations
-```
-
-## Example: Running from Devcontainer
-
-```bash
-# 1. Open your devcontainer in VS Code or via CLI
-
-# 2. For basic tests, just run them:
-cd /workspace/devcontainer
-make test-integration
-
-# 3. For devcontainer CLI tests, set host path:
-export HOST_WORKSPACE_PATH=/Users/yourname/Projects/devcontainer
-make test-integration
-
-# The tests will:
-# - Detect they're in a container
-# - Use compose with named volumes for init-workspace tests
-# - Translate paths for devcontainer CLI tests
-# - Clean up volumes automatically
-```
-
-## What Changed
-
-Previously, tests used direct `podman run -v /container/path:/workspace` which
-failed when running from inside a container (DooD) because the host couldn't
-find `/container/path`.
-
-Now, tests use:
-
-- **Compose with named volumes** for workspace initialization
-- **Path translation** for devcontainer CLI operations
-- **Automatic detection** of container vs. host environment
-
-This allows you to develop and test the devcontainer setup from within itself!
