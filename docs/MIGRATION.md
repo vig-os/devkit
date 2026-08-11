@@ -60,7 +60,7 @@ so upgrades never need `--mode` again.
 
 ### Bare mode: `vig-utils` release console scripts
 
-The release workflows invoke `prepare-changelog` and `renovate-changelog-pr`
+The release workflows invoke `prepare-changelog` and `synthesize-bot-changelog`
 (console scripts of `packages/vig-utils`). In `devcontainer`/`both` mode they
 ship in the image; in `direnv` mode the flake dev-shell provides them (they are
 on the toolchain SSoT, [#993](https://github.com/vig-os/devkit/issues/993)).
@@ -72,7 +72,7 @@ pinned to the same devkit version as `.vig-os`
 uv tool install "vig-utils @ git+https://github.com/vig-os/devkit@<DEVKIT_VERSION>#subdirectory=packages/vig-utils"
 ```
 
-This puts `prepare-changelog`, `renovate-changelog-pr`, and the other
+This puts `prepare-changelog`, `synthesize-bot-changelog`, and the other
 `vig-utils` scripts on PATH. Pin `<DEVKIT_VERSION>` to a release tag so the
 tooling matches your `.vig-os` pin; the `setup-devkit-toolchain` composite
 ([#994](https://github.com/vig-os/devkit/issues/994)) runs this step for you in
@@ -108,14 +108,13 @@ with no per-mode deletion or disabling:
 
 - `release.yml` (orchestrator) and its reusable `release-core.yml` /
   `release-publish.yml`, plus `prepare-release.yml`, `promote-release.yml`,
-  `sync-issues.yml`, `renovate-changelog-build.yml`, `sync-main-to-dev.yml`
+  `sync-issues.yml`, `sync-main-to-dev.yml`
   — mode-aware via `resolve-toolchain` + `setup-devkit-toolchain`. The release
   choreography (step logic, ordering, inputs/outputs, rollback semantics) is
   unchanged; only toolchain provisioning became mode-aware.
 
 Container-independent workflows keep working in every mode: `codeql.yml`,
-`scorecard.yml`, `renovate-changelog-commit.yml`, and the project-owned,
-host-native `release-extension.yml`.
+`scorecard.yml`, and the project-owned, host-native `release-extension.yml`.
 
 `codeql.yml` and `scorecard.yml` additionally guard their analysis job with
 `if: ${{ !github.event.repository.private }}`
@@ -398,8 +397,7 @@ The eight groups:
 - `release` — the release/prepare/promote workflows (`release*.yml`,
   `prepare-release*.yml`, `promote-release.yml`, `sync-main-to-dev.yml`) and
   `docs/DOWNSTREAM_RELEASE.md`.
-- `renovate` — `renovate.json`, `.github/renovate-default.json`, and the
-  renovate-changelog workflows.
+- `renovate` — `renovate.json` and `.github/renovate-default.json`.
 - `sync-issues` — `sync-issues.yml` and `.github/label-taxonomy.toml`. With this
   group disabled, `DEVKIT_SYNC_TARGET`/`DEVKIT_SYNC_SCHEDULE` become inert (a
   notice is printed).
@@ -890,6 +888,8 @@ re-scaffold:
    | `.cursor/` | 0.4.0 | `.claude/` |
    | `.hadolint.yaml` | 0.4.0 | — (the Debian build path is gone) |
    | `.github/actions/resolve-image/` | 1.1.0 | `resolve-toolchain` |
+   | `.github/workflows/renovate-changelog-build.yml` | 1.8.0 | release-time synthesis ([#1423](https://github.com/vig-os/devkit/issues/1423)) |
+   | `.github/workflows/renovate-changelog-commit.yml` | 1.8.0 | release-time synthesis ([#1423](https://github.com/vig-os/devkit/issues/1423)) |
 
    The stale `renovate-changelog.yml` is the one that bites: left in place it
    is a **live** workflow that both duplicates its replacements and calls the

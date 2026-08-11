@@ -194,6 +194,7 @@ Available recipes:
     precommit                                  # Run pre-commit hooks on all files
 
     [release]
+    changelog-preview                          # Preview the bot changelog entries the next release would synthesize (#1423)
     finalize-release version ref="" *flags     # Finalize and publish release via GitHub Actions workflow (step 3, after testing)
     prepare-release version ref="" *flags      # Prepare release branch for testing (step 1)
     promote-release version ref="" *flags      # Promote final release: GHCR :latest, publish draft GitHub Release, merge release PR (after downstream smoke-test final release)

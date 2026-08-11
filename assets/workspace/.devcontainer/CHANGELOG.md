@@ -32,6 +32,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Bot changelog entries are synthesized at release time** ([#1423](https://github.com/vig-os/devkit/issues/1423))
+  - New `synthesize-bot-changelog` (vig-utils) enumerates merged bot PRs
+    (Renovate, devkit adoptions) since the last stable tag and regenerates a
+    `#### Dependencies` block under `### Changed`, coalesced to the net delta
+    per dependency with every contributing PR cited; lock-file-maintenance
+    PRs — previously skipped entirely — roll up per ecosystem, and adoption
+    PRs coalesce to the shipped devkit version
+  - Runs at the two dispatch points that own changelog mutation: release cut
+    (`prepare-release.yml`, before the content gate and freeze) and the final
+    finalize pass (`release.yml` / scaffolded `release-core.yml`, before the
+    date stamp) — a bot PR merged into the release branch mid-train is picked
+    up at finalize; candidates stay changelog-neutral
+  - The per-PR `renovate-changelog-build.yml` + `renovate-changelog-commit.yml`
+    pipeline is deleted from devkit and the scaffold (retired paths, pruned on
+    consumer upgrade): bot PR branches no longer receive changelog commits, so
+    concurrent Renovate PRs stop conflicting on `## Unreleased`, Renovate's own
+    conflict rebase works again, and the double CI run per bot PR disappears
+  - The scaffolded prepare-release content gate moves from the host-only
+    validate job into the toolchain-capable prepare job so a train whose only
+    content is bot PRs still cuts
+  - New `just changelog-preview` prints the pending block read-only
+
 - **Refresh `CLAUDE.md` and add the green-CI dispatch rule** ([#1411](https://github.com/vig-os/devkit/issues/1411))
   - `CLAUDE.md`: correct the project title to `vig-os/devkit`, add the missing
     `/solve-and-pr` command row, and add a lean "Release Operations" section

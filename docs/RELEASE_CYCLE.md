@@ -221,10 +221,12 @@ The `prepare-release.yml` workflow freezes the CHANGELOG on dev and creates the 
    - Validates semantic version format (X.Y.Z)
    - Verifies release branch `release/X.Y.Z` doesn't exist (local or remote)
    - Verifies tag `X.Y.Z` doesn't already exist
-   - Verifies CHANGELOG has `## Unreleased` section with content
+   - Runs `synthesize-bot-changelog` → generates the `#### Dependencies` block for merged bot PRs (Renovate, adoptions) since the last stable tag ([#1423](https://github.com/vig-os/devkit/issues/1423))
+   - Verifies CHANGELOG has `## Unreleased` section with content (after synthesis, so a bot-only train passes)
    - Confirms dev branch is checked out
 
 2. ✅ **Prepare** job (skipped if --dry-run)
+   - Runs `synthesize-bot-changelog` again on the freeze checkout so the bot entries ride the freeze commit
    - Runs `prepare-changelog prepare` → moves Unreleased content to `## [X.Y.Z] - TBD` + creates fresh empty Unreleased section
    - Commits prepared CHANGELOG to `dev` via API (single atomic commit — dev never loses `## Unreleased`)
    - Creates `release/X.Y.Z` branch from that dev commit (the empty Unreleased is kept — see [#590](https://github.com/vig-os/devkit/issues/590))
@@ -595,6 +597,25 @@ uv run prepare-changelog finalize 1.0.0 2026-02-11 CHANGELOG.md --github-reposit
 
 **Tests:** `packages/vig-utils/tests/test_prepare_changelog.py`
 
+### synthesize-bot-changelog
+
+**Location:** `packages/vig-utils/src/vig_utils/synthesize_bot_changelog.py` (installed as `synthesize-bot-changelog` CLI)
+
+**Purpose:** Release-time synthesis of bot-PR changelog entries ([#1423](https://github.com/vig-os/devkit/issues/1423)). Enumerates merged PRs since the last stable tag from git history (`(#N)` merge/squash subjects), fetches PR metadata via `gh api`, keeps PRs authored by `renovate[bot]` / `vigos-devkit-upgrade[bot]`, and regenerates a `#### Dependencies` block under `### Changed`:
+
+- **Dependency updates** coalesce to the net delta per package — earliest `from`, latest `to`, every contributing PR cited; a bump that nets to zero disappears (intermediate versions never shipped in a release).
+- **Lock file maintenance** PRs roll up to one line per ecosystem scope.
+- **Devkit adoption** PRs coalesce to the version that actually ships.
+
+The block is the tool's only owned region and is rebuilt wholesale each run (idempotent; hand-written entries are never touched). Targets `## Unreleased` at cut, or `## [X.Y.Z] - TBD` with `--version` at finalize. Without a reachable stable tag the window is the full history; `--tag-prefix` composes with prefixed consumer tag schemes. Missing `CHANGELOG.md` is a no-op.
+
+```bash
+uv run synthesize-bot-changelog [--version 1.0.0] [--tag-prefix v] [--dry-run]
+just changelog-preview   # read-only preview of the pending block
+```
+
+**Tests:** `packages/vig-utils/tests/test_synthesize_bot_changelog.py`, `tests/test_release_time_changelog.py`
+
 ### Justfile Recipes
 
 **Location:** `justfile`
@@ -702,7 +723,7 @@ gh workflow run prepare-release.yml --ref dev -f "version=1.0.0" -f "dry-run=tru
 
 2. **finalize** (skipped if dry-run) - Conditionally updates release branch
    - **Candidate**: No CHANGELOG changes, no sync-issues. Outputs current release branch HEAD SHA.
-   - **Final**: Sets release date in CHANGELOG (TBD → YYYY-MM-DD), regenerates docs, commits all tracked finalization changes via dynamic file list, refreshes release PR body from finalized changelog content, triggers sync-issues, outputs finalized SHA.
+   - **Final**: Regenerates the bot-entry `#### Dependencies` block inside `[X.Y.Z] - TBD` (`synthesize-bot-changelog --version` — picks up bot PRs merged into the release branch mid-train, [#1423](https://github.com/vig-os/devkit/issues/1423)), sets release date in CHANGELOG (TBD → YYYY-MM-DD), regenerates docs, commits all tracked finalization changes via dynamic file list, refreshes release PR body from finalized changelog content, triggers sync-issues, outputs finalized SHA.
    - After computing `finalize_sha`, checks whether the remote publish tag already points at that SHA (retry path; skips redundant tag push in **publish**).
 
 3. **build-and-test** (matrix: amd64, arm64) - Builds and validates images
