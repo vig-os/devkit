@@ -65,6 +65,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Scaffolded CI summary gate now fails on cancelled required checks** ([#1414](https://github.com/vig-os/devkit/issues/1414))
+  - The consumer `ci.yml` summary treated a cancelled `lint`, `test`,
+    `commit-checks`, `scaffold-drift`, or `dependency-review` job as green
+    (only `resolve-toolchain` had the cancelled leg), so a PR whose CI run was
+    cancelled could still merge — the #1371 doctrine now applies to every
+    needed job in both the devkit and scaffolded copies, pinned by a
+    parametrized shape test
 - **Automated main→dev sync PR no longer opens conflicted on every release** ([#1403](https://github.com/vig-os/devkit/issues/1403))
   - `sync-main-to-dev` now auto-resolves add/add conflicts on generated
     `docs/issues/` / `docs/pull-requests/` snapshots: a GitHub-signed
