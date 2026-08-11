@@ -141,13 +141,7 @@ test-install:
     #!/usr/bin/env bash
     uv run pytest tests/test_install_script.py -v -s --tb=short
 
-# Run validate commit msg tests only
-[group('test')]
-test-validate-commit-msg:
-    #!/usr/bin/env bash
-    uv run pytest tests/test_validate_commit_msg.py -v -s --tb=short
-
-# Run check action pins tests only
+# Run the vig-utils package test suite
 [group('test')]
 test-vig-utils:
     #!/usr/bin/env bash

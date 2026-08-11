@@ -13,41 +13,39 @@ We use a layered testing approach:
 2. **Integration Tests**: Verify that the container works correctly as a devcontainer (template initialization, configuration files, scripts, VS Code integration)
 3. **Utility / Script Tests**: Unit and integration tests for repo scripts and utilities (e.g. install script, version check, build helpers)
 
-The tests are organized as:
+The tests are organized by family (see the module docstrings for the
+authoritative per-file scope):
 
 ```text
 tests/
-├── conftest.py              # Shared fixtures for all tests
-├── test_image.py            # Container image verification tests
-├── test_integration.py      # Devcontainer integration tests
-├── test_release_cycle.py    # Release cycle script tests (changelog, release)
-└── test_utils.py            # Utility and install script tests
+├── conftest.py              # Shared fixtures (container, workspace, devcontainer)
+├── test_image.py            # Container image verification (needs a built image)
+├── test_integration.py      # Devcontainer integration tests (needs a built image)
+├── test_install_script.py   # install.sh end-to-end tests (needs a built image)
+├── test_flake_*.py          # Nix flake contracts: checks, dev shell, hooks,
+│                            #   capability modules, services, version guard
+├── test_workflow_*.py       # GitHub workflow shape tests (devkit + scaffold copies)
+├── test_release_*.py        # Release/promote workflow shape tests
+├── test_scaffold_*.py       # Scaffold lint, drift gate, retired paths
+├── test_utils.py            # docs generation + install.sh unit tests
+├── workflow_scaffold.py     # Shared scaffold-run + workflow YAML helpers
+└── bats/                    # BATS suites for the shell scripts (init-workspace,
+                             #   install, clean, justfile recipes, git hooks, ...)
+packages/vig-utils/tests/    # Unit tests for the vig-utils Python package
 ```
 
 ### Image Tests
 
 These tests run against a running container instance to verify the image itself
-(installed tools, versions, environment variables, file structure).
-
-- `TestSystemTools` - git, curl, openssh-client, gh, just
-- `TestPythonEnvironment` - Python 3.14, uv
-- `TestDevelopmentTools` - pre-commit, ruff, just
-- `TestEnvironmentVariables` - environment variables
-- `TestFileStructure` - file structure
+(installed tools, versions, environment variables, file structure, Nix
+configuration, FHS shims).
 
 ### Integration Tests
 
-These tests run against an initialized workspace to verify that the container works correctly as a devcontainer
-(template initialization, configuration files, scripts, VS Code integration, devcontainer deployment)
-
-- `TestHostGitSignatureSetup` - git commit signing prerequisites on host
-- `TestDevContainerStructure` - directory structure
-- `TestDevContainerJson` - devcontainer.json validation
-- `TestDevContainerScripts` - script existence/executability
-- `TestDevContainerPlaceholders` - placeholder replacement
-- `TestDevContainerGit` - git hooks/config
-- `TestDevContainerUserConf` - user configuration files
-- `TestDevContainerCLI` - devcontainer deployment and functionality
+These tests run against an initialized workspace to verify that the container
+works correctly as a devcontainer (template initialization, configuration
+files, scripts, git hooks, user configuration, devcontainer deployment via the
+devcontainer CLI, version-check tooling).
 
 ### Test fixtures
 

@@ -208,8 +208,7 @@ Available recipes:
     test-integration version="dev"             # Run integration tests only
     test-renovate                              # Validate tracked Renovate configs with renovate-config-validator --strict
     test-utils                                 # Run utils tests only
-    test-validate-commit-msg                   # Run validate commit msg tests only
-    test-vig-utils                             # Run check action pins tests only
+    test-vig-utils                             # Run the vig-utils package test suite
 
     [worktree]
     worktree-attach issue                      # before attaching. See tests/bats/worktree.bats for integration tests. [alias: wt-attach]
