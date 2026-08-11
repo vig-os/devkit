@@ -81,53 +81,6 @@ class TestWorkspaceInterpreterPath:
         assert "/opt/venv" not in interpreter
 
 
-class TestRenovateChangelogTemplateNoMirrorLeak:
-    """Synced renovate-changelog workflows must not leak the upstream-only mirror (#914).
-
-    The devcontainer repo keeps assets/workspace/.devcontainer/CHANGELOG.md in
-    lockstep with the root CHANGELOG.md, but consumers of the template have no
-    assets/workspace/ tree. Under ``set -euo pipefail`` the mirror copies hard-fail
-    on every consumer Renovate changelog run, so they must be stripped from the
-    template while the consumer-facing logic is preserved.
-
-    ``renovate-changelog-build.yml`` is de-coupled from the sync manifest (#996):
-    the root workflow runs host+Nix via ``setup-env`` while the scaffold copy is
-    the mode-aware ``resolve-toolchain`` variant, authored directly under
-    ``assets/workspace/``. The no-mirror-leak guard therefore reads the committed
-    scaffold file rather than a freshly-synced copy.
-    """
-
-    def test_build_workflow_drops_workspace_mirror(self):
-        """The committed scaffold build.yml must not reference assets/workspace."""
-        build = (
-            project_root
-            / "assets"
-            / "workspace"
-            / ".github"
-            / "workflows"
-            / "renovate-changelog-build.yml"
-        ).read_text()
-
-        # The upstream-only mirror tree must not leak into the consumer template.
-        assert "assets/workspace" not in build
-        # Consumer-facing artifact copy and metadata logic must survive.
-        assert "cp CHANGELOG.md changelog-artifact/" in build
-        assert "metadata.env" in build
-        assert "renovate-changelog-pr" in build
-
-    def test_commit_workflow_only_commits_consumer_changelog(self, tmp_path):
-        """commit.yml FILE_PATHS must list only the consumer's own CHANGELOG.md."""
-        sync_manifest = _load_sync_manifest()
-        sync_manifest.sync(project_root, tmp_path)
-
-        commit = (
-            tmp_path / ".github" / "workflows" / "renovate-changelog-commit.yml"
-        ).read_text()
-
-        assert "assets/workspace" not in commit
-        assert "FILE_PATHS: CHANGELOG.md\n" in commit
-
-
 class TestBannerTransform:
     """The Banner transform stamps the generated provenance banner (#1036).
 

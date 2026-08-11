@@ -3038,7 +3038,6 @@ _RELEASE_SET_991=(
     prepare-release.yml
     promote-release.yml
     sync-main-to-dev.yml
-    renovate-changelog-build.yml
     sync-issues.yml
 )
 
@@ -3051,7 +3050,6 @@ _RELEASE_RESOLVERS_991=(
     prepare-release.yml
     promote-release.yml
     sync-main-to-dev.yml
-    renovate-changelog-build.yml
     sync-issues.yml
 )
 
@@ -3996,8 +3994,6 @@ _scaffold_seeded() {
     assert_failure
     # renovate
     run test -e "$ws/.github/renovate-default.json"
-    assert_failure
-    run test -e "$ws/.github/workflows/renovate-changelog-build.yml"
     assert_failure
     # sync-issues
     run test -e "$ws/.github/workflows/sync-issues.yml"

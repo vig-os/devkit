@@ -56,7 +56,7 @@ VERSION_FLAG_OVERRIDES: dict[str, list[str]] = {
     # vig-utils is a subcommand CLI (its `main` requires a subcommand, so
     # `--version` exits 2); `--help` exits 0 and proves the binary runs. The
     # release console scripts it ships (prepare-changelog,
-    # renovate-changelog-pr) get their own dedicated PATH test above. Refs #993.
+    # synthesize-bot-changelog) get their own dedicated PATH test above. Refs #993.
     "vig-utils": ["--help"],
 }
 
@@ -383,7 +383,7 @@ def test_devshell_own_path_binaries() -> None:
     would collide with the image's ``pythonEnv``), so it is asserted here
     rather than via the devTools sweep.
 
-    ``prepare-changelog`` / ``renovate-changelog-pr`` (#993): console scripts
+    ``prepare-changelog`` / ``synthesize-bot-changelog`` (#993, #1423): console scripts
     of ``packages/vig-utils``, baked into the image's ``pythonEnv`` but
     historically absent from ``devTools``, so a consumer ``mkProjectShell``
     dev-shell (direnv mode) lacked them — blocking the mode-aware release
@@ -395,7 +395,7 @@ def test_devshell_own_path_binaries() -> None:
     exact way the python3 gap hid until #729). Failure attribution stays
     per-binary via the probe's own output.
     """
-    binaries = ("python3", "prepare-changelog", "renovate-changelog-pr")
+    binaries = ("python3", "prepare-changelog", "synthesize-bot-changelog")
     probe = "; ".join(
         f'command -v {b} >/dev/null || {{ echo "MISSING {b}"; status=1; }}'
         for b in binaries
