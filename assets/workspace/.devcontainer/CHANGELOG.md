@@ -24,6 +24,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Document the smoke-test final-release human-approval gate** ([#1409](https://github.com/vig-os/devkit/issues/1409))
+  - `docs/CROSS_REPO_RELEASE_GATE.md` now describes the approval gate shipped
+    in 1.7.0 (candidates leave the smoke release PR unapproved; the final
+    dispatch polls `reviewDecision` for a human approval, 30-minute window)
+    and its two contract dependencies: required reviews on smoke-test `main`
+    (org-config-owned) and default-branch listener execution (asset SSoT,
+    hotfix-main + mirror procedure)
+  - `docs/RELEASE_CYCLE.md` Phase 5 gains the explicit operator step: approve
+    the freshly created smoke-test release PR while the final dispatch is
+    paused at the gate, with timeout recovery (approve, then re-run failed
+    jobs)
+
 - **`devkit-upgrade` no longer opens a per-train adoption issue** ([#1405](https://github.com/vig-os/devkit/issues/1405))
   - Adoption PRs are bot PRs like Renovate's: the PR is the traceable
     artifact and the changelog entry ([#1404](https://github.com/vig-os/devkit/issues/1404))
