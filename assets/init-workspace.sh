@@ -1551,6 +1551,162 @@ render_sync_settings() {
 YAML
         sed -i "/^          private-key: /r $block" "$si"
         rm -f "$block"
+
+        # Mirror mode makes the release train the mirror's integration point
+        # (#1424). release-core's final-leg sync dispatch retargets to the
+        # MIRROR — the only branch allowed to advance the shared
+        # incremental-state cutoff (sync-issues-state-<repo> is repo-wide; a
+        # release-branch run would leave the mirror permanently missing the
+        # inter-sync window, and unlike gitflow there is no sync-main-to-dev
+        # backflow to heal it) — then fold steps land the mirror's snapshot
+        # archive on the release branch so it reaches main via the
+        # human-approved release PR. Absent when the release feature is
+        # disabled — the -f guard skips it then.
+        local rc="$WORKSPACE_DIR/.github/workflows/release-core.yml"
+        if [[ -f "$rc" ]]; then
+            sed -i "s#target-branch=release/\$VERSION#target-branch=${tgt_esc}#" "$rc"
+
+            local fold_block
+            fold_block="$(mktemp)"
+            cat > "$fold_block" <<YAML
+
+      # Rendered by init-workspace.sh (#1424): DEVKIT_SYNC_TARGET mirror mode.
+      # The sync dispatch above targeted the mirror, so the release branch has
+      # no archive yet; fold the mirror's snapshot dirs in, then re-pull so
+      # the finalize SHA (the tag target) includes the fold commit. A missing
+      # mirror or an already-identical archive is a clean no-op. commit-action
+      # only adds/updates files — a path deleted on the mirror survives on the
+      # release branch until it is removed by hand (archives only grow, so
+      # this stays theoretical).
+      - name: Stage sync mirror archive for fold
+        if: \${{ inputs.release_kind == 'final' }}
+        id: mirror_fold
+        run: |
+          set -euo pipefail
+          MIRROR_REF="\$(retry --retries 3 --backoff 3 --max-backoff 20 -- git ls-remote origin "refs/heads/${MANIFEST_SYNC_TARGET}")"
+          if [ -z "\$MIRROR_REF" ]; then
+            echo "eligible=false" >> "\$GITHUB_OUTPUT"
+            echo "Mirror branch '${MANIFEST_SYNC_TARGET}' not found; skipping fold."
+            exit 0
+          fi
+          retry --retries 3 --backoff 3 --max-backoff 20 -- git fetch origin "${MANIFEST_SYNC_TARGET}"
+          staged=false
+          for dir in docs/issues docs/pull-requests; do
+            if git rev-parse -q --verify "FETCH_HEAD:\${dir}" >/dev/null; then
+              git checkout FETCH_HEAD -- "\${dir}"
+              staged=true
+            fi
+          done
+          if [ "\$staged" != "true" ]; then
+            echo "eligible=false" >> "\$GITHUB_OUTPUT"
+            echo "Mirror carries no snapshot dirs; skipping fold."
+            exit 0
+          fi
+          CHANGED="\$(git status --porcelain -- docs/issues docs/pull-requests | awk '{print \$2}')"
+          if [ -z "\$CHANGED" ]; then
+            echo "eligible=false" >> "\$GITHUB_OUTPUT"
+            echo "Release branch already matches the mirror archive; nothing to fold."
+            exit 0
+          fi
+          {
+            echo "file_paths<<PATHS_EOF"
+            printf '%s\n' "\$CHANGED"
+            echo "PATHS_EOF"
+          } >> "\$GITHUB_OUTPUT"
+          echo "eligible=true" >> "\$GITHUB_OUTPUT"
+          echo "Folding \$(printf '%s\n' "\$CHANGED" | wc -l) mirror archive path(s) into the release branch."
+
+      - name: Commit folded archive to the release branch
+        if: \${{ steps.mirror_fold.outputs.eligible == 'true' }}
+        uses: vig-os/commit-action@0361e9aa65b64711a18286ac5dfdcba7cc7a2ac7  # v0.3.2
+        env:
+          GH_TOKEN: \${{ steps.commit_app_token.outputs.token }}
+          GITHUB_REPOSITORY: \${{ github.repository }}
+          TARGET_BRANCH: refs/heads/release/\${{ needs.validate.outputs.version }}
+          MAX_ATTEMPTS: "3"
+          COMMIT_MESSAGE: "chore: fold sync mirror archive into release \${{ needs.validate.outputs.version }}"
+          FILE_PATHS: \${{ steps.mirror_fold.outputs.file_paths }}
+
+      - name: Re-pull release branch after fold
+        if: \${{ steps.mirror_fold.outputs.eligible == 'true' }}
+        env:
+          VERSION: \${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          retry --retries 3 --backoff 3 --max-backoff 20 -- git fetch origin "release/\$VERSION"
+          git reset --hard "origin/release/\$VERSION"
+YAML
+            # shellcheck disable=SC2016  # literal $VERSION: the anchor is the rendered YAML's shell line, not an expansion
+            sed -i '/^          git reset --hard "origin\/release\/\$VERSION"$/r '"$fold_block" "$rc"
+            rm -f "$fold_block"
+        fi
+
+        # After the release PR merges, main carries exactly the archive the
+        # release folded in, so promote re-bases the mirror onto main and its
+        # divergence stays bounded to post-release snapshot commits (#1424).
+        # Ref mutation goes via git push, never the REST refs API (#1157,
+        # #1377); the mirror is unprotected by design and its history is
+        # regenerated state, so a force reset loses nothing. A concurrent
+        # nightly sync run is benign — the next nightly regenerates any
+        # clobbered delta.
+        local prom="$WORKSPACE_DIR/.github/workflows/promote-release.yml"
+        if [[ -f "$prom" ]]; then
+            cat >> "$prom" <<YAML
+
+  # Rendered by init-workspace.sh (#1424): DEVKIT_SYNC_TARGET mirror mode.
+  reset-sync-mirror:
+    name: Reset sync mirror onto main
+    needs: [resolve-toolchain, merge]
+    runs-on: ubuntu-24.04
+    container:
+      image: \${{ needs.resolve-toolchain.outputs.image }}
+      credentials:
+        username: \${{ github.actor }}
+        password: \${{ secrets.GHCR_PULL_TOKEN || github.token }}
+    timeout-minutes: 5
+    if: \${{ needs.merge.result == 'success' }}
+    permissions:
+      contents: read
+      packages: read
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: \${{ needs.resolve-toolchain.outputs.mode }}
+          devkit-version: \${{ needs.resolve-toolchain.outputs.image-tag }}
+
+      - name: Generate commit app token
+        id: commit_app_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
+        with:
+          client-id: \${{ secrets.COMMIT_APP_CLIENT_ID }}
+          private-key: \${{ secrets.COMMIT_APP_PRIVATE_KEY }}
+
+      - name: Force-reset mirror to main
+        env:
+          APP_TOKEN: \${{ steps.commit_app_token.outputs.token }}
+          GITHUB_REPOSITORY: \${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # After the merged release PR, main carries the folded archive; the
+          # mirror re-bases onto it so divergence stays bounded (#1424). Push,
+          # never the REST refs API (#1157, #1377). The mirror is unprotected
+          # and its history is regenerated state — a force reset loses
+          # nothing; a racing nightly sync self-heals at its next run.
+          retry --retries 3 --backoff 3 --max-backoff 20 -- git fetch origin main
+          MAIN_SHA="\$(git rev-parse origin/main)"
+          REMOTE_URL="https://x-access-token:\${APP_TOKEN}@github.com/\${GITHUB_REPOSITORY}.git"
+          retry --retries 3 --backoff 5 --max-backoff 30 -- git push --force "\$REMOTE_URL" "\${MAIN_SHA}:refs/heads/${MANIFEST_SYNC_TARGET}"
+          echo "Mirror '${MANIFEST_SYNC_TARGET}' reset to main @ \${MAIN_SHA}"
+YAML
+        fi
     fi
 
     echo "Rendered sync-issues settings (target=${MANIFEST_SYNC_TARGET:-default}, schedule=${MANIFEST_SYNC_SCHEDULE:-default})"

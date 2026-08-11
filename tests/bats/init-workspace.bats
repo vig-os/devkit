@@ -2417,6 +2417,108 @@ _upgrade_no_flags() {
     done
 }
 
+# ── sync-mirror release fold (#1424) ──────────────────────────────────────────
+# In mirror mode (DEVKIT_SYNC_TARGET set) the release train is the mirror's
+# integration point: release-core's final-leg sync dispatch targets the MIRROR
+# (never the release branch — a release-branch run advances the shared
+# incremental-state cutoff and the mirror permanently misses the inter-sync
+# window), a fold lands the mirror's snapshot archive on the release branch,
+# and promote force-resets the mirror onto main so divergence stays bounded.
+
+@test "DEVKIT_SYNC_TARGET retargets the release-time sync dispatch to the mirror (#1424)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1424-retarget"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    rc="$ws/.github/workflows/release-core.yml"
+    run grep -qF -- '-f "target-branch=sync/issue-mirror"' "$rc"
+    assert_success
+    # No release-branch-targeted dispatch survives in mirror mode.
+    # shellcheck disable=SC2016  # literal shell variable in rendered YAML
+    run grep -qF -- '-f "target-branch=release/$VERSION"' "$rc"
+    assert_failure
+}
+
+@test "DEVKIT_SYNC_TARGET renders the fold steps between pull and finalize SHA (#1424)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1424-fold"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    rc="$ws/.github/workflows/release-core.yml"
+    run grep -qF 'name: Stage sync mirror archive for fold' "$rc"
+    assert_success
+    run grep -qF 'name: Commit folded archive to the release branch' "$rc"
+    assert_success
+    run grep -qF 'name: Re-pull release branch after fold' "$rc"
+    assert_success
+    # Ordering: Pull < fold staging < finalize SHA, so the fold commit is on
+    # origin before the local reset that feeds `git rev-parse HEAD` (the tag
+    # target) — a fold after the SHA capture would ship an untagged commit.
+    pull_ln=$(grep -n 'name: Pull sync-issues changes' "$rc" | cut -d: -f1)
+    fold_ln=$(grep -n 'name: Stage sync mirror archive for fold' "$rc" | cut -d: -f1)
+    sha_ln=$(grep -n 'name: Output finalize SHA' "$rc" | cut -d: -f1)
+    echo "pull=$pull_ln fold=$fold_ln sha=$sha_ln"
+    [ "$pull_ln" -lt "$fold_ln" ]
+    [ "$fold_ln" -lt "$sha_ln" ]
+}
+
+@test "DEVKIT_SYNC_TARGET renders the promote-time mirror reset job (#1424)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1424-reset"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    prom="$ws/.github/workflows/promote-release.yml"
+    run grep -qF 'reset-sync-mirror:' "$prom"
+    assert_success
+    # Ref mutation goes via git push, never the REST refs API (#1157, #1377).
+    run grep -qF 'git push --force' "$prom"
+    assert_success
+    run grep -qF ':refs/heads/sync/issue-mirror' "$prom"
+    assert_success
+}
+
+@test "unset DEVKIT_SYNC_TARGET leaves release-core + promote-release byte-identical (#1424)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1424-noop"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run cmp "$ws/.github/workflows/release-core.yml" \
+        "$TEMPLATE_DIR/.github/workflows/release-core.yml"
+    assert_success
+    run cmp "$ws/.github/workflows/promote-release.yml" \
+        "$TEMPLATE_DIR/.github/workflows/promote-release.yml"
+    assert_success
+}
+
+@test "actionlint passes over the mirror-rendered workflows (#1424, #995)" {
+    # The fold steps and reset job only exist in a mirror-mode render, so the
+    # default-render actionlint fixtures (#995) never see them; lint the
+    # knob-set render explicitly.
+    ws="$BATS_TEST_TMPDIR/al-1424-mirror"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    (
+        cd "$ws" &&
+            git init -q &&
+            actionlint
+    )
+}
+
 # ── Refs policy knob (#1282) ──────────────────────────────────────────────────
 # DEVKIT_REFS_POLICY steers the validate-commit-msg hook's --refs-optional-types
 # arg at scaffold time (the CI validate-commit-range surface is driven from the

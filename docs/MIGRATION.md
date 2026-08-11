@@ -322,11 +322,25 @@ DEVKIT_SYNC_TARGET=sync/issue-mirror
 
 The scaffolded job then **bootstraps** that branch from the default branch head
 if it is absent (so its first run creates it) and pushes the archive there,
-outside the `main` ruleset. The mirror branch **diverges permanently and is never
-merged back** — every sync run regenerates the full issue/PR state from the
-GitHub API, so the branch is a standalone, self-healing archive, not integration
-work. Absent => the workflow-model default (`dev`/`main`), unchanged for every
-existing consumer.
+outside the `main` ruleset. Every sync run regenerates the issue/PR state from
+the GitHub API, so the branch is a standalone, self-healing archive, not
+integration work. Absent => the workflow-model default (`dev`/`main`),
+unchanged for every existing consumer.
+
+The mirror **never merges directly into `main`** — the release train is its
+integration point ([#1424](https://github.com/vig-os/devkit/issues/1424)).
+The rendered `release-core.yml` retargets the final-leg sync dispatch to the
+mirror (the mirror stays the *only* branch that advances the shared
+incremental-sync cutoff; a release-branch run would strand every update
+between the last nightly and the release, since mirror mode has no
+sync-main-to-dev backflow to heal it), then folds the mirror's
+`docs/issues/` + `docs/pull-requests/` into the release branch, so the full
+archive reaches `main` through the human-approved release PR. After that PR
+merges, the rendered `promote-release.yml` force-resets the mirror onto
+`main` (via `git push`, never the REST refs API — #1157/#1377), so its
+divergence stays bounded to post-release snapshot commits. Between releases
+the mirror remains the live archive; `main` holds the archive as of the last
+release.
 
 A second optional key, `DEVKIT_SYNC_SCHEDULE`, overrides the schedule trigger's
 cron (validated as a 5-field cron at scaffold time; a protected-main mirror is

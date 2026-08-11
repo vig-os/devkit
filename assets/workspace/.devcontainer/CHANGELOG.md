@@ -32,6 +32,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Mirror-mode consumers integrate the issue archive via the release train** ([#1424](https://github.com/vig-os/devkit/issues/1424))
+  - With `DEVKIT_SYNC_TARGET` set, the scaffolded `release-core.yml` final leg
+    now dispatches sync-issues onto the **mirror** (the only branch that may
+    advance the shared incremental-sync cutoff) and then folds the mirror's
+    `docs/issues/` + `docs/pull-requests/` into the release branch, so the
+    full archive reaches `main` through the human-approved release PR —
+    previously the mirror diverged forever and `main` never carried the
+    archive
+  - The scaffolded `promote-release.yml` gains a rendered `reset-sync-mirror`
+    job that force-resets the mirror onto `main` after the release PR merges,
+    bounding its divergence to post-release snapshot commits
+  - Unset knob renders byte-identical templates; no change for non-mirror
+    consumers
 - **Bot changelog entries are synthesized at release time** ([#1423](https://github.com/vig-os/devkit/issues/1423))
   - New `synthesize-bot-changelog` (vig-utils) enumerates merged bot PRs
     (Renovate, devkit adoptions) since the last stable tag and regenerates a
