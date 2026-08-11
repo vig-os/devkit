@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -373,24 +374,32 @@ def test_devshell_bats_lib_path_resolves_helpers(dev_shell_env: dict[str, str]) 
         )
 
 
-@pytest.mark.parametrize("binary", ["python3"])
-def test_devshell_exposes_python3_and_precommit(binary: str) -> None:
-    """The dev-shell must put ``python3`` on PATH (#729).
+def test_devshell_own_path_binaries() -> None:
+    """The dev-shell's own PATH must provide python3 and the release scripts.
 
-    The image (``imageTools``) ships a Python interpreter (``pythonEnv``), but
-    ``mkProjectShell`` carried none: the downstream flake-input / direnv
-    dev-shell could reach Python only via ``uv run`` — a dev-shell ↔ image
-    parity gap. The hook runner (``prek``, #778) lives in the ``devTools`` SSoT,
-    so it is covered by ``devShellTools`` / ``test_each_tool_runs_in_devshell``
-    rather than here; only the bare interpreter — intentionally *not* in
-    ``devTools`` (it would collide with the image's ``pythonEnv``) — is asserted
-    explicitly.
+    ``python3`` (#729): the image (``imageTools``) ships a Python interpreter
+    (``pythonEnv``), but ``mkProjectShell`` carried none — a dev-shell ↔ image
+    parity gap. The interpreter is intentionally *not* in ``devTools`` (it
+    would collide with the image's ``pythonEnv``), so it is asserted here
+    rather than via the devTools sweep.
 
-    The check runs under ``nix develop --ignore-environment`` so it asserts the
-    dev-shell's *own* PATH contribution and is not satisfied by a host
-    ``python3`` leaking through the inherited environment (the exact way the gap
-    hid until #729).
+    ``prepare-changelog`` / ``renovate-changelog-pr`` (#993): console scripts
+    of ``packages/vig-utils``, baked into the image's ``pythonEnv`` but
+    historically absent from ``devTools``, so a consumer ``mkProjectShell``
+    dev-shell (direnv mode) lacked them — blocking the mode-aware release
+    workflows (#991) for the container-less modes.
+
+    One ``nix develop --ignore-environment`` entry probes all three (#1417),
+    so the check asserts the dev-shell's *own* PATH contribution and is not
+    satisfied by host binaries leaking through the inherited environment (the
+    exact way the python3 gap hid until #729). Failure attribution stays
+    per-binary via the probe's own output.
     """
+    binaries = ("python3", "prepare-changelog", "renovate-changelog-pr")
+    probe = "; ".join(
+        f'command -v {b} >/dev/null || {{ echo "MISSING {b}"; status=1; }}'
+        for b in binaries
+    )
     cmd = [
         "nix",
         "develop",
@@ -401,7 +410,7 @@ def test_devshell_exposes_python3_and_precommit(binary: str) -> None:
         "-c",
         "bash",
         "-c",
-        f"command -v {binary}",
+        f"status=0; {probe}; exit $status",
     ]
     proc = subprocess.run(
         cmd,
@@ -410,75 +419,43 @@ def test_devshell_exposes_python3_and_precommit(binary: str) -> None:
         env=_nix_env(),
         timeout=900,
     )
-    # `command -v` exits 0 iff the binary is on PATH; rely on the exit code
-    # (the shellHook's banner pollutes stdout, so it is not a presence signal).
+    missing = [ln for ln in proc.stdout.splitlines() if ln.startswith("MISSING ")]
     assert proc.returncode == 0, (
-        f"{binary} must be on the dev-shell's own PATH (#729): "
-        f"rc={proc.returncode} stdout={proc.stdout.strip()!r} "
-        f"stderr={proc.stderr.strip()[:200]}"
-    )
-
-
-@pytest.mark.parametrize("script", ["prepare-changelog", "renovate-changelog-pr"])
-def test_devshell_exposes_vig_utils_console_scripts(script: str) -> None:
-    """The dev-shell must expose vig-utils' release console scripts on PATH (#993).
-
-    ``prepare-changelog`` and ``renovate-changelog-pr`` are console scripts of
-    ``packages/vig-utils``. They are baked into the image's Python env
-    (``pythonEnv``) but were historically absent from the ``devTools`` SSoT, so a
-    consumer ``mkProjectShell`` dev-shell (direnv mode) lacked them — blocking
-    the mode-aware release workflows (#991) for the container-less modes. Adding
-    ``vig-utils`` to ``devTools`` delivers the scripts to the dev-shell as well.
-
-    The check runs under ``nix develop --ignore-environment`` so it asserts the
-    dev-shell's *own* PATH contribution and is not satisfied by a host script
-    leaking through the inherited environment.
-    """
-    cmd = [
-        "nix",
-        "develop",
-        "--ignore-environment",
-        "--keep",
-        "HOME",
-        str(REPO_ROOT),
-        "-c",
-        "bash",
-        "-c",
-        f"command -v {script}",
-    ]
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        env=_nix_env(),
-        timeout=900,
-    )
-    assert proc.returncode == 0, (
-        f"{script} must be on the dev-shell's own PATH (#993): "
-        f"rc={proc.returncode} stdout={proc.stdout.strip()!r} "
-        f"stderr={proc.stderr.strip()[:200]}"
+        "binaries missing from the dev-shell's own PATH (#729/#993): "
+        f"{missing or proc.stderr.strip()[:200]}"
     )
 
 
 def test_each_tool_runs_in_devshell(dev_shell_tools: list[str]) -> None:
-    """Every tool in ``devTools`` is runnable inside ``nix develop``."""
-    failures: list[str] = []
+    """Every tool in ``devTools`` is runnable inside ``nix develop``.
+
+    One ``nix develop`` entry runs a generated probe over the whole tool list
+    (#1417) instead of one shell entry per tool; each failing tool is reported
+    with its exit code and first stderr lines, so attribution matches the old
+    per-tool loop.
+    """
+    lines = ["status=0"]
     for tool in dev_shell_tools:
         flag = VERSION_FLAG_OVERRIDES.get(tool, ["--version"])
-        cmd = ["nix", "develop", str(REPO_ROOT), "-c", tool, *flag]
-        proc = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            env=_nix_env(),
-            timeout=900,
+        quoted = " ".join(shlex.quote(a) for a in [tool, *flag])
+        lines.append(
+            f"out=$({quoted} 2>&1) || {{ status=1; "
+            f'echo "FAIL {shlex.quote(tool)} rc=$? ${{out:0:200}}"; }}'
         )
-        if proc.returncode != 0:
-            failures.append(
-                f"{tool} ({' '.join(flag)}) exited {proc.returncode}: "
-                f"{proc.stderr.strip()[:200]}"
-            )
-    assert not failures, "Tools failed inside nix develop:\n" + "\n".join(failures)
+    lines.append("exit $status")
+    cmd = ["nix", "develop", str(REPO_ROOT), "-c", "bash", "-c", "\n".join(lines)]
+    proc = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=900,
+    )
+    failures = [ln for ln in proc.stdout.splitlines() if ln.startswith("FAIL ")]
+    assert proc.returncode == 0 and not failures, (
+        "Tools failed inside nix develop:\n"
+        + ("\n".join(failures) or proc.stderr.strip()[:400])
+    )
 
 
 # ---------------------------------------------------------------------------

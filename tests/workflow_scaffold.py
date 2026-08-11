@@ -18,10 +18,13 @@ Refs: #1210, #1413
 
 from __future__ import annotations
 
+import atexit
+import functools
 import os
 import re
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import yaml
@@ -187,3 +190,17 @@ def scaffold_tree(tmp_path: Path, workflow: str | None = None, **kw: object) -> 
     proc = scaffold(tmp_path, workflow=workflow, name=name, **kw)  # type: ignore[arg-type]
     assert proc.returncode == 0, proc.stderr
     return tmp_path / name
+
+
+@functools.cache
+def cached_tree(workflow: str | None = None) -> Path:
+    """A scaffolded workspace shared across the whole pytest run (#1417).
+
+    Rendered once per workflow model into a private temp dir (removed at
+    interpreter exit) and handed to every caller. READ-ONLY by contract:
+    tests must never mutate the returned tree — upgrade/seed/guard cases keep
+    their own per-test ``scaffold``/``scaffold_tree`` runs.
+    """
+    base = Path(tempfile.mkdtemp(prefix=f"devkit-tree-{workflow or 'default'}-"))
+    atexit.register(shutil.rmtree, base, ignore_errors=True)
+    return scaffold_tree(base, workflow)

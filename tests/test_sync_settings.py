@@ -27,6 +27,7 @@ import pytest
 
 from tests.workflow_scaffold import (
     INIT_WORKSPACE,
+    cached_tree,
     scaffold,
 )
 
@@ -34,6 +35,15 @@ from tests.workflow_scaffold import (
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 MIRROR = "sync/issue-mirror"
+
+
+def _cached_sync_yaml(workflow: str | None) -> str:
+    """The rendered sync-issues.yml of the shared no-knobs scaffold (#1417)."""
+    return (
+        cached_tree(workflow) / ".github" / "workflows" / "sync-issues.yml"
+    ).read_text(encoding="utf-8")
+
+
 BOOTSTRAP_STEP = "Bootstrap sync target branch if absent"
 
 
@@ -84,18 +94,18 @@ def test_init_workspace_invokes_render_sync_settings() -> None:
 # ── unset = byte-for-byte today's behavior ────────────────────────────────────
 
 
-def test_unset_gitflow_keeps_dev_default_and_daily_cron(tmp_path: Path) -> None:
+def test_unset_gitflow_keeps_dev_default_and_daily_cron() -> None:
     """No keys on gitflow => today's `dev` target + daily cron, no bootstrap."""
-    text = _sync_yaml(tmp_path, name="gf-default")
+    text = _cached_sync_yaml(None)
     assert "default: 'dev'" in text
     assert "|| 'dev'" in text
     assert "cron: '0 2 * * *'" in text
     assert BOOTSTRAP_STEP not in text
 
 
-def test_unset_trunk_keeps_main_default(tmp_path: Path) -> None:
+def test_unset_trunk_keeps_main_default() -> None:
     """No keys on trunk => the workflow-model `main` default is untouched."""
-    text = _sync_yaml(tmp_path, name="tk-default", workflow="trunk")
+    text = _cached_sync_yaml("trunk")
     assert "default: 'main'" in text
     assert "|| 'main'" in text
     assert "|| 'dev'" not in text

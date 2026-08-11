@@ -12,6 +12,36 @@ setup() {
     TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace"
 }
 
+# Shared read-only per-mode scaffolds (#1417): rendered ONCE per file run and
+# reused by every test that only reads a rendered tree — tests that mutate a
+# workspace (upgrades, seeds, previews, prunes) keep their per-test scaffolds.
+setup_file() {
+    local root stub mode ws
+    root="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
+    stub="$BATS_FILE_TMPDIR/shared-stub-bin"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+    for mode in devcontainer direnv both bare; do
+        ws="$BATS_FILE_TMPDIR/shared-$mode"
+        mkdir -p "$ws"
+        env PATH="$stub:$PATH" \
+            TEMPLATE_DIR="$root/assets/workspace" \
+            WORKSPACE_DIR="$ws" \
+            SHORT_NAME=testproj \
+            GITHUB_REPOSITORY=test/repo \
+            bash "$root/assets/init-workspace.sh" --force --no-prompts \
+            --mode "$mode" >"$ws.log" 2>&1 || {
+            echo "shared $mode scaffold failed:" >&2
+            cat "$ws.log" >&2
+            return 1
+        }
+    done
+}
+
+# Path of the shared read-only scaffold for delivery mode $1 (#1417).
+_shared_tree() { printf '%s/shared-%s' "$BATS_FILE_TMPDIR" "$1"; }
+
 # ── Claude-native template scaffold (#629) ────────────────────────────────────
 # init-workspace.sh rsyncs assets/workspace/ verbatim into a new workspace, so
 # asserting on the template tree is a faithful, build-free proxy for "what new
@@ -174,10 +204,7 @@ _scaffold() {
 }
 
 @test "init-workspace --mode=devcontainer scaffolds .devcontainer only (#641)" {
-    ws="$BATS_TEST_TMPDIR/e2e-devcontainer"
-    mkdir -p "$ws"
-    run _scaffold devcontainer "$ws"
-    assert_success
+    ws="$(_shared_tree devcontainer)"
     run test -d "$ws/.devcontainer"
     assert_success
     run test -e "$ws/flake.nix"
@@ -187,10 +214,7 @@ _scaffold() {
 }
 
 @test "init-workspace --mode=direnv scaffolds flake.nix + .envrc only (#641)" {
-    ws="$BATS_TEST_TMPDIR/e2e-direnv"
-    mkdir -p "$ws"
-    run _scaffold direnv "$ws"
-    assert_success
+    ws="$(_shared_tree direnv)"
     run test -f "$ws/flake.nix"
     assert_success
     run test -f "$ws/.envrc"
@@ -200,10 +224,7 @@ _scaffold() {
 }
 
 @test "init-workspace --mode=both scaffolds everything (#641)" {
-    ws="$BATS_TEST_TMPDIR/e2e-both"
-    mkdir -p "$ws"
-    run _scaffold both "$ws"
-    assert_success
+    ws="$(_shared_tree both)"
     run test -d "$ws/.devcontainer"
     assert_success
     run test -f "$ws/flake.nix"
@@ -2688,10 +2709,7 @@ _upgrade_legacy() {
 
 @test "rendered ci.yml is mode-aware and identical across modes (#991)" {
     for mode in devcontainer direnv bare both; do
-        ws="$BATS_TEST_TMPDIR/e2e-ci-$mode"
-        mkdir -p "$ws"
-        run _scaffold "$mode" "$ws"
-        assert_success
+        ws="$(_shared_tree "$mode")"
         f="$ws/.github/workflows/ci.yml"
         # both mode-aware composites are wired
         run grep -q './.github/actions/resolve-toolchain' "$f"
@@ -2878,10 +2896,7 @@ _referenced_secrets() {
 
 @test "resolve-toolchain and setup-devkit-toolchain ship in every mode (#994)" {
     for mode in devcontainer direnv both bare; do
-        ws="$BATS_TEST_TMPDIR/e2e-994-$mode"
-        mkdir -p "$ws"
-        run _scaffold "$mode" "$ws"
-        assert_success
+        ws="$(_shared_tree "$mode")"
         run test -f "$ws/.github/actions/resolve-toolchain/action.yml"
         assert_success
         run test -f "$ws/.github/actions/setup-devkit-toolchain/action.yml"
@@ -3130,10 +3145,7 @@ _RELEASE_RESOLVERS_991=(
 
 @test "resolve-image action is removed from every rendered mode tree (#991)" {
     for mode in devcontainer direnv both bare; do
-        ws="$BATS_TEST_TMPDIR/e2e-991-$mode"
-        mkdir -p "$ws"
-        run _scaffold "$mode" "$ws"
-        assert_success
+        ws="$(_shared_tree "$mode")"
         # the retired action directory must not be scaffolded into consumers.
         run test -d "$ws/.github/actions/resolve-image"
         assert_failure
@@ -3153,18 +3165,12 @@ _RELEASE_RESOLVERS_991=(
 
 @test "container-ci-quirks.md ships in devcontainer/both but not direnv/bare (#989)" {
     for mode in devcontainer both; do
-        ws="$BATS_TEST_TMPDIR/e2e-989-$mode"
-        mkdir -p "$ws"
-        run _scaffold "$mode" "$ws"
-        assert_success
+        ws="$(_shared_tree "$mode")"
         run test -f "$ws/docs/container-ci-quirks.md"
         assert_success
     done
     for mode in direnv bare; do
-        ws="$BATS_TEST_TMPDIR/e2e-989-$mode"
-        mkdir -p "$ws"
-        run _scaffold "$mode" "$ws"
-        assert_success
+        ws="$(_shared_tree "$mode")"
         run test -f "$ws/docs/container-ci-quirks.md"
         assert_failure
     done

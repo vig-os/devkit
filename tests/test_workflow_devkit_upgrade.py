@@ -34,8 +34,8 @@ import yaml
 from tests.workflow_scaffold import (
     INIT_WORKSPACE,
     WORKSPACE,
+    cached_tree,
     scaffold,
-    scaffold_tree,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -43,9 +43,8 @@ TEMPLATE = WORKSPACE / ".github" / "workflows" / "devkit-upgrade.yml"
 REL = ".github/workflows/devkit-upgrade.yml"
 
 
-def _rendered(tmp_path: Path, workflow: str | None = None) -> str:
-    tree = scaffold_tree(tmp_path, workflow=workflow)
-    return (tree / REL).read_text(encoding="utf-8")
+def _rendered(workflow: str | None = None) -> str:
+    return (cached_tree(workflow) / REL).read_text(encoding="utf-8")
 
 
 def _steps(text: str) -> list[dict]:
@@ -272,16 +271,16 @@ def test_no_run_block_interpolates_untrusted_input() -> None:
 # ── base-branch awareness (workflow model) ────────────────────────────────────
 
 
-def test_gitflow_base_branch_is_dev(tmp_path: Path) -> None:
+def test_gitflow_base_branch_is_dev() -> None:
     """A gitflow scaffold checks out and targets `dev`."""
-    text = _rendered(tmp_path)
+    text = _rendered()
     assert "ref: dev" in text
     assert "BASE: dev" in text
 
 
-def test_trunk_base_branch_is_main(tmp_path: Path) -> None:
+def test_trunk_base_branch_is_main() -> None:
     """A trunk scaffold retargets the base branch dev -> main (#1205)."""
-    text = _rendered(tmp_path, workflow="trunk")
+    text = _rendered(workflow="trunk")
     assert "ref: main" in text
     assert "BASE: main" in text
     assert "ref: dev" not in text
@@ -305,7 +304,7 @@ def test_disabling_feature_omits_the_workflow(tmp_path: Path) -> None:
     assert (tmp_path / "disabled" / ".github/workflows/ci.yml").exists()
 
 
-def test_valid_feature_group_default_ships_the_workflow(tmp_path: Path) -> None:
+def test_valid_feature_group_default_ships_the_workflow() -> None:
     """With no opt-out, the workflow is scaffolded."""
-    tree = scaffold_tree(tmp_path)
+    tree = cached_tree(None)
     assert (tree / REL).is_file()
