@@ -28,9 +28,8 @@ STUB
 }
 
 _run_doctor() {
-    run env PATH="$DOCTOR_STUBS:$PATH" \
-        GIT_CONFIG_GLOBAL="$GIT_GLOBAL" GIT_CONFIG_SYSTEM=/dev/null \
-        -u SSH_AUTH_SOCK "$@" \
+    run env -u SSH_AUTH_SOCK PATH="$DOCTOR_STUBS:$PATH" \
+        GIT_CONFIG_GLOBAL="$GIT_GLOBAL" GIT_CONFIG_SYSTEM=/dev/null "$@" \
         just --justfile "$PROJECT_ROOT/justfile" \
         --working-directory "$DOCTOR_WORK" doctor
 }
