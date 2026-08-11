@@ -474,13 +474,27 @@ Release Summary:
 
 Cross-repository validation gate rationale, mechanics, payload contract, and pass/fail interpretation are documented in `docs/CROSS_REPO_RELEASE_GATE.md`.
 
+Automated with one exception: on the **final** dispatch the smoke-test listener pauses at a human-approval gate and waits (up to 30 minutes) for a maintainer to approve the smoke-test release PR. Since this repo's `release.yml` does not block on downstream state, nothing on the devkit side signals that the listener is waiting — the operator step is part of the Phase 5 runbook below.
+
 ### Phase 5: Post-Release Cleanup
 
 **This repository (`vig-os/devcontainer`) — manual promote path:**
 
-1. Verify the workflow run succeeded and smoke-test dispatch completed as expected.
-2. **Migrate RC-pinned consumers to the final tag** ([#880](https://github.com/vig-os/devkit/issues/880)): consumers pin the devcontainer image via their `.vig-os` file (`DEVCONTAINER_VERSION=X.Y.Z-rcN`). The **`cleanup`** job ("Cleanup RC artifacts") in `promote-release.yml` deletes all `X.Y.Z-rc*` git tags and GHCR image versions, so any consumer still pinned to an RC (e.g. field-validation repos) can no longer pull its image. Bump those pins to `DEVCONTAINER_VERSION=X.Y.Z` before running promote (preferred), or immediately after — the RC images and tags are gone once the cleanup job has run.
-3. After smoke-test has published its **final** GitHub Release for `X.Y.Z`, run **`promote-release.yml`** (e.g. `just promote-release X.Y.Z`), which updates GHCR `:latest`, publishes the draft release, merges the release PR, and runs best-effort RC cleanup. See [Release Phases](#release-phases) step 6 and [`docs/CROSS_REPO_RELEASE_GATE.md`](CROSS_REPO_RELEASE_GATE.md).
+1. Verify the workflow run succeeded and the smoke-test dispatch was triggered.
+2. **Approve the smoke-test release PR** (final dispatch only): the smoke-test listener recreates the smoke release PR from scratch and pauses at its `Gate final release on human approval of release PR` step, polling for a **human** approval for up to 30 minutes (workflow self-approval is blocked org-wide — [org-config#122](https://github.com/vig-os/org-config/pull/122); candidates run with the PR deliberately unapproved). Find and approve the freshly created PR while the gate is waiting:
+
+   ```bash
+   # Locate the waiting listener run and the release PR it created
+   gh -R vig-os/devkit-smoke-test run list --workflow repository-dispatch.yml --limit 1
+   gh -R vig-os/devkit-smoke-test pr list --label release-kind:final
+
+   # Approve it (must be a human account, not the PR author)
+   gh -R vig-os/devkit-smoke-test pr review <PR_NUMBER> --approve
+   ```
+
+   If the gate already timed out, approve the PR and **re-run the failed jobs** of that listener run to resume the final release. Full gate contract and failure modes: [`docs/CROSS_REPO_RELEASE_GATE.md`](CROSS_REPO_RELEASE_GATE.md).
+3. **Migrate RC-pinned consumers to the final tag** ([#880](https://github.com/vig-os/devkit/issues/880)): consumers pin the devcontainer image via their `.vig-os` file (`DEVCONTAINER_VERSION=X.Y.Z-rcN`). The **`cleanup`** job ("Cleanup RC artifacts") in `promote-release.yml` deletes all `X.Y.Z-rc*` git tags and GHCR image versions, so any consumer still pinned to an RC (e.g. field-validation repos) can no longer pull its image. Bump those pins to `DEVCONTAINER_VERSION=X.Y.Z` before running promote (preferred), or immediately after — the RC images and tags are gone once the cleanup job has run.
+4. After smoke-test has published its **final** GitHub Release for `X.Y.Z`, run **`promote-release.yml`** (e.g. `just promote-release X.Y.Z`), which updates GHCR `:latest`, publishes the draft release, merges the release PR, and runs best-effort RC cleanup. See [Release Phases](#release-phases) step 6 and [`docs/CROSS_REPO_RELEASE_GATE.md`](CROSS_REPO_RELEASE_GATE.md).
 
 **Consumer projects** using templates from `assets/workspace/` follow [Downstream release workflows](DOWNSTREAM_RELEASE.md): final `release.yml` leaves a **draft** GitHub Release; run **`promote-release.yml`** (or `just promote-release X.Y.Z`) to publish the release and merge to `main` (no upstream GHCR/smoke-test gate in that template).
 
