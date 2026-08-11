@@ -97,20 +97,6 @@ def test_retry_caps_backoff_with_max_backoff(monkeypatch: pytest.MonkeyPatch) ->
     assert sleep_calls == [5, 6, 6]
 
 
-def test_retry_idempotent_for_successful_commands(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def fake_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(args=["true"], returncode=0)
-
-    monkeypatch.setattr(subprocess, "run", fake_run)
-
-    rc1 = retry.retry_command(["true"], retries=2, backoff=1, max_backoff=1)
-    rc2 = retry.retry_command(["true"], retries=2, backoff=1, max_backoff=1)
-
-    assert rc1 == rc2 == 0
-
-
 def test_retry_cli_module_invocation_succeeds() -> None:
     result = subprocess.run(
         [

@@ -12,18 +12,10 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from vig_utils.check_expirations import (
-    EXPIRATION_PATTERN,
     check_file,
     main,
     parse_entries,
 )
-
-
-class TestExpirationPattern:
-    def test_valid_expiration(self):
-        match = EXPIRATION_PATTERN.match("Expiration: 2026-12-01")
-        assert match
-        assert match.group(1) == "2026-12-01"
 
 
 class TestParseEntries:
@@ -127,47 +119,43 @@ class TestCheckFile:
 
 class TestMainFunction:
     def test_main_passes_for_valid_file(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
     ):
         path = tmp_path / "ignore.txt"
         path.write_text(
             "Expiration: 2099-01-01\nCVE-2010-4756\n",
             encoding="utf-8",
         )
-        orig_argv = sys.argv
-        try:
-            sys.argv = ["check-expirations", str(path)]
-            exit_code = main(today=date(2026, 6, 9))
-        finally:
-            sys.argv = orig_argv
+        monkeypatch.setattr(sys, "argv", ["check-expirations", str(path)])
+        exit_code = main(today=date(2026, 6, 9))
         assert exit_code == 0
         captured = capsys.readouterr()
         assert "Validated 1 exception(s)" in captured.out
 
     def test_main_fails_for_expired_file(
-        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+        self,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        monkeypatch: pytest.MonkeyPatch,
     ):
         path = tmp_path / "ignore.txt"
         path.write_text(
             "Expiration: 2020-01-01\nCVE-2010-4756\n",
             encoding="utf-8",
         )
-        orig_argv = sys.argv
-        try:
-            sys.argv = ["check-expirations", str(path)]
-            exit_code = main(today=date(2026, 6, 9))
-        finally:
-            sys.argv = orig_argv
+        monkeypatch.setattr(sys, "argv", ["check-expirations", str(path)])
+        exit_code = main(today=date(2026, 6, 9))
         assert exit_code == 1
         captured = capsys.readouterr()
         assert "Expired" in captured.err
 
-    def test_main_missing_file_fails(self, tmp_path: Path):
+    def test_main_missing_file_fails(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
         path = tmp_path / "missing.txt"
-        orig_argv = sys.argv
-        try:
-            sys.argv = ["check-expirations", str(path)]
-            exit_code = main(today=date(2026, 6, 9))
-        finally:
-            sys.argv = orig_argv
+        monkeypatch.setattr(sys, "argv", ["check-expirations", str(path)])
+        exit_code = main(today=date(2026, 6, 9))
         assert exit_code == 1

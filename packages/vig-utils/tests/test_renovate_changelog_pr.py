@@ -230,24 +230,16 @@ def test_insert_changed_is_last_section_before_version() -> None:
     assert "**Existing**" in new_content
 
 
-@pytest.mark.parametrize(
-    "changelog",
-    [
-        pytest.param(
-            textwrap.dedent(
-                """\
-                ## Unreleased
+def test_insert_empty_changed_section() -> None:
+    changelog = textwrap.dedent(
+        """\
+        ## Unreleased
 
-                ### Changed
+        ### Changed
 
-                ### Deprecated
-                """
-            ),
-            id="empty_changed",
-        ),
-    ],
-)
-def test_insert_empty_changed_section(changelog: str) -> None:
+        ### Deprecated
+        """
+    )
     entry = "- **X** ([#3](https://github.com/o/r/pull/3))\n"
     new_content, did = insert_renovate_changelog_entry(changelog, 3, entry)
     assert did is True

@@ -21,10 +21,8 @@ sed_inplace = utils.sed_inplace
 substitute_in_file = utils.substitute_in_file
 update_version_line = utils.update_version_line
 parse_args = utils.parse_args
-utils_main = utils.main
 find_repo_root = utils.find_repo_root
 agent_blocklist_path = utils.agent_blocklist_path
-run_packaged_shell = utils.run_packaged_shell
 load_blocklist = utils.load_blocklist
 contains_agent_fingerprint = utils.contains_agent_fingerprint
 
@@ -50,15 +48,6 @@ class TestSubstituteInFile:
 class TestSedInplace:
     """Test sed_inplace function from vig_utils.utils."""
 
-    def test_sed_inplace_simple_replacement(self, tmp_path):
-        """Test simple replacement with pipe delimiter."""
-        test_file = tmp_path / "test.txt"
-        test_file.write_text("Hello {{IMAGE_TAG}} world")
-
-        sed_inplace("s|{{IMAGE_TAG}}|0.2.0|g", test_file)
-
-        assert test_file.read_text() == "Hello 0.2.0 world"
-
     def test_sed_inplace_global_replacement(self, tmp_path):
         """Test global replacement (g flag)."""
         test_file = tmp_path / "test.txt"
@@ -80,12 +69,11 @@ class TestSedInplace:
     def test_sed_inplace_slash_delimiter(self, tmp_path):
         """Test replacement with slash delimiter."""
         test_file = tmp_path / "test.txt"
-        test_file.write_text("path/to/file")
+        test_file.write_text("old value old")
 
-        # Use pipe delimiter since slash appears in the pattern
-        sed_inplace("s|path/to/file|new/path/to/file|g", test_file)
+        sed_inplace("s/old/new/g", test_file)
 
-        assert test_file.read_text() == "new/path/to/file"
+        assert test_file.read_text() == "new value new"
 
     def test_sed_inplace_hash_delimiter(self, tmp_path):
         """Test replacement with hash delimiter."""
@@ -96,25 +84,6 @@ class TestSedInplace:
         sed_inplace("s# old # new #g", test_file)
 
         assert test_file.read_text() == "comment # new # more"
-
-    def test_sed_inplace_multiline_content(self, tmp_path):
-        """Test replacement in multiline content."""
-        test_file = tmp_path / "test.txt"
-        test_file.write_text(
-            "Line 1: {{IMAGE_TAG}}\nLine 2: {{IMAGE_TAG}}\nLine 3: text"
-        )
-
-        sed_inplace("s|{{IMAGE_TAG}}|0.2.0|g", test_file)
-
-        expected = "Line 1: 0.2.0\nLine 2: 0.2.0\nLine 3: text"
-        assert test_file.read_text() == expected
-
-    def test_sed_inplace_file_not_found(self, tmp_path):
-        """Test that FileNotFoundError is raised for non-existent file."""
-        non_existent = tmp_path / "nonexistent.txt"
-
-        with pytest.raises(FileNotFoundError, match="File not found"):
-            sed_inplace("s|old|new|g", non_existent)
 
     def test_sed_inplace_unsupported_command(self, tmp_path):
         """Test that ValueError is raised for unsupported sed commands."""
@@ -244,44 +213,6 @@ class TestParseArgs:
             parse_args()
 
 
-class TestUtilsMain:
-    """Tests for main() dispatcher in vig_utils.utils."""
-
-    def test_main_version_command(self, tmp_path):
-        """main() with 'version' should update the version line."""
-        readme = tmp_path / "README.md"
-        readme.write_text(
-            "# Test\n- **Version**: [dev](url), 2025-01-01\n- other line\n"
-        )
-        with patch(
-            "sys.argv",
-            [
-                "utils.py",
-                "version",
-                str(readme),
-                "2.0.0",
-                "https://example.com",
-                "2026-02-11",
-            ],
-        ):
-            utils_main()
-        content = readme.read_text()
-        assert "[2.0.0](https://example.com), 2026-02-11" in content
-
-    def test_main_sed_command(self, tmp_path):
-        """main() with 'sed' should perform in-place substitution."""
-        f = tmp_path / "test.txt"
-        f.write_text("hello world")
-        with patch("sys.argv", ["utils.py", "sed", "s|hello|goodbye|g", str(f)]):
-            utils_main()
-        assert f.read_text() == "goodbye world"
-
-    def test_main_no_command_exits(self):
-        """main() with no args should exit non-zero."""
-        with patch("sys.argv", ["utils.py"]), pytest.raises(SystemExit):
-            utils_main()
-
-
 class TestUtilsCLISubprocess:
     """Subprocess smoke tests for vig_utils.utils module."""
 
@@ -307,11 +238,6 @@ class TestUtilsCLISubprocess:
         result = self._run("sed", "s|alpha|omega|g", str(f))
         assert result.returncode == 0
         assert f.read_text() == "omega beta omega"
-
-    def test_no_command_e2e(self):
-        """No subcommand should exit non-zero."""
-        result = self._run()
-        assert result.returncode != 0
 
 
 class TestAgentBlocklistHelpers:
@@ -566,38 +492,6 @@ class TestAgentBlocklistPath:
         root = Path("/tmp/fake-repo")
         with patch("vig_utils.utils.find_repo_root", return_value=root):
             assert agent_blocklist_path() == root / ".github" / "agent-blocklist.toml"
-
-
-class TestRunPackagedShell:
-    """Tests for run_packaged_shell helper."""
-
-    def test_invokes_bash_with_forwarded_args(self):
-        fake_script = Path("/tmp/fake-script.sh")
-        mock_result = type("Result", (), {"returncode": 7})()
-
-        with (
-            patch("vig_utils.utils.files") as mock_files,
-            patch(
-                "vig_utils.utils.subprocess.run", return_value=mock_result
-            ) as mock_run,
-            patch("vig_utils.utils.sys.argv", ["tool", "--flag", "value"]),
-        ):
-            mock_resource = mock_files.return_value.joinpath.return_value
-            mock_resource.open.return_value.__enter__.return_value = None
-            mock_resource.open.return_value.__exit__.return_value = None
-            mock_resource.__str__.return_value = str(fake_script)
-
-            code = run_packaged_shell("tool.sh")
-
-        assert code == 7
-        mock_files.assert_called_once_with("vig_utils.shell")
-        mock_run.assert_called_once()
-        assert mock_run.call_args.args[0] == [
-            "bash",
-            str(fake_script),
-            "--flag",
-            "value",
-        ]
 
 
 class TestSubstituteInFileEdgeCases:

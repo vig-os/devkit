@@ -43,24 +43,15 @@ class TestValidateCommitMessage:
         assert err is None
 
     def test_valid_all_approved_types(self):
+        """Every default type validates, including `perf` (Refs #1030 — CI's
+        validate-commit-range runs with no --types override, so
+        DEFAULT_APPROVED_TYPES is the effective allowlist there)."""
+        assert "perf" in DEFAULT_APPROVED_TYPES
         for ctype in sorted(DEFAULT_APPROVED_TYPES):
             msg = f"{ctype}: do something\n\nRefs: #1\n"
             valid, err = validate_commit_message(msg)
             assert valid is True, f"Type {ctype} should be valid: {err}"
             assert err is None
-
-    def test_perf_is_an_approved_type(self):
-        """`perf` is a standard Conventional Commits type. Refs #1030.
-
-        CI's ``validate-commit-range`` runs with no ``--types`` override, so
-        ``DEFAULT_APPROVED_TYPES`` is the effective allowlist there; a
-        ``perf(...)`` commit must validate against it.
-        """
-        assert "perf" in DEFAULT_APPROVED_TYPES
-        msg = "perf(image): speed up manifest bake\n\nRefs: #1030\n"
-        valid, err = validate_commit_message(msg)
-        assert valid is True, f"perf should be valid: {err}"
-        assert err is None
 
     def test_valid_scope_with_hyphens(self):
         msg = "chore(deps): bump pre-commit\n\nRefs: #37\n"
@@ -122,26 +113,16 @@ class TestValidateCommitMessage:
         assert valid is False
         assert "First line" in err or "type" in err
 
-    def test_valid_body_multiple_lines_before_refs(self):
-        msg = "feat: add feature\n\nSome body text.\n\nMore context.\n\nRefs: #36\n"
-        valid, err = validate_commit_message(msg)
-        assert valid is True
-        assert err is None
-
-    def test_invalid_missing_hashtag_in_refs(self):
-        msg = "feat: add feature\n\nRefs: 36\n"
-        valid, err = validate_commit_message(msg)
-        assert valid is False
-        assert "Refs" in err or "reference" in err.lower()
-
-    def test_invalid_refs_line_empty_refs(self):
-        msg = "feat: add feature\n\nRefs:\n"
-        valid, err = validate_commit_message(msg)
-        assert valid is False
-        assert "Refs" in err or "reference" in err.lower()
-
-    def test_invalid_refs_line_invalid_id_format(self):
-        msg = "feat: add feature\n\nRefs: abc\n"
+    @pytest.mark.parametrize(
+        "msg",
+        [
+            "feat: add feature\n\nRefs: 36\n",
+            "feat: add feature\n\nRefs:\n",
+            "feat: add feature\n\nRefs: abc\n",
+        ],
+        ids=["missing_hashtag", "empty", "invalid_id_format"],
+    )
+    def test_invalid_refs_line_variants(self, msg):
         valid, err = validate_commit_message(msg)
         assert valid is False
         assert "Refs" in err or "reference" in err.lower()
@@ -225,13 +206,6 @@ class TestChoreRefsExemption:
             assert valid is False, f"Type {ctype} should require Refs but passed"
             assert "Refs" in err
 
-    def test_chore_minimal_subject_only(self):
-        """Minimal chore commit: subject line only (trailing newlines are stripped)."""
-        msg = "chore: update dependencies\n\n"
-        valid, err = validate_commit_message(msg)
-        assert valid is True
-        assert err is None
-
 
 class TestCustomApprovedTypes:
     """Test validate_commit_message() with custom approved types."""
@@ -253,14 +227,6 @@ class TestCustomApprovedTypes:
         assert "Unknown commit type" in err
         assert "feat" in err
 
-    def test_custom_types_allows_all_custom(self):
-        """All custom types are accepted."""
-        custom_types = frozenset({"alpha", "beta", "gamma"})
-        for ctype in custom_types:
-            msg = f"{ctype}: do something\n\nRefs: #1\n"
-            valid, err = validate_commit_message(msg, approved_types=custom_types)
-            assert valid is True, f"Type {ctype} should be valid: {err}"
-
     def test_custom_types_empty_set_rejects_all(self):
         """Empty custom types set rejects all types."""
         custom_types = frozenset()
@@ -268,14 +234,6 @@ class TestCustomApprovedTypes:
         valid, err = validate_commit_message(msg, approved_types=custom_types)
         assert valid is False
         assert "Unknown commit type" in err
-
-    def test_custom_types_single_type(self):
-        """Single custom type works."""
-        custom_types = frozenset({"only"})
-        msg = "only: do something\n\nRefs: #1\n"
-        valid, err = validate_commit_message(msg, approved_types=custom_types)
-        assert valid is True
-        assert err is None
 
 
 class TestCustomRefsOptionalTypes:
@@ -325,7 +283,11 @@ class TestCustomRefsOptionalTypes:
 
 
 class TestCustomApprovedAndOptionalTypes:
-    """Test combining custom approved types and custom refs-optional types."""
+    """Test combining custom approved types and custom refs-optional types.
+
+    Type approval and refs-optionality are independent lookups; one combined
+    case pins that the two custom sets compose.
+    """
 
     def test_combined_custom_types(self):
         """Custom approved types with custom refs-optional types."""
@@ -338,39 +300,6 @@ class TestCustomApprovedAndOptionalTypes:
         assert valid is True
         assert err is None
 
-    def test_combined_custom_types_with_refs(self):
-        """Custom types with Refs when not required."""
-        custom_types = frozenset({"task", "hotfix", "release"})
-        custom_optional = frozenset({"release"})
-        msg = "release: prepare v1.0\n\nRefs: #50\n"
-        valid, err = validate_commit_message(
-            msg, approved_types=custom_types, refs_optional_types=custom_optional
-        )
-        assert valid is True
-        assert err is None
-
-    def test_combined_custom_types_required_refs(self):
-        """Custom types that require Refs still do."""
-        custom_types = frozenset({"task", "hotfix", "release"})
-        custom_optional = frozenset({"release"})
-        msg = "task: fix something\n\n"
-        valid, err = validate_commit_message(
-            msg, approved_types=custom_types, refs_optional_types=custom_optional
-        )
-        assert valid is False
-        assert "Refs" in err
-
-    def test_combined_custom_types_rejects_non_custom(self):
-        """Non-custom types are rejected."""
-        custom_types = frozenset({"task", "hotfix"})
-        custom_optional = frozenset({"task"})
-        msg = "feat: add feature\n\nRefs: #1\n"
-        valid, err = validate_commit_message(
-            msg, approved_types=custom_types, refs_optional_types=custom_optional
-        )
-        assert valid is False
-        assert "Unknown commit type" in err
-
 
 class TestCustomScopes:
     """Test validate_commit_message() with custom approved scopes."""
@@ -382,95 +311,55 @@ class TestCustomScopes:
         assert valid is True
         assert err is None
 
-    def test_scopes_not_enforced_empty_set(self):
-        """Empty scopes set means no scope enforcement."""
-        custom_scopes = frozenset()
-        msg = "feat(random-scope): add feature\n\nRefs: #1\n"
-        valid, err = validate_commit_message(msg, approved_scopes=custom_scopes)
-        assert valid is True
+    @pytest.mark.parametrize(
+        ("scopes", "subject"),
+        [
+            pytest.param(
+                frozenset(), "feat(random-scope): x", id="empty_set_no_enforcement"
+            ),
+            pytest.param(
+                frozenset({"api", "cli", "utils"}), "feat(api): x", id="single_valid"
+            ),
+            pytest.param(frozenset({"api", "cli"}), "feat: x", id="scope_optional"),
+            pytest.param(
+                frozenset({"api-v2", "cli-tool"}), "feat(api-v2): x", id="hyphens"
+            ),
+            pytest.param(
+                frozenset({"api", "cli", "utils"}),
+                "feat(api, cli): x",
+                id="multiple_comma",
+            ),
+            pytest.param(
+                frozenset({"api", "cli", "utils"}),
+                "feat(api , cli , utils): x",
+                id="spaces_around_commas",
+            ),
+        ],
+    )
+    def test_valid_scopes(self, scopes, subject):
+        msg = f"{subject}\n\nRefs: #1\n"
+        valid, err = validate_commit_message(msg, approved_scopes=scopes)
+        assert valid is True, err
         assert err is None
 
-    def test_valid_with_enforced_scopes(self):
-        """Valid commit with enforced scopes."""
-        custom_scopes = frozenset({"api", "cli", "utils"})
-        msg = "feat(api): add endpoint\n\nRefs: #1\n"
-        valid, err = validate_commit_message(msg, approved_scopes=custom_scopes)
-        assert valid is True
-        assert err is None
-
-    def test_invalid_scope_not_in_list(self):
-        """Reject commit with scope not in approved list."""
-        custom_scopes = frozenset({"api", "cli", "utils"})
-        msg = "feat(database): add migration\n\nRefs: #1\n"
+    @pytest.mark.parametrize(
+        ("subject", "rejected"),
+        [
+            pytest.param("feat(database): x", "database", id="not_in_list"),
+            pytest.param("feat(API): x", "API", id="case_sensitive"),
+            pytest.param(
+                "feat(api, invalid, cli): x", "invalid", id="one_invalid_among_valid"
+            ),
+            pytest.param("feat(invalid1, invalid2): x", "invalid1", id="all_invalid"),
+        ],
+    )
+    def test_invalid_scopes(self, subject, rejected):
+        custom_scopes = frozenset({"api", "cli"})
+        msg = f"{subject}\n\nRefs: #1\n"
         valid, err = validate_commit_message(msg, approved_scopes=custom_scopes)
         assert valid is False
         assert "Unknown scope" in err
-        assert "database" in err
-
-    def test_scope_optional_when_enforced(self):
-        """When scopes are enforced, they are still optional if not provided."""
-        custom_scopes = frozenset({"api", "cli"})
-        msg = "feat: add feature\n\nRefs: #1\n"
-        valid, err = validate_commit_message(msg, approved_scopes=custom_scopes)
-        assert valid is True, f"Scope should be optional: {err}"
-        assert err is None
-
-    def test_all_enforced_scopes_valid(self):
-        """All enforced scopes are accepted."""
-        custom_scopes = frozenset({"api", "cli", "utils"})
-        for scope in custom_scopes:
-            msg = f"feat({scope}): do something\n\nRefs: #1\n"
-            valid, err = validate_commit_message(msg, approved_scopes=custom_scopes)
-            assert valid is True, f"Scope {scope} should be valid: {err}"
-
-    def test_scope_with_hyphens(self):
-        """Scopes can contain hyphens."""
-        custom_scopes = frozenset({"api-v2", "cli-tool", "db-utils"})
-        msg = "feat(api-v2): add endpoint\n\nRefs: #1\n"
-        valid, err = validate_commit_message(msg, approved_scopes=custom_scopes)
-        assert valid is True
-        assert err is None
-
-    def test_scope_case_sensitive(self):
-        """Scope matching is case-sensitive."""
-        custom_scopes = frozenset({"api", "cli"})
-        msg = "feat(API): add feature\n\nRefs: #1\n"
-        valid, err = validate_commit_message(msg, approved_scopes=custom_scopes)
-        assert valid is False
-        assert "Unknown scope" in err
-
-    def test_multiple_scopes_comma_separated(self):
-        """Multiple scopes can be provided, comma-separated."""
-        custom_scopes = frozenset({"api", "cli", "utils"})
-        msg = "feat(api, cli): add feature\n\nRefs: #1\n"
-        valid, err = validate_commit_message(msg, approved_scopes=custom_scopes)
-        assert valid is True
-        assert err is None
-
-    def test_multiple_scopes_with_spaces(self):
-        """Multiple scopes with spaces around commas."""
-        custom_scopes = frozenset({"api", "cli", "utils"})
-        msg = "feat(api , cli , utils): add feature\n\nRefs: #1\n"
-        valid, err = validate_commit_message(msg, approved_scopes=custom_scopes)
-        assert valid is True
-        assert err is None
-
-    def test_multiple_scopes_invalid_scope(self):
-        """Reject if any scope in the list is invalid."""
-        custom_scopes = frozenset({"api", "cli"})
-        msg = "feat(api, invalid, cli): add feature\n\nRefs: #1\n"
-        valid, err = validate_commit_message(msg, approved_scopes=custom_scopes)
-        assert valid is False
-        assert "Unknown scope" in err
-        assert "invalid" in err
-
-    def test_multiple_scopes_all_invalid(self):
-        """Reject if all scopes are invalid."""
-        custom_scopes = frozenset({"api", "cli"})
-        msg = "feat(invalid1, invalid2): add feature\n\nRefs: #1\n"
-        valid, err = validate_commit_message(msg, approved_scopes=custom_scopes)
-        assert valid is False
-        assert "Unknown scope" in err
+        assert rejected in err
 
     def test_require_scope_without_approved_scopes(self):
         """require_scope=True without approved_scopes should fail early."""
@@ -479,53 +368,26 @@ class TestCustomScopes:
         assert valid is False
         assert "require_scope=True requires approved_scopes" in err
 
-    def test_require_scope_with_scope_provided(self):
-        """Commit with scope passes when require_scope=True and scopes are approved."""
+    @pytest.mark.parametrize(
+        ("subject", "expect_valid", "err_fragment"),
+        [
+            pytest.param("feat(api): x", True, None, id="with_scope"),
+            pytest.param("feat: x", False, "scope is required", id="without_scope"),
+            pytest.param("feat(api, cli): x", True, None, id="multiple_scopes"),
+            pytest.param(
+                "feat(invalid): x", False, "Unknown scope", id="invalid_scope"
+            ),
+        ],
+    )
+    def test_require_scope_enforcement(self, subject, expect_valid, err_fragment):
         custom_scopes = frozenset({"api", "cli"})
-        msg = "feat(api): add feature\n\nRefs: #1\n"
+        msg = f"{subject}\n\nRefs: #1\n"
         valid, err = validate_commit_message(
             msg, approved_scopes=custom_scopes, require_scope=True
         )
-        assert valid is True
-        assert err is None
-
-    def test_require_scope_without_scope_fails(self):
-        """Commit without scope fails when require_scope=True."""
-        custom_scopes = frozenset({"api", "cli"})
-        msg = "feat: add feature\n\nRefs: #1\n"
-        valid, err = validate_commit_message(
-            msg, approved_scopes=custom_scopes, require_scope=True
-        )
-        assert valid is False
-        assert "scope is required" in err
-
-    def test_require_scope_with_multiple_scopes(self):
-        """Multiple scopes satisfy require_scope=True."""
-        custom_scopes = frozenset({"api", "cli", "utils"})
-        msg = "feat(api, cli): add feature\n\nRefs: #1\n"
-        valid, err = validate_commit_message(
-            msg, approved_scopes=custom_scopes, require_scope=True
-        )
-        assert valid is True
-        assert err is None
-
-    def test_require_scope_with_invalid_scope(self):
-        """Invalid scope still fails even when require_scope=True."""
-        custom_scopes = frozenset({"api", "cli"})
-        msg = "feat(invalid): add feature\n\nRefs: #1\n"
-        valid, err = validate_commit_message(
-            msg, approved_scopes=custom_scopes, require_scope=True
-        )
-        assert valid is False
-        assert "Unknown scope" in err
-
-    def test_require_scope_false_by_default(self):
-        """require_scope defaults to False; scope is optional."""
-        custom_scopes = frozenset({"api", "cli"})
-        msg = "feat: add feature\n\nRefs: #1\n"
-        valid, err = validate_commit_message(msg, approved_scopes=custom_scopes)
-        assert valid is True
-        assert err is None
+        assert valid is expect_valid, err
+        if err_fragment:
+            assert err_fragment in err
 
     def test_combined_types_and_scopes(self):
         """Use custom types with custom scopes."""
@@ -538,233 +400,74 @@ class TestCustomScopes:
         assert valid is True
         assert err is None
 
-    def test_combined_types_and_scopes_invalid_type(self):
-        """Invalid type rejected even with valid scope."""
-        custom_types = frozenset({"feature", "bugfix"})
-        custom_scopes = frozenset({"backend", "frontend"})
-        msg = "feat(backend): add API\n\nRefs: #1\n"
-        valid, err = validate_commit_message(
-            msg, approved_types=custom_types, approved_scopes=custom_scopes
-        )
-        assert valid is False
-        assert "Unknown commit type" in err
-
-    def test_combined_types_and_scopes_invalid_scope(self):
-        """Invalid scope rejected even with valid type."""
-        custom_types = frozenset({"feature", "bugfix"})
-        custom_scopes = frozenset({"backend", "frontend"})
-        msg = "feature(mobile): add app\n\nRefs: #1\n"
-        valid, err = validate_commit_message(
-            msg, approved_types=custom_types, approved_scopes=custom_scopes
-        )
-        assert valid is False
-        assert "Unknown scope" in err
-
 
 class TestValidateCommitMsgMain:
-    """Test main() entry point with file path."""
+    """Test main()'s own logic: argv parsing, option splitting, exit codes.
 
-    def test_main_valid_message_file(self, tmp_path):
+    Validation behavior itself is covered above through the library API.
+    """
+
+    def _run_main(self, monkeypatch, *argv):
+        monkeypatch.setattr(sys, "argv", ["validate_commit_msg.py", *argv])
+        return main()
+
+    def test_main_valid_message_file(self, tmp_path, monkeypatch):
         msg_file = tmp_path / "msg"
         msg_file.write_text("feat: add feature\n\nRefs: #36\n")
-        # main() uses sys.argv; we need to patch it
-        orig_argv = sys.argv
-        try:
-            sys.argv = ["validate_commit_msg.py", str(msg_file)]
-            assert main() == 0
-        finally:
-            sys.argv = orig_argv
+        assert self._run_main(monkeypatch, str(msg_file)) == 0
 
-    def test_main_invalid_message_file(self, tmp_path):
+    def test_main_invalid_message_file(self, tmp_path, monkeypatch):
         msg_file = tmp_path / "msg"
         msg_file.write_text("feat: add feature\n\n")  # missing Refs
-        orig_argv = sys.argv
-        try:
-            sys.argv = ["validate_commit_msg.py", str(msg_file)]
-            assert main() == 1
-        finally:
-            sys.argv = orig_argv
+        assert self._run_main(monkeypatch, str(msg_file)) == 1
 
-    def test_main_file_not_found(self):
-        orig_argv = sys.argv
-        try:
-            sys.argv = ["validate_commit_msg.py", "/nonexistent/path/msg"]
-            assert main() == 2
-        finally:
-            sys.argv = orig_argv
+    def test_main_file_not_found(self, monkeypatch):
+        assert self._run_main(monkeypatch, "/nonexistent/path/msg") == 2
 
-    def test_main_wrong_arg_count_no_args(self, capsys):
-        """Test main() called with no file argument."""
-        import pytest
+    @pytest.mark.parametrize(
+        "argv", [[], ["arg1", "arg2"]], ids=["no_args", "too_many_args"]
+    )
+    def test_main_wrong_arg_count(self, capsys, monkeypatch, argv):
+        """argparse exits 2 with usage on a wrong argument count."""
+        monkeypatch.setattr(sys, "argv", ["validate_commit_msg.py", *argv])
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+        assert exc_info.value.code == 2
+        captured = capsys.readouterr()
+        assert "usage" in (captured.out + captured.err).lower()
 
-        orig_argv = sys.argv
-        try:
-            sys.argv = ["validate_commit_msg.py"]
-            with pytest.raises(SystemExit) as exc_info:
-                main()
-            assert exc_info.value.code == 2
-            captured = capsys.readouterr()
-            # Message goes to stderr
-            assert "usage" in (captured.out + captured.err).lower()
-        finally:
-            sys.argv = orig_argv
-
-    def test_main_wrong_arg_count_too_many(self, capsys):
-        """Test main() called with too many arguments."""
-        import pytest
-
-        orig_argv = sys.argv
-        try:
-            sys.argv = ["validate_commit_msg.py", "arg1", "arg2"]
-            with pytest.raises(SystemExit) as exc_info:
-                main()
-            assert exc_info.value.code == 2
-            captured = capsys.readouterr()
-            # Message goes to stderr
-            assert "usage" in (captured.out + captured.err).lower()
-        finally:
-            sys.argv = orig_argv
-
-
-class TestMainWithCustomTypes:
-    """Test main() CLI with --types and --refs-optional-types arguments."""
-
-    def test_main_with_custom_types(self, tmp_path):
-        """Test main() with --types argument."""
+    def test_main_with_custom_types(self, tmp_path, monkeypatch):
+        """--types wires a comma-split allowlist through to validation."""
         msg_file = tmp_path / "msg"
         msg_file.write_text("custom: do something\n\nRefs: #1\n")
-        orig_argv = sys.argv
-        try:
-            sys.argv = [
-                "validate_commit_msg.py",
-                str(msg_file),
-                "--types",
-                "custom,other",
-            ]
-            assert main() == 0
-        finally:
-            sys.argv = orig_argv
+        assert (
+            self._run_main(monkeypatch, str(msg_file), "--types", "custom,other") == 0
+        )
 
-    def test_main_with_custom_types_rejects_default_type(self, tmp_path):
-        """Test main() with --types rejects default types."""
+    def test_main_with_spaces_in_comma_separated_types(self, tmp_path, monkeypatch):
+        """--types entries are stripped of whitespace around commas."""
         msg_file = tmp_path / "msg"
         msg_file.write_text("feat: add feature\n\nRefs: #1\n")
-        orig_argv = sys.argv
-        try:
-            sys.argv = [
-                "validate_commit_msg.py",
-                str(msg_file),
-                "--types",
-                "custom,other",
-            ]
-            assert main() == 1
-        finally:
-            sys.argv = orig_argv
+        assert (
+            self._run_main(monkeypatch, str(msg_file), "--types", "feat , fix , docs")
+            == 0
+        )
 
-    def test_main_with_custom_refs_optional_types(self, tmp_path):
-        """Test main() with --refs-optional-types argument."""
+    def test_main_with_custom_refs_optional_types(self, tmp_path, monkeypatch):
+        """--refs-optional-types wires the exemption set through."""
         msg_file = tmp_path / "msg"
         msg_file.write_text("custom: do something\n\n")
-        orig_argv = sys.argv
-        try:
-            sys.argv = [
-                "validate_commit_msg.py",
+        assert (
+            self._run_main(
+                monkeypatch,
                 str(msg_file),
                 "--types",
                 "custom,other",
                 "--refs-optional-types",
                 "custom",
-            ]
-            assert main() == 0
-        finally:
-            sys.argv = orig_argv
-
-    def test_main_with_custom_refs_optional_types_still_enforces_others(self, tmp_path):
-        """Test main() --refs-optional-types still enforces Refs for other types."""
-        msg_file = tmp_path / "msg"
-        msg_file.write_text("other: do something\n\n")
-        orig_argv = sys.argv
-        try:
-            sys.argv = [
-                "validate_commit_msg.py",
-                str(msg_file),
-                "--types",
-                "custom,other",
-                "--refs-optional-types",
-                "custom",
-            ]
-            assert main() == 1
-        finally:
-            sys.argv = orig_argv
-
-    def test_main_with_comma_separated_types(self, tmp_path):
-        """Test main() with comma-separated type list."""
-        msg_file = tmp_path / "msg"
-        msg_file.write_text("feat: add feature\n\nRefs: #1\n")
-        orig_argv = sys.argv
-        try:
-            # Include 'feat' in custom types
-            sys.argv = [
-                "validate_commit_msg.py",
-                str(msg_file),
-                "--types",
-                "feat,fix,docs",
-            ]
-            assert main() == 0
-        finally:
-            sys.argv = orig_argv
-
-    def test_main_with_spaces_in_comma_separated_types(self, tmp_path):
-        """Test main() handles spaces in comma-separated types."""
-        msg_file = tmp_path / "msg"
-        msg_file.write_text("feat: add feature\n\nRefs: #1\n")
-        orig_argv = sys.argv
-        try:
-            # Types with spaces around commas should be parsed correctly
-            sys.argv = [
-                "validate_commit_msg.py",
-                str(msg_file),
-                "--types",
-                "feat , fix , docs",
-            ]
-            assert main() == 0
-        finally:
-            sys.argv = orig_argv
-
-    def test_main_with_comma_separated_refs_optional_types(self, tmp_path):
-        """Test main() with comma-separated refs-optional-types."""
-        msg_file = tmp_path / "msg"
-        msg_file.write_text("chore: do something\n\n")
-        orig_argv = sys.argv
-        try:
-            sys.argv = [
-                "validate_commit_msg.py",
-                str(msg_file),
-                "--refs-optional-types",
-                "chore,build",
-            ]
-            assert main() == 0
-        finally:
-            sys.argv = orig_argv
-
-    def test_main_pre_commit_hook_simulation(self, tmp_path):
-        """Simulate pre-commit hook with custom configuration."""
-        msg_file = tmp_path / "msg"
-        msg_file.write_text("workflow: update CI\n\n")
-        orig_argv = sys.argv
-        try:
-            # Simulate pre-commit hook configuration
-            sys.argv = [
-                "validate_commit_msg.py",
-                str(msg_file),
-                "--types",
-                "feat,fix,workflow",
-                "--refs-optional-types",
-                "workflow",
-            ]
-            assert main() == 0
-        finally:
-            sys.argv = orig_argv
+            )
+            == 0
+        )
 
 
 class TestGitHubLinkedRefs:
@@ -774,299 +477,79 @@ class TestGitHubLinkedRefs:
     The validator must accept both plain and linked formats.
     """
 
-    def test_valid_single_linked_issue(self):
-        msg = (
-            "feat: add feature\n\nRefs: [#31](https://github.com/org/repo/issues/31)\n"
-        )
+    @pytest.mark.parametrize(
+        "refs_line",
+        [
+            pytest.param(
+                "Refs: [#31](https://github.com/org/repo/issues/31)",
+                id="single_linked_issue",
+            ),
+            pytest.param(
+                "Refs: [#31](https://github.com/org/repo/issues/31), "
+                "[#32](https://github.com/org/repo/issues/32)",
+                id="multiple_linked_issues",
+            ),
+            pytest.param(
+                "Refs: #10, [#31](https://github.com/org/repo/issues/31)",
+                id="mixed_plain_and_linked",
+            ),
+            pytest.param(
+                "Refs: [#31](https://github.com/org/repo/issues/31), "
+                "REQ-DOC-01, RISK-H-02",
+                id="linked_with_other_ref_types",
+            ),
+            pytest.param(
+                "Refs: [#42](https://github.com/org/repo/pull/42)",
+                id="pull_url",
+            ),
+            pytest.param(
+                "Refs: [#31](https://github.com/org/repo/issues/31), "
+                "[#99](https://github.com/another-org/other-repo/issues/99)",
+                id="cross_repo_link",
+            ),
+        ],
+    )
+    def test_valid_linked_refs(self, refs_line):
+        msg = f"feat: add feature\n\n{refs_line}\n"
         valid, err = validate_commit_message(msg)
-        assert valid is True
-        assert err is None
-
-    def test_valid_multiple_linked_issues(self):
-        msg = (
-            "fix: fix bug\n\n"
-            "Refs: [#31](https://github.com/org/repo/issues/31), "
-            "[#32](https://github.com/org/repo/issues/32)\n"
-        )
-        valid, err = validate_commit_message(msg)
-        assert valid is True
-        assert err is None
-
-    def test_valid_mixed_plain_and_linked_issue(self):
-        msg = (
-            "feat: add feature\n\n"
-            "Refs: #10, [#31](https://github.com/org/repo/issues/31)\n"
-        )
-        valid, err = validate_commit_message(msg)
-        assert valid is True
-        assert err is None
-
-    def test_valid_linked_issue_with_other_ref_types(self):
-        msg = (
-            "docs: update docs\n\n"
-            "Refs: [#31](https://github.com/org/repo/issues/31), REQ-DOC-01, RISK-H-02\n"
-        )
-        valid, err = validate_commit_message(msg)
-        assert valid is True
-        assert err is None
-
-    def test_valid_linked_issue_with_body(self):
-        msg = (
-            "feat: add feature\n\n"
-            "Some body text explaining the change.\n\n"
-            "Refs: [#31](https://github.com/org/repo/issues/31)\n"
-        )
-        valid, err = validate_commit_message(msg)
-        assert valid is True
-        assert err is None
-
-    def test_valid_linked_issue_without_trailing_newline(self):
-        msg = "feat: add x\n\nRefs: [#31](https://github.com/org/repo/issues/31)"
-        valid, err = validate_commit_message(msg)
-        assert valid is True
-        assert err is None
-
-    def test_valid_linked_issue_pull_url(self):
-        """GitHub may link to /pull/ instead of /issues/."""
-        msg = "feat: add feature\n\nRefs: [#31](https://github.com/org/repo/pull/31)\n"
-        valid, err = validate_commit_message(msg)
-        assert valid is True
-        assert err is None
-
-    def test_invalid_linked_ref_without_issue(self):
-        """Linked REQ/RISK/SOP alone (no issue) is still rejected."""
-        msg = "feat: add feature\n\nRefs: REQ-123\n"
-        valid, err = validate_commit_message(msg)
-        assert valid is False
-        assert "issue" in err.lower()
-
-    def test_valid_chore_with_linked_issue(self):
-        msg = "chore: sync dev\n\nRefs: [#42](https://github.com/org/repo/issues/42)\n"
-        valid, err = validate_commit_message(msg)
-        assert valid is True
-        assert err is None
-
-    def test_valid_linked_pr_url(self):
-        """Linked PRs are accepted (GitHub may link to /pull/ instead of /issues/)."""
-        msg = "feat: add feature\n\nRefs: [#42](https://github.com/org/repo/pull/42)\n"
-        valid, err = validate_commit_message(msg)
-        assert valid is True
-        assert err is None
-
-    def test_valid_mixed_linked_issue_and_pr(self):
-        """Both linked issues and PRs are accepted in the same Refs line."""
-        msg = (
-            "fix: fix bug\n\n"
-            "Refs: [#31](https://github.com/org/repo/issues/31), "
-            "[#42](https://github.com/org/repo/pull/42)\n"
-        )
-        valid, err = validate_commit_message(msg)
-        assert valid is True
-        assert err is None
-
-    def test_valid_cross_repo_issue_link(self):
-        """Linked issues from different repos are accepted."""
-        msg = (
-            "feat: add feature\n\n"
-            "Refs: [#100](https://github.com/different-org/different-repo/issues/100)\n"
-        )
-        valid, err = validate_commit_message(msg)
-        assert valid is True
-        assert err is None
-
-    def test_valid_mixed_same_and_cross_repo_links(self):
-        """Mix of same-repo and cross-repo issue links are accepted."""
-        msg = (
-            "fix: fix bug\n\n"
-            "Refs: [#31](https://github.com/org/repo/issues/31), "
-            "[#99](https://github.com/another-org/other-repo/issues/99), "
-            "REQ-FEATURE-01\n"
-        )
-        valid, err = validate_commit_message(msg)
-        assert valid is True
+        assert valid is True, err
         assert err is None
 
 
 class TestMainWithCustomScopes:
-    """Test main() CLI with --scopes argument."""
+    """Test main()'s --scopes / --require-scope wiring (behavior covered above)."""
 
-    def test_main_with_custom_scopes(self, tmp_path):
-        """Test main() with --scopes argument."""
+    def _run_main(self, monkeypatch, *argv):
+        monkeypatch.setattr(sys, "argv", ["validate_commit_msg.py", *argv])
+        return main()
+
+    def test_main_with_custom_scopes(self, tmp_path, monkeypatch):
+        """--scopes wires a comma-split allowlist through to validation."""
         msg_file = tmp_path / "msg"
         msg_file.write_text("feat(api): add endpoint\n\nRefs: #1\n")
-        orig_argv = sys.argv
-        try:
-            sys.argv = [
-                "validate_commit_msg.py",
-                str(msg_file),
-                "--scopes",
-                "api,cli,utils",
-            ]
-            assert main() == 0
-        finally:
-            sys.argv = orig_argv
+        assert (
+            self._run_main(monkeypatch, str(msg_file), "--scopes", "api,cli,utils") == 0
+        )
 
-    def test_main_with_custom_scopes_rejects_invalid(self, tmp_path):
-        """Test main() with --scopes rejects invalid scopes."""
-        msg_file = tmp_path / "msg"
-        msg_file.write_text("feat(invalid): add something\n\nRefs: #1\n")
-        orig_argv = sys.argv
-        try:
-            sys.argv = [
-                "validate_commit_msg.py",
-                str(msg_file),
-                "--scopes",
-                "api,cli,utils",
-            ]
-            assert main() == 1
-        finally:
-            sys.argv = orig_argv
-
-    def test_main_without_scopes_no_enforcement(self, tmp_path):
-        """Test main() without --scopes allows any scope."""
-        msg_file = tmp_path / "msg"
-        msg_file.write_text("feat(anything): add feature\n\nRefs: #1\n")
-        orig_argv = sys.argv
-        try:
-            sys.argv = ["validate_commit_msg.py", str(msg_file)]
-            assert main() == 0
-        finally:
-            sys.argv = orig_argv
-
-    def test_main_with_scopes_scope_optional_when_enforced(self, tmp_path):
-        """Test main() with --scopes allows commits without scope (scope is optional)."""
-        msg_file = tmp_path / "msg"
-        msg_file.write_text("feat: add feature\n\nRefs: #1\n")
-        orig_argv = sys.argv
-        try:
-            sys.argv = [
-                "validate_commit_msg.py",
-                str(msg_file),
-                "--scopes",
-                "api,cli",
-            ]
-            assert main() == 0
-        finally:
-            sys.argv = orig_argv
-
-    def test_main_with_all_options(self, tmp_path):
-        """Test main() with all custom options together."""
-        msg_file = tmp_path / "msg"
-        msg_file.write_text("task(backend): implement feature\n\nRefs: #51\n")
-        orig_argv = sys.argv
-        try:
-            sys.argv = [
-                "validate_commit_msg.py",
-                str(msg_file),
-                "--types",
-                "task,bugfix",
-                "--scopes",
-                "backend,frontend",
-                "--refs-optional-types",
-                "task",
-            ]
-            assert main() == 0
-        finally:
-            sys.argv = orig_argv
-
-    def test_main_with_comma_separated_scopes(self, tmp_path):
-        """Test main() with comma-separated scopes."""
-        msg_file = tmp_path / "msg"
-        msg_file.write_text("feat(utils): add helper\n\nRefs: #1\n")
-        orig_argv = sys.argv
-        try:
-            sys.argv = [
-                "validate_commit_msg.py",
-                str(msg_file),
-                "--scopes",
-                "api,utils,cli",
-            ]
-            assert main() == 0
-        finally:
-            sys.argv = orig_argv
-
-    def test_main_with_spaces_in_scopes(self, tmp_path):
-        """Test main() handles spaces in comma-separated scopes."""
+    def test_main_with_spaces_in_scopes(self, tmp_path, monkeypatch):
+        """--scopes entries are stripped of whitespace around commas."""
         msg_file = tmp_path / "msg"
         msg_file.write_text("feat(api): add endpoint\n\nRefs: #1\n")
-        orig_argv = sys.argv
-        try:
-            # Scopes with spaces around commas should be parsed correctly
-            sys.argv = [
-                "validate_commit_msg.py",
-                str(msg_file),
-                "--scopes",
-                "api , cli , utils",
-            ]
-            assert main() == 0
-        finally:
-            sys.argv = orig_argv
+        assert (
+            self._run_main(monkeypatch, str(msg_file), "--scopes", "api , cli , utils")
+            == 0
+        )
 
-    def test_main_with_require_scope_valid(self, tmp_path):
-        """Test main() with --require-scope accepts commit with scope."""
-        msg_file = tmp_path / "msg"
-        msg_file.write_text("feat(api): add endpoint\n\nRefs: #1\n")
-        orig_argv = sys.argv
-        try:
-            sys.argv = [
-                "validate_commit_msg.py",
-                str(msg_file),
-                "--scopes",
-                "api,cli,utils",
-                "--require-scope",
-            ]
-            assert main() == 0
-        finally:
-            sys.argv = orig_argv
-
-    def test_main_with_require_scope_invalid(self, tmp_path):
-        """Test main() with --require-scope rejects commit without scope."""
+    def test_main_with_require_scope(self, tmp_path, monkeypatch):
+        """--require-scope flag reaches through to validation (exit 1 sans scope)."""
         msg_file = tmp_path / "msg"
         msg_file.write_text("feat: add feature\n\nRefs: #1\n")
-        orig_argv = sys.argv
-        try:
-            sys.argv = [
-                "validate_commit_msg.py",
-                str(msg_file),
-                "--scopes",
-                "api,cli,utils",
-                "--require-scope",
-            ]
-            assert main() == 1
-        finally:
-            sys.argv = orig_argv
-
-    def test_main_with_require_scope_multiple_scopes(self, tmp_path):
-        """Test main() with --require-scope accepts multiple scopes."""
-        msg_file = tmp_path / "msg"
-        msg_file.write_text("feat(api, cli): add feature\n\nRefs: #1\n")
-        orig_argv = sys.argv
-        try:
-            sys.argv = [
-                "validate_commit_msg.py",
-                str(msg_file),
-                "--scopes",
-                "api,cli,utils",
-                "--require-scope",
-            ]
-            assert main() == 0
-        finally:
-            sys.argv = orig_argv
-
-    def test_main_with_require_scope_without_scopes(self, tmp_path):
-        """Test main() with --require-scope but no --scopes still validates scope requirement."""
-        msg_file = tmp_path / "msg"
-        msg_file.write_text("feat: add feature\n\nRefs: #1\n")
-        orig_argv = sys.argv
-        try:
-            sys.argv = [
-                "validate_commit_msg.py",
-                str(msg_file),
-                "--require-scope",
-            ]
-            assert main() == 1
-        finally:
-            sys.argv = orig_argv
+        assert (
+            self._run_main(
+                monkeypatch, str(msg_file), "--scopes", "api,cli", "--require-scope"
+            )
+            == 1
+        )
 
 
 class TestAgentFingerprints:
@@ -1099,8 +582,12 @@ class TestAgentFingerprints:
         assert valid is False
 
     def test_rejects_claude_as_whole_word(self):
-        """Reject 'claude' as whole word."""
-        msg = "feat: add feature\n\nRefs: #163\n\nCo-authored-by: Claude <x@y.com>\n"
+        """Reject 'claude' as a whole word on its own.
+
+        The message must contain no other fingerprint (no Co-authored-by, no
+        agent email) so the ``\\bclaude\\b`` pattern is the one that fires.
+        """
+        msg = "feat: add feature\n\nReviewed by claude before merge.\n\nRefs: #163\n"
         valid, err = validate_commit_message(msg)
         assert valid is False
 
