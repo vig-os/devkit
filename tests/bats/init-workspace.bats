@@ -141,12 +141,10 @@ _shared_tree() { printf '%s/shared-%s' "$BATS_FILE_TMPDIR" "$1"; }
 # reachable in consumers (the scaffold ships justfile.worktree AND .claude
 # skills that invoke `just worktree-start`, so the root justfile must import it).
 
-@test "remaining devcontainer verbs are devc-namespaced: check + upgrade (#806)" {
+@test "remaining devcontainer verb is devc-namespaced: check (#806); upgrade removed (#1421)" {
     run grep -qE '^devc-check' "$TEMPLATE_DIR/.devcontainer/justfile.devc"
     assert_success
-    run grep -qE '^devc-upgrade:' "$TEMPLATE_DIR/.devcontainer/justfile.devc"
-    assert_success
-    run grep -qE '^(check|devcontainer-upgrade) *[a-z*]*:' \
+    run grep -qE '^(check|devcontainer-upgrade|devc-upgrade) *[a-z*]*:' \
         "$TEMPLATE_DIR/.devcontainer/justfile.devc"
     assert_failure
 }

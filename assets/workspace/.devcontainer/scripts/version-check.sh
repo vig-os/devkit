@@ -283,26 +283,32 @@ version_lt() {
 # NOTIFICATIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Display update available notification
+# Display update available notification.
+# Automation-wired repos (the scaffolded devkit-upgrade workflow present) are
+# pointed at its adoption PR — a local force-upgrade would compete with the
+# reviewed flow (#1421). Repos without the workflow get the manual one-liner.
 notify_update() {
     local current="$1"
     local latest="$2"
+    local repo_root
+    repo_root="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
     echo ""
-    echo -e "${BOLD}${CYAN}🚀 Devcontainer Update Available${NC}"
+    echo -e "${BOLD}${CYAN}🚀 Devkit Update Available${NC}"
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo ""
     echo -e "  Current: ${YELLOW}$current${NC}  →  Latest: ${GREEN}$latest${NC}"
     echo ""
-    echo -e "  Run from a ${BOLD}host terminal${NC} (not inside the container):"
-    echo ""
-    echo -e "    ${BOLD}just devc-upgrade${NC}"
-    echo ""
-    echo -e "  Or without just:"
-    echo ""
-    echo -e "    curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --force ."
-    echo ""
-    echo -e "  After upgrading, rebuild the container in VS Code."
+    if [[ -f "$repo_root/.github/workflows/devkit-upgrade.yml" ]]; then
+        echo -e "  The ${BOLD}devkit-upgrade${NC} workflow opens an adoption PR for new releases:"
+        echo -e "  review and merge it, then pull and rebuild the container."
+    else
+        echo -e "  Upgrade from a ${BOLD}host terminal${NC} (not inside the container):"
+        echo ""
+        echo -e "    curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --force ."
+        echo ""
+        echo -e "  After upgrading, rebuild the container in VS Code."
+    fi
     echo ""
     echo -e "  Mute: ${BOLD}just devc-check 7d${NC}    Disable: ${BOLD}just devc-check off${NC}"
     echo ""

@@ -71,6 +71,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **`devc-upgrade` recipe removed from the scaffold** ([#1421](https://github.com/vig-os/devkit/issues/1421))
+  - Upgrades are driven by the `devkit-upgrade` workflow's adoption PRs; the
+    local recipe wrapped `install.sh --force` and steered users around the
+    reviewed flow. The `version-check.sh` notification now points
+    automation-wired repos at the adoption PR and falls back to the
+    `install.sh --force` one-liner for repos without the workflow. **Breaking**
+    for consumers scripting `just devc-upgrade` — use the one-liner instead
+
 ### Fixed
 
 - **Scaffolded CI summary gate now fails on cancelled required checks** ([#1414](https://github.com/vig-os/devkit/issues/1414))

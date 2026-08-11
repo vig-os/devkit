@@ -748,7 +748,7 @@ upgrade), the dev shell warns on every entry until the lock is advanced.
 
 ### Upgrade preflight guard and preview
 
-An upgrade (`just devc-upgrade`, or `install.sh --force`) rewrites and deletes
+An upgrade (a devkit-upgrade adoption PR, or a manual `install.sh --force`) rewrites and deletes
 files across the consumer tree, so the installer requires it to land on a
 dedicated working branch as a single reviewable, revertible diff
 ([#886](https://github.com/vig-os/devkit/issues/886)):
