@@ -29,6 +29,9 @@ from pathlib import Path
 import pytest
 
 from tests.workflow_scaffold import (
+    cached_tree,
+)
+from tests.workflow_scaffold import (
     jobs as _jobs,
 )
 from tests.workflow_scaffold import (
@@ -42,9 +45,6 @@ from tests.workflow_scaffold import (
 )
 from tests.workflow_scaffold import (
     run_text_of_job as _job_steps_text,
-)
-from tests.workflow_scaffold import (
-    scaffold_tree,
 )
 
 # Repository root (tests/ -> repo root) and the consumer scaffold tree.
@@ -183,14 +183,14 @@ def test_scaffold_prepare_forks_release_branch_from_dev() -> None:
     assert _branch_job_checkout_ref(_load(SCAFFOLD_PREPARE)) == "dev"
 
 
-def test_trunk_prepare_forks_release_branch_from_main(tmp_path: Path) -> None:
+def test_trunk_prepare_forks_release_branch_from_main() -> None:
     """Trunk: the release branch is cut from main, and the hook DAG survives.
 
     The trunk render retargets the branch base dev -> main; the extension hook
     (branch -> extension -> open-pr ordering) is model-independent and must
     still hold in the rendered trunk workflow.
     """
-    rendered = scaffold_tree(tmp_path, "trunk")
+    rendered = cached_tree("trunk")
     doc = _load(rendered / ".github" / "workflows" / "prepare-release.yml")
 
     assert _branch_job_checkout_ref(doc) == "main"

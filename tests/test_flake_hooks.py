@@ -24,6 +24,7 @@ Refs: #883
 
 from __future__ import annotations
 
+import functools
 import json
 import shlex
 import shutil
@@ -296,15 +297,21 @@ class TestCommitMsgHookContract:
         assert "check-agent-identity" in scaffold
 
 
-@pytest.fixture(scope="module")
-def consumer_config() -> dict[str, Any]:
-    """Build the generated config for a customized consumer shell."""
+@functools.cache
+def _consumer_config_set() -> dict[str, dict[str, Any]]:
+    """Build all three consumer hook configs in ONE nix build (#1417).
+
+    The customized, gitleaks-enabled, and trunk-workflow consumer shells are
+    independent ``mkProjectShell`` calls whose ``hooksConfigFile`` outputs are
+    collected into a single ``linkFarm``, so the suite pays one build instead
+    of three module-scoped ones. Cached for the whole pytest run.
+    """
     expr = f"""
     let
       flake = builtins.getFlake "path:{REPO_ROOT}";
       system = builtins.currentSystem;
       pkgs = import flake.inputs.nixpkgs {{ inherit system; }};
-      shell = flake.lib.mkProjectShell {{
+      customized = flake.lib.mkProjectShell {{
         inherit pkgs;
         hooks = {{
           typos.enable = false;
@@ -319,46 +326,50 @@ def consumer_config() -> dict[str, Any]:
         }};
         hooksExcludes = [ "^data/stopping/" ];
       }};
-    in
-    shell.hooksConfigFile
-    """
-    result = _run_nix(
-        ["build", "--impure", "--no-link", "--print-out-paths", "--expr", expr],
-        timeout=1800,
-    )
-    assert result.returncode == 0, (
-        "building the generated hook config failed:\n" + result.stderr
-    )
-    # The generated file is JSON preceded by "# …" comment lines; YAML is
-    # a JSON superset that treats them as comments, so parse with yaml.
-    return yaml.safe_load(Path(result.stdout.strip()).read_text())
-
-
-@pytest.fixture(scope="module")
-def gitleaks_enabled_config() -> dict[str, Any]:
-    """Generated config for a consumer that opts into the gitleaks hook (#1172)."""
-    expr = f"""
-    let
-      flake = builtins.getFlake "path:{REPO_ROOT}";
-      system = builtins.currentSystem;
-      pkgs = import flake.inputs.nixpkgs {{ inherit system; }};
-      shell = flake.lib.mkProjectShell {{
+      gitleaks = flake.lib.mkProjectShell {{
         inherit pkgs;
         hooks = {{
           gitleaks.enable = true;
         }};
       }};
+      trunk = flake.lib.mkProjectShell {{
+        inherit pkgs;
+        workflow = "trunk";
+        hooks = {{ }};
+      }};
     in
-    shell.hooksConfigFile
+    pkgs.linkFarm "consumer-hook-configs" [
+      {{ name = "customized"; path = customized.hooksConfigFile; }}
+      {{ name = "gitleaks"; path = gitleaks.hooksConfigFile; }}
+      {{ name = "trunk"; path = trunk.hooksConfigFile; }}
+    ]
     """
     result = _run_nix(
         ["build", "--impure", "--no-link", "--print-out-paths", "--expr", expr],
         timeout=1800,
     )
     assert result.returncode == 0, (
-        "building the gitleaks-enabled hook config failed:\n" + result.stderr
+        "building the consumer hook configs failed:\n" + result.stderr
     )
-    return yaml.safe_load(Path(result.stdout.strip()).read_text())
+    root = Path(result.stdout.strip())
+    # The generated files are JSON preceded by "# …" comment lines; YAML is
+    # a JSON superset that treats them as comments, so parse with yaml.
+    return {
+        name: yaml.safe_load((root / name).read_text())
+        for name in ("customized", "gitleaks", "trunk")
+    }
+
+
+@pytest.fixture(scope="module")
+def consumer_config() -> dict[str, Any]:
+    """The generated config for a customized consumer shell."""
+    return _consumer_config_set()["customized"]
+
+
+@pytest.fixture(scope="module")
+def gitleaks_enabled_config() -> dict[str, Any]:
+    """Generated config for a consumer that opts into the gitleaks hook (#1172)."""
+    return _consumer_config_set()["gitleaks"]
 
 
 class TestGitleaksOptInHook:
@@ -407,29 +418,10 @@ def trunk_consumer_config() -> dict[str, Any]:
     A ``DEVKIT_WORKFLOW=trunk`` workspace has no long-lived ``dev`` branch, so
     the flake-generated branch guard must drop the ``(?!dev$)`` clause — exactly
     what ``render_workflow_model`` does to the scaffolded YAML. Mirrors the
-    ``consumer_config`` fixture but threads ``workflow = "trunk"``.
+    ``consumer_config`` fixture but threads ``workflow = "trunk"`` (built in
+    the same single derivation set, #1417).
     """
-    expr = f"""
-    let
-      flake = builtins.getFlake "path:{REPO_ROOT}";
-      system = builtins.currentSystem;
-      pkgs = import flake.inputs.nixpkgs {{ inherit system; }};
-      shell = flake.lib.mkProjectShell {{
-        inherit pkgs;
-        workflow = "trunk";
-        hooks = {{ }};
-      }};
-    in
-    shell.hooksConfigFile
-    """
-    result = _run_nix(
-        ["build", "--impure", "--no-link", "--print-out-paths", "--expr", expr],
-        timeout=1800,
-    )
-    assert result.returncode == 0, (
-        "building the trunk-workflow hook config failed:\n" + result.stderr
-    )
-    return yaml.safe_load(Path(result.stdout.strip()).read_text())
+    return _consumer_config_set()["trunk"]
 
 
 class TestWorkflowModelBranchGuard:
