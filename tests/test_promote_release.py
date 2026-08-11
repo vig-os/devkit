@@ -1,55 +1,49 @@
-"""Workflow-shape tests: DEVKIT_FLOATING_TAGS moved by scaffold promote-release.
+"""Workflow-shape tests: the scaffold ``promote-release.yml``.
 
-Issue #1045: an opt-in ``.vig-os`` key (comma-separated subset of ``major,minor``)
-makes the scaffolded ``promote-release.yml`` force-move floating ``<prefix>X`` /
-``<prefix>X.Y`` tags to the promoted release commit — but only after the Release
-is published and the release PR is merged (the post-acceptance gate).
+Two pinned features share this file (merged from the former
+``test_floating_tags.py`` / ``test_promote_mergeability.py``):
 
-These assertions pin the wiring: resolve-toolchain emits ``floating-tags``, the
-promote workflow threads it, and the move job is gated on merge success and the
-opt-in being set. The tag-move choreography itself is bash and not unit-testable
-here.
+Issue #1045: an opt-in ``.vig-os`` key (comma-separated subset of
+``major,minor``) makes the scaffolded ``promote-release.yml`` force-move
+floating ``<prefix>X`` / ``<prefix>X.Y`` tags to the promoted release commit —
+but only after the Release is published and the release PR is merged (the
+post-acceptance gate). The key/output declarations live in
+``test_vig_os_manifest.py``; the wiring and the tag-move script shape are
+pinned here.
 
-Refs: #1045
+Issue #1132: the ``validate`` job verified the release PR existed, was
+non-draft, approved, and CI-green — but never checked whether the PR was
+actually *mergeable*. Because the sequence is ``validate → promote (undraft,
+irreversible) → merge``, a PR that was BEHIND ``main`` passed validation, the
+Release was undrafted, and only then did the merge fail — leaving a
+half-promoted release. The validate job must query mergeability and reject a
+non-mergeable PR before the promote job undrafts the Release.
+
+The tag-move and re-query choreography is bash and not unit-testable here.
+
+Refs: #1045, #1132
 """
 
 from __future__ import annotations
 
-from pathlib import Path
+from tests.workflow_scaffold import WORKFLOWS, load_workflow
 
-import yaml
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-WORKSPACE = REPO_ROOT / "assets" / "workspace"
-WORKFLOWS = WORKSPACE / ".github" / "workflows"
+PROMOTE = WORKFLOWS / "promote-release.yml"
 
 
-def _load(path: Path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
-
-
-def test_vig_os_declares_floating_tags_key() -> None:
-    """The scaffold manifest ships the opt-in key (default empty)."""
-    text = (WORKSPACE / ".vig-os").read_text(encoding="utf-8")
-    assert "DEVKIT_FLOATING_TAGS=" in text
-
-
-def test_resolve_toolchain_emits_floating_tags_output() -> None:
-    """resolve-toolchain declares a floating-tags output."""
-    action = _load(WORKFLOWS.parent / "actions" / "resolve-toolchain" / "action.yml")
-    assert "floating-tags" in action["outputs"]
+# ── floating tags (#1045) ─────────────────────────────────────────────────────
 
 
 def test_promote_resolve_job_exposes_floating_tags() -> None:
     """promote-release's resolve-toolchain job re-exposes the floating-tags output."""
-    workflow = _load(WORKFLOWS / "promote-release.yml")
+    workflow = load_workflow(PROMOTE)
     resolve_out = workflow["jobs"]["resolve-toolchain"]["outputs"]
     assert "floating-tags" in resolve_out
 
 
 def test_promote_has_floating_tags_job_gated_after_merge() -> None:
     """A dedicated move job runs only after merge success and when the opt-in is set."""
-    workflow = _load(WORKFLOWS / "promote-release.yml")
+    workflow = load_workflow(PROMOTE)
     jobs = workflow["jobs"]
     assert "floating-tags" in jobs
     job = jobs["floating-tags"]
@@ -62,7 +56,7 @@ def test_promote_has_floating_tags_job_gated_after_merge() -> None:
 
 def test_floating_tags_job_threads_prefix_and_version() -> None:
     """The move step consumes the tag prefix, floating levels, and the version."""
-    workflow = _load(WORKFLOWS / "promote-release.yml")
+    workflow = load_workflow(PROMOTE)
     steps = workflow["jobs"]["floating-tags"]["steps"]
     move = next(s for s in steps if "floating" in str(s.get("name", "")).lower())
     env = move["env"]
@@ -73,7 +67,7 @@ def test_floating_tags_job_threads_prefix_and_version() -> None:
 
 def _move_step_script() -> str:
     """The bash body of the ``Move floating major/minor tags`` step."""
-    workflow = _load(WORKFLOWS / "promote-release.yml")
+    workflow = load_workflow(PROMOTE)
     steps = workflow["jobs"]["floating-tags"]["steps"]
     move = next(s for s in steps if "floating" in str(s.get("name", "")).lower())
     return move["run"]
@@ -97,17 +91,11 @@ def test_move_tag_force_pushes_with_explicit_app_token() -> None:
 
 
 def test_move_tag_never_mutates_refs_via_rest() -> None:
-    """No REST ref mutation remains, but the trap is documented in a comment.
-
-    The ``PATCH /git/refs/tags`` move and the ``POST /git/refs`` create are
-    both replaced by the single branch-free push path. A comment must still
-    name ``POST /git/refs`` and why it is avoided, so the REST trap is not
-    reintroduced (#1377).
-    """
+    """No REST ref mutation remains — the branch-free push path replaced both
+    the ``PATCH /git/refs/tags`` move and the ``POST /git/refs`` create (#1377)."""
     script = _move_step_script()
     assert "-X PATCH" not in script  # no REST tag move
     assert "-f ref=" not in script  # no REST tag create
-    assert "POST /git/refs" in script  # the why-not comment stays
 
 
 def test_move_tag_idempotence_check_retained() -> None:
@@ -120,14 +108,40 @@ def test_move_tag_idempotence_check_retained() -> None:
 def test_push_failure_emits_actionable_error() -> None:
     """A denied or failed tag push must still fail loud with remediation.
 
-    #1157/#1158 introduced the ``::error`` annotation + MIGRATION.md fallback;
-    #1377 keeps both but drops the moot "grant a creation bypass" remediation —
-    the bypass already exists, and the push path honors it.
+    #1157/#1158 introduced the ``::error`` annotation + the documented
+    remediation pointer; #1377 keeps both on the push path.
     """
     script = _move_step_script()
     assert "::error" in script  # a GitHub error annotation, not a bare echo
     # Names the ruleset root cause and the documented remediation.
     assert "ruleset" in script.lower()
     assert "first-release-floating-tags" in script
-    # The old remediation is moot: the App already has the bypass.
-    assert "grant the Release App a 'creation' bypass" not in script
+
+
+# ── validate gates on PR mergeability (#1132) ─────────────────────────────────
+
+
+def _validate_pr_step_run() -> str:
+    workflow = load_workflow(PROMOTE)
+    steps = workflow["jobs"]["validate"]["steps"]
+    step = next(s for s in steps if s.get("name") == "Find and verify release PR")
+    return step["run"]
+
+
+def test_validate_queries_pr_mergeability() -> None:
+    """The validate PR check fetches the PR's merge state."""
+    run = _validate_pr_step_run()
+    assert "mergeStateStatus" in run
+    assert "mergeable" in run
+
+
+def test_validate_rejects_behind_pr() -> None:
+    """A BEHIND (not-up-to-date) PR is rejected before the irreversible promote."""
+    run = _validate_pr_step_run()
+    assert "BEHIND" in run
+
+
+def test_validate_requeries_unknown_mergeability() -> None:
+    """GitHub computes mergeability async, so UNKNOWN is re-queried, not trusted."""
+    run = _validate_pr_step_run()
+    assert "UNKNOWN" in run

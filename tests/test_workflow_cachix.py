@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import yaml
+from tests.workflow_scaffold import load_workflow as _load
 
 # Repository root (tests/ -> repo root).
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -25,10 +25,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 BUILD_IMAGE_ACTION = REPO_ROOT / ".github" / "actions" / "build-image" / "action.yml"
 NIX_IMAGE_WF = REPO_ROOT / ".github" / "workflows" / "nix-image.yml"
 RELEASE_WF = REPO_ROOT / ".github" / "workflows" / "release.yml"
-
-
-def _load(path: Path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 def _is_closure_push(step: dict) -> bool:

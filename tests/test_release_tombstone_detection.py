@@ -33,15 +33,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import yaml
+from tests.workflow_scaffold import load_workflow as _load
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_WORKFLOWS = REPO_ROOT / "assets" / "workspace" / ".github" / "workflows"
 DEVKIT_WORKFLOWS = REPO_ROOT / ".github" / "workflows"
-
-
-def _load(path: Path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
 def _step_run(workflow_path: Path, job: str, step_name: str) -> str:

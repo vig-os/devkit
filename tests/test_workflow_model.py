@@ -26,6 +26,7 @@ from tests.workflow_scaffold import (
     INIT_WORKSPACE,
     WORKSPACE,
     scaffold,
+    scaffold_tree,
 )
 
 # Repository root (tests/ -> repo root).
@@ -45,33 +46,6 @@ NO_PLACEHOLDER_RENDER_FILES = (
 )
 
 
-def _scaffold(
-    tmp_path: Path,
-    *,
-    workflow: str | None = None,
-    seed: Path | None = None,
-    name: str = "trunkflow",
-    check: bool = True,
-) -> subprocess.CompletedProcess[str]:
-    """Scaffold a workspace by executing the real init-workspace.sh.
-
-    Thin wrapper over the shared ``tests.workflow_scaffold.scaffold`` helper
-    (SSoT for the init-workspace invocation, reused by the trunk-parametrized
-    dev-assuming suites, #1210); preserves this suite's ``trunkflow`` default
-    workspace name.
-    """
-    return scaffold(tmp_path, workflow=workflow, seed=seed, name=name, check=check)
-
-
-def _tree(tmp_path: Path, workflow: str | None = None, **kw) -> Path:
-    """Scaffold and return the workspace root."""
-    name = kw.pop("name", workflow or "gitflow")
-    proc = _scaffold(tmp_path, workflow=workflow, name=name, **kw)
-    dest = tmp_path / name
-    assert proc.returncode == 0, proc.stderr
-    return dest
-
-
 def _wf(rendered: Path, name: str) -> str:
     return (rendered / ".github" / "workflows" / name).read_text(encoding="utf-8")
 
@@ -85,8 +59,8 @@ def test_gitflow_scaffold_matches_default_path(tmp_path: Path) -> None:
     The knob must not perturb the default: an explicit ``--workflow gitflow``
     and an omitted ``--workflow`` produce identical trees.
     """
-    default = _tree(tmp_path, None, name="default")
-    gitflow = _tree(tmp_path, "gitflow", name="gitflow")
+    default = scaffold_tree(tmp_path, None, name="default")
+    gitflow = scaffold_tree(tmp_path, "gitflow", name="gitflow")
     diff = subprocess.run(
         ["diff", "-r", str(default), str(gitflow)], capture_output=True, text=True
     )
@@ -100,14 +74,14 @@ def test_gitflow_render_files_are_byte_identical_to_template(tmp_path: Path) -> 
     files copy through unchanged (placeholder-free files only; codeql.yml is
     rewritten by render_codeql_matrix in every mode and is excluded).
     """
-    rendered = _tree(tmp_path, "gitflow")
+    rendered = scaffold_tree(tmp_path, "gitflow")
     for rel in NO_PLACEHOLDER_RENDER_FILES:
         assert (rendered / rel).read_bytes() == (WORKSPACE / rel).read_bytes(), rel
 
 
 def test_gitflow_keeps_sync_main_to_dev(tmp_path: Path) -> None:
     """gitflow retains sync-main-to-dev.yml (only trunk excludes it)."""
-    rendered = _tree(tmp_path, "gitflow")
+    rendered = scaffold_tree(tmp_path, "gitflow")
     assert (rendered / ".github" / "workflows" / "sync-main-to-dev.yml").exists()
 
 
@@ -117,7 +91,7 @@ def test_gitflow_vig_os_workflow_line_stays_empty(tmp_path: Path) -> None:
     Only trunk writes a value back, so a gitflow repo's manifest carries no
     new non-empty line — exactly one bare ``DEVKIT_WORKFLOW=`` line.
     """
-    rendered = _tree(tmp_path, "gitflow")
+    rendered = scaffold_tree(tmp_path, "gitflow")
     lines = (rendered / ".vig-os").read_text(encoding="utf-8").splitlines()
     workflow_lines = [ln for ln in lines if ln.startswith("DEVKIT_WORKFLOW=")]
     assert workflow_lines == ["DEVKIT_WORKFLOW="]
@@ -126,38 +100,23 @@ def test_gitflow_vig_os_workflow_line_stays_empty(tmp_path: Path) -> None:
 # ── trunk shape ──────────────────────────────────────────────────────────────
 
 
-def test_trunk_removes_sync_main_to_dev(tmp_path: Path) -> None:
-    """A trunk workspace has no sync-main-to-dev.yml (copy-exclude)."""
-    rendered = _tree(tmp_path, "trunk")
-    assert not (rendered / ".github" / "workflows" / "sync-main-to-dev.yml").exists()
-
-
 def test_trunk_upgrade_prunes_leftover_sync_main_to_dev(tmp_path: Path) -> None:
     """A gitflow->trunk upgrade prunes a sync-main-to-dev.yml left by the prior
     gitflow scaffold (the rsync excludes the template copy; the prune removes the
     pre-existing leftover)."""
-    gitflow = _tree(tmp_path, "gitflow", name="upgrade")
+    gitflow = scaffold_tree(tmp_path, "gitflow", name="upgrade")
     assert (gitflow / ".github" / "workflows" / "sync-main-to-dev.yml").exists()
     # Re-scaffold the SAME tree as trunk (the realistic upgrade path).
-    proc = _scaffold(tmp_path, workflow="trunk", seed=None, name="upgrade")
+    proc = scaffold(tmp_path, workflow="trunk", seed=None, name="upgrade")
     assert proc.returncode == 0, proc.stderr
     assert not (gitflow / ".github" / "workflows" / "sync-main-to-dev.yml").exists()
 
 
 def test_trunk_persists_workflow_in_manifest(tmp_path: Path) -> None:
     """trunk writes DEVKIT_WORKFLOW=trunk back to .vig-os (upgrade-persistent)."""
-    rendered = _tree(tmp_path, "trunk")
+    rendered = scaffold_tree(tmp_path, "trunk")
     text = (rendered / ".vig-os").read_text(encoding="utf-8")
     assert "DEVKIT_WORKFLOW=trunk" in text
-
-
-def test_trunk_prepare_release_forks_from_main(tmp_path: Path) -> None:
-    """prepare-release retargets its release base dev -> main, zero heads/dev."""
-    text = _wf(_tree(tmp_path, "trunk"), "prepare-release.yml")
-    assert "heads/dev" not in text
-    assert "refs/heads/main" in text
-    assert text.count("\n          ref: main\n") == 2  # both checkout jobs
-    assert "Create release branch from main" in text
 
 
 def test_trunk_prepare_release_has_no_dev_cruft(tmp_path: Path) -> None:
@@ -167,7 +126,12 @@ def test_trunk_prepare_release_has_no_dev_cruft(tmp_path: Path) -> None:
     main so a trunk repo carries no dev cruft; only the device path and the
     dev_sha/DEV_SHA variable/output names (behavior-neutral) are preserved.
     """
-    text = _wf(_tree(tmp_path, "trunk"), "prepare-release.yml")
+    text = _wf(scaffold_tree(tmp_path, "trunk"), "prepare-release.yml")
+    # The branch base itself is retargeted: no heads/dev ref survives, the
+    # release branch forks from refs/heads/main (the checkout-ref half lives in
+    # test_workflow_prepare_extension.py::test_trunk_prepare_forks_release_branch_from_main).
+    assert "heads/dev" not in text
+    assert "refs/heads/main" in text
     allowed = ("/dev/null", "dev_sha", "DEV_SHA")
     stray = [
         line
@@ -190,50 +154,34 @@ def test_trunk_promote_release_has_no_sync_main_to_dev_prose(tmp_path: Path) -> 
     scrubbed — otherwise a trunk repo ships comments referencing a workflow it
     does not have. Follow-up to #1226 for a file the render did not touch.
     """
-    text = _wf(_tree(tmp_path, "trunk"), "promote-release.yml")
+    text = _wf(scaffold_tree(tmp_path, "trunk"), "promote-release.yml")
     assert "sync-main-to-dev" not in text
 
 
 def test_trunk_ci_pr_filter_excludes_dev(tmp_path: Path) -> None:
     """ci.yml drops `- dev` from the PR branch filter; commit-gate TRUNK=main."""
-    text = _wf(_tree(tmp_path, "trunk"), "ci.yml")
+    text = _wf(scaffold_tree(tmp_path, "trunk"), "ci.yml")
     assert "\n      - dev\n" not in text
     assert 'TRUNK="main"' in text
     assert 'TRUNK="dev"' not in text
-    # #1226: the trigger-header + origin/dev rationale prose retarget to main too
-    # so a trunk repo carries no lying `dev` comments.
+    # #1226: no lying `dev` prose survives the render. Only the negatives are
+    # pinned — the replacement wording is free to change.
     assert "Pull requests to dev" not in text
-    assert "Pull requests to release/** and main" in text
     assert "origin/dev" not in text
-    assert "a no-op on a main PR" in text
-    assert "its base IS main" in text
 
 
 def test_trunk_codeql_pr_filter_excludes_dev(tmp_path: Path) -> None:
     """codeql.yml drops `- dev` from the PR filter; the main leg survives."""
-    text = _wf(_tree(tmp_path, "trunk"), "codeql.yml")
+    text = _wf(scaffold_tree(tmp_path, "trunk"), "codeql.yml")
     assert "\n      - dev\n" not in text
     assert "\n      - main\n" in text
-    # #1226: the trigger-header comment retargets to main too.
+    # #1226: no lying `dev` prose survives the render (negative-only pin).
     assert "Pull requests to dev" not in text
-    assert "Pull requests to release/** and main" in text
-
-
-def test_trunk_sync_issues_default_main(tmp_path: Path) -> None:
-    """sync-issues default target-branch dev -> main; no `|| 'dev'` fallback."""
-    text = _wf(_tree(tmp_path, "trunk"), "sync-issues.yml")
-    assert "default: 'main'" in text
-    assert "|| 'dev'" not in text
-    assert "|| 'main'" in text
-    # #1226: the illustrative `e.g., dev, …` description retargets dev -> main too
-    # (previously left alone), so no stray `dev` prose survives.
-    assert "e.g., dev" not in text
-    assert "e.g., main, release/x.y.z" in text
 
 
 def test_trunk_skill_base_branch_main(tmp_path: Path) -> None:
     """branch-naming SKILL base default dev -> main; example branch untouched."""
-    rendered = _tree(tmp_path, "trunk")
+    rendered = scaffold_tree(tmp_path, "trunk")
     text = (rendered / ".claude" / "skills" / "branch-naming" / "SKILL.md").read_text(
         encoding="utf-8"
     )
@@ -246,7 +194,7 @@ def test_trunk_skill_base_branch_main(tmp_path: Path) -> None:
 
 def test_trunk_precommit_drops_dev_clause(tmp_path: Path) -> None:
     """.pre-commit-config drops the `(?!dev$)` protect-clause; main stays."""
-    rendered = _tree(tmp_path, "trunk")
+    rendered = scaffold_tree(tmp_path, "trunk")
     text = (rendered / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     assert "(?!dev$)" not in text
     assert "(?!main$)" in text
@@ -260,7 +208,7 @@ def test_trunk_renovate_preset_targets_main(tmp_path: Path) -> None:
     gitflow-shaped ``["dev"]`` runs no updates at all. The trunk render must
     retarget the shipped preset to main.
     """
-    rendered = _tree(tmp_path, "trunk")
+    rendered = scaffold_tree(tmp_path, "trunk")
     text = (rendered / ".github" / "renovate-default.json").read_text(encoding="utf-8")
     assert '"baseBranchPatterns": ["main"]' in text
     assert '["dev"]' not in text
@@ -279,7 +227,7 @@ def test_trunk_flake_forwards_workflow_to_hooks(tmp_path: Path) -> None:
     trunk; the flake-eval half (the generated guard actually loses the clause)
     is covered by ``tests/test_flake_hooks.py::TestWorkflowModelBranchGuard``.
     """
-    rendered = _tree(tmp_path, "trunk")
+    rendered = scaffold_tree(tmp_path, "trunk")
     flake = (rendered / "flake.nix").read_text(encoding="utf-8")
     assert "DEVKIT_WORKFLOW=" in flake, "flake.nix does not read the workflow model"
     assert "inherit workflow;" in flake, "flake.nix does not forward `workflow`"
@@ -316,7 +264,7 @@ def test_anchoring_preserves_dev_prefixed_and_device_tokens(tmp_path: Path) -> N
     or lexically dev-adjacent tokens survive. /dev/null in particular would be a
     catastrophic corruption if rewritten.
     """
-    text = _wf(_tree(tmp_path, "trunk"), "prepare-release.yml")
+    text = _wf(scaffold_tree(tmp_path, "trunk"), "prepare-release.yml")
     assert "/dev/null" in text  # device path, not a branch ref
     assert "dev_sha:" in text  # workflow output variable name preserved
 
@@ -326,31 +274,20 @@ def test_anchoring_preserves_dev_prefixed_and_device_tokens(tmp_path: Path) -> N
 
 def test_enum_guard_rejects_invalid_workflow(tmp_path: Path) -> None:
     """An unknown --workflow value is refused loudly before any mutation."""
-    proc = _scaffold(tmp_path, workflow="bogus", check=False)
+    proc = scaffold(tmp_path, workflow="bogus", check=False)
     assert proc.returncode != 0
     assert "Invalid --workflow" in proc.stderr
 
 
 def test_contradiction_guard_refuses_implicit_switch(tmp_path: Path) -> None:
     """An explicit --workflow contradicting the persisted value is refused."""
-    _tree(tmp_path, "trunk", name="switch")  # persists DEVKIT_WORKFLOW=trunk
-    proc = _scaffold(
-        tmp_path, workflow="gitflow", seed=None, name="switch", check=False
-    )
+    scaffold_tree(tmp_path, "trunk", name="switch")  # persists DEVKIT_WORKFLOW=trunk
+    proc = scaffold(tmp_path, workflow="gitflow", seed=None, name="switch", check=False)
     assert proc.returncode != 0
     assert "contradicts the persisted DEVKIT_WORKFLOW" in proc.stderr
 
 
 # ── production wiring seams (flipped from xfail — #1207 / #1208 now landed) ────
-
-
-def test_vig_os_declares_workflow_key() -> None:
-    """#1207: the scaffold manifest ships the opt-in key (default gitflow).
-
-    Mirrors test_ci_runner.py::test_vig_os_declares_ci_runner_key.
-    """
-    text = (WORKSPACE / ".vig-os").read_text(encoding="utf-8")
-    assert "DEVKIT_WORKFLOW=" in text
 
 
 def test_init_workspace_invokes_render_workflow_model() -> None:

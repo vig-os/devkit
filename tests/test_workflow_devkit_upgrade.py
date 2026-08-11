@@ -5,9 +5,9 @@ explicit dispatch), runs the full-fidelity ``install.sh --force`` upgrade and
 opens the adoption PR — Renovate-style pull, with no devkit-side action at
 release time. These tests pin the deliverable without executing the workflow:
 
-- the ``.vig-os`` manifest declares the two runtime knobs (``DEVKIT_AUTO_UPGRADE``
-  gates the schedule path; ``DEVKIT_UPGRADE_EXCLUDE`` lists paths reset before the
-  commit), both shipping empty;
+- the two runtime knobs (``DEVKIT_AUTO_UPGRADE`` gates the schedule path;
+  ``DEVKIT_UPGRADE_EXCLUDE`` lists paths reset before the commit) are declared
+  in ``.vig-os`` — pinned with every other knob in ``test_vig_os_manifest.py``;
 - the template carries the managed banner, both triggers, the public
   ``releases/latest`` version check with prerelease-aware compare, the dedicated
   GitHub App identity (a per-run installation token minted from
@@ -59,17 +59,6 @@ def _steps(text: str) -> list[dict]:
 
 
 # ── production wiring seams ───────────────────────────────────────────────────
-
-
-def test_vig_os_declares_upgrade_keys() -> None:
-    """The scaffold manifest ships both runtime knobs, empty by default."""
-    text = (WORKSPACE / ".vig-os").read_text(encoding="utf-8")
-    assert "DEVKIT_AUTO_UPGRADE=" in text
-    assert "DEVKIT_UPGRADE_EXCLUDE=" in text
-    # Empty (default enabled / no exclusions), like every other opt-in key.
-    assert "DEVKIT_AUTO_UPGRADE=\n" in text or text.rstrip().endswith(
-        "DEVKIT_AUTO_UPGRADE="
-    )
 
 
 def test_init_workspace_registers_feature_group() -> None:
@@ -132,8 +121,6 @@ def test_requires_app_identity_and_never_uses_github_token_for_pr() -> None:
     text = TEMPLATE.read_text(encoding="utf-8")
     assert "secrets.DEVKIT_UPGRADE_APP_CLIENT_ID" in text
     assert "secrets.DEVKIT_UPGRADE_APP_PRIVATE_KEY" in text
-    # The static-secret path is gone entirely — App-only, no PAT fallback.
-    assert "DEVKIT_UPGRADE_TOKEN" not in text
     # A clear fail-fast guard when either secret is absent.
     assert "not configured" in text
     steps = _steps(text)

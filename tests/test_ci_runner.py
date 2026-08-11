@@ -16,18 +16,22 @@ Refs: #1173
 from __future__ import annotations
 
 import json
-import os
-import subprocess
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
-import yaml
 
-# Repository root (tests/ -> repo root).
-REPO_ROOT = Path(__file__).resolve().parent.parent
-WORKSPACE = REPO_ROOT / "assets" / "workspace"
-WORKFLOWS = WORKSPACE / ".github" / "workflows"
-RESOLVE_ACTION = WORKFLOWS.parent / "actions" / "resolve-toolchain" / "action.yml"
+from tests.workflow_scaffold import (
+    WORKFLOWS,
+)
+from tests.workflow_scaffold import (
+    load_workflow as _load,
+)
+from tests.workflow_scaffold import (
+    run_resolve_toolchain as _run_resolve,
+)
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # The hosted default kept when DEVKIT_CI_RUNNER is absent.
 HOSTED_DEFAULT = "ubuntu-24.04"
@@ -37,22 +41,6 @@ RUNNER_JSON_EXPR = "${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
 
 # Toolchain jobs that must honor the consumer's runner override.
 RUNNER_JSON_JOBS = ("lint", "test", "commit-checks", "summary")
-
-
-def _load(path: Path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
-
-
-def test_vig_os_declares_ci_runner_key() -> None:
-    """The scaffold manifest ships the opt-in key (default empty)."""
-    text = (WORKSPACE / ".vig-os").read_text(encoding="utf-8")
-    assert "DEVKIT_CI_RUNNER=" in text
-
-
-def test_resolve_toolchain_emits_runner_json_output() -> None:
-    """resolve-toolchain declares a runner-json output for callers to consume."""
-    action = _load(RESOLVE_ACTION)
-    assert "runner-json" in action["outputs"]
 
 
 def test_ci_toolchain_jobs_use_runner_json() -> None:
@@ -74,50 +62,27 @@ def test_dependency_review_stays_hosted() -> None:
     assert workflow["jobs"]["dependency-review"]["runs-on"] == HOSTED_DEFAULT
 
 
-def _run_resolve(
-    tmp_path: Path, manifest: str | None, *, check: bool = True
-) -> dict[str, str]:
-    """Execute the resolve-toolchain step's real bash against a .vig-os manifest.
-
-    Returns the parsed GITHUB_OUTPUT key=value map. ``runner-json`` is emitted
-    early (before mode/tag resolution), so callers exercising an error path
-    (e.g. no manifest => default `both` mode with no tag) pass ``check=False``.
-    """
-    action = _load(RESOLVE_ACTION)
-    script = action["runs"]["steps"][0]["run"]
-
-    if manifest is not None:
-        (tmp_path / ".vig-os").write_text(manifest, encoding="utf-8")
-
-    github_output = tmp_path / "github_output"
-    github_output.touch()
-
-    env = {
-        **os.environ,
-        "INPUT_IMAGE_TAG": "",
-        "GITHUB_OUTPUT": str(github_output),
-    }
-    subprocess.run(
-        ["bash", "-c", script],
-        cwd=tmp_path,
-        env=env,
-        check=check,
-        capture_output=True,
-        text=True,
-    )
-
-    outputs: dict[str, str] = {}
-    for line in github_output.read_text(encoding="utf-8").splitlines():
-        if "=" in line:
-            key, _, value = line.partition("=")
-            outputs[key] = value
-    return outputs
-
-
-def test_runner_json_defaults_to_hosted_when_key_absent(tmp_path: Path) -> None:
-    """No DEVKIT_CI_RUNNER => a valid JSON array holding the hosted default."""
-    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\n")
-    assert json.loads(outputs["runner-json"]) == [HOSTED_DEFAULT]
+@pytest.mark.parametrize(
+    ("runner_value", "expected"),
+    [
+        pytest.param(None, [HOSTED_DEFAULT], id="key-absent"),
+        pytest.param("my-runner", ["my-runner"], id="single-label"),
+        pytest.param(
+            "self-hosted, linux, x64, meatgrinder",
+            ["self-hosted", "linux", "x64", "meatgrinder"],
+            id="multi-label-whitespace-trimmed",
+        ),
+    ],
+)
+def test_runner_json_emission(
+    tmp_path: Path, runner_value: str | None, expected: list[str]
+) -> None:
+    """DEVKIT_CI_RUNNER => a JSON label array; absent => the hosted default."""
+    manifest = "DEVKIT_MODE=direnv\n"
+    if runner_value is not None:
+        manifest += f"DEVKIT_CI_RUNNER={runner_value}\n"
+    outputs = _run_resolve(tmp_path, manifest)
+    assert json.loads(outputs["runner-json"]) == expected
 
 
 def test_runner_json_defaults_when_no_manifest(tmp_path: Path) -> None:
@@ -128,26 +93,6 @@ def test_runner_json_defaults_when_no_manifest(tmp_path: Path) -> None:
     """
     outputs = _run_resolve(tmp_path, None, check=False)
     assert json.loads(outputs["runner-json"]) == [HOSTED_DEFAULT]
-
-
-def test_runner_json_single_label(tmp_path: Path) -> None:
-    """A single custom label is emitted as a one-element JSON array."""
-    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_CI_RUNNER=my-runner\n")
-    assert json.loads(outputs["runner-json"]) == ["my-runner"]
-
-
-def test_runner_json_multi_label(tmp_path: Path) -> None:
-    """A comma-separated label list becomes a JSON array, whitespace trimmed."""
-    outputs = _run_resolve(
-        tmp_path,
-        "DEVKIT_MODE=direnv\nDEVKIT_CI_RUNNER=self-hosted, linux, x64, meatgrinder\n",
-    )
-    assert json.loads(outputs["runner-json"]) == [
-        "self-hosted",
-        "linux",
-        "x64",
-        "meatgrinder",
-    ]
 
 
 @pytest.mark.parametrize("mode", ["direnv", "both"])
@@ -175,51 +120,28 @@ FULL_REFS_TYPES = "feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style"
 COMMIT_CHECKS_STEP = "Validate commit messages and PR title"
 
 
-def test_resolve_toolchain_emits_refs_optional_types_output() -> None:
-    """resolve-toolchain declares a refs-optional-types output for CI to consume."""
-    action = _load(RESOLVE_ACTION)
-    assert "refs-optional-types" in action["outputs"]
-
-
-def test_refs_optional_types_defaults_to_chore_when_key_absent(tmp_path: Path) -> None:
-    """No DEVKIT_REFS_POLICY => the chore-optional default (only chore optional)."""
-    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\n")
-    assert outputs["refs-optional-types"] == "chore"
-
-
-def test_refs_optional_types_chore_optional_maps_to_chore(tmp_path: Path) -> None:
-    """chore-optional is today's behavior => the bare `chore` list."""
-    outputs = _run_resolve(
-        tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_REFS_POLICY=chore-optional\n"
-    )
-    assert outputs["refs-optional-types"] == "chore"
-
-
-def test_refs_optional_types_optional_maps_to_full_list(tmp_path: Path) -> None:
-    """optional never requires Refs => every approved type is optional."""
-    outputs = _run_resolve(
-        tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_REFS_POLICY=optional\n"
-    )
-    assert outputs["refs-optional-types"] == FULL_REFS_TYPES
-
-
-def test_refs_optional_types_required_maps_to_none_sentinel(tmp_path: Path) -> None:
-    """required => the `none` sentinel so every real type requires Refs."""
-    outputs = _run_resolve(
-        tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_REFS_POLICY=required\n"
-    )
-    assert outputs["refs-optional-types"] == "none"
-
-
-def test_refs_optional_types_invalid_falls_back_to_chore(tmp_path: Path) -> None:
-    """An unexpected value falls back to the safe chore-optional default.
-
-    The loud guard lives at the write path (init-workspace.sh); by the time CI
-    reads .vig-os the value was validated at scaffold, so a defensive fallback
-    keeps CI from breaking on an unexpected literal.
-    """
-    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_REFS_POLICY=garbage\n")
-    assert outputs["refs-optional-types"] == "chore"
+@pytest.mark.parametrize(
+    ("policy", "expected"),
+    [
+        pytest.param(None, "chore", id="key-absent-defaults-chore"),
+        pytest.param("chore-optional", "chore", id="chore-optional"),
+        pytest.param("optional", FULL_REFS_TYPES, id="optional-full-list"),
+        pytest.param("required", "none", id="required-none-sentinel"),
+        # The loud guard lives at the write path (init-workspace.sh); by the
+        # time CI reads .vig-os the value was validated at scaffold, so a
+        # defensive fallback keeps CI from breaking on an unexpected literal.
+        pytest.param("garbage", "chore", id="invalid-falls-back-chore"),
+    ],
+)
+def test_refs_optional_types_mapping(
+    tmp_path: Path, policy: str | None, expected: str
+) -> None:
+    """DEVKIT_REFS_POLICY maps to the resolved refs-optional-types list."""
+    manifest = "DEVKIT_MODE=direnv\n"
+    if policy is not None:
+        manifest += f"DEVKIT_REFS_POLICY={policy}\n"
+    outputs = _run_resolve(tmp_path, manifest)
+    assert outputs["refs-optional-types"] == expected
 
 
 def _commit_checks_step(workflow: dict) -> dict:

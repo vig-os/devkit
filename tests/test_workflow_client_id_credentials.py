@@ -56,6 +56,8 @@ def test_sync_step_authenticates_via_client_id(path: Path) -> None:
         # The deprecated numeric input must be gone, not merely superseded:
         # the action errors when both are set.
         assert "app-id" not in with_block
+    # And no reference to the numeric secret remains anywhere (retired by #1366).
+    assert "secrets.COMMIT_APP_ID" not in path.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("path", SYNC_WORKFLOWS, ids=_IDS)
@@ -73,9 +75,3 @@ def test_action_pin_is_sha_pinned_client_id_capable_release(path: Path) -> None:
         f"{path}: pinned sync-issues-action v{major}.{minor} predates the "
         "client-id input (vig-os/sync-issues-action#168, v0.5.0)"
     )
-
-
-@pytest.mark.parametrize("path", SYNC_WORKFLOWS, ids=_IDS)
-def test_numeric_commit_app_id_secret_is_gone(path: Path) -> None:
-    """No reference to the numeric COMMIT_APP_ID secret remains (retired by #1366)."""
-    assert "secrets.COMMIT_APP_ID" not in path.read_text(encoding="utf-8")
