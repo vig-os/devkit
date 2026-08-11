@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-08-10T01:29:13Z
+updated: 2026-08-10T14:18:20Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,18 +13,18 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-10T04:02:34.165Z
+synced: 2026-08-11T03:50:30.450Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.<br>[View this repository on the Mend.io Web Portal](https://developer.mend.io/github/vig-os/devkit).
 
-## Other Branches
+## Awaiting Schedule
 
-The following updates are pending. To force the creation of a PR, click on a checkbox below.
+The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
- - [ ] <!-- other-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
+ - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
 
 ## Detected Dependencies
 
@@ -289,12 +289,13 @@ The following updates are pending. To force the creation of a PR, click on a che
 
 </details>
 
-<details><summary>.github/workflows/sync-main-to-dev.yml (6)</summary>
+<details><summary>.github/workflows/sync-main-to-dev.yml (7)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `vig-os/commit-action v0.3.2@0361e9aa65b64711a18286ac5dfdcba7cc7a2ac7`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
 
@@ -517,13 +518,14 @@ The following updates are pending. To force the creation of a PR, click on a che
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/sync-main-to-dev.yml (8)</summary>
+<details><summary>assets/workspace/.github/workflows/sync-main-to-dev.yml (9)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `vig-os/commit-action v0.3.2@0361e9aa65b64711a18286ac5dfdcba7cc7a2ac7`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
