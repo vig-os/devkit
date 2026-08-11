@@ -32,7 +32,8 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from .test_flake_devshell import REPO_ROOT, _nix_env
+from .nix_helpers import REPO_ROOT
+from .nix_helpers import nix_env as _nix_env
 
 # The stable marker the guard prints; keep in sync with flake.nix.
 WARNING_MARKER = "dev-shell toolchain is devkit"

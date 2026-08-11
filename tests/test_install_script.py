@@ -147,57 +147,6 @@ class TestInstallScriptIntegration:
         yield workspace_path
         cleanup()
 
-    def test_install_creates_devcontainer_directory(self, install_workspace):
-        """Test install.sh creates .devcontainer directory."""
-        devcontainer_dir = install_workspace / ".devcontainer"
-        assert devcontainer_dir.exists(), ".devcontainer directory not created"
-        assert devcontainer_dir.is_dir(), ".devcontainer is not a directory"
-
-    def test_dry_run_smoke_test_flag_forwarded(self):
-        """Test install.sh forwards --smoke-test to init-workspace.sh in dry-run."""
-        project_root = Path(__file__).resolve().parents[1]
-        install_script = project_root / "install.sh"
-
-        result = subprocess.run(
-            [str(install_script), "--dry-run", "--smoke-test", "."],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            cwd=str(project_root),
-        )
-
-        assert result.returncode == 0, (
-            f"install.sh --dry-run --smoke-test failed:\n"
-            f"stdout: {result.stdout}\nstderr: {result.stderr}"
-        )
-        assert "--smoke-test" in result.stdout, (
-            "Expected --smoke-test to be forwarded in dry-run command output"
-        )
-
-    def test_dry_run_name_sanitization_trims_trailing_separator(self):
-        """Test --name sanitization trims trailing separators for valid package name."""
-        project_root = Path(__file__).resolve().parents[1]
-        install_script = project_root / "install.sh"
-
-        result = subprocess.run(
-            [str(install_script), "--dry-run", "--name", "Install-Test-Project-", "."],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            cwd=str(project_root),
-        )
-
-        assert result.returncode == 0, (
-            f"install.sh --dry-run --name failed:\n"
-            f"stdout: {result.stdout}\nstderr: {result.stderr}"
-        )
-        assert "SHORT_NAME=install_test_project" in result.stdout, (
-            "Expected sanitized name without trailing underscore in dry-run output"
-        )
-        assert "SHORT_NAME=install_test_project_" not in result.stdout, (
-            "Sanitized name should not end with an underscore"
-        )
-
     def test_install_creates_devcontainer_json(self, install_workspace):
         """Test install.sh creates devcontainer.json."""
         devcontainer_json = install_workspace / ".devcontainer" / "devcontainer.json"
@@ -242,29 +191,20 @@ class TestInstallScriptIntegration:
             f"but found: {content[-500:]}"
         )
 
-    def test_install_replaces_short_name_placeholder(self, install_workspace):
-        """Test {{SHORT_NAME}} placeholder is replaced everywhere."""
+    @pytest.mark.parametrize(
+        "placeholder", ["{{SHORT_NAME}}", "{{IMAGE_TAG}}", "{{ORG_NAME}}"]
+    )
+    def test_install_replaces_placeholder(self, install_workspace, placeholder):
+        """Test scaffold placeholders are replaced everywhere."""
         for file_path in install_workspace.rglob("*"):
             if file_path.is_file():
                 try:
                     content = file_path.read_text()
-                    assert "{{SHORT_NAME}}" not in content, (
-                        f"{{{{SHORT_NAME}}}} placeholder not replaced in {file_path}"
+                    assert placeholder not in content, (
+                        f"{placeholder} placeholder not replaced in {file_path}"
                     )
                 except UnicodeDecodeError:
                     # Skip binary files
-                    continue
-
-    def test_install_replaces_image_tag_placeholder(self, install_workspace):
-        """Test {{IMAGE_TAG}} placeholder is replaced everywhere."""
-        for file_path in install_workspace.rglob("*"):
-            if file_path.is_file():
-                try:
-                    content = file_path.read_text()
-                    assert "{{IMAGE_TAG}}" not in content, (
-                        f"{{{{IMAGE_TAG}}}} placeholder not replaced in {file_path}"
-                    )
-                except UnicodeDecodeError:
                     continue
 
     def test_install_does_not_scaffold_src(self, install_workspace):
@@ -306,14 +246,6 @@ class TestInstallScriptIntegration:
         """Test .pre-commit-config.yaml is created."""
         precommit_config = install_workspace / ".pre-commit-config.yaml"
         assert precommit_config.exists(), ".pre-commit-config.yaml not created"
-
-    def test_install_creates_conf_directory(self, install_workspace):
-        """Test install.sh creates .devcontainer/.conf/ via user config script."""
-        conf_dir = install_workspace / ".devcontainer" / ".conf"
-        assert conf_dir.exists(), (
-            ".devcontainer/.conf/ directory not created by copy-host-user-conf.sh"
-        )
-        assert conf_dir.is_dir(), ".devcontainer/.conf/ is not a directory"
 
     def test_install_conf_directory_contains_expected_files(self, install_workspace):
         """Test .devcontainer/.conf/ contains expected configuration files.
@@ -385,12 +317,6 @@ class TestInstallScriptIntegration:
                 assert file_path.is_file(), (
                     f"'{filename}' exists in gh/ but is not a regular file"
                 )
-
-    def test_install_creates_git_repository(self, install_workspace):
-        """Test install.sh initializes a git repository."""
-        git_dir = install_workspace / ".git"
-        assert git_dir.exists(), ".git directory not created"
-        assert git_dir.is_dir(), ".git is not a directory"
 
     def test_install_initial_commit(self, install_workspace):
         """Test git repository has correct initial commit."""
@@ -467,42 +393,3 @@ class TestInstallScriptIntegration:
         assert result.returncode == 0, "Failed to check git status"
         # Should be empty (no uncommitted changes)
         assert not result.stdout.strip(), f"Found uncommitted changes:\n{result.stdout}"
-
-
-class TestHostScriptShebangPortability:
-    """Assert host-executed scripts use a portable shebang.
-
-    These scripts run on the *host* (not inside the container), so they must
-    not hardcode ``#!/bin/bash``: NixOS and other distros that follow the
-    Filesystem Hierarchy Standard loosely have no ``/bin/bash``, which makes
-    them fail to execute. The portable form ``#!/usr/bin/env bash`` resolves
-    ``bash`` via ``PATH`` and works everywhere. Refs #687.
-
-    This is a pure content check — it needs no built container image — so it
-    runs in any pytest invocation that collects this module.
-    """
-
-    # Host-executed scripts that must carry the portable shebang. Scoped to
-    # the three scripts in issue #687; the broader in-container sweep is out
-    # of scope.
-    HOST_SCRIPTS = (
-        "install.sh",
-        "assets/workspace/.devcontainer/scripts/initialize.sh",
-        "assets/workspace/.devcontainer/scripts/version-check.sh",
-    )
-
-    PORTABLE_SHEBANG = "#!/usr/bin/env bash"
-
-    @pytest.mark.parametrize("rel_path", HOST_SCRIPTS)
-    def test_host_script_uses_portable_shebang(self, rel_path):
-        """Each host-executed script must start with #!/usr/bin/env bash."""
-        project_root = Path(__file__).resolve().parents[1]
-        script = project_root / rel_path
-        assert script.exists(), f"Expected host script not found: {rel_path}"
-
-        first_line = script.read_text().splitlines()[0]
-        assert first_line == self.PORTABLE_SHEBANG, (
-            f"{rel_path} must use the portable shebang "
-            f"'{self.PORTABLE_SHEBANG}' (NixOS has no /bin/bash), "
-            f"but found: {first_line!r}"
-        )

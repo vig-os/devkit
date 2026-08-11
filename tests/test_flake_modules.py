@@ -23,15 +23,19 @@ Refs: #884
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
-# Repository root (two levels up: tests/ -> repo root).
-REPO_ROOT = Path(__file__).resolve().parent.parent
+if TYPE_CHECKING:
+    from pathlib import Path
+
+from . import nix_helpers
+from .nix_helpers import REPO_ROOT
+from .nix_helpers import nix_env as _nix_env
+
 FIXTURE = REPO_ROOT / "tests" / "fixtures" / "native_ext"
 
 pytestmark = pytest.mark.skipif(
@@ -40,32 +44,10 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _nix_env() -> dict[str, str]:
-    """Environment for nix invocations with flakes enabled and the public cache."""
-    env = os.environ.copy()
-    env.setdefault(
-        "NIX_CONFIG",
-        "experimental-features = nix-command flakes\n"
-        "extra-substituters = https://vig-os.cachix.org\n"
-        "extra-trusted-public-keys = "
-        "vig-os.cachix.org-1:yoOYRi3bvnM6ThxO0joLt7vtzhTfkq3r6jykeUMg7Bk=",
-    )
-    return env
-
-
 @pytest.fixture(scope="session")
 def current_system() -> str:
     """The Nix system double for the host (e.g. x86_64-linux)."""
-    result = subprocess.run(
-        ["nix", "eval", "--raw", "--impure", "--expr", "builtins.currentSystem"],
-        capture_output=True,
-        text=True,
-        env=_nix_env(),
-        timeout=120,
-    )
-    if result.returncode != 0:
-        pytest.fail("Failed to resolve builtins.currentSystem:\n" + result.stderr)
-    return result.stdout.strip()
+    return nix_helpers.current_system()
 
 
 def _develop_native(
