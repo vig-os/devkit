@@ -255,6 +255,144 @@ class TestGenerateDocs:
         assert "<!-- Missing: nonexistent.md -->" in content
 
 
+def _point_generate_to_temp_skills(
+    monkeypatch, tmp_path: Path, skill_files: dict[str, str]
+) -> None:
+    """Point load_skills() at a temp .claude/skills tree.
+
+    ``skill_files`` maps a skill directory name to its SKILL.md content. An
+    empty mapping leaves the skills directory absent to exercise the
+    missing-dir branch.
+    """
+    docs_path = tmp_path / "docs"
+    docs_path.mkdir(exist_ok=True)
+    fake_generate = docs_path / "generate.py"
+    fake_generate.write_text("# test helper\n")
+
+    for name, content in skill_files.items():
+        skill_dir = tmp_path / ".claude" / "skills" / name
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(content)
+
+    monkeypatch.setattr(generate, "__file__", str(fake_generate))
+
+
+class TestLoadSkills:
+    """Unit tests for load_skills() front-matter parsing (#1418)."""
+
+    def test_missing_skills_dir_returns_empty(self, tmp_path, monkeypatch, capsys):
+        """An absent .claude/skills directory yields [] plus a stderr warning."""
+        _point_generate_to_temp_skills(monkeypatch, tmp_path, {})
+        assert generate.load_skills() == []
+        assert "Skills directory not found" in capsys.readouterr().err
+
+    def test_parses_front_matter_fields(self, tmp_path, monkeypatch):
+        """name/description map to name, slash-trigger, description, group."""
+        _point_generate_to_temp_skills(
+            monkeypatch,
+            tmp_path,
+            {
+                "code_review": (
+                    "---\nname: code_review\ndescription: Review code\n---\nBody\n"
+                )
+            },
+        )
+        assert generate.load_skills() == [
+            {
+                "name": "code_review",
+                "trigger": "/code-review",
+                "description": "Review code",
+                "group": "code",
+            }
+        ]
+
+    def test_description_defaults_to_empty(self, tmp_path, monkeypatch):
+        """A skill without a description still loads, with description ''."""
+        _point_generate_to_temp_skills(
+            monkeypatch, tmp_path, {"ci_check": "---\nname: ci_check\n---\nBody\n"}
+        )
+        (skill,) = generate.load_skills()
+        assert skill["description"] == ""
+
+    def test_skips_file_without_front_matter(self, tmp_path, monkeypatch):
+        """A SKILL.md that does not open with --- is ignored."""
+        _point_generate_to_temp_skills(
+            monkeypatch, tmp_path, {"code_x": "# just a heading\nname: code_x\n"}
+        )
+        assert generate.load_skills() == []
+
+    def test_skips_unterminated_front_matter(self, tmp_path, monkeypatch):
+        """Front matter without a closing --- is ignored."""
+        _point_generate_to_temp_skills(
+            monkeypatch, tmp_path, {"code_x": "---\nname: code_x\n"}
+        )
+        assert generate.load_skills() == []
+
+    def test_skips_front_matter_without_name(self, tmp_path, monkeypatch):
+        """Front matter lacking a name key is ignored."""
+        _point_generate_to_temp_skills(
+            monkeypatch, tmp_path, {"code_x": "---\ndescription: no name\n---\n"}
+        )
+        assert generate.load_skills() == []
+
+    def test_entries_sorted_by_directory(self, tmp_path, monkeypatch):
+        """Skills come back in sorted path order regardless of creation order."""
+        _point_generate_to_temp_skills(
+            monkeypatch,
+            tmp_path,
+            {
+                "issue_triage": "---\nname: issue_triage\n---\n",
+                "ci_check": "---\nname: ci_check\n---\n",
+            },
+        )
+        assert [s["name"] for s in generate.load_skills()] == [
+            "ci_check",
+            "issue_triage",
+        ]
+
+
+class TestGroupSkills:
+    """Unit tests for group_skills() ordering and heading merges (#1418)."""
+
+    @staticmethod
+    def _skill(name: str) -> dict:
+        return {
+            "name": name,
+            "trigger": "/" + name.replace("_", "-"),
+            "description": "",
+            "group": name.split("_")[0],
+        }
+
+    def test_groups_follow_declared_order_and_drop_empty(self):
+        """Non-empty groups appear in SKILL_GROUP_ORDER order; empty ones drop."""
+        groups = generate.group_skills(
+            [self._skill("worktree_plan"), self._skill("issue_triage")]
+        )
+        assert [g["heading"] for g in groups] == [
+            "Issue Management",
+            "Autonomous Worktree Pipeline",
+        ]
+
+    def test_git_and_pr_share_one_heading(self):
+        """git and pr prefixes merge into the single Git & PR group."""
+        groups = generate.group_skills(
+            [self._skill("git_commit"), self._skill("pr_create")]
+        )
+        (group,) = groups
+        assert group["heading"] == "Git & PR (Interactive)"
+        assert [s["name"] for s in group["skills"]] == ["git_commit", "pr_create"]
+
+    def test_unknown_prefix_is_dropped(self):
+        """A skill whose prefix matches no declared group is not rendered."""
+        assert generate.group_skills([self._skill("zzz_orphan")]) == []
+
+    def test_intro_attached_and_prefixes_removed(self):
+        """Groups carry their intro text and no internal prefixes set."""
+        (group,) = generate.group_skills([self._skill("inception_explore")])
+        assert group["intro"] == generate.SKILL_GROUP_INTROS["inception"]
+        assert "prefixes" not in group
+
+
 class TestInstallScriptUnit:
     """Unit tests for install.sh dry-run side effects and name sanitization.
 

@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`just doctor` host diagnostics + audit coverage gaps closed** ([#1418](https://github.com/vig-os/devkit/issues/1418))
+  - New `just doctor` recipe reports host prerequisites (git identity, commit
+    signing, ssh-agent, gh auth) as PASS/WARN diagnostics and always exits 0
+  - New tests for previously uncovered behavior: `docs/generate.py` skill
+    parsing/grouping units, image coverage for nvim/actionlint and locale
+    archive resolution, read-only token-ceiling pins for the scaffolded
+    release jobs, and stub-driven behavioral tests for the scaffolded
+    `devc-upgrade` recipe
 - **Changelog entries for devkit adoption PRs** ([#1404](https://github.com/vig-os/devkit/issues/1404))
   - The scaffolded `renovate-changelog-build.yml` now also accepts PRs opened
     by the devkit-upgrade App (`vigos-devkit-upgrade[bot]`), so an adoption PR

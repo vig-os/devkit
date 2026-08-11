@@ -93,3 +93,35 @@ def test_polls_filter_on_the_release_branch() -> None:
     run = _step("Wait for sync-issues")["run"]
     # --branch appears on both the status poll and the conclusion poll.
     assert run.count('--branch "release/$VERSION"') >= 2
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# Token ceilings (#1418): the release-core jobs are read-only by construction —
+# every write goes through a minted App token, never GITHUB_TOKEN. Pinning the
+# exact permission maps makes a silent widening fail loudly.
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+def test_workflow_ceiling_is_read_only() -> None:
+    """The workflow-level GITHUB_TOKEN ceiling grants reads only."""
+    workflow = load_workflow(WORKFLOWS / "release-core.yml")
+    assert workflow["permissions"] == {"contents": "read", "packages": "read"}
+
+
+def test_job_ceilings_are_pinned_read_only() -> None:
+    """Each job's ceiling is the exact read-only map (test inherits the top)."""
+    jobs = load_workflow(WORKFLOWS / "release-core.yml")["jobs"]
+    assert jobs["validate"]["permissions"] == {
+        "contents": "read",
+        "pull-requests": "read",
+        "packages": "read",
+    }
+    assert jobs["finalize"]["permissions"] == {
+        "actions": "read",
+        "contents": "read",
+        "packages": "read",
+    }
+    assert "permissions" not in jobs["test"], (
+        "the test job inherits the read-only workflow ceiling; adding its own "
+        "block must be a deliberate, reviewed change"
+    )

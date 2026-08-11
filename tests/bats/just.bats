@@ -101,6 +101,98 @@ EOF
     assert_success
 }
 
+# ── devc-upgrade behavioral coverage (#1418) ──────────────────────────────────
+# The greps above pin the recipe text; these run the scaffolded recipe for real
+# against stub `curl`/`podman` binaries (the clean.bats pattern). The curl stub
+# logs its arguments and emits a fake install.sh body, so the `curl | bash -s`
+# pipe logs exactly what the installer would receive.
+
+_setup_devc_upgrade() {
+    DEVC_WORK="$BATS_TEST_TMPDIR/consumer"
+    DEVC_STUBS="$BATS_TEST_TMPDIR/devc-stubs"
+    DEVC_LOG="$BATS_TEST_TMPDIR/devc.log"
+    DEVC_JUSTFILE="$PROJECT_ROOT/assets/workspace/.devcontainer/justfile.devc"
+    mkdir -p "$DEVC_WORK" "$DEVC_STUBS"
+    cat >"$DEVC_STUBS/curl" <<'STUB'
+#!/usr/bin/env bash
+printf 'curl %s\n' "$*" >>"$DEVC_LOG"
+printf '%s\n' 'printf "install.sh %s\n" "$*" >>"$DEVC_LOG"'
+STUB
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$DEVC_STUBS/podman"
+    chmod +x "$DEVC_STUBS/curl" "$DEVC_STUBS/podman"
+}
+
+_run_devc_upgrade() {
+    run env PATH="$DEVC_STUBS:$PATH" DEVC_LOG="$DEVC_LOG" \
+        just --justfile "$DEVC_JUSTFILE" --working-directory "$DEVC_WORK" \
+        devc-upgrade
+}
+
+@test "devc-upgrade upgrades to the DEVKIT_VERSION pin end-to-end (#854, #1418)" {
+    _setup_devc_upgrade
+    printf 'DEVKIT_VERSION="1.6.0"\n' >"$DEVC_WORK/.vig-os"
+    _run_devc_upgrade
+    assert_success
+    run grep -F 'vig-os/devkit/1.6.0/install.sh' "$DEVC_LOG"
+    assert_success
+    run grep -F 'install.sh --force --version 1.6.0 .' "$DEVC_LOG"
+    assert_success
+}
+
+@test "devc-upgrade honors the legacy DEVCONTAINER_VERSION pin end-to-end (#781, #1418)" {
+    _setup_devc_upgrade
+    printf 'DEVCONTAINER_VERSION="0.9.9"\n' >"$DEVC_WORK/.vig-os"
+    _run_devc_upgrade
+    assert_success
+    run grep -F 'vig-os/devkit/0.9.9/install.sh' "$DEVC_LOG"
+    assert_success
+    run grep -F 'install.sh --force --version 0.9.9 .' "$DEVC_LOG"
+    assert_success
+}
+
+@test "devc-upgrade without a pin stays on the floating main installer (#854, #1418)" {
+    _setup_devc_upgrade
+    _run_devc_upgrade
+    assert_success
+    run grep -F 'vig-os/devkit/main/install.sh' "$DEVC_LOG"
+    assert_success
+    run grep -F -- '--version' "$DEVC_LOG"
+    assert_failure
+}
+
+@test "devc-upgrade treats a latest pin as floating (#854, #1418)" {
+    _setup_devc_upgrade
+    printf 'DEVKIT_VERSION="latest"\n' >"$DEVC_WORK/.vig-os"
+    _run_devc_upgrade
+    assert_success
+    run grep -F 'vig-os/devkit/main/install.sh' "$DEVC_LOG"
+    assert_success
+}
+
+@test "devc-upgrade errors before curling when no container runtime exists (#1418)" {
+    _setup_devc_upgrade
+    # Minimal PATH: interpreter only — no podman/docker/curl resolvable.
+    minimal="$BATS_TEST_TMPDIR/minimal-bin"
+    mkdir -p "$minimal"
+    ln -s "$(command -v bash)" "$minimal/bash"
+    run env PATH="$minimal" DEVC_LOG="$DEVC_LOG" \
+        "$(command -v just)" --justfile "$DEVC_JUSTFILE" \
+        --working-directory "$DEVC_WORK" devc-upgrade
+    assert_failure
+    assert_output --partial "Neither podman nor docker is installed"
+    [ ! -s "$DEVC_LOG" ]
+}
+
+@test "devc-upgrade refuses to run inside a container (#1418)" {
+    _setup_devc_upgrade
+    run env PATH="$DEVC_STUBS:$PATH" DEVC_LOG="$DEVC_LOG" container=podman \
+        just --justfile "$DEVC_JUSTFILE" --working-directory "$DEVC_WORK" \
+        devc-upgrade
+    assert_failure
+    assert_output --partial "must be run from a HOST terminal"
+    [ ! -s "$DEVC_LOG" ]
+}
+
 @test "release recipes dispatch their workflow from the expected ref" {
     # recipe:expected-REF table; prepare-release cuts from dev, the rest act on
     # the release branch.

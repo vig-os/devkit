@@ -42,6 +42,54 @@ format:
 precommit:
     prek run --all-files
 
+# Diagnostics only — always exits 0 (#1418; replaces the deleted
+# TestHostGitSignatureSetup skip-on-failure tests).
+# Diagnose host prerequisites: git identity, commit signing, ssh-agent, gh auth
+[group('info')]
+doctor:
+    #!/usr/bin/env bash
+    echo "vigOS devkit doctor"
+    echo "==================="
+
+    name="$(git config user.name || true)"
+    if [ -n "$name" ]; then
+        echo "PASS git user.name: $name"
+    else
+        echo "WARN git user.name: not set (git config --global user.name ...)"
+    fi
+
+    email="$(git config user.email || true)"
+    if [ -n "$email" ]; then
+        echo "PASS git user.email: $email"
+    else
+        echo "WARN git user.email: not set (git config --global user.email ...)"
+    fi
+
+    gpgsign="$(git config commit.gpgsign || true)"
+    format="$(git config gpg.format || true)"
+    signingkey="$(git config user.signingkey || true)"
+    if [ "$gpgsign" = "true" ] && [ -n "$signingkey" ] && \
+        { [ "$format" != "ssh" ] || [ -r "$signingkey" ] || \
+          [ "${signingkey#ssh-}" != "$signingkey" ]; }; then
+        echo "PASS commit signing: $format key $signingkey"
+    else
+        echo "WARN commit signing: incomplete (commit.gpgsign=$gpgsign, gpg.format=$format, user.signingkey=$signingkey)"
+    fi
+
+    if [ -n "${SSH_AUTH_SOCK:-}" ] && ssh-add -l >/dev/null 2>&1; then
+        echo "PASS ssh-agent: reachable with $(ssh-add -l | wc -l) key(s)"
+    else
+        echo "WARN ssh-agent: not reachable or no keys loaded"
+    fi
+
+    if gh auth status >/dev/null 2>&1; then
+        echo "PASS gh auth: logged in"
+    else
+        echo "WARN gh auth: not authenticated (run: gh auth login)"
+    fi
+
+    exit 0
+
 # Show image information
 [group('info')]
 info:

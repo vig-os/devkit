@@ -396,6 +396,12 @@ class TestSystemTools:
         """Test that nano is installed (path-agnostic, via --version)."""
         assert_tool_runs(host, "nano", "--version")
 
+    def test_nvim_runs(self, host):
+        """Test that neovim runs (devTools member with no image test before #1418)."""
+        result = host.run("nvim --version")
+        assert result.rc == 0, "nvim --version failed"
+        assert "nvim" in result.stdout.lower()
+
     def test_gh_version(self, host):
         """Test that gh runs (version is nixpkgs-pinned via flake.lock, not asserted)."""
         result = host.run("gh --version")
@@ -640,6 +646,11 @@ class TestDevelopmentTools:
             f"Expected ruff {expected}, got: {result.stdout}"
         )
 
+    def test_actionlint_runs(self, host):
+        """Test that actionlint runs (pre-commit hook tool, #995; no image test before #1418)."""
+        result = host.run("actionlint -version")
+        assert result.rc == 0, "actionlint -version failed"
+
     def test_pip_licenses_installed(self, host):
         """Test that pip-licenses is installed."""
         result = host.run("pip-licenses --version")
@@ -817,6 +828,35 @@ class TestEnvironmentVariables:
         assert result.rc == 0, f"Failed to read {name}"
         assert result.stdout.strip() == expected, (
             f"Expected {name}={expected}, got: {result.stdout.strip()}"
+        )
+
+    def test_locale_archive_points_at_shipped_archive(self, host):
+        """LOCALE_ARCHIVE targets an existing archive file (#1104, #1418).
+
+        The exact value is a Nix store path, so only the shape and the file's
+        existence are asserted, not the hash.
+        """
+        result = host.run("printenv LOCALE_ARCHIVE")
+        assert result.rc == 0, "LOCALE_ARCHIVE is not set"
+        archive = result.stdout.strip()
+        assert archive.endswith("/lib/locale/locale-archive"), (
+            f"Unexpected LOCALE_ARCHIVE shape: {archive}"
+        )
+        assert host.file(archive).exists, f"Locale archive missing: {archive}"
+
+    def test_locale_resolves_en_us_utf8(self, host):
+        """setlocale('') resolves en_US.UTF-8 from the slimmed archive (#1104).
+
+        The image ships a single-locale archive; if it were missing or lacked
+        en_US.UTF-8, glibc setlocale would fail and this exits non-zero.
+        """
+        result = host.run(
+            "python3 -c \"import locale; locale.setlocale(locale.LC_ALL, ''); "
+            'print(locale.getlocale())"'
+        )
+        assert result.rc == 0, f"setlocale failed: {result.stderr}"
+        assert "en_US" in result.stdout and "UTF-8" in result.stdout, (
+            f"Expected en_US UTF-8 locale, got: {result.stdout}"
         )
 
 
