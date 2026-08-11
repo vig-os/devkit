@@ -186,3 +186,16 @@ def test_scaffold_publish_accepts_a_lost_race_only_at_the_release_commit() -> No
         "a lost race is acceptable only when the existing ref resolves to the "
         "release commit"
     )
+
+
+def test_scaffold_publish_ceiling_is_read_only() -> None:
+    """Workflow and publish-job ceilings grant reads only (#1418).
+
+    Tag creation and release publishing go through the minted App token, so
+    GITHUB_TOKEN never needs a write grant; a widening here must fail review.
+    """
+    workflow = load_workflow(SCAFFOLD_PUBLISH)
+    read_only = {"contents": "read", "packages": "read"}
+    assert workflow["permissions"] == read_only
+    (job,) = workflow["jobs"].values()
+    assert job["permissions"] == read_only
