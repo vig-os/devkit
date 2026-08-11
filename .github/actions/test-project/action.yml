@@ -10,7 +10,7 @@
 # - Generates code coverage report and GitHub Actions job summary (suite: all)
 #
 # Inputs:
-#   suite: Which checks to run (all | lint | utils). Default: 'all'
+#   suite: Which checks to run (all | lint). Default: 'all'
 #   test-args: Arguments to pass to pytest (default: '-v -s --tb=short')
 #
 # Usage:
@@ -27,7 +27,7 @@ description: 'Run project-level checks: linters, tests, code coverage'
 
 inputs:
   suite:
-    description: 'Which checks to run: all | lint | utils'
+    description: 'Which checks to run: all | lint'
     required: false
     default: 'all'
 
@@ -93,14 +93,6 @@ runs:
         echo "Running BATS tests..."
         bats tests/bats/
 
-    # --- Individual suite runs (no coverage, for targeted testing) -----------
-    - name: Run utility tests
-      if: inputs.suite == 'utils'
-      shell: bash
-      env:
-        TEST_ARGS: ${{ inputs.test-args }}
-      run: uv run pytest tests/test_utils.py $TEST_ARGS
-
     # --- Combined run with coverage (suite: all) ----------------------------
     - name: Run project tests with coverage
       if: inputs.suite == 'all'
@@ -109,11 +101,14 @@ runs:
         TEST_ARGS: ${{ inputs.test-args }}
       run: |
         # Run every lightweight shape test under tests/ by default (#1061):
-        # `tests/` minus an explicit, slow-changing deny-list of the heavy
-        # modules that need Nix (flake* / downstream_flake) or a built image +
-        # podman (image / install / integration) and are covered by their own
-        # targeted jobs (nix-checks, test-image, test-integration). New shape-test
-        # files are picked up automatically — no edit to this list required.
+        # `tests/` minus an explicit, slow-changing deny-list of the heavy Nix
+        # modules (flake checks/devshell/hooks/modules/services, downstream
+        # flake) or those needing a built image + podman (image / install /
+        # integration), each covered by its own targeted step or job
+        # (nix-checks, test-image, test-integration). test_flake_version_guard
+        # stays in the sweep: it needs only the provisioned dev shell this lane
+        # already has (#1413). New shape-test files are picked up automatically
+        # — no edit to this list required.
         uv run pytest \
           tests/ \
           --ignore=tests/test_downstream_flake.py \

@@ -171,7 +171,10 @@ jobs:
   project-checks:
     name: Project Checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # 25 (was 10): the hooks-fidelity + services and widened dev-shell steps
+    # added by #1413 run extra `nix develop`/`nix build` invocations; with a
+    # warm Cachix they are minutes, not tens of minutes, but need headroom.
+    timeout-minutes: 25
     if: |
       github.event_name != 'workflow_dispatch' ||
       inputs.test-suite == 'all' ||
@@ -207,14 +210,31 @@ jobs:
 
       # Guard the dev-shell <-> image parity: the dev-shell must expose
       # `python3` (#729), carry the `prek` hook runner in the devTools SSoT
-      # (#778), and must NOT leak the Nix C++ runtime onto an FHS host's
-      # LD_LIBRARY_PATH (#703). These drive `nix develop` directly (not covered
-      # by `test-project`'s pytest scope), so run them explicitly here where Nix
-      # + the dev profile are warm. Refs #729, #703, #778.
-      - name: Check dev-shell python/prek parity + FHS leak-guard
+      # (#778), must NOT leak the Nix C++ runtime onto an FHS host's
+      # LD_LIBRARY_PATH (#703), and must provide the fixture-driven tool/env
+      # contracts (bats + helper libs, prek binary hooks, pymarkdown, uv python
+      # pinning, agent-toolkit superset, vig-utils console scripts). These drive
+      # `nix develop` directly (not covered by `test-project`'s pytest scope),
+      # so run them explicitly here where Nix + the dev profile are warm. The
+      # NixOS-gated and build-heavy cases (per-tool sweep, python override
+      # matrix) stay local-only. Refs #729, #703, #778, #1413.
+      - name: Check dev-shell contracts (parity, leak-guard, tool/env fixtures)
         run: |
           uv run pytest tests/test_flake_devshell.py \
-            -k "exposes_python3_and_precommit or hook_runner_is_prek or no_nix_cxx_runtime_leak" -v
+            -k "exposes_python3_and_precommit or hook_runner_is_prek or no_nix_cxx_runtime_leak \
+                or provides_bats or provides_precommit_binary_hooks or provides_pymarkdown \
+                or bats_lib_path or uv_python or superset_of_agent_toolkit or console_scripts" -v
+
+      # Run the git-hooks fidelity gate (nix/hooks.nix <-> committed YAML, the
+      # consumer hooks/hooksExcludes surface, workflow branch-guards, gitleaks
+      # opt-in) and the services-module contracts. Previously these two modules
+      # ran in no CI job at all despite being deny-listed from the test-project
+      # sweep as "covered by their own targeted jobs". The services PoC boot
+      # (live s3 + postgres) stays local-only. Refs #1413.
+      - name: Check git-hooks fidelity gate + services module
+        run: |
+          uv run pytest tests/test_flake_hooks.py tests/test_flake_services.py \
+            -k "not services_poc_boots" -v
 
       # Run the capability-module contract tests (#884): the `native` module
       # shell exposes the C/C++ toolchain on its own PATH and exports generic
