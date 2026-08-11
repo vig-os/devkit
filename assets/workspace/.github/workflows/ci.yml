@@ -406,39 +406,45 @@ jobs:
           echo "Dependency review: ${{ needs.dependency-review.result }}"
           echo ""
 
+          # Fail on 'failure' AND on 'cancelled': a cancelled job (timeout,
+          # concurrency cancel, runner eviction) produced no verdict, and this
+          # aggregate is the required check — treating it as green would let an
+          # unfinished CI run merge (#1371, #1414). 'skipped' stays tolerated:
+          # push/dispatch runs and PR-only jobs skip legitimately.
           FAILED=false
 
           if [ "${{ needs.resolve-toolchain.result }}" = "failure" ] || [ "${{ needs.resolve-toolchain.result }}" = "cancelled" ]; then
-            echo "ERROR: Toolchain resolution failed"
+            echo "ERROR: Toolchain resolution failed or was cancelled"
             FAILED=true
           fi
 
-          if [ "${{ needs.lint.result }}" = "failure" ]; then
-            echo "ERROR: Lint checks failed"
+          if [ "${{ needs.lint.result }}" = "failure" ] || [ "${{ needs.lint.result }}" = "cancelled" ]; then
+            echo "ERROR: Lint checks failed or were cancelled"
             FAILED=true
           fi
 
-          if [ "${{ needs.test.result }}" = "failure" ]; then
-            echo "ERROR: Tests failed"
+          if [ "${{ needs.test.result }}" = "failure" ] || [ "${{ needs.test.result }}" = "cancelled" ]; then
+            echo "ERROR: Tests failed or were cancelled"
             FAILED=true
           fi
 
-          if [ "${{ needs.commit-checks.result }}" = "failure" ]; then
-            echo "ERROR: Commit message checks failed"
+          if [ "${{ needs.commit-checks.result }}" = "failure" ] || [ "${{ needs.commit-checks.result }}" = "cancelled" ]; then
+            echo "ERROR: Commit message checks failed or were cancelled"
             FAILED=true
           fi
 
-          # Skipped on push/dispatch and when DEVKIT_DRIFT_CHECK=false; only a
-          # genuine failure (managed-file drift) trips the gate.
-          if [ "${{ needs.scaffold-drift.result }}" = "failure" ]; then
-            echo "ERROR: Scaffold drift detected"
+          # Skipped on push/dispatch and when DEVKIT_DRIFT_CHECK=false; a
+          # genuine failure (managed-file drift) or a cancel trips the gate.
+          if [ "${{ needs.scaffold-drift.result }}" = "failure" ] || [ "${{ needs.scaffold-drift.result }}" = "cancelled" ]; then
+            echo "ERROR: Scaffold drift detected or check cancelled"
             FAILED=true
           fi
 
           # Skipped on push/dispatch and on private repos (same skip-is-OK
-          # treatment as commit-checks); only a genuine failure trips the gate.
-          if [ "${{ needs.dependency-review.result }}" = "failure" ]; then
-            echo "ERROR: Dependency review failed"
+          # treatment as commit-checks); a genuine failure or a cancel trips
+          # the gate.
+          if [ "${{ needs.dependency-review.result }}" = "failure" ] || [ "${{ needs.dependency-review.result }}" = "cancelled" ]; then
+            echo "ERROR: Dependency review failed or was cancelled"
             FAILED=true
           fi
 
