@@ -151,7 +151,7 @@ Available recipes:
     [info]
     default                                    # Show available commands (default)
     docs                                       # Generate documentation from templates
-    doctor                                     # Diagnose host prerequisites: git identity, commit signing, ssh-agent, gh auth
+    doctor                                     # Diagnose host prerequisites: git identity, signing, hooks path, ssh-agent, gh auth
     help                                       # Show available commands
     info                                       # Show image information
     init *args                                 # Gate Nix prerequisites and bootstrap the project (venv, git hooks, pre-commit)
