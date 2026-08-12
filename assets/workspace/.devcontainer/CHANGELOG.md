@@ -202,6 +202,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Smoke deploys no longer delete consumer-owned files** ([#1466](https://github.com/vig-os/devkit/issues/1466))
+  - The smoke-mode scaffold copy ran `rsync --delete`, removing every tracked
+    path the template does not ship — the smoke repo's own `pyproject.toml`,
+    `uv.lock`, `src/` and `tests/` among them. Harmless while the deploy
+    commit was built additively; once
+    [#1443](https://github.com/vig-os/devkit/issues/1443) started publishing
+    the installer's deletions, the deploy committed them and the repo lost its
+    Python project, which in turn made the scaffold-drift gate re-render
+    CodeQL and `.gitignore` language-neutral and aborted the release gate
+  - Retiring a path is the
+    [#1348](https://github.com/vig-os/devkit/issues/1348) manifest's job, and
+    the drift gate re-scaffolds in normal mode, which never deletes — so smoke
+    mode now copies without `--delete` and the two modes agree by construction
 - **Release rollback no longer resets the branch to a stale run-start snapshot** ([#1462](https://github.com/vig-os/devkit/issues/1462))
   - The `release.yml` rollback job rebuilt the branch tree at `PRE_SHA`
     (captured when `validate` started) whenever a failed run's tip had moved,
