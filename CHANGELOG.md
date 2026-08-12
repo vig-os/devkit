@@ -9,6 +9,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Rust performance tooling: `@perf` tool groups + a deterministic ratchet**
+  ([#1400](https://github.com/vig-os/devkit/issues/1400),
+  [#1440](https://github.com/vig-os/devkit/issues/1440))
+  - The `rust` module's `tools` list now accepts GROUPS: `@perf` (samply,
+    cargo-flamegraph, hyperfine, cargo-criterion, cargo-bloat,
+    cargo-llvm-lines, cargo-show-asm, plus heaptrack/valgrind/poop on Linux),
+    `@perf-async` (samply, tokio-console, hyperfine) and `@api`
+    (cargo-semver-checks, cargo-expand). A group skips members the current
+    platform lacks; an EXPLICITLY named tool still throws, because naming one
+    is a request that can only be met or refused
+  - New `checks.perf-ratchet` in `lib.mkRustProject`, auto-enabled when
+    `.repo/perf-baseline.toml` exists (same rule as `deny`). It measures only
+    things that are deterministic given a locked toolchain and lockfile —
+    shipped binary size per binary, and dependency-graph size from Cargo.lock
+    — and deliberately times NOTHING: wall-clock benchmarks on shared CI
+    runners are noise, and a gate that fires on noise teaches `--no-verify`.
+    Growth past the tolerance (default 5%) fails; a measured shrink is
+    reported so the win can be banked. Needs no benchmark to be authored,
+    which is what makes it a ratchet that is actually in place
+  - New `packages.perf-seal`, which emits the baseline file itself so sealing
+    is never hand-transcribed
+  - `fenix.inputs.rust-analyzer-src` now `follows` nixpkgs: it fed only
+    fenix's *nightly* rust-analyzer derivation, which the pack never builds
+    (`fromToolchainFile` takes components from the release-channel manifest).
+    Lock nodes 15 -> 14, fetched source ~33 MB -> ~5 MB, `rust-analyzer` still
+    present in the built toolchain
+- **Rust language pack: `rust` capability module + `lib.mkRustProject`** ([#1400](https://github.com/vig-os/devkit/issues/1400), [#1427](https://github.com/vig-os/devkit/issues/1427))
+  - New `rust` capability module (`nix/modules/rust.nix`): a v1-contract
+    contribution that puts a Rust toolchain and the curated cargo tooling
+    (nextest, cargo-deny, cargo-auditable, cargo-audit, cargo-about,
+    cargo-shear by default; extensible via `tools`) on the dev-shell PATH,
+    with `mold` picked up on Linux. The `checks` option is MANDATORY and has
+    no default — a hand-written `modules = [ "rust" ]` fails at EVAL with a
+    message that names the fix (`mkRustProject`) and the deliberate opt-out
+    (`{ name = "rust"; checks = "none"; }`), because a v1 module cannot
+    contribute `checks.<system>.*` and a silently toolchain-only Rust shell
+    is exactly the failure the pack exists to prevent
+  - New `lib.mkRustProject` composed entry point (`nix/mk-rust-project.nix`):
+    ONE call returns `{ devShell, checks, packages, craneLib, cargoArtifacts,
+    commonArgs, toolchain, src }`, wiring the shell + the check suite (fmt,
+    clippy with `--deny warnings`, nextest, cargo-doc, cargo-deny when a
+    deny.toml exists) + per-crate builds together. Folds well-known root tool
+    configs (rustfmt.toml, clippy.toml, deny.toml, about.*, `.cargo/`,
+    rust-toolchain.toml) into the crane fileset unconditionally — their
+    absence from a build sandbox is silent and turns the checks into a rules-
+    nobody-wrote green
+  - New flake inputs `crane` and `fenix` (three leaf lock entries, including
+    fenix's `rust-analyzer-src`). Every consumer — including Python-only ones
+    — pays for them in lock size and in fetch-at-eval. The alternative — each
+    Rust repo pinning its own fenix — is per-repo drift on exactly the axis
+    devkit exists to hold still; `mkRustProject` takes `crane`/`fenix`
+    overrides so the inputs can move back out later without a consumer-
+    visible change
+  - New `nix/modules/check-entries.nix` (internal plumbing, not consumer
+    surface): a per-name override for how the generated `module-<name>` smoke
+    check instantiates a module whose options are mandatory. `rust` maps to
+    the toolchain-only opt-out form
+  - The ADR (`docs/rfcs/ADR-capability-modules.md`) records the #1427
+    decision: the v1 contract is NOT extended with a `checks` field, on the
+    reasoning that a field a contract can accept without touching what it
+    composes is not part of that contract. The bar for revisiting is a
+    SECOND, non-Rust capability module that independently needs to
+    contribute checks
+  - Zero-module invariant preserved: `devShells.<system>.default.drvPath` is
+    byte-identical to before the pack shipped, pinned by a new parity test
+  - Consumer hardening from the second consumer, a single-crate feature-gated
+    library ([#1450](https://github.com/vig-os/devkit/issues/1450)):
+    `mkRustProject` now refuses a `pkgs` built without `overlays.default`
+    (previously `undefined variable 'vig-utils'` from inside `devtools.nix`,
+    and only on the dev shell — `checks` and `packages` evaluated fine, so a
+    repo could have a green `nix flake check` and a shell that had never
+    evaluated); a source tree with no `Cargo.lock` is named as such, on
+    `cleanSrc` so `fmt` fails with the rest instead of passing alone; new
+    `checks.doctest` runs `cargo test --doc`, which nextest cannot and
+    `cargoDoc` does not, so adopting the pack no longer silently drops a
+    consumer's doctests; and new `cargoExtraArgs` reaches every derivation so
+    the checks can build non-default features — composed with `-p <crate>`
+    rather than overwriting it, so a workspace's per-crate builds cannot end
+    up with a different feature set from the checks that ran against them
+
 ### Changed
 
 ### Deprecated

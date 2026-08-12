@@ -30,6 +30,45 @@
     # Refs #819.
     home-manager.url = "github:nix-community/home-manager/release-26.05";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
+    # ---- Rust language pack (#1400) -------------------------------------
+    # crane: the cargo build library behind lib.mkRustProject's checks and
+    # packages. Dependency-free (like process-compose-flake), so it adds one
+    # leaf lock entry and nothing transitive.
+    crane.url = "github:ipetkov/crane";
+    # fenix: resolves a toolchain from a repo's rust-toolchain.toml, so nix
+    # and rustup agree on the compiler. nixpkgs' Rust tracks the channel and
+    # cannot honour a pin, which is the one thing a language pack must do.
+    #
+    # These are inputs of devkit rather than arguments a Rust consumer passes
+    # in, and that is a deliberate tradeoff: every consumer — including the
+    # Python-only ones — pays for them in lock size and in fetch at eval. The
+    # alternative makes each Rust repo pin its own fenix, which is per-repo
+    # drift on precisely the axis devkit exists to hold still. If the eval
+    # cost turns out to bite, mkRustProject takes `crane`/`fenix` overrides
+    # and the inputs can move out without a consumer-visible change.
+    #
+    # Written as one attrset rather than three dotted keys because statix
+    # flags the repetition (`checks.statix`, which is a required gate).
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+      # fenix pulls the rust-analyzer SOURCE TREE — 28 MB, and 85% of
+      # everything these two inputs cost a downstream consumer. It feeds
+      # exactly one thing: fenix's *nightly* rust-analyzer derivation, which
+      # this pack never builds. `fromToolchainFile` takes its components from
+      # the release-channel manifest instead, so following this away costs
+      # nothing — verified by building filesender's toolchain (whose
+      # rust-toolchain.toml lists rust-analyzer as a component) with the
+      # follows in place and finding `rust-analyzer` in the result.
+      #
+      # Pointed at nixpkgs because every consumer already has it, so the node
+      # disappears from downstream locks rather than being replaced. Lock
+      # nodes 15 -> 14, fetched source ~33 MB -> ~5 MB.
+      #
+      # A consumer who genuinely wants fenix's nightly rust-analyzer must
+      # override this back; nothing in devkit does. Refs #1440.
+      inputs.rust-analyzer-src.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -43,6 +82,8 @@
       process-compose-flake,
       services-flake,
       home-manager,
+      crane,
+      fenix,
     }:
     let
       # ---------------------------------------------------------------------
@@ -199,6 +240,11 @@
       # the generated per-module `checks.<system>.module-<name>` below. See
       # docs/rfcs/ADR-capability-modules.md for the v1 contract.
       capabilityModules = import ./nix/modules/default.nix;
+
+      # How the generated `module-<name>` smoke check instantiates a module
+      # whose options are mandatory (nix/modules/check-entries.nix). Names
+      # absent here use the plain string form, unchanged.
+      capabilityModuleCheckEntries = import ./nix/modules/check-entries.nix;
 
       # One definition of the pre-commit hook set (#883): nix/hooks.nix
       # renders the sandbox-pure `checks.pre-commit` gate, the PATH-portable
@@ -731,6 +777,29 @@
       # mkProjectServices — reusable local dev-services builder (#795).
       #
       # Boots declared services (Postgres, SeaweedFS, Redis, …) as native processes via
+      # ---------------------------------------------------------------------
+      # mkRustProject — the Rust consumer's single entry point (#1400, #1427).
+      #
+      # Composes ABOVE mkProjectShell rather than inside the capability-module
+      # contract, because `checks` is not the shape that contract composes
+      # (the reasoning is in nix/mk-rust-project.nix's header, the decision
+      # in vig-os/devkit#1427). One call returns the dev shell, the checks and
+      # the packages together:
+      #
+      #   rust = inputs.devkit.lib.mkRustProject {
+      #     inherit pkgs;
+      #     src = ./.;
+      #     toolchainHash = "sha256-…";
+      #     crates = [ "my-cli" ];
+      #   };
+      #   devShells.default = rust.devShell;
+      #   checks = rust.checks;
+      #   packages = rust.packages;
+      # ---------------------------------------------------------------------
+      mkRustProject = import ./nix/mk-rust-project.nix {
+        inherit mkProjectShell crane fenix;
+      };
+
       # process-compose + services-flake — no Docker/Podman daemon — with the
       # service versions coming from the caller's `pkgs` (the pinned nixpkgs
       # lock, never out-of-lock image tags). services-flake is consumed through
@@ -1154,7 +1223,7 @@
           name: _:
           pkgs.lib.nameValuePair "module-${name}" (mkProjectShell {
             inherit pkgs;
-            modules = [ name ];
+            modules = [ (capabilityModuleCheckEntries.${name} or name) ];
           })
         ) capabilityModules
         # The ci homeConfigurations build as Tier-0 checks. x86_64-darwin is
@@ -1615,6 +1684,7 @@
         inherit
           mkProjectShell
           mkProjectServices
+          mkRustProject
           devTools
           ;
         # PATH-portable renders of the one hook-set definition (#883):
