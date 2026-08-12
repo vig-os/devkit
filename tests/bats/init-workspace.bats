@@ -823,16 +823,11 @@ _preview_symlinked_template_venv() {
     assert_output --partial 'FORCE=true'
 }
 
-@test "init-workspace.sh smoke mode uses rsync --delete for clean deploy" {
-    run grep 'rsync -avL --checksum --delete' "$INIT_WORKSPACE_SH"
-    assert_success
-}
-
-@test "init-workspace.sh smoke mode excludes synced docs directories from delete" {
-    run grep -A1 'rsync -avL --checksum --delete' "$INIT_WORKSPACE_SH"
-    assert_success
-    assert_output --partial "--exclude='docs/issues/'"
-    assert_output --partial "--exclude='docs/pull-requests/'"
+@test "init-workspace.sh never deletes on a smoke deploy (#1466)" {
+    # --delete removed the consumer's own payload, not just stale scaffold.
+    # Retirement is the #1348 manifest's job; see the smoke-deploy tests below.
+    run grep -E '^[[:space:]]*rsync .*--delete' "$INIT_WORKSPACE_SH"
+    assert_failure
 }
 
 # ── Smoke deploys preserve the consumer's root CHANGELOG (#1403) ───────────────
