@@ -84,6 +84,9 @@ jobs:
       # Refs policy (#1282): re-export the composite action's mapped
       # --refs-optional-types list so commit-checks can consume it via needs.
       refs-optional-types: ${{ steps.resolve.outputs.refs-optional-types }}
+      # Commit types (#1431): re-export the resolved approved-types list so
+      # commit-checks can consume it via needs.
+      commit-types: ${{ steps.resolve.outputs.commit-types }}
       # Scaffold-drift gate (#1295): re-export the DEVKIT_DRIFT_CHECK toggle so
       # the scaffold-drift job's `if:` can self-skip when a consumer opts out,
       # plus the all-modes image ref it `docker run`s (keeps the ghcr literal in
@@ -229,11 +232,12 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          # Refs policy (#1282): the resolved --refs-optional-types list reaches
+          # Refs policy (#1282) + commit types (#1431): the resolved lists reach
           # the validator via env, never inline ${{ }} in the run block (the
-          # zizmor template-injection gate / #1279 env-routing pattern). Mapped
-          # once from DEVKIT_REFS_POLICY by resolve-toolchain.
+          # zizmor template-injection gate / #1279 env-routing pattern). Each is
+          # mapped once from its .vig-os key by resolve-toolchain.
           REFS_OPTIONAL_TYPES: ${{ needs.resolve-toolchain.outputs.refs-optional-types }}
+          COMMIT_TYPES: ${{ needs.resolve-toolchain.outputs.commit-types }}
         run: |
           set -euo pipefail
           BASE_SHA="$(git merge-base "origin/${BASE_REF}" "${HEAD_SHA}")"
@@ -253,6 +257,7 @@ jobs:
             --base "${BASE_SHA}" \
             --head "${HEAD_SHA}" \
             --title "${PR_TITLE}" \
+            --types "${COMMIT_TYPES}" \
             --refs-optional-types "${REFS_OPTIONAL_TYPES}" \
             --blocked-patterns .github/agent-blocklist.toml \
             ${EXCLUDE[@]+"${EXCLUDE[@]}"}

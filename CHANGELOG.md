@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Scaffold-time commit-types knob (`DEVKIT_COMMIT_TYPES`)** ([#1431](https://github.com/vig-os/devkit/issues/1431))
+  - New `.vig-os` key: a comma-separated full replacement of the approved
+    commit types, rendered into the `validate-commit-msg` hook's `--types`
+    arg at scaffold time and driving CI's `validate-commit-range` via
+    resolve-toolchain's new `commit-types` output — one key, both gates
+  - `DEVKIT_REFS_POLICY=optional` now mirrors the resolved list (custom or
+    stock), so the two knobs compose; empty key keeps the default scaffold
+    byte-identical
+  - The value round-trips across `--force` upgrades; out-of-charset values
+    fail the scaffold loudly (CI falls back to the stock list with a
+    warning), and dropping the bot types (`chore`/`build`) prints a notice
 - **`just doctor` host diagnostics + audit coverage gaps closed** ([#1418](https://github.com/vig-os/devkit/issues/1418))
   - New `just doctor` recipe reports host prerequisites (git identity, commit
     signing, ssh-agent, gh auth) as PASS/WARN diagnostics and always exits 0

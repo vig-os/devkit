@@ -91,6 +91,20 @@ DEVKIT_FEATURES_DISABLED=
 # output); written back only for a non-default value (#1282).
 DEVKIT_REFS_POLICY=
 
+# Approved commit types for the commit-message gate — a comma-separated
+# (whitespace-tolerant) FULL REPLACEMENT list driving BOTH the
+# validate-commit-msg hook's `--types` arg and CI's validate-commit-range from
+# this one key. Empty (default) resolves to the stock 11 types
+# (feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style) — unchanged
+# for devkit or existing consumers. Lowercase alphanumerics only (guarded
+# loudly at scaffold time). Keep `chore` and `build` unless deliberate:
+# Renovate / devkit-upgrade bot commits use them, and dropping either fails
+# those bot PRs in commit-checks (the scaffold prints a notice). Composes with
+# DEVKIT_REFS_POLICY: `optional` mirrors THIS list. Realized at scaffold time
+# (an anchored render of the hook arg + resolve-toolchain's `commit-types`
+# output); written back only for a non-empty value (#1431).
+DEVKIT_COMMIT_TYPES=
+
 # Auto-upgrade opt-out for the scaffolded devkit-upgrade.yml workflow. Empty
 # (default) or any value other than `false` keeps the WEEKLY schedule path
 # enabled — it polls devkit's latest release and, when this repo's DEVKIT_VERSION
