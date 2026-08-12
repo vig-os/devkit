@@ -74,6 +74,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     contribute checks
   - Zero-module invariant preserved: `devShells.<system>.default.drvPath` is
     byte-identical to before the pack shipped, pinned by a new parity test
+  - Consumer hardening from the second consumer, a single-crate feature-gated
+    library ([#1450](https://github.com/vig-os/devkit/issues/1450)):
+    `mkRustProject` now refuses a `pkgs` built without `overlays.default`
+    (previously `undefined variable 'vig-utils'` from inside `devtools.nix`,
+    and only on the dev shell — `checks` and `packages` evaluated fine, so a
+    repo could have a green `nix flake check` and a shell that had never
+    evaluated); a source tree with no `Cargo.lock` is named as such, on
+    `cleanSrc` so `fmt` fails with the rest instead of passing alone; new
+    `checks.doctest` runs `cargo test --doc`, which nextest cannot and
+    `cargoDoc` does not, so adopting the pack no longer silently drops a
+    consumer's doctests; and new `cargoExtraArgs` reaches every derivation so
+    the checks can build non-default features — composed with `-p <crate>`
+    rather than overwriting it, so a workspace's per-crate builds cannot end
+    up with a different feature set from the checks that ran against them
 
 - **`just doctor` host diagnostics + audit coverage gaps closed** ([#1418](https://github.com/vig-os/devkit/issues/1418))
   - New `just doctor` recipe reports host prerequisites (git identity, commit
