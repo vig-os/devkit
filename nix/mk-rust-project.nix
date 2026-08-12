@@ -343,9 +343,9 @@ let
         commonArgs
         // {
           inherit cargoArtifacts;
-          env = (commonArgs.env or { }) // {
-            RUSTDOCFLAGS = "--deny warnings";
-          };
+          # Top-level rather than under `env`, so a consumer's `buildEnv`
+          # cannot collide with it through two different mechanisms.
+          RUSTDOCFLAGS = "--deny warnings";
         }
       );
     }

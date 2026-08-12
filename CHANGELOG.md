@@ -9,6 +9,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Rust language pack: `rust` capability module + `lib.mkRustProject`** ([#1400](https://github.com/vig-os/devkit/issues/1400), [#1427](https://github.com/vig-os/devkit/issues/1427))
+  - New `rust` capability module (`nix/modules/rust.nix`): a v1-contract
+    contribution that puts a Rust toolchain and the curated cargo tooling
+    (nextest, cargo-deny, cargo-auditable, cargo-audit, cargo-about,
+    cargo-shear by default; extensible via `tools`) on the dev-shell PATH,
+    with `mold` picked up on Linux. The `checks` option is MANDATORY and has
+    no default — a hand-written `modules = [ "rust" ]` fails at EVAL with a
+    message that names the fix (`mkRustProject`) and the deliberate opt-out
+    (`{ name = "rust"; checks = "none"; }`), because a v1 module cannot
+    contribute `checks.<system>.*` and a silently toolchain-only Rust shell
+    is exactly the failure the pack exists to prevent
+  - New `lib.mkRustProject` composed entry point (`nix/mk-rust-project.nix`):
+    ONE call returns `{ devShell, checks, packages, craneLib, cargoArtifacts,
+    commonArgs, toolchain, src }`, wiring the shell + the check suite (fmt,
+    clippy with `--deny warnings`, nextest, cargo-doc, cargo-deny when a
+    deny.toml exists) + per-crate builds together. Folds well-known root tool
+    configs (rustfmt.toml, clippy.toml, deny.toml, about.*, `.cargo/`,
+    rust-toolchain.toml) into the crane fileset unconditionally — their
+    absence from a build sandbox is silent and turns the checks into a rules-
+    nobody-wrote green
+  - New flake inputs `crane` and `fenix` (three leaf lock entries, including
+    fenix's `rust-analyzer-src`). Every consumer — including Python-only ones
+    — pays for them in lock size and in fetch-at-eval. The alternative — each
+    Rust repo pinning its own fenix — is per-repo drift on exactly the axis
+    devkit exists to hold still; `mkRustProject` takes `crane`/`fenix`
+    overrides so the inputs can move back out later without a consumer-
+    visible change
+  - New `nix/modules/check-entries.nix` (internal plumbing, not consumer
+    surface): a per-name override for how the generated `module-<name>` smoke
+    check instantiates a module whose options are mandatory. `rust` maps to
+    the toolchain-only opt-out form
+  - The ADR (`docs/rfcs/ADR-capability-modules.md`) records the #1427
+    decision: the v1 contract is NOT extended with a `checks` field, on the
+    reasoning that a field a contract can accept without touching what it
+    composes is not part of that contract. The bar for revisiting is a
+    SECOND, non-Rust capability module that independently needs to
+    contribute checks
+  - Zero-module invariant preserved: `devShells.<system>.default.drvPath` is
+    byte-identical to before the pack shipped, pinned by a new parity test
+
 - **`just doctor` host diagnostics + audit coverage gaps closed** ([#1418](https://github.com/vig-os/devkit/issues/1418))
   - New `just doctor` recipe reports host prerequisites (git identity, commit
     signing, ssh-agent, gh auth) as PASS/WARN diagnostics and always exits 0

@@ -706,7 +706,7 @@
       # in vig-os/devkit#1427). One call returns the dev shell, the checks and
       # the packages together:
       #
-      #   rust = inputs.devcontainer.lib.mkRustProject {
+      #   rust = inputs.devkit.lib.mkRustProject {
       #     inherit pkgs;
       #     src = ./.;
       #     toolchainHash = "sha256-…";
