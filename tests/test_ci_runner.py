@@ -179,3 +179,89 @@ def test_commit_checks_step_passes_refs_optional_types_flag() -> None:
     workflow = _load(WORKFLOWS / "ci.yml")
     step = _commit_checks_step(workflow)
     assert "--refs-optional-types" in step["run"]
+
+
+# ── Commit types knob (#1431) ─────────────────────────────────────────────────
+# DEVKIT_COMMIT_TYPES replaces the approved-commit-types list CI's
+# validate-commit-range enforces, from the same key that steers the
+# validate-commit-msg hook's `--types` arg at scaffold time. The list->output
+# mapping lives once in resolve-toolchain (single mapping point for the CI
+# surface) and mirrors render_commit_types in init-workspace.sh; the refs-policy
+# `optional` expansion follows the RESOLVED list so the two knobs compose. The
+# commit-checks step consumes the list via env, never inline (zizmor / #1279).
+
+# The default approved types emitted when the key is absent (mirrors the hook).
+DEFAULT_COMMIT_TYPES = "feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style"
+
+
+@pytest.mark.parametrize(
+    ("types_value", "expected"),
+    [
+        pytest.param(None, DEFAULT_COMMIT_TYPES, id="key-absent-defaults"),
+        pytest.param(
+            "feat,fix,chore,record", "feat,fix,chore,record", id="custom-list"
+        ),
+        pytest.param(
+            "feat, fix, chore, record",
+            "feat,fix,chore,record",
+            id="whitespace-trimmed",
+        ),
+        # The loud guard lives at the write path (init-workspace.sh); by the
+        # time CI reads .vig-os the value was validated at scaffold, so a
+        # defensive fallback keeps CI from breaking (or weakening the gate) on
+        # an unexpected literal.
+        pytest.param("feat,Bad-Type", DEFAULT_COMMIT_TYPES, id="invalid-falls-back"),
+        pytest.param(" ,", DEFAULT_COMMIT_TYPES, id="all-blank-falls-back"),
+    ],
+)
+def test_commit_types_mapping(
+    tmp_path: Path, types_value: str | None, expected: str
+) -> None:
+    """DEVKIT_COMMIT_TYPES maps to the resolved commit-types list."""
+    manifest = "DEVKIT_MODE=direnv\n"
+    if types_value is not None:
+        manifest += f"DEVKIT_COMMIT_TYPES={types_value}\n"
+    outputs = _run_resolve(tmp_path, manifest)
+    assert outputs["commit-types"] == expected
+
+
+def test_refs_optional_expansion_follows_commit_types(tmp_path: Path) -> None:
+    """DEVKIT_REFS_POLICY=optional expands to the RESOLVED commit-types list.
+
+    With a custom DEVKIT_COMMIT_TYPES, `optional` must mirror that list — not
+    the hardcoded default — or the hook and CI would disagree about which
+    types exist (#1431 composition over the #1282 mapping).
+    """
+    manifest = (
+        "DEVKIT_MODE=direnv\n"
+        "DEVKIT_REFS_POLICY=optional\n"
+        "DEVKIT_COMMIT_TYPES=feat,fix,record\n"
+    )
+    outputs = _run_resolve(tmp_path, manifest)
+    assert outputs["refs-optional-types"] == "feat,fix,record"
+
+
+def test_resolve_toolchain_job_reexports_commit_types() -> None:
+    """ci.yml's resolve-toolchain job maps the action output to a job output."""
+    workflow = _load(WORKFLOWS / "ci.yml")
+    outputs = workflow["jobs"]["resolve-toolchain"]["outputs"]
+    assert outputs.get("commit-types") == "${{ steps.resolve.outputs.commit-types }}"
+
+
+def test_commit_checks_step_routes_commit_types_through_env() -> None:
+    """The commit-checks step consumes the resolved list via env, not inline."""
+    workflow = _load(WORKFLOWS / "ci.yml")
+    step = _commit_checks_step(workflow)
+    env_values = step["env"].values()
+    assert "${{ needs.resolve-toolchain.outputs.commit-types }}" in env_values
+
+
+def test_commit_checks_step_passes_types_flag() -> None:
+    """The run block forwards the env value to validate-commit-range.
+
+    Asserted with the env reference (not a bare `--types` substring, which
+    `--refs-optional-types` already contains).
+    """
+    workflow = _load(WORKFLOWS / "ci.yml")
+    step = _commit_checks_step(workflow)
+    assert '--types "${COMMIT_TYPES}"' in step["run"]

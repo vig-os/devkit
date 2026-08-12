@@ -2302,9 +2302,10 @@ _upgrade_no_flags() {
     done
 }
 
-@test "template .vig-os ships every optional knob key empty (#1173, #1228, #1282, #1295, #1284)" {
+@test "template .vig-os ships every optional knob key empty (#1173, #1228, #1282, #1295, #1284, #1431)" {
     local keys=(DEVKIT_CI_RUNNER DEVKIT_SYNC_TARGET DEVKIT_SYNC_SCHEDULE
-        DEVKIT_REFS_POLICY DEVKIT_DRIFT_CHECK DEVKIT_FEATURES_DISABLED)
+        DEVKIT_REFS_POLICY DEVKIT_DRIFT_CHECK DEVKIT_FEATURES_DISABLED
+        DEVKIT_COMMIT_TYPES)
     for key in "${keys[@]}"; do
         echo "key: $key"
         run grep -x "${key}=" "$TEMPLATE_DIR/.vig-os"
@@ -2382,7 +2383,7 @@ _upgrade_no_flags() {
     assert_failure
 }
 
-@test "invalid or hostile .vig-os knob values fail the scaffold loudly (#1228, #1282, #1295, #1284)" {
+@test "invalid or hostile .vig-os knob values fail the scaffold loudly (#1228, #1282, #1295, #1284, #1431)" {
     # KEY|VALUE table of rejected values, each asserted against the clean
     # "Invalid <KEY>" message. The hostile SYNC_TARGET row: git
     # check-ref-format alone accepts quotes/$/backticks/;/|/# — values that
@@ -2402,6 +2403,11 @@ _upgrade_no_flags() {
         'DEVKIT_REFS_POLICY|garbage'
         'DEVKIT_DRIFT_CHECK|garbage'
         'DEVKIT_FEATURES_DISABLED|renovate,bogus'
+        # The commit-types values are spliced into sed replacement text and
+        # YAML by render_commit_types, so the charset allowlist must refuse
+        # case/punctuation, not just hostile shell (#1431).
+        'DEVKIT_COMMIT_TYPES|feat,Bad-Type'
+        'DEVKIT_COMMIT_TYPES|feat;rm -rf /'
     )
     local i=0
     for row in "${rows[@]}"; do
@@ -2586,6 +2592,76 @@ _upgrade_no_flags() {
     # (b) the trunk render still dropped the dev protect-clause on the same file
     run grep -qF '(?!dev$)' "$ws/.pre-commit-config.yaml"
     assert_failure
+}
+
+# ── Commit types knob (#1431) ─────────────────────────────────────────────────
+# DEVKIT_COMMIT_TYPES replaces the approved-commit-types list in the
+# validate-commit-msg hook's --types arg at scaffold time (the CI
+# validate-commit-range surface is driven from the same key via
+# resolve-toolchain, covered in tests/test_ci_runner.py). Empty (default) keeps
+# the 11 stock types byte-identical; the refs-policy `optional` expansion
+# follows the resolved list so the two knobs compose. Persisted like
+# DEVKIT_REFS_POLICY; invalid values fail the scaffold loudly (knob loop above).
+
+@test "default scaffold keeps the stock --types arg (#1431)" {
+    # No DEVKIT_COMMIT_TYPES key => the template default is untouched, so the
+    # validate-commit-msg hook keeps its byte-identical types list.
+    ws="$BATS_TEST_TMPDIR/e2e-1431-default"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run grep -qF '"--types", "feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style",' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "DEVKIT_COMMIT_TYPES renders the custom list + writes back (#1431)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1431-custom"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_COMMIT_TYPES=.*/DEVKIT_COMMIT_TYPES=feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style,record/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '"--types", "feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style,record",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    # The default refs policy is untouched by a types-only override.
+    run grep -qF '"--refs-optional-types", "chore",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -x 'DEVKIT_COMMIT_TYPES=feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style,record' "$ws/.vig-os"
+    assert_success
+}
+
+@test "DEVKIT_REFS_POLICY=optional mirrors a custom DEVKIT_COMMIT_TYPES (#1431)" {
+    # `optional` marks every approved type Refs-optional — "every" must mean
+    # the RESOLVED list, not the hardcoded default, or the hook would require
+    # Refs for a type it just accepted (#1282 composition).
+    ws="$BATS_TEST_TMPDIR/e2e-1431-compose-refs"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_COMMIT_TYPES=.*/DEVKIT_COMMIT_TYPES=feat,fix,record/' "$ws/.vig-os"
+    sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=optional/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '"--types", "feat,fix,record",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -qF '"--refs-optional-types", "feat,fix,record",' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "dropping the bot commit types prints a notice, never aborts (#1431)" {
+    # Renovate commits `chore(deps)` and devkit-upgrade commits `build(devkit)`
+    # in consumer repos; a replacement list omitting them makes those bot PRs
+    # fail commit-checks. Deliberate is allowed — but never silent (mirrors the
+    # #1284 contradiction notice).
+    ws="$BATS_TEST_TMPDIR/e2e-1431-bot-notice"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_COMMIT_TYPES=.*/DEVKIT_COMMIT_TYPES=feat,fix,record/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "Notice: DEVKIT_COMMIT_TYPES omits"
 }
 
 # ── scaffold-drift opt-out knob (#1295) ───────────────────────────────────────
