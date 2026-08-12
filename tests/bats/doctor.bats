@@ -97,10 +97,13 @@ _init_clone() {
     assert_output --partial "scripts/init.sh"
 }
 
-# ── linked worktrees: unset core.hooksPath is the INTENDED state (#1454) ──────
-# `just worktree-start` deliberately unsets core.hooksPath in the worktree
-# (justfile.worktree) because prek refuses to install its shims while it is set,
-# then installs them. `hooks` is one of git's shared (common-dir) paths, so those
+# ── linked worktrees: unset core.hooksPath can be a legitimate state (#1454) ──
+# Since #1463 `just worktree-start` (justfile.worktree) leaves a configured
+# core.hooksPath untouched — the tracked .githooks shims cover the worktree —
+# and prek-installs only as the fallback when no hooks path is set at all. That
+# fallback, plus worktrees created before #1463 (which always unset and
+# installed), is why unset can still be live here.
+# `hooks` is one of git's shared (common-dir) paths, so those
 # shims land in the COMMON git dir and git runs them from inside the linked
 # worktree: the gates are LIVE. Reporting the fresh-clone "tracked but inert"
 # WARN there is a lie whose remediation would undo the worktree setup. A linked

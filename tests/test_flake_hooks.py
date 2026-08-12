@@ -1213,8 +1213,8 @@ class TestGithooksPathWiring:
     so commit-time hooks (pre-commit / commit-msg via prek) were silently
     inactive until the consumer set it by hand. The base shellHook now mirrors
     the devcontainer, guarded so it only touches a scaffold-shaped repo and
-    never fights the worktree flow (justfile.worktree unsets core.hooksPath and
-    installs prek hooks directly in a linked worktree).
+    never fights the worktree flow (since #1463 justfile.worktree keeps a
+    configured core.hooksPath and prek-installs only when none is set).
     """
 
     def test_default_shellhook_sets_core_hookspath_to_githooks(

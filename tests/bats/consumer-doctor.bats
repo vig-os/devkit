@@ -221,10 +221,13 @@ _run_doctor_at() {
     done
 }
 
-# ── linked worktrees: unset core.hooksPath is the INTENDED state (#1454) ──────
-# The scaffolded `just worktree-start` (.devcontainer/justfile.worktree)
-# deliberately unsets core.hooksPath in the worktree — prek refuses to install
-# its shims while it is set — and installs them instead. `hooks` is one of git's
+# ── linked worktrees: unset core.hooksPath can be a legitimate state (#1454) ──
+# Since #1463 the scaffolded `just worktree-start`
+# (.devcontainer/justfile.worktree) leaves a configured core.hooksPath
+# untouched — the tracked .githooks shims cover the worktree — and
+# prek-installs only as the fallback when no hooks path is set at all. That
+# fallback, plus worktrees created before #1463 (which always unset and
+# installed), is why unset can still be live here. `hooks` is one of git's
 # shared (common-dir) paths, so those shims land in the COMMON git dir and git
 # runs them from inside the linked worktree: the gates are LIVE. The fresh-clone
 # "tracked but inert" WARN is a lie there, and its remediation would undo the
