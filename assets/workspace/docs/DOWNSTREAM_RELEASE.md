@@ -18,7 +18,7 @@ The downstream template uses a split release architecture:
 
 All files are deployed from `assets/workspace/` by `init-workspace.sh`.
 
-On failure, the orchestrator runs a single consolidated rollback that resets the release branch (best-effort), does **not** delete tags (forward-fix policy), and opens a failure issue with forward-fix guidance.
+On failure, the orchestrator runs a single consolidated rollback that reverts only the finalize commit(s) this run wrote — it no-ops when finalize never ran and refuses to touch a branch that moved during the run ([#1462](https://github.com/vig-os/devkit/issues/1462)) — does **not** delete tags (forward-fix policy), and opens a failure issue with forward-fix guidance.
 
 ## Release Modes
 
@@ -48,7 +48,7 @@ changelog-neutral. Preview the pending block anytime with
 
 - **Candidate (`X.Y.Z-rcN`)**: By default only the git tag is created. With **`create-release: true`**, `release-publish.yml` creates a **draft** GitHub **pre-release** (`gh release create --draft --prerelease`). Promote-time validation uses `gh api .../releases/tags/<tag>` and inspects `.draft` to ensure the expected draft pre-release exists; see [Cross-repo gate](https://github.com/vig-os/devkit/blob/main/docs/CROSS_REPO_RELEASE_GATE.md) for upstream enforcement status. With **immutable releases** enabled, **publishing** a pre-release locks the **linked** tag and assets (see [upstream policy](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#immutable-releases-tag-rulesets-and-forward-fix-policy)); iterate with a **new** RC tag.
 - **Final (`X.Y.Z`)**: Automation creates a **draft** GitHub Release; **publishing** it (UI or `promote-release.yml`) applies immutable-release lock-in for the linked tag and assets when that setting is enabled. Enable **immutable releases** and **tag rulesets** on each consumer repository (and org policy) as needed; see [Preventing changes to your releases](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/preventing-changes-to-your-releases).
-- **Rollback**: The orchestrator resets the release branch and does **not** delete tags (forward-fix policy); recover with a new RC or a careful final retry per workflow logs.
+- **Rollback**: The orchestrator reverts only the finalize commit(s) the failed run wrote (never a wholesale branch reset; it refuses when the branch moved mid-run, [#1462](https://github.com/vig-os/devkit/issues/1462)) and does **not** delete tags (forward-fix policy); recover with a new RC or a careful final retry per workflow logs.
 
 ## Promote release (final)
 

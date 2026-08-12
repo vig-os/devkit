@@ -163,18 +163,29 @@ def test_scaffold_drops_the_dead_git_identity_inputs() -> None:
         )
 
 
-def test_scaffold_orchestrator_keeps_the_rollback_identity() -> None:
-    """The dispatch identity inputs survive: the rollback job still commits."""
+def test_scaffold_orchestrator_keeps_the_dispatch_identity_inputs() -> None:
+    """The dispatch identity inputs survive while release-core declares them.
+
+    #1378 kept them for the git-CLI rollback; #1462 replaced that rollback
+    with Git Data API commits (App identity, no configured git user), so the
+    rollback job must mint the commit App token instead of configuring a
+    local identity.
+    """
     workflow = load_workflow(SCAFFOLD_ORCHESTRATOR)
     dispatch_inputs = on_block(workflow)["workflow_dispatch"]["inputs"]
     for kept in ("git-user-name", "git-user-email"):
         assert kept in dispatch_inputs, (
-            f"release.yml must keep the {kept!r} dispatch input: the rollback "
-            "job checks out the release branch and writes with that identity"
+            f"release.yml must keep the {kept!r} dispatch input while the "
+            "release-core call still declares it"
         )
     rollback_steps = workflow["jobs"]["rollback"]["steps"]
-    configure = next(s for s in rollback_steps if s.get("name") == "Configure git")
-    assert configure["env"]["GIT_USER_NAME"] == "${{ inputs.git-user-name }}"
+    assert not any(s.get("name") == "Configure git" for s in rollback_steps), (
+        "the API-based rollback must not configure a git-CLI identity (#1462)"
+    )
+    rollback = next(
+        s for s in rollback_steps if s.get("name") == "Rollback release branch"
+    )
+    assert rollback["env"]["GH_TOKEN"] == "${{ steps.commit_app_token.outputs.token }}"
 
 
 def test_scaffold_publish_accepts_a_lost_race_only_at_the_release_commit() -> None:

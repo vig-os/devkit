@@ -488,6 +488,10 @@ jobs:
     outputs:
       finalize_sha: ${{ steps.finalize.outputs.finalize_sha }}
       tag_already_exists: ${{ steps.tag_state.outputs.tag_already_exists }}
+      # Exact commit this job pushed + last tip it observed: the rollback job
+      # refuses to touch the branch unless its tip matches them (#1462).
+      finalize_commit_sha: ${{ steps.finalize_commit.outputs.commit-sha }}
+      post_sync_sha: ${{ steps.post_sync.outputs.post_sync_sha }}
 
     steps:
       - name: Generate GitHub App Token
@@ -597,6 +601,7 @@ jobs:
 
       - name: Commit finalization changes via API
         if: needs.validate.outputs.release_kind == 'final'
+        id: finalize_commit
         uses: vig-os/commit-action@0361e9aa65b64711a18286ac5dfdcba7cc7a2ac7  # v0.3.2
         env:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
@@ -784,6 +789,22 @@ jobs:
             echo "⚠ Timed out waiting for sync-issues workflow"
             echo "The release may continue, but PR documentation may not be synced"
           fi
+
+      # The sync-issues run above may push its own commit onto the release
+      # branch; record the tip after it so the rollback job can recognize that
+      # commit as this run's own write (#1462).
+      - name: Record post-sync branch tip
+        id: post_sync
+        if: needs.validate.outputs.release_kind == 'final'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          POST_SYNC_SHA=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
+            gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/release/$VERSION" --jq '.object.sha')
+          echo "post_sync_sha=$POST_SYNC_SHA" >> "$GITHUB_OUTPUT"
+          echo "Post-sync branch tip: $POST_SYNC_SHA"
 
   build-and-test:
     name: Build and Test (${{ matrix.arch }})
@@ -1533,7 +1554,9 @@ jobs:
 
       - name: Generate Release App Token
         id: release-app-token
-        if: ${{ needs.validate.outputs.release_kind == 'final' && needs.validate.outputs.pr_number != '' }}
+        # Restore-only token: minted only when the PR-body restore below runs,
+        # i.e. never when finalize was skipped and left the body untouched (#1462).
+        if: ${{ needs.validate.outputs.release_kind == 'final' && needs.validate.outputs.pr_number != '' && needs.finalize.result != 'skipped' }}
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
         with:
           client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
@@ -1555,14 +1578,32 @@ jobs:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           VERSION: ${{ needs.validate.outputs.version }}
           PRE_SHA: ${{ needs.validate.outputs.pre_finalize_sha }}
+          RELEASE_KIND: ${{ needs.validate.outputs.release_kind }}
+          FINALIZE_RESULT: ${{ needs.finalize.result }}
+          FINALIZE_COMMIT_SHA: ${{ needs.finalize.outputs.finalize_commit_sha }}
+          FINAL_TIP_SHA: ${{ needs.finalize.outputs.post_sync_sha || needs.finalize.outputs.finalize_sha }}
+          # The org commit App's author name, pinned so a foreign commit cannot
+          # pass as the sync commit (#1462); live-verified on daeb5c54.
+          SYNC_COMMIT_AUTHOR: "commit-action-bot[bot]"
         run: |
           set -euo pipefail
-          echo "Rolling back release branch to pre-finalization state..."
           REPO="${{ github.repository }}"
           BRANCH_REF="heads/release/$VERSION"
 
-          TREE_SHA=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
-            gh api "repos/$REPO/git/commits/$PRE_SHA" --jq '.tree.sha')
+          # Guard (#1462): if finalize never ran, this run wrote nothing to
+          # the branch — leave it alone no matter where the tip is.
+          if [ "$FINALIZE_RESULT" = "skipped" ] || [ -z "$FINALIZE_RESULT" ]; then
+            echo "Finalize never ran (result: '${FINALIZE_RESULT:-none}'); nothing to roll back"
+            exit 0
+          fi
+
+          # Guard (#1462): candidates are branch-neutral — finalize commits
+          # only on final releases, so there is nothing to roll back either.
+          if [ "$RELEASE_KIND" != "final" ]; then
+            echo "Release kind '$RELEASE_KIND' writes no finalize commit; nothing to roll back"
+            exit 0
+          fi
+
           CURRENT_SHA=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
             gh api "repos/$REPO/git/refs/$BRANCH_REF" --jq '.object.sha')
 
@@ -1570,6 +1611,51 @@ jobs:
             echo "Branch already at pre-finalization SHA, no rollback needed"
             exit 0
           fi
+
+          # Sole parent of a commit; empty for merge commits (never this run's).
+          parent_of() {
+            retry --retries 3 --backoff 5 --max-backoff 30 -- \
+              gh api "repos/$REPO/git/commits/$1" \
+                --jq 'if (.parents | length) == 1 then .parents[0].sha else "" end'
+          }
+
+          # Guard (#1462): revert only what THIS run wrote. The tip must be
+          # exactly the finalize commit — optionally with the sync-issues
+          # commit on top — parented on the pre-finalization snapshot.
+          # Anything else means the branch moved during the run: refuse
+          # loudly instead of clobbering foreign commits (#1459/#1460).
+          SAFE=false
+          if [ -n "$FINALIZE_COMMIT_SHA" ] && [ "$(parent_of "$FINALIZE_COMMIT_SHA")" = "$PRE_SHA" ]; then
+            if [ "$CURRENT_SHA" = "$FINALIZE_COMMIT_SHA" ]; then
+              SAFE=true
+            elif [ -n "$FINAL_TIP_SHA" ] && [ "$CURRENT_SHA" = "$FINAL_TIP_SHA" ]; then
+              # The only legitimate commit on top of finalize's is the
+              # sync-issues one — and a foreign PR squash-merged mid-run is
+              # single-parent too, so parentage alone cannot tell them apart
+              # (#1462). Gate on the sync commit's fixed message and, where
+              # the org's commit bot name is a known constant, its author.
+              TIP_FACTS=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
+                gh api "repos/$REPO/git/commits/$FINAL_TIP_SHA" \
+                  --jq '[(if (.parents | length) == 1 then .parents[0].sha else "" end), .author.name, (.message | split("\n")[0])] | join("\t")')
+              IFS=$'\t' read -r TIP_PARENT TIP_AUTHOR TIP_TITLE <<< "$TIP_FACTS"
+              if [ "$TIP_PARENT" = "$FINALIZE_COMMIT_SHA" ] \
+                && [ "$TIP_TITLE" = "chore: sync issues and PRs" ] \
+                && { [ -z "${SYNC_COMMIT_AUTHOR:-}" ] || [ "$TIP_AUTHOR" = "$SYNC_COMMIT_AUTHOR" ]; }; then
+                SAFE=true
+              fi
+            fi
+          fi
+
+          if [ "$SAFE" != "true" ]; then
+            echo "::error::Refusing to roll back release/$VERSION: branch tip $CURRENT_SHA is not the commit(s) this run wrote (finalize commit: '${FINALIZE_COMMIT_SHA:-none}', post-finalize tip: '${FINAL_TIP_SHA:-none}', pre-finalize: $PRE_SHA). The branch moved during the run; leave it as is and revert the finalize commit manually if needed."
+            exit 1
+          fi
+
+          # Safe: the tip holds only this run's commits, so resetting the tree
+          # to the pre-finalization snapshot is exactly a revert of them.
+          echo "Rolling back release branch to pre-finalization state..."
+          TREE_SHA=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
+            gh api "repos/$REPO/git/commits/$PRE_SHA" --jq '.tree.sha')
 
           REVERT_SHA=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
             gh api -X POST "repos/$REPO/git/commits" \
@@ -1586,7 +1672,10 @@ jobs:
 
       - name: Restore release PR body from pre-finalization CHANGELOG
         id: restore-pr-body
-        if: ${{ needs.validate.outputs.release_kind == 'final' && needs.validate.outputs.pr_number != '' }}
+        # Only finalize's refresh step rewrites the PR body; when finalize was
+        # skipped the body is untouched and must not be overwritten from a
+        # possibly-stale PRE_SHA changelog (#1462).
+        if: ${{ needs.validate.outputs.release_kind == 'final' && needs.validate.outputs.pr_number != '' && needs.finalize.result != 'skipped' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.release-app-token.outputs.token }}
@@ -1676,7 +1765,7 @@ jobs:
             - If the tag was pushed before the failure, it remains on the remote; use a new release candidate to validate fixes, then re-run the final release when ready.
 
             **Actions Taken:**
-            - Release branch reset to pre-finalization state (best-effort)
+            - Release branch: this run's finalize commit(s) reverted, but only when the branch tip matched exactly what the run wrote — otherwise the branch is left untouched and the rollback result above is \`failure\` (#1462)
             - Release PR body restored to TBD / prepare-release format when applicable (best-effort)
             - This issue created for investigation
 
@@ -1708,7 +1797,7 @@ jobs:
           echo "✗ Release workflow failed"
           echo ""
           echo "Automatic rollback completed:"
-          echo "  - Release branch reset to pre-finalization state (best-effort)"
+          echo "  - Release branch rollback: ${{ steps.rollback-branch.outcome }} (reverts only this run's finalize commit(s); refuses if the branch moved, #1462)"
           echo "  - Release PR body restoration: ${{ steps.restore-pr-body.outcome }} (skipped if not a final release or no PR number)"
           echo "  - Tags were not deleted (forward-fix policy)"
           echo "  - GitHub issue created for investigation"
