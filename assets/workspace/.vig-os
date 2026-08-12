@@ -81,9 +81,10 @@ DEVKIT_SYNC_SCHEDULE=
 # flake — an unknown name aborts the scaffold loudly (#1284).
 DEVKIT_FEATURES_DISABLED=
 
-# Refs-line enforcement policy for the commit-message gate, driving BOTH the
-# validate-commit-msg pre-commit hook and CI's validate-commit-range from this
-# one key. Empty (default) resolves to `chore-optional` — every type but `chore`
+# Refs-line enforcement policy for the commit-message gate, driving the
+# validate-commit-msg pre-commit hook — scaffolded AND flake-generated (read by
+# flake.nix at eval time, #1434) — and CI's validate-commit-range from this one
+# key. Empty (default) resolves to `chore-optional` — every type but `chore`
 # requires a `Refs:` line — unchanged for devkit or existing consumers.
 # `optional` never requires Refs (any approved type may omit it); `required`
 # demands Refs on every type, `chore` included. Realized at scaffold time (an
@@ -92,9 +93,10 @@ DEVKIT_FEATURES_DISABLED=
 DEVKIT_REFS_POLICY=
 
 # Approved commit types for the commit-message gate — a comma-separated
-# (whitespace-tolerant) FULL REPLACEMENT list driving BOTH the
-# validate-commit-msg hook's `--types` arg and CI's validate-commit-range from
-# this one key. Empty (default) resolves to the stock 11 types
+# (whitespace-tolerant) FULL REPLACEMENT list driving the validate-commit-msg
+# hook's `--types` arg — scaffolded AND flake-generated (read by flake.nix at
+# eval time, #1434) — and CI's validate-commit-range from this one key.
+# Empty (default) resolves to the stock 11 types
 # (feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style) — unchanged
 # for devkit or existing consumers. Lowercase alphanumerics only (guarded
 # loudly at scaffold time). Keep `chore` and `build` unless deliberate:

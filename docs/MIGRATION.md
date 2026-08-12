@@ -390,9 +390,9 @@ unknown keys:
 | `DEVKIT_SYNC_TARGET` | Branch the scaffolded sync-issues job commits to; empty (default) => the workflow-model default (`dev`/`main`). A protected-`main` consumer sets an unprotected mirror branch, e.g. `sync/issue-mirror` (see [Point sync-issues at an unprotected mirror branch](#point-sync-issues-at-an-unprotected-mirror-branch-protected-main), [#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_SYNC_SCHEDULE` | Cron override (5-field) for the sync-issues schedule trigger; empty (default) => the daily `0 2 * * *` ([#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_FEATURES_DISABLED` | Comma-separated scaffold feature groups this repo opts OUT of; empty (default) => every group is scaffolded. A disabled group is never shipped and a prior scaffold's copy is pruned on upgrade (see [Scaffold feature opt-outs](#scaffold-feature-opt-outs), [#1284](https://github.com/vig-os/devkit/issues/1284)) |
-| `DEVKIT_REFS_POLICY` | Refs-line enforcement policy driving both the `validate-commit-msg` hook and CI's `validate-commit-range`: `chore-optional` (default/empty — only `chore` may omit `Refs:`) \| `optional` (never required) \| `required` (every type needs `Refs:`) ([#1282](https://github.com/vig-os/devkit/issues/1282)) |
-| `DEVKIT_COMMIT_TYPES` | Comma-separated FULL REPLACEMENT of the approved commit types, driving both the `validate-commit-msg` hook's `--types` and CI's `validate-commit-range`; empty (default) => the stock 11 types. Lowercase alphanumerics only; keep `chore`/`build` unless deliberate (bot commits — the scaffold prints a notice). `DEVKIT_REFS_POLICY=optional` mirrors this list ([#1431](https://github.com/vig-os/devkit/issues/1431)) |
-| `DEVKIT_BRANCH_TYPES` | Comma-separated FULL REPLACEMENT of the issue-numbered `<type>/<issue>-<summary>` branch-type set, driving the local `no-commit-to-branch` guard, the flake-generated consumer surface, and CI's branch-name gate; empty (default) => the stock set (`feature,bugfix,hotfix,release,docs,test,refactor`). The `chore/`, `renovate/`, `worktree/` clauses are never knob-driven. Pre-#1432 direnv consumers hand-port the flake reader (see [Custom branch types on the flake surface](#custom-branch-types-on-the-flake-surface-direnv-consumers), [#1432](https://github.com/vig-os/devkit/issues/1432)) |
+| `DEVKIT_REFS_POLICY` | Refs-line enforcement policy driving the `validate-commit-msg` hook — scaffolded **and** flake-generated ([#1434](https://github.com/vig-os/devkit/issues/1434)) — and CI's `validate-commit-range`: `chore-optional` (default/empty — only `chore` may omit `Refs:`) \| `optional` (never required) \| `required` (every type needs `Refs:`) ([#1282](https://github.com/vig-os/devkit/issues/1282)) |
+| `DEVKIT_COMMIT_TYPES` | Comma-separated FULL REPLACEMENT of the approved commit types, driving the `validate-commit-msg` hook's `--types` — scaffolded **and** flake-generated ([#1434](https://github.com/vig-os/devkit/issues/1434)) — and CI's `validate-commit-range`; empty (default) => the stock 11 types. Lowercase alphanumerics only; keep `chore`/`build` unless deliberate (bot commits — the scaffold prints a notice). `DEVKIT_REFS_POLICY=optional` mirrors this list ([#1431](https://github.com/vig-os/devkit/issues/1431)) |
+| `DEVKIT_BRANCH_TYPES` | Comma-separated FULL REPLACEMENT of the issue-numbered `<type>/<issue>-<summary>` branch-type set, driving the local `no-commit-to-branch` guard, the flake-generated consumer surface, and CI's branch-name gate; empty (default) => the stock set (`feature,bugfix,hotfix,release,docs,test,refactor`). The `chore/`, `renovate/`, `worktree/` clauses are never knob-driven. Pre-#1432 direnv consumers hand-port the flake reader (see [Commit and branch policy on the flake surface](#commit-and-branch-policy-on-the-flake-surface-direnv-consumers), [#1432](https://github.com/vig-os/devkit/issues/1432)) |
 | `DEVKIT_AUTO_UPGRADE` | Opt-out for the scaffolded `devkit-upgrade.yml` weekly schedule; empty (default) or any value but `false` keeps the auto-adoption poll on. `false` disables only the schedule — manual `workflow_dispatch` always runs ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
 | `DEVKIT_UPGRADE_EXCLUDE` | Comma-separated (whitespace-tolerant) paths the `devkit-upgrade` workflow resets before the adoption commit, so generated-doc churn never rides along in the upgrade diff; empty (default) => no exclusions ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
 
@@ -478,29 +478,36 @@ How it behaves:
   [`docs/SOLO_ADOPTION.md`](./SOLO_ADOPTION.md)
   ([#1285](https://github.com/vig-os/devkit/issues/1285)).
 
-### Custom branch types on the flake surface (direnv consumers)
+### Commit and branch policy on the flake surface (direnv consumers)
 
-`DEVKIT_BRANCH_TYPES` reaches the **scaffolded** `.pre-commit-config.yaml` and
-**CI's branch-name gate** automatically on re-scaffold/upgrade. The
-**flake-generated** consumer surface (direnv repos that opted into
-`mkProjectShell`'s `hooks`) reads the key at eval time through the project's
-own `flake.nix` — a **scaffold-once file the upgrade never overwrites**. New
-scaffolds ship the reader; a repo whose `flake.nix` predates #1432 ports it by
-hand (the same one-time port as the #1224 `workflow` forwarding):
+`DEVKIT_BRANCH_TYPES`, `DEVKIT_COMMIT_TYPES` and `DEVKIT_REFS_POLICY` reach the
+**scaffolded** `.pre-commit-config.yaml` and **CI** automatically on
+re-scaffold/upgrade. The **flake-generated** consumer surface (direnv repos
+that opted into `mkProjectShell`'s `hooks`) reads those keys at eval time
+through the project's own `flake.nix` — a **scaffold-once file the upgrade
+never overwrites**. New scaffolds ship the reader; a repo whose `flake.nix`
+predates #1432/#1434 ports it by hand (the same one-time port as the #1224
+`workflow` forwarding):
 
-1. Copy the managed `vigOsValue` / `workflow` / `branchTypes` `let`-block from
-   the current template
+1. Copy the managed `vigOsValue` / `vigOsList` / `workflow` / `branchTypes` /
+   `commitTypes` / `refsPolicy` `let`-block from the current template
    ([`assets/workspace/flake.nix`](https://github.com/vig-os/devkit/blob/main/assets/workspace/flake.nix))
    over your existing `workflow` reader.
-2. Copy the two `nixpkgs.lib.optionalAttrs (builtins.functionArgs … )`
-   forwarding blocks after the `mkProjectShell` argument set. The
-   `functionArgs` guard keeps older pinned devkits evaluating (they fall back
-   to the stock set instead of failing).
+2. Copy the `nixpkgs.lib.optionalAttrs (builtins.functionArgs … )` forwarding
+   blocks after the `mkProjectShell` argument set. The `functionArgs` guard
+   keeps older pinned devkits evaluating (they fall back to the stock values
+   instead of failing).
 
-Without the port the knob still works everywhere except the locally generated
-guard — which then keeps the stock set, and the loud signal comes from CI's
-gate instead. Validation is eval-time and loud: a bad entry (charset, empty
-list) fails `nix develop` with a `branchTypes` message.
+Without the port the knobs still work everywhere except the locally generated
+hooks — which then keep the stock values, and the loud signal comes from CI's
+gates instead. Validation is eval-time and loud: a bad value (branch/commit
+type charset, an empty list, an unknown Refs policy) fails `nix develop` with
+a `branchTypes` / `commitTypes` / `refsPolicy` message.
+
+Note that the flake-generated config only *carries* the commit-message hooks
+from devkit 1.8.0 on ([#1434](https://github.com/vig-os/devkit/issues/1434)) —
+before that a direnv consumer had no local `commit-msg` stage at all, so
+`DEVKIT_COMMIT_TYPES` / `DEVKIT_REFS_POLICY` were realized through CI only.
 
 ## What a consumer needs to know
 
@@ -757,6 +764,18 @@ The contract:
   the generated set includes it — `direnv`/`bare` consumers gain markdown lint
   from the shared toolchain like `shellcheck`/`typos`. Toggle it off with
   `pymarkdown.enable = false` if a repo has no markdown to lint.
+- **The commit-message and agent-identity guards are in the base set.** Since
+  [#1434](https://github.com/vig-os/devkit/issues/1434) the generated config
+  carries `validate-commit-msg` (`commit-msg` stage),
+  `prepare-commit-msg-strip-trailers` (`prepare-commit-msg` stage) and
+  `check-agent-identity`, resolving the `vig-utils` console scripts from the
+  pinned devkit — so `.githooks/commit-msg` actually rejects a malformed
+  message and `git commit --author="Claude <…>"` is refused locally, as in a
+  container-mode consumer. Before that release the `commit-msg` stage was
+  empty for flake-hooks consumers and only CI enforced the standard. The
+  `--types` / `--refs-optional-types` args follow `DEVKIT_COMMIT_TYPES` and
+  `DEVKIT_REFS_POLICY` (see [Commit and branch policy on the flake
+  surface](#commit-and-branch-policy-on-the-flake-surface-direnv-consumers)).
 - The planned declarative `.vig-os` manifest
   ([#885](https://github.com/vig-os/devkit/issues/885)) will carry an
   explicit raw-YAML opt-out flag so the choice is recorded per-repo rather
