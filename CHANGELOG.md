@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.8.0] - TBD
+
+### Added
+
 - **`just doctor` reports whether the git hooks are actually wired** ([#1430](https://github.com/vig-os/devkit/issues/1430))
   - New `core.hooksPath` diagnostic: `PASS` when it points at `.githooks`,
     `WARN` otherwise, distinguishing "not set" (a fresh clone, where the
@@ -145,8 +159,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - One-time migration: close any adoption issues left open by earlier
     trains on the consumers
 
-### Deprecated
-
 ### Removed
 
 - **`devc-upgrade` recipe removed from the scaffold** ([#1421](https://github.com/vig-os/devkit/issues/1421))
@@ -207,8 +219,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     pre-rename `vig-os/devcontainer` repository, so the mint failed with 404
     and no upstream failure issue was ever filed. It now targets
     `vig-os/devkit`.
-
-### Security
 
 ## [1.7.0](https://github.com/vig-os/devkit/releases/tag/1.7.0) - 2026-08-07
 
