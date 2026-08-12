@@ -904,6 +904,58 @@ EOF
     assert_failure
 }
 
+# ── Smoke deploys keep the consumer's own payload (#1466) ─────────────────────
+# The smoke rsync used to carry --delete, which removes every tracked path the
+# template does not ship — including the smoke repo's own Python project. That
+# was invisible while commit-action built the deploy tree additively; once
+# #1443 started publishing `git ls-files --deleted`, the 1.8.0-rc3 deploy
+# committed the deletion of pyproject.toml, uv.lock, src/ and tests/.
+#
+# Retirement is expressed by the #1348 manifest, not by --delete, and the
+# scaffold-drift gate re-scaffolds in NORMAL mode (which never deletes). Smoke
+# mode now matches that path, so gate and deploy agree by construction.
+
+@test "smoke deploy preserves the consumer's own project payload (#1466)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1466-payload"
+    mkdir -p "$ws/src/demo_pkg" "$ws/tests"
+    printf '[project]\nname = "demo"\n' >"$ws/pyproject.toml"
+    printf 'version = 1\n' >"$ws/uv.lock"
+    printf '# SENTINEL-1466 package\n' >"$ws/src/demo_pkg/__init__.py"
+    printf '# SENTINEL-1466 test\n' >"$ws/tests/test_demo.py"
+
+    run _smoke_deploy "$ws"
+    assert_success
+
+    # The template ships none of these; a smoke deploy must not remove them.
+    run test -f "$ws/pyproject.toml"
+    assert_success
+    run test -f "$ws/uv.lock"
+    assert_success
+    run grep -q 'SENTINEL-1466 package' "$ws/src/demo_pkg/__init__.py"
+    assert_success
+    run grep -q 'SENTINEL-1466 test' "$ws/tests/test_demo.py"
+    assert_success
+}
+
+@test "smoke deploy still prunes retired scaffold paths (#1466/#1348)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1466-retired"
+    mkdir -p "$ws/.github/workflows"
+    # Pin predates the 1.8.0 retirement, so the prune is in scope.
+    printf 'DEVKIT_VERSION=1.7.0\n' >"$ws/.vig-os"
+    printf 'name: retired\n' >"$ws/.github/workflows/renovate-changelog-build.yml"
+    printf 'name: retired\n' >"$ws/.github/workflows/renovate-changelog-commit.yml"
+
+    run _smoke_deploy "$ws"
+    assert_success
+
+    # Dropping --delete must not cost the #1443 retirement behaviour: the
+    # #1348 prune is what removes these, in smoke mode as in normal mode.
+    run test -e "$ws/.github/workflows/renovate-changelog-build.yml"
+    assert_failure
+    run test -e "$ws/.github/workflows/renovate-changelog-commit.yml"
+    assert_failure
+}
+
 # ── Nix-image scaffold: real, writable files (#664) ───────────────────────────
 # The Nix image bakes the template as read-only /nix/store symlinks. The scaffold
 # rsync must --copy-links (-L) so a new workspace gets real files (not dangling
