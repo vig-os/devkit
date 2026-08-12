@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-08-11T22:40:09Z
-updated: 2026-08-12T00:02:46Z
+updated: 2026-08-12T06:14:59Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1427
-comments: 2
+comments: 3
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-12T04:13:04.413Z
+synced: 2026-08-12T13:33:44.000Z
 ---
 
 # [Issue 1427]: [Decision: where do a capability module's CHECKS live — lib function or a v2 contract field?](https://github.com/vig-os/devkit/issues/1427)
@@ -205,5 +205,84 @@ Also worth recording, since it settles the standing of this work: `rust` is alre
 > **Ask-gated candidates (named, not shipped — YAGNI):** `geant4`, **`rust`**, `fortran`/`f2py`, `root`. Each ships with its own devshell smoke check the release it lands.
 
 `gerchowl/filesender` is that ask. The verdict stands; the reasoning is amended.
+
+
+---
+
+# [Comment #3]() by [c-vigo]()
+
+_Posted on August 12, 2026 at 06:10 AM_
+
+## Sign-off — A + D + assert, accepted with two conditions
+
+*(Amended 2026-08-12 after reviewing PR #1429, which had already implemented
+the verdict when this sign-off was first posted. The decision is unchanged;
+condition 1 is discharged by that PR's mechanism, condition 2 is re-scoped.
+The original text prescribed a `rust-toolchain-only` registry alias — that
+prescription is withdrawn, superseded by the shipped shape.)*
+
+Signing off on the consolidated verdict as the contract decision: **library
+composition (`vigos.lib.mkRustProject`), no v1 contract change, module-local
+eval-time refusal with a sanctioned toolchain-only opt-out.** The correction
+comment is also accepted as filed — the `node.version` reconciliation
+precondition is withdrawn; #1027 executed the ADR's documented migration path,
+nothing drifted. This sign-off covers A+D+assert alone.
+
+The decisive technical point survives scrutiny: flake outputs are
+consumer-assigned, so Option B cannot deliver "no second thing to forget"
+without changing `mkProjectShell`'s *return shape* — a larger contract break
+than the one debated. B stays off the table until a **second, non-Rust**
+capability module independently needs to contribute checks (note: `docs` and
+`node` are plausible second askers — typst compile, tsc/jest — so the revisit
+bar in the ADR amendment may well be exercised).
+
+### Condition 1 — the assert must not break devkit's own generated checks — ✅ discharged by #1429
+
+`flake.nix` auto-generates `checks.<system>.module-<name>` for every registry
+entry by instantiating the bare name, which a throwing `rust` would break.
+PR #1429 resolves this with a **mandatory `checks` option (no default)** on the
+module plus `nix/modules/check-entries.nix`, a per-name generator override that
+instantiates the smoke check as `{ name = "rust"; checks = "none"; }` — reusing
+the existing #1027 per-module-options mechanism instead of a registry alias,
+with the opt-out as one attrset rather than a second module name. That is a
+better shape than the one originally prescribed here, and PR CI (including
+`module-rust`) is green. Accepted as the mechanism of record; the ADR
+amendment in #1429 documents it.
+
+### Condition 2 — close the gap the refusal cannot reach — ⚠ still open, re-scoped
+
+A consumer who calls `mkRustProject` but wires only
+`devShells.default = x.devShell`, dropping `checks = x.checks`, sails past the
+eval refusal entirely — #1429 is honest about this ("flake outputs are
+consumer-assigned by construction") but does not close it. The original
+condition keyed a gate on `DEVKIT_MODULES` — **that key is reserved but
+unwired**: `.vig-os` carries it and `init-workspace.sh` round-trips it, but
+nothing renders it into the consumer flake (#885 was never built). Re-scoped:
+
+- the rendered CI (or a scaffold-level gate) asserts, **for a repo with a
+  `Cargo.toml` at its root**, that `nix flake show --json` reports a non-empty
+  `checks` output; or
+- the gate lands as part of #885 when `DEVKIT_MODULES` plumbing is built.
+
+Either satisfies the condition. This may trail #1429 as a follow-up issue
+rather than blocking the PR, but it must be filed before #1427 closes.
+
+### Follow-through
+
+- [x] ADR amendment recording the decision, the losing options, the revisit
+      bar, and the check-entries plumbing — included in PR #1429
+- [ ] Condition-2 gate filed as an issue (blocking #1427's closure, not #1429)
+- [ ] PR-level decisions stay on #1429: the `crane`/`fenix`-as-devkit-inputs
+      tradeoff, and splitting #1400's part A (the guardrails hook-surface
+      collision) into its own issue so `Closes #1400` doesn't bury it
+
+One caveat for the record: the filesender evidence lives in a private repo I
+cannot audit from here; it does not change the decision, which rests on the
+category/return-shape argument, not on the consumer count — and the live
+adoption reported on #1429 (120 lines of hand-rolled wiring deleted, the
+`doc` check catching a real defect on first run) is stronger evidence than
+the original claim in any case.
+
+Refs: #1400
 
 
