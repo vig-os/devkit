@@ -171,7 +171,10 @@ jobs:
   project-checks:
     name: Project Checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    # 25 (was 10): the hooks-fidelity + services and widened dev-shell steps
+    # added by #1413 run extra `nix develop`/`nix build` invocations; with a
+    # warm Cachix they are minutes, not tens of minutes, but need headroom.
+    timeout-minutes: 25
     if: |
       github.event_name != 'workflow_dispatch' ||
       inputs.test-suite == 'all' ||
@@ -205,16 +208,34 @@ jobs:
       - name: Validate flake output schema
         run: uv run pytest tests/test_flake_checks.py -k "not flake_check_succeeds" -v
 
-      # Guard the dev-shell <-> image parity: the dev-shell must expose
-      # `python3` (#729), carry the `prek` hook runner in the devTools SSoT
-      # (#778), and must NOT leak the Nix C++ runtime onto an FHS host's
-      # LD_LIBRARY_PATH (#703). These drive `nix develop` directly (not covered
-      # by `test-project`'s pytest scope), so run them explicitly here where Nix
-      # + the dev profile are warm. Refs #729, #703, #778.
-      - name: Check dev-shell python/prek parity + FHS leak-guard
+      # Guard the dev-shell <-> image parity: the dev-shell's own PATH must
+      # provide `python3` + the vig-utils release scripts (#729/#993, one
+      # probe: own_path_binaries), carry the `prek` hook runner in the devTools
+      # SSoT (#778), must NOT leak the Nix C++ runtime onto an FHS host's
+      # LD_LIBRARY_PATH (#703), and must provide the fixture-driven tool/env
+      # contracts (bats + helper libs, prek binary hooks, pymarkdown, uv python
+      # pinning, agent-toolkit superset). These drive `nix develop` directly
+      # (not covered by `test-project`'s pytest scope), so run them explicitly
+      # here where Nix + the dev profile are warm. The NixOS-gated and
+      # build-heavy cases (per-tool sweep, python override matrix) stay
+      # local-only. Refs #729, #703, #778, #1413, #1417.
+      - name: Check dev-shell contracts (parity, leak-guard, tool/env fixtures)
         run: |
           uv run pytest tests/test_flake_devshell.py \
-            -k "exposes_python3_and_precommit or hook_runner_is_prek or no_nix_cxx_runtime_leak" -v
+            -k "own_path_binaries or hook_runner_is_prek or no_nix_cxx_runtime_leak \
+                or provides_bats or provides_precommit_binary_hooks or provides_pymarkdown \
+                or bats_lib_path or uv_python or superset_of_agent_toolkit" -v
+
+      # Run the git-hooks fidelity gate (nix/hooks.nix <-> committed YAML, the
+      # consumer hooks/hooksExcludes surface, workflow branch-guards, gitleaks
+      # opt-in) and the services-module contracts. Previously these two modules
+      # ran in no CI job at all despite being deny-listed from the test-project
+      # sweep as "covered by their own targeted jobs". The services PoC boot
+      # (live s3 + postgres) stays local-only. Refs #1413.
+      - name: Check git-hooks fidelity gate + services module
+        run: |
+          uv run pytest tests/test_flake_hooks.py tests/test_flake_services.py \
+            -k "not services_poc_boots" -v
 
       # Run the capability-module contract tests (#884): the `native` module
       # shell exposes the C/C++ toolchain on its own PATH and exports generic
@@ -269,6 +290,36 @@ jobs:
           sync-dependencies: 'true'
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      # Branch-name gate (#1432 / #1430): the local no-commit-to-branch guard
+      # depends on core.hooksPath, which a fresh clone does not have — this
+      # step is the enforcement point that survives an un-initialised clone
+      # (the repo that defines the standard enforces it on itself). Devkit is
+      # the producer (no .vig-os), so the stock type set is inline; it must
+      # match nix/hooks.nix defaultBranchTypes. The allowed set is a SUPERSET
+      # of the local guard's: automation branches (release trains, Renovate,
+      # the worktree pipeline) never run local hooks but do open PRs. The head
+      # ref is attacker-controlled text, so it reaches the check via env,
+      # never inline ${{ }}.
+      - name: Validate branch name
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BRANCH_TYPES: feature,bugfix,hotfix,release,docs,test,refactor
+        run: |
+          set -euo pipefail
+          TYPES_ALTERNATION="${BRANCH_TYPES//,/|}"
+          ALLOWED="^(main|dev)$"
+          ALLOWED+="|^chore/[a-z0-9]+(-[a-z0-9]+)*$"
+          ALLOWED+="|^(${TYPES_ALTERNATION})/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$"
+          ALLOWED+="|^worktree/[0-9]+$"
+          ALLOWED+="|^renovate/.+$"
+          ALLOWED+="|^release/[0-9]+\.[0-9]+\.[0-9]+$"
+          if printf '%s' "${HEAD_REF}" | grep -qE "${ALLOWED}"; then
+            echo "Branch name OK: ${HEAD_REF}"
+          else
+            echo "::error::Branch name '${HEAD_REF}' does not follow the convention <type>/<issue>-<summary> (types: ${BRANCH_TYPES}) or chore/<summary>. See docs/COMMIT_MESSAGE_STANDARD.md and the branch-naming skill."
+            exit 1
+          fi
 
       # The PR title is attacker-controlled text, so it reaches the validator as
       # an environment variable — never interpolated into the shell command.

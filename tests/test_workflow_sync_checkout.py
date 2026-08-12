@@ -23,36 +23,25 @@ Refs: #1034
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
-import yaml
 
-from tests.workflow_scaffold import scaffold_tree
+from tests.workflow_scaffold import (
+    REPO_ROOT,
+    both_copies,
+    cached_tree,
+    load_workflow,
+    steps_of_job,
+)
 
-# Repository root (tests/ -> repo root).
-REPO_ROOT = Path(__file__).resolve().parent.parent
+if TYPE_CHECKING:
+    from pathlib import Path
 
 # The gitflow copies: devkit's own workflow and the scaffold shipped to
 # consumers. Both are the gitflow shape (assets/workspace is the gitflow
 # template); trunk is asserted separately below.
-SYNC_WORKFLOWS = [
-    REPO_ROOT / ".github" / "workflows" / "sync-main-to-dev.yml",
-    REPO_ROOT
-    / "assets"
-    / "workspace"
-    / ".github"
-    / "workflows"
-    / "sync-main-to-dev.yml",
-]
-
-
-def _load(path: Path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
-
-
-def _steps_of_job(workflow: dict, job: str) -> list[dict]:
-    return workflow["jobs"][job]["steps"]
+SYNC_WORKFLOWS = both_copies("sync-main-to-dev.yml")
 
 
 def _checkout_steps(steps: list[dict]) -> list[dict]:
@@ -75,7 +64,7 @@ def test_sync_job_checkout_uses_default_ref(path: Path) -> None:
     assert path.is_file(), (
         f"{path} must ship under the gitflow model (the sync-main-to-dev bridge)"
     )
-    steps = _steps_of_job(_load(path), "sync")
+    steps = steps_of_job(load_workflow(path), "sync")
 
     # Precondition: this test only matters because the job runs a local action,
     # which GitHub resolves against the checked-out workspace.
@@ -93,7 +82,7 @@ def test_sync_job_checkout_uses_default_ref(path: Path) -> None:
         )
 
 
-def test_trunk_scaffold_omits_sync_main_to_dev(tmp_path: Path) -> None:
+def test_trunk_scaffold_omits_sync_main_to_dev() -> None:
     """A trunk scaffold ships no sync-main-to-dev.yml (#1205).
 
     The whole point of this suite — the ``main -> dev`` sync bridge — has no
@@ -102,7 +91,7 @@ def test_trunk_scaffold_omits_sync_main_to_dev(tmp_path: Path) -> None:
     assert the absence (rather than skipping) so a regression that reships the
     gitflow bridge into a trunk repo is caught.
     """
-    rendered = scaffold_tree(tmp_path, "trunk")
+    rendered = cached_tree("trunk")
     assert not (rendered / ".github" / "workflows" / "sync-main-to-dev.yml").exists(), (
         "trunk scaffold must not ship the gitflow sync-main-to-dev bridge"
     )

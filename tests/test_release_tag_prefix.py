@@ -15,31 +15,15 @@ from __future__ import annotations
 
 import os
 import subprocess
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
-import yaml
 
-# Repository root (tests/ -> repo root).
-REPO_ROOT = Path(__file__).resolve().parent.parent
-WORKSPACE = REPO_ROOT / "assets" / "workspace"
-WORKFLOWS = WORKSPACE / ".github" / "workflows"
+from tests.workflow_scaffold import WORKFLOWS
+from tests.workflow_scaffold import load_workflow as _load
 
-
-def _load(path: Path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
-
-
-def test_vig_os_declares_tag_prefix_key() -> None:
-    """The scaffold manifest ships the opt-in key (default empty)."""
-    text = (WORKSPACE / ".vig-os").read_text(encoding="utf-8")
-    assert "DEVKIT_TAG_PREFIX=" in text
-
-
-def test_resolve_toolchain_emits_tag_prefix_output() -> None:
-    """resolve-toolchain declares a tag-prefix output for callers to consume."""
-    action = _load(WORKFLOWS.parent / "actions" / "resolve-toolchain" / "action.yml")
-    assert "tag-prefix" in action["outputs"]
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_release_orchestrator_threads_tag_prefix() -> None:

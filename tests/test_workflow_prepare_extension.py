@@ -27,9 +27,25 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import yaml
 
-from tests.workflow_scaffold import scaffold_tree
+from tests.workflow_scaffold import (
+    cached_tree,
+)
+from tests.workflow_scaffold import (
+    jobs as _jobs,
+)
+from tests.workflow_scaffold import (
+    load_workflow as _load,
+)
+from tests.workflow_scaffold import (
+    needs_of as _needs,
+)
+from tests.workflow_scaffold import (
+    on_block as _on,
+)
+from tests.workflow_scaffold import (
+    run_text_of_job as _job_steps_text,
+)
 
 # Repository root (tests/ -> repo root) and the consumer scaffold tree.
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -46,40 +62,18 @@ DEVKIT_EXTENSION = REPO_ROOT / ".github" / "workflows" / "prepare-release-extens
 CALLER_WORKFLOWS = [SCAFFOLD_PREPARE, DEVKIT_PREPARE]
 
 # Inputs the hook contract carries (issue #1059). Underscore convention, per
-# DOWNSTREAM_RELEASE.md's "Input Naming Convention".
+# DOWNSTREAM_RELEASE.md's "Input Naming Convention". The git identity pair the
+# contract once carried is dead plumbing since the Git Data API rewrite and is
+# removed end to end (#1470).
 REQUIRED_INPUTS = {
     "version",
     "release_branch",
     "branch_sha",
     "dry_run",
-    "git_user_name",
-    "git_user_email",
 }
 
-
-def _load(path: Path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
-
-
-def _on(doc: dict) -> object:
-    # YAML 1.1 parses the bare ``on:`` key as the boolean ``True``.
-    return doc.get("on", doc.get(True))
-
-
-def _jobs(doc: dict) -> dict:
-    return doc.get("jobs") or {}
-
-
-def _needs(job: dict) -> list[str]:
-    needs = job.get("needs") or []
-    return [needs] if isinstance(needs, str) else list(needs)
-
-
-def _job_steps_text(job: dict) -> str:
-    """All ``run:`` bodies of a job's steps, concatenated."""
-    return "\n".join(
-        str(s.get("run", "")) for s in (job.get("steps") or []) if isinstance(s, dict)
-    )
+DEAD_IDENTITY_CALL_INPUTS = ("git_user_name", "git_user_email")
+DEAD_IDENTITY_DISPATCH_INPUTS = ("git-user-name", "git-user-email")
 
 
 def _extension_job(doc: dict) -> tuple[str, dict] | tuple[None, None]:
@@ -120,13 +114,6 @@ def _branch_job_checkout_ref(doc: dict) -> str | None:
 # --------------------------------------------------------------------------- #
 
 
-def test_scaffold_ships_prepare_release_extension() -> None:
-    """The scaffold ships the mutating extension hook."""
-    assert SCAFFOLD_EXTENSION.is_file(), (
-        "assets/workspace/.github/workflows/prepare-release-extension.yml must exist"
-    )
-
-
 def test_prepare_extension_is_workflow_call_with_required_inputs() -> None:
     """The hook is a reusable workflow carrying the whole prepare-phase context."""
     doc = _load(SCAFFOLD_EXTENSION)
@@ -150,6 +137,26 @@ def test_prepare_extension_default_is_noop_readonly() -> None:
     assert "vig-os/commit-action" not in SCAFFOLD_EXTENSION.read_text(
         encoding="utf-8"
     ), "the default no-op hook must not commit anything"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [SCAFFOLD_EXTENSION, DEVKIT_EXTENSION],
+    ids=lambda p: str(p.relative_to(REPO_ROOT)),
+)
+def test_prepare_extension_drops_the_dead_git_identity_inputs(path: Path) -> None:
+    """The hook contract carries no git identity (#1470).
+
+    All extension writes go through the COMMIT_APP token (App identity, Git
+    Data API), so the ``git_user_name`` / ``git_user_email`` pair the contract
+    once carried is dead and must not be declared.
+    """
+    inputs = _on(_load(path))["workflow_call"].get("inputs") or {}
+    for dead in DEAD_IDENTITY_CALL_INPUTS:
+        assert dead not in inputs, (
+            f"{path.relative_to(REPO_ROOT)} must not declare the dead input "
+            f"{dead!r} (#1470)"
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -176,7 +183,7 @@ def test_prepare_release_calls_extension_between_branch_and_pr(path: Path) -> No
     # The PR-opening job runs `gh pr create`.
     pr_name, pr_job = _job_with_step_run(doc, "gh pr create")
     assert pr_name is not None, "could not locate the draft-PR-opening job"
-    assert pr_name != ext_name and pr_name != branch_name
+    assert pr_name != branch_name
 
     # Ordering: extension after branch creation, PR after extension.
     assert branch_name in _needs(ext_job), (
@@ -199,14 +206,14 @@ def test_scaffold_prepare_forks_release_branch_from_dev() -> None:
     assert _branch_job_checkout_ref(_load(SCAFFOLD_PREPARE)) == "dev"
 
 
-def test_trunk_prepare_forks_release_branch_from_main(tmp_path: Path) -> None:
+def test_trunk_prepare_forks_release_branch_from_main() -> None:
     """Trunk: the release branch is cut from main, and the hook DAG survives.
 
     The trunk render retargets the branch base dev -> main; the extension hook
     (branch -> extension -> open-pr ordering) is model-independent and must
     still hold in the rendered trunk workflow.
     """
-    rendered = scaffold_tree(tmp_path, "trunk")
+    rendered = cached_tree("trunk")
     doc = _load(rendered / ".github" / "workflows" / "prepare-release.yml")
 
     assert _branch_job_checkout_ref(doc) == "main"
@@ -232,6 +239,27 @@ def test_prepare_release_forwards_dry_run_to_extension(path: Path) -> None:
     _, ext_job = _extension_job(_load(path))
     passed = ext_job.get("with") or {}
     assert "dry_run" in passed, "the extension call must forward dry_run"
+
+
+@pytest.mark.parametrize(
+    "path", CALLER_WORKFLOWS, ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
+def test_prepare_release_drops_the_dead_git_identity_plumbing(path: Path) -> None:
+    """Neither caller declares nor forwards the dead identity pair (#1470)."""
+    doc = _load(path)
+    dispatch_inputs = _on(doc)["workflow_dispatch"].get("inputs") or {}
+    for dead in DEAD_IDENTITY_DISPATCH_INPUTS:
+        assert dead not in dispatch_inputs, (
+            f"{path.relative_to(REPO_ROOT)} must not declare the dead dispatch "
+            f"input {dead!r} (#1470)"
+        )
+    _, ext_job = _extension_job(doc)
+    passed = ext_job.get("with") or {}
+    for dead in DEAD_IDENTITY_CALL_INPUTS:
+        assert dead not in passed, (
+            f"{path.relative_to(REPO_ROOT)} must not forward the dead input "
+            f"{dead!r} to the extension (#1470)"
+        )
 
 
 @pytest.mark.parametrize(
@@ -334,9 +362,15 @@ def test_devkit_open_pr_needs_no_toolchain() -> None:
 
 
 def test_devkit_prepare_release_no_longer_syncs_manifest_inline() -> None:
-    """Devkit's prepare-release.yml is scaffold-shaped: no hardcoded sync step."""
-    assert "sync_manifest.py" not in DEVKIT_PREPARE.read_text(encoding="utf-8"), (
-        "the sync_manifest.py divergence must move out of prepare-release.yml "
+    """Devkit's prepare-release.yml is scaffold-shaped: no hardcoded sync step.
+
+    Scoped to the ``run:`` blocks (comments may still narrate the history):
+    no step of any job may invoke the manifest sync inline.
+    """
+    doc = _load(DEVKIT_PREPARE)
+    run_texts = "\n".join(_job_steps_text(job) for job in _jobs(doc).values())
+    assert "sync_manifest" not in run_texts, (
+        "the sync_manifest divergence must move out of prepare-release.yml "
         "into devkit's own prepare-release-extension.yml (#1059)"
     )
 

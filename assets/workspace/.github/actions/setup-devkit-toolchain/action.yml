@@ -386,7 +386,7 @@ runs:
         fi
         # Pinned to the versions the vig-os toolchain ships; bump via Renovate or
         # alongside a devkit upgrade. vig-utils supplies the release console
-        # scripts (prepare-changelog, renovate-changelog-pr) that the image bakes
+        # scripts (prepare-changelog, synthesize-bot-changelog) that the image bakes
         # in the other modes — pinned to the same devkit version as .vig-os
         # (#993, see https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md).
         uv tool install rust-just==1.51.0

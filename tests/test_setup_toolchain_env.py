@@ -365,16 +365,29 @@ def _parse_github_env(text: str) -> dict[str, str]:
 # ── Behavior ─────────────────────────────────────────────────────────────────
 
 
-def test_shellhook_scalar_exports_are_forwarded(tmp_path: Path) -> None:
+@pytest.fixture(scope="module")
+def default_step_env(tmp_path_factory: pytest.TempPathFactory) -> dict[str, str]:
+    """One default-input step run shared by every default-invocation test (#1417).
+
+    The default stub inputs are byte-identical across those tests, so a single
+    execution carries all their assertions; tests with distinct inputs (banner,
+    devshell_env, pyproject, nixos) keep their own runs.
+    """
+    return _run_devshell_step(tmp_path_factory.mktemp("default-step"))
+
+
+def test_shellhook_scalar_exports_are_forwarded(
+    default_step_env: dict[str, str],
+) -> None:
     """Plain shellHook exports reach GITHUB_ENV (the org-config#40 regression)."""
-    env = _run_devshell_step(tmp_path)
+    env = default_step_env
     assert env.get("OTTERDOG_TOKEN") == "placeholder-set-by-shellhook"
     assert env.get("PROJECT_GREETING") == "hello world"
 
 
-def test_multiline_value_survives_via_heredoc(tmp_path: Path) -> None:
+def test_multiline_value_survives_via_heredoc(default_step_env: dict[str, str]) -> None:
     """A multi-line export is forwarded intact using the GITHUB_ENV heredoc."""
-    env = _run_devshell_step(tmp_path)
+    env = default_step_env
     assert env.get("MULTILINE_VAR") == "line-one\nline-two\nline-three"
 
 
@@ -414,14 +427,16 @@ def test_multiline_value_survives_via_heredoc(tmp_path: Path) -> None:
         "TMPDIR",
     ],
 )
-def test_denylisted_vars_are_not_forwarded(tmp_path: Path, denied: str) -> None:
+def test_denylisted_vars_are_not_forwarded(
+    default_step_env: dict[str, str], denied: str
+) -> None:
     """Build machinery and shell session state never leak into GITHUB_ENV."""
-    env = _run_devshell_step(tmp_path)
+    env = default_step_env
     assert denied not in env, f"{denied} must not be forwarded to GITHUB_ENV"
 
 
 def test_uv_interpreter_pins_do_not_defeat_the_manylinux_path(
-    tmp_path: Path,
+    default_step_env: dict[str, str],
 ) -> None:
     """The dev-shell's uv interpreter pins must not reach the CI environment.
 
@@ -443,7 +458,7 @@ def test_uv_interpreter_pins_do_not_defeat_the_manylinux_path(
 
     Refs: #1353
     """
-    env = _run_devshell_step(tmp_path)
+    env = default_step_env
     assert "UV_PYTHON" not in env
     assert "UV_PYTHON_DOWNLOADS" not in env
     assert env.get("UV_PYTHON_DOWNLOADS_JSON_URL") == (
@@ -451,7 +466,9 @@ def test_uv_interpreter_pins_do_not_defeat_the_manylinux_path(
     ), "the deliberate uv download-metadata forward must survive the denylist"
 
 
-def test_store_only_pythonpath_is_not_forwarded(tmp_path: Path) -> None:
+def test_store_only_pythonpath_is_not_forwarded(
+    default_step_env: dict[str, str],
+) -> None:
     """A PYTHONPATH made only of store paths must not reach GITHUB_ENV.
 
     ``python`` in the dev-shell ``packages`` makes the nixpkgs python setup hook
@@ -462,7 +479,7 @@ def test_store_only_pythonpath_is_not_forwarded(tmp_path: Path) -> None:
 
     Refs: #1358
     """
-    env = _run_devshell_step(tmp_path)
+    env = default_step_env
     assert "PYTHONPATH" not in env, (
         "a store-only PYTHONPATH must not be forwarded to GITHUB_ENV"
     )
@@ -493,9 +510,11 @@ def test_consumer_only_pythonpath_is_forwarded_verbatim(tmp_path: Path) -> None:
     assert env.get("PYTHONPATH") == value
 
 
-def test_unchanged_ambient_var_is_not_reforwarded(tmp_path: Path) -> None:
+def test_unchanged_ambient_var_is_not_reforwarded(
+    default_step_env: dict[str, str],
+) -> None:
     """A var identical to the host env is filtered — host secrets never re-leak."""
-    env = _run_devshell_step(tmp_path)
+    env = default_step_env
     assert "AMBIENT_SHARED" not in env
 
 

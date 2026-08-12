@@ -68,59 +68,46 @@ EOF
     assert_success
 }
 
-# ── devc-upgrade honors the .vig-os pin (#854) ────────────────────────────────
-# The scaffolded devc-upgrade recipe used to always curl install.sh from `main`,
-# silently moving a pinned consumer to HEAD. It must read the pin (DEVKIT_VERSION,
-# or legacy DEVCONTAINER_VERSION, #781) from .vig-os and upgrade to THAT
-# generation instead.
+# ── devc-upgrade removal (#1421) ──────────────────────────────────────────────
+# The devkit-upgrade workflow's adoption PRs are the upgrade path; the local
+# devc-upgrade recipe wrapped `install.sh --force` and steered users around the
+# reviewed flow. Guard against reintroduction, and pin the notification's new
+# contract: adoption-PR guidance when the workflow ships, one-liner fallback.
 
-@test "devc-upgrade reads DEVKIT_VERSION from .vig-os (#854, #781)" {
-    run grep -q 'DEVKIT_VERSION' \
-        assets/workspace/.devcontainer/justfile.devc
-    assert_success
-}
-
-@test "devc-upgrade still honors a legacy DEVCONTAINER_VERSION pin (#781)" {
-    run grep -q 'DEVCONTAINER_VERSION' \
-        assets/workspace/.devcontainer/justfile.devc
-    assert_success
-}
-
-@test "devc-upgrade curls install.sh from the pinned ref, not hard-wired main (#854)" {
-    # The functional upgrade curl must interpolate the resolved ref (${REF}),
-    # and no install.sh curl in the recipe may be pinned literally to /main/.
-    # shellcheck disable=SC2016  # grepping for the LITERAL '${REF}' in the recipe
-    run grep -q 'githubusercontent.com/vig-os/devkit/${REF}/install.sh' \
-        assets/workspace/.devcontainer/justfile.devc
-    assert_success
-    run grep -F 'vig-os/devcontainer/main/install.sh' \
-        assets/workspace/.devcontainer/justfile.devc
+@test "devc-upgrade recipe is gone from the scaffold (#1421)" {
+    run grep -F 'devc-upgrade' assets/workspace/.devcontainer/justfile.devc
     assert_failure
 }
 
-@test "devc-upgrade forwards --version for a pinned consumer (#854)" {
-    run grep -q -- '--version' assets/workspace/.devcontainer/justfile.devc
+@test "version-check notification names the adoption-PR flow, not a removed recipe (#1421)" {
+    local script=assets/workspace/.devcontainer/scripts/version-check.sh
+    run grep -F 'devc-upgrade' "$script"
+    assert_failure
+    run bash -c "awk '/^notify_update\(\) \{/,/^\}/' '$script' | grep -F 'devkit-upgrade.yml'"
+    assert_success
+    run bash -c "awk '/^notify_update\(\) \{/,/^\}/' '$script' | grep -F 'adoption PR'"
+    assert_success
+    run bash -c "awk '/^notify_update\(\) \{/,/^\}/' '$script' | grep -F 'install.sh | bash -s -- --force'"
     assert_success
 }
 
-@test "prepare-release dispatches workflow from dev ref" {
-    run bash -lc "awk '/^prepare-release version ref=\"\" \\*flags:/{flag=1; next} /^$/{if(flag){exit}} flag' justfile.gh | grep -Fq -- 'REF=\"dev\"'"
-    assert_success
-}
 
-@test "finalize-release dispatches workflow from release branch ref" {
-    run bash -lc "awk '/^finalize-release version ref=\"\" \\*flags:/{flag=1; next} /^$/{if(flag){exit}} flag' justfile.gh | grep -Fq -- 'REF=\"release/{{ version }}\"'"
-    assert_success
-}
-
-@test "promote-release dispatches workflow from release branch ref" {
-    run bash -lc "awk '/^promote-release version ref=\"\" \\*flags:/{flag=1; next} /^$/{if(flag){exit}} flag' justfile.gh | grep -Fq -- 'REF=\"release/{{ version }}\"'"
-    assert_success
-}
-
-@test "publish-candidate dispatches workflow from release branch ref" {
-    run bash -lc "awk '/^publish-candidate version ref=\"\" \\*flags:/{flag=1; next} /^$/{if(flag){exit}} flag' justfile.gh | grep -Fq -- 'REF=\"release/{{ version }}\"'"
-    assert_success
+@test "release recipes dispatch their workflow from the expected ref" {
+    # recipe:expected-REF table; prepare-release cuts from dev, the rest act on
+    # the release branch.
+    local table=(
+        'prepare-release:REF="dev"'
+        'finalize-release:REF="release/{{ version }}"'
+        'promote-release:REF="release/{{ version }}"'
+        'publish-candidate:REF="release/{{ version }}"'
+    )
+    for entry in "${table[@]}"; do
+        recipe="${entry%%:*}"
+        expected="${entry#*:}"
+        echo "recipe: $recipe expects $expected"
+        run bash -lc "awk '/^$recipe version ref=\"\" \\*flags:/{flag=1; next} /^\$/{if(flag){exit}} flag' justfile.gh | grep -Fq -- '$expected'"
+        assert_success
+    done
 }
 
 @test "prepare-release workflow defines rollback job on failure or cancellation" {
@@ -185,6 +172,14 @@ EOF
     assert_success
 }
 
+@test "smoke-test dispatch seeding awk is bounded and synthesizes ### Changed (#1403)" {
+    # The seeding awk must clear its Unreleased state at the next release
+    # heading (the old version leaked in_unreleased into released sections)
+    # and must synthesize a ### Changed heading when Unreleased lacks one.
+    run bash -lc 'grep -Fq -- "in_unreleased && !seeded && /^## \[/" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "print \"### Changed\"" assets/smoke-test/.github/workflows/repository-dispatch.yml'
+    assert_success
+}
+
 @test "smoke-test dispatch repairs ownership when installer leaves root-owned files" {
     run bash -lc 'grep -Fq -- "NEEDS_CHOWN=false" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "sudo chown -R" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "OWNER_UID_GID=\"\$(id -u):\$(id -g)\"" assets/smoke-test/.github/workflows/repository-dispatch.yml'
     assert_success
@@ -212,6 +207,25 @@ EOF
 
 @test "smoke-test dispatch gates the final release on human PR approval instead of self-approving" {
     run bash -lc "grep -Fq -- 'Gate final release on human approval of release PR' assets/smoke-test/.github/workflows/repository-dispatch.yml && ! grep -Fq -- 'gh pr review' assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- 'reviewDecision' assets/smoke-test/.github/workflows/repository-dispatch.yml"
+    assert_success
+}
+
+@test "smoke-test dispatch publishes installer deletions to the deploy branch (#1443)" {
+    # commit-action builds its tree additively from working-tree contents, so
+    # paths the installer deleted (retired scaffold paths, #1348) never reach
+    # the deploy branch and the scaffold-drift gate rejects the PR. The deploy
+    # job must publish those deletions explicitly (null-sha tree entries, the
+    # same tree-API pattern as the scaffolded devkit-upgrade.yml).
+    run bash -lc 'grep -Fq -- "Publish installer deletions via verified API commit" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "git ls-files --deleted" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "{path: \$p, mode: \"100644\", type: \"blob\", sha: null}" assets/smoke-test/.github/workflows/repository-dispatch.yml'
+    assert_success
+}
+
+@test "smoke-test dispatch deploy branch name is dot-free (#1444)" {
+    # The scaffolded CI branch-name gate (#1432) allows chore branches only as
+    # ^chore/[a-z0-9]+(-[a-z0-9]+)*$ — dots rejected. The live listener was
+    # hand-fixed (devkit-smoke-test#354) but the template SSoT must match, or
+    # every deploy reverts the fix and the next train's deploy PR fails CI.
+    run bash -lc 'grep -Fq -- "BRANCH_NAME=\"chore/deploy-\${TAG//./-}\"" assets/smoke-test/.github/workflows/repository-dispatch.yml && ! grep -Fq -- "BRANCH_NAME=\"chore/deploy-\${TAG}\"" assets/smoke-test/.github/workflows/repository-dispatch.yml'
     assert_success
 }
 

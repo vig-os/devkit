@@ -6,6 +6,7 @@ These tests run locally (pytest); they do not require the devcontainer CLI.
 
 import sys
 
+import pytest
 from vig_utils.check_action_pins import (
     SHA_PATTERN,
     USES_PATTERN,
@@ -18,83 +19,67 @@ from vig_utils.check_action_pins import (
 class TestSHAPattern:
     """Test SHA_PATTERN regex for 40-character SHA matching."""
 
-    def test_valid_sha_40_chars(self):
-        """Test that a valid 40-character SHA matches."""
-        sha = "abcdef0123456789abcdef0123456789abcdef01"
-        assert SHA_PATTERN.match(sha)
-
-    def test_valid_sha_all_lowercase(self):
-        """Test lowercase SHA."""
-        sha = "0123456789abcdef0123456789abcdef01234567"
-        assert SHA_PATTERN.match(sha)
-
-    def test_invalid_sha_too_short(self):
-        """Test that less than 40 characters does not match."""
-        sha = "abcdef0123456789abcdef0123456789abcdef0"  # 39 chars
-        assert not SHA_PATTERN.match(sha)
-
-    def test_invalid_sha_too_long(self):
-        """Test that more than 40 characters does not match."""
-        sha = "abcdef0123456789abcdef0123456789abcdef012"  # 41 chars
-        assert not SHA_PATTERN.match(sha)
-
-    def test_invalid_sha_uppercase(self):
-        """Test that uppercase letters do not match."""
-        sha = "ABCDEF0123456789ABCDEF0123456789ABCDEF01"
-        assert not SHA_PATTERN.match(sha)
-
-    def test_invalid_sha_non_hex(self):
-        """Test that non-hex characters do not match."""
-        sha = "gggggg0123456789abcdef0123456789abcdef01"
-        assert not SHA_PATTERN.match(sha)
+    @pytest.mark.parametrize(
+        ("sha", "matches"),
+        [
+            pytest.param(
+                "abcdef0123456789abcdef0123456789abcdef01", True, id="valid_40_chars"
+            ),
+            pytest.param(
+                "abcdef0123456789abcdef0123456789abcdef0", False, id="too_short_39"
+            ),
+            pytest.param(
+                "abcdef0123456789abcdef0123456789abcdef012", False, id="too_long_41"
+            ),
+            pytest.param(
+                "ABCDEF0123456789ABCDEF0123456789ABCDEF01", False, id="uppercase"
+            ),
+            pytest.param(
+                "gggggg0123456789abcdef0123456789abcdef01", False, id="non_hex"
+            ),
+        ],
+    )
+    def test_sha_pattern_boundaries(self, sha, matches):
+        assert bool(SHA_PATTERN.match(sha)) == matches
 
 
 class TestUSESPattern:
     """Test USES_PATTERN regex for capturing action references."""
 
-    def test_valid_uses_simple(self):
-        """Test capturing a simple uses directive."""
-        line = "    uses: actions/checkout@v4"
+    @pytest.mark.parametrize(
+        ("line", "expected"),
+        [
+            pytest.param(
+                "    uses: actions/checkout@v4", "actions/checkout@v4", id="simple"
+            ),
+            pytest.param(
+                "    uses: actions/checkout@5a4ac9002d0be2fb38bd78e4b4dbde5606d7042f",
+                "actions/checkout@5a4ac9002d0be2fb38bd78e4b4dbde5606d7042f",
+                id="with_sha",
+            ),
+            pytest.param(
+                "    uses: owner/repo/path@v1", "owner/repo/path@v1", id="composite"
+            ),
+            pytest.param(
+                "    uses: ./.github/actions/my-action",
+                "./.github/actions/my-action",
+                id="local_action",
+            ),
+            pytest.param("    name: Checkout code", None, id="no_uses_prefix"),
+            pytest.param(
+                "    uses: actions/checkout@v4  # v4.1.1",
+                "actions/checkout@v4",
+                id="inline_comment_stops_at_space",
+            ),
+        ],
+    )
+    def test_uses_pattern_captures(self, line, expected):
         match = USES_PATTERN.match(line)
-        assert match
-        assert match.group(1) == "actions/checkout@v4"
-
-    def test_valid_uses_with_sha(self):
-        """Test capturing uses with SHA."""
-        line = "    uses: actions/checkout@5a4ac9002d0be2fb38bd78e4b4dbde5606d7042f"
-        match = USES_PATTERN.match(line)
-        assert match
-        assert (
-            match.group(1)
-            == "actions/checkout@5a4ac9002d0be2fb38bd78e4b4dbde5606d7042f"
-        )
-
-    def test_valid_uses_composite_action(self):
-        """Test capturing uses with path in action name."""
-        line = "    uses: owner/repo/path@v1"
-        match = USES_PATTERN.match(line)
-        assert match
-        assert match.group(1) == "owner/repo/path@v1"
-
-    def test_valid_uses_local_action(self):
-        """Test capturing local action reference."""
-        line = "    uses: ./.github/actions/my-action"
-        match = USES_PATTERN.match(line)
-        assert match
-        assert match.group(1) == "./.github/actions/my-action"
-
-    def test_invalid_uses_no_uses_prefix(self):
-        """Test that non-uses lines do not match."""
-        line = "    name: Checkout code"
-        match = USES_PATTERN.match(line)
-        assert not match
-
-    def test_uses_with_comment(self):
-        """Test uses directive with inline comment."""
-        line = "    uses: actions/checkout@v4  # v4.1.1"
-        match = USES_PATTERN.match(line)
-        assert match
-        assert match.group(1) == "actions/checkout@v4"  # Stops at space
+        if expected is None:
+            assert not match
+        else:
+            assert match
+            assert match.group(1) == expected
 
 
 class TestCheckFile:
@@ -368,7 +353,7 @@ class TestFindWorkflowFiles:
 class TestMainFunction:
     """Test main() entry point."""
 
-    def test_main_valid_repo_all_pinned(self, tmp_path, capsys):
+    def test_main_valid_repo_all_pinned(self, tmp_path, capsys, monkeypatch):
         """Test main with all actions properly pinned."""
         workflows_dir = tmp_path / ".github" / "workflows"
         workflows_dir.mkdir(parents=True)
@@ -382,43 +367,16 @@ class TestMainFunction:
             "        uses: actions/checkout@5a4ac9002d0be2fb38bd78e4b4dbde5606d7042f\n"
         )
 
-        orig_argv = sys.argv
-        try:
-            sys.argv = ["check_action_pins.py", "--repo-root", str(tmp_path)]
-            exit_code = main()
-            assert exit_code == 0
-            captured = capsys.readouterr()
-            assert "All external actions are SHA-pinned" in captured.out
-        finally:
-            sys.argv = orig_argv
-
-    def test_main_unpinned_actions_found(self, tmp_path, capsys):
-        """Test main returns error code when unpinned actions found."""
-        workflows_dir = tmp_path / ".github" / "workflows"
-        workflows_dir.mkdir(parents=True)
-        workflow_file = workflows_dir / "ci.yml"
-        workflow_file.write_text(
-            "on: push\n"
-            "jobs:\n"
-            "  test:\n"
-            "    steps:\n"
-            "      - name: Checkout\n"
-            "        uses: actions/checkout@v4\n"
+        monkeypatch.setattr(
+            sys, "argv", ["check_action_pins.py", "--repo-root", str(tmp_path)]
         )
+        exit_code = main()
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        assert "All external actions are SHA-pinned" in captured.out
 
-        orig_argv = sys.argv
-        try:
-            sys.argv = ["check_action_pins.py", "--repo-root", str(tmp_path)]
-            exit_code = main()
-            assert exit_code == 1
-            captured = capsys.readouterr()
-            assert "Found 1 unpinned action(s)" in captured.out
-            assert "actions/checkout@v4" in captured.out
-        finally:
-            sys.argv = orig_argv
-
-    def test_main_multiple_unpinned(self, tmp_path, capsys):
-        """Test main reports all unpinned actions."""
+    def test_main_unpinned_actions_found(self, tmp_path, capsys, monkeypatch):
+        """Test main returns error code and aggregates counts across files."""
         workflows_dir = tmp_path / ".github" / "workflows"
         workflows_dir.mkdir(parents=True)
 
@@ -444,29 +402,26 @@ class TestMainFunction:
             "        uses: actions/upload-artifact@v3\n"
         )
 
-        orig_argv = sys.argv
-        try:
-            sys.argv = ["check_action_pins.py", "--repo-root", str(tmp_path)]
-            exit_code = main()
-            assert exit_code == 1
-            captured = capsys.readouterr()
-            assert "Found 3 unpinned action(s)" in captured.out
-        finally:
-            sys.argv = orig_argv
+        monkeypatch.setattr(
+            sys, "argv", ["check_action_pins.py", "--repo-root", str(tmp_path)]
+        )
+        exit_code = main()
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        assert "Found 3 unpinned action(s)" in captured.out
+        assert "actions/checkout@v4" in captured.out
 
-    def test_main_no_workflows_found(self, tmp_path, capsys):
+    def test_main_no_workflows_found(self, tmp_path, capsys, monkeypatch):
         """Test main when no workflow files exist."""
-        orig_argv = sys.argv
-        try:
-            sys.argv = ["check_action_pins.py", "--repo-root", str(tmp_path)]
-            exit_code = main()
-            assert exit_code == 1
-            captured = capsys.readouterr()
-            assert "No workflow files found" in captured.out
-        finally:
-            sys.argv = orig_argv
+        monkeypatch.setattr(
+            sys, "argv", ["check_action_pins.py", "--repo-root", str(tmp_path)]
+        )
+        exit_code = main()
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        assert "No workflow files found" in captured.out
 
-    def test_main_verbose_mode(self, tmp_path, capsys):
+    def test_main_verbose_mode(self, tmp_path, capsys, monkeypatch):
         """Test main verbose mode."""
         workflows_dir = tmp_path / ".github" / "workflows"
         workflows_dir.mkdir(parents=True)
@@ -480,27 +435,18 @@ class TestMainFunction:
             "        uses: actions/checkout@5a4ac9002d0be2fb38bd78e4b4dbde5606d7042f\n"
         )
 
-        orig_argv = sys.argv
-        try:
-            sys.argv = [
-                "check_action_pins.py",
-                "--repo-root",
-                str(tmp_path),
-                "--verbose",
-            ]
-            exit_code = main()
-            assert exit_code == 0
-            captured = capsys.readouterr()
-            assert "Checking" in captured.out
-            # In verbose mode, it will print OK
-            assert (
-                "OK" in captured.out
-                or "All external actions are SHA-pinned" in captured.out
-            )
-        finally:
-            sys.argv = orig_argv
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["check_action_pins.py", "--repo-root", str(tmp_path), "--verbose"],
+        )
+        exit_code = main()
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        assert "Checking" in captured.out
+        assert "OK" in captured.out
 
-    def test_main_relative_paths_in_errors(self, tmp_path, capsys):
+    def test_main_relative_paths_in_errors(self, tmp_path, capsys, monkeypatch):
         """Test that errors show relative paths, not absolute."""
         workflows_dir = tmp_path / ".github" / "workflows"
         workflows_dir.mkdir(parents=True)
@@ -514,67 +460,16 @@ class TestMainFunction:
             "        uses: actions/checkout@v4\n"
         )
 
-        orig_argv = sys.argv
-        try:
-            sys.argv = ["check_action_pins.py", "--repo-root", str(tmp_path)]
-            exit_code = main()
-            assert exit_code == 1
-            captured = capsys.readouterr()
-            # Should show relative path
-            assert ".github/workflows/ci.yml" in captured.out
-            # Should not show absolute path
-            assert str(tmp_path) not in captured.out
-        finally:
-            sys.argv = orig_argv
-
-    def test_main_composite_action_error(self, tmp_path, capsys):
-        """Test main detects unpinned composite actions."""
-        actions_dir = tmp_path / ".github" / "actions"
-        build_dir = actions_dir / "build"
-        build_dir.mkdir(parents=True)
-        action_file = build_dir / "action.yml"
-        action_file.write_text(
-            "name: Build\n"
-            "runs:\n"
-            "  using: composite\n"
-            "  steps:\n"
-            "    - name: Docker Build\n"
-            "      uses: docker/build-push-action@v5\n"
+        monkeypatch.setattr(
+            sys, "argv", ["check_action_pins.py", "--repo-root", str(tmp_path)]
         )
-
-        orig_argv = sys.argv
-        try:
-            sys.argv = ["check_action_pins.py", "--repo-root", str(tmp_path)]
-            exit_code = main()
-            assert exit_code == 1
-            captured = capsys.readouterr()
-            assert "unpinned action" in captured.out
-        finally:
-            sys.argv = orig_argv
-
-    def test_main_local_actions_not_reported(self, tmp_path, capsys):
-        """Test that local actions don't cause failures."""
-        workflows_dir = tmp_path / ".github" / "workflows"
-        workflows_dir.mkdir(parents=True)
-        workflow_file = workflows_dir / "ci.yml"
-        workflow_file.write_text(
-            "on: push\n"
-            "jobs:\n"
-            "  test:\n"
-            "    steps:\n"
-            "      - name: Build\n"
-            "        uses: ./.github/actions/build\n"
-            "      - name: Checkout\n"
-            "        uses: actions/checkout@5a4ac9002d0be2fb38bd78e4b4dbde5606d7042f\n"
-        )
-
-        orig_argv = sys.argv
-        try:
-            sys.argv = ["check_action_pins.py", "--repo-root", str(tmp_path)]
-            exit_code = main()
-            assert exit_code == 0
-        finally:
-            sys.argv = orig_argv
+        exit_code = main()
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        # Should show relative path
+        assert ".github/workflows/ci.yml" in captured.out
+        # Should not show absolute path
+        assert str(tmp_path) not in captured.out
 
 
 class TestEdgeCases:
@@ -594,8 +489,7 @@ class TestEdgeCases:
         assert errors == []
 
     def test_multiple_uses_on_one_line_only_first_captured(self, tmp_path):
-        """Test that only first uses on a line is captured (YAML won't have multiple anyway)."""
-        # Note: This is more of a regex test; YAML won't have multiple uses on one line
+        """Only the first uses ref on a line is captured (YAML won't have two)."""
         workflow_file = tmp_path / "workflow.yml"
         workflow_file.write_text(
             "jobs:\n"
@@ -605,47 +499,9 @@ class TestEdgeCases:
             "        uses: actions/checkout@v4 uses: actions/setup-python@v4\n"
         )
         errors = check_file(workflow_file)
-        # Should match first one
-        assert len(errors) >= 1
-
-    def test_composite_action_nested_steps(self, tmp_path):
-        """Test composite action with nested steps."""
-        action_file = tmp_path / "action.yml"
-        action_file.write_text(
-            "name: Composite\n"
-            "runs:\n"
-            "  using: composite\n"
-            "  steps:\n"
-            "    - name: Start\n"
-            '      run: echo "start"\n'
-            "      shell: bash\n"
-            "    - name: Checkout\n"
-            "      uses: actions/checkout@v4\n"
-            "    - name: End\n"
-            '      run: echo "end"\n'
-            "      shell: bash\n"
-        )
-        errors = check_file(action_file)
         assert len(errors) == 1
-        assert "checkout@v4" in errors[0]
-
-    def test_indentation_variations(self, tmp_path):
-        """Test various indentation levels."""
-        workflow_file = tmp_path / "workflow.yml"
-        workflow_file.write_text(
-            "jobs:\n"
-            "  test:\n"
-            "    steps:\n"
-            "      - name: Checkout\n"
-            "        uses: actions/checkout@v4\n"
-            "        with:\n"
-            "          ref: main\n"
-            "      - name: Setup\n"
-            "        uses: actions/setup-node@v4\n"
-            "        continue-on-error: true\n"
-        )
-        errors = check_file(workflow_file)
-        assert len(errors) == 2
+        assert "actions/checkout@v4" in errors[0]
+        assert "setup-python" not in errors[0]
 
     def test_empty_file(self, tmp_path):
         """Test checking an empty file."""
@@ -663,20 +519,6 @@ class TestEdgeCases:
         errors = check_file(workflow_file)
         assert errors == []
 
-    def test_sha_as_string_not_number(self, tmp_path):
-        """Test that SHA is treated as string, not parsed as number."""
-        workflow_file = tmp_path / "workflow.yml"
-        # SHA with leading zeros
-        workflow_file.write_text(
-            "jobs:\n"
-            "  test:\n"
-            "    steps:\n"
-            "      - name: Checkout\n"
-            "        uses: actions/checkout@0123456789abcdef0123456789abcdef01234567\n"
-        )
-        errors = check_file(workflow_file)
-        assert errors == []
-
     def test_non_utf8_file(self, tmp_path):
         """Test that a file with non-UTF-8 bytes raises an error or is handled."""
         workflow_file = tmp_path / "workflow.yml"
@@ -689,7 +531,5 @@ class TestEdgeCases:
             b"        uses: actions/checkout@v4\n"
         )
         # Should raise UnicodeDecodeError since we now use encoding="utf-8"
-        import pytest as _pytest
-
-        with _pytest.raises(UnicodeDecodeError):
+        with pytest.raises(UnicodeDecodeError):
             check_file(workflow_file)

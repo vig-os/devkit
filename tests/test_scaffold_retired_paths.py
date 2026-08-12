@@ -35,6 +35,9 @@ RETIRED = {
     ".cursor": "0.4.0",
     ".hadolint.yaml": "0.4.0",
     ".github/actions/resolve-image": "1.1.0",
+    # The per-PR pipeline replaced by release-time synthesis (#1423).
+    ".github/workflows/renovate-changelog-build.yml": "1.8.0",
+    ".github/workflows/renovate-changelog-commit.yml": "1.8.0",
 }
 
 

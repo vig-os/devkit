@@ -31,7 +31,7 @@ check-expirations = "vig_utils.check_expirations:main"
 vulnix-gate = "vig_utils.vulnix_gate:main"
 setup-labels = "vig_utils.setup_labels:main"
 retry = "vig_utils.retry:main"
-renovate-changelog-pr = "vig_utils.renovate_changelog_pr:main"
+synthesize-bot-changelog = "vig_utils.synthesize_bot_changelog:main"
 vig-utils = "vig_utils.utils:main"
 
 [tool.hatch.build.targets.wheel]

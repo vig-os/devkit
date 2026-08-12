@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-07T17:11:54Z
-updated: 2026-08-07T17:14:55Z
+updated: 2026-08-08T19:55:47Z
 author: github-actions[bot]
 author_url: https://github.com/github-actions[bot]
 url: https://github.com/vig-os/devkit/issues/1386
-comments: 1
+comments: 2
 labels: bug, area:ci
 assignees: none
 milestone: 1.7.0
 projects: none
 parent: none
 children: none
-synced: 2026-08-07T21:30:56.180Z
+synced: 2026-08-09T03:48:35.654Z
 ---
 
 # [Issue 1386]: [Release 1.7.0-rc1 failed -- automatic rollback](https://github.com/vig-os/devkit/issues/1386)
@@ -65,4 +65,12 @@ Same closure provenance and reachability class as its siblings: libssh2 enters o
 Remediation lever today is still exception-only: upstream has published no libssh2 release; NixOS/nixpkgs#547491 (debian patches for CVE-2026-6603[2345]) merged to master 2026-08-07 12:41Z, but the 26.05 backport NixOS/nixpkgs#550166 targets staging-26.05 and is still open — the patched derivation has not reached the pinned nixos-26.05 channel.
 
 Forward fix: add CVE-2026-66032 to the existing 2026-09-02 libssh2 block via a bugfix PR to `release/1.7.0`, then re-dispatch the candidate.
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on August 8, 2026 at 07:55 PM_
+
+Resolved in the 1.7.0 train: CVE-2026-66032 excepted in the register via PR #1387 (merged to release/1.7.0 @8d781232), Vulnix CVE Gate green from rc3 onward, 1.7.0 released+promoted 2026-08-08. The exception lives in the existing libssh2 2026-09-02 block and drops on the next effective nixpkgs rev-advance (upstream patches merged to master, staging-26.05 backport NixOS/nixpkgs#550166 pending).
 

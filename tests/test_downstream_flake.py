@@ -20,34 +20,20 @@ Refs: #640
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
-from pathlib import Path
 
 import pytest
 
-# Repository root (two levels up: tests/ -> repo root).
-REPO_ROOT = Path(__file__).resolve().parent.parent
+from .nix_helpers import REPO_ROOT
+from .nix_helpers import nix_env as _nix_env
+
 WORKSPACE = REPO_ROOT / "assets" / "workspace"
 
 pytestmark = pytest.mark.skipif(
     shutil.which("nix") is None,
     reason="nix is not installed; flake quality-gate tests require Nix",
 )
-
-
-def _nix_env() -> dict[str, str]:
-    """Environment for nix invocations with flakes enabled and the public cache."""
-    env = os.environ.copy()
-    env.setdefault(
-        "NIX_CONFIG",
-        "experimental-features = nix-command flakes\n"
-        "extra-substituters = https://vig-os.cachix.org\n"
-        "extra-trusted-public-keys = "
-        "vig-os.cachix.org-1:yoOYRi3bvnM6ThxO0joLt7vtzhTfkq3r6jykeUMg7Bk=",
-    )
-    return env
 
 
 def test_downstream_flake_stub_checks_against_local_toolchain() -> None:

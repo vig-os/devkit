@@ -60,7 +60,7 @@ so upgrades never need `--mode` again.
 
 ### Bare mode: `vig-utils` release console scripts
 
-The release workflows invoke `prepare-changelog` and `renovate-changelog-pr`
+The release workflows invoke `prepare-changelog` and `synthesize-bot-changelog`
 (console scripts of `packages/vig-utils`). In `devcontainer`/`both` mode they
 ship in the image; in `direnv` mode the flake dev-shell provides them (they are
 on the toolchain SSoT, [#993](https://github.com/vig-os/devkit/issues/993)).
@@ -72,7 +72,7 @@ pinned to the same devkit version as `.vig-os`
 uv tool install "vig-utils @ git+https://github.com/vig-os/devkit@<DEVKIT_VERSION>#subdirectory=packages/vig-utils"
 ```
 
-This puts `prepare-changelog`, `renovate-changelog-pr`, and the other
+This puts `prepare-changelog`, `synthesize-bot-changelog`, and the other
 `vig-utils` scripts on PATH. Pin `<DEVKIT_VERSION>` to a release tag so the
 tooling matches your `.vig-os` pin; the `setup-devkit-toolchain` composite
 ([#994](https://github.com/vig-os/devkit/issues/994)) runs this step for you in
@@ -108,14 +108,13 @@ with no per-mode deletion or disabling:
 
 - `release.yml` (orchestrator) and its reusable `release-core.yml` /
   `release-publish.yml`, plus `prepare-release.yml`, `promote-release.yml`,
-  `sync-issues.yml`, `renovate-changelog-build.yml`, `sync-main-to-dev.yml`
+  `sync-issues.yml`, `sync-main-to-dev.yml`
   — mode-aware via `resolve-toolchain` + `setup-devkit-toolchain`. The release
   choreography (step logic, ordering, inputs/outputs, rollback semantics) is
   unchanged; only toolchain provisioning became mode-aware.
 
 Container-independent workflows keep working in every mode: `codeql.yml`,
-`scorecard.yml`, `renovate-changelog-commit.yml`, and the project-owned,
-host-native `release-extension.yml`.
+`scorecard.yml`, and the project-owned, host-native `release-extension.yml`.
 
 `codeql.yml` and `scorecard.yml` additionally guard their analysis job with
 `if: ${{ !github.event.repository.private }}`
@@ -323,11 +322,25 @@ DEVKIT_SYNC_TARGET=sync/issue-mirror
 
 The scaffolded job then **bootstraps** that branch from the default branch head
 if it is absent (so its first run creates it) and pushes the archive there,
-outside the `main` ruleset. The mirror branch **diverges permanently and is never
-merged back** — every sync run regenerates the full issue/PR state from the
-GitHub API, so the branch is a standalone, self-healing archive, not integration
-work. Absent => the workflow-model default (`dev`/`main`), unchanged for every
-existing consumer.
+outside the `main` ruleset. Every sync run regenerates the issue/PR state from
+the GitHub API, so the branch is a standalone, self-healing archive, not
+integration work. Absent => the workflow-model default (`dev`/`main`),
+unchanged for every existing consumer.
+
+The mirror **never merges directly into `main`** — the release train is its
+integration point ([#1424](https://github.com/vig-os/devkit/issues/1424)).
+The rendered `release-core.yml` retargets the final-leg sync dispatch to the
+mirror (the mirror stays the *only* branch that advances the shared
+incremental-sync cutoff; a release-branch run would strand every update
+between the last nightly and the release, since mirror mode has no
+sync-main-to-dev backflow to heal it), then folds the mirror's
+`docs/issues/` + `docs/pull-requests/` into the release branch, so the full
+archive reaches `main` through the human-approved release PR. After that PR
+merges, the rendered `promote-release.yml` force-resets the mirror onto
+`main` (via `git push`, never the REST refs API — #1157/#1377), so its
+divergence stays bounded to post-release snapshot commits. Between releases
+the mirror remains the live archive; `main` holds the archive as of the last
+release.
 
 A second optional key, `DEVKIT_SYNC_SCHEDULE`, overrides the schedule trigger's
 cron (validated as a 5-field cron at scaffold time; a protected-main mirror is
@@ -377,7 +390,9 @@ unknown keys:
 | `DEVKIT_SYNC_TARGET` | Branch the scaffolded sync-issues job commits to; empty (default) => the workflow-model default (`dev`/`main`). A protected-`main` consumer sets an unprotected mirror branch, e.g. `sync/issue-mirror` (see [Point sync-issues at an unprotected mirror branch](#point-sync-issues-at-an-unprotected-mirror-branch-protected-main), [#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_SYNC_SCHEDULE` | Cron override (5-field) for the sync-issues schedule trigger; empty (default) => the daily `0 2 * * *` ([#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_FEATURES_DISABLED` | Comma-separated scaffold feature groups this repo opts OUT of; empty (default) => every group is scaffolded. A disabled group is never shipped and a prior scaffold's copy is pruned on upgrade (see [Scaffold feature opt-outs](#scaffold-feature-opt-outs), [#1284](https://github.com/vig-os/devkit/issues/1284)) |
-| `DEVKIT_REFS_POLICY` | Refs-line enforcement policy driving both the `validate-commit-msg` hook and CI's `validate-commit-range`: `chore-optional` (default/empty — only `chore` may omit `Refs:`) \| `optional` (never required) \| `required` (every type needs `Refs:`) ([#1282](https://github.com/vig-os/devkit/issues/1282)) |
+| `DEVKIT_REFS_POLICY` | Refs-line enforcement policy driving the `validate-commit-msg` hook — scaffolded **and** flake-generated ([#1434](https://github.com/vig-os/devkit/issues/1434)) — and CI's `validate-commit-range`: `chore-optional` (default/empty — only `chore` may omit `Refs:`) \| `optional` (never required) \| `required` (every type needs `Refs:`) ([#1282](https://github.com/vig-os/devkit/issues/1282)) |
+| `DEVKIT_COMMIT_TYPES` | Comma-separated FULL REPLACEMENT of the approved commit types, driving the `validate-commit-msg` hook's `--types` — scaffolded **and** flake-generated ([#1434](https://github.com/vig-os/devkit/issues/1434)) — and CI's `validate-commit-range`; empty (default) => the stock 11 types. Lowercase alphanumerics only; keep `chore`/`build` unless deliberate (bot commits — the scaffold prints a notice). `DEVKIT_REFS_POLICY=optional` mirrors this list ([#1431](https://github.com/vig-os/devkit/issues/1431)) |
+| `DEVKIT_BRANCH_TYPES` | Comma-separated FULL REPLACEMENT of the issue-numbered `<type>/<issue>-<summary>` branch-type set, driving the local `no-commit-to-branch` guard, the flake-generated consumer surface, and CI's branch-name gate; empty (default) => the stock set (`feature,bugfix,hotfix,release,docs,test,refactor`). The `chore/`, `renovate/`, `worktree/` clauses are never knob-driven. Pre-#1432 direnv consumers hand-port the flake reader (see [Commit and branch policy on the flake surface](#commit-and-branch-policy-on-the-flake-surface-direnv-consumers), [#1432](https://github.com/vig-os/devkit/issues/1432)) |
 | `DEVKIT_AUTO_UPGRADE` | Opt-out for the scaffolded `devkit-upgrade.yml` weekly schedule; empty (default) or any value but `false` keeps the auto-adoption poll on. `false` disables only the schedule — manual `workflow_dispatch` always runs ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
 | `DEVKIT_UPGRADE_EXCLUDE` | Comma-separated (whitespace-tolerant) paths the `devkit-upgrade` workflow resets before the adoption commit, so generated-doc churn never rides along in the upgrade diff; empty (default) => no exclusions ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
 
@@ -398,8 +413,7 @@ The eight groups:
 - `release` — the release/prepare/promote workflows (`release*.yml`,
   `prepare-release*.yml`, `promote-release.yml`, `sync-main-to-dev.yml`) and
   `docs/DOWNSTREAM_RELEASE.md`.
-- `renovate` — `renovate.json`, `.github/renovate-default.json`, and the
-  renovate-changelog workflows.
+- `renovate` — `renovate.json` and `.github/renovate-default.json`.
 - `sync-issues` — `sync-issues.yml` and `.github/label-taxonomy.toml`. With this
   group disabled, `DEVKIT_SYNC_TARGET`/`DEVKIT_SYNC_SCHEDULE` become inert (a
   notice is printed).
@@ -463,6 +477,37 @@ How it behaves:
   the hook stack and upgrade path but drops the team/traceability layer. See
   [`docs/SOLO_ADOPTION.md`](./SOLO_ADOPTION.md)
   ([#1285](https://github.com/vig-os/devkit/issues/1285)).
+
+### Commit and branch policy on the flake surface (direnv consumers)
+
+`DEVKIT_BRANCH_TYPES`, `DEVKIT_COMMIT_TYPES` and `DEVKIT_REFS_POLICY` reach the
+**scaffolded** `.pre-commit-config.yaml` and **CI** automatically on
+re-scaffold/upgrade. The **flake-generated** consumer surface (direnv repos
+that opted into `mkProjectShell`'s `hooks`) reads those keys at eval time
+through the project's own `flake.nix` — a **scaffold-once file the upgrade
+never overwrites**. New scaffolds ship the reader; a repo whose `flake.nix`
+predates #1432/#1434 ports it by hand (the same one-time port as the #1224
+`workflow` forwarding):
+
+1. Copy the managed `vigOsValue` / `vigOsList` / `workflow` / `branchTypes` /
+   `commitTypes` / `refsPolicy` `let`-block from the current template
+   ([`assets/workspace/flake.nix`](https://github.com/vig-os/devkit/blob/main/assets/workspace/flake.nix))
+   over your existing `workflow` reader.
+2. Copy the `nixpkgs.lib.optionalAttrs (builtins.functionArgs … )` forwarding
+   blocks after the `mkProjectShell` argument set. The `functionArgs` guard
+   keeps older pinned devkits evaluating (they fall back to the stock values
+   instead of failing).
+
+Without the port the knobs still work everywhere except the locally generated
+hooks — which then keep the stock values, and the loud signal comes from CI's
+gates instead. Validation is eval-time and loud: a bad value (branch/commit
+type charset, an empty list, an unknown Refs policy) fails `nix develop` with
+a `branchTypes` / `commitTypes` / `refsPolicy` message.
+
+Note that the flake-generated config only *carries* the commit-message hooks
+from devkit 1.8.0 on ([#1434](https://github.com/vig-os/devkit/issues/1434)) —
+before that a direnv consumer had no local `commit-msg` stage at all, so
+`DEVKIT_COMMIT_TYPES` / `DEVKIT_REFS_POLICY` were realized through CI only.
 
 ## What a consumer needs to know
 
@@ -719,6 +764,18 @@ The contract:
   the generated set includes it — `direnv`/`bare` consumers gain markdown lint
   from the shared toolchain like `shellcheck`/`typos`. Toggle it off with
   `pymarkdown.enable = false` if a repo has no markdown to lint.
+- **The commit-message and agent-identity guards are in the base set.** Since
+  [#1434](https://github.com/vig-os/devkit/issues/1434) the generated config
+  carries `validate-commit-msg` (`commit-msg` stage),
+  `prepare-commit-msg-strip-trailers` (`prepare-commit-msg` stage) and
+  `check-agent-identity`, resolving the `vig-utils` console scripts from the
+  pinned devkit — so `.githooks/commit-msg` actually rejects a malformed
+  message and `git commit --author="Claude <…>"` is refused locally, as in a
+  container-mode consumer. Before that release the `commit-msg` stage was
+  empty for flake-hooks consumers and only CI enforced the standard. The
+  `--types` / `--refs-optional-types` args follow `DEVKIT_COMMIT_TYPES` and
+  `DEVKIT_REFS_POLICY` (see [Commit and branch policy on the flake
+  surface](#commit-and-branch-policy-on-the-flake-surface-direnv-consumers)).
 - The planned declarative `.vig-os` manifest
   ([#885](https://github.com/vig-os/devkit/issues/885)) will carry an
   explicit raw-YAML opt-out flag so the choice is recorded per-repo rather
@@ -748,7 +805,7 @@ upgrade), the dev shell warns on every entry until the lock is advanced.
 
 ### Upgrade preflight guard and preview
 
-An upgrade (`just devc-upgrade`, or `install.sh --force`) rewrites and deletes
+An upgrade (a devkit-upgrade adoption PR, or a manual `install.sh --force`) rewrites and deletes
 files across the consumer tree, so the installer requires it to land on a
 dedicated working branch as a single reviewable, revertible diff
 ([#886](https://github.com/vig-os/devkit/issues/886)):
@@ -890,6 +947,8 @@ re-scaffold:
    | `.cursor/` | 0.4.0 | `.claude/` |
    | `.hadolint.yaml` | 0.4.0 | — (the Debian build path is gone) |
    | `.github/actions/resolve-image/` | 1.1.0 | `resolve-toolchain` |
+   | `.github/workflows/renovate-changelog-build.yml` | 1.8.0 | release-time synthesis ([#1423](https://github.com/vig-os/devkit/issues/1423)) |
+   | `.github/workflows/renovate-changelog-commit.yml` | 1.8.0 | release-time synthesis ([#1423](https://github.com/vig-os/devkit/issues/1423)) |
 
    The stale `renovate-changelog.yml` is the one that bites: left in place it
    is a **live** workflow that both duplicates its replacements and calls the

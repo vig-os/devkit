@@ -36,6 +36,14 @@ gh-branch:
 # RELEASE WORKFLOW DISPATCH HELPERS
 # -------------------------------------------------------------------------------
 
+# Preview the bot changelog entries the next release would synthesize (#1423)
+[group('release')]
+changelog-preview:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export GITHUB_REPOSITORY_URL="${GITHUB_REPOSITORY_URL:-$(gh repo view --json url --jq .url)}"
+    uv run synthesize-bot-changelog --dry-run
+
 # Prepare release branch for testing (step 1)
 [group('release')]
 prepare-release version ref="" *flags:

@@ -3,13 +3,16 @@ Tests for documentation generation and install.sh unit behavior.
 
 Tests functions from:
 - docs/generate.py (all functions)
-- install.sh (unit tests: help, dry-run, flags — no container image needed)
+- install.sh (unit tests: dry-run side effects, name sanitization — the
+  flag/help surface is covered behaviorally in tests/bats/install.bats)
+- host script shebang portability (#687 — pure content checks)
 
 Note: install.sh integration tests (requiring a built container image) live in
 tests/test_install_script.py and run under the test-integration CI job.
 """
 
 import importlib.util
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -31,7 +34,7 @@ def _point_generate_to_temp_changelog(
 ) -> Path:
     """Point generate.py changelog lookup to a temp CHANGELOG.md file."""
     docs_path = tmp_path / "docs"
-    docs_path.mkdir()
+    docs_path.mkdir(exist_ok=True)
     fake_generate = docs_path / "generate.py"
     fake_generate.write_text("# test helper\n")
 
@@ -40,6 +43,26 @@ def _point_generate_to_temp_changelog(
 
     monkeypatch.setattr(generate, "__file__", str(fake_generate))
     return changelog
+
+
+def _point_generate_docs_to_tmp(monkeypatch, tmp_path: Path, readme_template: str):
+    """Point generate_docs() at a temp docs tree with only README.md.j2.
+
+    Creates docs/templates/README.md.j2 and docs/narrative/ under tmp_path and
+    repoints ``generate.__file__`` so the real generate_docs() renders into
+    tmp_path. The other templates (CONTRIBUTING, TESTING, SKILL_PIPELINE) are
+    deliberately absent to exercise the skip-missing-template branch.
+    """
+    templates_dir = tmp_path / "docs" / "templates"
+    templates_dir.mkdir(parents=True)
+    (tmp_path / "docs" / "narrative").mkdir()
+    (templates_dir / "README.md.j2").write_text(readme_template)
+
+    _point_generate_to_temp_changelog(
+        monkeypatch, tmp_path, "# Changelog\n\n## [1.2.3] - 2026-01-01\n"
+    )
+    # Keep the render hermetic: no `just` subprocess.
+    monkeypatch.setattr(generate, "get_just_help", lambda: "recipes listed here")
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -81,64 +104,33 @@ class TestGetJustHelp:
 class TestGetVersionFromChangelog:
     """Direct tests for get_version_from_changelog()."""
 
-    def test_get_version_from_changelog_found(self, tmp_path):
-        """Test version extraction when changelog exists with release."""
-        changelog = tmp_path / "CHANGELOG.md"
-        changelog.write_text(
+    def test_returns_latest_dated_release(self, tmp_path, monkeypatch):
+        """Should return the first dated release, skipping Unreleased."""
+        _point_generate_to_temp_changelog(
+            monkeypatch,
+            tmp_path,
             "# Changelog\n\n"
             "## Unreleased\n\n"
             "## [0.2.0] - 2025-12-10\n\n"
-            "## [0.1.0] - 2025-01-01\n"
+            "## [0.1.0] - 2025-01-01\n",
         )
+        assert generate.get_version_from_changelog() == "0.2.0"
 
-        # Test the logic directly (same as in generate.py)
-        version_found = None
-        with changelog.open() as f:
-            for line in f:
-                if line.startswith("## ["):
-                    version_found = line.split("[")[1].split("]")[0]
-                    break
-
-        assert version_found == "0.2.0"
-
-    def test_get_version_from_changelog_not_found(self, tmp_path):
-        """Test version extraction when no release found."""
-        changelog = tmp_path / "CHANGELOG.md"
-        changelog.write_text("# Changelog\n\n## Unreleased\n\nNo releases yet\n")
-
-        # Test logic directly
-        version_found = None
-        with changelog.open() as f:
-            for line in f:
-                if line.startswith("## ["):
-                    version_found = line.split("[")[1].split("]")[0]
-                    break
-
-        assert version_found is None
-
-    def test_returns_dev_when_no_versions(self, tmp_path, monkeypatch):
-        """Should return 'dev' when there are no version headings."""
-        changelog = tmp_path / "CHANGELOG.md"
-        changelog.write_text("# Changelog\n\n## Unreleased\n\n- stuff\n")
-        # Patch the function's file resolution to use our temp file
-        monkeypatch.setattr(
-            generate,
-            "get_version_from_changelog",
-            lambda: _get_version_from_file(changelog),
+    def test_returns_dev_when_no_dated_release(self, tmp_path, monkeypatch):
+        """Should return 'dev' when no dated release heading exists."""
+        _point_generate_to_temp_changelog(
+            monkeypatch,
+            tmp_path,
+            "# Changelog\n\n## Unreleased\n\nNo releases yet\n",
         )
-        result = generate.get_version_from_changelog()
-        assert result == "dev"
+        assert generate.get_version_from_changelog() == "dev"
 
     def test_returns_first_version(self, tmp_path, monkeypatch):
         """Should return the first (latest) version found."""
-        changelog = tmp_path / "CHANGELOG.md"
-        changelog.write_text(
-            "# Changelog\n\n## [2.0.0] - 2026-06-01\n\n## [1.0.0] - 2026-01-01\n"
-        )
-        monkeypatch.setattr(
-            generate,
-            "get_version_from_changelog",
-            lambda: _get_version_from_file(changelog),
+        _point_generate_to_temp_changelog(
+            monkeypatch,
+            tmp_path,
+            "# Changelog\n\n## [2.0.0] - 2026-06-01\n\n## [1.0.0] - 2026-01-01\n",
         )
         assert generate.get_version_from_changelog() == "2.0.0"
 
@@ -164,46 +156,29 @@ class TestGetVersionFromChangelog:
 class TestGetReleaseDateFromChangelog:
     """Direct tests for get_release_date_from_changelog()."""
 
-    def test_get_release_date_from_changelog_found(self, tmp_path):
-        """Test date extraction when changelog exists with release."""
-        changelog = tmp_path / "CHANGELOG.md"
-        changelog.write_text(
+    def test_returns_latest_release_date(self, tmp_path, monkeypatch):
+        """Should return the date of the first dated release heading."""
+        _point_generate_to_temp_changelog(
+            monkeypatch,
+            tmp_path,
             "# Changelog\n\n"
             "## Unreleased\n\n"
             "## [0.2.0] - 2025-12-10\n\n"
-            "## [0.1.0] - 2025-01-01\n"
+            "## [0.1.0] - 2025-01-01\n",
         )
+        assert generate.get_release_date_from_changelog() == "2025-12-10"
 
-        date_found = None
-        with changelog.open() as f:
-            for line in f:
-                if line.startswith("## ["):
-                    parts = line.split("]")
-                    if len(parts) > 1:
-                        date_part = parts[1].split(" - ")
-                        if len(date_part) > 1:
-                            date_found = date_part[1].strip()
-                            break
-
-        assert date_found == "2025-12-10"
-
-    def test_get_release_date_from_changelog_not_found(self, tmp_path):
-        """Test date extraction when no release found."""
-        changelog = tmp_path / "CHANGELOG.md"
-        changelog.write_text("# Changelog\n\n## Unreleased\n\nNo releases yet\n")
-
-        date_found = None
-        with changelog.open() as f:
-            for line in f:
-                if line.startswith("## ["):
-                    parts = line.split("]")
-                    if len(parts) > 1:
-                        date_part = parts[1].split(" - ")
-                        if len(date_part) > 1:
-                            date_found = date_part[1].strip()
-                            break
-
-        assert date_found is None
+    def test_falls_back_to_now_without_dated_release(self, tmp_path, monkeypatch):
+        """Should fall back to a current timestamp when no heading has a date."""
+        _point_generate_to_temp_changelog(
+            monkeypatch,
+            tmp_path,
+            "# Changelog\n\n## [0.1.0]\n\nNo date\n",
+        )
+        result = generate.get_release_date_from_changelog()
+        # The fallback is datetime.now().isoformat(timespec="seconds").
+        parsed = datetime.fromisoformat(result)
+        assert abs((datetime.now() - parsed).total_seconds()) < 60
 
     def test_skips_tbd_entry(self, tmp_path, monkeypatch):
         """Should ignore unreleased headings and use latest released date."""
@@ -221,179 +196,209 @@ class TestGetReleaseDateFromChangelog:
         """Test date extraction from actual CHANGELOG.md."""
         date = generate.get_release_date_from_changelog()
         assert isinstance(date, str)
+        # Zero-padded YYYY-MM-DD (strptime alone would accept unpadded parts).
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", date), (
+            f"Date format is invalid: {date} (expected YYYY-MM-DD)"
+        )
         try:
             datetime.strptime(date, "%Y-%m-%d")
         except ValueError:
             pytest.fail(f"Date format is invalid: {date} (expected YYYY-MM-DD)")
 
-    def test_get_release_date_format(self):
-        """Test that returned date is in correct format."""
-        date = generate.get_release_date_from_changelog()
-        parts = date.split("-")
-        assert len(parts) == 3
-        assert len(parts[0]) == 4  # Year
-        assert len(parts[1]) == 2  # Month
-        assert len(parts[2]) == 2  # Day
-        year, month, day = int(parts[0]), int(parts[1]), int(parts[2])
-        assert 2000 <= year <= 2100
-        assert 1 <= month <= 12
-        assert 1 <= day <= 31
-
-    def test_get_release_date_without_date_part(self, tmp_path):
-        """Test date extraction when release line has no date."""
-        changelog = tmp_path / "CHANGELOG.md"
-        changelog.write_text("# Changelog\n\n## [0.1.0]\n\nNo date\n")
-
-        date_found = None
-        with changelog.open() as f:
-            for line in f:
-                if line.startswith("## ["):
-                    parts = line.split("]")
-                    if len(parts) > 1:
-                        date_part = parts[1].split(" - ")
-                        if len(date_part) > 1:
-                            date_found = date_part[1].strip()
-                            break
-
-        assert date_found is None
-
 
 class TestGenerateDocs:
     """Tests for generate_docs() from docs/generate.py."""
-
-    def test_generate_docs_succeeds(self, tmp_path, monkeypatch):
-        """generate_docs should render templates and write output files."""
-        # Set up a minimal docs/templates structure
-        templates_dir = tmp_path / "templates"
-        templates_dir.mkdir()
-        narrative_dir = tmp_path / "narrative"
-        narrative_dir.mkdir()
-
-        # Simple template
-        (templates_dir / "README.md.j2").write_text(
-            "# {{ project_name }}\nVersion: {{ version }}\n"
-        )
-
-        # Monkeypatch all external calls to make it hermetic
-        monkeypatch.setattr(generate, "get_just_help", lambda: "recipes listed here")
-        monkeypatch.setattr(generate, "get_version_from_changelog", lambda: "1.2.3")
-        monkeypatch.setattr(
-            generate, "get_release_date_from_changelog", lambda: "2026-02-11"
-        )
-
-        # Inline the logic of generate_docs with patched paths
-        import jinja2
-
-        env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(str(templates_dir)),
-            keep_trailing_newline=True,
-        )
-        template = env.get_template("README.md.j2")
-        output = template.render(
-            project_name="Test Project",
-            version="1.2.3",
-        )
-        output_path = tmp_path / "README.md"
-        output_path.write_text(output)
-
-        content = output_path.read_text()
-        assert "# Test Project" in content
-        assert "Version: 1.2.3" in content
 
     def test_generate_docs_actual(self):
         """Integration: calling the real generate_docs should succeed."""
         result = generate.generate_docs()
         assert result is True
 
-    def test_generate_docs_skips_missing_template(self, capsys, monkeypatch):
-        """generate_docs should skip templates that don't exist."""
-        # Temporarily make templates_to_generate include a bogus template
-        # by patching generate_docs to add a fake entry. We just call the
-        # real function — it should skip non-existent templates gracefully.
-        result = generate.generate_docs()
-        assert result is True
-
-
-class TestIncludeNarrative:
-    """Test the include_narrative helper used inside generate_docs."""
-
-    def test_includes_existing_file(self, tmp_path):
-        """Should return stripped content of an existing narrative file."""
-        narrative_dir = tmp_path / "narrative"
-        narrative_dir.mkdir()
-        (narrative_dir / "intro.md").write_text("Hello world!\n\n")
-
-        import jinja2
-
-        env = jinja2.Environment(
-            loader=jinja2.FileSystemLoader(str(tmp_path)),
+    def test_skips_missing_templates_and_renders_rest(
+        self, tmp_path, monkeypatch, capsys
+    ):
+        """Missing templates are skipped; present ones still render."""
+        _point_generate_docs_to_tmp(
+            monkeypatch,
+            tmp_path,
+            "# {{ project_name }}\nVersion: {{ version }}\n",
         )
+        assert generate.generate_docs() is True
+        captured = capsys.readouterr()
+        assert "Skipping CONTRIBUTING.md.j2" in captured.err
+        content = (tmp_path / "README.md").read_text()
+        assert "# vigOS Development Environment" in content
+        assert "Version: 1.2.3" in content
 
-        def include_narrative(filename):
-            path = narrative_dir / filename
-            if path.exists():
-                return path.read_text().strip()
-            return f"<!-- Missing: {filename} -->"
-
-        env.globals["include_narrative"] = include_narrative
-        result = include_narrative("intro.md")
-        assert result == "Hello world!"
-
-    def test_strips_front_matter(self, tmp_path):
-        """Should strip YAML front-matter from narrative files."""
-        narrative_dir = tmp_path / "narrative"
-        narrative_dir.mkdir()
-        (narrative_dir / "intro.md").write_text(
+    def test_include_narrative_strips_front_matter(self, tmp_path, monkeypatch):
+        """include_narrative strips YAML front-matter from narrative files."""
+        _point_generate_docs_to_tmp(
+            monkeypatch, tmp_path, "{{ include_narrative('intro.md') }}\n"
+        )
+        (tmp_path / "docs" / "narrative" / "intro.md").write_text(
             "---\ntitle: Intro\n---\n\nActual content here.\n"
         )
+        assert generate.generate_docs() is True
+        content = (tmp_path / "README.md").read_text()
+        assert "Actual content here." in content
+        assert "title:" not in content
 
-        def include_narrative(filename):
-            path = narrative_dir / filename
-            if path.exists():
-                content = path.read_text()
-                if content.startswith("---"):
-                    parts = content.split("---", 2)
-                    if len(parts) >= 3:
-                        content = parts[2]
-                return content.strip()
-            return f"<!-- Missing: {filename} -->"
-
-        result = include_narrative("intro.md")
-        assert result == "Actual content here."
-        assert "title:" not in result
-
-    def test_returns_comment_for_missing_file(self, tmp_path):
-        """Should return an HTML comment for a missing narrative file."""
-        narrative_dir = tmp_path / "narrative"
-        narrative_dir.mkdir()
-
-        def include_narrative(filename):
-            path = narrative_dir / filename
-            if path.exists():
-                return path.read_text().strip()
-            return f"<!-- Missing: {filename} -->"
-
-        result = include_narrative("nonexistent.md")
-        assert result == "<!-- Missing: nonexistent.md -->"
+    def test_include_narrative_missing_file_renders_comment(
+        self, tmp_path, monkeypatch
+    ):
+        """include_narrative renders an HTML comment for missing files."""
+        _point_generate_docs_to_tmp(
+            monkeypatch, tmp_path, "{{ include_narrative('nonexistent.md') }}\n"
+        )
+        assert generate.generate_docs() is True
+        content = (tmp_path / "README.md").read_text()
+        assert "<!-- Missing: nonexistent.md -->" in content
 
 
-# ═════════════════════════════════════════════════════════════════════════════
-# Helper functions for testable monkeypatching
-# ═════════════════════════════════════════════════════════════════════════════
+def _point_generate_to_temp_skills(
+    monkeypatch, tmp_path: Path, skill_files: dict[str, str]
+) -> None:
+    """Point load_skills() at a temp .claude/skills tree.
+
+    ``skill_files`` maps a skill directory name to its SKILL.md content. An
+    empty mapping leaves the skills directory absent to exercise the
+    missing-dir branch.
+    """
+    docs_path = tmp_path / "docs"
+    docs_path.mkdir(exist_ok=True)
+    fake_generate = docs_path / "generate.py"
+    fake_generate.write_text("# test helper\n")
+
+    for name, content in skill_files.items():
+        skill_dir = tmp_path / ".claude" / "skills" / name
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(content)
+
+    monkeypatch.setattr(generate, "__file__", str(fake_generate))
 
 
-def _get_version_from_file(changelog_path: Path) -> str:
-    """Replicates get_version_from_changelog logic against an arbitrary file."""
-    if changelog_path.exists():
-        with changelog_path.open() as f:
-            for line in f:
-                if line.startswith("## ["):
-                    return line.split("[")[1].split("]")[0]
-    return "dev"
+class TestLoadSkills:
+    """Unit tests for load_skills() front-matter parsing (#1418)."""
+
+    def test_missing_skills_dir_returns_empty(self, tmp_path, monkeypatch, capsys):
+        """An absent .claude/skills directory yields [] plus a stderr warning."""
+        _point_generate_to_temp_skills(monkeypatch, tmp_path, {})
+        assert generate.load_skills() == []
+        assert "Skills directory not found" in capsys.readouterr().err
+
+    def test_parses_front_matter_fields(self, tmp_path, monkeypatch):
+        """name/description map to name, slash-trigger, description, group."""
+        _point_generate_to_temp_skills(
+            monkeypatch,
+            tmp_path,
+            {
+                "code_review": (
+                    "---\nname: code_review\ndescription: Review code\n---\nBody\n"
+                )
+            },
+        )
+        assert generate.load_skills() == [
+            {
+                "name": "code_review",
+                "trigger": "/code-review",
+                "description": "Review code",
+                "group": "code",
+            }
+        ]
+
+    def test_description_defaults_to_empty(self, tmp_path, monkeypatch):
+        """A skill without a description still loads, with description ''."""
+        _point_generate_to_temp_skills(
+            monkeypatch, tmp_path, {"ci_check": "---\nname: ci_check\n---\nBody\n"}
+        )
+        (skill,) = generate.load_skills()
+        assert skill["description"] == ""
+
+    def test_skips_file_without_front_matter(self, tmp_path, monkeypatch):
+        """A SKILL.md that does not open with --- is ignored."""
+        _point_generate_to_temp_skills(
+            monkeypatch, tmp_path, {"code_x": "# just a heading\nname: code_x\n"}
+        )
+        assert generate.load_skills() == []
+
+    def test_skips_unterminated_front_matter(self, tmp_path, monkeypatch):
+        """Front matter without a closing --- is ignored."""
+        _point_generate_to_temp_skills(
+            monkeypatch, tmp_path, {"code_x": "---\nname: code_x\n"}
+        )
+        assert generate.load_skills() == []
+
+    def test_skips_front_matter_without_name(self, tmp_path, monkeypatch):
+        """Front matter lacking a name key is ignored."""
+        _point_generate_to_temp_skills(
+            monkeypatch, tmp_path, {"code_x": "---\ndescription: no name\n---\n"}
+        )
+        assert generate.load_skills() == []
+
+    def test_entries_sorted_by_directory(self, tmp_path, monkeypatch):
+        """Skills come back in sorted path order regardless of creation order."""
+        _point_generate_to_temp_skills(
+            monkeypatch,
+            tmp_path,
+            {
+                "issue_triage": "---\nname: issue_triage\n---\n",
+                "ci_check": "---\nname: ci_check\n---\n",
+            },
+        )
+        assert [s["name"] for s in generate.load_skills()] == [
+            "ci_check",
+            "issue_triage",
+        ]
+
+
+class TestGroupSkills:
+    """Unit tests for group_skills() ordering and heading merges (#1418)."""
+
+    @staticmethod
+    def _skill(name: str) -> dict:
+        return {
+            "name": name,
+            "trigger": "/" + name.replace("_", "-"),
+            "description": "",
+            "group": name.split("_")[0],
+        }
+
+    def test_groups_follow_declared_order_and_drop_empty(self):
+        """Non-empty groups appear in SKILL_GROUP_ORDER order; empty ones drop."""
+        groups = generate.group_skills(
+            [self._skill("worktree_plan"), self._skill("issue_triage")]
+        )
+        assert [g["heading"] for g in groups] == [
+            "Issue Management",
+            "Autonomous Worktree Pipeline",
+        ]
+
+    def test_git_and_pr_share_one_heading(self):
+        """git and pr prefixes merge into the single Git & PR group."""
+        groups = generate.group_skills(
+            [self._skill("git_commit"), self._skill("pr_create")]
+        )
+        (group,) = groups
+        assert group["heading"] == "Git & PR (Interactive)"
+        assert [s["name"] for s in group["skills"]] == ["git_commit", "pr_create"]
+
+    def test_unknown_prefix_is_dropped(self):
+        """A skill whose prefix matches no declared group is not rendered."""
+        assert generate.group_skills([self._skill("zzz_orphan")]) == []
+
+    def test_intro_attached_and_prefixes_removed(self):
+        """Groups carry their intro text and no internal prefixes set."""
+        (group,) = generate.group_skills([self._skill("inception_explore")])
+        assert group["intro"] == generate.SKILL_GROUP_INTROS["inception"]
+        assert "prefixes" not in group
 
 
 class TestInstallScriptUnit:
-    """Unit tests for install.sh - test script logic without containers."""
+    """Unit tests for install.sh dry-run side effects and name sanitization.
+
+    The flag/help/detection surface is covered behaviorally in
+    tests/bats/install.bats; only cases without a bats twin live here.
+    """
 
     @pytest.fixture
     def install_script(self):
@@ -405,22 +410,7 @@ class TestInstallScriptUnit:
         assert install_script.exists(), "install.sh not found"
         assert install_script.stat().st_mode & 0o111, "install.sh not executable"
 
-    def test_help_output(self, install_script):
-        """Test --help shows usage information."""
-        result = subprocess.run(
-            [str(install_script), "--help"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        assert result.returncode == 0, f"--help failed: {result.stderr}"
-        assert "vigOS Devcontainer Install Script" in result.stdout
-        assert "--force" in result.stdout
-        assert "--version" in result.stdout
-        assert "--dry-run" in result.stdout
-        assert "--name" in result.stdout
-
-    def test_dry_run_shows_command(self, install_script, tmp_path):
+    def test_dry_run_creates_no_files(self, install_script, tmp_path):
         """Test --dry-run shows what would be executed without running."""
         result = subprocess.run(
             [str(install_script), "--dry-run", str(tmp_path)],
@@ -430,147 +420,66 @@ class TestInstallScriptUnit:
         )
         assert result.returncode == 0, f"--dry-run failed: {result.stderr}"
         assert "Would execute:" in result.stdout
-        # Should NOT create any files
+        # Sole coverage of the no-side-effects contract: dry-run must not
+        # scaffold anything.
         assert not (tmp_path / ".devcontainer").exists()
+        assert not any(tmp_path.iterdir())
 
-    def test_nonexistent_directory_fails(self, install_script):
-        """Test script fails gracefully for non-existent directory."""
+    def test_name_sanitization_trims_trailing_separator(self, install_script):
+        """Test --name sanitization trims trailing separators (#1044)."""
         result = subprocess.run(
-            [str(install_script), "/nonexistent/path/that/does/not/exist"],
+            [str(install_script), "--dry-run", "--name", "Install-Test-Project-", "."],
             capture_output=True,
             text=True,
             timeout=10,
+            cwd=str(Path(__file__).resolve().parents[1]),
         )
-        assert result.returncode != 0
-        output = result.stdout + result.stderr
-        assert "does not exist" in output
+        assert result.returncode == 0, (
+            f"install.sh --dry-run --name failed:\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+        assert "SHORT_NAME=install_test_project" in result.stdout, (
+            "Expected sanitized name without trailing underscore in dry-run output"
+        )
+        assert "SHORT_NAME=install_test_project_" not in result.stdout, (
+            "Sanitized name should not end with an underscore"
+        )
 
-    def test_name_sanitization_in_dry_run(self, install_script, tmp_path):
-        """Test that project name is sanitized correctly."""
-        # Create directory with name that needs sanitization
-        test_dir = tmp_path / "My-Awesome-Project"
-        test_dir.mkdir()
 
-        result = subprocess.run(
-            [str(install_script), "--dry-run", str(test_dir)],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        assert result.returncode == 0, f"Failed: {result.stderr}"
-        # Name should be sanitized: lowercase, hyphens → underscores
-        assert "my_awesome_project" in result.stdout.lower()
+class TestHostScriptShebangPortability:
+    """Assert host-executed scripts use a portable shebang.
 
-    def test_custom_name_override(self, install_script, tmp_path):
-        """Test --name flag overrides derived name."""
-        result = subprocess.run(
-            [str(install_script), "--dry-run", "--name", "custom_proj", str(tmp_path)],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        assert result.returncode == 0, f"Failed: {result.stderr}"
-        assert "custom_proj" in result.stdout
+    These scripts run on the *host* (not inside the container), so they must
+    not hardcode ``#!/bin/bash``: NixOS and other distros that follow the
+    Filesystem Hierarchy Standard loosely have no ``/bin/bash``, which makes
+    them fail to execute. The portable form ``#!/usr/bin/env bash`` resolves
+    ``bash`` via ``PATH`` and works everywhere. Refs #687.
 
-    def test_version_flag_in_dry_run(self, install_script, tmp_path):
-        """Test --version flag is passed to container."""
-        result = subprocess.run(
-            [str(install_script), "--dry-run", "--version", "1.2.3", str(tmp_path)],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        assert result.returncode == 0, f"Failed: {result.stderr}"
-        assert "1.2.3" in result.stdout
+    This is a pure content check — it needs no built container image — so it
+    runs in the cheap project-checks lane.
+    """
 
-    def test_force_flag_in_dry_run(self, install_script, tmp_path):
-        """Test --force flag is passed to init-workspace.sh.
+    # Host-executed scripts that must carry the portable shebang. Scoped to
+    # the three scripts in issue #687; the broader in-container sweep is out
+    # of scope.
+    HOST_SCRIPTS = (
+        "install.sh",
+        "assets/workspace/.devcontainer/scripts/initialize.sh",
+        "assets/workspace/.devcontainer/scripts/version-check.sh",
+    )
 
-        Uses a clean feature-branch git fixture: the upgrade preflight guard
-        (#886) refuses --force on non-git directories, protected branches,
-        and dirty trees. A `main` branch exists alongside, as in any conforming
-        checkout — the default-branch preflight (#1283) refuses when no `main`
-        can be resolved at all.
-        """
-        git_env = [
-            "git",
-            "-c",
-            "user.email=t@example.com",
-            "-c",
-            "user.name=T",
-            "-c",
-            "commit.gpgsign=false",
-        ]
-        subprocess.run(
-            [*git_env, "init", "-q", "-b", "feature/886-fixture", str(tmp_path)],
-            check=True,
-            timeout=10,
-        )
-        subprocess.run(
-            [
-                *git_env,
-                "-C",
-                str(tmp_path),
-                "commit",
-                "-q",
-                "--allow-empty",
-                "-m",
-                "chore: init",
-            ],
-            check=True,
-            timeout=10,
-        )
-        subprocess.run(
-            [*git_env, "-C", str(tmp_path), "branch", "main"],
-            check=True,
-            timeout=10,
-        )
-        result = subprocess.run(
-            [str(install_script), "--dry-run", "--force", str(tmp_path)],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        assert result.returncode == 0, f"Failed: {result.stderr}"
-        assert "--force" in result.stdout
+    PORTABLE_SHEBANG = "#!/usr/bin/env bash"
 
-    def test_org_flag_in_help(self, install_script):
-        """Test --org flag is documented in help output."""
-        result = subprocess.run(
-            [str(install_script), "--help"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        assert result.returncode == 0, f"--help failed: {result.stderr}"
-        assert "--org" in result.stdout, "--org flag not documented in help"
+    @pytest.mark.parametrize("rel_path", HOST_SCRIPTS)
+    def test_host_script_uses_portable_shebang(self, rel_path):
+        """Each host-executed script must start with #!/usr/bin/env bash."""
+        project_root = Path(__file__).resolve().parents[1]
+        script = project_root / rel_path
+        assert script.exists(), f"Expected host script not found: {rel_path}"
 
-    def test_default_org_in_dry_run(self, install_script, tmp_path):
-        """Test default ORG_NAME is 'vigOS' when --org is not specified."""
-        result = subprocess.run(
-            [str(install_script), "--dry-run", str(tmp_path)],
-            capture_output=True,
-            text=True,
-            timeout=10,
+        first_line = script.read_text().splitlines()[0]
+        assert first_line == self.PORTABLE_SHEBANG, (
+            f"{rel_path} must use the portable shebang "
+            f"'{self.PORTABLE_SHEBANG}' (NixOS has no /bin/bash), "
+            f"but found: {first_line!r}"
         )
-        assert result.returncode == 0, f"Failed: {result.stderr}"
-        # Should show ORG_NAME=vigOS being passed to container
-        assert "ORG_NAME" in result.stdout, "ORG_NAME should be passed to container"
-        # Default should be vigOS
-        assert (
-            'ORG_NAME="vigOS"' in result.stdout or "ORG_NAME=vigOS" in result.stdout
-        ), f"Default ORG_NAME should be 'vigOS', got: {result.stdout}"
-
-    def test_custom_org_in_dry_run(self, install_script, tmp_path):
-        """Test --org flag sets custom ORG_NAME."""
-        result = subprocess.run(
-            [str(install_script), "--dry-run", "--org", "MyOrg", str(tmp_path)],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        assert result.returncode == 0, f"Failed: {result.stderr}"
-        # Should show custom ORG_NAME being passed to container
-        assert (
-            'ORG_NAME="MyOrg"' in result.stdout or "ORG_NAME=MyOrg" in result.stdout
-        ), f"Custom ORG_NAME 'MyOrg' should be in output, got: {result.stdout}"

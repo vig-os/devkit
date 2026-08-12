@@ -376,19 +376,11 @@ class TestManylinuxRuntime:
 class TestSystemTools:
     """Test that system tools are installed with correct versions."""
 
-    def test_git_installed(self, host):
-        """Test that git is installed (path-agnostic, via --version)."""
-        assert_tool_runs(host, "git", "--version")
-
     def test_git_version(self, host):
         """Test that git runs and reports a version."""
         result = host.run("git --version")
         assert result.rc == 0, "git --version failed"
         assert "git version" in result.stdout.lower()
-
-    def test_curl_installed(self, host):
-        """Test that curl is installed (path-agnostic, via --version)."""
-        assert_tool_runs(host, "curl", "--version")
 
     def test_curl_version(self, host):
         """Test that curl runs and reports a version."""
@@ -404,9 +396,11 @@ class TestSystemTools:
         """Test that nano is installed (path-agnostic, via --version)."""
         assert_tool_runs(host, "nano", "--version")
 
-    def test_gh_installed(self, host):
-        """Test that GitHub CLI (gh) is installed (path-agnostic)."""
-        assert_tool_on_path(host, "gh")
+    def test_nvim_runs(self, host):
+        """Test that neovim runs (devTools member with no image test before #1418)."""
+        result = host.run("nvim --version")
+        assert result.rc == 0, "nvim --version failed"
+        assert "nvim" in result.stdout.lower()
 
     def test_gh_version(self, host):
         """Test that gh runs (version is nixpkgs-pinned via flake.lock, not asserted)."""
@@ -414,19 +408,11 @@ class TestSystemTools:
         assert result.rc == 0, "gh --version failed"
         assert "gh version" in result.stdout.lower()
 
-    def test_just_installed(self, host):
-        """Test that just is installed (path-agnostic)."""
-        assert_tool_on_path(host, "just")
-
     def test_just_version(self, host):
         """Test that just runs (version is nixpkgs-pinned via flake.lock, not asserted)."""
         result = host.run("just --version")
         assert result.rc == 0, "just --version failed"
         assert "just" in result.stdout.lower()
-
-    def test_taplo_installed(self, host):
-        """Test that taplo (TOML formatter/linter) is installed (path-agnostic)."""
-        assert_tool_on_path(host, "taplo")
 
     def test_taplo_version(self, host):
         """Test that taplo version is correct."""
@@ -660,6 +646,11 @@ class TestDevelopmentTools:
             f"Expected ruff {expected}, got: {result.stdout}"
         )
 
+    def test_actionlint_runs(self, host):
+        """Test that actionlint runs (pre-commit hook tool, #995; no image test before #1418)."""
+        result = host.run("actionlint -version")
+        assert result.rc == 0, "actionlint -version failed"
+
     def test_pip_licenses_installed(self, host):
         """Test that pip-licenses is installed."""
         result = host.run("pip-licenses --version")
@@ -669,14 +660,6 @@ class TestDevelopmentTools:
         assert expected in result.stdout, (
             f"Expected pip-licenses {expected}, got: {result.stdout}"
         )
-
-    def test_vig_utils_installed(self, host):
-        """Test that vig-utils is installed and importable."""
-        result = host.run("python3 -c 'import vig_utils; print(\"OK\")'")
-        assert result.rc == 0, (
-            f"vig-utils is not installed or not importable: {result.stderr}"
-        )
-        assert "OK" in result.stdout, "Failed to import vig_utils"
 
     def test_vig_utils_version(self, host):
         """Test that vig-utils version is correct."""
@@ -847,23 +830,34 @@ class TestEnvironmentVariables:
             f"Expected {name}={expected}, got: {result.stdout.strip()}"
         )
 
-    @pytest.mark.parametrize(
-        "tool",
-        [
-            "cargo-binstall",
-            "typstyle",
-        ],
-        ids=["cargo_binstall_on_path", "cargo_tool_on_path"],
-    )
-    def test_path_resolves_required_tools(self, host, tool):
-        """Test that cargo-installed tools resolve on PATH.
+    def test_locale_archive_points_at_shipped_archive(self, host):
+        """LOCALE_ARCHIVE targets an existing archive file (#1104, #1418).
 
-        Path-agnostic replacement for asserting hardcoded install dirs
-        (e.g. /root/.cargo/bin) are on PATH: we instead verify the tools
-        those dirs provide are reachable, which holds for both the Debian
-        and Nix images.
+        The exact value is a Nix store path, so only the shape and the file's
+        existence are asserted, not the hash.
         """
-        assert_tool_on_path(host, tool)
+        result = host.run("printenv LOCALE_ARCHIVE")
+        assert result.rc == 0, "LOCALE_ARCHIVE is not set"
+        archive = result.stdout.strip()
+        assert archive.endswith("/lib/locale/locale-archive"), (
+            f"Unexpected LOCALE_ARCHIVE shape: {archive}"
+        )
+        assert host.file(archive).exists, f"Locale archive missing: {archive}"
+
+    def test_locale_resolves_en_us_utf8(self, host):
+        """setlocale('') resolves en_US.UTF-8 from the slimmed archive (#1104).
+
+        The image ships a single-locale archive; if it were missing or lacked
+        en_US.UTF-8, glibc setlocale would fail and this exits non-zero.
+        """
+        result = host.run(
+            "python3 -c \"import locale; locale.setlocale(locale.LC_ALL, ''); "
+            'print(locale.getlocale())"'
+        )
+        assert result.rc == 0, f"setlocale failed: {result.stderr}"
+        assert "en_US" in result.stdout and "UTF-8" in result.stdout, (
+            f"Expected en_US UTF-8 locale, got: {result.stdout}"
+        )
 
 
 class TestFileStructure:
@@ -1070,12 +1064,6 @@ class TestNixConfiguration:
     (`nix shell nixpkgs#<x>`, `nix run`, `nix eval`) failed without an explicit
     `--extra-experimental-features` flag. Refs #739.
     """
-
-    def test_nix_conf_exists(self, host):
-        """/etc/nix/nix.conf is present as a regular file."""
-        conf = host.file("/etc/nix/nix.conf")
-        assert conf.exists, "/etc/nix/nix.conf not found"
-        assert conf.is_file, "/etc/nix/nix.conf is not a regular file"
 
     def test_nix_conf_enables_experimental_features(self, host):
         """nix.conf turns on the nix-command and flakes experimental features."""

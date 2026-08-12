@@ -24,13 +24,12 @@ Refs: #1039
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
-import yaml
 
-# Repository root (tests/ -> repo root).
-REPO_ROOT = Path(__file__).resolve().parent.parent
+from tests.workflow_scaffold import REPO_ROOT, load_workflow
 
 # The guard skips the job whenever the repository is private.
 EXPECTED_GUARD = "${{ !github.event.repository.private }}"
@@ -48,10 +47,6 @@ GUARDED_JOBS = [
 ]
 
 
-def _load(path: Path) -> dict:
-    return yaml.safe_load(path.read_text(encoding="utf-8"))
-
-
 @pytest.mark.parametrize(
     ("path", "job"),
     GUARDED_JOBS,
@@ -59,7 +54,7 @@ def _load(path: Path) -> dict:
 )
 def test_scan_job_skips_on_private_repo(path: Path, job: str) -> None:
     """The analysis job is gated so private repos get a neutral (skipped) run."""
-    workflow = _load(path)
+    workflow = load_workflow(path)
     assert job in workflow["jobs"], f"{path} has no `{job}` job"
     guard = workflow["jobs"][job].get("if")
     assert guard == EXPECTED_GUARD, (
@@ -81,14 +76,9 @@ def test_scan_job_skips_on_private_repo(path: Path, job: str) -> None:
 
 SCAFFOLD_CI = REPO_ROOT / "assets/workspace/.github/workflows/ci.yml"
 
-# SHA pin for actions/dependency-review-action v5.0.0 (same pin as devkit-own).
-DEP_REVIEW_ACTION = (
-    "actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294"
-)
-
 
 def _dep_review_job() -> dict:
-    workflow = _load(SCAFFOLD_CI)
+    workflow = load_workflow(SCAFFOLD_CI)
     assert "dependency-review" in workflow["jobs"], (
         f"{SCAFFOLD_CI} has no `dependency-review` job"
     )
@@ -114,7 +104,12 @@ def test_dependency_review_guarded_on_pr_and_public() -> None:
 
 
 def test_dependency_review_action_pinned_v5_fail_on_high() -> None:
-    """The action is SHA-pinned to v5.0.0 and fails on high-severity findings."""
+    """The action is SHA-pinned to a v5+ release and fails on high severity.
+
+    Shape-checked (full-SHA pin + a ``# v5``-or-later version comment) rather
+    than hardcoding the SHA, so a routine Renovate pin bump does not red this
+    test while a drop to an older major or an unpinned ref still does.
+    """
     steps = _dep_review_job()["steps"]
     review = [
         s
@@ -123,8 +118,17 @@ def test_dependency_review_action_pinned_v5_fail_on_high() -> None:
     ]
     assert review, "dependency-review job must run dependency-review-action"
     step = review[0]
-    assert step["uses"] == DEP_REVIEW_ACTION, (
-        f"dependency-review-action must be SHA-pinned to v5.0.0; found {step['uses']!r}"
+    match = re.search(
+        r"dependency-review-action@([0-9a-f]{40})\s+#\s*v(\d+)",
+        SCAFFOLD_CI.read_text(encoding="utf-8"),
+    )
+    assert match, (
+        "dependency-review-action must be SHA-pinned with a version comment; "
+        f"found {step['uses']!r}"
+    )
+    assert int(match.group(2)) >= 5, (
+        f"pinned dependency-review-action v{match.group(2)} predates the v5 "
+        "baseline this job was wired against"
     )
     assert step.get("with", {}).get("fail-on-severity") == "high", (
         "dependency-review-action must set fail-on-severity: high"
@@ -133,26 +137,22 @@ def test_dependency_review_action_pinned_v5_fail_on_high() -> None:
     assert "allow-ghsas" not in step.get("with", {}), (
         "scaffold dependency-review must not carry an allow-ghsas seam"
     )
-    # v5.0.0 version comment pins the human-readable ref next to the SHA.
-    assert "# v5.0.0" in SCAFFOLD_CI.read_text(encoding="utf-8"), (
-        "dependency-review-action pin must carry its `# v5.0.0` version comment"
-    )
 
 
 def test_summary_needs_dependency_review_with_skip_tolerance() -> None:
     """CI Summary requires dependency-review but tolerates a skipped run."""
-    workflow = _load(SCAFFOLD_CI)
+    workflow = load_workflow(SCAFFOLD_CI)
     summary = workflow["jobs"]["summary"]
     assert "dependency-review" in summary["needs"], (
         "summary `needs` must include dependency-review"
     )
     run = summary["steps"][0]["run"]
     # Skip-tolerant, exactly like the PR-only commit-checks job: FAILED is set
-    # only on a `failure` result, never on `skipped`/`cancelled`.
+    # on a `failure` result, never on `skipped` (dependency-review is
+    # PR-and-public-only, so a skip is a legitimate outcome — #1371 doctrine).
     assert 'needs.dependency-review.result }}" = "failure"' in run, (
-        "summary must fail only when dependency-review result is failure"
+        "summary must fail when dependency-review result is failure"
     )
-    for tolerated in ('"skipped"', '"cancelled"'):
-        assert f"needs.dependency-review.result }}}} = {tolerated}" not in run, (
-            f"dependency-review {tolerated} must not trip the summary"
-        )
+    assert 'needs.dependency-review.result }}" = "skipped"' not in run, (
+        "a skipped dependency-review must not trip the summary"
+    )

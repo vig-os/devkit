@@ -221,10 +221,12 @@ The `prepare-release.yml` workflow freezes the CHANGELOG on dev and creates the 
    - Validates semantic version format (X.Y.Z)
    - Verifies release branch `release/X.Y.Z` doesn't exist (local or remote)
    - Verifies tag `X.Y.Z` doesn't already exist
-   - Verifies CHANGELOG has `## Unreleased` section with content
+   - Runs `synthesize-bot-changelog` → generates the `#### Dependencies` block for merged bot PRs (Renovate, adoptions) since the last stable tag ([#1423](https://github.com/vig-os/devkit/issues/1423))
+   - Verifies CHANGELOG has `## Unreleased` section with content (after synthesis, so a bot-only train passes)
    - Confirms dev branch is checked out
 
 2. ✅ **Prepare** job (skipped if --dry-run)
+   - Runs `synthesize-bot-changelog` again on the freeze checkout so the bot entries ride the freeze commit
    - Runs `prepare-changelog prepare` → moves Unreleased content to `## [X.Y.Z] - TBD` + creates fresh empty Unreleased section
    - Commits prepared CHANGELOG to `dev` via API (single atomic commit — dev never loses `## Unreleased`)
    - Creates `release/X.Y.Z` branch from that dev commit (the empty Unreleased is kept — see [#590](https://github.com/vig-os/devkit/issues/590))
@@ -316,6 +318,17 @@ This is the main quality gate. The release branch and draft PR serve as the coor
    RCs are disposable: auto-incrementing `rcN` tags that never touch `:latest`,
    create no GitHub Release, and are pruned at promote. Iterate freely until the
    image behaves as intended.
+
+   **Hard rule: never dispatch `release.yml` — candidate or final — until the
+   release-branch PR's CI is fully green.** The release PR being opened by
+   `prepare-release` is **not** the go-signal; CI is still running at that
+   point, and a dispatch against a red or still-running branch wastes a full
+   build/publish round-trip (and, for finals, risks publishing from an
+   unverified commit). Check first:
+
+   ```bash
+   gh pr checks <PR_NUMBER> --watch
+   ```
 
 4. **Local Testing** (optional)
 
@@ -466,7 +479,7 @@ Release Summary:
 
 - **Earlier validation**: All checks happen at the start in CI
 - **Safer workflow**: Tag is created AFTER successful build/test, not before
-- **Automatic rollback**: Failed releases roll back the release branch; tags are not deleted (forward-fix policy, independent of whether GitHub immutability applies)—recover with a new RC or a careful final retry per docs above
+- **Automatic rollback**: Failed releases revert only the finalize commit(s) the run wrote (refusing when the branch moved mid-run, #1462); tags are not deleted (forward-fix policy, independent of whether GitHub immutability applies)—recover with a new RC or a careful final retry per docs above
 - **Audit trail**: All steps are recorded in GitHub Actions logs with actor information
 - **Reproducible**: Uses consistent CI environment, not dependent on local tooling
 
@@ -474,13 +487,27 @@ Release Summary:
 
 Cross-repository validation gate rationale, mechanics, payload contract, and pass/fail interpretation are documented in `docs/CROSS_REPO_RELEASE_GATE.md`.
 
+Automated with one exception: on the **final** dispatch the smoke-test listener pauses at a human-approval gate and waits (up to 30 minutes) for a maintainer to approve the smoke-test release PR. Since this repo's `release.yml` does not block on downstream state, nothing on the devkit side signals that the listener is waiting — the operator step is part of the Phase 5 runbook below.
+
 ### Phase 5: Post-Release Cleanup
 
 **This repository (`vig-os/devcontainer`) — manual promote path:**
 
-1. Verify the workflow run succeeded and smoke-test dispatch completed as expected.
-2. **Migrate RC-pinned consumers to the final tag** ([#880](https://github.com/vig-os/devkit/issues/880)): consumers pin the devcontainer image via their `.vig-os` file (`DEVCONTAINER_VERSION=X.Y.Z-rcN`). The **`cleanup`** job ("Cleanup RC artifacts") in `promote-release.yml` deletes all `X.Y.Z-rc*` git tags and GHCR image versions, so any consumer still pinned to an RC (e.g. field-validation repos) can no longer pull its image. Bump those pins to `DEVCONTAINER_VERSION=X.Y.Z` before running promote (preferred), or immediately after — the RC images and tags are gone once the cleanup job has run.
-3. After smoke-test has published its **final** GitHub Release for `X.Y.Z`, run **`promote-release.yml`** (e.g. `just promote-release X.Y.Z`), which updates GHCR `:latest`, publishes the draft release, merges the release PR, and runs best-effort RC cleanup. See [Release Phases](#release-phases) step 6 and [`docs/CROSS_REPO_RELEASE_GATE.md`](CROSS_REPO_RELEASE_GATE.md).
+1. Verify the workflow run succeeded and the smoke-test dispatch was triggered.
+2. **Approve the smoke-test release PR** (final dispatch only): the smoke-test listener recreates the smoke release PR from scratch and pauses at its `Gate final release on human approval of release PR` step, polling for a **human** approval for up to 30 minutes (workflow self-approval is blocked org-wide — [org-config#122](https://github.com/vig-os/org-config/pull/122); candidates run with the PR deliberately unapproved). Find and approve the freshly created PR while the gate is waiting:
+
+   ```bash
+   # Locate the waiting listener run and the release PR it created
+   gh -R vig-os/devkit-smoke-test run list --workflow repository-dispatch.yml --limit 1
+   gh -R vig-os/devkit-smoke-test pr list --label release-kind:final
+
+   # Approve it (must be a human account, not the PR author)
+   gh -R vig-os/devkit-smoke-test pr review <PR_NUMBER> --approve
+   ```
+
+   If the gate already timed out, approve the PR and **re-run the failed jobs** of that listener run to resume the final release. Full gate contract and failure modes: [`docs/CROSS_REPO_RELEASE_GATE.md`](CROSS_REPO_RELEASE_GATE.md).
+3. **Migrate RC-pinned consumers to the final tag** ([#880](https://github.com/vig-os/devkit/issues/880)): consumers pin the devcontainer image via their `.vig-os` file (`DEVCONTAINER_VERSION=X.Y.Z-rcN`). The **`cleanup`** job ("Cleanup RC artifacts") in `promote-release.yml` deletes all `X.Y.Z-rc*` git tags and GHCR image versions, so any consumer still pinned to an RC (e.g. field-validation repos) can no longer pull its image. Bump those pins to `DEVCONTAINER_VERSION=X.Y.Z` before running promote (preferred), or immediately after — the RC images and tags are gone once the cleanup job has run.
+4. After smoke-test has published its **final** GitHub Release for `X.Y.Z`, run **`promote-release.yml`** (e.g. `just promote-release X.Y.Z`), which updates GHCR `:latest`, publishes the draft release, merges the release PR, and runs best-effort RC cleanup. See [Release Phases](#release-phases) step 6 and [`docs/CROSS_REPO_RELEASE_GATE.md`](CROSS_REPO_RELEASE_GATE.md).
 
 **Consumer projects** using templates from `assets/workspace/` follow [Downstream release workflows](DOWNSTREAM_RELEASE.md): final `release.yml` leaves a **draft** GitHub Release; run **`promote-release.yml`** (or `just promote-release X.Y.Z`) to publish the release and merge to `main` (no upstream GHCR/smoke-test gate in that template).
 
@@ -569,6 +596,25 @@ uv run prepare-changelog finalize 1.0.0 2026-02-11 CHANGELOG.md --github-reposit
 ```
 
 **Tests:** `packages/vig-utils/tests/test_prepare_changelog.py`
+
+### synthesize-bot-changelog
+
+**Location:** `packages/vig-utils/src/vig_utils/synthesize_bot_changelog.py` (installed as `synthesize-bot-changelog` CLI)
+
+**Purpose:** Release-time synthesis of bot-PR changelog entries ([#1423](https://github.com/vig-os/devkit/issues/1423)). Enumerates merged PRs since the last stable tag from git history (`(#N)` merge/squash subjects), fetches PR metadata via `gh api`, keeps PRs authored by `renovate[bot]` / `vigos-devkit-upgrade[bot]`, and regenerates a `#### Dependencies` block under `### Changed`:
+
+- **Dependency updates** coalesce to the net delta per package — earliest `from`, latest `to`, every contributing PR cited; a bump that nets to zero disappears (intermediate versions never shipped in a release).
+- **Lock file maintenance** PRs roll up to one line per ecosystem scope.
+- **Devkit adoption** PRs coalesce to the version that actually ships.
+
+The block is the tool's only owned region and is rebuilt wholesale each run (idempotent; hand-written entries are never touched). Targets `## Unreleased` at cut, or `## [X.Y.Z] - TBD` with `--version` at finalize. Without a reachable stable tag the window is the full history; `--tag-prefix` composes with prefixed consumer tag schemes. Missing `CHANGELOG.md` is a no-op.
+
+```bash
+uv run synthesize-bot-changelog [--version 1.0.0] [--tag-prefix v] [--dry-run]
+just changelog-preview   # read-only preview of the pending block
+```
+
+**Tests:** `packages/vig-utils/tests/test_synthesize_bot_changelog.py`, `tests/test_release_time_changelog.py`
 
 ### Justfile Recipes
 
@@ -677,7 +723,7 @@ gh workflow run prepare-release.yml --ref dev -f "version=1.0.0" -f "dry-run=tru
 
 2. **finalize** (skipped if dry-run) - Conditionally updates release branch
    - **Candidate**: No CHANGELOG changes, no sync-issues. Outputs current release branch HEAD SHA.
-   - **Final**: Sets release date in CHANGELOG (TBD → YYYY-MM-DD), regenerates docs, commits all tracked finalization changes via dynamic file list, refreshes release PR body from finalized changelog content, triggers sync-issues, outputs finalized SHA.
+   - **Final**: Regenerates the bot-entry `#### Dependencies` block inside `[X.Y.Z] - TBD` (`synthesize-bot-changelog --version` — picks up bot PRs merged into the release branch mid-train, [#1423](https://github.com/vig-os/devkit/issues/1423)), sets release date in CHANGELOG (TBD → YYYY-MM-DD), regenerates docs, commits all tracked finalization changes via dynamic file list, refreshes release PR body from finalized changelog content, triggers sync-issues, outputs finalized SHA.
    - After computing `finalize_sha`, checks whether the remote publish tag already points at that SHA (retry path; skips redundant tag push in **publish**).
 
 3. **build-and-test** (matrix: amd64, arm64) - Builds and validates images
@@ -728,7 +774,7 @@ gh workflow run release.yml \
 **Key characteristics:**
 - Tag created AFTER successful build/test (safer than before)
 - Final GitHub Release is a **draft** until a human publishes it from the UI
-- Automatic rollback resets the release branch only; tags are not deleted (forward-fix policy)
+- Automatic rollback reverts only the run's own finalize commit(s) on the release branch (no-op when finalize never ran; refuses if the branch moved mid-run, #1462); tags are not deleted (forward-fix policy)
 - All in one workflow for atomic operation
 - Audit trail in GitHub Actions logs
 - Dispatch is pinned to `release/X.Y.Z` so candidate/final runs use the release branch workflow definition
@@ -993,7 +1039,8 @@ gh issue list --label release
 
 # 3. Examine what was rolled back (issue will document this)
 # The workflow automatically:
-#   - Reset release branch to pre-finalization state (best-effort)
+#   - Reverted this run's finalize commit(s) only — no-op when finalize never
+#     ran; refuses (loud step failure) if the branch moved during the run (#1462)
 #   - Left any pushed tags in place (forward-fix policy)
 #   - Created this issue for investigation
 

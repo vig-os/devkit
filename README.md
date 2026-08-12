@@ -151,6 +151,7 @@ Available recipes:
     [info]
     default                                    # Show available commands (default)
     docs                                       # Generate documentation from templates
+    doctor                                     # Diagnose host prerequisites: git identity, signing, hooks path, ssh-agent, gh auth
     help                                       # Show available commands
     info                                       # Show image information
     init *args                                 # Gate Nix prerequisites and bootstrap the project (venv, git hooks, pre-commit)
@@ -175,6 +176,7 @@ Available recipes:
     precommit                                  # Run pre-commit hooks on all files
 
     [release]
+    changelog-preview                          # Preview the bot changelog entries the next release would synthesize (#1423)
     finalize-release version ref="" *flags     # Finalize and publish release via GitHub Actions workflow (step 3, after testing)
     prepare-release version ref="" *flags      # Prepare release branch for testing (step 1)
     promote-release version ref="" *flags      # Promote final release: GHCR :latest, publish draft GitHub Release, merge release PR (after downstream smoke-test final release)
@@ -190,8 +192,7 @@ Available recipes:
     test-integration version="dev"             # Run integration tests only
     test-renovate                              # Validate tracked Renovate configs with renovate-config-validator --strict
     test-utils                                 # Run utils tests only
-    test-validate-commit-msg                   # Run validate commit msg tests only
-    test-vig-utils                             # Run check action pins tests only
+    test-vig-utils                             # Run the vig-utils package test suite
 
     [worktree]
     worktree-attach issue                      # before attaching. See tests/bats/worktree.bats for integration tests. [alias: wt-attach]
@@ -210,7 +211,7 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 - **Registry**: `ghcr.io/vig-os/devcontainer`
 - **Architecture**: Multi-platform support (AMD64, ARM64)
 - **License**: Apache
-- **Latest Version**: [1.7.0](https://github.com/vig-os/devkit/releases/tag/1.7.0) - 2026-08-07
+- **Latest Version**: [1.8.0](https://github.com/vig-os/devkit/releases/tag/1.8.0) - 2026-08-12
 - **Image tags**: bare semver (`0.2.1`, `latest`) — git tags use `v` prefix (`v0.2.1`) but image tags do not
 
 ## Features

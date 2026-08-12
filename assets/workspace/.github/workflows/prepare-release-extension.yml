@@ -23,16 +23,6 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: false
         type: boolean
-      git_user_name:
-        description: "Git user name for commits"
-        required: false
-        default: "github-actions[bot]"
-        type: string
-      git_user_email:
-        description: "Git user email for commits"
-        required: false
-        default: "41898282+github-actions[bot]@users.noreply.github.com"
-        type: string
 
 # The orchestrator calls this workflow with `secrets: inherit`, so a real
 # extension can mint the COMMIT_APP token to push to the write-protected release

@@ -77,7 +77,7 @@ jobs:
 
       # Commit via the GitHub API (vig-os/commit-action) so the commit carries
       # GitHub's verified signature - the repo rules reject unsigned git-CLI
-      # pushes. Same mechanism as renovate-changelog-commit.yml.
+      # pushes.
       - name: Commit the lock bump via API
         if: steps.detect.outputs.changed == 'true'
         uses: vig-os/commit-action@0361e9aa65b64711a18286ac5dfdcba7cc7a2ac7  # v0.3.2

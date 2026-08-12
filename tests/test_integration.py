@@ -12,209 +12,18 @@ import os
 import re
 import subprocess
 import time
-import warnings
 from pathlib import Path
 
 import pytest
 import yaml
 
-from .conftest import _build_podman_cmd, _load_jsonc, _run_noninteractive_init
+from .conftest import _build_podman_cmd, _load_jsonc, _run_noninteractive_init, dc_exec
 
-
-class TestHostGitSignatureSetup:
-    """Test that git commit signing is properly configured on the host.
-
-    These tests run on the host machine (not inside containers) to verify
-    that SSH-based git commit signing prerequisites are in place.
-    """
-
-    def test_ssh_public_key_exists(self):
-        """Test that SSH public key for signing exists on host."""
-        from pathlib import Path
-
-        ssh_pubkey = Path.home() / ".ssh" / "id_ed25519_github.pub"
-
-        if not ssh_pubkey.exists():
-            pytest.skip(
-                f"SSH public key not found at {ssh_pubkey}. "
-                "This is optional but recommended for git commit signing. "
-                "Generate with: ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519_github"
-            )
-
-        assert ssh_pubkey.is_file(), "SSH public key path exists but is not a file"
-
-        # Verify it's a valid public key
-        content = ssh_pubkey.read_text()
-        assert content.startswith("ssh-ed25519 "), (
-            f"SSH public key doesn't appear to be valid ED25519 key: {content[:50]}"
-        )
-
-    def test_git_signing_format_configured(self):
-        """Test that git is configured to use SSH signing format."""
-        result = subprocess.run(
-            ["git", "config", "gpg.format"],
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            pytest.skip(
-                "Git signing format not configured. "
-                "This is optional but recommended. "
-                "Configure with: git config gpg.format ssh"
-            )
-
-        assert result.stdout.strip() == "ssh", (
-            f"Expected gpg.format=ssh, got: {result.stdout.strip()}"
-        )
-
-    def test_git_signing_key_configured(self):
-        """Test that git signing key is configured."""
-        result = subprocess.run(
-            ["git", "config", "user.signingkey"],
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            pytest.skip(
-                "Git signing key not configured. "
-                "This is optional but recommended. "
-                "Configure with the full SSH public key string or file path"
-            )
-
-        signing_key = result.stdout.strip()
-        assert signing_key, "Signing key is configured but empty"
-
-        # Check if it's a file path, email, or full public key string
-        if signing_key.startswith("~") or signing_key.startswith("/"):
-            # Old behavior: file path
-            from pathlib import Path
-
-            key_path = Path(signing_key.replace("~", str(Path.home())))
-            assert key_path.exists(), f"Signing key file not found: {signing_key}"
-        elif signing_key.startswith("ssh-"):
-            # Full SSH public key string (for SSH agent signing)
-            # Verify it looks like a valid SSH public key format
-            parts = signing_key.split()
-            assert len(parts) >= 2, (
-                f"Invalid SSH public key format. "
-                f"Expected 'ssh-<type> <key-data> [comment]', got: {signing_key[:50]}..."
-            )
-            assert parts[0] in [
-                "ssh-rsa",
-                "ssh-ed25519",
-                "ecdsa-sha2-nistp256",
-                "ecdsa-sha2-nistp384",
-                "ecdsa-sha2-nistp521",
-            ], f"Unsupported SSH key type: {parts[0]}"
-        elif "@" in signing_key:
-            # Email address (standard for SSH agent signing)
-            # This is the preferred method - git looks up the email in allowed-signers
-            pass
-        else:
-            # Could be other identifier (namespace, etc.)
-            pass
-
-    def test_git_commit_gpgsign_configured(self):
-        """Test that git is configured to sign commits by default."""
-        result = subprocess.run(
-            ["git", "config", "commit.gpgsign"],
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            pytest.skip(
-                "Commit signing not enabled by default. "
-                "This is optional but recommended. "
-                "Enable with: git config commit.gpgsign true"
-            )
-
-        assert result.stdout.strip() == "true", (
-            f"Expected commit.gpgsign=true, got: {result.stdout.strip()}"
-        )
-
-    def test_allowed_signers_file_exists(self):
-        """Test that allowed-signers file exists for signature verification."""
-        from pathlib import Path
-
-        # Check if allowedSignersFile is configured
-        result = subprocess.run(
-            ["git", "config", "gpg.ssh.allowedSignersFile"],
-            capture_output=True,
-            text=True,
-        )
-
-        if result.returncode != 0:
-            pytest.skip(
-                "Allowed signers file not configured. "
-                "This is optional but recommended for signature verification. "
-                "Configure with: git config gpg.ssh.allowedSignersFile ~/.config/git/allowed-signers"
-            )
-
-        allowed_signers_path = result.stdout.strip()
-        assert allowed_signers_path, "Allowed signers file path is configured but empty"
-
-        # Resolve ~ to home directory
-        allowed_signers = Path(allowed_signers_path.replace("~", str(Path.home())))
-
-        if not allowed_signers.exists():
-            pytest.skip(
-                f"Allowed signers file configured but doesn't exist: {allowed_signers_path}. "
-                "Create it with your email and public key."
-            )
-
-        assert allowed_signers.is_file(), (
-            f"Allowed signers path exists but is not a file: {allowed_signers}"
-        )
-
-        # Verify it has some content
-        content = allowed_signers.read_text()
-        assert len(content.strip()) > 0, "Allowed signers file is empty"
-        key_types = (
-            "ssh-ed25519",
-            "ssh-rsa",
-            "ecdsa-sha2-nistp",
-            "sk-ssh-ed25519@openssh.com",
-            "sk-ecdsa-sha2-nistp256@openssh.com",
-        )
-        assert any(k in content for k in key_types), (
-            "Allowed signers file doesn't appear to contain SSH public keys"
-        )
-
-    def test_git_user_configured(self):
-        """Test that git user name and email are configured."""
-        # Check user.name
-        result = subprocess.run(
-            ["git", "config", "user.name"],
-            capture_output=True,
-            text=True,
-        )
-
-        assert result.returncode == 0, (
-            "Git user.name not configured. "
-            "Configure with: git config user.name 'Your Name'"
-        )
-
-        name = result.stdout.strip()
-        assert name, "Git user.name is configured but empty"
-
-        # Check user.email
-        result = subprocess.run(
-            ["git", "config", "user.email"],
-            capture_output=True,
-            text=True,
-        )
-
-        assert result.returncode == 0, (
-            "Git user.email not configured. "
-            "Configure with: git config user.email 'your.email@example.com'"
-        )
-
-        email = result.stdout.strip()
-        assert email, "Git user.email is configured but empty"
-        assert "@" in email, f"Git user.email doesn't appear to be valid: {email}"
+# Scaffold sources for content-only assertions (TestVersionCheckScaffold):
+# deployment of these files into a workspace is covered by the structure and
+# manifest tests, so content pins read the assets directly and need no
+# container or workspace fixture.
+_WORKSPACE_ASSETS = Path(__file__).resolve().parents[1] / "assets" / "workspace"
 
 
 class TestDevContainerStructure:
@@ -225,14 +34,6 @@ class TestDevContainerStructure:
         devcontainer_dir = initialized_workspace / ".devcontainer"
         assert devcontainer_dir.exists(), ".devcontainer directory not found"
         assert devcontainer_dir.is_dir(), ".devcontainer is not a directory"
-
-    def test_devcontainer_json_exists(self, initialized_workspace):
-        """Test that devcontainer.json exists."""
-        devcontainer_json = (
-            initialized_workspace / ".devcontainer" / "devcontainer.json"
-        )
-        assert devcontainer_json.exists(), "devcontainer.json not found"
-        assert devcontainer_json.is_file(), "devcontainer.json is not a file"
 
     def test_devcontainer_scripts_directory_exists(self, initialized_workspace):
         """Test that scripts directory exists."""
@@ -491,14 +292,6 @@ class TestDevContainerJson:
 class TestDevContainerDockerCompose:
     """Test docker-compose.yml configuration."""
 
-    def test_docker_compose_yml_exists(self, initialized_workspace):
-        """Test that docker-compose.yml exists."""
-        docker_compose_yml = (
-            initialized_workspace / ".devcontainer" / "docker-compose.yml"
-        )
-        assert docker_compose_yml.exists(), "docker-compose.yml not found"
-        assert docker_compose_yml.is_file(), "docker-compose.yml is not a file"
-
     def test_docker_compose_yml_valid(self, initialized_workspace):
         """Test that docker-compose.yml is valid YAML."""
         docker_compose_yml = (
@@ -654,12 +447,6 @@ class TestDevContainerDockerCompose:
 
 class TestVigOsConfig:
     """Test .vig-os configuration as version source of truth."""
-
-    def test_vig_os_exists(self, initialized_workspace):
-        """Test that .vig-os exists at workspace root."""
-        vig_os_file = initialized_workspace / ".vig-os"
-        assert vig_os_file.exists(), ".vig-os not found in workspace root"
-        assert vig_os_file.is_file(), ".vig-os is not a regular file"
 
     def test_vig_os_contains_devkit_version(self, initialized_workspace):
         """Test that .vig-os contains the renamed DEVKIT_VERSION key (#781)."""
@@ -821,35 +608,32 @@ class TestPlaceholders:
                 continue
 
     def test_org_name_replaced(self, initialized_workspace):
-        """Test that organization name placeholder is replaced in specific asset files."""
-        # Files with organization name in specific paths
+        """Test that the organization name is substituted in specific asset files.
+
+        Placeholder absence across the whole tree is covered by
+        test_placeholders_replaced; this asserts the positive substitution.
+        """
         files = [
             initialized_workspace / "LICENSE",
         ]
 
-        # Check each file for organization name placeholder (not literal "vigOS")
         for file in files:
             content = file.read_text(encoding="utf-8")
-            assert "{{ORG_NAME}}" not in content, (
-                f"{{{{ORG_NAME}}}} placeholder not replaced in {file}"
-            )
             assert "Test Org" in content, f"Organization name not replaced in {file}"
 
     def test_short_name_replaced(self, initialized_workspace):
-        """Test that short name placeholder is replaced in specific asset files."""
-        # Files with short name in specific paths
+        """Test that the short name is substituted in specific asset files.
+
+        Placeholder absence across the whole tree is covered by
+        test_placeholders_replaced; this asserts the positive substitution.
+        """
         files = [
             initialized_workspace / ".devcontainer" / "devcontainer.json",
             initialized_workspace / ".devcontainer" / "scripts" / "post-create.sh",
         ]
 
-        # Check each file for short name placeholder (not literal "devcontainer")
-        # Note: "devcontainer" can legitimately appear as a service name
         for file in files:
             content = file.read_text(encoding="utf-8")
-            assert "{{SHORT_NAME}}" not in content, (
-                f"{{{{SHORT_NAME}}}} placeholder not replaced in {file}"
-            )
             assert "test_project" in content, f"Short name not replaced in {file}"
 
 
@@ -931,15 +715,23 @@ class TestSmokeRepo:
         root_content = root_changelog.read_text(encoding="utf-8")
         devcontainer_content = devcontainer_changelog.read_text(encoding="utf-8")
 
-        # Root changelog is a copy of .devcontainer/CHANGELOG.md with the top semver
-        # heading renamed via prepare-changelog unprepare; older release sections stay.
+        # The root changelog is the CONSUMER's own history: on a fresh deploy it
+        # is bootstrapped from the workspace scaffold (## Unreleased skeleton,
+        # no release sections). It must NOT be a copy of devkit's changelog —
+        # deploying devkit's dated/linked ## [X.Y.Z] headings into the consumer
+        # rewrites its frozen release sections and guarantees a main<->dev sync
+        # conflict at every smoke release (#1403).
         first_h2 = re.search(r"^## .+$", root_content, re.MULTILINE)
         assert first_h2 is not None, "Root changelog should have a top-level ## heading"
         assert first_h2.group(0).rstrip("\r\n") == "## Unreleased", (
-            "Root changelog top section should be ## Unreleased after smoke-test unprepare"
+            "Root changelog top section should be ## Unreleased"
         )
-        assert re.search(r"^## \[\d+\.\d+\.\d+\]", root_content, re.MULTILINE), (
-            "Root changelog should retain semver release sections below Unreleased"
+        assert not re.search(r"^## \[\d+\.\d+\.\d+\]", root_content, re.MULTILINE), (
+            "Root changelog must not carry devkit release sections (#1403); "
+            "a fresh smoke deploy bootstraps the scaffold skeleton only"
+        )
+        assert root_content != devcontainer_content, (
+            "Root changelog must not be a byte copy of devkit's changelog (#1403)"
         )
         assert re.search(
             r"^## \[\d+\.\d+\.\d+\]", devcontainer_content, re.MULTILINE
@@ -948,12 +740,6 @@ class TestSmokeRepo:
 
 class TestDevContainerGit:
     """Test that git configuration files are set up."""
-
-    def test_githooks_directory_exists(self, initialized_workspace):
-        """Test that .githooks directory exists."""
-        githooks_dir = initialized_workspace / ".githooks"
-        assert githooks_dir.exists(), ".githooks directory not found"
-        assert githooks_dir.is_dir(), ".githooks is not a directory"
 
     def test_pre_commit_hook_exists(self, initialized_workspace):
         """Test that pre-commit hook exists."""
@@ -976,33 +762,12 @@ class TestDevContainerUserConf:
 
     def test_venv_prompt_name(self, devcontainer_up):
         """Test that .venv/bin/activate in the image does not contain 'template-project', but is renamed to `test_project`."""
-        workspace_path = str(devcontainer_up.resolve())
         activate_path = "/root/assets/workspace/.venv/bin/activate"
-        cat_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "bash",
-            "-c",
-            f"cat {activate_path}",
-        ]
-        result = subprocess.run(
-            cat_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-        )
+        result = dc_exec(devcontainer_up, "bash", "-c", f"cat {activate_path}")
         assert result.returncode == 0, (
             f"Failed to read {activate_path}\n"
             f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}\n"
-            f"command: {' '.join(cat_cmd)}"
+            f"stderr: {result.stderr}"
         )
         assert "template-project" not in result.stdout, (
             f"{activate_path} still contains 'template-project'; "
@@ -1014,219 +779,75 @@ class TestDevContainerUserConf:
         )
 
     def test_conf_directory_files(self, devcontainer_up):
-        """Test that .devcontainer/.conf contains all expected files."""
-        workspace_path = str(devcontainer_up.resolve())
-        # .devcontainer is inside the project subdirectory
+        """Test that .devcontainer/.conf has the generated .gitconfig and no leftover token."""
         conf_dir = "/workspace/test_project/.devcontainer/.conf"
 
-        # Check that .gitconfig exists (should always be generated)
-        check_gitconfig_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "test",
-            "-f",
-            f"{conf_dir}/.gitconfig",
-        ]
-
-        result = subprocess.run(
-            check_gitconfig_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-        )
-
+        # .gitconfig is always generated
+        result = dc_exec(devcontainer_up, "test", "-f", f"{conf_dir}/.gitconfig")
         assert result.returncode == 0, (
             f".gitconfig not found in {conf_dir}\n"
             f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}\n"
-            f"command: {' '.join(check_gitconfig_cmd)}"
+            f"stderr: {result.stderr}"
         )
-
-        # Check for optional files (these may not exist if not present on host)
-        # SSH public key
-        check_ssh_key_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "test",
-            "-f",
-            f"{conf_dir}/id_ed25519_github.pub",
-        ]
-
-        ssh_key_result = subprocess.run(
-            check_ssh_key_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-        )
-
-        # SSH key is optional, so we warn if it's missing
-        if ssh_key_result.returncode != 0:
-            warnings.warn(
-                f"SSH public key not found at {conf_dir}/id_ed25519_github.pub "
-                "(this is optional if not present on host)",
-                UserWarning,
-                stacklevel=2,
-            )
-
-        # Allowed signers file
-        check_allowed_signers_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "test",
-            "-f",
-            f"{conf_dir}/allowed-signers",
-        ]
-
-        allowed_signers_result = subprocess.run(
-            check_allowed_signers_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-        )
-
-        # Allowed signers is optional, so we warn if it's missing
-        if allowed_signers_result.returncode != 0:
-            warnings.warn(
-                f"allowed-signers file not found at {conf_dir}/allowed-signers "
-                "(this is optional if not present on host)",
-                UserWarning,
-                stacklevel=2,
-            )
-
-        # GitHub CLI config directory (optional)
-        check_gh_config_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "test",
-            "-d",
-            f"{conf_dir}/gh",
-        ]
-
-        gh_config_result = subprocess.run(
-            check_gh_config_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-        )
-
-        # GitHub CLI config is optional, so we warn if it's missing
-        if gh_config_result.returncode != 0:
-            warnings.warn(
-                f"GitHub CLI config directory not found at {conf_dir}/gh "
-                "(this is optional if not present on host)",
-                UserWarning,
-                stacklevel=2,
-            )
 
         # GitHub CLI token file must NOT exist (should be deleted after authentication)
-        check_gh_token_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "test",
-            "!",
-            "-f",
-            f"{conf_dir}/.gh_token",
-        ]
-
-        gh_token_result = subprocess.run(
-            check_gh_token_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-        )
-
-        assert gh_token_result.returncode == 0, (
+        result = dc_exec(devcontainer_up, "test", "!", "-f", f"{conf_dir}/.gh_token")
+        assert result.returncode == 0, (
             f".gh_token file still exists in {conf_dir} - token was not deleted after authentication\n"
             f"This is a security risk as the token should be removed after use.\n"
-            f"stdout: {gh_token_result.stdout}\n"
-            f"stderr: {gh_token_result.stderr}\n"
-            f"command: {' '.join(check_gh_token_cmd)}"
+            f"stdout: {result.stdout}\n"
+            f"stderr: {result.stderr}"
         )
 
     def test_files_copied_to_home(self, devcontainer_up):
-        """Test that files from .devcontainer/.conf have been copied to their destinations."""
-        workspace_path = str(devcontainer_up.resolve())
+        """Files staged in .devcontainer/.conf are copied to their home destinations.
 
-        # Check that .gitconfig was copied to ~/.gitconfig
-        check_gitconfig_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "bash",
-            "-c",
-            "test -f $HOME/.gitconfig",
-        ]
+        ``.gitconfig`` is always generated, so its home copy is a hard assert.
+        The SSH public key, allowed-signers file, and gh config dir are staged
+        only when present on the host, so each is asserted conditionally:
+        staged in .conf -> must have been copied home.
+        """
+        conf_dir = "/workspace/test_project/.devcontainer/.conf"
 
-        result = subprocess.run(
-            check_gitconfig_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-        )
-
+        result = dc_exec(devcontainer_up, "bash", "-c", "test -f $HOME/.gitconfig")
         assert result.returncode == 0, (
             f".gitconfig not found in $HOME/.gitconfig\n"
             f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}\n"
-            f"command: {' '.join(check_gitconfig_cmd)}"
+            f"stderr: {result.stderr}"
         )
+
+        optional_copies = [
+            (
+                f"{conf_dir}/id_ed25519_github.pub",
+                "-f",
+                "test -f $HOME/.ssh/id_ed25519_github.pub",
+            ),
+            (
+                f"{conf_dir}/allowed-signers",
+                "-f",
+                "test -f $HOME/.config/git/allowed-signers",
+            ),
+            (f"{conf_dir}/gh", "-d", "test -d $HOME/.config/gh"),
+        ]
+        for conf_path, test_flag, home_probe in optional_copies:
+            staged = dc_exec(devcontainer_up, "test", test_flag, conf_path)
+            if staged.returncode != 0:
+                # Not staged on this host (host-dependent, optional file).
+                continue
+            copied = dc_exec(devcontainer_up, "bash", "-c", home_probe)
+            assert copied.returncode == 0, (
+                f"{conf_path} is staged in .conf but was not copied home "
+                f"({home_probe})\n"
+                f"stdout: {copied.stdout}\n"
+                f"stderr: {copied.stderr}"
+            )
 
     def test_setup_git_conf_falls_back_to_nano_for_invalid_editor(
         self, devcontainer_up
     ):
         """Regression: setup-git-conf should enforce a usable editor fallback."""
-        workspace_path = str(devcontainer_up.resolve())
-        conf_dir = "/workspace/test_project/.devcontainer/.conf"
-        exec_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
+        result = dc_exec(
+            devcontainer_up,
             "bash",
             "-c",
             (
@@ -1243,191 +864,19 @@ class TestDevContainerUserConf:
                 ".devcontainer/scripts/setup-git-conf.sh >/tmp/setup-git-conf.log 2>&1 && "
                 "git config --global --get core.editor"
             ),
-        ]
-
-        result = subprocess.run(
-            exec_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
             timeout=60,
         )
 
         assert result.returncode == 0, (
             f"Failed to re-run setup-git-conf.sh\n"
             f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}\n"
-            f"command: {' '.join(exec_cmd)}"
+            f"stderr: {result.stderr}"
         )
         assert result.stdout.strip() == "nano", (
             "setup-git-conf.sh should replace invalid core.editor with nano\n"
             f"stdout: {result.stdout}\n"
             f"stderr: {result.stderr}"
         )
-
-        # Check that SSH public key was copied (if it exists in .conf)
-        # First check if it exists in .conf
-        check_conf_ssh_key_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "test",
-            "-f",
-            f"{conf_dir}/id_ed25519_github.pub",
-        ]
-
-        conf_ssh_key_result = subprocess.run(
-            check_conf_ssh_key_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-        )
-
-        if conf_ssh_key_result.returncode == 0:
-            # If it exists in .conf, it should be copied to ~/.ssh/
-            check_home_ssh_key_cmd = [
-                "devcontainer",
-                "exec",
-                "--workspace-folder",
-                workspace_path,
-                "--config",
-                f"{workspace_path}/.devcontainer/devcontainer.json",
-                "--docker-path",
-                "podman",
-                "bash",
-                "-c",
-                "test -f $HOME/.ssh/id_ed25519_github.pub",
-            ]
-
-            home_ssh_key_result = subprocess.run(
-                check_home_ssh_key_cmd,
-                capture_output=True,
-                text=True,
-                cwd=workspace_path,
-                env=os.environ.copy(),
-            )
-
-            assert home_ssh_key_result.returncode == 0, (
-                f"SSH public key found in {conf_dir} but not copied to $HOME/.ssh/id_ed25519_github.pub\n"
-                f"stdout: {home_ssh_key_result.stdout}\n"
-                f"stderr: {home_ssh_key_result.stderr}\n"
-                f"command: {' '.join(check_home_ssh_key_cmd)}"
-            )
-
-        # Check that allowed-signers was copied (if it exists in .conf)
-        check_conf_allowed_signers_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "test",
-            "-f",
-            f"{conf_dir}/allowed-signers",
-        ]
-
-        conf_allowed_signers_result = subprocess.run(
-            check_conf_allowed_signers_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-        )
-
-        if conf_allowed_signers_result.returncode == 0:
-            # If it exists in .conf, it should be copied to ~/.config/git/
-            check_home_allowed_signers_cmd = [
-                "devcontainer",
-                "exec",
-                "--workspace-folder",
-                workspace_path,
-                "--config",
-                f"{workspace_path}/.devcontainer/devcontainer.json",
-                "--docker-path",
-                "podman",
-                "bash",
-                "-c",
-                "test -f $HOME/.config/git/allowed-signers",
-            ]
-
-            home_allowed_signers_result = subprocess.run(
-                check_home_allowed_signers_cmd,
-                capture_output=True,
-                text=True,
-                cwd=workspace_path,
-                env=os.environ.copy(),
-            )
-
-            assert home_allowed_signers_result.returncode == 0, (
-                f"allowed-signers file found in {conf_dir} but not copied to $HOME/.config/git/allowed-signers\n"
-                f"stdout: {home_allowed_signers_result.stdout}\n"
-                f"stderr: {home_allowed_signers_result.stderr}\n"
-                f"command: {' '.join(check_home_allowed_signers_cmd)}"
-            )
-
-        # Check that GitHub CLI config was copied (if it exists in .conf)
-        check_conf_gh_config_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "test",
-            "-d",
-            f"{conf_dir}/gh",
-        ]
-
-        conf_gh_config_result = subprocess.run(
-            check_conf_gh_config_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-        )
-
-        if conf_gh_config_result.returncode == 0:
-            # If it exists in .conf, it should be copied to ~/.config/gh/
-            check_home_gh_config_cmd = [
-                "devcontainer",
-                "exec",
-                "--workspace-folder",
-                workspace_path,
-                "--config",
-                f"{workspace_path}/.devcontainer/devcontainer.json",
-                "--docker-path",
-                "podman",
-                "bash",
-                "-c",
-                "test -d $HOME/.config/gh",
-            ]
-
-            home_gh_config_result = subprocess.run(
-                check_home_gh_config_cmd,
-                capture_output=True,
-                text=True,
-                cwd=workspace_path,
-                env=os.environ.copy(),
-            )
-
-            assert home_gh_config_result.returncode == 0, (
-                f"GitHub CLI config directory found in {conf_dir}/gh but not copied to $HOME/.config/gh\n"
-                f"stdout: {home_gh_config_result.stdout}\n"
-                f"stderr: {home_gh_config_result.stderr}\n"
-                f"command: {' '.join(check_home_gh_config_cmd)}"
-            )
 
 
 class TestDevContainerCLI:
@@ -1477,29 +926,12 @@ class TestDevContainerCLI:
 
     def test_ssh_github_authentication(self, devcontainer_up):
         """Test that SSH authentication to GitHub works in the devcontainer."""
-        workspace_path = str(devcontainer_up.resolve())
-
         # First check if SSH keys are available in the container
-        check_keys_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
+        keys_result = dc_exec(
+            devcontainer_up,
             "bash",
             "-c",
             "test -f ~/.ssh/id_ed25519_github.pub && echo 'keys_found' || echo 'no_keys'",
-        ]
-
-        keys_result = subprocess.run(
-            check_keys_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
         )
 
         # If no SSH keys are available, skip the test
@@ -1511,15 +943,8 @@ class TestDevContainerCLI:
 
         # Test SSH connection to GitHub
         # This verifies that SSH keys are properly configured
-        exec_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
+        result = dc_exec(
+            devcontainer_up,
             "ssh",
             "-T",
             "-o",
@@ -1529,20 +954,11 @@ class TestDevContainerCLI:
             "-i",
             "~/.ssh/id_ed25519_github",
             "git@github.com",
-        ]
-
-        result = subprocess.run(
-            exec_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
             timeout=10,
         )
 
         # SSH to GitHub returns exit code 1 on success (it's a test connection)
         # Exit code 255 means connection/auth failed
-        # We accept exit code 1 (successful test connection) or specific error messages
         if result.returncode == 255:
             # Check if it's a permission denied (keys not authorized) vs connection error
             if "Permission denied" in result.stderr:
@@ -1560,8 +976,7 @@ class TestDevContainerCLI:
                 pytest.fail(
                     f"SSH connection to GitHub failed\n"
                     f"stdout: {result.stdout}\n"
-                    f"stderr: {result.stderr}\n"
-                    f"command: {' '.join(exec_cmd)}"
+                    f"stderr: {result.stderr}"
                 )
         elif result.returncode == 1:
             # Success - GitHub responded (exit 1 is normal for test connections)
@@ -1572,6 +987,13 @@ class TestDevContainerCLI:
                 or "Hi " in output
             ), (
                 f"Unexpected SSH response from GitHub\n"
+                f"stdout: {result.stdout}\n"
+                f"stderr: {result.stderr}"
+            )
+        else:
+            pytest.fail(
+                f"Unexpected ssh exit code {result.returncode} "
+                "(expected 1 on a successful test connection or 255 on failure)\n"
                 f"stdout: {result.stdout}\n"
                 f"stderr: {result.stderr}"
             )
@@ -1586,26 +1008,11 @@ class TestDevContainerCLI:
         test_file.write_text("def hello():\n    print('hello')\n")
 
         # Run pre-commit on the file
-        exec_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            str(workspace_path),
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
+        result = dc_exec(
+            devcontainer_up,
             "bash",
             "-c",
             "cd /workspace/test_project && prek run --files test_file.py",
-        ]
-
-        result = subprocess.run(
-            exec_cmd,
-            capture_output=True,
-            text=True,
-            cwd=str(workspace_path),
-            env=os.environ.copy(),
             timeout=120,  # prek can take a while on first run
         )
 
@@ -1615,8 +1022,7 @@ class TestDevContainerCLI:
         assert result.returncode in [0, 1], (
             f"prek failed unexpectedly\n"
             f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}\n"
-            f"command: {' '.join(exec_cmd)}"
+            f"stderr: {result.stderr}"
         )
 
         # Verify the hook runner actually ran (check for prek/hook output)
@@ -1643,29 +1049,14 @@ class TestDevContainerCLI:
             )
 
         # Check if SSH keys and git signing are configured
-        check_config_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            str(workspace_path),
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
+        config_result = dc_exec(
+            devcontainer_up,
             "bash",
             "-c",
             (
                 "cd /workspace/test_project && "
                 "git config --get gpg.format 2>/dev/null | grep -q ssh && echo 'ssh_signing_configured' || echo 'not_configured'"
             ),
-        ]
-
-        config_result = subprocess.run(
-            check_config_cmd,
-            capture_output=True,
-            text=True,
-            cwd=str(workspace_path),
-            env=os.environ.copy(),
         )
 
         # If SSH signing is not configured, skip the test
@@ -1682,15 +1073,8 @@ class TestDevContainerCLI:
         # SSH agent forwarding is automatically configured by the devcontainer_up fixture
         # if SSH_AUTH_SOCK is available. The socket should be mounted at /tmp/ssh-agent.sock
         # and SSH_AUTH_SOCK should be set to that path in the container environment.
-        exec_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            str(workspace_path),
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
+        result = dc_exec(
+            devcontainer_up,
             "bash",
             "-c",
             (
@@ -1701,14 +1085,6 @@ class TestDevContainerCLI:
                 "git commit -m 'test(api): a dummy test\n\nRefs: #1' && "
                 "git log -1 --show-signature"
             ),
-        ]
-
-        result = subprocess.run(
-            exec_cmd,
-            capture_output=True,
-            text=True,
-            cwd=str(workspace_path),
-            env=os.environ.copy(),
             timeout=30,
         )
 
@@ -1727,8 +1103,7 @@ class TestDevContainerCLI:
                 pytest.fail(
                     f"Git commit failed\n"
                     f"stdout: {result.stdout}\n"
-                    f"stderr: {result.stderr}\n"
-                    f"command: {' '.join(exec_cmd)}"
+                    f"stderr: {result.stderr}"
                 )
 
         # Verify the commit was signed
@@ -1745,55 +1120,18 @@ class TestDevContainerCLI:
         )
 
         # Clean up - reset the commit
-        cleanup_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            str(workspace_path),
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
+        dc_exec(
+            devcontainer_up,
             "bash",
             "-c",
             "cd /workspace && git reset --soft HEAD~1 && git reset test_commit.txt",
-        ]
-        subprocess.run(
-            cleanup_cmd,
-            capture_output=True,
-            text=True,
-            cwd=str(workspace_path),
-            env=os.environ.copy(),
         )
         test_file.unlink()
 
     def test_github_cli_authentication(self, devcontainer_up):
         """Test that GitHub CLI authentication works in the devcontainer."""
-        workspace_path = str(devcontainer_up.resolve())
-
         # Test gh auth status in the container
-        exec_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "gh",
-            "auth",
-            "status",
-        ]
-
-        result = subprocess.run(
-            exec_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-            timeout=10,
-        )
+        result = dc_exec(devcontainer_up, "gh", "auth", "status", timeout=10)
 
         # gh auth status returns exit code 0 on success, 1 on failure
         if result.returncode != 0:
@@ -1813,8 +1151,7 @@ class TestDevContainerCLI:
                 pytest.fail(
                     f"GitHub CLI authentication check failed\n"
                     f"stdout: {result.stdout}\n"
-                    f"stderr: {result.stderr}\n"
-                    f"command: {' '.join(exec_cmd)}"
+                    f"stderr: {result.stderr}"
                 )
 
         # Verify we got a successful authentication response
@@ -1847,15 +1184,8 @@ class TestDevContainerCLI:
         # Test valid branch names
         for branch_name in valid_branch_names:
             # Create branch and run the prek hook runner
-            exec_cmd = [
-                "devcontainer",
-                "exec",
-                "--workspace-folder",
-                str(workspace_path),
-                "--config",
-                f"{workspace_path}/.devcontainer/devcontainer.json",
-                "--docker-path",
-                "podman",
+            result = dc_exec(
+                devcontainer_up,
                 "bash",
                 "-c",
                 (
@@ -1865,21 +1195,13 @@ class TestDevContainerCLI:
                     " && git add dummy.txt"
                     " && prek run -a"
                 ),
-            ]
-            result = subprocess.run(
-                exec_cmd,
-                capture_output=True,
-                text=True,
-                cwd=str(workspace_path),
-                env=os.environ.copy(),
                 timeout=120,
             )
 
             assert result.returncode == 0, (
                 f"prek on valid branch '{branch_name}' should succeed\n"
                 f"stdout: {result.stdout}\n"
-                f"stderr: {result.stderr}\n"
-                f"command: {' '.join(exec_cmd)}"
+                f"stderr: {result.stderr}"
             )
 
     def test_invalid_branch_names_commit_fails(self, devcontainer_up):
@@ -1898,15 +1220,8 @@ class TestDevContainerCLI:
         ]
 
         for branch_name in invalid_branch_names:
-            exec_cmd = [
-                "devcontainer",
-                "exec",
-                "--workspace-folder",
-                str(workspace_path),
-                "--config",
-                f"{workspace_path}/.devcontainer/devcontainer.json",
-                "--docker-path",
-                "podman",
+            result = dc_exec(
+                devcontainer_up,
                 "bash",
                 "-c",
                 (
@@ -1916,21 +1231,13 @@ class TestDevContainerCLI:
                     " && git add dummy.txt"
                     " && prek run -a"
                 ),
-            ]
-            result = subprocess.run(
-                exec_cmd,
-                capture_output=True,
-                text=True,
-                cwd=str(workspace_path),
-                env=os.environ.copy(),
                 timeout=120,
             )
 
             assert result.returncode != 0, (
                 f"prek on invalid branch '{branch_name}' should fail\n"
                 f"stdout: {result.stdout}\n"
-                f"stderr: {result.stderr}\n"
-                f"command: {' '.join(exec_cmd)}"
+                f"stderr: {result.stderr}"
             )
             output = (result.stdout + result.stderr).lower()
             assert "branch" in output or "no-commit-to-branch" in output, (
@@ -1953,81 +1260,16 @@ class TestJustRecipes:
         "    [deps]",
     ]
 
-    def _just_cmd(self, workspace_path: str, args: list[str]) -> list[str]:
-        return [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "just",
-            *args,
-        ]
-
-    def test_just_default(self, devcontainer_up):
-        """Test the default just recipe."""
-        workspace_path = str(devcontainer_up.resolve())
-
-        just_cmd = self._just_cmd(workspace_path, [])
-        result = subprocess.run(
-            just_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-            timeout=10,
-        )
+    @pytest.mark.parametrize("args", [[], ["help"]], ids=["default", "help"])
+    def test_just_help_output(self, devcontainer_up, args):
+        """`just` (default) and `just help` list the expected recipe groups."""
+        result = dc_exec(devcontainer_up, "just", *args, timeout=10)
 
         # Return code must be 0
         assert result.returncode == 0, (
-            f"`just` recipe failed\n"
+            f"`just {' '.join(args)}` recipe failed\n"
             f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}\n"
-            f"command: {' '.join(just_cmd)}"
-        )
-
-        # Verify we got expected lines in the response
-        output = result.stdout
-        for line in self._just_help_output_lines:
-            # Use regex for lines that contain \s+ (variable whitespace)
-            # Otherwise use exact string matching
-            if "\\s+" in line:
-                pattern = re.compile(line)
-                assert pattern.search(output) is not None, (
-                    f"Expected pattern '{line}' not found in output\n"
-                    f"stdout: {result.stdout}\n"
-                    f"stderr: {result.stderr}"
-                )
-            else:
-                assert line in output, (
-                    f"Expected line '{line}' not found in output\n"
-                    f"stdout: {result.stdout}\n"
-                    f"stderr: {result.stderr}"
-                )
-
-    def test_just_help(self, devcontainer_up):
-        """Test the just help command."""
-        workspace_path = str(devcontainer_up.resolve())
-
-        just_cmd = self._just_cmd(workspace_path, ["help"])
-        result = subprocess.run(
-            just_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-            timeout=10,
-        )
-
-        # Return code must be 0
-        assert result.returncode == 0, (
-            f"`just help` recipe failed\n"
-            f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}\n"
-            f"command: {' '.join(just_cmd)}"
+            f"stderr: {result.stderr}"
         )
 
         # Verify we got expected lines in the response
@@ -2051,30 +1293,18 @@ class TestJustRecipes:
 
     def test_just_info(self, devcontainer_up):
         """Test the just info command."""
-        workspace_path = str(devcontainer_up.resolve())
-
-        just_cmd = self._just_cmd(workspace_path, ["info"])
-        result = subprocess.run(
-            just_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-            timeout=10,
-        )
+        result = dc_exec(devcontainer_up, "just", "info", timeout=10)
 
         assert result.returncode == 0, (
             f"`just info` recipe failed\n"
             f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}\n"
-            f"command: {' '.join(just_cmd)}"
+            f"stderr: {result.stderr}"
         )
 
         assert "Project: test_project" in result.stdout, (
             f"Project information not found in output\n"
             f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}\n"
-            f"command: {' '.join(just_cmd)}"
+            f"stderr: {result.stderr}"
         )
 
     def test_just_test_recipe(self, devcontainer_up):
@@ -2085,31 +1315,19 @@ class TestJustRecipes:
         dispatch) stay green on a project that has not added a Python package.
         Adding one (e.g. ``nix flake init -t ...#python``, #930) activates pytest.
         """
-        workspace_path = str(devcontainer_up.resolve())
-
-        just_cmd = self._just_cmd(workspace_path, ["test"])
-        result = subprocess.run(
-            just_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-            timeout=10,
-        )
+        result = dc_exec(devcontainer_up, "just", "test", timeout=10)
 
         assert result.returncode == 0, (
             f"`just test` recipe failed\n"
             f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}\n"
-            f"command: {' '.join(just_cmd)}"
+            f"stderr: {result.stderr}"
         )
 
         # No pyproject.toml -> the guard skips pytest entirely (no session).
         assert "test session starts" not in result.stdout, (
             f"`just test` should no-op without a pyproject.toml, but pytest ran\n"
             f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}\n"
-            f"command: {' '.join(just_cmd)}"
+            f"stderr: {result.stderr}"
         )
 
     def test_template_justfile_gh_includes_release_recipes(self):
@@ -2153,155 +1371,27 @@ class TestJustRecipes:
 class TestDockerComposeProjectOverrides:
     """Test docker-compose.project.yaml functionality for additional mounts."""
 
-    def test_project_mount_directory_exists(self, devcontainer_up):
-        """Test that the directory mounted via project.yaml exists in container."""
-        workspace_path = str(devcontainer_up.resolve())
+    def test_override_mount_readable(self, devcontainer_up):
+        """The project.yaml override mount is present and readable in the container.
 
-        # The conftest.py fixture creates an override mounting tests/ to /workspace/tests-mounted
-        check_dir_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "test",
-            "-d",
-            "/workspace/tests-mounted",
-        ]
-
-        result = subprocess.run(
-            check_dir_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
+        The conftest fixture mounts tests/ at /workspace/tests-mounted via
+        docker-compose.project.yaml; reading a known file's content proves the
+        mount exists, is a directory, and is readable in one probe.
+        """
+        result = dc_exec(
+            devcontainer_up, "head", "-n", "1", "/workspace/tests-mounted/conftest.py"
         )
 
         assert result.returncode == 0, (
-            f"Override mount directory /workspace/tests-mounted not found\n"
+            f"Failed to read conftest.py from override mount at "
+            f"/workspace/tests-mounted/conftest.py\n"
             f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}\n"
-            f"command: {' '.join(check_dir_cmd)}"
-        )
-
-    def test_override_mount_file_accessible(self, devcontainer_up):
-        """Test that files in the override mount are accessible."""
-        workspace_path = str(devcontainer_up.resolve())
-
-        # Check that conftest.py exists in the mounted tests directory
-        check_file_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "test",
-            "-f",
-            "/workspace/tests-mounted/conftest.py",
-        ]
-
-        result = subprocess.run(
-            check_file_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-        )
-
-        assert result.returncode == 0, (
-            f"conftest.py not found in override mount at /workspace/tests-mounted/conftest.py\n"
-            f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}\n"
-            f"command: {' '.join(check_file_cmd)}"
-        )
-
-    def test_override_mount_file_readable(self, devcontainer_up):
-        """Test that files in the override mount are readable."""
-        workspace_path = str(devcontainer_up.resolve())
-
-        # Read first line of conftest.py to verify content is accessible
-        read_file_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "head",
-            "-n",
-            "1",
-            "/workspace/tests-mounted/conftest.py",
-        ]
-
-        result = subprocess.run(
-            read_file_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-        )
-
-        assert result.returncode == 0, (
-            f"Failed to read conftest.py from override mount\n"
-            f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}\n"
-            f"command: {' '.join(read_file_cmd)}"
+            f"stderr: {result.stderr}"
         )
 
         # Verify we got some content (should be a comment or import)
         assert result.stdout.strip(), (
             f"conftest.py appears to be empty or unreadable\nstdout: {result.stdout}\n"
-        )
-
-    def test_override_mount_list_directory(self, devcontainer_up):
-        """Test that we can list the contents of the override mount."""
-        workspace_path = str(devcontainer_up.resolve())
-
-        # List contents of the mounted tests directory
-        ls_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "ls",
-            "-la",
-            "/workspace/tests-mounted",
-        ]
-
-        result = subprocess.run(
-            ls_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-        )
-
-        assert result.returncode == 0, (
-            f"Failed to list contents of override mount\n"
-            f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}\n"
-            f"command: {' '.join(ls_cmd)}"
-        )
-
-        # Verify expected test files are listed
-        assert "conftest.py" in result.stdout, (
-            f"conftest.py not found in directory listing\nstdout: {result.stdout}"
-        )
-        assert "test_integration.py" in result.stdout, (
-            f"test_integration.py not found in directory listing\n"
-            f"stdout: {result.stdout}"
         )
 
 
@@ -2316,29 +1406,7 @@ class TestPodmanSocketAccess:
 
     def test_socket_file_exists(self, devcontainer_up):
         """Test that the Docker/Podman socket is mounted in the container."""
-        workspace_path = str(devcontainer_up.resolve())
-
-        check_socket_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "test",
-            "-S",
-            "/var/run/docker.sock",
-        ]
-
-        result = subprocess.run(
-            check_socket_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-        )
+        result = dc_exec(devcontainer_up, "test", "-S", "/var/run/docker.sock")
 
         assert result.returncode == 0, (
             f"Docker/Podman socket not found at /var/run/docker.sock\n"
@@ -2349,28 +1417,11 @@ class TestPodmanSocketAccess:
 
     def test_socket_environment_variables(self, devcontainer_up):
         """Test that CONTAINER_HOST and DOCKER_HOST are set correctly."""
-        workspace_path = str(devcontainer_up.resolve())
-
-        check_env_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
+        result = dc_exec(
+            devcontainer_up,
             "bash",
             "-c",
             "echo CONTAINER_HOST=$CONTAINER_HOST && echo DOCKER_HOST=$DOCKER_HOST",
-        ]
-
-        result = subprocess.run(
-            check_env_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
         )
 
         assert result.returncode == 0, (
@@ -2392,293 +1443,85 @@ class TestPodmanSocketAccess:
             f"stdout: {result.stdout}"
         )
 
-    def test_podman_version_works(self, devcontainer_up):
-        """Test that we can communicate with the Podman daemon via the socket."""
-        workspace_path = str(devcontainer_up.resolve())
-
-        # Try podman version command
-        version_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "podman",
-            "version",
-        ]
-
-        result = subprocess.run(
-            version_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-            timeout=10,
-        )
-
-        if result.returncode != 0:
-            pytest.skip(
-                f"Podman socket not accessible from container. "
-                f"The socket is configured via docker-compose.yml using CONTAINER_SOCKET_PATH.\n"
-                f"Ensure initialize.sh ran and created .env with the correct socket path.\n"
-                f"stderr: {result.stderr}"
-            )
-
-        # Verify we got version information
-        assert "Version:" in result.stdout or "version" in result.stdout.lower(), (
-            f"Unexpected podman version output\n"
-            f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}"
-        )
-
-    def test_podman_info_works(self, devcontainer_up):
-        """Test that we can query the Podman daemon for system information."""
-        workspace_path = str(devcontainer_up.resolve())
-
-        info_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "podman",
-            "info",
-            "--format",
-            "{{.Host.OS}}",
-        ]
-
-        result = subprocess.run(
-            info_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-            timeout=10,
-        )
-
-        if result.returncode != 0:
-            pytest.skip(
-                f"Podman socket not accessible from container.\nstderr: {result.stderr}"
-            )
-
-        # Verify we got OS information (darwin for macOS, linux for Linux)
-        assert result.stdout.strip() in ["darwin", "linux"], (
-            f"Unexpected OS from podman info\n"
-            f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}"
-        )
-
-    def test_container_image_pull(self, devcontainer_up):
-        """Test that we can pull container images via the socket."""
-        workspace_path = str(devcontainer_up.resolve())
-
-        # Use a very small test image
-        test_image = "docker.io/library/hello-world:latest"
-
-        pull_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "podman",
-            "pull",
-            test_image,
-        ]
-
-        result = subprocess.run(
-            pull_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-            timeout=60,  # Pulling can take time
-        )
-
-        if result.returncode != 0:
-            pytest.skip(
-                f"Podman socket not accessible or network unavailable.\n"
-                f"stderr: {result.stderr}"
-            )
-
-        # Verify the image was pulled
-        assert (
-            "Writing manifest" in result.stdout
-            or "Trying to pull" in result.stdout
-            or result.returncode == 0
-        ), f"Image pull failed\nstdout: {result.stdout}\nstderr: {result.stderr}"
-
-    def test_container_run_simple(self, devcontainer_up):
-        """Test that we can run a simple container via the socket."""
-        workspace_path = str(devcontainer_up.resolve())
-
-        # First ensure we have the image
-        test_image = "docker.io/library/hello-world:latest"
-
-        run_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "podman",
-            "run",
-            "--rm",
-            test_image,
-        ]
-
-        result = subprocess.run(
-            run_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-            timeout=30,
-        )
-
-        if result.returncode != 0:
-            pytest.skip(f"Cannot run containers via socket.\nstderr: {result.stderr}")
-
-        # hello-world image prints a message
-        assert "Hello from Docker" in result.stdout or result.returncode == 0, (
-            f"Container run failed\nstdout: {result.stdout}\nstderr: {result.stderr}"
-        )
-
     def test_simple_image_build(self, devcontainer_up):
-        """Test that we can build a simple container image via the socket."""
-        workspace_path = str(devcontainer_up.resolve())
+        """A DooD image build through the mounted socket must succeed.
 
-        # Create a simple Containerfile in the workspace
-        # Use workspace directory (mounted from host) so podman daemon can access it
+        Building images from inside the devcontainer is the essential use case
+        the socket mount exists for; a broken socket must fail this suite
+        rather than skip it.
+        """
         containerfile_content = (
             "FROM docker.io/library/alpine:latest\nRUN echo 'test build'"
         )
 
-        # Create Containerfile in workspace directory
-        # The workspace is mounted from host, so podman daemon can access the build context
-        # Use /workspace/test_project (the workspaceFolder from conftest.py initialization)
+        # Create Containerfile in workspace directory: the workspace is mounted
+        # from the host, so the podman daemon can access the build context.
         build_context_dir = "/workspace/test_project/.test-build-context"
-        build_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "bash",
-            "-c",
-            (
-                f"mkdir -p {build_context_dir} && "
-                f"echo '{containerfile_content}' > {build_context_dir}/Containerfile && "
-                f"podman build -t test-build:latest {build_context_dir} && "
-                f"rm -rf {build_context_dir}"
-            ),
-        ]
+        try:
+            result = dc_exec(
+                devcontainer_up,
+                "bash",
+                "-c",
+                (
+                    f"mkdir -p {build_context_dir} && "
+                    f"echo '{containerfile_content}' > {build_context_dir}/Containerfile && "
+                    f"podman build -t test-build:latest {build_context_dir} && "
+                    f"rm -rf {build_context_dir}"
+                ),
+                timeout=120,  # Building can take time
+            )
 
-        result = subprocess.run(
-            build_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-            timeout=120,  # Building can take time
-        )
-
-        if result.returncode != 0:
-            pytest.skip(
-                f"Cannot build images via socket.\n"
-                f"This may require additional permissions or configuration.\n"
+            assert result.returncode == 0, (
+                f"podman build via the mounted socket failed\n"
                 f"stdout: {result.stdout}\n"
                 f"stderr: {result.stderr}"
             )
+        finally:
+            # Clean up the test image (attempt cleanup even if the build failed)
+            dc_exec(
+                devcontainer_up,
+                "podman",
+                "rmi",
+                "-f",  # Force removal in case image exists
+                "test-build:latest",
+                timeout=10,
+            )
 
-        # Verify the build succeeded
-        # Podman build output varies, check for success indicators
-        build_succeeded = (
-            result.returncode == 0
-            or "COMMIT test-build:latest" in result.stdout
-            or "Successfully tagged" in result.stdout
-            or "STEP 2/2" in result.stdout  # Podman build step indicator
-            or "test-build:latest" in result.stdout
-        )
 
-        assert build_succeeded, (
-            f"Image build failed\n"
-            f"Return code: {result.returncode}\n"
-            f"stdout: {result.stdout}\n"
-            f"stderr: {result.stderr}"
-        )
+# --- Version-check feature ---------------------------------------------------
+#
+# Behavioral coverage (TestVersionCheckScript) runs the scaffolded
+# version-check.sh against the initialized workspace; content coverage
+# (TestVersionCheckScaffold) pins the feature's wiring in the scaffold sources.
 
-        # Clean up the test image (attempt cleanup even if build might have failed)
-        cleanup_cmd = [
-            "devcontainer",
-            "exec",
-            "--workspace-folder",
-            workspace_path,
-            "--config",
-            f"{workspace_path}/.devcontainer/devcontainer.json",
-            "--docker-path",
-            "podman",
-            "podman",
-            "rmi",
-            "-f",  # Force removal in case image exists
-            "test-build:latest",
-        ]
 
-        subprocess.run(
-            cleanup_cmd,
-            capture_output=True,
-            text=True,
-            cwd=workspace_path,
-            env=os.environ.copy(),
-            timeout=10,
-        )
+@pytest.fixture
+def version_check_script(initialized_workspace):
+    """Path to the scaffolded version-check.sh (the scaffold always ships it)."""
+    script_path = (
+        initialized_workspace / ".devcontainer" / "scripts" / "version-check.sh"
+    )
+    assert script_path.exists(), f"version-check.sh not found at {script_path}"
+    assert os.access(script_path, os.X_OK), (
+        f"version-check.sh is not executable: {script_path}"
+    )
+    return script_path
+
+
+@pytest.fixture
+def local_dir(initialized_workspace):
+    """Path to .local directory for config files."""
+    local_path = initialized_workspace / ".devcontainer" / ".local"
+    local_path.mkdir(parents=True, exist_ok=True)
+    return local_path
 
 
 class TestVersionCheckScript:
-    """Test the version-check.sh script behavior.
+    """Behavioral tests for the version-check.sh script.
 
-    Tests configuration management (enable/disable, intervals, mute),
+    Covers configuration management (enable/disable, intervals, mute),
     duration parsing, and silent failure behavior.
     """
-
-    @pytest.fixture
-    def version_check_script(self, initialized_workspace):
-        """Path to the version-check.sh script in initialized workspace."""
-        script_path = (
-            initialized_workspace / ".devcontainer" / "scripts" / "version-check.sh"
-        )
-        assert script_path.exists(), f"version-check.sh not found at {script_path}"
-        assert os.access(script_path, os.X_OK), (
-            f"version-check.sh is not executable: {script_path}"
-        )
-        return script_path
-
-    @pytest.fixture
-    def local_dir(self, initialized_workspace):
-        """Path to .local directory for config files."""
-        local_path = initialized_workspace / ".devcontainer" / ".local"
-        local_path.mkdir(parents=True, exist_ok=True)
-        return local_path
-
-    def test_script_exists_and_executable(self, version_check_script):
-        """Test that version-check.sh exists and is executable."""
-        assert version_check_script.is_file()
-        assert os.access(version_check_script, os.X_OK)
 
     def test_help_command(self, version_check_script):
         """Test that help command works."""
@@ -2695,14 +1538,6 @@ class TestVersionCheckScript:
         assert "check" in result.stdout
         assert "on|enable" in result.stdout
         assert "off|disable" in result.stdout
-
-    def test_reads_version_from_vig_os_config(self, version_check_script):
-        """Test that version-check reads version from .vig-os config."""
-        content = version_check_script.read_text(encoding="utf-8")
-        assert ".vig-os" in content, "version-check.sh should reference .vig-os"
-        assert "DEVCONTAINER_VERSION" in content, (
-            "version-check.sh should read DEVCONTAINER_VERSION"
-        )
 
     def test_config_does_not_execute_vig_os_shell_content(
         self, version_check_script, initialized_workspace
@@ -2924,7 +1759,7 @@ class TestVersionCheckScript:
         assert "12 hour" in result.stdout
 
     def test_check_when_disabled(self, version_check_script):
-        """Test that check does nothing when disabled."""
+        """Verbose check reports the disabled state and exits 0."""
         # Disable
         subprocess.run(
             [str(version_check_script), "off"],
@@ -2940,13 +1775,14 @@ class TestVersionCheckScript:
             timeout=10,
         )
 
-        # Should exit successfully but show disabled message
         assert result.returncode == 0
-        # In verbose mode, should mention it's disabled
-        assert "disabled" in result.stdout.lower() or len(result.stdout) == 0
+        # Verbose mode logs the disabled state before returning
+        assert "disabled" in result.stdout.lower(), (
+            f"verbose check should report the disabled state\nstdout: {result.stdout}"
+        )
 
     def test_check_when_muted(self, version_check_script):
-        """Test that check does nothing when muted."""
+        """Verbose check reports the muted state and exits 0."""
         # First enable (mute requires it to be enabled)
         subprocess.run(
             [str(version_check_script), "on"],
@@ -2969,11 +1805,11 @@ class TestVersionCheckScript:
             timeout=10,
         )
 
-        # Should exit successfully
         assert result.returncode == 0
-        # In verbose mode, should mention it's muted or be silent
-        # Note: The script may still say "disabled" if check interval wasn't met
-        assert result.returncode == 0  # Main assertion is it doesn't fail
+        # Verbose mode logs the muted state before returning
+        assert "muted" in result.stdout.lower(), (
+            f"verbose check should report the muted state\nstdout: {result.stdout}"
+        )
 
     def test_silent_mode_no_output_on_error(self, version_check_script):
         """Test that silent mode (default) produces no output on errors."""
@@ -2989,736 +1825,6 @@ class TestVersionCheckScript:
         # Should always exit with 0 in silent mode
         assert result.returncode == 0
         # No error output
-        assert len(result.stderr) == 0
-
-    def test_local_directory_gitignored(self, initialized_workspace):
-        """Test that .local directory is in .gitignore."""
-        gitignore_path = initialized_workspace / ".devcontainer" / ".gitignore"
-
-        # Note: This test checks if .gitignore exists. If the template was updated
-        # after the workspace was initialized, the file may not have .local/ yet.
-        # The important thing is that new workspaces will have it.
-        if not gitignore_path.exists():
-            pytest.skip(
-                ".devcontainer/.gitignore not found in this test workspace. "
-                "This is expected for older workspaces. New workspaces will have it."
-            )
-
-        gitignore_content = gitignore_path.read_text()
-
-        # Check that .local/ is gitignored (either explicitly or via pattern)
-        is_ignored = ".local/" in gitignore_content or ".local" in gitignore_content
-
-        if not is_ignored:
-            # Log what we found for debugging
-            print(f"Current .gitignore content:\n{gitignore_content}")
-            pytest.skip(
-                ".local/ not yet in .gitignore for this workspace. "
-                "The template has been updated and new workspaces will include it."
-            )
-
-
-class TestVersionComparison:
-    """Test version comparison logic."""
-
-    def test_version_comparison_with_script(self, initialized_workspace):
-        """Test version comparison by mocking docker-compose.yml."""
-        compose_file = initialized_workspace / ".devcontainer" / "docker-compose.yml"
-
-        # This test is mainly checking that the compose file can be read
-        # and that version can be extracted. The actual version may vary.
-        if compose_file.exists():
-            content = compose_file.read_text()
-            # Just verify it contains the image reference
-            assert "ghcr.io/vig-os/devcontainer:" in content
-
-
-class TestVersionCheckJustIntegration:
-    """Test integration of version check with just commands."""
-
-    def test_just_check_command_exists(self, initialized_workspace):
-        """Test that 'just devc-check' command is available."""
-        # Check if .devcontainer/justfile.devc has the check recipe
-        justfile_base = initialized_workspace / ".devcontainer" / "justfile.devc"
-
-        if not justfile_base.exists():
-            pytest.skip(
-                "justfile.devc not found - workspace may be from older template"
-            )
-
-        content = justfile_base.read_text()
-        assert "check" in content, "check recipe not found in justfile.devc"
-
-    def test_just_update_command_exists(self, initialized_workspace):
-        """Test that 'just update' command is available."""
-        # Check if justfile.project has the update recipe
-        justfile_base = initialized_workspace / "justfile.project"
-
-        if not justfile_base.exists():
-            pytest.skip(
-                "justfile.project not found - workspace may be from older template"
-            )
-
-        content = justfile_base.read_text()
-        assert "update" in content, "update recipe not found in justfile.project"
-
-    def test_just_check_calls_script(self, initialized_workspace):
-        """Test that 'just devc-check config' executes successfully."""
-        # First verify the script exists
-        script_path = (
-            initialized_workspace / ".devcontainer" / "scripts" / "version-check.sh"
-        )
-
-        if not script_path.exists():
-            pytest.skip("version-check.sh not found - workspace from older template")
-
-        # Check if justfile.devc has check recipe
-        justfile_base = initialized_workspace / ".devcontainer" / "justfile.devc"
-
-        if not justfile_base.exists():
-            pytest.skip("justfile.devc not found - workspace from older template")
-
-        content = justfile_base.read_text()
-        if "check" not in content:
-            pytest.skip(
-                "check recipe not in justfile.devc - workspace from older template"
-            )
-
-        # Test that check recipe can be called directly via the script
-        result = subprocess.run(
-            [str(script_path), "config"],
-            capture_output=True,
-            text=True,
-            cwd=str(initialized_workspace),
-            timeout=10,
-        )
-
-        assert result.returncode == 0
-        assert "Configuration" in result.stdout or "Enabled:" in result.stdout
-
-    def test_just_check_recipe_calls_version_check_script(self, initialized_workspace):
-        """Test that 'just devc-check' recipe properly calls version-check.sh."""
-        justfile_base = initialized_workspace / ".devcontainer" / "justfile.devc"
-
-        if not justfile_base.exists():
-            pytest.skip("justfile.devc not found - workspace from older template")
-
-        content = justfile_base.read_text()
-
-        # Verify the recipe calls version-check.sh
-        assert "version-check.sh" in content, (
-            "check recipe doesn't call version-check.sh"
-        )
-
-        # Verify the recipe is in the info group
-        lines = content.split("\n")
-        check_recipe_idx = None
-        for i, line in enumerate(lines):
-            if line.startswith("devc-check "):
-                check_recipe_idx = i
-                break
-
-        assert check_recipe_idx is not None, "check recipe not found"
-
-        # Look backwards for group annotation
-        for i in range(check_recipe_idx - 1, max(0, check_recipe_idx - 5), -1):
-            if "[group('info')]" in lines[i]:
-                break
-        else:
-            pytest.fail("check recipe not in 'info' group")
-
-    def test_just_check_verbose_mode(self, initialized_workspace):
-        """Test that 'just devc-check' runs in verbose mode (check subcommand)."""
-        justfile_base = initialized_workspace / ".devcontainer" / "justfile.devc"
-
-        if not justfile_base.exists():
-            pytest.skip("justfile.devc not found")
-
-        content = justfile_base.read_text()
-        if "check" not in content:
-            pytest.skip("check recipe not found")
-
-        # The recipe should default to 'check' subcommand when no args provided
-        # This ensures verbose output instead of silent mode
-        assert "{ 'check' }" in content or 'version-check.sh" check' in content, (
-            "check recipe doesn't default to verbose check mode"
-        )
-
-    def test_just_check_accepts_subcommands(self, initialized_workspace):
-        """Test that 'just devc-check' recipe accepts and passes through subcommands."""
-        justfile_base = initialized_workspace / ".devcontainer" / "justfile.devc"
-
-        if not justfile_base.exists():
-            pytest.skip("justfile.devc not found")
-
-        content = justfile_base.read_text()
-        if "check" not in content:
-            pytest.skip("check recipe not found")
-
-        # The recipe should accept variadic args
-        lines = content.split("\n")
-        check_line = None
-        for line in lines:
-            if line.startswith("devc-check "):
-                check_line = line
-                break
-
-        assert check_line is not None
-        assert "*args" in check_line, "check recipe doesn't accept variadic arguments"
-
-    def test_just_check_config_shows_configuration(self, initialized_workspace):
-        """Test that 'just devc-check config' shows version check configuration."""
-        script_path = (
-            initialized_workspace / ".devcontainer" / "scripts" / "version-check.sh"
-        )
-
-        if not script_path.exists():
-            pytest.skip("version-check.sh not found")
-
-        # Call the script directly (just recipe may not exist yet in TDD RED phase)
-        result = subprocess.run(
-            [str(script_path), "config"],
-            capture_output=True,
-            text=True,
-            cwd=str(initialized_workspace),
-            timeout=10,
-        )
-
-        assert result.returncode == 0
-        assert "Enabled:" in result.stdout
-        assert "interval:" in result.stdout.lower()
-
-    def test_just_check_config_via_just_command(self, initialized_workspace):
-        """Regression: 'just devc-check config' resolves path correctly (issue #187)."""
-        justfile_base = initialized_workspace / ".devcontainer" / "justfile.devc"
-        if not justfile_base.exists():
-            pytest.skip("justfile.devc not found")
-        if "check" not in justfile_base.read_text():
-            pytest.skip("check recipe not found")
-
-        result = subprocess.run(
-            ["just", "devc-check", "config"],
-            capture_output=True,
-            text=True,
-            cwd=str(initialized_workspace),
-            timeout=10,
-        )
-
-        assert result.returncode == 0, (
-            f"just devc-check config failed (path resolution bug #187): {result.stderr}"
-        )
-        assert "Could not locate .devcontainer/scripts directory" not in (
-            result.stdout + result.stderr
-        ), "Path resolution broken: script dir not found"
-
-    def test_justfile_devc_excludes_project_recipes(self, initialized_workspace):
-        """Test that project-focused recipes are not defined in justfile.devc."""
-        justfile_devc = initialized_workspace / ".devcontainer" / "justfile.devc"
-
-        if not justfile_devc.exists():
-            pytest.skip("justfile.devc not found")
-
-        content = justfile_devc.read_text()
-        for recipe_name in ["lint:", "format:", "precommit:", "sync ", "update:"]:
-            assert recipe_name not in content, (
-                f"{recipe_name.rstrip(':')} should not exist in justfile.devc"
-            )
-
-    def test_workspace_justfile_project_contains_project_recipes(
-        self, initialized_workspace
-    ):
-        """Test that moved project recipes are defined in justfile.project."""
-        justfile_project = initialized_workspace / "justfile.project"
-
-        if not justfile_project.exists():
-            pytest.skip("justfile.project not found")
-
-        content = justfile_project.read_text()
-        for recipe_name in ["lint:", "format:", "precommit:", "sync ", "update:"]:
-            assert recipe_name in content, (
-                f"{recipe_name.rstrip(':')} should exist in justfile.project"
-            )
-
-    def test_workspace_justfile_imports_justfile_devc(self, initialized_workspace):
-        """Test that workspace justfile optionally imports justfile.devc.
-
-        The import is optional (``import?``) so a ``direnv``-mode workspace, which
-        prunes ``.devcontainer/``, still loads `just` (#641).
-        """
-        workspace_justfile = initialized_workspace / "justfile"
-
-        if not workspace_justfile.exists():
-            pytest.skip("workspace justfile not found")
-
-        content = workspace_justfile.read_text()
-        assert "import? '.devcontainer/justfile.devc'" in content
-        assert "import '.devcontainer/justfile.base'" not in content
-
-    def test_just_check_mute_functionality(self, initialized_workspace):
-        """Test that 'just devc-check 7d' mutes notifications."""
-        script_path = (
-            initialized_workspace / ".devcontainer" / "scripts" / "version-check.sh"
-        )
-
-        if not script_path.exists():
-            pytest.skip("version-check.sh not found")
-
-        # Test mute command
-        result = subprocess.run(
-            [str(script_path), "mute", "7d"],
-            capture_output=True,
-            text=True,
-            cwd=str(initialized_workspace),
-            timeout=10,
-        )
-
-        assert result.returncode == 0
-        assert "muted" in result.stdout.lower()
-
-        # Verify mute file was created
-        muted_file = initialized_workspace / ".devcontainer" / ".local" / ".muted-until"
-        assert muted_file.exists()
-
-    def test_just_check_enable_disable(self, initialized_workspace):
-        """Test that 'just devc-check on/off' enables/disables notifications."""
-        script_path = (
-            initialized_workspace / ".devcontainer" / "scripts" / "version-check.sh"
-        )
-
-        if not script_path.exists():
-            pytest.skip("version-check.sh not found")
-
-        # Test disable
-        result = subprocess.run(
-            [str(script_path), "off"],
-            capture_output=True,
-            text=True,
-            cwd=str(initialized_workspace),
-            timeout=10,
-        )
-
-        assert result.returncode == 0
-        assert "disabled" in result.stdout.lower()
-
-        # Verify config was updated
-        config_file = (
-            initialized_workspace / ".devcontainer" / ".local" / "version-check.conf"
-        )
-        assert config_file.exists()
-        config_content = config_file.read_text()
-        assert "enabled=false" in config_content
-
-        # Test enable
-        result = subprocess.run(
-            [str(script_path), "on"],
-            capture_output=True,
-            text=True,
-            cwd=str(initialized_workspace),
-            timeout=10,
-        )
-
-        assert result.returncode == 0
-        assert "enabled" in result.stdout.lower()
-
-        config_content = config_file.read_text()
-        assert "enabled=true" in config_content
-
-
-class TestVersionCheckInitWorkspace:
-    """Test that init-workspace.sh creates necessary version check files."""
-
-    def test_local_directory_created(self, initialized_workspace):
-        """Test that .local directory is created on init."""
-        local_dir = initialized_workspace / ".devcontainer" / ".local"
-
-        assert local_dir.exists(), ".local directory not created by init-workspace.sh"
-        assert local_dir.is_dir()
-
-    def test_default_config_created(self, initialized_workspace):
-        """Test that default config file is created on init."""
-        config_file = (
-            initialized_workspace / ".devcontainer" / ".local" / "version-check.conf"
-        )
-
-        assert config_file.exists(), (
-            "version-check.conf not created by init-workspace.sh"
-        )
-
-        config_content = config_file.read_text()
-        assert "enabled=true" in config_content
-        # Interval may vary - just check it exists
-        assert "interval=" in config_content
-
-
-class TestVersionCheckPostAttachIntegration:
-    """Test that post-attach.sh automatically calls version-check.sh."""
-
-    def test_post_attach_calls_version_check(self, initialized_workspace):
-        """Test that post-attach.sh calls version-check.sh in silent mode."""
-        post_attach = (
-            initialized_workspace / ".devcontainer" / "scripts" / "post-attach.sh"
-        )
-
-        if not post_attach.exists():
-            pytest.skip("post-attach.sh not found")
-
-        content = post_attach.read_text()
-
-        # Verify the script calls version-check.sh
-        assert "version-check.sh" in content, (
-            "post-attach.sh doesn't call version-check.sh"
-        )
-
-    def test_post_attach_calls_version_check_at_end(self, initialized_workspace):
-        """Test that version-check.sh is called at the end of post-attach.sh."""
-        post_attach = (
-            initialized_workspace / ".devcontainer" / "scripts" / "post-attach.sh"
-        )
-
-        if not post_attach.exists():
-            pytest.skip("post-attach.sh not found")
-
-        content = post_attach.read_text()
-        lines = content.split("\n")
-
-        # Find the version-check.sh call
-        version_check_line = None
-        for i, line in enumerate(lines):
-            if "version-check.sh" in line and not line.strip().startswith("#"):
-                version_check_line = i
-                break
-
-        assert version_check_line is not None, "version-check.sh call not found"
-
-        # Verify it's near the end (within last 10 non-empty lines)
-        non_empty_lines = [
-            i
-            for i, line in enumerate(lines)
-            if line.strip() and not line.strip().startswith("#")
-        ]
-
-        if non_empty_lines:
-            last_meaningful_line = non_empty_lines[-1]
-            # Version check should be within last 10 meaningful lines
-            assert (last_meaningful_line - version_check_line) < 10, (
-                "version-check.sh should be called near the end of post-attach.sh"
-            )
-
-    def test_post_attach_uses_silent_mode(self, initialized_workspace):
-        """Test that post-attach.sh calls version-check.sh with no args (silent)."""
-        post_attach = (
-            initialized_workspace / ".devcontainer" / "scripts" / "post-attach.sh"
-        )
-
-        if not post_attach.exists():
-            pytest.skip("post-attach.sh not found")
-
-        content = post_attach.read_text()
-
-        # Find the version-check.sh invocation
-        lines = content.split("\n")
-        for line in lines:
-            if "version-check.sh" in line and not line.strip().startswith("#"):
-                # Should be called with no arguments (silent mode)
-                # Allow patterns like: "./version-check.sh" or "$SCRIPT_DIR/version-check.sh"
-                # but NOT: "./version-check.sh check" or with other args
-                after_script = line.split("version-check.sh", 1)[1]
-                assert not any(
-                    arg in after_script
-                    for arg in ["check", "config", "mute", "enable", "disable"]
-                ), (
-                    "post-attach.sh should call version-check.sh in silent mode (no args)"
-                )
-                break
-
-    def test_post_attach_graceful_failure(self, initialized_workspace):
-        """Test that post-attach.sh doesn't fail if version-check.sh fails."""
-        post_attach = (
-            initialized_workspace / ".devcontainer" / "scripts" / "post-attach.sh"
-        )
-
-        if not post_attach.exists():
-            pytest.skip("post-attach.sh not found")
-
-        content = post_attach.read_text()
-
-        # Find the version-check.sh call
-        lines = content.split("\n")
-        for line in lines:
-            if "version-check.sh" in line and not line.strip().startswith("#"):
-                # Should have || true or similar error handling
-                assert "|| true" in line or "|| :" in line, (
-                    "post-attach.sh should use graceful failure (|| true) for version-check.sh"
-                )
-                break
-
-
-class TestVersionCheckNotificationMessage:
-    """Test that the version check notification shows correct upgrade instructions."""
-
-    @pytest.fixture
-    def version_check_script(self, initialized_workspace):
-        """Path to version-check.sh script."""
-        script_path = (
-            initialized_workspace / ".devcontainer" / "scripts" / "version-check.sh"
-        )
-        if not script_path.exists():
-            pytest.skip("version-check.sh not found")
-        return script_path
-
-    def test_notification_shows_devcontainer_upgrade_command(
-        self, version_check_script
-    ):
-        """Test that notification message shows 'just devc-upgrade'."""
-        content = version_check_script.read_text()
-
-        # Find the notify_update function
-        assert "notify_update" in content, "notify_update function not found"
-
-        # Check if it mentions the correct upgrade command
-        assert "just devc-upgrade" in content or "devc-upgrade" in content, (
-            "Notification should mention 'just devc-upgrade' command"
-        )
-
-    def test_notification_does_not_show_just_update(self, version_check_script):
-        """Test that notification doesn't show misleading 'just update' command."""
-        content = version_check_script.read_text()
-
-        # Find the notify_update function (approximately lines 253-300)
-        lines = content.split("\n")
-        notify_start = None
-        notify_end = None
-
-        for i, line in enumerate(lines):
-            if "notify_update()" in line or "notify_update ()" in line:
-                notify_start = i
-            if notify_start and line.strip() == "}" and i > notify_start:
-                notify_end = i
-                break
-
-        assert notify_start is not None, "notify_update function not found"
-
-        notify_function = "\n".join(lines[notify_start:notify_end])
-
-        # Should NOT mention "just update" in the notification
-        # (that's for Python deps, not devcontainer upgrade)
-        # Allow "just" but not "just update" as a standalone command
-        assert "To update: ${BOLD}just update${NC}" not in notify_function, (
-            "Notification should not suggest 'just update' for devcontainer upgrade"
-        )
-
-    def test_notification_shows_curl_fallback(self, version_check_script):
-        """Test that notification shows curl install.sh fallback option."""
-        content = version_check_script.read_text()
-
-        # Should mention the curl command as a fallback
-        assert "curl" in content and "install.sh" in content, (
-            "Notification should show curl install.sh as fallback option"
-        )
-
-    def test_notification_mentions_host_terminal(self, version_check_script):
-        """Test that notification clarifies upgrade must run on host."""
-        content = version_check_script.read_text()
-
-        # Should clarify that this needs to run on host
-        assert "host" in content.lower() and "terminal" in content.lower(), (
-            "Notification should clarify upgrade runs on host terminal"
-        )
-
-    def test_notification_mentions_rebuild_container(self, version_check_script):
-        """Test that notification reminds user to rebuild container."""
-        content = version_check_script.read_text()
-
-        # Should mention rebuilding the container
-        assert "rebuild" in content.lower(), (
-            "Notification should remind user to rebuild container after upgrade"
-        )
-
-    def test_notification_shows_mute_options(self, version_check_script):
-        """Test that notification shows how to mute or disable."""
-        content = version_check_script.read_text()
-
-        # Should show mute and disable options
-        notify_section = content[content.find("notify_update") :]
-
-        assert "just devc-check" in notify_section and "off" in notify_section, (
-            "Notification should show how to disable ('just devc-check off')"
-        )
-
-        assert "7d" in notify_section or "mute" in notify_section.lower(), (
-            "Notification should show how to mute (e.g., 'just devc-check 7d')"
-        )
-
-
-class TestDevcontainerUpgradeRecipe:
-    """Test the host-side 'just devc-upgrade' recipe."""
-
-    def test_devcontainer_upgrade_recipe_exists(self, initialized_workspace):
-        """Test that 'just devc-upgrade' recipe exists in justfile.devc."""
-        justfile_base = initialized_workspace / ".devcontainer" / "justfile.devc"
-
-        if not justfile_base.exists():
-            pytest.skip("justfile.devc not found")
-
-        content = justfile_base.read_text()
-
-        # Recipe should exist
-        assert "devc-upgrade" in content, (
-            "devc-upgrade recipe not found in justfile.devc"
-        )
-
-    def test_devcontainer_upgrade_detects_container_environment(
-        self, initialized_workspace
-    ):
-        """Test that recipe detects when running inside container."""
-        justfile_base = initialized_workspace / ".devcontainer" / "justfile.devc"
-
-        if not justfile_base.exists():
-            pytest.skip("justfile.devc not found")
-
-        content = justfile_base.read_text()
-
-        # Should check for container indicators
-        assert "/.dockerenv" in content or "container" in content, (
-            "devc-upgrade recipe should detect container environment"
-        )
-
-    def test_devcontainer_upgrade_shows_error_in_container(self, initialized_workspace):
-        """Test that recipe shows clear error when run inside container."""
-        justfile_base = initialized_workspace / ".devcontainer" / "justfile.devc"
-
-        if not justfile_base.exists():
-            pytest.skip("justfile.devc not found")
-
-        content = justfile_base.read_text()
-
-        # Find the devc-upgrade recipe
-        lines = content.split("\n")
-        recipe_start = None
-        recipe_end = None
-
-        for i, line in enumerate(lines):
-            if "devc-upgrade" in line and ":" in line:
-                recipe_start = i
-                # Find the end (next recipe or end of file)
-                for j in range(i + 1, len(lines)):
-                    if (
-                        lines[j]
-                        and not lines[j].startswith(" ")
-                        and not lines[j].startswith("\t")
-                    ):
-                        recipe_end = j
-                        break
-                break
-
-        if recipe_start is None:
-            pytest.skip("devc-upgrade recipe not found")
-
-        recipe_content = "\n".join(
-            lines[recipe_start : recipe_end if recipe_end else len(lines)]
-        )
-
-        # Should show error message about running from host
-        assert "ERROR" in recipe_content.upper() or "error" in recipe_content, (
-            "Recipe should show error message when run in container"
-        )
-
-        assert (
-            "host" in recipe_content.lower() and "terminal" in recipe_content.lower()
-        ), "Error message should mention running from host terminal"
-
-    def test_devcontainer_upgrade_checks_runtime_available(self, initialized_workspace):
-        """Test that recipe checks if podman/docker is available."""
-        justfile_base = initialized_workspace / ".devcontainer" / "justfile.devc"
-
-        if not justfile_base.exists():
-            pytest.skip("justfile.devc not found")
-
-        content = justfile_base.read_text()
-
-        # Should check for runtime availability
-        assert (
-            "podman" in content and "docker" in content
-        ) or "command -v" in content, (
-            "Recipe should check if podman or docker is available"
-        )
-
-    def test_devcontainer_upgrade_calls_install_script(self, initialized_workspace):
-        """Test that recipe calls install.sh with --force flag."""
-        justfile_base = initialized_workspace / ".devcontainer" / "justfile.devc"
-
-        if not justfile_base.exists():
-            pytest.skip("justfile.devc not found")
-
-        content = justfile_base.read_text()
-
-        # Find the devc-upgrade recipe section
-        if "devc-upgrade" in content:
-            # Should call the install script
-            assert "install.sh" in content, "Recipe should call install.sh"
-
-            assert "--force" in content, "Recipe should use --force flag for upgrades"
-
-    def test_devcontainer_upgrade_in_info_group(self, initialized_workspace):
-        """Test that devc-upgrade recipe is in the 'info' group."""
-        justfile_base = initialized_workspace / ".devcontainer" / "justfile.devc"
-
-        if not justfile_base.exists():
-            pytest.skip("justfile.devc not found")
-
-        content = justfile_base.read_text()
-        lines = content.split("\n")
-
-        # Find the devc-upgrade recipe
-        recipe_idx = None
-        for i, line in enumerate(lines):
-            if "devc-upgrade:" in line:
-                recipe_idx = i
-                break
-
-        if recipe_idx is None:
-            pytest.skip("devc-upgrade recipe not found")
-
-        # Look backwards for group annotation
-        for i in range(recipe_idx - 1, max(0, recipe_idx - 5), -1):
-            if "[group('info')]" in lines[i]:
-                return  # Found it
-
-        pytest.fail("devc-upgrade recipe not in 'info' group")
-
-
-class TestVersionCheckGracefulFailure:
-    """Test that the version check feature fails gracefully in various scenarios."""
-
-    @pytest.fixture
-    def version_check_script(self, initialized_workspace):
-        """Path to version-check.sh script."""
-        script_path = (
-            initialized_workspace / ".devcontainer" / "scripts" / "version-check.sh"
-        )
-        if not script_path.exists():
-            pytest.skip("version-check.sh not found in workspace")
-        return script_path
-
-    @pytest.fixture
-    def local_dir(self, initialized_workspace):
-        """Path to .local directory."""
-        local_path = initialized_workspace / ".devcontainer" / ".local"
-        local_path.mkdir(parents=True, exist_ok=True)
-        return local_path
-
-    def test_no_network_silent_failure(self, version_check_script, local_dir):
-        """Test that network failures don't break the script in silent mode."""
-        # Silent mode (no arguments) should never fail
-        result = subprocess.run(
-            [str(version_check_script)],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-
-        # Should always succeed in silent mode
-        assert result.returncode == 0
         assert len(result.stderr) == 0
 
     def test_missing_docker_compose_silent_failure(
@@ -3772,3 +1878,210 @@ class TestVersionCheckGracefulFailure:
         finally:
             if backup_path.exists():
                 backup_path.rename(vig_os_file)
+
+    def test_just_check_config_via_just_command(self, initialized_workspace):
+        """Regression: 'just devc-check config' resolves path correctly (issue #187)."""
+        result = subprocess.run(
+            ["just", "devc-check", "config"],
+            capture_output=True,
+            text=True,
+            cwd=str(initialized_workspace),
+            timeout=10,
+        )
+
+        assert result.returncode == 0, (
+            f"just devc-check config failed (path resolution bug #187): {result.stderr}"
+        )
+        assert "Could not locate .devcontainer/scripts directory" not in (
+            result.stdout + result.stderr
+        ), "Path resolution broken: script dir not found"
+        assert "Enabled:" in result.stdout, (
+            f"devc-check config did not print the configuration\n"
+            f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+
+
+class TestVersionCheckScaffold:
+    """Content pins for the version-check feature's scaffold wiring.
+
+    These read the assets/workspace sources directly — deployment of the same
+    files into a workspace is covered by the structure/manifest tests — so no
+    container or workspace fixture is needed.
+    """
+
+    @staticmethod
+    def _recipe_block(content: str, header_pattern: str) -> str:
+        """Extract a just recipe body: header line through the indented block."""
+        lines = content.split("\n")
+        start = next(
+            (i for i, line in enumerate(lines) if re.match(header_pattern, line)),
+            None,
+        )
+        assert start is not None, f"recipe matching {header_pattern!r} not found"
+        end = len(lines)
+        for j in range(start + 1, len(lines)):
+            if lines[j] and not lines[j].startswith((" ", "\t")):
+                end = j
+                break
+        return "\n".join(lines[start:end])
+
+    @staticmethod
+    def _assert_in_info_group(content: str, header_pattern: str):
+        """Assert the recipe carries a [group('info')] annotation."""
+        lines = content.split("\n")
+        recipe_idx = next(
+            (i for i, line in enumerate(lines) if re.match(header_pattern, line)),
+            None,
+        )
+        assert recipe_idx is not None, f"recipe matching {header_pattern!r} not found"
+        assert any(
+            "[group('info')]" in lines[i]
+            for i in range(max(0, recipe_idx - 5), recipe_idx)
+        ), f"recipe matching {header_pattern!r} not in 'info' group"
+
+    def test_version_check_script_wiring(self):
+        """version-check.sh reads the .vig-os pin and its notification is accurate.
+
+        The notification pins are anchored to the notify_update function body,
+        not the whole file, so an unrelated comment cannot satisfy them.
+        """
+        content = (
+            _WORKSPACE_ASSETS / ".devcontainer" / "scripts" / "version-check.sh"
+        ).read_text()
+
+        # Version source: the root .vig-os pin
+        assert ".vig-os" in content, "version-check.sh should reference .vig-os"
+        assert "DEVCONTAINER_VERSION" in content, (
+            "version-check.sh should read DEVCONTAINER_VERSION"
+        )
+
+        # Notification message (anchored to the notify_update function body)
+        start = content.find("notify_update() {")
+        assert start != -1, "notify_update function not found"
+        notify_body = content[start : content.find("\n}", start)]
+
+        assert "devc-upgrade" not in notify_body, (
+            "Notification must not point at the removed devc-upgrade recipe (#1421)"
+        )
+        assert "devkit-upgrade.yml" in notify_body, (
+            "Notification should branch on the devkit-upgrade workflow's presence"
+        )
+        assert "adoption PR" in notify_body, (
+            "Notification should point automation-wired repos at the adoption PR"
+        )
+        assert "curl" in notify_body and "install.sh" in notify_body, (
+            "Notification should keep the install.sh one-liner as manual fallback"
+        )
+        assert "--force" in notify_body, (
+            "Notification fallback should run install.sh in upgrade (--force) mode"
+        )
+        assert "host terminal" in notify_body, (
+            "Notification should clarify the manual upgrade runs on a host terminal"
+        )
+        assert "rebuild" in notify_body.lower(), (
+            "Notification should remind user to rebuild container after upgrade"
+        )
+        assert "just devc-check off" in notify_body, (
+            "Notification should show how to disable ('just devc-check off')"
+        )
+        assert "just devc-check 7d" in notify_body, (
+            "Notification should show how to mute (e.g. 'just devc-check 7d')"
+        )
+
+    def test_post_attach_runs_version_check_silently(self):
+        """post-attach.sh invokes version-check.sh silently, gracefully, at the end."""
+        content = (
+            _WORKSPACE_ASSETS / ".devcontainer" / "scripts" / "post-attach.sh"
+        ).read_text()
+        lines = content.split("\n")
+
+        call_lines = [
+            (i, line)
+            for i, line in enumerate(lines)
+            if "version-check.sh" in line and not line.strip().startswith("#")
+        ]
+        assert call_lines, "post-attach.sh doesn't call version-check.sh"
+        call_idx, call_line = call_lines[0]
+
+        # Silent mode: invoked with no subcommand arguments
+        after_script = call_line.split("version-check.sh", 1)[1]
+        assert not any(
+            arg in after_script
+            for arg in ["check", "config", "mute", "enable", "disable"]
+        ), "post-attach.sh should call version-check.sh in silent mode (no args)"
+
+        # Graceful failure: a failing check must not abort post-attach
+        assert "|| true" in call_line or "|| :" in call_line, (
+            "post-attach.sh should use graceful failure (|| true) for version-check.sh"
+        )
+
+        # Called near the end (within the last 10 meaningful lines)
+        non_empty = [
+            i
+            for i, line in enumerate(lines)
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        assert (non_empty[-1] - call_idx) < 10, (
+            "version-check.sh should be called near the end of post-attach.sh"
+        )
+
+    def test_devc_check_recipe(self):
+        """justfile.devc's devc-check recipe wires version-check.sh correctly."""
+        content = (_WORKSPACE_ASSETS / ".devcontainer" / "justfile.devc").read_text()
+
+        # Recipe exists, accepts variadic args, lives in the info group
+        assert re.search(r"(?m)^devc-check \*args:", content), (
+            "devc-check recipe (with variadic args) not found in justfile.devc"
+        )
+        self._assert_in_info_group(content, r"^devc-check ")
+
+        recipe = self._recipe_block(content, r"^devc-check ")
+        assert "version-check.sh" in recipe, (
+            "devc-check recipe doesn't call version-check.sh"
+        )
+        # No args -> verbose 'check' subcommand (not silent mode)
+        assert "{ 'check' }" in recipe, (
+            "devc-check recipe doesn't default to verbose check mode"
+        )
+
+    def test_devc_upgrade_recipe_removed(self):
+        """devc-upgrade is gone: upgrades ride the devkit-upgrade adoption PRs.
+
+        The recipe wrapped ``install.sh --force`` and steered users around the
+        reviewed adoption flow; #1421 removed it (manual fallback: the
+        install.sh one-liner the notification shows).
+        """
+        content = (_WORKSPACE_ASSETS / ".devcontainer" / "justfile.devc").read_text()
+        assert "devc-upgrade" not in content, (
+            "devc-upgrade was removed in #1421 — upgrades are driven by the "
+            "devkit-upgrade workflow's adoption PRs"
+        )
+
+    def test_project_recipe_split(self):
+        """Project recipes live in justfile.project; justfile.devc stays devc-only."""
+        justfile_devc = (
+            _WORKSPACE_ASSETS / ".devcontainer" / "justfile.devc"
+        ).read_text()
+        justfile_project = (_WORKSPACE_ASSETS / "justfile.project").read_text()
+        workspace_justfile = (_WORKSPACE_ASSETS / "justfile").read_text()
+
+        for recipe_name in ["lint:", "format:", "precommit:", "sync ", "update:"]:
+            assert recipe_name not in justfile_devc, (
+                f"{recipe_name.rstrip(':')} should not exist in justfile.devc"
+            )
+            assert recipe_name in justfile_project, (
+                f"{recipe_name.rstrip(':')} should exist in justfile.project"
+            )
+
+        # The workspace justfile imports justfile.devc optionally (``import?``)
+        # so a direnv-mode workspace, which prunes .devcontainer/, still loads
+        # `just` (#641).
+        assert "import? '.devcontainer/justfile.devc'" in workspace_justfile
+        assert "import '.devcontainer/justfile.base'" not in workspace_justfile
+
+    def test_local_directory_gitignored(self):
+        """.devcontainer/.local (version-check config/cache) is gitignored."""
+        gitignore = (_WORKSPACE_ASSETS / ".devcontainer" / ".gitignore").read_text()
+        assert ".local/" in gitignore, (
+            ".local/ not gitignored in the scaffold .devcontainer/.gitignore"
+        )

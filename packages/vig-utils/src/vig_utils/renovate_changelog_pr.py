@@ -1,12 +1,29 @@
-"""Parse Renovate PR metadata and insert a Keep-a-Changelog entry (Refs: #506)."""
+"""Parse bot-PR metadata for changelog synthesis (Refs: #506, #1423).
+
+Parsing library for Renovate dependency-update PRs and devkit adoption PRs
+(``chore: adopt devkit X.Y.Z[-rcN]``, Refs: #1404). Since #1423 the entry
+formatting, insertion and CLI live in ``synthesize_bot_changelog``, which
+consumes these parsers at release cut and finalize.
+"""
 
 from __future__ import annotations
 
-import argparse
-import os
 import re
-import sys
-from pathlib import Path
+
+# The devkit-upgrade workflow's PR title, verbatim: bare semver with an
+# optional prerelease (devkit tags carry no `v` prefix). Anchored so arbitrary
+# chore titles never masquerade as adoptions.
+_ADOPTION_TITLE_RE = re.compile(
+    r"^chore: adopt devkit (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$"
+)
+
+
+def parse_adoption_title(title: str) -> str | None:
+    """Return the devkit version from an adoption PR title, or None."""
+    m = _ADOPTION_TITLE_RE.match(title.strip())
+    if m:
+        return m.group(1)
+    return None
 
 
 def _strip_md_link(cell: str) -> str:
@@ -90,153 +107,3 @@ def parse_renovate_pr_updates(
     if from_table:
         return from_table
     return _parse_title_updates(title)
-
-
-def format_changelog_entry(
-    pr_number: int,
-    repo_html_url: str,
-    updates: list[tuple[str, str | None, str | None]],
-) -> str:
-    base = repo_html_url.rstrip("/")
-    pr_url = f"{base}/pull/{pr_number}"
-    pr_link = f"([#{pr_number}]({pr_url}))"
-    if len(updates) == 1:
-        pkg, old_v, new_v = updates[0]
-        if old_v:
-            title = f"Renovate: update `{pkg}` from `{old_v}` to `{new_v}`"
-        else:
-            title = f"Renovate: update `{pkg}` to `{new_v}`"
-        return f"- **{title}** {pr_link}\n"
-    lines = [f"- **Renovate dependency update** {pr_link}"]
-    for pkg, old_v, new_v in updates:
-        if old_v:
-            lines.append(f"  - Update `{pkg}` from `{old_v}` to `{new_v}`")
-        else:
-            lines.append(f"  - Update `{pkg}` to `{new_v}`")
-    return "\n".join(lines) + "\n"
-
-
-def _pr_marked_in_changed(unreleased: str, pr_number: int) -> bool:
-    needle = f"[#{pr_number}]("
-    changed_idx = unreleased.find("### Changed")
-    if changed_idx == -1:
-        return False
-    next_hdr = re.search(r"\n### (?!Changed)\w+", unreleased[changed_idx:])
-    if next_hdr:
-        changed_block = unreleased[changed_idx : changed_idx + next_hdr.start()]
-    else:
-        changed_block = unreleased[changed_idx:]
-    return needle in changed_block
-
-
-def insert_renovate_changelog_entry(
-    changelog: str,
-    pr_number: int,
-    entry: str,
-) -> tuple[str, bool]:
-    lines = changelog.splitlines(keepends=True)
-    unreleased_start: int | None = None
-    unreleased_end: int | None = None
-    for i, line in enumerate(lines):
-        if line.startswith("## Unreleased"):
-            unreleased_start = i
-            break
-    if unreleased_start is None:
-        return changelog, False
-    for j in range(unreleased_start + 1, len(lines)):
-        if lines[j].startswith("## [") and "[Unreleased]" not in lines[j]:
-            unreleased_end = j
-            break
-    if unreleased_end is None:
-        unreleased_end = len(lines)
-    block = "".join(lines[unreleased_start:unreleased_end])
-    if _pr_marked_in_changed(block, pr_number):
-        return changelog, False
-
-    changed_idx: int | None = None
-    for i in range(unreleased_start, unreleased_end):
-        if lines[i].startswith("### Changed"):
-            changed_idx = i
-            break
-    if changed_idx is None:
-        return changelog, False
-
-    # Insert at the TOP of ### Changed, as a plain bullet above any #### sub-heading
-    # (e.g. the #### Modules convention) rather than appended at the bottom of the
-    # block. Keep the blank line after the heading for Keep-a-Changelog spacing.
-    insert_at = changed_idx + 1
-    if insert_at < len(lines) and lines[insert_at].strip() == "":
-        insert_at += 1
-
-    if not entry.endswith("\n"):
-        entry = entry + "\n"
-
-    # When the section opens with a heading (empty ### Changed, or a #### sub-heading
-    # as its first content), append a blank line so the new bullet keeps Keep-a-Changelog
-    # spacing before that heading.
-    addition = [entry]
-    if insert_at < len(lines) and lines[insert_at].lstrip().startswith("#"):
-        addition.append("\n")
-
-    new_lines = lines[:insert_at] + addition + lines[insert_at:]
-    return "".join(new_lines), True
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--changelog",
-        default=os.environ.get("CHANGELOG_PATH", "CHANGELOG.md"),
-        help="Path to CHANGELOG.md",
-    )
-    parser.add_argument(
-        "--pr-number",
-        type=int,
-        default=int(os.environ.get("PR_NUMBER", "0")),
-    )
-    parser.add_argument(
-        "--title",
-        default=os.environ.get("PR_TITLE", ""),
-    )
-    parser.add_argument(
-        "--body-file",
-        default=os.environ.get("PR_BODY_FILE", ""),
-        help="Path to file with PR body (optional)",
-    )
-    parser.add_argument(
-        "--body",
-        default=os.environ.get("PR_BODY", ""),
-    )
-    parser.add_argument(
-        "--repo-url",
-        default=os.environ.get("GITHUB_REPOSITORY_URL", ""),
-        help="e.g. https://github.com/owner/repo",
-    )
-    args = parser.parse_args(argv)
-    if args.pr_number <= 0:
-        print("PR_NUMBER must be set", file=sys.stderr)
-        return 1
-    if not args.repo_url:
-        print("GITHUB_REPOSITORY_URL must be set", file=sys.stderr)
-        return 1
-    body = args.body
-    if args.body_file:
-        body = Path(args.body_file).read_text(encoding="utf-8")
-    updates = parse_renovate_pr_updates(args.title, body)
-    if not updates:
-        print("No dependency updates parsed; skipping changelog edit", file=sys.stderr)
-        return 0
-    entry = format_changelog_entry(args.pr_number, args.repo_url, updates)
-    path = Path(args.changelog)
-    text = path.read_text(encoding="utf-8")
-    new_text, did = insert_renovate_changelog_entry(text, args.pr_number, entry)
-    if not did:
-        print("Changelog already contains entry for this PR or Unreleased malformed")
-        return 0
-    path.write_text(new_text, encoding="utf-8")
-    print(f"Updated {path} for PR #{args.pr_number}")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

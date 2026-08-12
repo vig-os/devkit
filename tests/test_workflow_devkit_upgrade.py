@@ -5,9 +5,9 @@ explicit dispatch), runs the full-fidelity ``install.sh --force`` upgrade and
 opens the adoption PR — Renovate-style pull, with no devkit-side action at
 release time. These tests pin the deliverable without executing the workflow:
 
-- the ``.vig-os`` manifest declares the two runtime knobs (``DEVKIT_AUTO_UPGRADE``
-  gates the schedule path; ``DEVKIT_UPGRADE_EXCLUDE`` lists paths reset before the
-  commit), both shipping empty;
+- the two runtime knobs (``DEVKIT_AUTO_UPGRADE`` gates the schedule path;
+  ``DEVKIT_UPGRADE_EXCLUDE`` lists paths reset before the commit) are declared
+  in ``.vig-os`` — pinned with every other knob in ``test_vig_os_manifest.py``;
 - the template carries the managed banner, both triggers, the public
   ``releases/latest`` version check with prerelease-aware compare, the dedicated
   GitHub App identity (a per-run installation token minted from
@@ -34,8 +34,8 @@ import yaml
 from tests.workflow_scaffold import (
     INIT_WORKSPACE,
     WORKSPACE,
+    cached_tree,
     scaffold,
-    scaffold_tree,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -43,9 +43,8 @@ TEMPLATE = WORKSPACE / ".github" / "workflows" / "devkit-upgrade.yml"
 REL = ".github/workflows/devkit-upgrade.yml"
 
 
-def _rendered(tmp_path: Path, workflow: str | None = None) -> str:
-    tree = scaffold_tree(tmp_path, workflow=workflow)
-    return (tree / REL).read_text(encoding="utf-8")
+def _rendered(workflow: str | None = None) -> str:
+    return (cached_tree(workflow) / REL).read_text(encoding="utf-8")
 
 
 def _steps(text: str) -> list[dict]:
@@ -59,17 +58,6 @@ def _steps(text: str) -> list[dict]:
 
 
 # ── production wiring seams ───────────────────────────────────────────────────
-
-
-def test_vig_os_declares_upgrade_keys() -> None:
-    """The scaffold manifest ships both runtime knobs, empty by default."""
-    text = (WORKSPACE / ".vig-os").read_text(encoding="utf-8")
-    assert "DEVKIT_AUTO_UPGRADE=" in text
-    assert "DEVKIT_UPGRADE_EXCLUDE=" in text
-    # Empty (default enabled / no exclusions), like every other opt-in key.
-    assert "DEVKIT_AUTO_UPGRADE=\n" in text or text.rstrip().endswith(
-        "DEVKIT_AUTO_UPGRADE="
-    )
 
 
 def test_init_workspace_registers_feature_group() -> None:
@@ -132,8 +120,6 @@ def test_requires_app_identity_and_never_uses_github_token_for_pr() -> None:
     text = TEMPLATE.read_text(encoding="utf-8")
     assert "secrets.DEVKIT_UPGRADE_APP_CLIENT_ID" in text
     assert "secrets.DEVKIT_UPGRADE_APP_PRIVATE_KEY" in text
-    # The static-secret path is gone entirely — App-only, no PAT fallback.
-    assert "DEVKIT_UPGRADE_TOKEN" not in text
     # A clear fail-fast guard when either secret is absent.
     assert "not configured" in text
     steps = _steps(text)
@@ -154,14 +140,15 @@ def test_requires_app_identity_and_never_uses_github_token_for_pr() -> None:
         )
         assert "app-id" not in with_block
         # Least-privilege mint (zizmor github-app audit): the token must be
-        # scoped to exactly the permissions the workflow exercises.
+        # scoped to exactly the permissions the workflow exercises. With the
+        # adoption issue gone (#1405) no issues permission remains.
         for perm in (
             "permission-contents",
             "permission-pull-requests",
-            "permission-issues",
             "permission-workflows",
         ):
             assert with_block.get(perm) == "write", f"missing {perm}: write"
+        assert "permission-issues" not in with_block
     # The PR step authenticates gh with the minted token (not github.token),
     # otherwise the created PR would not trigger CI.
     pr_steps = [s for s in steps if "gh pr create" in str(s.get("run", ""))]
@@ -238,59 +225,32 @@ def test_bootstraps_installsh_and_commits_in_project_shell() -> None:
     assert "install-nix-action" in text
 
 
-def test_reset_excluded_paths_and_closes_issue() -> None:
-    """DEVKIT_UPGRADE_EXCLUDE paths are reset and the PR closes its adoption issue."""
+def test_reset_excluded_paths() -> None:
+    """DEVKIT_UPGRADE_EXCLUDE paths are reset to the base branch before commit."""
     text = TEMPLATE.read_text(encoding="utf-8")
     assert "DEVKIT_UPGRADE_EXCLUDE" in text
     assert "git checkout --" in text
-    assert "Closes #" in text
 
 
-def test_no_diff_dispatch_cleans_up_the_issue_it_created() -> None:
-    """A no-diff run must not strand the adoption issue it opened (#1347).
+def test_no_adoption_issue_lifecycle() -> None:
+    """The workflow manages no adoption issue at all (#1405).
 
-    The issue is created BEFORE install.sh runs (the branch name embeds its
-    number and the in-shell commit needs the ``Refs:`` line), so a dispatch
-    against an already-current consumer creates an issue, finds zero diff and
-    skips publish + PR — leaving it open forever. The find-or-create step must
-    expose which branch it took, and a final cleanup step gated on the no-diff
-    path must close a *freshly created* issue while leaving a *reused* one open
-    (auto-closing a live mid-train issue would be wrong).
+    Adoption PRs are bot PRs like Renovate's: the PR is the traceable
+    artifact and the changelog entry (#1404) links it. Dropping the issue
+    removes the whole lifecycle — creation, the ``Refs:`` line, the
+    ``Closes #`` body marker, the issues:write grant, and the #1347 no-diff
+    cleanup step that existed only to garbage-collect stranded issues
+    (`Closes #` never auto-closes on a dev-targeted PR anyway).
     """
     text = TEMPLATE.read_text(encoding="utf-8")
-    steps = _steps(text)
-
-    # The find-or-create step exposes the branch it took as a step output.
-    issue_steps = [s for s in steps if s.get("id") == "issue"]
-    assert issue_steps, "no `issue` step found"
-    (issue_step,) = issue_steps
-    assert "created=true" in str(issue_step["run"])
-    assert "created=false" in str(issue_step["run"])
-
-    # A cleanup step runs on the no-diff path only.
-    cleanup_steps = [
-        s
-        for s in steps
-        if "gh issue close" in str(s.get("run", "")) and s.get("id") != "issue"
-    ]
-    assert cleanup_steps, "no no-diff cleanup step found"
-    (cleanup,) = cleanup_steps
-    cond = str(cleanup.get("if", ""))
-    assert "steps.resolve.outputs.proceed == 'true'" in cond
-    assert "steps.commit.outputs.changed != 'true'" in cond
-    # It authenticates as the App (the identity that owns the issue).
-    assert cleanup.get("env", {}).get("GH_TOKEN") == (
-        "${{ steps.app-token.outputs.token }}"
-    )
-    run = str(cleanup["run"])
-    # Only a freshly created issue is closed; a reused one is left open.
-    assert "steps.issue.outputs.created" not in run, (
-        "route the step output through env, never inline into run:"
-    )
-    assert cleanup.get("env", {}).get("CREATED") == (
-        "${{ steps.issue.outputs.created }}"
-    )
-    assert 'CREATED" = "true"' in run or 'CREATED" != "true"' in run
+    # No issue commands, no Refs/Closes markers, no issue-numbered branch.
+    assert "gh issue" not in text
+    assert "Refs: #" not in text
+    assert "Closes #" not in text
+    # The branch is the guard-legal chore/<summary> shape, keyed on the train.
+    assert 'BRANCH="chore/devkit-${SUFFIX}"' in text
+    # The PR body points reviewers at the devkit release notes instead.
+    assert "releases/tag/" in text
 
 
 # ── security: no template injection (zizmor) ──────────────────────────────────
@@ -311,16 +271,16 @@ def test_no_run_block_interpolates_untrusted_input() -> None:
 # ── base-branch awareness (workflow model) ────────────────────────────────────
 
 
-def test_gitflow_base_branch_is_dev(tmp_path: Path) -> None:
+def test_gitflow_base_branch_is_dev() -> None:
     """A gitflow scaffold checks out and targets `dev`."""
-    text = _rendered(tmp_path)
+    text = _rendered()
     assert "ref: dev" in text
     assert "BASE: dev" in text
 
 
-def test_trunk_base_branch_is_main(tmp_path: Path) -> None:
+def test_trunk_base_branch_is_main() -> None:
     """A trunk scaffold retargets the base branch dev -> main (#1205)."""
-    text = _rendered(tmp_path, workflow="trunk")
+    text = _rendered(workflow="trunk")
     assert "ref: main" in text
     assert "BASE: main" in text
     assert "ref: dev" not in text
@@ -344,7 +304,7 @@ def test_disabling_feature_omits_the_workflow(tmp_path: Path) -> None:
     assert (tmp_path / "disabled" / ".github/workflows/ci.yml").exists()
 
 
-def test_valid_feature_group_default_ships_the_workflow(tmp_path: Path) -> None:
+def test_valid_feature_group_default_ships_the_workflow() -> None:
     """With no opt-out, the workflow is scaffolded."""
-    tree = scaffold_tree(tmp_path)
+    tree = cached_tree(None)
     assert (tree / REL).is_file()

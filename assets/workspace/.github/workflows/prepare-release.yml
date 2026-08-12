@@ -15,16 +15,6 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: false
         type: boolean
-      git-user-name:
-        description: "Git user name for commits"
-        required: false
-        default: "github-actions[bot]"
-        type: string
-      git-user-email:
-        description: "Git user email for commits"
-        required: false
-        default: "41898282+github-actions[bot]@users.noreply.github.com"
-        type: string
 
 permissions:
   contents: read
@@ -41,6 +31,7 @@ jobs:
       mode: ${{ steps.resolve.outputs.mode }}
       image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
+      tag-prefix: ${{ steps.resolve.outputs.tag-prefix }}
 
     steps:
       - name: Checkout repository
@@ -110,20 +101,14 @@ jobs:
             exit 1
           fi
 
-      - name: Verify CHANGELOG has Unreleased section entries
+      # The Unreleased content gate lives in the prepare job (after bot-entry
+      # synthesis, which needs the devkit toolchain this host job does not
+      # have): a train whose only changes are bot PRs must still pass (#1423).
+      - name: Verify CHANGELOG has Unreleased section
         run: |
           set -euo pipefail
           if ! grep -q "^## Unreleased" CHANGELOG.md; then
             echo "ERROR: CHANGELOG.md is missing '## Unreleased' section"
-            exit 1
-          fi
-          if ! awk '
-            /^## Unreleased$/ {in_unreleased=1; next}
-            /^## \[/ && in_unreleased {exit 1}
-            in_unreleased && /^[[:space:]]*-[[:space:]]/ {found_entry=1}
-            END {exit(found_entry ? 0 : 1)}
-          ' CHANGELOG.md; then
-            echo "ERROR: CHANGELOG.md Unreleased section has no entries"
             exit 1
           fi
 
@@ -157,6 +142,7 @@ jobs:
     permissions:
       contents: read
       packages: read
+      pull-requests: read    # bot-PR metadata for changelog synthesis (#1423)
     # Exposed to the extension, open-pr, and rollback jobs. The PR body (changelog)
     # and the rollback anchors (pre-freeze/post-freeze SHAs) were step outputs when
     # this job also opened the PR and rolled back inline; the extension hook (#1059)
@@ -195,6 +181,26 @@ jobs:
           PREPARE_START_SHA=$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
             gh api "repos/${{ github.repository }}/git/ref/heads/dev" --jq '.object.sha')
           echo "prepare_start_sha=$PREPARE_START_SHA" >> "$GITHUB_OUTPUT"
+
+      # Bot-PR entries (Renovate, devkit adoptions) are synthesized into
+      # Unreleased right before the freeze so they ride the freeze commit; the
+      # per-PR changelog pipeline they replace conflicted every open bot PR on
+      # the same Unreleased lines (#1423).
+      - name: Synthesize bot changelog entries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+          TAG_PREFIX: ${{ needs.validate.outputs.tag-prefix }}
+        run: |
+          set -euo pipefail
+          synthesize-bot-changelog --tag-prefix "$TAG_PREFIX"
+
+      # The content gate runs here, after synthesis, because this job has the
+      # devkit toolchain and the host-only validate job does not (#1423).
+      - name: Verify CHANGELOG has Unreleased section entries
+        run: |
+          set -euo pipefail
+          prepare-changelog validate CHANGELOG.md
 
       - name: Prepare CHANGELOG (freeze + reset)
         env:
@@ -312,8 +318,6 @@ jobs:
       release_branch: ${{ needs.validate.outputs.release_branch }}
       branch_sha: ${{ needs.prepare.outputs.dev_sha }}
       dry_run: ${{ inputs.dry-run }}
-      git_user_name: ${{ inputs.git-user-name }}
-      git_user_email: ${{ inputs.git-user-email }}
     secrets: inherit
 
   open-pr:

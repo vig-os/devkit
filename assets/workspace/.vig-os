@@ -81,15 +81,45 @@ DEVKIT_SYNC_SCHEDULE=
 # flake — an unknown name aborts the scaffold loudly (#1284).
 DEVKIT_FEATURES_DISABLED=
 
-# Refs-line enforcement policy for the commit-message gate, driving BOTH the
-# validate-commit-msg pre-commit hook and CI's validate-commit-range from this
-# one key. Empty (default) resolves to `chore-optional` — every type but `chore`
+# Refs-line enforcement policy for the commit-message gate, driving the
+# validate-commit-msg pre-commit hook — scaffolded AND flake-generated (read by
+# flake.nix at eval time, #1434) — and CI's validate-commit-range from this one
+# key. Empty (default) resolves to `chore-optional` — every type but `chore`
 # requires a `Refs:` line — unchanged for devkit or existing consumers.
 # `optional` never requires Refs (any approved type may omit it); `required`
 # demands Refs on every type, `chore` included. Realized at scaffold time (an
 # anchored render of the hook arg + resolve-toolchain's `refs-optional-types`
 # output); written back only for a non-default value (#1282).
 DEVKIT_REFS_POLICY=
+
+# Approved commit types for the commit-message gate — a comma-separated
+# (whitespace-tolerant) FULL REPLACEMENT list driving the validate-commit-msg
+# hook's `--types` arg — scaffolded AND flake-generated (read by flake.nix at
+# eval time, #1434) — and CI's validate-commit-range from this one key.
+# Empty (default) resolves to the stock 11 types
+# (feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style) — unchanged
+# for devkit or existing consumers. Lowercase alphanumerics only (guarded
+# loudly at scaffold time). Keep `chore` and `build` unless deliberate:
+# Renovate / devkit-upgrade bot commits use them, and dropping either fails
+# those bot PRs in commit-checks (the scaffold prints a notice). Composes with
+# DEVKIT_REFS_POLICY: `optional` mirrors THIS list. Realized at scaffold time
+# (an anchored render of the hook arg + resolve-toolchain's `commit-types`
+# output); written back only for a non-empty value (#1431).
+DEVKIT_COMMIT_TYPES=
+
+# Issue-numbered branch types for the branch guard — a comma-separated
+# (whitespace-tolerant) FULL REPLACEMENT of the `<type>/<issue>-<summary>` set,
+# driving the local no-commit-to-branch hook, the flake-generated consumer
+# surface (read by flake.nix at eval time), and CI's branch-name gate from this
+# one key. Empty (default) resolves to the stock set
+# (feature,bugfix,hotfix,release,docs,test,refactor) — unchanged for devkit or
+# existing consumers. The `chore/<summary>`, `renovate/*`, and
+# `worktree/<issue>` clauses are never knob-driven. Lowercase alphanumerics
+# only (guarded loudly at scaffold time; the scaffold prints a notice when
+# `release` is dropped). Realized at scaffold time (an anchored render of the
+# hook pattern + resolve-toolchain's `branch-types` output); written back only
+# for a non-empty value (#1432).
+DEVKIT_BRANCH_TYPES=
 
 # Auto-upgrade opt-out for the scaffolded devkit-upgrade.yml workflow. Empty
 # (default) or any value other than `false` keeps the WEEKLY schedule path

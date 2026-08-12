@@ -17,26 +17,29 @@ and stages. Any hand edit to either YAML that is not mirrored in
 It also covers the consumer surface: ``mkProjectShell``'s ``hooks`` /
 ``hooksExcludes`` arguments (per-hook toggle/override, custom hooks, global
 excludes) and the zero-hooks-arg parity guarantee (no generation side effects
-unless a consumer opts in).
+unless a consumer opts in), including the stage-gated commit-message /
+agent-identity hooks and the commit-policy knobs that steer them (#1434).
 
-Refs: #883
+Refs: #883, #1434
 """
 
 from __future__ import annotations
 
+import functools
 import json
-import os
+import re
 import shlex
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 
-# Repository root (two levels up: tests/ -> repo root).
-REPO_ROOT = Path(__file__).resolve().parent.parent
+from .nix_helpers import REPO_ROOT
+from .nix_helpers import nix_env as _nix_env
 
 ROOT_CONFIG = REPO_ROOT / ".pre-commit-config.yaml"
 SCAFFOLD_CONFIG = REPO_ROOT / "assets" / "workspace" / ".pre-commit-config.yaml"
@@ -45,19 +48,6 @@ pytestmark = pytest.mark.skipif(
     shutil.which("nix") is None,
     reason="nix is not installed; flake hook fidelity tests require Nix",
 )
-
-
-def _nix_env() -> dict[str, str]:
-    """Environment for nix invocations with flakes enabled and the public cache."""
-    env = os.environ.copy()
-    env.setdefault(
-        "NIX_CONFIG",
-        "experimental-features = nix-command flakes\n"
-        "extra-substituters = https://vig-os.cachix.org\n"
-        "extra-trusted-public-keys = "
-        "vig-os.cachix.org-1:yoOYRi3bvnM6ThxO0joLt7vtzhTfkq3r6jykeUMg7Bk=",
-    )
-    return env
 
 
 def _run_nix(args: list[str], timeout: int = 600) -> subprocess.CompletedProcess[str]:
@@ -113,6 +103,17 @@ def _branch_guard(config: dict[str, Any]) -> str:
     the generated config's no-commit-to-branch entry.
     """
     return _normalize(config)["hooks"]["no-commit-to-branch"]["entry"]
+
+
+def _pattern_arg(hook: dict[str, Any]) -> str:
+    """The ``--pattern`` regex from a portable no-commit-to-branch args list.
+
+    The committed YAML artifacts carry the regex as the value following
+    ``--pattern`` in ``args`` (unlike the consumer surface, where git-hooks.nix
+    bakes it into ``entry`` — see ``_branch_guard``).
+    """
+    args = hook["args"]
+    return args[args.index("--pattern") + 1]
 
 
 def _diff_hooks(rendered: dict[str, Any], committed: dict[str, Any]) -> str:
@@ -310,15 +311,27 @@ class TestCommitMsgHookContract:
         assert "check-agent-identity" in scaffold
 
 
-@pytest.fixture(scope="module")
-def consumer_config() -> dict[str, Any]:
-    """Build the generated config for a customized consumer shell."""
+@functools.cache
+def _consumer_config_set() -> dict[str, dict[str, Any]]:
+    """Build every consumer hook config in ONE nix build (#1417).
+
+    The customized, gitleaks-enabled, trunk-workflow, branch-types and
+    commit-policy consumer shells are independent ``mkProjectShell`` calls
+    whose ``hooksConfigFile`` outputs are collected into a single ``linkFarm``,
+    so the suite pays one build instead of one per shell. Cached for the whole
+    pytest run.
+
+    ``pkgs`` is deliberately un-overlaid: the generated config must render from
+    a plain nixpkgs, so the commit-message hooks' vig-utils entries (#1434)
+    resolve through ``nix/vig-utils.nix`` rather than requiring the consumer to
+    have applied ``overlays.default`` first.
+    """
     expr = f"""
     let
       flake = builtins.getFlake "path:{REPO_ROOT}";
       system = builtins.currentSystem;
       pkgs = import flake.inputs.nixpkgs {{ inherit system; }};
-      shell = flake.lib.mkProjectShell {{
+      customized = flake.lib.mkProjectShell {{
         inherit pkgs;
         hooks = {{
           typos.enable = false;
@@ -333,46 +346,87 @@ def consumer_config() -> dict[str, Any]:
         }};
         hooksExcludes = [ "^data/stopping/" ];
       }};
-    in
-    shell.hooksConfigFile
-    """
-    result = _run_nix(
-        ["build", "--impure", "--no-link", "--print-out-paths", "--expr", expr],
-        timeout=1800,
-    )
-    assert result.returncode == 0, (
-        "building the generated hook config failed:\n" + result.stderr
-    )
-    # The generated file is JSON preceded by "# …" comment lines; YAML is
-    # a JSON superset that treats them as comments, so parse with yaml.
-    return yaml.safe_load(Path(result.stdout.strip()).read_text())
-
-
-@pytest.fixture(scope="module")
-def gitleaks_enabled_config() -> dict[str, Any]:
-    """Generated config for a consumer that opts into the gitleaks hook (#1172)."""
-    expr = f"""
-    let
-      flake = builtins.getFlake "path:{REPO_ROOT}";
-      system = builtins.currentSystem;
-      pkgs = import flake.inputs.nixpkgs {{ inherit system; }};
-      shell = flake.lib.mkProjectShell {{
+      gitleaks = flake.lib.mkProjectShell {{
         inherit pkgs;
         hooks = {{
           gitleaks.enable = true;
         }};
       }};
+      trunk = flake.lib.mkProjectShell {{
+        inherit pkgs;
+        workflow = "trunk";
+        hooks = {{ }};
+      }};
+      branchtypes = flake.lib.mkProjectShell {{
+        inherit pkgs;
+        hooks = {{ }};
+        branchTypes = [ "feature" "bugfix" "hotfix" "release" "docs" "test" "refactor" "record" ];
+      }};
+      branchtypes-trunk = flake.lib.mkProjectShell {{
+        inherit pkgs;
+        workflow = "trunk";
+        hooks = {{ }};
+        branchTypes = [ "feature" "bugfix" "record" ];
+      }};
+      commitpolicy = flake.lib.mkProjectShell {{
+        inherit pkgs;
+        hooks = {{ }};
+        commitTypes = [
+          "feat" "fix" "docs" "chore" "refactor" "perf" "test" "ci" "build"
+          "revert" "style" "record"
+        ];
+        refsPolicy = "optional";
+      }};
+      refsrequired = flake.lib.mkProjectShell {{
+        inherit pkgs;
+        hooks = {{ }};
+        refsPolicy = "required";
+      }};
     in
-    shell.hooksConfigFile
+    pkgs.linkFarm "consumer-hook-configs" [
+      {{ name = "customized"; path = customized.hooksConfigFile; }}
+      {{ name = "gitleaks"; path = gitleaks.hooksConfigFile; }}
+      {{ name = "trunk"; path = trunk.hooksConfigFile; }}
+      {{ name = "branchtypes"; path = branchtypes.hooksConfigFile; }}
+      {{ name = "branchtypes-trunk"; path = branchtypes-trunk.hooksConfigFile; }}
+      {{ name = "commitpolicy"; path = commitpolicy.hooksConfigFile; }}
+      {{ name = "refsrequired"; path = refsrequired.hooksConfigFile; }}
+    ]
     """
     result = _run_nix(
         ["build", "--impure", "--no-link", "--print-out-paths", "--expr", expr],
         timeout=1800,
     )
     assert result.returncode == 0, (
-        "building the gitleaks-enabled hook config failed:\n" + result.stderr
+        "building the consumer hook configs failed:\n" + result.stderr
     )
-    return yaml.safe_load(Path(result.stdout.strip()).read_text())
+    root = Path(result.stdout.strip())
+    # The generated files are JSON preceded by "# …" comment lines; YAML is
+    # a JSON superset that treats them as comments, so parse with yaml.
+    return {
+        name: yaml.safe_load((root / name).read_text())
+        for name in (
+            "customized",
+            "gitleaks",
+            "trunk",
+            "branchtypes",
+            "branchtypes-trunk",
+            "commitpolicy",
+            "refsrequired",
+        )
+    }
+
+
+@pytest.fixture(scope="module")
+def consumer_config() -> dict[str, Any]:
+    """The generated config for a customized consumer shell."""
+    return _consumer_config_set()["customized"]
+
+
+@pytest.fixture(scope="module")
+def gitleaks_enabled_config() -> dict[str, Any]:
+    """Generated config for a consumer that opts into the gitleaks hook (#1172)."""
+    return _consumer_config_set()["gitleaks"]
 
 
 class TestGitleaksOptInHook:
@@ -421,29 +475,10 @@ def trunk_consumer_config() -> dict[str, Any]:
     A ``DEVKIT_WORKFLOW=trunk`` workspace has no long-lived ``dev`` branch, so
     the flake-generated branch guard must drop the ``(?!dev$)`` clause — exactly
     what ``render_workflow_model`` does to the scaffolded YAML. Mirrors the
-    ``consumer_config`` fixture but threads ``workflow = "trunk"``.
+    ``consumer_config`` fixture but threads ``workflow = "trunk"`` (built in
+    the same single derivation set, #1417).
     """
-    expr = f"""
-    let
-      flake = builtins.getFlake "path:{REPO_ROOT}";
-      system = builtins.currentSystem;
-      pkgs = import flake.inputs.nixpkgs {{ inherit system; }};
-      shell = flake.lib.mkProjectShell {{
-        inherit pkgs;
-        workflow = "trunk";
-        hooks = {{ }};
-      }};
-    in
-    shell.hooksConfigFile
-    """
-    result = _run_nix(
-        ["build", "--impure", "--no-link", "--print-out-paths", "--expr", expr],
-        timeout=1800,
-    )
-    assert result.returncode == 0, (
-        "building the trunk-workflow hook config failed:\n" + result.stderr
-    )
-    return yaml.safe_load(Path(result.stdout.strip()).read_text())
+    return _consumer_config_set()["trunk"]
 
 
 class TestWorkflowModelBranchGuard:
@@ -499,6 +534,462 @@ class TestWorkflowModelBranchGuard:
         result = _run_nix(["eval", "--impure", "--raw", "--expr", expr])
         assert result.returncode != 0
         assert "workflow" in result.stderr
+
+
+class TestRenovateBranchAllowance:
+    """The default branch guard admits Renovate's tool-owned namespace (#1433).
+
+    The Renovate app commits server-side, where local hooks never run — but
+    maintainer fix-up commits on ``renovate/*`` branches (changelog conflict
+    merges, ``dist/`` rebuilds) are a real flow the guard used to block,
+    forcing a commit-on-a-compliant-branch-then-push-to-ref workaround.
+    Renovate branch names carry no issue number and use a charset outside the
+    slug rule (live example: ``renovate/github-actions-(minor-and-patch)``),
+    so the namespace gets its own lookahead clause next to ``worktree/<n>``
+    rather than a ``DEVKIT_BRANCH_TYPES`` value.
+
+    ``no-commit-to-branch`` BLOCKS a branch whose name matches ``--pattern``,
+    so "allowed" asserts the regex does NOT match.
+    """
+
+    ALLOWED = (
+        "renovate/lock-file-maintenance",
+        "renovate/github-actions-(minor-and-patch)",
+    )
+    BLOCKED = (
+        # Prefix confusion is not the Renovate namespace.
+        "renovated/x",
+        # The guard still bites outside every allowance clause.
+        "random-branch",
+    )
+
+    def test_runner_render_allows_renovate_branches(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """The committed runner/scaffold pattern admits renovate/* only."""
+        pattern = _pattern_arg(
+            _normalize(rendered_portable["runner"])["hooks"]["no-commit-to-branch"]
+        )
+        for branch in self.ALLOWED:
+            assert re.match(pattern, branch) is None, f"{branch} must be allowed"
+        for branch in self.BLOCKED:
+            assert re.match(pattern, branch) is not None, f"{branch} must be blocked"
+
+    def test_consumer_surface_carries_renovate_allowance(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """The flake-generated (gitflow) guard carries the same clause."""
+        assert "(?!^renovate/.+$)" in _branch_guard(consumer_config)
+
+    def test_trunk_consumer_keeps_renovate_allowance(
+        self, trunk_consumer_config: dict[str, Any]
+    ) -> None:
+        """The trunk variant drops only the dev clause, never this one."""
+        assert "(?!^renovate/.+$)" in _branch_guard(trunk_consumer_config)
+
+
+@pytest.fixture(scope="module")
+def branch_types_config() -> dict[str, Any]:
+    """Generated config for a consumer passing a custom ``branchTypes`` (#1432)."""
+    return _consumer_config_set()["branchtypes"]
+
+
+@pytest.fixture(scope="module")
+def branch_types_trunk_config() -> dict[str, Any]:
+    """Custom ``branchTypes`` composed with ``workflow = "trunk"`` (#1432)."""
+    return _consumer_config_set()["branchtypes-trunk"]
+
+
+class TestBranchTypesKnob:
+    """mkProjectShell's ``branchTypes`` argument (#1432).
+
+    ``DEVKIT_BRANCH_TYPES`` steers the issue-numbered alternation of the
+    branch guard. The scaffolded YAML render is covered in bats; here the
+    flake-generated consumer surface must follow the same set — the template
+    flake.nix reads the key from ``.vig-os`` and forwards it, mirroring the
+    #1224 ``workflow`` threading. Null (the default) keeps the stock
+    alternation byte-identical, so the drift gate and the zero-hooks parity
+    stay green.
+    """
+
+    STOCK_ALTERNATION = "(feature|bugfix|hotfix|release|docs|test|refactor)"
+
+    def test_custom_types_extend_alternation(
+        self, branch_types_config: dict[str, Any]
+    ) -> None:
+        """The custom set renders into the issue-numbered alternation."""
+        entry = _branch_guard(branch_types_config)
+        assert "(feature|bugfix|hotfix|release|docs|test|refactor|record)" in entry
+
+    def test_custom_types_regex_semantics(
+        self, branch_types_config: dict[str, Any]
+    ) -> None:
+        """``record/<issue>-<slug>`` commits pass; issue-less record stays blocked."""
+        pattern = _branch_guard(branch_types_config).split("--pattern ")[1]
+        assert re.match(pattern, "record/54-supplier-x") is None
+        assert re.match(pattern, "record/no-issue") is not None
+
+    def test_null_default_keeps_stock_alternation(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """A consumer not passing ``branchTypes`` keeps the stock pattern."""
+        assert self.STOCK_ALTERNATION in _branch_guard(consumer_config)
+
+    def test_composes_with_trunk_workflow(
+        self, branch_types_trunk_config: dict[str, Any]
+    ) -> None:
+        """Custom types and the trunk dev-clause drop apply together."""
+        entry = _branch_guard(branch_types_trunk_config)
+        assert "(feature|bugfix|record)" in entry
+        assert "(?!dev$)" not in entry
+        assert "(?!main$)" in entry
+
+    @pytest.mark.parametrize(
+        "bad_types",
+        [
+            pytest.param('[ "feature" "Bad-Type" ]', id="bad-charset"),
+            pytest.param("[ ]", id="empty-list"),
+        ],
+    )
+    def test_invalid_branch_types_rejected(self, bad_types: str) -> None:
+        """A malformed ``branchTypes`` list is refused loudly at eval time."""
+        expr = f"""
+        let
+          flake = builtins.getFlake "path:{REPO_ROOT}";
+          system = builtins.currentSystem;
+          pkgs = import flake.inputs.nixpkgs {{ inherit system; }};
+        in
+        (flake.lib.mkProjectShell {{
+          inherit pkgs;
+          branchTypes = {bad_types};
+          hooks = {{ }};
+        }}).drvPath
+        """
+        result = _run_nix(["eval", "--impure", "--raw", "--expr", expr])
+        assert result.returncode != 0
+        assert "branchTypes" in result.stderr
+
+
+STOCK_COMMIT_TYPES = "feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style"
+# The argv the scaffolded .pre-commit-config.yaml ships with every knob unset —
+# the default the flake-generated surface must reproduce exactly (#1434).
+STOCK_VALIDATE_ARGS = [
+    "--types",
+    STOCK_COMMIT_TYPES,
+    "--refs-optional-types",
+    "chore",
+    "--blocked-patterns",
+    ".github/agent-blocklist.toml",
+]
+
+
+def _arg_value(hook: dict[str, Any], flag: str) -> str:
+    """The value following ``flag`` in a hook's rendered ``args`` list."""
+    args = hook["args"]
+    return args[args.index(flag) + 1]
+
+
+class TestCommitMsgHooksConsumerSurface:
+    """The #163/#1019/#1031 hooks reach flake-generated consumers (#1434).
+
+    A direnv consumer on flake-generated hooks (#1167 default) got a
+    ``.pre-commit-config.yaml`` with no ``commit-msg``/``prepare-commit-msg``
+    stage at all, so the scaffolded ``.githooks/commit-msg`` shim
+    (``prek run --hook-stage commit-msg``) exited 0 with nothing to run, and
+    ``check-agent-identity`` was absent too — ``git commit --author="Claude
+    <…>"`` passed locally. The three hooks must render on the consumer surface
+    with the same stages and argv the scaffolded YAML carries.
+    """
+
+    IDS = (
+        "validate-commit-msg",
+        "prepare-commit-msg-strip-trailers",
+        "check-agent-identity",
+    )
+
+    def test_all_three_hooks_reach_the_consumer_surface(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        hooks = _normalize(consumer_config)["hooks"]
+        for hook_id in self.IDS:
+            assert hook_id in hooks, (
+                f"{hook_id} missing from the flake-generated consumer config — "
+                "local commit-message/agent-identity enforcement is a no-op (#1434)"
+            )
+
+    def test_validate_commit_msg_runs_at_the_commit_msg_stage(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """Without this stage the ``.githooks/commit-msg`` shim has nothing to run."""
+        hook = _normalize(consumer_config)["hooks"]["validate-commit-msg"]
+        assert hook["stages"] == ["commit-msg"]
+
+    def test_strip_trailers_runs_at_the_prepare_commit_msg_stage(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """Trailers are stripped BEFORE the validator's blocklist gate sees them."""
+        hook = _normalize(consumer_config)["hooks"]["prepare-commit-msg-strip-trailers"]
+        assert hook["stages"] == ["prepare-commit-msg"]
+        assert hook["pass_filenames"] is True
+
+    def test_check_agent_identity_stays_a_pre_commit_hook(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """It guards the author/committer, so it runs on the pre-commit stage."""
+        hook = _normalize(consumer_config)["hooks"]["check-agent-identity"]
+        assert hook["stages"] == ["pre-commit"]
+        assert hook["pass_filenames"] is False
+
+    def test_entries_resolve_the_pinned_vig_utils(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """Store-path entries, not ``uv run``: the consumer venv has no vig-utils.
+
+        Every other tool-naming consumer fragment (nixfmt, statix, deadnix,
+        just-fmt, gitleaks, pymarkdown) resolves a ``pkgs.<tool>`` store path,
+        so the hook follows the devkit pin the consumer bumps with
+        ``nix flake update vigos`` instead of whatever the project venv happens
+        to hold.
+        """
+        hooks = _normalize(consumer_config)["hooks"]
+        for hook_id in self.IDS:
+            entry = hooks[hook_id]["entry"]
+            assert entry.startswith("/nix/store/"), (
+                f"{hook_id} entry is not a store path: {entry!r}"
+            )
+            assert entry.endswith(f"/bin/{hook_id}"), entry
+            assert hooks[hook_id]["language"] == "system"
+
+    def test_default_args_match_the_scaffolded_render(
+        self, consumer_config: dict[str, Any], rendered_portable: dict[str, Any]
+    ) -> None:
+        """Default-render stability: both surfaces ship identical argv (#1434).
+
+        A docker-mode consumer (scaffolded YAML) and a direnv consumer
+        (flake-generated) must enforce the same rule with the knobs unset —
+        the hook/CI desync class #1074 and #1282 exist to prevent.
+        """
+        consumer = _normalize(consumer_config)["hooks"]["validate-commit-msg"]
+        scaffold = _normalize(rendered_portable["scaffold"])["hooks"][
+            "validate-commit-msg"
+        ]
+        assert consumer["args"] == scaffold["args"] == STOCK_VALIDATE_ARGS
+
+
+@functools.cache
+def _vig_utils_console_scripts() -> frozenset[str]:
+    """Console scripts vig-utils installs.
+
+    Read from ``packages/vig-utils/pyproject.toml`` rather than hardcoded, so
+    the class-wide guard below covers every current *and* future script
+    without a second list to keep in sync.
+    """
+    data = tomllib.loads(
+        (REPO_ROOT / "packages" / "vig-utils" / "pyproject.toml").read_text()
+    )
+    return frozenset(data["project"]["scripts"])
+
+
+class TestCheckExpirationsConsumerSurface:
+    """``check-expirations`` resolves the pinned vig-utils too (#1447).
+
+    It was the last vig-utils hook whose consumer fragment shelled out to
+    ``uv run``, i.e. to the *consumer's* project venv — which carries no
+    vig-utils, and which many consumers do not have at all (no
+    ``pyproject.toml``). Same defect and same fix as the three hooks of #1434.
+    """
+
+    def test_entry_resolves_the_pinned_vig_utils(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """Store-path entry, so the hook follows the consumer's devkit pin."""
+        entry = _normalize(consumer_config)["hooks"]["check-expirations"]["entry"]
+        argv = shlex.split(entry)
+        assert argv[0].startswith("/nix/store/"), (
+            f"check-expirations entry is not a store path: {entry!r}"
+        )
+        assert argv[0].endswith("/bin/check-expirations"), entry
+
+    def test_scope_and_argv_match_the_scaffolded_render(
+        self, consumer_config: dict[str, Any], rendered_portable: dict[str, Any]
+    ) -> None:
+        """Only the resolution changes: the hook still guards the same files.
+
+        A docker-mode consumer (scaffolded YAML) and a direnv consumer
+        (flake-generated) must enforce the same expiries over the same paths.
+        """
+        consumer = _normalize(consumer_config)["hooks"]["check-expirations"]
+        scaffold = _normalize(rendered_portable["scaffold"])["hooks"][
+            "check-expirations"
+        ]
+        scaffold_argv = shlex.split(scaffold["entry"])
+        assert scaffold_argv[:3] == ["uv", "run", "check-expirations"]
+        assert shlex.split(consumer["entry"])[1:] == [".trivyignore", ".vulnixignore"]
+        assert scaffold_argv[3:] == shlex.split(consumer["entry"])[1:]
+        assert consumer["files"] == scaffold["files"]
+        assert consumer["language"] == "system"
+        assert consumer["pass_filenames"] is False
+
+    def test_portable_render_keeps_the_uv_run_entry(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """The committed YAMLs stay PATH-portable — no store-path churn.
+
+        Only the *consumer* (flake-generated) fragment resolves a store path;
+        the runner and scaffold renders are committed artifacts pinned by the
+        drift gate, so they keep the ``uv run`` form (docs/NIX.md).
+        """
+        for render in ("runner", "scaffold"):
+            entry = _normalize(rendered_portable[render])["hooks"]["check-expirations"][
+                "entry"
+            ]
+            assert entry.startswith("uv run check-expirations "), (render, entry)
+
+
+class TestNoConsumerHookResolvesVigUtilsThroughTheVenv:
+    """Class-wide guard for the #1434/#1447 defect, on every consumer shell.
+
+    A ``uv run <vig-utils script>`` entry on the consumer surface resolves
+    against the *consumer's* project venv, which devkit neither controls nor
+    can assume exists. Every consumer fragment that names a vig-utils console
+    script must resolve a ``nix/vig-utils.nix`` store path instead. Pinning
+    the class — rather than one hook at a time — is what keeps the next hook
+    added to ``nix/hooks.nix`` from reintroducing it.
+    """
+
+    def test_every_vig_utils_entry_is_a_store_path(self) -> None:
+        scripts = _vig_utils_console_scripts()
+        offenders: list[str] = []
+        for shell, config in _consumer_config_set().items():
+            for hook_id, hook in _normalize(config)["hooks"].items():
+                argv = shlex.split(hook.get("entry") or "")
+                if not argv:
+                    continue
+                names = {Path(argv[0]).name, *(argv[1:3] if argv[0] == "uv" else [])}
+                if not names & scripts:
+                    continue
+                if not argv[0].startswith("/nix/store/"):
+                    offenders.append(f"{shell}:{hook_id}: {hook['entry']!r}")
+        assert not offenders, (
+            "consumer hook entries resolve vig-utils through the project venv "
+            "instead of the pinned store path (#1434, #1447):\n  "
+            + "\n  ".join(offenders)
+        )
+
+
+@pytest.fixture(scope="module")
+def commit_policy_config() -> dict[str, Any]:
+    """Generated config for custom ``commitTypes`` + ``refsPolicy = optional``."""
+    return _consumer_config_set()["commitpolicy"]
+
+
+@pytest.fixture(scope="module")
+def refs_required_config() -> dict[str, Any]:
+    """Generated config for ``refsPolicy = "required"`` (#1282)."""
+    return _consumer_config_set()["refsrequired"]
+
+
+class TestCommitPolicyKnobsOnTheFlakeSurface:
+    """``commitTypes`` / ``refsPolicy`` on mkProjectShell (#1434).
+
+    #1431 (``DEVKIT_COMMIT_TYPES``) and #1282 (``DEVKIT_REFS_POLICY``) render
+    into the scaffolded YAML and CI's ``validate-commit-range``; a direnv
+    consumer's local hook comes from ``mkProjectShell`` instead, so the same
+    two keys must reach it — threaded like ``workflow`` (#1224) and
+    ``branchTypes`` (#1432). The resolution semantics (defaults, charset,
+    the ``optional`` mirror of the resolved types list, the ``required``
+    ``none`` sentinel) must match ``render_commit_types`` /
+    ``render_refs_policy`` in ``assets/init-workspace.sh`` and
+    ``resolve-toolchain`` exactly — two renderers, one key.
+    """
+
+    def test_custom_commit_types_render_into_the_types_arg(
+        self, commit_policy_config: dict[str, Any]
+    ) -> None:
+        hook = _normalize(commit_policy_config)["hooks"]["validate-commit-msg"]
+        assert _arg_value(hook, "--types") == f"{STOCK_COMMIT_TYPES},record"
+
+    def test_refs_policy_optional_mirrors_the_resolved_commit_types(
+        self, commit_policy_config: dict[str, Any]
+    ) -> None:
+        """The #1431 composition fix, on the flake surface.
+
+        ``optional`` must mirror the RESOLVED types list, never a hardcoded
+        copy of the stock 11 — otherwise the hook requires ``Refs:`` for a
+        custom type it just accepted.
+        """
+        hook = _normalize(commit_policy_config)["hooks"]["validate-commit-msg"]
+        assert _arg_value(hook, "--refs-optional-types") == _arg_value(hook, "--types")
+
+    def test_refs_policy_required_uses_the_none_sentinel(
+        self, refs_required_config: dict[str, Any]
+    ) -> None:
+        """An empty list reads as falsy to the CLI, so ``required`` sends ``none``."""
+        hook = _normalize(refs_required_config)["hooks"]["validate-commit-msg"]
+        assert _arg_value(hook, "--refs-optional-types") == "none"
+        assert _arg_value(hook, "--types") == STOCK_COMMIT_TYPES
+
+    def test_unset_knobs_keep_the_stock_argv(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """Null/absent knobs resolve to today's behavior, byte for byte."""
+        hook = _normalize(consumer_config)["hooks"]["validate-commit-msg"]
+        assert hook["args"] == STOCK_VALIDATE_ARGS
+
+    @pytest.mark.parametrize(
+        ("arg", "value", "message"),
+        [
+            pytest.param(
+                "commitTypes",
+                '[ "feat" "Bad-Type" ]',
+                "commitTypes",
+                id="types-charset",
+            ),
+            pytest.param("commitTypes", "[ ]", "commitTypes", id="types-empty"),
+            pytest.param(
+                "refsPolicy", '"garbage"', "refsPolicy", id="refs-policy-enum"
+            ),
+        ],
+    )
+    def test_invalid_values_are_refused_at_eval_time(
+        self, arg: str, value: str, message: str
+    ) -> None:
+        """A bad value fails loudly, mirroring init-workspace.sh's loud abort."""
+        expr = f"""
+        let
+          flake = builtins.getFlake "path:{REPO_ROOT}";
+          system = builtins.currentSystem;
+          pkgs = import flake.inputs.nixpkgs {{ inherit system; }};
+        in
+        (flake.lib.mkProjectShell {{
+          inherit pkgs;
+          {arg} = {value};
+          hooks = {{ }};
+        }}).drvPath
+        """
+        result = _run_nix(["eval", "--impure", "--raw", "--expr", expr])
+        assert result.returncode != 0
+        assert message in result.stderr
+
+    def test_template_flake_reads_and_forwards_both_knobs(self) -> None:
+        """The scaffolded flake.nix wires ``.vig-os`` -> ``mkProjectShell``.
+
+        Same one-time port as #1224/#1432: the reader lives in the
+        scaffold-once ``flake.nix``, and the forwarding is gated behind a
+        ``builtins.functionArgs`` probe so a floating ``vigos`` input that
+        predates the argument still evaluates (#1249).
+        """
+        flake = (REPO_ROOT / "assets" / "workspace" / "flake.nix").read_text()
+        for key, arg in (
+            ("DEVKIT_COMMIT_TYPES", "commitTypes"),
+            ("DEVKIT_REFS_POLICY", "refsPolicy"),
+        ):
+            assert f'"{key}"' in flake, f"flake.nix does not read {key} from .vig-os"
+            assert f"inherit {arg};" in flake, f"flake.nix does not forward `{arg}`"
+            assert f"builtins.functionArgs vigos.lib.mkProjectShell ? {arg}" in flake, (
+                f"flake.nix forwards `{arg}` unconditionally — the floating vigos "
+                "input may resolve a devkit that predates the argument (#1249)"
+            )
 
 
 @pytest.fixture(scope="module")
@@ -669,14 +1160,12 @@ class TestZeroHooksParity:
         paths = json.loads(result.stdout)
         assert paths["default"] == paths["zeroHooks"]
 
-    def test_zero_hooks_shellhook_has_no_generation(self) -> None:
+    def test_zero_hooks_shellhook_has_no_generation(
+        self, default_shellhook: str
+    ) -> None:
         """The default shellHook carries no git-hooks.nix installation script."""
-        result = _run_nix(
-            ["eval", "--raw", ".#devShells.x86_64-linux.default.shellHook"],
-        )
-        assert result.returncode == 0, result.stderr
-        assert ".pre-commit-config.yaml" not in result.stdout
-        assert "git-hooks.nix" not in result.stdout
+        assert ".pre-commit-config.yaml" not in default_shellhook
+        assert "git-hooks.nix" not in default_shellhook
 
     def test_opted_in_shellhook_installs_config(self, opted_in_shellhook: str) -> None:
         """Opting in wires the config installation into the shellHook.
@@ -724,8 +1213,8 @@ class TestGithooksPathWiring:
     so commit-time hooks (pre-commit / commit-msg via prek) were silently
     inactive until the consumer set it by hand. The base shellHook now mirrors
     the devcontainer, guarded so it only touches a scaffold-shaped repo and
-    never fights the worktree flow (justfile.worktree unsets core.hooksPath and
-    installs prek hooks directly in a linked worktree).
+    never fights the worktree flow (since #1463 justfile.worktree keeps a
+    configured core.hooksPath and prek-installs only when none is set).
     """
 
     def test_default_shellhook_sets_core_hookspath_to_githooks(

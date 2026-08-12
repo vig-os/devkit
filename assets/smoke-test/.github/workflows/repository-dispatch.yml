@@ -1,9 +1,11 @@
 name: Repository Dispatch Listener
 #
 # Purpose:
-# - Handle cross-repo `repository_dispatch` events from vig-os/devcontainer.
+# - Handle cross-repo `repository_dispatch` events from vig-os/devkit.
 # - Deploy the requested tag into the smoke-test repo.
-# - Always create a `chore/deploy-<tag>` branch and PR to `dev`.
+# - Always create a `chore/deploy-<tag-with-dashes>` branch (dots mapped to
+#   dashes: the scaffolded CI branch-name gate, vig-os/devkit#1432, and the
+#   local guard both reject dots in chore slugs) and PR to `dev`.
 # - Create signed deploy commits via `vig-os/commit-action`.
 # - CI (`ci.yml`) triggers on the deploy PR.
 #
@@ -274,13 +276,39 @@ jobs:
             exit 0
           fi
           tmp="$(mktemp)"
+          # Bounded at the next ^## [ heading (#1403): the old version never
+          # cleared in_unreleased, so with an empty Unreleased the bullet
+          # leaked into the first ### Changed of a RELEASED section. When
+          # Unreleased lacks a ### Changed subheading, synthesize one so the
+          # bullet still lands inside Unreleased (defensive: prepare-changelog
+          # always emits the full category skeleton).
           awk -v tag="$TAG" '
-            { print }
-            /^## Unreleased$/ {in_unreleased=1; next}
-            in_unreleased && /^### Changed$/ {
+            function emit_entry() {
               print ""
               print "- **Smoke-test deploy of " tag "** -- automated devcontainer release-pipeline validation; no functional changes"
+              seeded=1
+            }
+            /^## Unreleased$/ {print; in_unreleased=1; next}
+            in_unreleased && !seeded && /^## \[/ {
+              print "### Changed"
+              emit_entry()
+              print ""
               in_unreleased=0
+              print
+              next
+            }
+            in_unreleased && !seeded && /^### Changed$/ {
+              print
+              emit_entry()
+              in_unreleased=0
+              next
+            }
+            { print }
+            END {
+              if (in_unreleased && !seeded) {
+                print "### Changed"
+                emit_entry()
+              }
             }
           ' CHANGELOG.md > "$tmp"
           mv "$tmp" CHANGELOG.md
@@ -304,7 +332,7 @@ jobs:
           GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
           TAG: ${{ needs.validate.outputs.tag }}
         run: |
-          BRANCH_NAME="chore/deploy-${TAG}"
+          BRANCH_NAME="chore/deploy-${TAG//./-}"
           echo "branch_name=${BRANCH_NAME}" >> "${GITHUB_OUTPUT}"
 
           DEV_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/dev" --jq '.object.sha')"
@@ -330,6 +358,50 @@ jobs:
           COMMIT_MESSAGE: |-
             chore: deploy ${{ needs.validate.outputs.tag }}
           FILE_PATHS: .
+
+      # commit-action builds its tree additively from working-tree contents, so
+      # paths the installer DELETED — retired scaffold paths (#1348), or anything
+      # the smoke-mode rsync --delete render no longer ships — never reach the
+      # deploy branch, and the scaffold-drift gate rejects the PR
+      # (vig-os/devkit#1443). Publish those deletions as an explicit follow-up
+      # commit: a null-sha tree entry removes a path. Same tree-API pattern as
+      # the scaffolded devkit-upgrade.yml, and an App-token API commit is
+      # GitHub-verified just like the commit-action one.
+      - name: Publish installer deletions via verified API commit
+        env:
+          GH_TOKEN: ${{ steps.generate_commit_token.outputs.token }}
+          BRANCH: ${{ steps.prepare_branch.outputs.branch_name }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t DELETED < <(git ls-files --deleted)
+          if [ "${#DELETED[@]}" -eq 0 ]; then
+            echo "No installer deletions to publish."
+            exit 0
+          fi
+
+          REPO="${GITHUB_REPOSITORY}"
+          HEAD_SHA="$(gh api "repos/${REPO}/git/ref/heads/${BRANCH}" --jq '.object.sha')"
+          BASE_TREE="$(gh api "repos/${REPO}/git/commits/${HEAD_SHA}" --jq .tree.sha)"
+
+          entries='[]'
+          for path in "${DELETED[@]}"; do
+            echo "  deleting ${path}"
+            entries="$(jq --arg p "$path" \
+              '. + [{path: $p, mode: "100644", type: "blob", sha: null}]' \
+              <<<"$entries")"
+          done
+
+          TREE="$(jq -n --argjson t "$entries" --arg b "$BASE_TREE" \
+            '{base_tree: $b, tree: $t}' \
+            | gh api -X POST "repos/${REPO}/git/trees" --input - --jq .sha)"
+          MESSAGE="$(printf 'chore: remove paths the %s render no longer ships' "$TAG")"
+          COMMIT="$(jq -n --arg m "$MESSAGE" --arg t "$TREE" --arg p "$HEAD_SHA" \
+            '{message: $m, tree: $t, parents: [$p]}' \
+            | gh api -X POST "repos/${REPO}/git/commits" --input - --jq .sha)"
+          gh api -X PATCH "repos/${REPO}/git/refs/heads/${BRANCH}" \
+            -f sha="$COMMIT" -F force=true >/dev/null
+          echo "Published ${#DELETED[@]} deletion(s) as ${COMMIT}."
 
       - name: Create deploy PR
         id: create_pr
@@ -1035,7 +1107,7 @@ jobs:
           client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           owner: vig-os
-          repositories: devcontainer
+          repositories: devkit
 
       - name: Create upstream failure issue
         env:

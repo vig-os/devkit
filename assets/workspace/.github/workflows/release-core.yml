@@ -20,16 +20,6 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: false
         type: boolean
-      git_user_name:
-        description: "Git user name for release commits"
-        required: false
-        default: "github-actions[bot]"
-        type: string
-      git_user_email:
-        description: "Git user email for release commits"
-        required: false
-        default: "41898282+github-actions[bot]@users.noreply.github.com"
-        type: string
       rc_number:
         description: "Candidate RC index (e.g. 21 for X.Y.Z-rc21). Omit to auto-increment from existing tags."
         required: false
@@ -96,6 +86,15 @@ on:  # yamllint disable-line rule:truthy
       finalize_sha:
         description: "Release branch SHA after finalization"
         value: ${{ jobs.finalize.outputs.finalize_sha }}
+      finalize_result:
+        # jobs.finalize.result would be the natural source, but actionlint's
+        # jobs-context type for workflow_call outputs only carries `outputs`,
+        # so the ran/skipped signal is derived from a first-step marker.
+        description: "'ran' when the finalize job started, 'skipped' when it never ran (#1462)"
+        value: ${{ jobs.finalize.outputs.finalize_ran == 'true' && 'ran' || 'skipped' }}
+      finalize_commit_sha:
+        description: "Exact commit SHA the finalize job pushed (empty when none) (#1462)"
+        value: ${{ jobs.finalize.outputs.finalize_commit_sha }}
       tag_already_exists:
         description: "Remote publish tag already exists at finalize SHA (retry path)"
         value: ${{ jobs.finalize.outputs.tag_already_exists }}
@@ -378,6 +377,7 @@ jobs:
       actions: read
       contents: read
       packages: read
+      pull-requests: read    # bot-PR metadata for changelog synthesis (#1423)
     container:
       image: ${{ inputs.toolchain_image }}
       credentials:
@@ -391,8 +391,19 @@ jobs:
     outputs:
       finalize_sha: ${{ steps.finalize.outputs.finalize_sha }}
       tag_already_exists: ${{ steps.tag_state.outputs.tag_already_exists }}
+      # Exact commit this job pushed: the caller's rollback job refuses to
+      # touch the branch unless its tip matches what this run wrote (#1462).
+      finalize_commit_sha: ${{ steps.finalize_commit.outputs.commit-sha }}
+      # Set by the first step, so a skipped job yields an empty string: the
+      # rollback job must not touch the branch when finalize never ran (#1462).
+      finalize_ran: ${{ steps.started.outputs.value }}
 
     steps:
+      # Ran/skipped marker for the finalize_result workflow output (#1462).
+      - name: Mark finalize as started
+        id: started
+        run: echo "value=true" >> "$GITHUB_OUTPUT"
+
       - name: Generate commit app token
         id: commit_app_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
@@ -432,6 +443,21 @@ jobs:
         with:
           mode: ${{ inputs.toolchain_mode }}
           devkit-version: ${{ inputs.devkit_version }}
+
+      # Regenerate the bot-entry block inside [VERSION] - TBD before stamping
+      # the date: any bot PR merged into the release branch mid-train is
+      # reachable from HEAD here, so it cannot ship unchronicled (#1423).
+      # Candidates stay changelog-neutral, matching the rest of finalize.
+      - name: Synthesize bot changelog entries
+        if: ${{ inputs.release_kind == 'final' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
+          VERSION: ${{ needs.validate.outputs.version }}
+          TAG_PREFIX: ${{ inputs.tag_prefix }}
+        run: |
+          set -euo pipefail
+          synthesize-bot-changelog --version "$VERSION" --tag-prefix "$TAG_PREFIX"
 
       - name: Finalize CHANGELOG date
         if: ${{ inputs.release_kind == 'final' }}
@@ -494,6 +520,7 @@ jobs:
 
       - name: Commit and push finalization changes via API
         if: ${{ inputs.release_kind == 'final' }}
+        id: finalize_commit
         uses: vig-os/commit-action@0361e9aa65b64711a18286ac5dfdcba7cc7a2ac7  # v0.3.2
         env:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
