@@ -740,8 +740,12 @@ let
         };
     };
     # Security exception expiry enforcement (#566). Ships to the scaffold
-    # (consumer repos carry .trivyignore/.vulnixignore too), so the
-    # consumer render keeps the PATH-portable `uv run` entry.
+    # (consumer repos carry .trivyignore/.vulnixignore too), so the committed
+    # YAML renders keep the PATH-portable `uv run` entry, while the consumer
+    # fragment resolves a nix/vig-utils.nix store path like every other
+    # tool-naming consumer fragment (#1447, same defect as #1434): `uv run`
+    # resolves against the *consumer's* project venv, which carries no
+    # vig-utils and which many consumers do not have at all.
     check-expirations = {
       scaffold = true;
       yaml = {
@@ -761,10 +765,10 @@ let
           files = expirationsFiles;
           pass_filenames = false;
         };
-      consumer = _: {
+      consumer = pkgs: {
         enable = true;
         name = "check-expirations";
-        entry = "uv run check-expirations .trivyignore .vulnixignore";
+        entry = "${import ./vig-utils.nix pkgs}/bin/check-expirations .trivyignore .vulnixignore";
         language = "system";
         files = expirationsFiles;
         pass_filenames = false;
