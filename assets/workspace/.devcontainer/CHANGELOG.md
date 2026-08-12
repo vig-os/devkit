@@ -189,6 +189,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`just worktree-start` no longer unsets `core.hooksPath` repo-wide** ([#1463](https://github.com/vig-os/devkit/issues/1463))
+  - `core.hooksPath` is shared repo config, so unsetting it from inside the
+    new linked worktree silently disarmed the main checkout's tracked
+    `.githooks` shims — the
+    [#1430](https://github.com/vig-os/devkit/issues/1430) failure mode,
+    self-inflicted by a primary devkit workflow
+  - A relative `core.hooksPath` resolves against each worktree's root and
+    `.githooks` is tracked, so when it is set the tracked shims already cover
+    every hook stage in the new worktree: `worktree-start` now leaves the
+    config untouched and skips the `prek install`, falling back to the old
+    install-into-shared-`.git/hooks` path only when no hooks path is
+    configured at all
+  - Fixed in both copies (devkit's `justfile.worktree` and the scaffolded
+    `.devcontainer/justfile.worktree`), pinned by bats tests driving the real
+    recipe in a sandbox repo
 - **`just doctor` no longer calls the git hooks inert inside a linked worktree** ([#1454](https://github.com/vig-os/devkit/issues/1454))
   - `just worktree-start` unsets `core.hooksPath` in the worktree on purpose —
     prek refuses to install its shims while it is set — and installs those
