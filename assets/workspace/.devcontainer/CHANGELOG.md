@@ -32,6 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Allow `renovate/*` branches in the branch guard** ([#1433](https://github.com/vig-os/devkit/issues/1433))
+  - The `no-commit-to-branch` pattern (committed hook config, scaffold
+    template, and flake-generated consumer surface) now admits Renovate's
+    tool-owned branch namespace, so maintainer fix-up commits on Renovate PRs
+    (changelog conflict merges, `dist/` rebuilds) no longer need the
+    commit-on-a-compliant-branch-then-`git push HEAD:renovate/…` workaround
 - **Mirror-mode consumers integrate the issue archive via the release train** ([#1424](https://github.com/vig-os/devkit/issues/1424))
   - With `DEVKIT_SYNC_TARGET` set, the scaffolded `release-core.yml` final leg
     now dispatches sync-issues onto the **mirror** (the only branch that may

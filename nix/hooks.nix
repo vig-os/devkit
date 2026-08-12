@@ -25,8 +25,8 @@
 { lib }:
 let
   # Topic-branch naming convention enforced by no-commit-to-branch:
-  # chore/<summary>, <type>/<issue>-<summary>, worktree/<issue>; main and dev
-  # are allowed (pushing there is blocked server-side, not here).
+  # chore/<summary>, <type>/<issue>-<summary>, worktree/<issue>, renovate/*;
+  # main and dev are allowed (pushing there is blocked server-side, not here).
   #
   # Workflow-model aware (#1224): the `(?!dev$)` clause protects the long-lived
   # gitflow `dev` branch, which a trunk workspace does not have — so the trunk
@@ -35,12 +35,19 @@ let
   # `.pre-commit-config.yaml`. The committed runner/scaffold YAML stays gitflow
   # (its trunk render is the scaffold path's job); only the flake-generated
   # consumer surface follows `workflow`.
+  #
+  # The `renovate/` clause (#1433) admits the Renovate app's tool-owned branch
+  # namespace (like `worktree/<n>`): the bot commits server-side, but
+  # maintainer fix-up commits on its branches (changelog conflict merges,
+  # dist/ rebuilds) are a legitimate local flow. Permissive `.+` after the
+  # prefix — Renovate composes names from dep names/version ranges (dots,
+  # parentheses), so a charset pin would re-break on the next scheme.
   branchNamePatternFor =
     workflow:
     let
       devClause = lib.optionalString (workflow != "trunk") "(?!dev$)";
     in
-    "^(?!main$)${devClause}(?!^(chore)/[a-z0-9]+(-[a-z0-9]+)*$)(?!^(feature|bugfix|hotfix|release|docs|test|refactor)/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$)(?!^worktree/[0-9]+$).+$";
+    "^(?!main$)${devClause}(?!^(chore)/[a-z0-9]+(-[a-z0-9]+)*$)(?!^(feature|bugfix|hotfix|release|docs|test|refactor)/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$)(?!^renovate/.+$)(?!^worktree/[0-9]+$).+$";
   # The gitflow default, used by the committed runner/scaffold YAML renders.
   branchNamePattern = branchNamePatternFor "gitflow";
 
