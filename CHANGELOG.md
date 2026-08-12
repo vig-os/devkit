@@ -192,6 +192,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (devkit-smoke-test#354) but every deploy overlays the template back over
     it, re-arming the regression for the next train. Dots now map to dashes
     in the template SSoT, matching the live listener
+- **Flake-generated hooks now carry the commit-message and agent-identity guards** ([#1434](https://github.com/vig-os/devkit/issues/1434))
   - A direnv consumer on flake-generated hooks had **no local commit-message
     or agent-identity enforcement at all**: `validate-commit-msg`,
     `prepare-commit-msg-strip-trailers` and `check-agent-identity` carried no
