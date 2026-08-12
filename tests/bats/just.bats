@@ -210,6 +210,16 @@ EOF
     assert_success
 }
 
+@test "smoke-test dispatch publishes installer deletions to the deploy branch (#1443)" {
+    # commit-action builds its tree additively from working-tree contents, so
+    # paths the installer deleted (retired scaffold paths, #1348) never reach
+    # the deploy branch and the scaffold-drift gate rejects the PR. The deploy
+    # job must publish those deletions explicitly (null-sha tree entries, the
+    # same tree-API pattern as the scaffolded devkit-upgrade.yml).
+    run bash -lc 'grep -Fq -- "Publish installer deletions via verified API commit" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "git ls-files --deleted" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "{path: \$p, mode: \"100644\", type: \"blob\", sha: null}" assets/smoke-test/.github/workflows/repository-dispatch.yml'
+    assert_success
+}
+
 @test "smoke-test dispatch preflight validates required workflow contract" {
     run bash -lc "grep -Fq -- 'Preflight check required release workflows on dispatch ref' assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- 'REQUIRED_WORKFLOWS=(prepare-release.yml release.yml promote-release.yml)' assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- 'for workflow_file in \"\${REQUIRED_WORKFLOWS[@]}\"; do' assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- 'WORKFLOW_CHECK_OUTPUT=\"\$(gh workflow view \"\${workflow_file}\" --ref \"\${WORKFLOW_REF}\" --yaml 2>&1 >/dev/null)\"' assets/smoke-test/.github/workflows/repository-dispatch.yml"
     assert_success
