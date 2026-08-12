@@ -3,7 +3,9 @@ name: Repository Dispatch Listener
 # Purpose:
 # - Handle cross-repo `repository_dispatch` events from vig-os/devkit.
 # - Deploy the requested tag into the smoke-test repo.
-# - Always create a `chore/deploy-<tag>` branch and PR to `dev`.
+# - Always create a `chore/deploy-<tag-with-dashes>` branch (dots mapped to
+#   dashes: the scaffolded CI branch-name gate, vig-os/devkit#1432, and the
+#   local guard both reject dots in chore slugs) and PR to `dev`.
 # - Create signed deploy commits via `vig-os/commit-action`.
 # - CI (`ci.yml`) triggers on the deploy PR.
 #
@@ -330,7 +332,7 @@ jobs:
           GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
           TAG: ${{ needs.validate.outputs.tag }}
         run: |
-          BRANCH_NAME="chore/deploy-${TAG}"
+          BRANCH_NAME="chore/deploy-${TAG//./-}"
           echo "branch_name=${BRANCH_NAME}" >> "${GITHUB_OUTPUT}"
 
           DEV_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/dev" --jq '.object.sha')"

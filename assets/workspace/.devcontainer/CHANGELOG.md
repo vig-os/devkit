@@ -184,6 +184,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     verified API commit of null-sha tree entries — the same tree-API pattern
     the scaffolded `devkit-upgrade.yml` already uses for adoption PRs (which
     were never affected)
+- **Smoke dispatch template deploy branch is now dot-free** ([#1444](https://github.com/vig-os/devkit/issues/1444))
+  - The template still generated `chore/deploy-<tag>` with dots, which the
+    scaffolded CI branch-name gate
+    ([#1432](https://github.com/vig-os/devkit/issues/1432)) rejects
+    (`^chore/[a-z0-9]+(-[a-z0-9]+)*$`). The live listener was hand-fixed
+    (devkit-smoke-test#354) but every deploy overlays the template back over
+    it, re-arming the regression for the next train. Dots now map to dashes
+    in the template SSoT, matching the live listener
   - A direnv consumer on flake-generated hooks had **no local commit-message
     or agent-identity enforcement at all**: `validate-commit-msg`,
     `prepare-commit-msg-strip-trailers` and `check-agent-identity` carried no
