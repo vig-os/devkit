@@ -23,6 +23,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`just doctor` now ships on the consumer surface** ([#1448](https://github.com/vig-os/devkit/issues/1448))
+  - The host preflight added in
+    [#1418](https://github.com/vig-os/devkit/issues/1418) /
+    [#1430](https://github.com/vig-os/devkit/issues/1430) existed only in
+    devkit's own justfile, so a scaffolded repo had none. The managed root
+    `justfile` now carries the same diagnostic — git identity, commit signing,
+    `core.hooksPath`, ssh-agent, `gh` auth — reported as `PASS`/`WARN` lines,
+    always exiting 0
+  - The `core.hooksPath` remediation hint is delivery-mode aware, read from
+    `.vig-os` `DEVKIT_MODE`: the universal
+    `git config core.hooksPath .githooks` in every mode, plus the entry point
+    that normally wires it (reopen the devcontainer, or `direnv allow` for the
+    dev-shell hook from [#1112](https://github.com/vig-os/devkit/issues/1112)).
+    `bare` and ad-hoc checkouts, where nothing wires it, get the direct command
+    only — never devkit's own `./scripts/init.sh`, which no consumer has
+  - Lives in the managed root `justfile`, the only justfile layer present in
+    every delivery mode, so upgrades deliver it; `justfile.project` is
+    preserved on upgrade and would never reach an existing consumer
 - **`just doctor` reports whether the git hooks are actually wired** ([#1430](https://github.com/vig-os/devkit/issues/1430))
   - New `core.hooksPath` diagnostic: `PASS` when it points at `.githooks`,
     `WARN` otherwise, distinguishing "not set" (a fresh clone, where the
