@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import functools
 import json
+import re
 import shlex
 import shutil
 import subprocess
@@ -100,6 +101,17 @@ def _branch_guard(config: dict[str, Any]) -> str:
     the generated config's no-commit-to-branch entry.
     """
     return _normalize(config)["hooks"]["no-commit-to-branch"]["entry"]
+
+
+def _pattern_arg(hook: dict[str, Any]) -> str:
+    """The ``--pattern`` regex from a portable no-commit-to-branch args list.
+
+    The committed YAML artifacts carry the regex as the value following
+    ``--pattern`` in ``args`` (unlike the consumer surface, where git-hooks.nix
+    bakes it into ``entry`` — see ``_branch_guard``).
+    """
+    args = hook["args"]
+    return args[args.index("--pattern") + 1]
 
 
 def _diff_hooks(rendered: dict[str, Any], committed: dict[str, Any]) -> str:
@@ -477,6 +489,58 @@ class TestWorkflowModelBranchGuard:
         result = _run_nix(["eval", "--impure", "--raw", "--expr", expr])
         assert result.returncode != 0
         assert "workflow" in result.stderr
+
+
+class TestRenovateBranchAllowance:
+    """The default branch guard admits Renovate's tool-owned namespace (#1433).
+
+    The Renovate app commits server-side, where local hooks never run — but
+    maintainer fix-up commits on ``renovate/*`` branches (changelog conflict
+    merges, ``dist/`` rebuilds) are a real flow the guard used to block,
+    forcing a commit-on-a-compliant-branch-then-push-to-ref workaround.
+    Renovate branch names carry no issue number and use a charset outside the
+    slug rule (live example: ``renovate/github-actions-(minor-and-patch)``),
+    so the namespace gets its own lookahead clause next to ``worktree/<n>``
+    rather than a ``DEVKIT_BRANCH_TYPES`` value.
+
+    ``no-commit-to-branch`` BLOCKS a branch whose name matches ``--pattern``,
+    so "allowed" asserts the regex does NOT match.
+    """
+
+    ALLOWED = (
+        "renovate/lock-file-maintenance",
+        "renovate/github-actions-(minor-and-patch)",
+    )
+    BLOCKED = (
+        # Prefix confusion is not the Renovate namespace.
+        "renovated/x",
+        # The guard still bites outside every allowance clause.
+        "random-branch",
+    )
+
+    def test_runner_render_allows_renovate_branches(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """The committed runner/scaffold pattern admits renovate/* only."""
+        pattern = _pattern_arg(
+            _normalize(rendered_portable["runner"])["hooks"]["no-commit-to-branch"]
+        )
+        for branch in self.ALLOWED:
+            assert re.match(pattern, branch) is None, f"{branch} must be allowed"
+        for branch in self.BLOCKED:
+            assert re.match(pattern, branch) is not None, f"{branch} must be blocked"
+
+    def test_consumer_surface_carries_renovate_allowance(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """The flake-generated (gitflow) guard carries the same clause."""
+        assert "(?!^renovate/.+$)" in _branch_guard(consumer_config)
+
+    def test_trunk_consumer_keeps_renovate_allowance(
+        self, trunk_consumer_config: dict[str, Any]
+    ) -> None:
+        """The trunk variant drops only the dev clause, never this one."""
+        assert "(?!^renovate/.+$)" in _branch_guard(trunk_consumer_config)
 
 
 @pytest.fixture(scope="module")
