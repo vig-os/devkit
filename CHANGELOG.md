@@ -159,6 +159,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Flake-generated hooks now carry the commit-message and agent-identity guards** ([#1434](https://github.com/vig-os/devkit/issues/1434))
+  - A direnv consumer on flake-generated hooks had **no local commit-message
+    or agent-identity enforcement at all**: `validate-commit-msg`,
+    `prepare-commit-msg-strip-trailers` and `check-agent-identity` carried no
+    consumer fragment, so the scaffolded `.githooks/commit-msg` shim ran an
+    empty stage and exited 0, and `git commit --author="Claude <…>"` passed
+    locally. All three now render into `mkProjectShell`'s generated config,
+    resolving the vig-utils console scripts from the pinned devkit rather
+    than the project venv
+  - `mkProjectShell` gains `commitTypes` and `refsPolicy` arguments so
+    `DEVKIT_COMMIT_TYPES` ([#1431](https://github.com/vig-os/devkit/issues/1431))
+    and `DEVKIT_REFS_POLICY` ([#1282](https://github.com/vig-os/devkit/issues/1282))
+    steer the generated hook exactly as they steer the scaffolded YAML and
+    CI — same defaults, same charset guard, same
+    `optional`-mirrors-the-resolved-types composition, same `required`
+    sentinel. The template `flake.nix` reads both keys from `.vig-os`;
+    consumers whose `flake.nix` predates this hand-port the reader
+    (`docs/MIGRATION.md`)
+  - Unset knobs keep the generated config byte-identical to the previous
+    render, and a consumer that never opts into hooks is untouched
 - **Scaffolded CI summary gate now fails on cancelled required checks** ([#1414](https://github.com/vig-os/devkit/issues/1414))
   - The consumer `ci.yml` summary treated a cancelled `lint`, `test`,
     `commit-checks`, `scaffold-drift`, or `dependency-review` job as green

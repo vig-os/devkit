@@ -17,9 +17,10 @@ and stages. Any hand edit to either YAML that is not mirrored in
 It also covers the consumer surface: ``mkProjectShell``'s ``hooks`` /
 ``hooksExcludes`` arguments (per-hook toggle/override, custom hooks, global
 excludes) and the zero-hooks-arg parity guarantee (no generation side effects
-unless a consumer opts in).
+unless a consumer opts in), including the stage-gated commit-message /
+agent-identity hooks and the commit-policy knobs that steer them (#1434).
 
-Refs: #883
+Refs: #883, #1434
 """
 
 from __future__ import annotations
@@ -311,12 +312,18 @@ class TestCommitMsgHookContract:
 
 @functools.cache
 def _consumer_config_set() -> dict[str, dict[str, Any]]:
-    """Build all three consumer hook configs in ONE nix build (#1417).
+    """Build every consumer hook config in ONE nix build (#1417).
 
-    The customized, gitleaks-enabled, and trunk-workflow consumer shells are
-    independent ``mkProjectShell`` calls whose ``hooksConfigFile`` outputs are
-    collected into a single ``linkFarm``, so the suite pays one build instead
-    of three module-scoped ones. Cached for the whole pytest run.
+    The customized, gitleaks-enabled, trunk-workflow, branch-types and
+    commit-policy consumer shells are independent ``mkProjectShell`` calls
+    whose ``hooksConfigFile`` outputs are collected into a single ``linkFarm``,
+    so the suite pays one build instead of one per shell. Cached for the whole
+    pytest run.
+
+    ``pkgs`` is deliberately un-overlaid: the generated config must render from
+    a plain nixpkgs, so the commit-message hooks' vig-utils entries (#1434)
+    resolve through ``nix/vig-utils.nix`` rather than requiring the consumer to
+    have applied ``overlays.default`` first.
     """
     expr = f"""
     let
@@ -360,6 +367,20 @@ def _consumer_config_set() -> dict[str, dict[str, Any]]:
         hooks = {{ }};
         branchTypes = [ "feature" "bugfix" "record" ];
       }};
+      commitpolicy = flake.lib.mkProjectShell {{
+        inherit pkgs;
+        hooks = {{ }};
+        commitTypes = [
+          "feat" "fix" "docs" "chore" "refactor" "perf" "test" "ci" "build"
+          "revert" "style" "record"
+        ];
+        refsPolicy = "optional";
+      }};
+      refsrequired = flake.lib.mkProjectShell {{
+        inherit pkgs;
+        hooks = {{ }};
+        refsPolicy = "required";
+      }};
     in
     pkgs.linkFarm "consumer-hook-configs" [
       {{ name = "customized"; path = customized.hooksConfigFile; }}
@@ -367,6 +388,8 @@ def _consumer_config_set() -> dict[str, dict[str, Any]]:
       {{ name = "trunk"; path = trunk.hooksConfigFile; }}
       {{ name = "branchtypes"; path = branchtypes.hooksConfigFile; }}
       {{ name = "branchtypes-trunk"; path = branchtypes-trunk.hooksConfigFile; }}
+      {{ name = "commitpolicy"; path = commitpolicy.hooksConfigFile; }}
+      {{ name = "refsrequired"; path = refsrequired.hooksConfigFile; }}
     ]
     """
     result = _run_nix(
@@ -387,6 +410,8 @@ def _consumer_config_set() -> dict[str, dict[str, Any]]:
             "trunk",
             "branchtypes",
             "branchtypes-trunk",
+            "commitpolicy",
+            "refsrequired",
         )
     }
 
@@ -642,6 +667,227 @@ class TestBranchTypesKnob:
         result = _run_nix(["eval", "--impure", "--raw", "--expr", expr])
         assert result.returncode != 0
         assert "branchTypes" in result.stderr
+
+
+STOCK_COMMIT_TYPES = "feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style"
+# The argv the scaffolded .pre-commit-config.yaml ships with every knob unset —
+# the default the flake-generated surface must reproduce exactly (#1434).
+STOCK_VALIDATE_ARGS = [
+    "--types",
+    STOCK_COMMIT_TYPES,
+    "--refs-optional-types",
+    "chore",
+    "--blocked-patterns",
+    ".github/agent-blocklist.toml",
+]
+
+
+def _arg_value(hook: dict[str, Any], flag: str) -> str:
+    """The value following ``flag`` in a hook's rendered ``args`` list."""
+    args = hook["args"]
+    return args[args.index(flag) + 1]
+
+
+class TestCommitMsgHooksConsumerSurface:
+    """The #163/#1019/#1031 hooks reach flake-generated consumers (#1434).
+
+    A direnv consumer on flake-generated hooks (#1167 default) got a
+    ``.pre-commit-config.yaml`` with no ``commit-msg``/``prepare-commit-msg``
+    stage at all, so the scaffolded ``.githooks/commit-msg`` shim
+    (``prek run --hook-stage commit-msg``) exited 0 with nothing to run, and
+    ``check-agent-identity`` was absent too — ``git commit --author="Claude
+    <…>"`` passed locally. The three hooks must render on the consumer surface
+    with the same stages and argv the scaffolded YAML carries.
+    """
+
+    IDS = (
+        "validate-commit-msg",
+        "prepare-commit-msg-strip-trailers",
+        "check-agent-identity",
+    )
+
+    def test_all_three_hooks_reach_the_consumer_surface(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        hooks = _normalize(consumer_config)["hooks"]
+        for hook_id in self.IDS:
+            assert hook_id in hooks, (
+                f"{hook_id} missing from the flake-generated consumer config — "
+                "local commit-message/agent-identity enforcement is a no-op (#1434)"
+            )
+
+    def test_validate_commit_msg_runs_at_the_commit_msg_stage(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """Without this stage the ``.githooks/commit-msg`` shim has nothing to run."""
+        hook = _normalize(consumer_config)["hooks"]["validate-commit-msg"]
+        assert hook["stages"] == ["commit-msg"]
+
+    def test_strip_trailers_runs_at_the_prepare_commit_msg_stage(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """Trailers are stripped BEFORE the validator's blocklist gate sees them."""
+        hook = _normalize(consumer_config)["hooks"]["prepare-commit-msg-strip-trailers"]
+        assert hook["stages"] == ["prepare-commit-msg"]
+        assert hook["pass_filenames"] is True
+
+    def test_check_agent_identity_stays_a_pre_commit_hook(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """It guards the author/committer, so it runs on the pre-commit stage."""
+        hook = _normalize(consumer_config)["hooks"]["check-agent-identity"]
+        assert hook["stages"] == ["pre-commit"]
+        assert hook["pass_filenames"] is False
+
+    def test_entries_resolve_the_pinned_vig_utils(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """Store-path entries, not ``uv run``: the consumer venv has no vig-utils.
+
+        Every other tool-naming consumer fragment (nixfmt, statix, deadnix,
+        just-fmt, gitleaks, pymarkdown) resolves a ``pkgs.<tool>`` store path,
+        so the hook follows the devkit pin the consumer bumps with
+        ``nix flake update vigos`` instead of whatever the project venv happens
+        to hold.
+        """
+        hooks = _normalize(consumer_config)["hooks"]
+        for hook_id in self.IDS:
+            entry = hooks[hook_id]["entry"]
+            assert entry.startswith("/nix/store/"), (
+                f"{hook_id} entry is not a store path: {entry!r}"
+            )
+            assert entry.endswith(f"/bin/{hook_id}"), entry
+            assert hooks[hook_id]["language"] == "system"
+
+    def test_default_args_match_the_scaffolded_render(
+        self, consumer_config: dict[str, Any], rendered_portable: dict[str, Any]
+    ) -> None:
+        """Default-render stability: both surfaces ship identical argv (#1434).
+
+        A docker-mode consumer (scaffolded YAML) and a direnv consumer
+        (flake-generated) must enforce the same rule with the knobs unset —
+        the hook/CI desync class #1074 and #1282 exist to prevent.
+        """
+        consumer = _normalize(consumer_config)["hooks"]["validate-commit-msg"]
+        scaffold = _normalize(rendered_portable["scaffold"])["hooks"][
+            "validate-commit-msg"
+        ]
+        assert consumer["args"] == scaffold["args"] == STOCK_VALIDATE_ARGS
+
+
+@pytest.fixture(scope="module")
+def commit_policy_config() -> dict[str, Any]:
+    """Generated config for custom ``commitTypes`` + ``refsPolicy = optional``."""
+    return _consumer_config_set()["commitpolicy"]
+
+
+@pytest.fixture(scope="module")
+def refs_required_config() -> dict[str, Any]:
+    """Generated config for ``refsPolicy = "required"`` (#1282)."""
+    return _consumer_config_set()["refsrequired"]
+
+
+class TestCommitPolicyKnobsOnTheFlakeSurface:
+    """``commitTypes`` / ``refsPolicy`` on mkProjectShell (#1434).
+
+    #1431 (``DEVKIT_COMMIT_TYPES``) and #1282 (``DEVKIT_REFS_POLICY``) render
+    into the scaffolded YAML and CI's ``validate-commit-range``; a direnv
+    consumer's local hook comes from ``mkProjectShell`` instead, so the same
+    two keys must reach it — threaded like ``workflow`` (#1224) and
+    ``branchTypes`` (#1432). The resolution semantics (defaults, charset,
+    the ``optional`` mirror of the resolved types list, the ``required``
+    ``none`` sentinel) must match ``render_commit_types`` /
+    ``render_refs_policy`` in ``assets/init-workspace.sh`` and
+    ``resolve-toolchain`` exactly — two renderers, one key.
+    """
+
+    def test_custom_commit_types_render_into_the_types_arg(
+        self, commit_policy_config: dict[str, Any]
+    ) -> None:
+        hook = _normalize(commit_policy_config)["hooks"]["validate-commit-msg"]
+        assert _arg_value(hook, "--types") == f"{STOCK_COMMIT_TYPES},record"
+
+    def test_refs_policy_optional_mirrors_the_resolved_commit_types(
+        self, commit_policy_config: dict[str, Any]
+    ) -> None:
+        """The #1431 composition fix, on the flake surface.
+
+        ``optional`` must mirror the RESOLVED types list, never a hardcoded
+        copy of the stock 11 — otherwise the hook requires ``Refs:`` for a
+        custom type it just accepted.
+        """
+        hook = _normalize(commit_policy_config)["hooks"]["validate-commit-msg"]
+        assert _arg_value(hook, "--refs-optional-types") == _arg_value(hook, "--types")
+
+    def test_refs_policy_required_uses_the_none_sentinel(
+        self, refs_required_config: dict[str, Any]
+    ) -> None:
+        """An empty list reads as falsy to the CLI, so ``required`` sends ``none``."""
+        hook = _normalize(refs_required_config)["hooks"]["validate-commit-msg"]
+        assert _arg_value(hook, "--refs-optional-types") == "none"
+        assert _arg_value(hook, "--types") == STOCK_COMMIT_TYPES
+
+    def test_unset_knobs_keep_the_stock_argv(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """Null/absent knobs resolve to today's behavior, byte for byte."""
+        hook = _normalize(consumer_config)["hooks"]["validate-commit-msg"]
+        assert hook["args"] == STOCK_VALIDATE_ARGS
+
+    @pytest.mark.parametrize(
+        ("arg", "value", "message"),
+        [
+            pytest.param(
+                "commitTypes",
+                '[ "feat" "Bad-Type" ]',
+                "commitTypes",
+                id="types-charset",
+            ),
+            pytest.param("commitTypes", "[ ]", "commitTypes", id="types-empty"),
+            pytest.param(
+                "refsPolicy", '"garbage"', "refsPolicy", id="refs-policy-enum"
+            ),
+        ],
+    )
+    def test_invalid_values_are_refused_at_eval_time(
+        self, arg: str, value: str, message: str
+    ) -> None:
+        """A bad value fails loudly, mirroring init-workspace.sh's loud abort."""
+        expr = f"""
+        let
+          flake = builtins.getFlake "path:{REPO_ROOT}";
+          system = builtins.currentSystem;
+          pkgs = import flake.inputs.nixpkgs {{ inherit system; }};
+        in
+        (flake.lib.mkProjectShell {{
+          inherit pkgs;
+          {arg} = {value};
+          hooks = {{ }};
+        }}).drvPath
+        """
+        result = _run_nix(["eval", "--impure", "--raw", "--expr", expr])
+        assert result.returncode != 0
+        assert message in result.stderr
+
+    def test_template_flake_reads_and_forwards_both_knobs(self) -> None:
+        """The scaffolded flake.nix wires ``.vig-os`` -> ``mkProjectShell``.
+
+        Same one-time port as #1224/#1432: the reader lives in the
+        scaffold-once ``flake.nix``, and the forwarding is gated behind a
+        ``builtins.functionArgs`` probe so a floating ``vigos`` input that
+        predates the argument still evaluates (#1249).
+        """
+        flake = (REPO_ROOT / "assets" / "workspace" / "flake.nix").read_text()
+        for key, arg in (
+            ("DEVKIT_COMMIT_TYPES", "commitTypes"),
+            ("DEVKIT_REFS_POLICY", "refsPolicy"),
+        ):
+            assert f'"{key}"' in flake, f"flake.nix does not read {key} from .vig-os"
+            assert f"inherit {arg};" in flake, f"flake.nix does not forward `{arg}`"
+            assert f"builtins.functionArgs vigos.lib.mkProjectShell ? {arg}" in flake, (
+                f"flake.nix forwards `{arg}` unconditionally — the floating vigos "
+                "input may resolve a devkit that predates the argument (#1249)"
+            )
 
 
 @pytest.fixture(scope="module")

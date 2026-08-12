@@ -50,10 +50,11 @@
           # add project tools here
         ];
 
-        # Devkit knobs read from .vig-os (#1224, #1432): the flake-generated
-        # pre-commit branch guard follows the workspace manifest, mirroring
-        # the scaffolded .pre-commit-config.yaml renders. Managed block;
-        # leave it.
+        # Devkit knobs read from .vig-os (#1224, #1432, #1431, #1282): the
+        # flake-generated pre-commit hooks — the branch guard and the
+        # commit-message validator — follow the workspace manifest, mirroring
+        # the scaffolded .pre-commit-config.yaml renders (#1434). Managed
+        # block; leave it.
         vigOsValue =
           key:
           let
@@ -67,23 +68,43 @@
           else
             nixpkgs.lib.removePrefix "${key}=" (builtins.head declared);
 
+        # A comma-separated manifest list -> a Nix list, or null when the key
+        # is absent/blank (= "keep the devkit default"). Whitespace around
+        # entries is trimmed and empty entries dropped, matching how
+        # init-workspace.sh resolves the same keys; validation (charset,
+        # non-empty) lives in mkProjectShell, which fails eval loudly on a bad
+        # value.
+        vigOsList =
+          key:
+          let
+            entries = builtins.filter (t: t != "") (
+              map (t: nixpkgs.lib.trim t) (nixpkgs.lib.splitString "," (vigOsValue key))
+            );
+          in
+          if entries == [ ] then null else entries;
+
         # Workflow model (#1224): a `trunk` workspace drops the dev-branch
         # clause. `gitflow` (the default) and an absent/blank value are inert.
         workflow = if vigOsValue "DEVKIT_WORKFLOW" == "trunk" then "trunk" else "gitflow";
 
-        # Branch-type set (#1432): DEVKIT_BRANCH_TYPES (comma-separated)
-        # replaces the issue-numbered alternation of the branch guard;
-        # absent/blank forwards null (= the stock set). Whitespace around
-        # entries is trimmed; validation (charset, non-empty) lives in
-        # mkProjectShell, which fails eval loudly on a bad value.
-        branchTypes =
+        # Branch-type set (#1432): DEVKIT_BRANCH_TYPES replaces the
+        # issue-numbered alternation of the branch guard.
+        branchTypes = vigOsList "DEVKIT_BRANCH_TYPES";
+
+        # Approved commit types (#1431): DEVKIT_COMMIT_TYPES replaces the
+        # validate-commit-msg `--types` list, so the local hook agrees with
+        # CI's validate-commit-range (#1434).
+        commitTypes = vigOsList "DEVKIT_COMMIT_TYPES";
+
+        # Refs policy (#1282): DEVKIT_REFS_POLICY steers whether a commit needs
+        # a `Refs: #N` line — chore-optional (default) | optional | required.
+        # Absent/blank forwards null (= the default); an unknown literal fails
+        # eval loudly in mkProjectShell (#1434).
+        refsPolicy =
           let
-            raw = vigOsValue "DEVKIT_BRANCH_TYPES";
-            entries = builtins.filter (t: t != "") (
-              map (t: nixpkgs.lib.trim t) (nixpkgs.lib.splitString "," raw)
-            );
+            raw = nixpkgs.lib.trim (vigOsValue "DEVKIT_REFS_POLICY");
           in
-          if entries == [ ] then null else entries;
+          if raw == "" then null else raw;
       in
       {
         # The dev shell = the shared vigOS toolchain + your extras.
@@ -128,6 +149,14 @@
           // nixpkgs.lib.optionalAttrs (builtins.functionArgs vigos.lib.mkProjectShell ? branchTypes) {
             # Branch guard follows the workspace branch-type set (#1432).
             inherit branchTypes;
+          }
+          // nixpkgs.lib.optionalAttrs (builtins.functionArgs vigos.lib.mkProjectShell ? commitTypes) {
+            # validate-commit-msg follows the workspace commit-type set (#1431).
+            inherit commitTypes;
+          }
+          // nixpkgs.lib.optionalAttrs (builtins.functionArgs vigos.lib.mkProjectShell ? refsPolicy) {
+            # validate-commit-msg follows the workspace Refs policy (#1282).
+            inherit refsPolicy;
           }
         );
 
