@@ -62,15 +62,18 @@ DEVKIT_EXTENSION = REPO_ROOT / ".github" / "workflows" / "prepare-release-extens
 CALLER_WORKFLOWS = [SCAFFOLD_PREPARE, DEVKIT_PREPARE]
 
 # Inputs the hook contract carries (issue #1059). Underscore convention, per
-# DOWNSTREAM_RELEASE.md's "Input Naming Convention".
+# DOWNSTREAM_RELEASE.md's "Input Naming Convention". The git identity pair the
+# contract once carried is dead plumbing since the Git Data API rewrite and is
+# removed end to end (#1470).
 REQUIRED_INPUTS = {
     "version",
     "release_branch",
     "branch_sha",
     "dry_run",
-    "git_user_name",
-    "git_user_email",
 }
+
+DEAD_IDENTITY_CALL_INPUTS = ("git_user_name", "git_user_email")
+DEAD_IDENTITY_DISPATCH_INPUTS = ("git-user-name", "git-user-email")
 
 
 def _extension_job(doc: dict) -> tuple[str, dict] | tuple[None, None]:
@@ -134,6 +137,26 @@ def test_prepare_extension_default_is_noop_readonly() -> None:
     assert "vig-os/commit-action" not in SCAFFOLD_EXTENSION.read_text(
         encoding="utf-8"
     ), "the default no-op hook must not commit anything"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [SCAFFOLD_EXTENSION, DEVKIT_EXTENSION],
+    ids=lambda p: str(p.relative_to(REPO_ROOT)),
+)
+def test_prepare_extension_drops_the_dead_git_identity_inputs(path: Path) -> None:
+    """The hook contract carries no git identity (#1470).
+
+    All extension writes go through the COMMIT_APP token (App identity, Git
+    Data API), so the ``git_user_name`` / ``git_user_email`` pair the contract
+    once carried is dead and must not be declared.
+    """
+    inputs = _on(_load(path))["workflow_call"].get("inputs") or {}
+    for dead in DEAD_IDENTITY_CALL_INPUTS:
+        assert dead not in inputs, (
+            f"{path.relative_to(REPO_ROOT)} must not declare the dead input "
+            f"{dead!r} (#1470)"
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -216,6 +239,27 @@ def test_prepare_release_forwards_dry_run_to_extension(path: Path) -> None:
     _, ext_job = _extension_job(_load(path))
     passed = ext_job.get("with") or {}
     assert "dry_run" in passed, "the extension call must forward dry_run"
+
+
+@pytest.mark.parametrize(
+    "path", CALLER_WORKFLOWS, ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
+def test_prepare_release_drops_the_dead_git_identity_plumbing(path: Path) -> None:
+    """Neither caller declares nor forwards the dead identity pair (#1470)."""
+    doc = _load(path)
+    dispatch_inputs = _on(doc)["workflow_dispatch"].get("inputs") or {}
+    for dead in DEAD_IDENTITY_DISPATCH_INPUTS:
+        assert dead not in dispatch_inputs, (
+            f"{path.relative_to(REPO_ROOT)} must not declare the dead dispatch "
+            f"input {dead!r} (#1470)"
+        )
+    _, ext_job = _extension_job(doc)
+    passed = ext_job.get("with") or {}
+    for dead in DEAD_IDENTITY_CALL_INPUTS:
+        assert dead not in passed, (
+            f"{path.relative_to(REPO_ROOT)} must not forward the dead input "
+            f"{dead!r} to the extension (#1470)"
+        )
 
 
 @pytest.mark.parametrize(
