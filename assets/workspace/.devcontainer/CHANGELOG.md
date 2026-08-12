@@ -171,7 +171,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Flake-generated hooks now carry the commit-message and agent-identity guards** ([#1434](https://github.com/vig-os/devkit/issues/1434))
+- **Smoke deploy now publishes installer deletions to the deploy branch** ([#1443](https://github.com/vig-os/devkit/issues/1443))
+  - The smoke-test dispatch deploy committed via `commit-action`, which builds
+    its tree additively from working-tree contents and cannot express file
+    deletions — so paths the installer removed (retired scaffold paths, #1348)
+    silently survived on the deploy branch and the scaffold-drift gate rejected
+    the deploy PR (its second live catch, after
+    [#1344](https://github.com/vig-os/devkit/issues/1344)); caught on the
+    1.8.0-rc1 dispatch, where the per-PR renovate-changelog workflows retired
+    by [#1423](https://github.com/vig-os/devkit/issues/1423) rode along
+  - The deploy job now publishes `git ls-files --deleted` as a follow-up
+    verified API commit of null-sha tree entries — the same tree-API pattern
+    the scaffolded `devkit-upgrade.yml` already uses for adoption PRs (which
+    were never affected)
   - A direnv consumer on flake-generated hooks had **no local commit-message
     or agent-identity enforcement at all**: `validate-commit-msg`,
     `prepare-commit-msg-strip-trailers` and `check-agent-identity` carried no
