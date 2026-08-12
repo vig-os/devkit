@@ -8,7 +8,7 @@ the near-identical ``test_vig_os_declares_X_key`` /
 ``test_resolve_toolchain_emits_X_output`` tests that had accreted one per
 feature file (#1413).
 
-Refs: #1044, #1045, #1173, #1207, #1228, #1282, #1284, #1295, #1296
+Refs: #1044, #1045, #1173, #1207, #1228, #1282, #1284, #1295, #1296, #1431
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ MANIFEST_KEYS = [
     ("DEVKIT_SYNC_SCHEDULE", "#1228"),
     ("DEVKIT_FEATURES_DISABLED", "#1284"),
     ("DEVKIT_REFS_POLICY", "#1282"),
+    ("DEVKIT_COMMIT_TYPES", "#1431"),
     ("DEVKIT_AUTO_UPGRADE", "#1296"),
     ("DEVKIT_UPGRADE_EXCLUDE", "#1296"),
     ("DEVKIT_DRIFT_CHECK", "#1295"),
@@ -39,6 +40,7 @@ RESOLVE_OUTPUTS = [
     ("floating-tags", "#1045"),
     ("runner-json", "#1173"),
     ("refs-optional-types", "#1282"),
+    ("commit-types", "#1431"),
     ("drift-check", "#1295"),
     ("drift-image", "#1295"),
 ]
