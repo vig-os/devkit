@@ -48,6 +48,22 @@
     # and the inputs can move out without a consumer-visible change.
     fenix.url = "github:nix-community/fenix";
     fenix.inputs.nixpkgs.follows = "nixpkgs";
+    # fenix pulls the rust-analyzer SOURCE TREE — 28 MB, and 85% of everything
+    # the two inputs above cost a downstream consumer. It feeds exactly one
+    # thing: fenix's *nightly* rust-analyzer derivation, which this pack never
+    # builds. `fromToolchainFile` takes its components from the release-channel
+    # manifest instead, so following this away costs nothing — verified by
+    # building filesender's toolchain (whose rust-toolchain.toml lists
+    # rust-analyzer as a component) with the follows in place and finding
+    # `rust-analyzer` present in the result.
+    #
+    # Pointed at nixpkgs because every consumer already has it, so the node
+    # disappears from downstream locks rather than being replaced. Lock nodes:
+    # 15 -> 14, fetched source ~33 MB -> ~5 MB.
+    #
+    # A consumer who genuinely wants fenix's nightly rust-analyzer must
+    # override this back; nothing in devkit does. Refs #1440.
+    fenix.inputs.rust-analyzer-src.follows = "nixpkgs";
   };
 
   outputs =

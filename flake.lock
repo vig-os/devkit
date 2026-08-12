@@ -20,7 +20,9 @@
         "nixpkgs": [
           "nixpkgs"
         ],
-        "rust-analyzer-src": "rust-analyzer-src"
+        "rust-analyzer-src": [
+          "nixpkgs"
+        ]
       },
       "locked": {
         "lastModified": 1786432497,
@@ -193,23 +195,6 @@
         "process-compose-flake": "process-compose-flake",
         "services-flake": "services-flake",
         "treefmt-nix": "treefmt-nix"
-      }
-    },
-    "rust-analyzer-src": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1786396074,
-        "narHash": "sha256-tQAL2tJNNhPV6LBY/9pef+fq37RLYts/LknqJ6m9Y6Q=",
-        "owner": "rust-lang",
-        "repo": "rust-analyzer",
-        "rev": "57bea800b866168ac4f310333e326b92ccba7aca",
-        "type": "github"
-      },
-      "original": {
-        "owner": "rust-lang",
-        "ref": "nightly",
-        "repo": "rust-analyzer",
-        "type": "github"
       }
     },
     "services-flake": {
