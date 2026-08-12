@@ -205,6 +205,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `assets/workspace/justfile` in the same change, keeping the two recipes in
     step for the [#1448](https://github.com/vig-os/devkit/issues/1448) drift
     guard
+- **`check-expirations` resolves from the devkit pin in generated consumer hooks** ([#1447](https://github.com/vig-os/devkit/issues/1447))
+  - It was the last vig-utils hook whose flake-generated consumer fragment
+    shelled out to `uv run`, i.e. to the *consumer's* project venv — which
+    carries no `vig-utils`, and which many consumers do not have at all (no
+    `pyproject.toml`). The entry now resolves a `nix/vig-utils.nix` store
+    path, like the three hooks fixed in
+    [#1434](https://github.com/vig-os/devkit/issues/1434) and every other
+    tool-naming consumer fragment, so the hook follows the devkit pin the
+    consumer bumps with `nix flake update vigos`
+  - The committed `.pre-commit-config.yaml` renders are unchanged: only the
+    consumer surface moves off `uv run`, and a new class-wide test rejects any
+    future consumer fragment that names a vig-utils console script without a
+    store path
 - **Smoke deploy now publishes installer deletions to the deploy branch** ([#1443](https://github.com/vig-os/devkit/issues/1443))
   - The smoke-test dispatch deploy committed via `commit-action`, which builds
     its tree additively from working-tree contents and cannot express file
@@ -226,6 +239,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (devkit-smoke-test#354) but every deploy overlays the template back over
     it, re-arming the regression for the next train. Dots now map to dashes
     in the template SSoT, matching the live listener
+- **Flake-generated hooks now carry the commit-message and agent-identity guards** ([#1434](https://github.com/vig-os/devkit/issues/1434))
   - A direnv consumer on flake-generated hooks had **no local commit-message
     or agent-identity enforcement at all**: `validate-commit-msg`,
     `prepare-commit-msg-strip-trailers` and `check-agent-identity` carried no
