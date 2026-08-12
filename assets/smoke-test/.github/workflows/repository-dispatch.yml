@@ -357,6 +357,50 @@ jobs:
             chore: deploy ${{ needs.validate.outputs.tag }}
           FILE_PATHS: .
 
+      # commit-action builds its tree additively from working-tree contents, so
+      # paths the installer DELETED — retired scaffold paths (#1348), or anything
+      # the smoke-mode rsync --delete render no longer ships — never reach the
+      # deploy branch, and the scaffold-drift gate rejects the PR
+      # (vig-os/devkit#1443). Publish those deletions as an explicit follow-up
+      # commit: a null-sha tree entry removes a path. Same tree-API pattern as
+      # the scaffolded devkit-upgrade.yml, and an App-token API commit is
+      # GitHub-verified just like the commit-action one.
+      - name: Publish installer deletions via verified API commit
+        env:
+          GH_TOKEN: ${{ steps.generate_commit_token.outputs.token }}
+          BRANCH: ${{ steps.prepare_branch.outputs.branch_name }}
+          TAG: ${{ needs.validate.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -t DELETED < <(git ls-files --deleted)
+          if [ "${#DELETED[@]}" -eq 0 ]; then
+            echo "No installer deletions to publish."
+            exit 0
+          fi
+
+          REPO="${GITHUB_REPOSITORY}"
+          HEAD_SHA="$(gh api "repos/${REPO}/git/ref/heads/${BRANCH}" --jq '.object.sha')"
+          BASE_TREE="$(gh api "repos/${REPO}/git/commits/${HEAD_SHA}" --jq .tree.sha)"
+
+          entries='[]'
+          for path in "${DELETED[@]}"; do
+            echo "  deleting ${path}"
+            entries="$(jq --arg p "$path" \
+              '. + [{path: $p, mode: "100644", type: "blob", sha: null}]' \
+              <<<"$entries")"
+          done
+
+          TREE="$(jq -n --argjson t "$entries" --arg b "$BASE_TREE" \
+            '{base_tree: $b, tree: $t}' \
+            | gh api -X POST "repos/${REPO}/git/trees" --input - --jq .sha)"
+          MESSAGE="$(printf 'chore: remove paths the %s render no longer ships' "$TAG")"
+          COMMIT="$(jq -n --arg m "$MESSAGE" --arg t "$TREE" --arg p "$HEAD_SHA" \
+            '{message: $m, tree: $t, parents: [$p]}' \
+            | gh api -X POST "repos/${REPO}/git/commits" --input - --jq .sha)"
+          gh api -X PATCH "repos/${REPO}/git/refs/heads/${BRANCH}" \
+            -f sha="$COMMIT" -F force=true >/dev/null
+          echo "Published ${#DELETED[@]} deletion(s) as ${COMMIT}."
+
       - name: Create deploy PR
         id: create_pr
         env:
