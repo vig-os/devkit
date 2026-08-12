@@ -823,16 +823,11 @@ _preview_symlinked_template_venv() {
     assert_output --partial 'FORCE=true'
 }
 
-@test "init-workspace.sh smoke mode uses rsync --delete for clean deploy" {
-    run grep 'rsync -avL --checksum --delete' "$INIT_WORKSPACE_SH"
-    assert_success
-}
-
-@test "init-workspace.sh smoke mode excludes synced docs directories from delete" {
-    run grep -A1 'rsync -avL --checksum --delete' "$INIT_WORKSPACE_SH"
-    assert_success
-    assert_output --partial "--exclude='docs/issues/'"
-    assert_output --partial "--exclude='docs/pull-requests/'"
+@test "init-workspace.sh never deletes on a smoke deploy (#1466)" {
+    # --delete removed the consumer's own payload, not just stale scaffold.
+    # Retirement is the #1348 manifest's job; see the smoke-deploy tests below.
+    run grep -E '^[[:space:]]*rsync .*--delete' "$INIT_WORKSPACE_SH"
+    assert_failure
 }
 
 # ── Smoke deploys preserve the consumer's root CHANGELOG (#1403) ───────────────
@@ -901,6 +896,58 @@ EOF
     first_h2=$(grep -m1 '^## ' "$ws/CHANGELOG.md")
     [ "$first_h2" = "## Unreleased" ]
     run grep -E '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' "$ws/CHANGELOG.md"
+    assert_failure
+}
+
+# ── Smoke deploys keep the consumer's own payload (#1466) ─────────────────────
+# The smoke rsync used to carry --delete, which removes every tracked path the
+# template does not ship — including the smoke repo's own Python project. That
+# was invisible while commit-action built the deploy tree additively; once
+# #1443 started publishing `git ls-files --deleted`, the 1.8.0-rc3 deploy
+# committed the deletion of pyproject.toml, uv.lock, src/ and tests/.
+#
+# Retirement is expressed by the #1348 manifest, not by --delete, and the
+# scaffold-drift gate re-scaffolds in NORMAL mode (which never deletes). Smoke
+# mode now matches that path, so gate and deploy agree by construction.
+
+@test "smoke deploy preserves the consumer's own project payload (#1466)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1466-payload"
+    mkdir -p "$ws/src/demo_pkg" "$ws/tests"
+    printf '[project]\nname = "demo"\n' >"$ws/pyproject.toml"
+    printf 'version = 1\n' >"$ws/uv.lock"
+    printf '# SENTINEL-1466 package\n' >"$ws/src/demo_pkg/__init__.py"
+    printf '# SENTINEL-1466 test\n' >"$ws/tests/test_demo.py"
+
+    run _smoke_deploy "$ws"
+    assert_success
+
+    # The template ships none of these; a smoke deploy must not remove them.
+    run test -f "$ws/pyproject.toml"
+    assert_success
+    run test -f "$ws/uv.lock"
+    assert_success
+    run grep -q 'SENTINEL-1466 package' "$ws/src/demo_pkg/__init__.py"
+    assert_success
+    run grep -q 'SENTINEL-1466 test' "$ws/tests/test_demo.py"
+    assert_success
+}
+
+@test "smoke deploy still prunes retired scaffold paths (#1466/#1348)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1466-retired"
+    mkdir -p "$ws/.github/workflows"
+    # Pin predates the 1.8.0 retirement, so the prune is in scope.
+    printf 'DEVKIT_VERSION=1.7.0\n' >"$ws/.vig-os"
+    printf 'name: retired\n' >"$ws/.github/workflows/renovate-changelog-build.yml"
+    printf 'name: retired\n' >"$ws/.github/workflows/renovate-changelog-commit.yml"
+
+    run _smoke_deploy "$ws"
+    assert_success
+
+    # Dropping --delete must not cost the #1443 retirement behaviour: the
+    # #1348 prune is what removes these, in smoke mode as in normal mode.
+    run test -e "$ws/.github/workflows/renovate-changelog-build.yml"
+    assert_failure
+    run test -e "$ws/.github/workflows/renovate-changelog-commit.yml"
     assert_failure
 }
 
@@ -2302,9 +2349,10 @@ _upgrade_no_flags() {
     done
 }
 
-@test "template .vig-os ships every optional knob key empty (#1173, #1228, #1282, #1295, #1284)" {
+@test "template .vig-os ships every optional knob key empty (#1173, #1228, #1282, #1295, #1284, #1431, #1432)" {
     local keys=(DEVKIT_CI_RUNNER DEVKIT_SYNC_TARGET DEVKIT_SYNC_SCHEDULE
-        DEVKIT_REFS_POLICY DEVKIT_DRIFT_CHECK DEVKIT_FEATURES_DISABLED)
+        DEVKIT_REFS_POLICY DEVKIT_DRIFT_CHECK DEVKIT_FEATURES_DISABLED
+        DEVKIT_COMMIT_TYPES DEVKIT_BRANCH_TYPES)
     for key in "${keys[@]}"; do
         echo "key: $key"
         run grep -x "${key}=" "$TEMPLATE_DIR/.vig-os"
@@ -2382,7 +2430,7 @@ _upgrade_no_flags() {
     assert_failure
 }
 
-@test "invalid or hostile .vig-os knob values fail the scaffold loudly (#1228, #1282, #1295, #1284)" {
+@test "invalid or hostile .vig-os knob values fail the scaffold loudly (#1228, #1282, #1295, #1284, #1431, #1432)" {
     # KEY|VALUE table of rejected values, each asserted against the clean
     # "Invalid <KEY>" message. The hostile SYNC_TARGET row: git
     # check-ref-format alone accepts quotes/$/backticks/;/|/# — values that
@@ -2402,6 +2450,15 @@ _upgrade_no_flags() {
         'DEVKIT_REFS_POLICY|garbage'
         'DEVKIT_DRIFT_CHECK|garbage'
         'DEVKIT_FEATURES_DISABLED|renovate,bogus'
+        # The commit-types values are spliced into sed replacement text and
+        # YAML by render_commit_types, so the charset allowlist must refuse
+        # case/punctuation, not just hostile shell (#1431).
+        'DEVKIT_COMMIT_TYPES|feat,Bad-Type'
+        'DEVKIT_COMMIT_TYPES|feat;rm -rf /'
+        # Branch-type values additionally land inside a regex alternation, so
+        # the same allowlist guards render_branch_types (#1432).
+        'DEVKIT_BRANCH_TYPES|feature,Bad-Type'
+        'DEVKIT_BRANCH_TYPES|feature|record'
     )
     local i=0
     for row in "${rows[@]}"; do
@@ -2586,6 +2643,146 @@ _upgrade_no_flags() {
     # (b) the trunk render still dropped the dev protect-clause on the same file
     run grep -qF '(?!dev$)' "$ws/.pre-commit-config.yaml"
     assert_failure
+}
+
+# ── Commit types knob (#1431) ─────────────────────────────────────────────────
+# DEVKIT_COMMIT_TYPES replaces the approved-commit-types list in the
+# validate-commit-msg hook's --types arg at scaffold time (the CI
+# validate-commit-range surface is driven from the same key via
+# resolve-toolchain, covered in tests/test_ci_runner.py). Empty (default) keeps
+# the 11 stock types byte-identical; the refs-policy `optional` expansion
+# follows the resolved list so the two knobs compose. Persisted like
+# DEVKIT_REFS_POLICY; invalid values fail the scaffold loudly (knob loop above).
+
+@test "default scaffold keeps the stock --types arg (#1431)" {
+    # No DEVKIT_COMMIT_TYPES key => the template default is untouched, so the
+    # validate-commit-msg hook keeps its byte-identical types list.
+    ws="$BATS_TEST_TMPDIR/e2e-1431-default"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run grep -qF '"--types", "feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style",' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "DEVKIT_COMMIT_TYPES renders the custom list + writes back (#1431)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1431-custom"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_COMMIT_TYPES=.*/DEVKIT_COMMIT_TYPES=feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style,record/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '"--types", "feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style,record",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    # The default refs policy is untouched by a types-only override.
+    run grep -qF '"--refs-optional-types", "chore",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -x 'DEVKIT_COMMIT_TYPES=feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style,record' "$ws/.vig-os"
+    assert_success
+}
+
+@test "DEVKIT_REFS_POLICY=optional mirrors a custom DEVKIT_COMMIT_TYPES (#1431)" {
+    # `optional` marks every approved type Refs-optional — "every" must mean
+    # the RESOLVED list, not the hardcoded default, or the hook would require
+    # Refs for a type it just accepted (#1282 composition).
+    ws="$BATS_TEST_TMPDIR/e2e-1431-compose-refs"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_COMMIT_TYPES=.*/DEVKIT_COMMIT_TYPES=feat,fix,record/' "$ws/.vig-os"
+    sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=optional/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '"--types", "feat,fix,record",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -qF '"--refs-optional-types", "feat,fix,record",' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "dropping the bot commit types prints a notice, never aborts (#1431)" {
+    # Renovate commits `chore(deps)` and devkit-upgrade commits `build(devkit)`
+    # in consumer repos; a replacement list omitting them makes those bot PRs
+    # fail commit-checks. Deliberate is allowed — but never silent (mirrors the
+    # #1284 contradiction notice).
+    ws="$BATS_TEST_TMPDIR/e2e-1431-bot-notice"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_COMMIT_TYPES=.*/DEVKIT_COMMIT_TYPES=feat,fix,record/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "Notice: DEVKIT_COMMIT_TYPES omits"
+}
+
+# ── Branch types knob (#1432) ─────────────────────────────────────────────────
+# DEVKIT_BRANCH_TYPES replaces the issue-numbered branch-type set in the
+# no-commit-to-branch pattern at scaffold time (the CI branch-name gate is
+# driven from the same key via resolve-toolchain, covered in
+# tests/test_ci_runner.py; the flake consumer surface in
+# tests/test_flake_hooks.py). Empty (default) keeps the stock alternation
+# byte-identical; the chore/renovate/worktree clauses are never knob-driven.
+# Persisted like DEVKIT_COMMIT_TYPES; invalid values fail loudly (knob loop
+# above).
+
+STOCK_BRANCH_ALTERNATION='(feature|bugfix|hotfix|release|docs|test|refactor)'
+
+@test "default scaffold keeps the stock branch-type alternation (#1432)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1432-default"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run grep -qF "${STOCK_BRANCH_ALTERNATION}/[0-9]" "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "DEVKIT_BRANCH_TYPES renders the custom alternation + writes back (#1432)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1432-custom"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_BRANCH_TYPES=.*/DEVKIT_BRANCH_TYPES=feature,bugfix,hotfix,release,docs,test,refactor,record/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '(feature|bugfix|hotfix|release|docs|test|refactor|record)/[0-9]' "$ws/.pre-commit-config.yaml"
+    assert_success
+    # The stock alternation is gone (replaced, not duplicated).
+    run grep -qF "${STOCK_BRANCH_ALTERNATION}/[0-9]" "$ws/.pre-commit-config.yaml"
+    assert_failure
+    run grep -x 'DEVKIT_BRANCH_TYPES=feature,bugfix,hotfix,release,docs,test,refactor,record' "$ws/.vig-os"
+    assert_success
+}
+
+@test "DEVKIT_BRANCH_TYPES composes with the trunk workflow render (#1432)" {
+    # render_workflow_model deletes the `(?!dev$)` clause; render_branch_types
+    # swaps the alternation — distinct anchors on the same pattern line, both
+    # must apply.
+    ws="$BATS_TEST_TMPDIR/e2e-1432-trunk"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_WORKFLOW=.*/DEVKIT_WORKFLOW=trunk/' "$ws/.vig-os"
+    sed -i 's/^DEVKIT_BRANCH_TYPES=.*/DEVKIT_BRANCH_TYPES=feature,bugfix,record/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '(feature|bugfix|record)/[0-9]' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -qF '(?!dev$)' "$ws/.pre-commit-config.yaml"
+    assert_failure
+}
+
+@test "dropping the release branch type prints a notice, never aborts (#1432)" {
+    # The release train forks release/X.Y.Z branches; a maintainer using
+    # release-typed topic branches loses them from the local guard. Deliberate
+    # is allowed — but never silent (mirrors the #1431 bot-type notice).
+    ws="$BATS_TEST_TMPDIR/e2e-1432-release-notice"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_BRANCH_TYPES=.*/DEVKIT_BRANCH_TYPES=feature,bugfix,record/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "Notice: DEVKIT_BRANCH_TYPES omits"
 }
 
 # ── scaffold-drift opt-out knob (#1295) ───────────────────────────────────────

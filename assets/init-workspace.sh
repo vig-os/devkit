@@ -345,6 +345,8 @@ MANIFEST_SYNC_SCHEDULE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_SCH
 MANIFEST_FEATURES_DISABLED="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FEATURES_DISABLED || true)"
 
 MANIFEST_REFS_POLICY="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REFS_POLICY || true)"
+MANIFEST_COMMIT_TYPES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_COMMIT_TYPES || true)"
+MANIFEST_BRANCH_TYPES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_BRANCH_TYPES || true)"
 
 # devkit-upgrade knobs (#1296): runtime-only keys consumed by the scaffolded
 # devkit-upgrade.yml at run time (not rendered here) — read them solely to write
@@ -503,6 +505,80 @@ case "$MANIFEST_REFS_POLICY" in
         exit 1
         ;;
 esac
+
+# Commit types (#1431): DEVKIT_COMMIT_TYPES is a comma-separated (whitespace-
+# tolerant, like DEVKIT_FEATURES_DISABLED) FULL REPLACEMENT of the approved
+# commit types, steering the validate-commit-msg hook's `--types` arg and CI's
+# validate-commit-range from this one key. The value is spliced into sed
+# replacement text and YAML, so the LOAD-BEARING guard is a strict per-entry
+# charset allowlist (mirrors DEVKIT_SYNC_TARGET): refuse anything but
+# lowercase alphanumerics loudly. Resolves into RESOLVED_COMMIT_TYPES — the
+# 11-type default when the key is empty — which BOTH renderers consume
+# (render_commit_types and render_refs_policy's `optional` expansion).
+DEFAULT_COMMIT_TYPES="feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style"
+RESOLVED_COMMIT_TYPES=""
+if [[ -n "$MANIFEST_COMMIT_TYPES" ]]; then
+    IFS=',' read -ra _raw_types <<< "$MANIFEST_COMMIT_TYPES"
+    for _type in "${_raw_types[@]}"; do
+        # Trim surrounding whitespace (leading + trailing).
+        _type="${_type#"${_type%%[![:space:]]*}"}"
+        _type="${_type%"${_type##*[![:space:]]}"}"
+        [[ -z "$_type" ]] && continue
+        if [[ ! "$_type" =~ ^[a-z][a-z0-9]*$ ]]; then
+            echo "Error: Invalid DEVKIT_COMMIT_TYPES in $VIG_OS_MANIFEST: $_type (expected a comma-separated list of lowercase alphanumeric commit types, e.g. 'feat,fix,chore,record')" >&2
+            exit 1
+        fi
+        RESOLVED_COMMIT_TYPES+="${RESOLVED_COMMIT_TYPES:+,}$_type"
+    done
+    # Bot-type notice (never abort — a deliberate removal is allowed, but
+    # never silent, mirroring the #1284 contradiction notice): Renovate
+    # commits `chore(deps)` and devkit-upgrade commits `build(devkit)` in
+    # consumer repos; dropping either fails those bot PRs in commit-checks.
+    if [[ -n "$RESOLVED_COMMIT_TYPES" ]]; then
+        for _bot_type in chore build; do
+            if [[ ",$RESOLVED_COMMIT_TYPES," != *",$_bot_type,"* ]]; then
+                echo "Notice: DEVKIT_COMMIT_TYPES omits '$_bot_type' — Renovate/devkit-upgrade bot commits use it; their PRs will fail commit-checks (#1431)." >&2
+            fi
+        done
+    fi
+fi
+# An all-blank value (e.g. `DEVKIT_COMMIT_TYPES= ,`) falls back to the default.
+RESOLVED_COMMIT_TYPES="${RESOLVED_COMMIT_TYPES:-$DEFAULT_COMMIT_TYPES}"
+
+# Branch types (#1432): DEVKIT_BRANCH_TYPES is a comma-separated (whitespace-
+# tolerant) FULL REPLACEMENT of the issue-numbered branch-type set in the
+# no-commit-to-branch pattern, steering the local guard, the flake consumer
+# surface (via the template flake.nix reader), and CI's branch-name gate from
+# this one key. The chore/renovate/worktree clauses are never knob-driven. The
+# value lands in a sed replacement AND a regex alternation, so the same strict
+# per-entry charset allowlist as DEVKIT_COMMIT_TYPES is load-bearing. Resolves
+# into RESOLVED_BRANCH_TYPES (stock set when the key is empty) for
+# render_branch_types.
+DEFAULT_BRANCH_TYPES="feature,bugfix,hotfix,release,docs,test,refactor"
+RESOLVED_BRANCH_TYPES=""
+if [[ -n "$MANIFEST_BRANCH_TYPES" ]]; then
+    IFS=',' read -ra _raw_btypes <<< "$MANIFEST_BRANCH_TYPES"
+    for _btype in "${_raw_btypes[@]}"; do
+        # Trim surrounding whitespace (leading + trailing).
+        _btype="${_btype#"${_btype%%[![:space:]]*}"}"
+        _btype="${_btype%"${_btype##*[![:space:]]}"}"
+        [[ -z "$_btype" ]] && continue
+        if [[ ! "$_btype" =~ ^[a-z][a-z0-9]*$ ]]; then
+            echo "Error: Invalid DEVKIT_BRANCH_TYPES in $VIG_OS_MANIFEST: $_btype (expected a comma-separated list of lowercase alphanumeric branch types, e.g. 'feature,bugfix,record')" >&2
+            exit 1
+        fi
+        RESOLVED_BRANCH_TYPES+="${RESOLVED_BRANCH_TYPES:+,}$_btype"
+    done
+    # Release-type notice (never abort — a deliberate removal is allowed, but
+    # never silent, mirroring the #1431 bot-type notice): the release feature
+    # works on release/X.Y.Z branches, and maintainers commonly type topic
+    # branches into a release PR as release/<issue>-<slug>.
+    if [[ -n "$RESOLVED_BRANCH_TYPES" && ",$RESOLVED_BRANCH_TYPES," != *",release,"* ]]; then
+        echo "Notice: DEVKIT_BRANCH_TYPES omits 'release' — release-typed topic branches will be rejected by the branch guard (#1432)." >&2
+    fi
+fi
+# An all-blank value (e.g. `DEVKIT_BRANCH_TYPES= ,`) falls back to the default.
+RESOLVED_BRANCH_TYPES="${RESOLVED_BRANCH_TYPES:-$DEFAULT_BRANCH_TYPES}"
 
 # Scaffold-drift gate (#1295): pure runtime toggle for the ci.yml scaffold-drift
 # job (empty resolves to the enabled `true` default). No scaffold render — the CI
@@ -1720,25 +1796,71 @@ YAML
 # them in lockstep. Empty/absent or `chore-optional` is a pure no-op, so a
 # default scaffold's .pre-commit-config.yaml stays byte-identical. The anchored
 # sed targets only the quoted arg value, distinct from render_workflow_model's
-# `(?!dev$)` sed on the same file, so the two compose.
+# `(?!dev$)` sed and render_commit_types' `--types` sed on the same file, so
+# the three compose.
 render_refs_policy() {
     [[ -z "$MANIFEST_REFS_POLICY" || "$MANIFEST_REFS_POLICY" == "chore-optional" ]] && return 0
 
     local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
     [[ -f "$pc" ]] || return 0
 
-    # `optional` mirrors the hook entry's `--types` list verbatim; `required`
-    # uses a `none` sentinel type (no real commit is type `none`, and the CLI
-    # treats an empty --refs-optional-types as falsy => the {chore} default), so
+    # `optional` mirrors the RESOLVED approved-types list — the custom
+    # DEVKIT_COMMIT_TYPES when set (#1431), else the stock 11 — so the hook
+    # never requires Refs for a type it just accepted; `required` uses a
+    # `none` sentinel type (no real commit is type `none`, and the CLI treats
+    # an empty --refs-optional-types as falsy => the {chore} default), so
     # every real type requires Refs.
     local types
     case "$MANIFEST_REFS_POLICY" in
-        optional) types="feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style" ;;
+        optional) types="$RESOLVED_COMMIT_TYPES" ;;
         required) types="none" ;;
     esac
 
     sed -i -E "s|^([[:space:]]*\"--refs-optional-types\", \")[^\"]*(\",)\$|\1${types}\2|" "$pc"
     echo "Rendered Refs policy: ${MANIFEST_REFS_POLICY} (refs-optional-types=${types})"
+}
+
+# Render the commit-types knob (#1431): DEVKIT_COMMIT_TYPES replaces the
+# validate-commit-msg hook's `--types` arg in the scaffolded
+# .pre-commit-config.yaml with the resolved list (guarded + resolved above; the
+# IDENTICAL list drives CI's validate-commit-range via resolve-toolchain's
+# `commit-types` output — two renderers, one key, keep in lockstep). Empty/
+# absent is a pure no-op, so a default scaffold stays byte-identical. The
+# anchored sed targets only the quoted `--types` value — distinct from
+# render_refs_policy's `--refs-optional-types` anchor and
+# render_workflow_model's `(?!dev$)` sed on the same file — so the three
+# compose.
+render_commit_types() {
+    [[ -z "$MANIFEST_COMMIT_TYPES" ]] && return 0
+
+    local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
+    [[ -f "$pc" ]] || return 0
+
+    sed -i -E "s|^([[:space:]]*\"--types\", \")[^\"]*(\",)\$|\1${RESOLVED_COMMIT_TYPES}\2|" "$pc"
+    echo "Rendered commit types: ${RESOLVED_COMMIT_TYPES}"
+}
+
+# Render the branch-types knob (#1432): DEVKIT_BRANCH_TYPES replaces the
+# issue-numbered alternation of the no-commit-to-branch pattern in the
+# scaffolded .pre-commit-config.yaml (guarded + resolved above; the IDENTICAL
+# set drives the flake consumer surface via the template flake.nix reader and
+# CI's branch-name gate via resolve-toolchain's `branch-types` output — keep in
+# lockstep). Empty/absent is a pure no-op, so a default scaffold stays
+# byte-identical. Plain (basic-regex) sed with a `#` delimiter (the
+# replacement contains `|`, literal in basic syntax), anchored on the literal
+# stock alternation + its `/[0-9]` suffix — the
+# single occurrence in the file, distinct from the other renders' anchors, so
+# all four compose. The anchor is the STOCK list, so this must run before any
+# future render that could rewrite it (it is the only one that does).
+render_branch_types() {
+    [[ -z "$MANIFEST_BRANCH_TYPES" ]] && return 0
+
+    local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
+    [[ -f "$pc" ]] || return 0
+
+    local alternation="${RESOLVED_BRANCH_TYPES//,/|}"
+    sed -i "s#(feature|bugfix|hotfix|release|docs|test|refactor)/\[0-9\]#(${alternation})/[0-9]#" "$pc"
+    echo "Rendered branch types: ${RESOLVED_BRANCH_TYPES}"
 }
 
 # Warn if forcing (prompt user) - show which files would be overwritten
@@ -2007,13 +2129,25 @@ echo "Copying files from $TEMPLATE_DIR to $WORKSPACE_DIR..."
 # silently skips it. Content comparison is the only sound check here; the
 # template is small, so the cost is negligible.
 if [[ "$SMOKE_TEST" == "true" ]]; then
-    # Smoke mode: clean deploy (--delete removes stale files), then overlay
-    # smoke-test assets. /CHANGELOG.md is root-anchored (#953 semantics): the
-    # consumer's ROOT changelog is consumer state — its own frozen release
-    # history (## [X.Y.Z] - TBD) must survive re-deploys (#1403). The anchor
-    # keeps .devcontainer/CHANGELOG.md (devkit's manifest mirror) syncing, and
-    # the exclude also shields the root file from --delete.
-    rsync -avL --checksum --delete --exclude='.git' --exclude='.venv' --exclude='/CHANGELOG.md' --exclude='docs/issues/' --exclude='docs/pull-requests/' "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
+    # Smoke mode: overwrite the managed scaffold (no preserve excludes — every
+    # deploy is a fresh render), then overlay smoke-test assets.
+    #
+    # No --delete (#1466). It removed every tracked path the template does not
+    # ship, which is the consumer's own payload: the smoke repo's pyproject.toml,
+    # uv.lock, src/ and tests/. That was invisible while commit-action built the
+    # deploy tree additively; once #1443 began publishing `git ls-files --deleted`
+    # the 1.8.0-rc3 deploy committed those deletions and the smoke repo lost its
+    # Python project. Retirement is expressed by the #1348 manifest (pruned below,
+    # in this mode as in any other), not by a blanket delete — and the drift gate
+    # re-scaffolds in NORMAL mode, which never deletes, so gate and deploy now
+    # agree by construction. The docs/issues/ + docs/pull-requests/ excludes went
+    # with it: they existed only to shield sync-issues output from --delete.
+    #
+    # /CHANGELOG.md is root-anchored (#953 semantics): the consumer's ROOT
+    # changelog is consumer state — its own frozen release history
+    # (## [X.Y.Z] - TBD) must survive re-deploys (#1403). The anchor keeps
+    # .devcontainer/CHANGELOG.md (devkit's manifest mirror) syncing.
+    rsync -avL --checksum --exclude='.git' --exclude='.venv' --exclude='/CHANGELOG.md' "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
 
     SMOKE_TEST_DIR="$SCRIPT_DIR/smoke-test"
     if [[ -d "$SMOKE_TEST_DIR" ]]; then
@@ -2395,12 +2529,18 @@ if feature_disabled sync-issues; then
 else
     render_sync_settings
 fi
-# Refs policy (#1282): render the validate-commit-msg hook's --refs-optional-types
-# from DEVKIT_REFS_POLICY (paired with the CI mapping in resolve-toolchain). A
-# no-op for the chore-optional default, so a default scaffold is unchanged. Runs
-# after render_workflow_model (both sed .pre-commit-config.yaml on distinct
-# anchors) so the trunk render and the refs policy compose.
+# Refs policy (#1282) + commit types (#1431): render the validate-commit-msg
+# hook's --refs-optional-types / --types from DEVKIT_REFS_POLICY /
+# DEVKIT_COMMIT_TYPES (each paired with its CI mapping in resolve-toolchain).
+# No-ops for the defaults, so a default scaffold is unchanged. Both run after
+# render_workflow_model (all three sed .pre-commit-config.yaml on distinct
+# anchors) so the renders compose.
 render_refs_policy
+render_commit_types
+# Branch types (#1432): swaps the issue-numbered alternation of the branch
+# guard pattern — a distinct anchor from the three renders above, so all
+# compose. No-op for the default.
+render_branch_types
 
 # Persist the resolved manifest (#885). The scaffolded .vig-os is a managed
 # file (template-overwritten on upgrade), so the resolved delivery mode and
@@ -2463,6 +2603,19 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     # resets the commit-msg/commit-range Refs enforcement to chore-optional.
     if [[ -n "$MANIFEST_REFS_POLICY" ]]; then
         write_manifest_value DEVKIT_REFS_POLICY "$MANIFEST_REFS_POLICY"
+    fi
+    # Commit types (#1431): bare in the template (DEVKIT_COMMIT_TYPES=), so a
+    # consumer's replacement list is written back — else an upgrade silently
+    # resets the approved commit types to the stock 11. The raw value
+    # round-trips (like DEVKIT_FEATURES_DISABLED).
+    if [[ -n "$MANIFEST_COMMIT_TYPES" ]]; then
+        write_manifest_value DEVKIT_COMMIT_TYPES "$MANIFEST_COMMIT_TYPES"
+    fi
+    # Branch types (#1432): bare in the template (DEVKIT_BRANCH_TYPES=), so a
+    # consumer's replacement set is written back — else an upgrade silently
+    # resets the branch guard (and the CI branch-name gate) to the stock set.
+    if [[ -n "$MANIFEST_BRANCH_TYPES" ]]; then
+        write_manifest_value DEVKIT_BRANCH_TYPES "$MANIFEST_BRANCH_TYPES"
     fi
     # devkit-upgrade knobs (#1296): bare in the template (DEVKIT_AUTO_UPGRADE= /
     # DEVKIT_UPGRADE_EXCLUDE=), so a consumer's opt-out / exclusion list is read

@@ -151,7 +151,7 @@ Available recipes:
     [info]
     default                                    # Show available commands (default)
     docs                                       # Generate documentation from templates
-    doctor                                     # Diagnose host prerequisites: git identity, commit signing, ssh-agent, gh auth
+    doctor                                     # Diagnose host prerequisites: git identity, signing, hooks path, ssh-agent, gh auth
     help                                       # Show available commands
     info                                       # Show image information
     init *args                                 # Gate Nix prerequisites and bootstrap the project (venv, git hooks, pre-commit)
@@ -211,7 +211,7 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 - **Registry**: `ghcr.io/vig-os/devcontainer`
 - **Architecture**: Multi-platform support (AMD64, ARM64)
 - **License**: Apache
-- **Latest Version**: [1.7.0](https://github.com/vig-os/devkit/releases/tag/1.7.0) - 2026-08-07
+- **Latest Version**: [1.8.0](https://github.com/vig-os/devkit/releases/tag/1.8.0) - 2026-08-12
 - **Image tags**: bare semver (`0.2.1`, `latest`) — git tags use `v` prefix (`v0.2.1`) but image tags do not
 
 ## Features

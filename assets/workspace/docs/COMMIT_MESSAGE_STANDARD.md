@@ -52,6 +52,13 @@ Only the following types are allowed:
 
 Any other type (e.g. `feature`, `bugfix`, or emoji-based prefixes) is **not** allowed.
 
+Consumer repos may replace this list with a project-specific one via the
+`DEVKIT_COMMIT_TYPES` key in `.vig-os` (comma-separated; drives the hook and
+CI's `validate-commit-range` from one key — see the manifest-key table in
+[MIGRATION.md](https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md),
+[#1431](https://github.com/vig-os/devkit/issues/1431)).
+This table documents the stock defaults, which apply whenever the key is empty.
+
 ## Refs line and traceability
 
 The `Refs:` line provides mandatory traceability to issues, requirements, risks, or SOPs. Only one `Refs:` line is allowed; it must be the last non-empty line of the message.

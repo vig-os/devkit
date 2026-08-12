@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-08-10T12:34:30Z
-updated: 2026-08-10T13:42:59Z
+updated: 2026-08-11T13:05:06Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1400
-comments: 1
+comments: 2
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-11T03:50:26.822Z
+synced: 2026-08-12T04:13:09.882Z
 ---
 
 # [Issue 1400]: [Rust language pack — and reconciling devkit with gerchowl/guardrails](https://github.com/vig-os/devkit/issues/1400)
@@ -205,4 +205,76 @@ that class).
 **guardrails' own gates are vulnerable to this** the moment they run inside a
 crane sandbox with an explicit fileset. The failure is invisible by construction,
 which is exactly what makes it worth a gate rather than a convention.
+
+---
+
+# [Comment #2]() by [gerchowl]()
+
+_Posted on August 11, 2026 at 01:05 PM_
+
+## Scope correction: the Rust pack ships STANDALONE, no guardrails dependency
+
+Sharpening section A, because the two proposals should not be fused.
+
+**The pack does not depend on guardrails, and shouldn't.** guardrails' gates are
+**language-agnostic** — `no-fake-impl`, `no-commented-code`, `no-hardcoded`,
+`derived-docs`, `gitleaks`, `protect-trunk` serve a Python or Node consumer
+exactly as much as a Rust one. Scoping them inside a *rust* module would deny
+them to everyone else. They belong at devkit's level or nowhere.
+
+The pack also doesn't need them: its content is fenix, crane, the check suite,
+profiles, `[workspace.lints]`, layering, fileset. The consumer repo demonstrates
+the two **compose** — not that one requires the other.
+
+So: **two proposals, sequenced.** The pack first (small, self-contained, has a
+working consumer). The guardrails reconciliation second, org-wide.
+
+## Ownership, because the separation leaks in practice
+
+Clean in principle, leaky in practice, and the leak is nameable: **Rust tooling
+and its config have three claimants.** `deny.toml` is shipped by guardrails'
+`templates/default/`, hand-written in the consumer, and would be shipped by the
+pack. `cargo-deny`/`rustfmt`/`clippy` come from guardrails' toolbelt, are invoked
+by hook entries, and are also wanted as flake `checks`. `prek`/`python3` arrive
+from guardrails while `uv`/`vig-utils` arrive from devkit, with no declared owner
+of the intersection.
+
+| Layer | Owns |
+|---|---|
+| **devkit** | the hook **surface** (`core.hooksPath`, hook scripts), scaffold, release train, `vig-utils` |
+| **guardrails** | **language-agnostic** content gates and the shared toolbelt |
+| **rust pack** | Rust **tool config** (`deny.toml`, `clippy.toml`, `rustfmt.toml`) and the flake `checks` |
+
+**Corollary that needs stating in both projects**, or every Rust consumer
+resolves it differently: guardrails' Rust-specific pieces — its `deny.toml`, its
+rustfmt/clippy hook entries — are for repos *without* the pack. Where the pack is
+present, they defer.
+
+## Elevation criterion: language-agnosticism, not maturity
+
+When something graduates out of the rust module, the test is whether it is
+Rust-specific:
+
+- **Stays in the module:** crane fileset coverage, cargo layering, MSRV pairing,
+  profile shape.
+- **Belongs in `vig-utils`** (alongside `validate-commit-msg`), so Python and
+  Node consumers get it too: the derived-artifact manifest, policy drift, the
+  exception registry.
+
+The derived-artifact manifest is the clearest candidate — nothing about "a
+generated file must not silently disagree with its source" is Rust-specific.
+
+## Two caveats a reviewer will raise
+
+**Governance.** `gerchowl/guardrails` is a personal repo; `vig-os/devkit` is the
+org's. An org tool taking a hard dependency on a personal one is a bus-factor and
+transfer question — it probably wants guardrails under `vig-os` first, or an
+explicit policy. Not a blocker for a personal consumer; definitely one here.
+
+**Flake inputs are fetched at EVALUATION**, since they are arguments to
+`outputs`. A governance input in the main flake is therefore fetched by anyone
+who merely runs `nix run <repo>` — dev-only tooling in the consumer's path. The
+consumer repo currently has exactly this problem with two governance inputs. The
+pack should recommend a separate `dev/flake.nix` rather than reproducing it
+across every Rust repo in the org.
 

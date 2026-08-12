@@ -84,6 +84,12 @@ jobs:
       # Refs policy (#1282): re-export the composite action's mapped
       # --refs-optional-types list so commit-checks can consume it via needs.
       refs-optional-types: ${{ steps.resolve.outputs.refs-optional-types }}
+      # Commit types (#1431): re-export the resolved approved-types list so
+      # commit-checks can consume it via needs.
+      commit-types: ${{ steps.resolve.outputs.commit-types }}
+      # Branch types (#1432): re-export the resolved branch-type set so the
+      # commit-checks branch-name gate can consume it via needs.
+      branch-types: ${{ steps.resolve.outputs.branch-types }}
       # Scaffold-drift gate (#1295): re-export the DEVKIT_DRIFT_CHECK toggle so
       # the scaffold-drift job's `if:` can self-skip when a consumer opts out,
       # plus the all-modes image ref it `docker run`s (keeps the ghcr literal in
@@ -218,6 +224,50 @@ jobs:
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
+      # Branch-name gate (#1432 / #1430): validate the PR head ref against the
+      # same branch-type set the local no-commit-to-branch guard renders from.
+      # The local hook depends on local git config a fresh clone does not have
+      # (core.hooksPath), so this is the enforcement point that survives an
+      # un-initialised clone. The allowed set is a SUPERSET of the local
+      # guard's: automation branches never run local hooks but do open PRs.
+      # The head ref is attacker-controlled text, so it reaches the check via
+      # env, never inline ${{ }} (the zizmor template-injection gate / #1279
+      # env-routing pattern); the type set is mapped once from
+      # DEVKIT_BRANCH_TYPES by resolve-toolchain.
+      - name: Validate branch name
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BRANCH_TYPES: ${{ needs.resolve-toolchain.outputs.branch-types }}
+        run: |
+          set -euo pipefail
+          TYPES_ALTERNATION="${BRANCH_TYPES//,/|}"
+          # Every alternative is individually ^...$-anchored:
+          #   main|dev                 long-lived branches (committing on them
+          #                            is allowed locally; a deliberate PR
+          #                            from one stays possible)
+          #   chore/<slug>             issue-less maintenance branches — also
+          #                            covers the sync-main-to-dev and
+          #                            devkit-upgrade bot branches
+          #   <type>/<issue>-<slug>    issue-numbered topic branches
+          #                            (DEVKIT_BRANCH_TYPES)
+          #   worktree/<n>             autonomous worktree pipeline
+          #   renovate/*               Renovate's namespace (#1433); free-form
+          #                            names (dots, parentheses)
+          #   release/X.Y.Z            release-train branches (prepare-release
+          #                            creates release/$VERSION, bare semver)
+          ALLOWED="^(main|dev)$"
+          ALLOWED+="|^chore/[a-z0-9]+(-[a-z0-9]+)*$"
+          ALLOWED+="|^(${TYPES_ALTERNATION})/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$"
+          ALLOWED+="|^worktree/[0-9]+$"
+          ALLOWED+="|^renovate/.+$"
+          ALLOWED+="|^release/[0-9]+\.[0-9]+\.[0-9]+$"
+          if printf '%s' "${HEAD_REF}" | grep -qE "${ALLOWED}"; then
+            echo "Branch name OK: ${HEAD_REF}"
+          else
+            echo "::error::Branch name '${HEAD_REF}' does not follow the convention <type>/<issue>-<summary> (types: ${BRANCH_TYPES}) or chore/<summary>. See docs/COMMIT_MESSAGE_STANDARD.md and the branch-naming skill."
+            exit 1
+          fi
+
       # The PR title is attacker-controlled text, so it reaches the validator as
       # an environment variable — never interpolated into the shell command.
       # The range starts at the merge-base with the *current* base branch, not
@@ -229,11 +279,12 @@ jobs:
           PR_TITLE: ${{ github.event.pull_request.title }}
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          # Refs policy (#1282): the resolved --refs-optional-types list reaches
+          # Refs policy (#1282) + commit types (#1431): the resolved lists reach
           # the validator via env, never inline ${{ }} in the run block (the
-          # zizmor template-injection gate / #1279 env-routing pattern). Mapped
-          # once from DEVKIT_REFS_POLICY by resolve-toolchain.
+          # zizmor template-injection gate / #1279 env-routing pattern). Each is
+          # mapped once from its .vig-os key by resolve-toolchain.
           REFS_OPTIONAL_TYPES: ${{ needs.resolve-toolchain.outputs.refs-optional-types }}
+          COMMIT_TYPES: ${{ needs.resolve-toolchain.outputs.commit-types }}
         run: |
           set -euo pipefail
           BASE_SHA="$(git merge-base "origin/${BASE_REF}" "${HEAD_SHA}")"
@@ -253,6 +304,7 @@ jobs:
             --base "${BASE_SHA}" \
             --head "${HEAD_SHA}" \
             --title "${PR_TITLE}" \
+            --types "${COMMIT_TYPES}" \
             --refs-optional-types "${REFS_OPTIONAL_TYPES}" \
             --blocked-patterns .github/agent-blocklist.toml \
             ${EXCLUDE[@]+"${EXCLUDE[@]}"}

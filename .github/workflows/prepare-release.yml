@@ -30,16 +30,6 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: false
         type: boolean
-      git-user-name:
-        description: 'Git user name for commits'
-        required: false
-        default: 'vigOS Release Bot'
-        type: string
-      git-user-email:
-        description: 'Git user email for commits'
-        required: false
-        default: 'release@vig-os.local'
-        type: string
 
 permissions:
   contents: read          # safe default; prepare job escalates as needed
@@ -329,8 +319,6 @@ jobs:
       release_branch: ${{ needs.validate.outputs.release_branch }}
       branch_sha: ${{ needs.prepare.outputs.dev_sha }}
       dry_run: ${{ github.event.inputs.dry-run == 'true' }}
-      git_user_name: ${{ github.event.inputs.git-user-name }}
-      git_user_email: ${{ github.event.inputs.git-user-email }}
     secrets: inherit
 
   open-pr:

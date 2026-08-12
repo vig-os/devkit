@@ -291,6 +291,36 @@ jobs:
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
+      # Branch-name gate (#1432 / #1430): the local no-commit-to-branch guard
+      # depends on core.hooksPath, which a fresh clone does not have — this
+      # step is the enforcement point that survives an un-initialised clone
+      # (the repo that defines the standard enforces it on itself). Devkit is
+      # the producer (no .vig-os), so the stock type set is inline; it must
+      # match nix/hooks.nix defaultBranchTypes. The allowed set is a SUPERSET
+      # of the local guard's: automation branches (release trains, Renovate,
+      # the worktree pipeline) never run local hooks but do open PRs. The head
+      # ref is attacker-controlled text, so it reaches the check via env,
+      # never inline ${{ }}.
+      - name: Validate branch name
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          BRANCH_TYPES: feature,bugfix,hotfix,release,docs,test,refactor
+        run: |
+          set -euo pipefail
+          TYPES_ALTERNATION="${BRANCH_TYPES//,/|}"
+          ALLOWED="^(main|dev)$"
+          ALLOWED+="|^chore/[a-z0-9]+(-[a-z0-9]+)*$"
+          ALLOWED+="|^(${TYPES_ALTERNATION})/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$"
+          ALLOWED+="|^worktree/[0-9]+$"
+          ALLOWED+="|^renovate/.+$"
+          ALLOWED+="|^release/[0-9]+\.[0-9]+\.[0-9]+$"
+          if printf '%s' "${HEAD_REF}" | grep -qE "${ALLOWED}"; then
+            echo "Branch name OK: ${HEAD_REF}"
+          else
+            echo "::error::Branch name '${HEAD_REF}' does not follow the convention <type>/<issue>-<summary> (types: ${BRANCH_TYPES}) or chore/<summary>. See docs/COMMIT_MESSAGE_STANDARD.md and the branch-naming skill."
+            exit 1
+          fi
+
       # The PR title is attacker-controlled text, so it reaches the validator as
       # an environment variable — never interpolated into the shell command.
       # The range starts at the merge-base with the *current* base branch, not
