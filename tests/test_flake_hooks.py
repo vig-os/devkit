@@ -349,11 +349,24 @@ def _consumer_config_set() -> dict[str, dict[str, Any]]:
         workflow = "trunk";
         hooks = {{ }};
       }};
+      branchtypes = flake.lib.mkProjectShell {{
+        inherit pkgs;
+        hooks = {{ }};
+        branchTypes = [ "feature" "bugfix" "hotfix" "release" "docs" "test" "refactor" "record" ];
+      }};
+      branchtypes-trunk = flake.lib.mkProjectShell {{
+        inherit pkgs;
+        workflow = "trunk";
+        hooks = {{ }};
+        branchTypes = [ "feature" "bugfix" "record" ];
+      }};
     in
     pkgs.linkFarm "consumer-hook-configs" [
       {{ name = "customized"; path = customized.hooksConfigFile; }}
       {{ name = "gitleaks"; path = gitleaks.hooksConfigFile; }}
       {{ name = "trunk"; path = trunk.hooksConfigFile; }}
+      {{ name = "branchtypes"; path = branchtypes.hooksConfigFile; }}
+      {{ name = "branchtypes-trunk"; path = branchtypes-trunk.hooksConfigFile; }}
     ]
     """
     result = _run_nix(
@@ -368,7 +381,13 @@ def _consumer_config_set() -> dict[str, dict[str, Any]]:
     # a JSON superset that treats them as comments, so parse with yaml.
     return {
         name: yaml.safe_load((root / name).read_text())
-        for name in ("customized", "gitleaks", "trunk")
+        for name in (
+            "customized",
+            "gitleaks",
+            "trunk",
+            "branchtypes",
+            "branchtypes-trunk",
+        )
     }
 
 
@@ -541,6 +560,88 @@ class TestRenovateBranchAllowance:
     ) -> None:
         """The trunk variant drops only the dev clause, never this one."""
         assert "(?!^renovate/.+$)" in _branch_guard(trunk_consumer_config)
+
+
+@pytest.fixture(scope="module")
+def branch_types_config() -> dict[str, Any]:
+    """Generated config for a consumer passing a custom ``branchTypes`` (#1432)."""
+    return _consumer_config_set()["branchtypes"]
+
+
+@pytest.fixture(scope="module")
+def branch_types_trunk_config() -> dict[str, Any]:
+    """Custom ``branchTypes`` composed with ``workflow = "trunk"`` (#1432)."""
+    return _consumer_config_set()["branchtypes-trunk"]
+
+
+class TestBranchTypesKnob:
+    """mkProjectShell's ``branchTypes`` argument (#1432).
+
+    ``DEVKIT_BRANCH_TYPES`` steers the issue-numbered alternation of the
+    branch guard. The scaffolded YAML render is covered in bats; here the
+    flake-generated consumer surface must follow the same set — the template
+    flake.nix reads the key from ``.vig-os`` and forwards it, mirroring the
+    #1224 ``workflow`` threading. Null (the default) keeps the stock
+    alternation byte-identical, so the drift gate and the zero-hooks parity
+    stay green.
+    """
+
+    STOCK_ALTERNATION = "(feature|bugfix|hotfix|release|docs|test|refactor)"
+
+    def test_custom_types_extend_alternation(
+        self, branch_types_config: dict[str, Any]
+    ) -> None:
+        """The custom set renders into the issue-numbered alternation."""
+        entry = _branch_guard(branch_types_config)
+        assert "(feature|bugfix|hotfix|release|docs|test|refactor|record)" in entry
+
+    def test_custom_types_regex_semantics(
+        self, branch_types_config: dict[str, Any]
+    ) -> None:
+        """``record/<issue>-<slug>`` commits pass; issue-less record stays blocked."""
+        pattern = _branch_guard(branch_types_config).split("--pattern ")[1]
+        assert re.match(pattern, "record/54-supplier-x") is None
+        assert re.match(pattern, "record/no-issue") is not None
+
+    def test_null_default_keeps_stock_alternation(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """A consumer not passing ``branchTypes`` keeps the stock pattern."""
+        assert self.STOCK_ALTERNATION in _branch_guard(consumer_config)
+
+    def test_composes_with_trunk_workflow(
+        self, branch_types_trunk_config: dict[str, Any]
+    ) -> None:
+        """Custom types and the trunk dev-clause drop apply together."""
+        entry = _branch_guard(branch_types_trunk_config)
+        assert "(feature|bugfix|record)" in entry
+        assert "(?!dev$)" not in entry
+        assert "(?!main$)" in entry
+
+    @pytest.mark.parametrize(
+        "bad_types",
+        [
+            pytest.param('[ "feature" "Bad-Type" ]', id="bad-charset"),
+            pytest.param("[ ]", id="empty-list"),
+        ],
+    )
+    def test_invalid_branch_types_rejected(self, bad_types: str) -> None:
+        """A malformed ``branchTypes`` list is refused loudly at eval time."""
+        expr = f"""
+        let
+          flake = builtins.getFlake "path:{REPO_ROOT}";
+          system = builtins.currentSystem;
+          pkgs = import flake.inputs.nixpkgs {{ inherit system; }};
+        in
+        (flake.lib.mkProjectShell {{
+          inherit pkgs;
+          branchTypes = {bad_types};
+          hooks = {{ }};
+        }}).drvPath
+        """
+        result = _run_nix(["eval", "--impure", "--raw", "--expr", expr])
+        assert result.returncode != 0
+        assert "branchTypes" in result.stderr
 
 
 @pytest.fixture(scope="module")

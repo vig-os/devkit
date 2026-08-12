@@ -2302,10 +2302,10 @@ _upgrade_no_flags() {
     done
 }
 
-@test "template .vig-os ships every optional knob key empty (#1173, #1228, #1282, #1295, #1284, #1431)" {
+@test "template .vig-os ships every optional knob key empty (#1173, #1228, #1282, #1295, #1284, #1431, #1432)" {
     local keys=(DEVKIT_CI_RUNNER DEVKIT_SYNC_TARGET DEVKIT_SYNC_SCHEDULE
         DEVKIT_REFS_POLICY DEVKIT_DRIFT_CHECK DEVKIT_FEATURES_DISABLED
-        DEVKIT_COMMIT_TYPES)
+        DEVKIT_COMMIT_TYPES DEVKIT_BRANCH_TYPES)
     for key in "${keys[@]}"; do
         echo "key: $key"
         run grep -x "${key}=" "$TEMPLATE_DIR/.vig-os"
@@ -2383,7 +2383,7 @@ _upgrade_no_flags() {
     assert_failure
 }
 
-@test "invalid or hostile .vig-os knob values fail the scaffold loudly (#1228, #1282, #1295, #1284, #1431)" {
+@test "invalid or hostile .vig-os knob values fail the scaffold loudly (#1228, #1282, #1295, #1284, #1431, #1432)" {
     # KEY|VALUE table of rejected values, each asserted against the clean
     # "Invalid <KEY>" message. The hostile SYNC_TARGET row: git
     # check-ref-format alone accepts quotes/$/backticks/;/|/# — values that
@@ -2408,6 +2408,10 @@ _upgrade_no_flags() {
         # case/punctuation, not just hostile shell (#1431).
         'DEVKIT_COMMIT_TYPES|feat,Bad-Type'
         'DEVKIT_COMMIT_TYPES|feat;rm -rf /'
+        # Branch-type values additionally land inside a regex alternation, so
+        # the same allowlist guards render_branch_types (#1432).
+        'DEVKIT_BRANCH_TYPES|feature,Bad-Type'
+        'DEVKIT_BRANCH_TYPES|feature|record'
     )
     local i=0
     for row in "${rows[@]}"; do
@@ -2662,6 +2666,76 @@ _upgrade_no_flags() {
     run _upgrade_no_flags "$ws"
     assert_success
     assert_output --partial "Notice: DEVKIT_COMMIT_TYPES omits"
+}
+
+# ── Branch types knob (#1432) ─────────────────────────────────────────────────
+# DEVKIT_BRANCH_TYPES replaces the issue-numbered branch-type set in the
+# no-commit-to-branch pattern at scaffold time (the CI branch-name gate is
+# driven from the same key via resolve-toolchain, covered in
+# tests/test_ci_runner.py; the flake consumer surface in
+# tests/test_flake_hooks.py). Empty (default) keeps the stock alternation
+# byte-identical; the chore/renovate/worktree clauses are never knob-driven.
+# Persisted like DEVKIT_COMMIT_TYPES; invalid values fail loudly (knob loop
+# above).
+
+STOCK_BRANCH_ALTERNATION='(feature|bugfix|hotfix|release|docs|test|refactor)'
+
+@test "default scaffold keeps the stock branch-type alternation (#1432)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1432-default"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run grep -qF "${STOCK_BRANCH_ALTERNATION}/[0-9]" "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "DEVKIT_BRANCH_TYPES renders the custom alternation + writes back (#1432)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1432-custom"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_BRANCH_TYPES=.*/DEVKIT_BRANCH_TYPES=feature,bugfix,hotfix,release,docs,test,refactor,record/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '(feature|bugfix|hotfix|release|docs|test|refactor|record)/[0-9]' "$ws/.pre-commit-config.yaml"
+    assert_success
+    # The stock alternation is gone (replaced, not duplicated).
+    run grep -qF "${STOCK_BRANCH_ALTERNATION}/[0-9]" "$ws/.pre-commit-config.yaml"
+    assert_failure
+    run grep -x 'DEVKIT_BRANCH_TYPES=feature,bugfix,hotfix,release,docs,test,refactor,record' "$ws/.vig-os"
+    assert_success
+}
+
+@test "DEVKIT_BRANCH_TYPES composes with the trunk workflow render (#1432)" {
+    # render_workflow_model deletes the `(?!dev$)` clause; render_branch_types
+    # swaps the alternation — distinct anchors on the same pattern line, both
+    # must apply.
+    ws="$BATS_TEST_TMPDIR/e2e-1432-trunk"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_WORKFLOW=.*/DEVKIT_WORKFLOW=trunk/' "$ws/.vig-os"
+    sed -i 's/^DEVKIT_BRANCH_TYPES=.*/DEVKIT_BRANCH_TYPES=feature,bugfix,record/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '(feature|bugfix|record)/[0-9]' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -qF '(?!dev$)' "$ws/.pre-commit-config.yaml"
+    assert_failure
+}
+
+@test "dropping the release branch type prints a notice, never aborts (#1432)" {
+    # The release train forks release/X.Y.Z branches; a maintainer using
+    # release-typed topic branches loses them from the local guard. Deliberate
+    # is allowed — but never silent (mirrors the #1431 bot-type notice).
+    ws="$BATS_TEST_TMPDIR/e2e-1432-release-notice"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_BRANCH_TYPES=.*/DEVKIT_BRANCH_TYPES=feature,bugfix,record/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "Notice: DEVKIT_BRANCH_TYPES omits"
 }
 
 # ── scaffold-drift opt-out knob (#1295) ───────────────────────────────────────

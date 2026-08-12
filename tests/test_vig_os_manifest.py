@@ -28,6 +28,7 @@ MANIFEST_KEYS = [
     ("DEVKIT_FEATURES_DISABLED", "#1284"),
     ("DEVKIT_REFS_POLICY", "#1282"),
     ("DEVKIT_COMMIT_TYPES", "#1431"),
+    ("DEVKIT_BRANCH_TYPES", "#1432"),
     ("DEVKIT_AUTO_UPGRADE", "#1296"),
     ("DEVKIT_UPGRADE_EXCLUDE", "#1296"),
     ("DEVKIT_DRIFT_CHECK", "#1295"),
@@ -41,6 +42,7 @@ RESOLVE_OUTPUTS = [
     ("runner-json", "#1173"),
     ("refs-optional-types", "#1282"),
     ("commit-types", "#1431"),
+    ("branch-types", "#1432"),
     ("drift-check", "#1295"),
     ("drift-image", "#1295"),
 ]

@@ -392,6 +392,7 @@ unknown keys:
 | `DEVKIT_FEATURES_DISABLED` | Comma-separated scaffold feature groups this repo opts OUT of; empty (default) => every group is scaffolded. A disabled group is never shipped and a prior scaffold's copy is pruned on upgrade (see [Scaffold feature opt-outs](#scaffold-feature-opt-outs), [#1284](https://github.com/vig-os/devkit/issues/1284)) |
 | `DEVKIT_REFS_POLICY` | Refs-line enforcement policy driving both the `validate-commit-msg` hook and CI's `validate-commit-range`: `chore-optional` (default/empty — only `chore` may omit `Refs:`) \| `optional` (never required) \| `required` (every type needs `Refs:`) ([#1282](https://github.com/vig-os/devkit/issues/1282)) |
 | `DEVKIT_COMMIT_TYPES` | Comma-separated FULL REPLACEMENT of the approved commit types, driving both the `validate-commit-msg` hook's `--types` and CI's `validate-commit-range`; empty (default) => the stock 11 types. Lowercase alphanumerics only; keep `chore`/`build` unless deliberate (bot commits — the scaffold prints a notice). `DEVKIT_REFS_POLICY=optional` mirrors this list ([#1431](https://github.com/vig-os/devkit/issues/1431)) |
+| `DEVKIT_BRANCH_TYPES` | Comma-separated FULL REPLACEMENT of the issue-numbered `<type>/<issue>-<summary>` branch-type set, driving the local `no-commit-to-branch` guard, the flake-generated consumer surface, and CI's branch-name gate; empty (default) => the stock set (`feature,bugfix,hotfix,release,docs,test,refactor`). The `chore/`, `renovate/`, `worktree/` clauses are never knob-driven. Pre-#1432 direnv consumers hand-port the flake reader (see [Custom branch types on the flake surface](#custom-branch-types-on-the-flake-surface-direnv-consumers), [#1432](https://github.com/vig-os/devkit/issues/1432)) |
 | `DEVKIT_AUTO_UPGRADE` | Opt-out for the scaffolded `devkit-upgrade.yml` weekly schedule; empty (default) or any value but `false` keeps the auto-adoption poll on. `false` disables only the schedule — manual `workflow_dispatch` always runs ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
 | `DEVKIT_UPGRADE_EXCLUDE` | Comma-separated (whitespace-tolerant) paths the `devkit-upgrade` workflow resets before the adoption commit, so generated-doc churn never rides along in the upgrade diff; empty (default) => no exclusions ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
 
@@ -476,6 +477,30 @@ How it behaves:
   the hook stack and upgrade path but drops the team/traceability layer. See
   [`docs/SOLO_ADOPTION.md`](./SOLO_ADOPTION.md)
   ([#1285](https://github.com/vig-os/devkit/issues/1285)).
+
+### Custom branch types on the flake surface (direnv consumers)
+
+`DEVKIT_BRANCH_TYPES` reaches the **scaffolded** `.pre-commit-config.yaml` and
+**CI's branch-name gate** automatically on re-scaffold/upgrade. The
+**flake-generated** consumer surface (direnv repos that opted into
+`mkProjectShell`'s `hooks`) reads the key at eval time through the project's
+own `flake.nix` — a **scaffold-once file the upgrade never overwrites**. New
+scaffolds ship the reader; a repo whose `flake.nix` predates #1432 ports it by
+hand (the same one-time port as the #1224 `workflow` forwarding):
+
+1. Copy the managed `vigOsValue` / `workflow` / `branchTypes` `let`-block from
+   the current template
+   ([`assets/workspace/flake.nix`](https://github.com/vig-os/devkit/blob/main/assets/workspace/flake.nix))
+   over your existing `workflow` reader.
+2. Copy the two `nixpkgs.lib.optionalAttrs (builtins.functionArgs … )`
+   forwarding blocks after the `mkProjectShell` argument set. The
+   `functionArgs` guard keeps older pinned devkits evaluating (they fall back
+   to the stock set instead of failing).
+
+Without the port the knob still works everywhere except the locally generated
+guard — which then keeps the stock set, and the loud signal comes from CI's
+gate instead. Validation is eval-time and loud: a bad entry (charset, empty
+list) fails `nix develop` with a `branchTypes` message.
 
 ## What a consumer needs to know
 

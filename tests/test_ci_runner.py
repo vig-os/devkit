@@ -16,6 +16,8 @@ Refs: #1173
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
@@ -265,3 +267,153 @@ def test_commit_checks_step_passes_types_flag() -> None:
     workflow = _load(WORKFLOWS / "ci.yml")
     step = _commit_checks_step(workflow)
     assert '--types "${COMMIT_TYPES}"' in step["run"]
+
+
+# ── Branch types knob + CI branch-name gate (#1432 / #1430) ───────────────────
+# DEVKIT_BRANCH_TYPES replaces the issue-numbered branch-type set that the
+# local no-commit-to-branch guard renders from, and — because the local hook
+# depends on local git config that a fresh clone does not have (#1430) — the
+# same resolved set drives a CI branch-name gate: a commit-checks step
+# validating the PR head ref. The list->output mapping lives once in
+# resolve-toolchain and mirrors render_branch_types in init-workspace.sh; the
+# step consumes the head ref and the list via env, never inline (zizmor /
+# #1279). The CI allowance set is a SUPERSET of the local hook's: automation
+# branches (release/X.Y.Z, renovate/*, chore/<slug> bot branches, worktree/<n>)
+# never run local hooks but do open PRs.
+
+# The default issue-numbered branch types emitted when the key is absent.
+DEFAULT_BRANCH_TYPES = "feature,bugfix,hotfix,release,docs,test,refactor"
+
+# The commit-checks step that validates the PR head ref.
+BRANCH_NAME_STEP = "Validate branch name"
+
+
+@pytest.mark.parametrize(
+    ("types_value", "expected"),
+    [
+        pytest.param(None, DEFAULT_BRANCH_TYPES, id="key-absent-defaults"),
+        pytest.param(
+            "feature,bugfix,record", "feature,bugfix,record", id="custom-list"
+        ),
+        pytest.param(
+            "feature, bugfix, record",
+            "feature,bugfix,record",
+            id="whitespace-trimmed",
+        ),
+        # The loud guard lives at the write path (init-workspace.sh); by the
+        # time CI reads .vig-os the value was validated at scaffold, so a
+        # defensive fallback keeps CI from breaking (or weakening the gate) on
+        # an unexpected literal.
+        pytest.param("feature,Bad-Type", DEFAULT_BRANCH_TYPES, id="invalid-falls-back"),
+        pytest.param(" ,", DEFAULT_BRANCH_TYPES, id="all-blank-falls-back"),
+    ],
+)
+def test_branch_types_mapping(
+    tmp_path: Path, types_value: str | None, expected: str
+) -> None:
+    """DEVKIT_BRANCH_TYPES maps to the resolved branch-types list."""
+    manifest = "DEVKIT_MODE=direnv\n"
+    if types_value is not None:
+        manifest += f"DEVKIT_BRANCH_TYPES={types_value}\n"
+    outputs = _run_resolve(tmp_path, manifest)
+    assert outputs["branch-types"] == expected
+
+
+def test_resolve_toolchain_job_reexports_branch_types() -> None:
+    """ci.yml's resolve-toolchain job maps the action output to a job output."""
+    workflow = _load(WORKFLOWS / "ci.yml")
+    outputs = workflow["jobs"]["resolve-toolchain"]["outputs"]
+    assert outputs.get("branch-types") == "${{ steps.resolve.outputs.branch-types }}"
+
+
+def _branch_name_step(workflow: dict) -> dict:
+    for step in workflow["jobs"]["commit-checks"]["steps"]:
+        if step.get("name") == BRANCH_NAME_STEP:
+            return step
+    raise AssertionError(f"commit-checks step {BRANCH_NAME_STEP!r} not found")
+
+
+def test_branch_name_step_routes_inputs_through_env() -> None:
+    """The gate reads the head ref and the resolved types via env, not inline.
+
+    The head ref is attacker-controlled text; inline ``${{ }}`` in the run
+    block is the template-injection shape the zizmor gate exists to refuse.
+    """
+    workflow = _load(WORKFLOWS / "ci.yml")
+    step = _branch_name_step(workflow)
+    env_values = step["env"].values()
+    assert "${{ github.head_ref }}" in env_values
+    assert "${{ needs.resolve-toolchain.outputs.branch-types }}" in env_values
+    assert "${{" not in step["run"]
+
+
+def test_branch_name_step_precedes_commit_validation() -> None:
+    """The cheap head-ref check fails fast, before the range walk."""
+    workflow = _load(WORKFLOWS / "ci.yml")
+    names = [step.get("name") for step in workflow["jobs"]["commit-checks"]["steps"]]
+    assert names.index(BRANCH_NAME_STEP) < names.index(COMMIT_CHECKS_STEP)
+
+
+def _run_branch_gate(head_ref: str, branch_types: str) -> int:
+    """Execute the gate step's real bash against a head ref; return exit code."""
+    workflow = _load(WORKFLOWS / "ci.yml")
+    step = _branch_name_step(workflow)
+    result = subprocess.run(
+        ["bash", "-c", step["run"]],
+        env={
+            **os.environ,
+            "HEAD_REF": head_ref,
+            "BRANCH_TYPES": branch_types,
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode
+
+
+@pytest.mark.parametrize(
+    "head_ref",
+    [
+        # Human topic branches (the local hook's own shapes).
+        pytest.param("feature/12-x", id="feature"),
+        pytest.param("chore/foo-bar", id="chore-slug"),
+        pytest.param("worktree/9", id="worktree"),
+        # Long-lived branches: the local hook allows committing on them, so a
+        # deliberate PR from one stays possible.
+        pytest.param("dev", id="dev"),
+        pytest.param("main", id="main"),
+        # Automation branches that never run local hooks but do open PRs.
+        pytest.param("release/1.7.1", id="release-train"),
+        pytest.param("renovate/lock-file-maintenance", id="renovate"),
+        pytest.param("renovate/github-actions-(minor-and-patch)", id="renovate-parens"),
+        pytest.param("chore/sync-main-to-dev-123-1", id="sync-bot"),
+        pytest.param("chore/devkit-1-7-1", id="upgrade-bot"),
+    ],
+)
+def test_branch_gate_allows(head_ref: str) -> None:
+    """The default gate admits every conforming and automation head ref."""
+    assert _run_branch_gate(head_ref, DEFAULT_BRANCH_TYPES) == 0
+
+
+@pytest.mark.parametrize(
+    "head_ref",
+    [
+        # The #1430 incident literal: `feat` is a commit type, not a branch type.
+        pytest.param("feat/rust-language-pack", id="feat-prefix"),
+        pytest.param("random-branch", id="no-convention"),
+        pytest.param("record/54-x", id="record-not-in-defaults"),
+        pytest.param("release/1.7", id="release-partial-version"),
+        pytest.param("renovated/x", id="renovate-prefix-confusion"),
+    ],
+)
+def test_branch_gate_rejects(head_ref: str) -> None:
+    """The default gate refuses non-conforming head refs."""
+    assert _run_branch_gate(head_ref, DEFAULT_BRANCH_TYPES) == 1
+
+
+def test_branch_gate_follows_custom_types() -> None:
+    """A custom DEVKIT_BRANCH_TYPES steers the gate like the local guard."""
+    custom = DEFAULT_BRANCH_TYPES + ",record"
+    assert _run_branch_gate("record/54-x", custom) == 0
+    assert _run_branch_gate("record/no-issue", custom) == 1

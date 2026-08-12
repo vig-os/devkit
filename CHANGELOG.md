@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Branch-types knob (`DEVKIT_BRANCH_TYPES`) + CI branch-name gate** ([#1432](https://github.com/vig-os/devkit/issues/1432))
+  - New `.vig-os` key: a comma-separated full replacement of the
+    issue-numbered `<type>/<issue>-<summary>` branch-type set, rendered into
+    the scaffolded `no-commit-to-branch` pattern, the flake-generated
+    consumer surface (new `mkProjectShell` `branchTypes` argument; the
+    template `flake.nix` reads the key at eval time), and CI — one key, every
+    gate; the `chore/`, `renovate/`, `worktree/` clauses stay fixed
+  - New CI branch-name gate ([#1430](https://github.com/vig-os/devkit/issues/1430)):
+    the commit-checks lane now validates the PR head ref against the resolved
+    type set plus automation allowances (`release/X.Y.Z`, `renovate/*`,
+    `worktree/<n>`, bot `chore/` branches, `main`/`dev`) — enforcement that
+    survives a fresh clone whose local hooks are not yet wired
+    (`core.hooksPath`), also added to devkit's own CI
+  - Empty key keeps every render byte-identical; the value round-trips across
+    `--force` upgrades; out-of-charset values fail the scaffold (and
+    `nix develop`) loudly while CI falls back to the stock set with a
+    warning; dropping `release` prints a notice
 - **Scaffold-time commit-types knob (`DEVKIT_COMMIT_TYPES`)** ([#1431](https://github.com/vig-os/devkit/issues/1431))
   - New `.vig-os` key: a comma-separated full replacement of the approved
     commit types, rendered into the `validate-commit-msg` hook's `--types`

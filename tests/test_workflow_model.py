@@ -230,7 +230,10 @@ def test_trunk_flake_forwards_workflow_to_hooks() -> None:
     """
     rendered = cached_tree("trunk")
     flake = (rendered / "flake.nix").read_text(encoding="utf-8")
-    assert "DEVKIT_WORKFLOW=" in flake, "flake.nix does not read the workflow model"
+    # The key is read through the shared vigOsValue helper since #1432.
+    assert 'vigOsValue "DEVKIT_WORKFLOW"' in flake, (
+        "flake.nix does not read the workflow model"
+    )
     assert "inherit workflow;" in flake, "flake.nix does not forward `workflow`"
     manifest = (rendered / ".vig-os").read_text(encoding="utf-8")
     assert "DEVKIT_WORKFLOW=trunk" in manifest
