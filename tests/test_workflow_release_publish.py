@@ -31,6 +31,7 @@ from tests.workflow_scaffold import REPO_ROOT, WORKFLOWS, load_workflow, on_bloc
 DEVKIT_RELEASE = REPO_ROOT / ".github" / "workflows" / "release.yml"
 SCAFFOLD_PUBLISH = WORKFLOWS / "release-publish.yml"
 SCAFFOLD_ORCHESTRATOR = WORKFLOWS / "release.yml"
+SCAFFOLD_CORE = WORKFLOWS / "release-core.yml"
 
 
 def _publish_steps(surface: str) -> list[dict]:
@@ -163,20 +164,31 @@ def test_scaffold_drops_the_dead_git_identity_inputs() -> None:
         )
 
 
-def test_scaffold_orchestrator_keeps_the_dispatch_identity_inputs() -> None:
-    """The dispatch identity inputs survive while release-core declares them.
+def test_scaffold_orchestrator_drops_the_dispatch_identity_inputs() -> None:
+    """The rollback identity plumbing is gone end to end (#1470).
 
-    #1378 kept them for the git-CLI rollback; #1462 replaced that rollback
-    with Git Data API commits (App identity, no configured git user), so the
-    rollback job must mint the commit App token instead of configuring a
-    local identity.
+    #1378 kept the dispatch inputs for the git-CLI rollback; #1462 replaced
+    that rollback with Git Data API commits (App identity, no configured git
+    user), leaving the plumbing dead: release.yml must not declare the
+    dispatch inputs nor thread them into the release-core call, and
+    release-core.yml must not declare the workflow_call inputs. The rollback
+    job must still mint the commit App token instead of configuring a local
+    identity.
     """
     workflow = load_workflow(SCAFFOLD_ORCHESTRATOR)
     dispatch_inputs = on_block(workflow)["workflow_dispatch"]["inputs"]
-    for kept in ("git-user-name", "git-user-email"):
-        assert kept in dispatch_inputs, (
-            f"release.yml must keep the {kept!r} dispatch input while the "
-            "release-core call still declares it"
+    for dead in ("git-user-name", "git-user-email"):
+        assert dead not in dispatch_inputs, (
+            f"release.yml must not declare the dead dispatch input {dead!r} (#1470)"
+        )
+    core_with = workflow["jobs"]["core"]["with"]
+    core_inputs = on_block(load_workflow(SCAFFOLD_CORE))["workflow_call"]["inputs"]
+    for dead in ("git_user_name", "git_user_email"):
+        assert dead not in core_with, (
+            f"release.yml must not pass the dead input {dead!r} to release-core"
+        )
+        assert dead not in core_inputs, (
+            f"release-core.yml must not declare the dead input {dead!r} (#1470)"
         )
     rollback_steps = workflow["jobs"]["rollback"]["steps"]
     assert not any(s.get("name") == "Configure git" for s in rollback_steps), (

@@ -153,7 +153,7 @@ Template behavior relies on explicit app-token generation for release operations
 
 ## Input Naming Convention
 
-All `workflow_call` inputs use underscores (e.g. `release_kind`, `dry_run`, `git_user_name`). The orchestrator `release.yml` translates its own `workflow_dispatch` hyphenated inputs at each call site.
+All `workflow_call` inputs use underscores (e.g. `release_kind`, `dry_run`, `tag_prefix`). The orchestrator `release.yml` translates its own `workflow_dispatch` hyphenated inputs at each call site.
 
 ## Extension Hook
 
@@ -197,7 +197,6 @@ Contract inputs:
 - `release_branch` — the release branch just created (`release/X.Y.Z`)
 - `branch_sha` — the post-freeze head SHA the release branch was created from
 - `dry_run` — validate without making changes (extensions must honor it)
-- `git_user_name`, `git_user_email` — the git identity `prepare-release.yml` carries
 
 `prepare-release.yml` calls the hook with `secrets: inherit`, so an extension can mint the `COMMIT_APP` token to push to the write-protected release branch — the same bypass and identity the changelog-freeze commit already uses.
 
@@ -230,12 +229,6 @@ on:
         required: false
         default: false
         type: boolean
-      git_user_name:
-        required: false
-        type: string
-      git_user_email:
-        required: false
-        type: string
 
 permissions:
   contents: read

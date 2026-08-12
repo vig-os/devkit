@@ -15,16 +15,6 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: false
         type: boolean
-      git-user-name:
-        description: "Git user name for commits"
-        required: false
-        default: "github-actions[bot]"
-        type: string
-      git-user-email:
-        description: "Git user email for commits"
-        required: false
-        default: "41898282+github-actions[bot]@users.noreply.github.com"
-        type: string
 
 permissions:
   contents: read
@@ -328,8 +318,6 @@ jobs:
       release_branch: ${{ needs.validate.outputs.release_branch }}
       branch_sha: ${{ needs.prepare.outputs.dev_sha }}
       dry_run: ${{ inputs.dry-run }}
-      git_user_name: ${{ inputs.git-user-name }}
-      git_user_email: ${{ inputs.git-user-email }}
     secrets: inherit
 
   open-pr:

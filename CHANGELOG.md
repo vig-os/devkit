@@ -179,6 +179,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Dead `git_user_name` / `git_user_email` plumbing dropped from the scaffolded release workflows** ([#1470](https://github.com/vig-os/devkit/issues/1470))
+  - The Git Data API rollback ([#1462](https://github.com/vig-os/devkit/issues/1462))
+    removed the last consumer of the git identity threaded through the release
+    train, so the `release.yml` dispatch inputs (`git-user-name` /
+    `git-user-email`), the `release-core.yml` `workflow_call` declarations, and
+    the `prepare-release.yml` dispatch inputs plus their forwarding into the
+    `prepare-release-extension.yml` hook contract are all gone
+  - Orchestrator and core ship together via the scaffold, so caller and callee
+    change in lockstep — no consumer action is needed beyond the normal
+    upgrade. Preserved consumer copies of `prepare-release-extension.yml` that
+    still declare the optional pair remain valid and simply fall back to their
+    own declared defaults
+
 - **`devc-upgrade` recipe removed from the scaffold** ([#1421](https://github.com/vig-os/devkit/issues/1421))
   - Upgrades are driven by the `devkit-upgrade` workflow's adoption PRs; the
     local recipe wrapped `install.sh --force` and steered users around the
