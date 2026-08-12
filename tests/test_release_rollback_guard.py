@@ -155,6 +155,24 @@ def test_scaffold_rollback_needs_no_release_branch_checkout() -> None:
     assert "Configure git" not in names
 
 
+@pytest.mark.parametrize("copy", ROLLBACK_COPIES)
+def test_rollback_gates_the_sync_tip_on_the_fixed_message(copy: str) -> None:
+    """Both copies pin the sync commit's message; devkit also pins the author.
+
+    The message constant is shared: the scaffolded sync-issues.yml ships the
+    same 'chore: sync issues and PRs' default and the release-core dispatch
+    does not override it. The author is only a constant inside the vig-os
+    org (commit-action-bot[bot], live-verified on daeb5c54), so the scaffold
+    omits the SYNC_COMMIT_AUTHOR knob.
+    """
+    step = _rollback_step(copy)
+    assert "chore: sync issues and PRs" in step["run"]
+    if copy == "devkit":
+        assert step["env"].get("SYNC_COMMIT_AUTHOR") == "commit-action-bot[bot]"
+    else:
+        assert "SYNC_COMMIT_AUTHOR" not in step["env"]
+
+
 def test_devkit_pr_body_restore_skips_when_finalize_never_ran() -> None:
     """The PR-body restore (and its token mint) no-op when finalize skipped."""
     workflow = load_workflow(ROLLBACK_COPIES["devkit"])
@@ -172,6 +190,7 @@ _GH_STUB = """\
 # Git Data API simulator for the rollback step.
 #  - ref read  -> $FAKE_CURRENT_SHA
 #  - commit read (--jq .tree.sha)  -> tree-<sha>
+#  - commit read (facts query, jq join) -> $PARENT_<sha> TAB $AUTHOR_<sha> TAB $TITLE_<sha>
 #  - commit read (parents query)   -> $PARENT_<sha> (empty when unset)
 #  - POST git/commits -> $FAKE_REVERT_SHA ; PATCH ref -> recorded only
 args="$*"
@@ -190,6 +209,9 @@ case "$args" in
     sha="${sha%% *}"
     if [[ "$args" == *".tree.sha"* ]]; then
       echo "tree-$sha"
+    elif [[ "$args" == *"join"* ]]; then
+      p="PARENT_$sha"; a="AUTHOR_$sha"; t="TITLE_$sha"
+      printf '%s\\t%s\\t%s\\n' "${!p:-}" "${!a:-}" "${!t:-}"
     else
       var="PARENT_$sha"
       echo "${!var:-}"
@@ -240,6 +262,12 @@ def _run_rollback_script(
         "FAKE_CURRENT_SHA": "presha",
         **env_overrides,
     }
+    # Mirror literal (non-expression) step env the workflow copy defines, e.g.
+    # devkit's SYNC_COMMIT_AUTHOR knob; the scaffold omits it on purpose.
+    step_env = _rollback_step(copy).get("env", {})
+    for key, value in step_env.items():
+        if key not in env and "${{" not in str(value):
+            env[key] = str(value)
     proc = subprocess.run(
         ["bash", "-c", script], env=env, capture_output=True, text=True
     )
@@ -308,7 +336,7 @@ def test_reverts_when_tip_is_the_finalize_commit(copy: str, tmp_path: Path) -> N
 
 @pytest.mark.parametrize("copy", ROLLBACK_COPIES)
 def test_reverts_when_tip_is_sync_commit_on_finalize(copy: str, tmp_path: Path) -> None:
-    """Tip == sync commit whose chain is sync -> finalize -> snapshot."""
+    """Tip == genuine sync commit whose chain is sync -> finalize -> snapshot."""
     proc, calls = _run_rollback_script(
         copy,
         tmp_path,
@@ -317,11 +345,65 @@ def test_reverts_when_tip_is_sync_commit_on_finalize(copy: str, tmp_path: Path) 
             "FINAL_TIP_SHA": "ssha",
             "FAKE_CURRENT_SHA": "ssha",
             "PARENT_ssha": "fsha",
+            "AUTHOR_ssha": "commit-action-bot[bot]",
+            "TITLE_ssha": "chore: sync issues and PRs",
             "PARENT_fsha": "presha",
         },
     )
     assert proc.returncode == 0, proc.stderr
     assert any("-X PATCH" in c and "sha=revertsha" in c for c in _writes(calls))
+
+
+@pytest.mark.parametrize("copy", ROLLBACK_COPIES)
+def test_refuses_foreign_squash_commit_atop_finalize(copy: str, tmp_path: Path) -> None:
+    """A squash merge is single-parent too: parentage alone cannot tell a
+    foreign PR squash-merged between the finalize commit and the post-sync
+    record from the sync commit. The message gate must refuse it."""
+    proc, calls = _run_rollback_script(
+        copy,
+        tmp_path,
+        {
+            "FINALIZE_COMMIT_SHA": "fsha",
+            "FINAL_TIP_SHA": "xsha",
+            "FAKE_CURRENT_SHA": "xsha",
+            "PARENT_xsha": "fsha",
+            "AUTHOR_xsha": "Some Human",
+            "TITLE_xsha": "fix(scope): foreign change squash-merged mid-run",
+            "PARENT_fsha": "presha",
+        },
+    )
+    assert proc.returncode != 0, "foreign squash commit must fail the rollback step"
+    assert not _writes(calls), f"foreign squash commit clobbered: {calls}"
+    assert "Refusing" in proc.stdout + proc.stderr
+
+
+@pytest.mark.parametrize("copy", ROLLBACK_COPIES)
+def test_sync_author_gate_applies_where_the_bot_name_is_constant(
+    copy: str, tmp_path: Path
+) -> None:
+    """Right message but wrong author: devkit pins its org's commit bot via the
+    SYNC_COMMIT_AUTHOR knob and refuses; the scaffold ships without the knob
+    (consumer App bot names are not a devkit-known constant) and relies on the
+    message gate, so it reverts."""
+    proc, calls = _run_rollback_script(
+        copy,
+        tmp_path,
+        {
+            "FINALIZE_COMMIT_SHA": "fsha",
+            "FINAL_TIP_SHA": "xsha",
+            "FAKE_CURRENT_SHA": "xsha",
+            "PARENT_xsha": "fsha",
+            "AUTHOR_xsha": "Some Human",
+            "TITLE_xsha": "chore: sync issues and PRs",
+            "PARENT_fsha": "presha",
+        },
+    )
+    if copy == "devkit":
+        assert proc.returncode != 0, "devkit must also pin the sync commit author"
+        assert not _writes(calls)
+    else:
+        assert proc.returncode == 0, proc.stderr
+        assert any("-X PATCH" in c for c in _writes(calls))
 
 
 @pytest.mark.parametrize("copy", ROLLBACK_COPIES)

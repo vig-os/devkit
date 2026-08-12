@@ -262,9 +262,21 @@ jobs:
           if [ -n "$FINALIZE_COMMIT_SHA" ] && [ "$(parent_of "$FINALIZE_COMMIT_SHA")" = "$PRE_SHA" ]; then
             if [ "$CURRENT_SHA" = "$FINALIZE_COMMIT_SHA" ]; then
               SAFE=true
-            elif [ -n "$FINAL_TIP_SHA" ] && [ "$CURRENT_SHA" = "$FINAL_TIP_SHA" ] \
-              && [ "$(parent_of "$FINAL_TIP_SHA")" = "$FINALIZE_COMMIT_SHA" ]; then
-              SAFE=true
+            elif [ -n "$FINAL_TIP_SHA" ] && [ "$CURRENT_SHA" = "$FINAL_TIP_SHA" ]; then
+              # The only legitimate commit on top of finalize's is the
+              # sync-issues one — and a foreign PR squash-merged mid-run is
+              # single-parent too, so parentage alone cannot tell them apart
+              # (#1462). Gate on the sync commit's fixed message and, where
+              # the org's commit bot name is a known constant, its author.
+              TIP_FACTS=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
+                gh api "repos/$REPO/git/commits/$FINAL_TIP_SHA" \
+                  --jq '[(if (.parents | length) == 1 then .parents[0].sha else "" end), .author.name, (.message | split("\n")[0])] | join("\t")')
+              IFS=$'\t' read -r TIP_PARENT TIP_AUTHOR TIP_TITLE <<< "$TIP_FACTS"
+              if [ "$TIP_PARENT" = "$FINALIZE_COMMIT_SHA" ] \
+                && [ "$TIP_TITLE" = "chore: sync issues and PRs" ] \
+                && { [ -z "${SYNC_COMMIT_AUTHOR:-}" ] || [ "$TIP_AUTHOR" = "$SYNC_COMMIT_AUTHOR" ]; }; then
+                SAFE=true
+              fi
             fi
           fi
 
