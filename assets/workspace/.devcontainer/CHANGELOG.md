@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Rust performance tooling: `@perf` tool groups + a deterministic ratchet**
+  ([#1400](https://github.com/vig-os/devkit/issues/1400),
+  [#1440](https://github.com/vig-os/devkit/issues/1440))
+  - The `rust` module's `tools` list now accepts GROUPS: `@perf` (samply,
+    cargo-flamegraph, hyperfine, cargo-criterion, cargo-bloat,
+    cargo-llvm-lines, cargo-show-asm, plus heaptrack/valgrind/poop on Linux),
+    `@perf-async` (samply, tokio-console, hyperfine) and `@api`
+    (cargo-semver-checks, cargo-expand). A group skips members the current
+    platform lacks; an EXPLICITLY named tool still throws, because naming one
+    is a request that can only be met or refused
+  - New `checks.perf-ratchet` in `lib.mkRustProject`, auto-enabled when
+    `.repo/perf-baseline.toml` exists (same rule as `deny`). It measures only
+    things that are deterministic given a locked toolchain and lockfile —
+    shipped binary size per binary, and dependency-graph size from Cargo.lock
+    — and deliberately times NOTHING: wall-clock benchmarks on shared CI
+    runners are noise, and a gate that fires on noise teaches `--no-verify`.
+    Growth past the tolerance (default 5%) fails; a measured shrink is
+    reported so the win can be banked. Needs no benchmark to be authored,
+    which is what makes it a ratchet that is actually in place
+  - New `packages.perf-seal`, which emits the baseline file itself so sealing
+    is never hand-transcribed
+  - `fenix.inputs.rust-analyzer-src` now `follows` nixpkgs: it fed only
+    fenix's *nightly* rust-analyzer derivation, which the pack never builds
+    (`fromToolchainFile` takes components from the release-channel manifest).
+    Lock nodes 15 -> 14, fetched source ~33 MB -> ~5 MB, `rust-analyzer` still
+    present in the built toolchain
 - **Rust language pack: `rust` capability module + `lib.mkRustProject`** ([#1400](https://github.com/vig-os/devkit/issues/1400), [#1427](https://github.com/vig-os/devkit/issues/1427))
   - New `rust` capability module (`nix/modules/rust.nix`): a v1-contract
     contribution that puts a Rust toolchain and the curated cargo tooling

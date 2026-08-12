@@ -74,12 +74,85 @@ let
     machete = pkgs.cargo-machete or null;
     outdated = pkgs.cargo-outdated or null;
     insta = pkgs.cargo-insta or null;
-    flamegraph = pkgs.cargo-flamegraph or null;
-    criterion = pkgs.cargo-criterion or null;
     mutants = pkgs.cargo-mutants or null;
     semver-checks = pkgs.cargo-semver-checks or null;
     hakari = pkgs.cargo-hakari or null;
     dist = pkgs.cargo-dist or null;
+
+    # ---- performance ------------------------------------------------------
+    # None of these are in `defaultTools`: they are large, and a repo that is
+    # not doing performance work should not pay to have them on PATH. Ask for
+    # the platform's set with `tools = [ … "@perf" ]`.
+    #
+    # samply first because it is the one to reach for by default in 2026:
+    # sampling profiler, no root, no kernel perf_events, works on both Linux
+    # and macOS, and opens the result in the Firefox Profiler UI. flamegraph
+    # is kept for the SVG workflow and for CI artifacts.
+    samply = pkgs.samply or null;
+    flamegraph = pkgs.cargo-flamegraph or null;
+    # Statistical A/B timing of whole commands — the honest tool for "is the
+    # CLI faster", where a criterion microbenchmark would answer a different
+    # question convincingly and wrongly.
+    hyperfine = pkgs.hyperfine or null;
+    criterion = pkgs.cargo-criterion or null;
+    # Where the binary's bytes went, by crate. Pairs with the size ratchet in
+    # mkRustProject: the ratchet tells you a regression happened, bloat tells
+    # you which dependency did it.
+    bloat = pkgs.cargo-bloat or null;
+    # Monomorphization volume. The usual cause of a binary that grew without
+    # anyone adding a feature is a generic instantiated over more types.
+    llvm-lines = pkgs.cargo-llvm-lines or null;
+    # Emitted assembly / LLVM IR for one function. The last resort, and the
+    # only way to confirm a bounds check or an allocation actually went away.
+    asm = pkgs.cargo-show-asm or null;
+    # Async runtime observability: task-level stalls and busy time. Belongs to
+    # the `service` and `mcp` tiers, where the interesting stalls are awaits
+    # rather than CPU.
+    tokio-console = pkgs.tokio-console or null;
+
+    # Linux-only. heaptrack and valgrind's Darwin support is either absent or
+    # unusable on Apple Silicon, and `poop` is built on perf_events. Listed
+    # here so `@perf` can pick them up where they work and skip them where
+    # they do not, rather than every consumer hand-writing that condition.
+    heaptrack = if pkgs.stdenv.hostPlatform.isLinux then (pkgs.heaptrack or null) else null;
+    valgrind = if pkgs.stdenv.hostPlatform.isLinux then (pkgs.valgrind or null) else null;
+    poop = if pkgs.stdenv.hostPlatform.isLinux then (pkgs.poop or null) else null;
+  };
+
+  # -------------------------------------------------------------------------
+  # Tool groups. A `tools` entry beginning with `@` expands to a curated set.
+  #
+  # Groups and explicit names differ deliberately in how they treat a tool
+  # that is unavailable on this platform: naming `valgrind` on Darwin is a
+  # request that cannot be met, so it throws; asking for `@perf` is asking for
+  # *this platform's* profiling kit, so unavailable members are dropped. That
+  # asymmetry is the whole reason groups exist — otherwise every consumer
+  # writes the same `optionals isLinux` by hand and gets it subtly wrong.
+  # -------------------------------------------------------------------------
+  toolGroups = {
+    perf = [
+      "samply"
+      "flamegraph"
+      "hyperfine"
+      "criterion"
+      "bloat"
+      "llvm-lines"
+      "asm"
+      "heaptrack"
+      "valgrind"
+      "poop"
+    ];
+    # Async services: profiling plus the runtime's own instrumentation.
+    perf-async = [
+      "samply"
+      "tokio-console"
+      "hyperfine"
+    ];
+    # Everything a `lib` tier owes its downstreams beyond the base set.
+    api = [
+      "semver-checks"
+      "expand"
+    ];
   };
 
   # The default set is what every tier in the pack ADR needs: run the tests,
@@ -97,9 +170,27 @@ let
 
   requestedTools = if tools == null then defaultTools else tools;
 
-  unknownTools = builtins.filter (t: !(toolMap ? ${t}) || toolMap.${t} == null) requestedTools;
+  isGroup = t: lib.hasPrefix "@" t;
+  groupName = t: lib.removePrefix "@" t;
 
-  toolPackages = map (t: toolMap.${t}) requestedTools;
+  unknownGroups = builtins.filter (t: isGroup t && !(toolGroups ? ${groupName t})) requestedTools;
+
+  # Group members that this platform does not have are dropped (see the
+  # toolGroups comment); explicitly named tools are not.
+  expandedGroupTools = lib.concatMap (
+    t: builtins.filter (m: (toolMap.${m} or null) != null) toolGroups.${groupName t}
+  ) (builtins.filter isGroup requestedTools);
+
+  explicitTools = builtins.filter (t: !isGroup t) requestedTools;
+
+  unknownTools = builtins.filter (t: (toolMap.${t} or null) == null) explicitTools;
+
+  # A tool named both explicitly and via a group must not appear twice — a
+  # duplicated derivation in `packages` is harmless to nix and confusing to
+  # read in a `nix develop` diff.
+  resolvedTools = lib.unique (explicitTools ++ expandedGroupTools);
+
+  toolPackages = map (t: toolMap.${t}) resolvedTools;
 
   # -------------------------------------------------------------------------
   # Toolchain. `toolchain` is a complete Rust toolchain derivation — in
@@ -182,12 +273,22 @@ else if !builtins.elem checks validChecks then
     + "; expected \"mkRustProject\" (set for you by lib.mkRustProject) or "
     + "\"none\" (deliberate opt-out — toolchain only, no check suite)"
   )
+else if unknownGroups != [ ] then
+  throw (
+    "rust module: unknown tool group(s): "
+    + lib.concatStringsSep ", " unknownGroups
+    + "; available groups: "
+    + lib.concatStringsSep ", " (map (g: "@${g}") (builtins.attrNames toolGroups))
+  )
 else if unknownTools != [ ] then
   throw (
-    "rust module: unknown or unavailable tool(s): "
+    "rust module: unknown or unavailable-on-${pkgs.stdenv.hostPlatform.system} tool(s): "
     + lib.concatStringsSep ", " unknownTools
-    + "; available: "
+    + "; available here: "
     + lib.concatStringsSep ", " (builtins.filter (n: toolMap.${n} != null) (builtins.attrNames toolMap))
+    + ". Tool groups (@name) skip members this platform lacks; an explicitly "
+    + "named tool does not, because naming one is a request that either can "
+    + "or cannot be met."
   )
 else
   {

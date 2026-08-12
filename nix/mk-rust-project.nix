@@ -108,6 +108,16 @@
   clippyExtraArgs ? "--all-targets",
   fmt ? true,
 
+  # ---- performance ratchet -------------------------------------------------
+  # Defaults on when the baseline file exists, off otherwise — same rule as
+  # `deny`, so adopting it is `just perf-seal` and adopting nothing is doing
+  # nothing. See the long comment at the ratchet itself for what it measures
+  # and, more importantly, what it refuses to measure.
+  perfRatchet ? null,
+  perfBaselineFile ? null,
+  # Growth beyond this fails. Overridable per repo in the baseline file.
+  perfTolerancePct ? 5,
+
   # ---- dev shell -----------------------------------------------------------
   # Cargo tooling on the shell PATH (the rust module's curated map).
   tools ? null,
@@ -304,6 +314,12 @@ let
     default = resolvedDefault;
   };
 
+  # Exposed unconditionally, including before a baseline exists — sealing the
+  # first one is how you adopt the ratchet, so it must work when it is off.
+  perfPackages = {
+    perf-seal = perfSeal;
+  };
+
   # ---------------------------------------------------------------------------
   # Checks
   #
@@ -354,7 +370,162 @@ let
       # scans the RustSec database, so a second derivation would be a
       # duplicate build for the same signal.
       deny = craneLib.cargoDeny { src = cleanSrc; };
-    };
+    }
+    // lib.optionalAttrs perfEnabled { perf-ratchet = perfRatchetCheck; };
+
+  # ---------------------------------------------------------------------------
+  # Performance ratchet
+  #
+  # WHAT THIS DELIBERATELY DOES NOT DO: time anything. Wall-clock benchmarks
+  # on shared CI runners are noise — neighbours, thermal state and scheduler
+  # luck move them more than most real regressions do — and a gate that fires
+  # on noise is a gate people learn to re-run until it passes. The pack ADR
+  # already says coverage is reported and never gated; the same reasoning
+  # applies harder here, because a flaky perf gate teaches `--no-verify`.
+  #
+  # What it measures instead is deterministic given a locked toolchain and a
+  # locked dependency graph, so a change means a change:
+  #
+  #   * SHIPPED BINARY SIZE, per binary. Catches the dependency that quietly
+  #     added two megabytes, the accidental monomorphization blowup, the
+  #     debug info that stopped being stripped.
+  #   * DEPENDENCY GRAPH SIZE, from Cargo.lock. Catches supply-chain creep,
+  #     which is a build-time, audit-surface and compile-time cost at once.
+  #
+  # Neither needs anyone to have written a benchmark, which is the point: a
+  # ratchet nobody has to author is a ratchet that is actually in place. Repos
+  # doing real performance work should add criterion/divan benches and run
+  # them OFF the CI critical path — `tools = [ "@perf" ]` puts the kit on
+  # PATH for that.
+  #
+  # It is a RATCHET, not a limit: growth past the tolerance fails, and a
+  # measured shrink is reported so the win can be banked by re-sealing. The
+  # baseline is committed, so the diff shows who spent the budget and when.
+  # ---------------------------------------------------------------------------
+  resolvedBaselineFile =
+    if perfBaselineFile != null then perfBaselineFile else src + "/.repo/perf-baseline.toml";
+  baselineExists = builtins.pathExists resolvedBaselineFile;
+  perfEnabled = if perfRatchet != null then perfRatchet else baselineExists;
+
+  baseline =
+    if baselineExists then builtins.fromTOML (builtins.readFile resolvedBaselineFile) else { };
+  tolerance = baseline.tolerance_pct or perfTolerancePct;
+
+  # Cargo.lock is TOML, so the graph size is an eval-time read — no build, no
+  # network, no cargo invocation.
+  cargoLockFile = src + "/Cargo.lock";
+  lockCrateCount =
+    if builtins.pathExists cargoLockFile then
+      builtins.length ((builtins.fromTOML (builtins.readFile cargoLockFile)).package or [ ])
+    else
+      null;
+
+  baselineBinaries = baseline.binaries or { };
+  baselineLines = lib.concatStringsSep "\n" (
+    lib.mapAttrsToList (n: v: "${n} ${toString v.bytes}") baselineBinaries
+  );
+
+  measuredPackages = if crates == null then { workspace = workspacePackage; } else cratePackages;
+
+  perfRatchetCheck = pkgs.runCommand "rust-perf-ratchet" { } ''
+    set -euo pipefail
+    printf '%s\n' ${lib.escapeShellArg baselineLines} > baseline.txt
+    tolerance=${toString tolerance}
+    status=0
+    echo "perf ratchet — tolerance ${toString tolerance}%"
+    echo
+
+    check_metric() {
+      name="$1"; actual="$2"; expected="$3"; unit="$4"
+      if [ -z "$expected" ]; then
+        echo "  NEW      $name = $actual $unit (no baseline entry)"
+        echo "$name = $actual" >> new-entries.txt
+        return
+      fi
+      # Integer percent-delta; avoids depending on bc/awk floats.
+      delta=$(( (actual - expected) * 100 / (expected > 0 ? expected : 1) ))
+      if [ "$delta" -gt "$tolerance" ]; then
+        echo "  REGRESS  $name = $actual $unit (baseline $expected, +''${delta}%)"
+        status=1
+      elif [ "$delta" -lt "-$tolerance" ]; then
+        echo "  IMPROVED $name = $actual $unit (baseline $expected, ''${delta}%) — re-seal to bank it"
+      else
+        echo "  ok       $name = $actual $unit (baseline $expected, ''${delta}%)"
+      fi
+    }
+
+    ${lib.concatStringsSep "\n" (
+      lib.mapAttrsToList (_: drv: ''
+        if [ -d ${drv}/bin ]; then
+          for f in ${drv}/bin/*; do
+            [ -f "$f" ] || continue
+            bin=$(basename "$f")
+            actual=$(wc -c < "$f" | tr -d ' ')
+            expected=$(awk -v k="$bin" '$1 == k { print $2 }' baseline.txt)
+            check_metric "binary/$bin" "$actual" "$expected" bytes
+          done
+        fi
+      '') measuredPackages
+    )}
+
+    ${lib.optionalString (lockCrateCount != null) ''
+      check_metric "graph/crates" ${toString lockCrateCount} \
+        ${toString (baseline.graph.crates or "")} crates
+    ''}
+
+    echo
+    if [ "$status" -ne 0 ]; then
+      cat <<'MSG'
+    A measured budget was exceeded.
+
+    This is deterministic, not a flaky timing check: same toolchain, same
+    Cargo.lock, same bytes. Something in this change actually made the
+    artifact bigger or the graph wider.
+
+      cargo bloat --release --crates     # which dependency took the bytes
+      cargo llvm-lines --release         # which generic exploded
+      cargo tree --duplicates            # two versions of the same crate
+
+    If the growth is intended — a real feature, a dependency you chose —
+    re-seal the baseline in the same commit, so the diff records who spent
+    the budget and why:
+
+      just perf-seal
+    MSG
+    fi
+    ${lib.optionalString (!baselineExists) ''
+      echo "No baseline at ${toString resolvedBaselineFile} — reporting only."
+      echo "Seal one with \`just perf-seal\` to start ratcheting."
+      status=0
+    ''}
+    [ "$status" -eq 0 ] || exit 1
+    touch $out
+  '';
+
+  # `nix run .#perf-seal > .repo/perf-baseline.toml` — emits the current
+  # measurements as the file itself, so sealing is never hand-transcribed.
+  perfSeal = pkgs.writeShellScriptBin "perf-seal" ''
+    set -euo pipefail
+    echo "schema = 1"
+    echo "tolerance_pct = ${toString tolerance}"
+    echo
+    ${lib.optionalString (lockCrateCount != null) ''
+      echo "[graph]"
+      echo "crates = ${toString lockCrateCount}"
+      echo
+    ''}
+    echo "[binaries]"
+    ${lib.concatStringsSep "\n" (
+      lib.mapAttrsToList (_: drv: ''
+        if [ -d ${drv}/bin ]; then
+          for f in ${drv}/bin/*; do
+            [ -f "$f" ] || continue
+            printf '%s = { bytes = %s }\n' "$(basename "$f")" "$(wc -c < "$f" | tr -d ' ')"
+          done
+        fi
+      '') measuredPackages
+    )}
+  '';
 
   # ---------------------------------------------------------------------------
   # Dev shell — the rust module, wired with the toolchain we just resolved so
@@ -390,7 +561,8 @@ let
   devShellWithEnv = if shellEnv == { } then devShell else devShell.overrideAttrs (_: shellEnv);
 in
 {
-  inherit packages checks;
+  inherit checks;
+  packages = packages // perfPackages;
   devShell = devShellWithEnv;
 
   # Escape hatches for consumers doing something the arguments above do not

@@ -667,3 +667,66 @@ def test_zero_module_shell_unaffected_by_rust_module(current_system: str) -> Non
         "adding the rust module must not perturb the zero-module default "
         f"dev-shell drv; got {paths!r}"
     )
+
+
+def test_rust_tool_group_expands_and_skips_unavailable_members() -> None:
+    """``tools = [ "@perf" ]`` expands, dropping members this platform lacks (#1400).
+
+    A group is a request for *this platform's* kit, so members that are not
+    packaged here (heaptrack, valgrind and poop are Linux-only) are skipped
+    rather than failing eval. Without this, every consumer writes the same
+    ``optionals stdenv.isLinux`` by hand and some of them get it wrong.
+    """
+    with_group = _nix_eval_expr(
+        _rust_module_expr('{ name = "rust"; checks = "none"; tools = [ "@perf" ]; }')
+    )
+    assert with_group.returncode == 0, (
+        f"@perf group must evaluate on this platform; got: {with_group.stderr[-500:]}"
+    )
+
+    # The shell derivation must actually differ from a no-tools one. Asserting
+    # only that it evaluates would pass even if the group silently expanded to
+    # nothing -- which is exactly the "configured, contributes nothing" failure
+    # this suite exists to catch.
+    without = _nix_eval_expr(
+        _rust_module_expr('{ name = "rust"; checks = "none"; tools = [ ]; }')
+    )
+    assert without.returncode == 0, (
+        f"empty tools must evaluate; got: {without.stderr[-500:]}"
+    )
+    assert with_group.stdout != without.stdout, (
+        "@perf expanded to no packages -- the group contributed nothing"
+    )
+
+
+def test_rust_explicit_unavailable_tool_still_throws() -> None:
+    """A tool named EXPLICITLY is not silently skipped (#1400).
+
+    The asymmetry against groups is deliberate and is the reason groups exist:
+    asking for ``@perf`` is asking for whatever this platform has, but naming
+    ``heaptrack`` is a request that can only be met or refused. Silently
+    dropping it would hand someone a shell missing the one tool they asked
+    for -- configured, believed present, never there.
+    """
+    result = _nix_eval_expr(
+        _rust_module_expr(
+            '{ name = "rust"; checks = "none"; tools = [ "heaptrack" ]; }'
+        )
+    )
+    if result.returncode == 0:
+        # Linux: heaptrack IS available, so there is nothing to refuse.
+        return
+    assert "heaptrack" in result.stderr and "unavailable-on" in result.stderr, (
+        f"error must name the tool and the platform; got: {result.stderr[-500:]}"
+    )
+
+
+def test_rust_module_rejects_unknown_tool_group() -> None:
+    """A mistyped group name fails eval and lists the real groups (#1400)."""
+    result = _nix_eval_expr(
+        _rust_module_expr('{ name = "rust"; checks = "none"; tools = [ "@perff" ]; }')
+    )
+    assert result.returncode != 0, "unknown tool group must fail eval, not pass"
+    assert "unknown tool group" in result.stderr and "@perf" in result.stderr, (
+        f"error must name the group and list the available ones; got: {result.stderr[-500:]}"
+    )
