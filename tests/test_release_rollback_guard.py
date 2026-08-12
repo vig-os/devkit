@@ -87,15 +87,30 @@ def test_devkit_finalize_exports_commit_and_post_sync_shas() -> None:
 
 
 def test_scaffold_core_exports_finalize_result_and_commit_sha() -> None:
-    """release-core.yml re-exposes finalize's result and exact commit SHA."""
+    """release-core.yml re-exposes finalize's ran/skipped state and commit SHA.
+
+    ``jobs.finalize.result`` would be the natural source, but actionlint's
+    jobs-context type for ``workflow_call`` outputs only carries ``outputs``,
+    so the signal is a first-step marker output: empty (-> 'skipped') when the
+    job never started, 'ran' otherwise.
+    """
     core = load_workflow(WORKFLOWS / "release-core.yml")
     call_outputs = core[True]["workflow_call"]["outputs"]
 
     assert "finalize_result" in call_outputs
-    assert "jobs.finalize.result" in call_outputs["finalize_result"]["value"]
+    result_value = call_outputs["finalize_result"]["value"]
+    assert "jobs.finalize.outputs.finalize_ran" in result_value
+    assert "'skipped'" in result_value
+
+    finalize = core["jobs"]["finalize"]
+    assert "finalize_ran" in finalize["outputs"]
+    first_step = finalize["steps"][0]
+    assert first_step.get("id") == "started", (
+        "the ran/skipped marker must be the first step so any finalize "
+        "execution — even one that fails immediately after — records it"
+    )
 
     assert "finalize_commit_sha" in call_outputs
-    finalize = core["jobs"]["finalize"]
     assert "finalize_commit_sha" in finalize["outputs"]
     assert "commit-sha" in finalize["outputs"]["finalize_commit_sha"]
     commit_step = step_by_name(finalize["steps"], "Commit and push finalization")
