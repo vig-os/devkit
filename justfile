@@ -81,16 +81,23 @@ doctor:
     # (or devcontainer / dev-shell entry) sets it. Until then every commit-side
     # gate is present, believed active, and inert. Refs #1430.
     #
-    # A linked worktree is the one place where unset is the INTENDED state
-    # (#1454): `just worktree-start` unsets core.hooksPath there on purpose
-    # (prek refuses to install its shims while it is set) and installs the shims
-    # instead. `hooks` is one of git's shared paths, so they land in the common
-    # git dir and git runs them from inside the worktree — the gates are live,
-    # and the fresh-clone remediation would undo the setup. Claim that only when
-    # a shim is really installed and executable: a worktree without one is inert
-    # exactly like any other unset case. `--git-path hooks/pre-commit` resolves
-    # to the file git itself would run (`.git` is a FILE in a linked worktree,
-    # so a literal `.git/hooks/...` test could never see it).
+    # A linked worktree may legitimately run with core.hooksPath unset and live
+    # shims in the shared git dir (#1454). Since #1463 `just worktree-start`
+    # leaves a configured hooks path untouched — the relative path resolves
+    # against each worktree's root and .githooks is tracked, so a post-fix
+    # worktree keeps the shared setting and hits the normal .githooks PASS
+    # branch — and prek-installs into the shared .git/hooks only as the
+    # fallback when no hooks path is configured at all. The shared-hooks PASS
+    # branch below covers that fallback plus worktrees created before #1463
+    # (worktree-start used to unset core.hooksPath — shared config, the #1463
+    # bug — and always install): `hooks` is one of git's shared paths, so the
+    # shims land in the common git dir and git runs them from inside the
+    # worktree — the gates are live, and the fresh-clone remediation would undo
+    # the setup. Claim that only when a shim is really installed and
+    # executable: a worktree without one is inert exactly like any other unset
+    # case. `--git-path hooks/pre-commit` resolves to the file git itself would
+    # run (`.git` is a FILE in a linked worktree, so a literal `.git/hooks/...`
+    # test could never see it).
     hookspath="$(git config core.hooksPath || true)"
     gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null || true)"
     commondir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
