@@ -17,7 +17,14 @@
 #                   shell installs the rendered config via git-hooks.nix's
 #                   installation script (`null` = not generatable, e.g. the
 #                   `uv run` generator/venv hooks like generate-docs or
-#                   sync-manifest, or the commit-msg-stage hooks).
+#                   sync-manifest, which need THIS repo's scripts and venv).
+#                   Stage-gated hooks ARE generatable (#1434): git-hooks.nix
+#                   carries `stages`, and a vig-utils console script resolves
+#                   as a store path via nix/vig-utils.nix — so the commit-msg
+#                   / prepare-commit-msg / agent-identity hooks ship here too.
+#                   Without them a direnv consumer's `.githooks/commit-msg`
+#                   shim runs an empty stage, exits 0, and the repo has no
+#                   local commit-message enforcement at all.
 #
 # `checkName`/`consumerName` map a committed hook id to the git-hooks.nix
 # attribute name where they differ (git-hooks.nix pluralises some
@@ -66,6 +73,52 @@ let
     "^(?!main$)${devClause}(?!^(chore)/[a-z0-9]+(-[a-z0-9]+)*$)(?!^(${typesAlternation})/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$)(?!^renovate/.+$)(?!^worktree/[0-9]+$).+$";
   # The gitflow default, used by the committed runner/scaffold YAML renders.
   branchNamePattern = branchNamePatternFor "gitflow" defaultBranchTypes;
+
+  # ── validate-commit-msg argv (knob-driven; #1431 + #1282) ──────────────
+  # The approved commit types (DEVKIT_COMMIT_TYPES, #1431) and the Refs
+  # enforcement policy (DEVKIT_REFS_POLICY, #1282) are ONE key each with two
+  # scaffold-path renderers already in lockstep — `render_commit_types` /
+  # `render_refs_policy` (assets/init-workspace.sh) for the scaffolded YAML,
+  # and resolve-toolchain's `commit-types` / `refs-optional-types` outputs for
+  # CI's validate-commit-range. `validateCommitMsgArgs` is the THIRD renderer,
+  # for the flake-generated consumer surface (#1434), and must resolve
+  # identically: same default list, same `optional` mirror of the RESOLVED
+  # types (never a hardcoded copy of the stock 11 — the #1431 composition
+  # fix), same `none` sentinel for `required` (an empty list reads as falsy to
+  # the CLI and reverts to its {chore} default). Charset validation lives at
+  # the write paths (init-workspace.sh; mkProjectShell's eval-time assert).
+  defaultCommitTypes = [
+    "feat"
+    "fix"
+    "docs"
+    "chore"
+    "refactor"
+    "perf"
+    "test"
+    "ci"
+    "build"
+    "revert"
+    "style"
+  ];
+  refsOptionalTypesFor =
+    refsPolicy: commitTypes:
+    if refsPolicy == "optional" then
+      lib.concatStringsSep "," commitTypes
+    else if refsPolicy == "required" then
+      "none"
+    else
+      "chore";
+  validateCommitMsgArgs = refsPolicy: commitTypes: [
+    "--types"
+    (lib.concatStringsSep "," commitTypes)
+    "--refs-optional-types"
+    (refsOptionalTypesFor refsPolicy commitTypes)
+    "--blocked-patterns"
+    ".github/agent-blocklist.toml"
+  ];
+  # The unset-knob default, used by the committed runner/scaffold YAML renders
+  # and as the parity baseline of the consumer render.
+  defaultValidateCommitMsgArgs = validateCommitMsgArgs null defaultCommitTypes;
 
   # Top-level exclude — one regex string in the committed YAML, a list for
   # git-hooks.nix (which joins with `|`). Same paths, two spellings.
@@ -719,7 +772,24 @@ let
     };
 
     # ── AI-agent identity + commit-message hooks (stage-gated / git-state
-    #    hooks: never run by `--all-files`, runner-only; Refs #163) ────────
+    #    hooks: `--all-files` never runs the two message hooks; Refs #163) ──
+    #
+    # All three carry a `consumer` fragment (#1434): a direnv consumer on
+    # flake-generated hooks (#1167) otherwise got NO commit-msg stage at all,
+    # so its `.githooks/commit-msg` shim exited 0 with nothing to run and
+    # `git commit --author="Claude <…>"` passed locally. The consumer entries
+    # resolve nix/vig-utils.nix store paths rather than the portable `uv run`
+    # form — a consumer's project venv does not carry vig-utils, whereas the
+    # flake ships it (nix/devtools.nix) — so the enforcement version follows
+    # the devkit pin the consumer bumps with `nix flake update vigos`. Same
+    # shape as every other tool-naming consumer fragment (nixfmt, statix,
+    # deadnix, just-fmt, gitleaks, pymarkdown), and like pymarkdown it builds
+    # from a plain `pkgs`, so the generation surface never depends on the
+    # consumer having applied `overlays.default`.
+    #
+    # No `check` fragments: the sandbox gate has no git repo and no commit to
+    # inspect, and `check-agent-identity` short-circuits under CI=true anyway.
+    #
     # Scaffolded: the consumer's `.githooks/prepare-commit-msg` already runs
     # `prek run --hook-stage prepare-commit-msg`, and this must reach consumers
     # together with validate-commit-msg — it strips agent trailers *before* the
@@ -730,6 +800,14 @@ let
       yaml = {
         name = "strip agent trailers from commit message";
         entry = "uv run prepare-commit-msg-strip-trailers";
+        language = "system";
+        stages = [ "prepare-commit-msg" ];
+        pass_filenames = true;
+      };
+      consumer = pkgs: {
+        enable = true;
+        name = "strip agent trailers from commit message";
+        entry = "${import ./vig-utils.nix pkgs}/bin/prepare-commit-msg-strip-trailers";
         language = "system";
         stages = [ "prepare-commit-msg" ];
         pass_filenames = true;
@@ -752,6 +830,13 @@ let
         language = "system";
         pass_filenames = false;
       };
+      consumer = pkgs: {
+        enable = true;
+        name = "check agent identity";
+        entry = "${import ./vig-utils.nix pkgs}/bin/check-agent-identity";
+        language = "system";
+        pass_filenames = false;
+      };
     };
     # No `--scopes` allowlist: a scope is free-form "alphanumeric and hyphens
     # only" per docs/COMMIT_MESSAGE_STANDARD.md, which the validator's subject
@@ -763,6 +848,12 @@ let
     # (`prek run --hook-stage commit-msg`) has no hooks to run, so every
     # scaffolded repo shipped a COMMIT_MESSAGE_STANDARD.md it could not
     # enforce. Refs #1019.
+    #
+    # The consumer fragment ships the DEFAULT argv; `consumer` below overrides
+    # it only when DEVKIT_COMMIT_TYPES / DEVKIT_REFS_POLICY resolve to
+    # something else, exactly like the branch guard — so an unset-knob
+    # consumer's generated config stays byte-identical to the pre-#1434
+    # render.
     validate-commit-msg = {
       scaffold = true;
       yaml = {
@@ -770,14 +861,15 @@ let
         entry = "uv run validate-commit-msg";
         language = "system";
         stages = [ "commit-msg" ];
-        args = [
-          "--types"
-          "feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style"
-          "--refs-optional-types"
-          "chore"
-          "--blocked-patterns"
-          ".github/agent-blocklist.toml"
-        ];
+        args = defaultValidateCommitMsgArgs;
+      };
+      consumer = pkgs: {
+        enable = true;
+        name = "validate commit message";
+        entry = "${import ./vig-utils.nix pkgs}/bin/validate-commit-msg";
+        language = "system";
+        stages = [ "commit-msg" ];
+        args = defaultValidateCommitMsgArgs;
       };
     };
   };
@@ -842,23 +934,40 @@ in
   };
 
   # Base hook set for the consumer generation surface
-  # (`mkProjectShell { hooks = …; }`). ctx: pkgs; `workflow` (gitflow default |
-  # trunk) tunes the branch guard so a flake-hooks consumer's no-commit-to-branch
-  # pattern follows DEVKIT_WORKFLOW, mirroring the scaffold render (#1224). For
-  # gitflow the override is a no-op, so the generated config stays byte-identical
-  # to the pre-#1224 render (zero-hooks parity + consumer-surface tests).
+  # (`mkProjectShell { hooks = …; }`). ctx: pkgs, then the `.vig-os` knobs the
+  # scaffolded flake.nix forwards. Each knob tunes exactly one base hook so a
+  # flake-hooks consumer's local enforcement follows the same manifest keys as
+  # the scaffolded YAML renders:
+  #
+  #   workflow    — DEVKIT_WORKFLOW,     branch guard dev-clause      (#1224)
+  #   branchTypes — DEVKIT_BRANCH_TYPES, branch guard alternation     (#1432)
+  #   commitTypes — DEVKIT_COMMIT_TYPES, validate-commit-msg --types  (#1431)
+  #   refsPolicy  — DEVKIT_REFS_POLICY,  --refs-optional-types        (#1282)
+  #
+  # An attrset (not positional args): every knob is an optional nullable value
+  # and the list keeps growing. Each override is applied ONLY when the resolved
+  # value differs from the default, so an unset-knob consumer's generated
+  # config stays byte-identical to the pre-knob render (zero-hooks parity +
+  # consumer-surface tests).
   consumer =
-    pkgs: workflow: branchTypes:
+    pkgs:
+    {
+      workflow ? "gitflow",
+      branchTypes ? null,
+      commitTypes ? null,
+      refsPolicy ? null,
+    }:
     let
       base = collectFor "consumer" "consumerName" pkgs;
-      # Effective guard pattern for this consumer: workflow (#1224) and
-      # branch-types (#1432) both feed one computation. Override the base
-      # hook only when the result differs from the gitflow default, so a
-      # default consumer's generated config stays byte-identical to the
-      # pre-#1224/pre-#1432 render (zero-hooks parity + consumer-surface
-      # tests).
-      effectiveTypes = if branchTypes == null then defaultBranchTypes else branchTypes;
-      effectivePattern = branchNamePatternFor workflow effectiveTypes;
+      # Branch guard: workflow (#1224) and branch-types (#1432) feed one
+      # computation.
+      effectiveBranchTypes = if branchTypes == null then defaultBranchTypes else branchTypes;
+      effectivePattern = branchNamePatternFor workflow effectiveBranchTypes;
+      # validate-commit-msg argv: commit-types (#1431) and the Refs policy
+      # (#1282) feed one computation, because `optional` mirrors the resolved
+      # types list.
+      effectiveCommitTypes = if commitTypes == null then defaultCommitTypes else commitTypes;
+      effectiveValidateArgs = validateCommitMsgArgs refsPolicy effectiveCommitTypes;
     in
     {
       excludes = baseExcludes;
@@ -869,6 +978,11 @@ in
             settings = base.no-commit-to-branch.settings // {
               pattern = [ effectivePattern ];
             };
+          };
+        }
+        // lib.optionalAttrs (effectiveValidateArgs != defaultValidateCommitMsgArgs) {
+          validate-commit-msg = base.validate-commit-msg // {
+            args = effectiveValidateArgs;
           };
         };
     };

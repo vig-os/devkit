@@ -92,23 +92,14 @@
 
       # vig-utils exposed on the overlay so `pkgs.vig-utils` resolves for the
       # toolchain SSoT (nix/devtools.nix) and for downstream consumers that
-      # apply `overlays.default`. A pure-Python hatchling package (single
-      # runtime dep `rich`) built from THIS flake's `packages/vig-utils`, so its
-      # console scripts (prepare-changelog, renovate-changelog-pr, …) reach the
-      # dev-shell, the image, and the home module from one list. The devkit pin
-      # in a consumer's `.vig-os` governs the version. Refs #993, #666.
+      # apply `overlays.default`, so its console scripts (prepare-changelog,
+      # renovate-changelog-pr, …) reach the dev-shell, the image, and the home
+      # module from one list. The devkit pin in a consumer's `.vig-os` governs
+      # the version. The package itself lives in nix/vig-utils.nix (like
+      # nix/pymarkdown.nix) so the consumer hook fragments can build it from a
+      # plain, un-overlaid `pkgs` too (#1434). Refs #993, #666.
       vigUtilsOverlay = final: _prev: {
-        vig-utils = final.python314.pkgs.buildPythonPackage {
-          pname = "vig-utils";
-          version = "0.1.0";
-          pyproject = true;
-          src = ./packages/vig-utils;
-          build-system = [ final.python314.pkgs.hatchling ];
-          dependencies = [ final.python314.pkgs.rich ];
-          pythonImportsCheck = [ "vig_utils" ];
-          # The package's own tests need pytest + the repo; CI covers them.
-          doCheck = false;
-        };
+        vig-utils = import ./nix/vig-utils.nix final;
       };
 
       # System-independent overlay for downstream consumers (overlays.default).
@@ -259,6 +250,23 @@
           # DEVKIT_BRANCH_TYPES and forwards it here. Validated below —
           # entries reach a regex alternation, so the charset is load-bearing.
           branchTypes ? null,
+          # Approved commit types (#1431): null (default) keeps the stock 11 in
+          # the flake-generated validate-commit-msg hook; a list of type
+          # strings replaces it, mirroring what render_commit_types does to the
+          # scaffolded config and what resolve-toolchain's `commit-types`
+          # output does to CI. The scaffold template reads this from the
+          # workspace `.vig-os` DEVKIT_COMMIT_TYPES and forwards it here.
+          # Validated below — entries reach a hook argv, so the charset guard
+          # mirrors the scaffold's. Refs #1434.
+          commitTypes ? null,
+          # Refs policy (#1282): null (default) == "chore-optional" — only
+          # `chore` may omit the `Refs:` line. "optional" mirrors the resolved
+          # commitTypes (never required), "required" admits no exemption. Same
+          # mapping as render_refs_policy and resolve-toolchain's
+          # `refs-optional-types` output — one key, three renderers in
+          # lockstep. Read from `.vig-os` DEVKIT_REFS_POLICY by the scaffold
+          # template. Refs #1434.
+          refsPolicy ? null,
           shellHook ? ''echo "devcontainer dev environment loaded (nix)"'',
           # Overridable CPython (#1038). Defaults to the pinned 3.14 so the
           # zero-argument shell is byte-identical to the pre-#1038 builder
@@ -357,7 +365,14 @@
           # tests/test_flake_devshell.py, tests/test_flake_hooks.py).
           # ------------------------------------------------------------------
           hooksEnabled = hooks != null || hooksExcludes != [ ];
-          consumerHooksBase = hooksModule.consumer pkgs workflow branchTypes;
+          consumerHooksBase = hooksModule.consumer pkgs {
+            inherit
+              workflow
+              branchTypes
+              commitTypes
+              refsPolicy
+              ;
+          };
           # Base values at priority 999: they beat git-hooks.nix's own
           # built-in hook defaults (mkDefault, 1000 — equal priorities would
           # conflict, e.g. the built-in nixfmt entry vs the base one) and
@@ -622,6 +637,29 @@
             )
           )
           "mkProjectShell: branchTypes must be null or a non-empty list of lowercase alphanumeric type names (e.g. [ \"feature\" \"record\" ]), got ${builtins.toJSON branchTypes}";
+        # commitTypes (#1431 on the flake surface, #1434): entries land in the
+        # validate-commit-msg argv, so mirror the scaffold's per-entry charset
+        # allowlist — loudly, at eval time, like init-workspace.sh's abort.
+        assert pkgs.lib.assertMsg
+          (
+            commitTypes == null
+            || (
+              builtins.isList commitTypes
+              && commitTypes != [ ]
+              && builtins.all (t: builtins.isString t && builtins.match "[a-z][a-z0-9]*" t != null) commitTypes
+            )
+          )
+          "mkProjectShell: commitTypes must be null or a non-empty list of lowercase alphanumeric type names (e.g. [ \"feat\" \"record\" ]), got ${builtins.toJSON commitTypes}";
+        # refsPolicy (#1282 on the flake surface, #1434): the same three-value
+        # enum init-workspace.sh guards, refused loudly on an unknown literal.
+        assert pkgs.lib.assertMsg
+          (builtins.elem refsPolicy [
+            null
+            "chore-optional"
+            "optional"
+            "required"
+          ])
+          "mkProjectShell: refsPolicy must be null, \"chore-optional\", \"optional\" or \"required\", got ${builtins.toJSON refsPolicy}";
         pkgs.mkShell (
           # Module env first: the builder's attrset below wins any collision,
           # so a capability module can never break the Python bootstrap pins

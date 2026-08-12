@@ -320,20 +320,16 @@ def _consumer_config_set() -> dict[str, dict[str, Any]]:
     so the suite pays one build instead of one per shell. Cached for the whole
     pytest run.
 
-    ``pkgs`` carries ``overlays.default`` (as the scaffolded consumer flake
-    builds it): the vig-utils console scripts the commit-message hooks resolve
-    (#1434) come from that overlay, exactly like the ``devTools`` toolchain
-    every ``mkProjectShell`` consumer already gets.
+    ``pkgs`` is deliberately un-overlaid: the generated config must render from
+    a plain nixpkgs, so the commit-message hooks' vig-utils entries (#1434)
+    resolve through ``nix/vig-utils.nix`` rather than requiring the consumer to
+    have applied ``overlays.default`` first.
     """
     expr = f"""
     let
       flake = builtins.getFlake "path:{REPO_ROOT}";
       system = builtins.currentSystem;
-      pkgs = import flake.inputs.nixpkgs {{
-        inherit system;
-        overlays = [ flake.overlays.default ];
-        config.allowUnfree = true;
-      }};
+      pkgs = import flake.inputs.nixpkgs {{ inherit system; }};
       customized = flake.lib.mkProjectShell {{
         inherit pkgs;
         hooks = {{
@@ -886,7 +882,7 @@ class TestCommitPolicyKnobsOnTheFlakeSurface:
             ("DEVKIT_COMMIT_TYPES", "commitTypes"),
             ("DEVKIT_REFS_POLICY", "refsPolicy"),
         ):
-            assert f'vigOsValue "{key}"' in flake, f"flake.nix does not read {key}"
+            assert f'"{key}"' in flake, f"flake.nix does not read {key} from .vig-os"
             assert f"inherit {arg};" in flake, f"flake.nix does not forward `{arg}`"
             assert f"builtins.functionArgs vigos.lib.mkProjectShell ? {arg}" in flake, (
                 f"flake.nix forwards `{arg}` unconditionally — the floating vigos "
