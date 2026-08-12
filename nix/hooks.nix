@@ -42,14 +42,30 @@ let
   # dist/ rebuilds) are a legitimate local flow. Permissive `.+` after the
   # prefix — Renovate composes names from dep names/version ranges (dots,
   # parentheses), so a charset pin would re-break on the next scheme.
+  # Issue-numbered branch-type set (#1432): the ONLY knob-driven clause of the
+  # pattern — DEVKIT_BRANCH_TYPES replaces this list (scaffold path:
+  # render_branch_types in assets/init-workspace.sh; flake path:
+  # mkProjectShell's `branchTypes`). The chore/renovate/worktree clauses stay
+  # fixed. The default must render the pattern byte-identically to the
+  # pre-#1432 literal (drift gate + zero-hooks parity).
+  defaultBranchTypes = [
+    "feature"
+    "bugfix"
+    "hotfix"
+    "release"
+    "docs"
+    "test"
+    "refactor"
+  ];
   branchNamePatternFor =
-    workflow:
+    workflow: branchTypes:
     let
       devClause = lib.optionalString (workflow != "trunk") "(?!dev$)";
+      typesAlternation = lib.concatStringsSep "|" branchTypes;
     in
-    "^(?!main$)${devClause}(?!^(chore)/[a-z0-9]+(-[a-z0-9]+)*$)(?!^(feature|bugfix|hotfix|release|docs|test|refactor)/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$)(?!^renovate/.+$)(?!^worktree/[0-9]+$).+$";
+    "^(?!main$)${devClause}(?!^(chore)/[a-z0-9]+(-[a-z0-9]+)*$)(?!^(${typesAlternation})/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$)(?!^renovate/.+$)(?!^worktree/[0-9]+$).+$";
   # The gitflow default, used by the committed runner/scaffold YAML renders.
-  branchNamePattern = branchNamePatternFor "gitflow";
+  branchNamePattern = branchNamePatternFor "gitflow" defaultBranchTypes;
 
   # Top-level exclude — one regex string in the committed YAML, a list for
   # git-hooks.nix (which joins with `|`). Same paths, two spellings.
@@ -832,18 +848,26 @@ in
   # gitflow the override is a no-op, so the generated config stays byte-identical
   # to the pre-#1224 render (zero-hooks parity + consumer-surface tests).
   consumer =
-    pkgs: workflow:
+    pkgs: workflow: branchTypes:
     let
       base = collectFor "consumer" "consumerName" pkgs;
+      # Effective guard pattern for this consumer: workflow (#1224) and
+      # branch-types (#1432) both feed one computation. Override the base
+      # hook only when the result differs from the gitflow default, so a
+      # default consumer's generated config stays byte-identical to the
+      # pre-#1224/pre-#1432 render (zero-hooks parity + consumer-surface
+      # tests).
+      effectiveTypes = if branchTypes == null then defaultBranchTypes else branchTypes;
+      effectivePattern = branchNamePatternFor workflow effectiveTypes;
     in
     {
       excludes = baseExcludes;
       hooks =
         base
-        // lib.optionalAttrs (workflow == "trunk") {
+        // lib.optionalAttrs (effectivePattern != branchNamePattern) {
           no-commit-to-branch = base.no-commit-to-branch // {
             settings = base.no-commit-to-branch.settings // {
-              pattern = [ (branchNamePatternFor "trunk") ];
+              pattern = [ effectivePattern ];
             };
           };
         };

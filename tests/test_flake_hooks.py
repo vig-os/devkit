@@ -381,7 +381,13 @@ def _consumer_config_set() -> dict[str, dict[str, Any]]:
     # a JSON superset that treats them as comments, so parse with yaml.
     return {
         name: yaml.safe_load((root / name).read_text())
-        for name in ("customized", "gitleaks", "trunk")
+        for name in (
+            "customized",
+            "gitleaks",
+            "trunk",
+            "branchtypes",
+            "branchtypes-trunk",
+        )
     }
 
 

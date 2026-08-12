@@ -251,6 +251,14 @@
           # scaffold template reads this from the workspace `.vig-os`
           # DEVKIT_WORKFLOW and forwards it here. Inert for gitflow.
           workflow ? "gitflow",
+          # Branch-type set (#1432): null (default) keeps the stock
+          # issue-numbered alternation in the flake-generated branch guard; a
+          # list of type strings replaces it, mirroring what
+          # render_branch_types does to the scaffolded config. The scaffold
+          # template reads this from the workspace `.vig-os`
+          # DEVKIT_BRANCH_TYPES and forwards it here. Validated below —
+          # entries reach a regex alternation, so the charset is load-bearing.
+          branchTypes ? null,
           shellHook ? ''echo "devcontainer dev environment loaded (nix)"'',
           # Overridable CPython (#1038). Defaults to the pinned 3.14 so the
           # zero-argument shell is byte-identical to the pre-#1038 builder
@@ -349,7 +357,7 @@
           # tests/test_flake_devshell.py, tests/test_flake_hooks.py).
           # ------------------------------------------------------------------
           hooksEnabled = hooks != null || hooksExcludes != [ ];
-          consumerHooksBase = hooksModule.consumer pkgs workflow;
+          consumerHooksBase = hooksModule.consumer pkgs workflow branchTypes;
           # Base values at priority 999: they beat git-hooks.nix's own
           # built-in hook defaults (mkDefault, 1000 — equal priorities would
           # conflict, e.g. the built-in nixfmt entry vs the base one) and
@@ -601,6 +609,19 @@
           "gitflow"
           "trunk"
         ]) "mkProjectShell: workflow must be \"gitflow\" or \"trunk\", got \"${workflow}\"";
+        # branchTypes (#1432): entries land inside the branch guard's regex
+        # alternation, so refuse anything but a non-empty list of lowercase
+        # alphanumeric type names — loudly, at eval time.
+        assert pkgs.lib.assertMsg
+          (
+            branchTypes == null
+            || (
+              builtins.isList branchTypes
+              && branchTypes != [ ]
+              && builtins.all (t: builtins.isString t && builtins.match "[a-z][a-z0-9]*" t != null) branchTypes
+            )
+          )
+          "mkProjectShell: branchTypes must be null or a non-empty list of lowercase alphanumeric type names (e.g. [ \"feature\" \"record\" ]), got ${builtins.toJSON branchTypes}";
         pkgs.mkShell (
           # Module env first: the builder's attrset below wins any collision,
           # so a capability module can never break the Python bootstrap pins

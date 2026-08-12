@@ -105,6 +105,20 @@ DEVKIT_REFS_POLICY=
 # output); written back only for a non-empty value (#1431).
 DEVKIT_COMMIT_TYPES=
 
+# Issue-numbered branch types for the branch guard — a comma-separated
+# (whitespace-tolerant) FULL REPLACEMENT of the `<type>/<issue>-<summary>` set,
+# driving the local no-commit-to-branch hook, the flake-generated consumer
+# surface (read by flake.nix at eval time), and CI's branch-name gate from this
+# one key. Empty (default) resolves to the stock set
+# (feature,bugfix,hotfix,release,docs,test,refactor) — unchanged for devkit or
+# existing consumers. The `chore/<summary>`, `renovate/*`, and
+# `worktree/<issue>` clauses are never knob-driven. Lowercase alphanumerics
+# only (guarded loudly at scaffold time; the scaffold prints a notice when
+# `release` is dropped). Realized at scaffold time (an anchored render of the
+# hook pattern + resolve-toolchain's `branch-types` output); written back only
+# for a non-empty value (#1432).
+DEVKIT_BRANCH_TYPES=
+
 # Auto-upgrade opt-out for the scaffolded devkit-upgrade.yml workflow. Empty
 # (default) or any value other than `false` keeps the WEEKLY schedule path
 # enabled — it polls devkit's latest release and, when this repo's DEVKIT_VERSION

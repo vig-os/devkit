@@ -85,6 +85,13 @@ outputs:
       is absent/empty (or carries an out-of-charset value — fail-safe, the
       loud guard lives at the scaffold write path).
     value: ${{ steps.resolve.outputs.commit-types }}
+  branch-types:
+    description: >-
+      Comma-separated issue-numbered branch types from DEVKIT_BRANCH_TYPES for
+      the commit-checks branch-name gate. The stock set when the key is
+      absent/empty (or carries an out-of-charset value — fail-safe, the loud
+      guard lives at the scaffold write path).
+    value: ${{ steps.resolve.outputs.branch-types }}
   drift-check:
     description: >-
       Scaffold-drift gate toggle from DEVKIT_DRIFT_CHECK: `true` (default/absent)
@@ -111,6 +118,7 @@ runs:
         CI_RUNNER=""
         REFS_POLICY=""
         COMMIT_TYPES=""
+        BRANCH_TYPES=""
         DRIFT_CHECK=""
 
         if [[ -f .vig-os ]]; then
@@ -123,7 +131,7 @@ runs:
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
 
             case "$line" in
-              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_REFS_POLICY=*|DEVKIT_COMMIT_TYPES=*|DEVKIT_DRIFT_CHECK=*)
+              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_REFS_POLICY=*|DEVKIT_COMMIT_TYPES=*|DEVKIT_BRANCH_TYPES=*|DEVKIT_DRIFT_CHECK=*)
                 key="${line%%=*}"
                 value="${line#*=}"
                 value="${value#"${value%%[![:space:]]*}"}"
@@ -144,6 +152,7 @@ runs:
                   DEVKIT_CI_RUNNER) CI_RUNNER="$value" ;;
                   DEVKIT_REFS_POLICY) REFS_POLICY="$value" ;;
                   DEVKIT_COMMIT_TYPES) COMMIT_TYPES="$value" ;;
+                  DEVKIT_BRANCH_TYPES) BRANCH_TYPES="$value" ;;
                   DEVKIT_DRIFT_CHECK) DRIFT_CHECK="$value" ;;
                 esac
                 ;;
@@ -231,6 +240,38 @@ runs:
         # An all-blank value falls back to the default (like DEVKIT_CI_RUNNER).
         RESOLVED_COMMIT_TYPES="${RESOLVED_COMMIT_TYPES:-$DEFAULT_COMMIT_TYPES}"
         echo "commit-types=$RESOLVED_COMMIT_TYPES" >> "$GITHUB_OUTPUT"
+
+        # Branch types (#1432): resolve DEVKIT_BRANCH_TYPES into the
+        # issue-numbered type set the commit-checks branch-name gate consumes.
+        # Single mapping point for the CI surface; MIRRORS render_branch_types
+        # in assets/init-workspace.sh (two renderers, one key — keep in
+        # lockstep). Same guard philosophy as commit-types above: the loud
+        # charset guard lives at the write path, here an out-of-charset entry
+        # falls back to the stock set with a warning (fail-safe: a broken
+        # value must never break — or weaken — the gate).
+        DEFAULT_BRANCH_TYPES="feature,bugfix,hotfix,release,docs,test,refactor"
+        RESOLVED_BRANCH_TYPES=""
+        if [[ -n "$BRANCH_TYPES" ]]; then
+          branch_types_valid=1
+          IFS=',' read -ra btype_entries <<< "$BRANCH_TYPES"
+          for entry in "${btype_entries[@]}"; do
+            entry="${entry#"${entry%%[![:space:]]*}"}"
+            entry="${entry%"${entry##*[![:space:]]}"}"
+            [[ -z "$entry" ]] && continue
+            if [[ ! "$entry" =~ ^[a-z][a-z0-9]*$ ]]; then
+              branch_types_valid=0
+              break
+            fi
+            RESOLVED_BRANCH_TYPES+="${RESOLVED_BRANCH_TYPES:+,}$entry"
+          done
+          if [[ "$branch_types_valid" -ne 1 ]]; then
+            echo "::warning::Invalid DEVKIT_BRANCH_TYPES in .vig-os ('$BRANCH_TYPES'); falling back to the default branch types."
+            RESOLVED_BRANCH_TYPES=""
+          fi
+        fi
+        # An all-blank value falls back to the default (like DEVKIT_CI_RUNNER).
+        RESOLVED_BRANCH_TYPES="${RESOLVED_BRANCH_TYPES:-$DEFAULT_BRANCH_TYPES}"
+        echo "branch-types=$RESOLVED_BRANCH_TYPES" >> "$GITHUB_OUTPUT"
 
         # Refs policy (#1282): map DEVKIT_REFS_POLICY to the --refs-optional-types
         # list validate-commit-range consumes in the commit-checks job. This is

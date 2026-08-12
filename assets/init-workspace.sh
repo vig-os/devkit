@@ -346,6 +346,7 @@ MANIFEST_FEATURES_DISABLED="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FEAT
 
 MANIFEST_REFS_POLICY="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REFS_POLICY || true)"
 MANIFEST_COMMIT_TYPES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_COMMIT_TYPES || true)"
+MANIFEST_BRANCH_TYPES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_BRANCH_TYPES || true)"
 
 # devkit-upgrade knobs (#1296): runtime-only keys consumed by the scaffolded
 # devkit-upgrade.yml at run time (not rendered here) — read them solely to write
@@ -543,6 +544,41 @@ if [[ -n "$MANIFEST_COMMIT_TYPES" ]]; then
 fi
 # An all-blank value (e.g. `DEVKIT_COMMIT_TYPES= ,`) falls back to the default.
 RESOLVED_COMMIT_TYPES="${RESOLVED_COMMIT_TYPES:-$DEFAULT_COMMIT_TYPES}"
+
+# Branch types (#1432): DEVKIT_BRANCH_TYPES is a comma-separated (whitespace-
+# tolerant) FULL REPLACEMENT of the issue-numbered branch-type set in the
+# no-commit-to-branch pattern, steering the local guard, the flake consumer
+# surface (via the template flake.nix reader), and CI's branch-name gate from
+# this one key. The chore/renovate/worktree clauses are never knob-driven. The
+# value lands in a sed replacement AND a regex alternation, so the same strict
+# per-entry charset allowlist as DEVKIT_COMMIT_TYPES is load-bearing. Resolves
+# into RESOLVED_BRANCH_TYPES (stock set when the key is empty) for
+# render_branch_types.
+DEFAULT_BRANCH_TYPES="feature,bugfix,hotfix,release,docs,test,refactor"
+RESOLVED_BRANCH_TYPES=""
+if [[ -n "$MANIFEST_BRANCH_TYPES" ]]; then
+    IFS=',' read -ra _raw_btypes <<< "$MANIFEST_BRANCH_TYPES"
+    for _btype in "${_raw_btypes[@]}"; do
+        # Trim surrounding whitespace (leading + trailing).
+        _btype="${_btype#"${_btype%%[![:space:]]*}"}"
+        _btype="${_btype%"${_btype##*[![:space:]]}"}"
+        [[ -z "$_btype" ]] && continue
+        if [[ ! "$_btype" =~ ^[a-z][a-z0-9]*$ ]]; then
+            echo "Error: Invalid DEVKIT_BRANCH_TYPES in $VIG_OS_MANIFEST: $_btype (expected a comma-separated list of lowercase alphanumeric branch types, e.g. 'feature,bugfix,record')" >&2
+            exit 1
+        fi
+        RESOLVED_BRANCH_TYPES+="${RESOLVED_BRANCH_TYPES:+,}$_btype"
+    done
+    # Release-type notice (never abort — a deliberate removal is allowed, but
+    # never silent, mirroring the #1431 bot-type notice): the release feature
+    # works on release/X.Y.Z branches, and maintainers commonly type topic
+    # branches into a release PR as release/<issue>-<slug>.
+    if [[ -n "$RESOLVED_BRANCH_TYPES" && ",$RESOLVED_BRANCH_TYPES," != *",release,"* ]]; then
+        echo "Notice: DEVKIT_BRANCH_TYPES omits 'release' — release-typed topic branches will be rejected by the branch guard (#1432)." >&2
+    fi
+fi
+# An all-blank value (e.g. `DEVKIT_BRANCH_TYPES= ,`) falls back to the default.
+RESOLVED_BRANCH_TYPES="${RESOLVED_BRANCH_TYPES:-$DEFAULT_BRANCH_TYPES}"
 
 # Scaffold-drift gate (#1295): pure runtime toggle for the ci.yml scaffold-drift
 # job (empty resolves to the enabled `true` default). No scaffold render — the CI
@@ -1804,6 +1840,29 @@ render_commit_types() {
     echo "Rendered commit types: ${RESOLVED_COMMIT_TYPES}"
 }
 
+# Render the branch-types knob (#1432): DEVKIT_BRANCH_TYPES replaces the
+# issue-numbered alternation of the no-commit-to-branch pattern in the
+# scaffolded .pre-commit-config.yaml (guarded + resolved above; the IDENTICAL
+# set drives the flake consumer surface via the template flake.nix reader and
+# CI's branch-name gate via resolve-toolchain's `branch-types` output — keep in
+# lockstep). Empty/absent is a pure no-op, so a default scaffold stays
+# byte-identical. Plain (basic-regex) sed with a `#` delimiter (the
+# replacement contains `|`, literal in basic syntax), anchored on the literal
+# stock alternation + its `/[0-9]` suffix — the
+# single occurrence in the file, distinct from the other renders' anchors, so
+# all four compose. The anchor is the STOCK list, so this must run before any
+# future render that could rewrite it (it is the only one that does).
+render_branch_types() {
+    [[ -z "$MANIFEST_BRANCH_TYPES" ]] && return 0
+
+    local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
+    [[ -f "$pc" ]] || return 0
+
+    local alternation="${RESOLVED_BRANCH_TYPES//,/|}"
+    sed -i "s#(feature|bugfix|hotfix|release|docs|test|refactor)/\[0-9\]#(${alternation})/[0-9]#" "$pc"
+    echo "Rendered branch types: ${RESOLVED_BRANCH_TYPES}"
+}
+
 # Warn if forcing (prompt user) - show which files would be overwritten
 if [[ "$FORCE" == "true" ]]; then
     echo ""
@@ -2466,6 +2525,10 @@ fi
 # anchors) so the renders compose.
 render_refs_policy
 render_commit_types
+# Branch types (#1432): swaps the issue-numbered alternation of the branch
+# guard pattern — a distinct anchor from the three renders above, so all
+# compose. No-op for the default.
+render_branch_types
 
 # Persist the resolved manifest (#885). The scaffolded .vig-os is a managed
 # file (template-overwritten on upgrade), so the resolved delivery mode and
@@ -2535,6 +2598,12 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     # round-trips (like DEVKIT_FEATURES_DISABLED).
     if [[ -n "$MANIFEST_COMMIT_TYPES" ]]; then
         write_manifest_value DEVKIT_COMMIT_TYPES "$MANIFEST_COMMIT_TYPES"
+    fi
+    # Branch types (#1432): bare in the template (DEVKIT_BRANCH_TYPES=), so a
+    # consumer's replacement set is written back — else an upgrade silently
+    # resets the branch guard (and the CI branch-name gate) to the stock set.
+    if [[ -n "$MANIFEST_BRANCH_TYPES" ]]; then
+        write_manifest_value DEVKIT_BRANCH_TYPES "$MANIFEST_BRANCH_TYPES"
     fi
     # devkit-upgrade knobs (#1296): bare in the template (DEVKIT_AUTO_UPGRADE= /
     # DEVKIT_UPGRADE_EXCLUDE=), so a consumer's opt-out / exclusion list is read

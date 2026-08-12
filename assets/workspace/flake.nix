@@ -50,24 +50,40 @@
           # add project tools here
         ];
 
-        # Workflow model (#1224): read DEVKIT_WORKFLOW from .vig-os and forward
-        # it to mkProjectShell so the flake-generated pre-commit branch guard
-        # follows the model — a `trunk` workspace drops the dev-branch clause,
-        # mirroring the scaffolded .pre-commit-config.yaml. `gitflow` (the
-        # default) and an absent/blank value are inert. Managed line; leave it.
-        workflow =
+        # Devkit knobs read from .vig-os (#1224, #1432): the flake-generated
+        # pre-commit branch guard follows the workspace manifest, mirroring
+        # the scaffolded .pre-commit-config.yaml renders. Managed block;
+        # leave it.
+        vigOsValue =
+          key:
           let
             vigOsPath = self + "/.vig-os";
-            declared = builtins.filter (l: nixpkgs.lib.hasPrefix "DEVKIT_WORKFLOW=" l) (
+            declared = builtins.filter (l: nixpkgs.lib.hasPrefix "${key}=" l) (
               nixpkgs.lib.splitString "\n" (builtins.readFile vigOsPath)
             );
-            value =
-              if declared == [ ] then
-                ""
-              else
-                nixpkgs.lib.removePrefix "DEVKIT_WORKFLOW=" (builtins.head declared);
           in
-          if builtins.pathExists vigOsPath && value == "trunk" then "trunk" else "gitflow";
+          if !builtins.pathExists vigOsPath || declared == [ ] then
+            ""
+          else
+            nixpkgs.lib.removePrefix "${key}=" (builtins.head declared);
+
+        # Workflow model (#1224): a `trunk` workspace drops the dev-branch
+        # clause. `gitflow` (the default) and an absent/blank value are inert.
+        workflow = if vigOsValue "DEVKIT_WORKFLOW" == "trunk" then "trunk" else "gitflow";
+
+        # Branch-type set (#1432): DEVKIT_BRANCH_TYPES (comma-separated)
+        # replaces the issue-numbered alternation of the branch guard;
+        # absent/blank forwards null (= the stock set). Whitespace around
+        # entries is trimmed; validation (charset, non-empty) lives in
+        # mkProjectShell, which fails eval loudly on a bad value.
+        branchTypes =
+          let
+            raw = vigOsValue "DEVKIT_BRANCH_TYPES";
+            entries = builtins.filter (t: t != "") (
+              map (t: nixpkgs.lib.trim t) (nixpkgs.lib.splitString "," raw)
+            );
+          in
+          if entries == [ ] then null else entries;
       in
       {
         # The dev shell = the shared vigOS toolchain + your extras.
@@ -108,6 +124,10 @@
           // nixpkgs.lib.optionalAttrs (builtins.functionArgs vigos.lib.mkProjectShell ? workflow) {
             # Branch guard follows the workspace workflow model (#1224).
             inherit workflow;
+          }
+          // nixpkgs.lib.optionalAttrs (builtins.functionArgs vigos.lib.mkProjectShell ? branchTypes) {
+            # Branch guard follows the workspace branch-type set (#1432).
+            inherit branchTypes;
           }
         );
 
