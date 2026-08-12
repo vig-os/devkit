@@ -107,6 +107,24 @@
   # Extra args for the clippy check. `--deny warnings` is already applied.
   clippyExtraArgs ? "--all-targets",
   fmt ? true,
+  # `cargo test --doc`. nextest cannot run doctests (its process-per-test model
+  # has nowhere to put them) and the `doc` check only lints rustdoc, so without
+  # this nothing executes them — and a consumer whose doctests ran under
+  # `cargo test` loses them on adoption, silently. #1400's stage table assigns
+  # both to pre-push for exactly that reason.
+  doctest ? true,
+
+  # ---- cargo invocation ----------------------------------------------------
+  # Appended to the cargo command line of EVERY derivation: the dependency
+  # build, the checks and the packages. This is where features live —
+  # `--all-features`, `--features a,b`, `--no-default-features`.
+  #
+  # It matters that this is one argument reaching all of them rather than a
+  # per-check knob. A default-features build means the gated code is never
+  # compiled, so clippy never sees it and its tests never run, and the suite
+  # reports success over the gap. `clippyExtraArgs` covers clippy alone and is
+  # deliberately left as-is: it carries lint flags, not feature selection.
+  cargoExtraArgs ? "",
 
   # ---- performance ratchet -------------------------------------------------
   # Defaults on when the baseline file exists, off otherwise — same rule as
@@ -137,6 +155,71 @@
 let
   inherit (pkgs) lib;
   system = pkgs.stdenv.hostPlatform.system;
+
+  # ---------------------------------------------------------------------------
+  # Consumer guards (#1450)
+  #
+  # Both replace a failure that was opaque, partial, or both. They follow the
+  # toolchainHash error's shape deliberately: say what happened, say why there
+  # is no default that could be right, and give the exact line to add.
+  # ---------------------------------------------------------------------------
+
+  # mkProjectShell pulls nix/devtools.nix, which references `vig-utils` — a
+  # package only devkit's overlay provides. Without it the shell died on
+  # `undefined variable 'vig-utils'`: an error inside devkit, naming something
+  # the consumer has never seen, from a file they did not open.
+  #
+  # Checked lazily, on the dev shell alone. `checks` and `packages` never touch
+  # mkProjectShell and are perfectly usable against a plain nixpkgs, so an
+  # eager throw would break a working configuration to improve a message.
+  overlayError = ''
+    mkRustProject: the `pkgs` you passed does not carry devkit's overlay.
+
+    The dev shell is built by mkProjectShell, whose toolchain list
+    (nix/devtools.nix) resolves `vig-utils` and the fast-movers from
+    `devkit.overlays.default`. Without the overlay this fails deep inside
+    devkit on a name that means nothing at your call site.
+
+    Build your pkgs with it:
+
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ devkit.overlays.default ];
+        };
+
+    Note that `checks` and `packages` do NOT need the overlay — they never go
+    through mkProjectShell. That asymmetry is why this is a thrown error and
+    not a note in the docs: without it, a repo can have a green
+    `nix flake check` and a dev shell that has never once evaluated.
+  '';
+
+  hasOverlay = pkgs ? vig-utils;
+
+  # A flake's `src` is the git tree, so a repo that gitignores its lockfile
+  # hands crane a source without one. crane's own message is good, but it is
+  # only reachable from the derivations that vendor — `cargoFmt` takes `src`
+  # alone and passed regardless, which made a total failure look partial.
+  lockError = ''
+    mkRustProject: no Cargo.lock at
+
+        ${toString src}
+
+    Every check here builds from the FLAKE's source, which is your git tree —
+    so a lockfile that is untracked or gitignored does not exist as far as the
+    build is concerned, however plainly it sits in your working directory.
+
+    Library crates hit this most: not committing Cargo.lock was the convention
+    for years, and `cargo new --lib` wrote that .gitignore for you. Current
+    Cargo guidance is to commit it for libraries too, and a pinned build needs
+    it regardless, so the fix is:
+
+        git add Cargo.lock        # remove it from .gitignore first
+
+    Staging alone (`git add -N`) is enough for Nix to see it, but a lockfile
+    that is never committed makes the build reproducible only on your machine.
+  '';
+
+  hasLock = builtins.pathExists (src + "/Cargo.lock");
 
   # ---------------------------------------------------------------------------
   # Toolchain resolution
@@ -226,14 +309,21 @@ let
 
   toSrcPath = f: if builtins.isPath f then f else src + "/${f}";
 
-  cleanSrc = lib.fileset.toSource {
-    root = src;
-    fileset = lib.fileset.unions (
-      [ (craneLib.fileset.commonCargoSources src) ]
-      ++ map (f: lib.fileset.maybeMissing (src + "/${f}")) wellKnownConfigFiles
-      ++ map (f: lib.fileset.maybeMissing (toSrcPath f)) extraSrcFiles
-    );
-  };
+  # The lock guard sits here rather than on the derivations that vendor, so
+  # that `fmt` — which consumes only this — fails with the rest instead of
+  # passing alone (#1450).
+  cleanSrc =
+    if !hasLock then
+      throw lockError
+    else
+      lib.fileset.toSource {
+        root = src;
+        fileset = lib.fileset.unions (
+          [ (craneLib.fileset.commonCargoSources src) ]
+          ++ map (f: lib.fileset.maybeMissing (src + "/${f}")) wellKnownConfigFiles
+          ++ map (f: lib.fileset.maybeMissing (toSrcPath f)) extraSrcFiles
+        );
+      };
 
   denyEnabled = if deny != null then deny else builtins.pathExists (src + "/deny.toml");
 
@@ -254,6 +344,10 @@ let
     # Cargo.toml policy). Stripping twice is wasted work, not extra safety.
     dontStrip = true;
   }
+  // lib.optionalAttrs (cargoExtraArgs != "") { inherit cargoExtraArgs; }
+  # Still last, so an escape-hatch override beats everything above it. Note
+  # that it is a raw commonArgs merge, not an env-var attrset — the name is
+  # historical.
   // buildEnv;
 
   cargoArtifacts = craneLib.buildDepsOnly commonArgs;
@@ -273,7 +367,13 @@ let
       // {
         inherit cargoArtifacts;
         pname = name;
-        cargoExtraArgs = "-p ${name}";
+        # Composed, not assigned: `cargoExtraArgs` is also where a consumer's
+        # feature selection lives, and overwriting it here would silently give
+        # a workspace's per-crate builds a different feature set from every
+        # check that ran against them (#1450).
+        cargoExtraArgs = lib.concatStringsSep " " (
+          lib.optional (cargoExtraArgs != "") cargoExtraArgs ++ [ "-p ${name}" ]
+        );
       }
       // lib.optionalAttrs auditable {
         nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ pkgs.cargo-auditable ];
@@ -351,6 +451,19 @@ let
           inherit cargoArtifacts;
           partitions = 1;
           partitionType = "count";
+        }
+      );
+    }
+    // lib.optionalAttrs doctest {
+      # nextest cannot run doctests — its process-per-test model has nowhere
+      # to put them — and `doc` below only lints rustdoc. Without this the
+      # suite looks complete while executing none of the examples in the
+      # public API docs, which for a library is often the only place a usage
+      # path is exercised end to end.
+      doctest = craneLib.cargoDocTest (
+        commonArgs
+        // {
+          inherit cargoArtifacts;
         }
       );
     }
@@ -541,19 +654,23 @@ let
     inherit tools linker;
   };
 
-  devShell = mkProjectShell (
-    {
-      inherit
-        pkgs
-        extraPackages
-        hooks
-        hooksExcludes
-        workflow
-        ;
-      modules = [ rustModuleEntry ] ++ modules;
-    }
-    // lib.optionalAttrs (shellHook != null) { inherit shellHook; }
-  );
+  devShell =
+    if !hasOverlay then
+      throw overlayError
+    else
+      mkProjectShell (
+        {
+          inherit
+            pkgs
+            extraPackages
+            hooks
+            hooksExcludes
+            workflow
+            ;
+          modules = [ rustModuleEntry ] ++ modules;
+        }
+        // lib.optionalAttrs (shellHook != null) { inherit shellHook; }
+      );
 
   # mkProjectShell owns the shell derivation, so extra env is applied here
   # rather than threaded through it — one override, no new argument on a
