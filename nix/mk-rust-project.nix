@@ -248,10 +248,18 @@ let
 
   cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
+  # crane's buildPackage runs `cargo test` as part of the build. With the
+  # nextest check enabled that is the same suite twice, on two derivations,
+  # for one signal — so the package builds compile only and the test run lives
+  # in `checks.nextest`, which is also what CI invokes. Without nextest the
+  # build keeps its tests, because otherwise nothing would run them.
+  packageDefaults = lib.optionalAttrs nextest { doCheck = false; };
+
   buildCrate =
     name:
     craneLib.buildPackage (
       commonArgs
+      // packageDefaults
       // {
         inherit cargoArtifacts;
         pname = name;
@@ -266,6 +274,7 @@ let
 
   workspacePackage = craneLib.buildPackage (
     commonArgs
+    // packageDefaults
     // {
       inherit cargoArtifacts;
     }
