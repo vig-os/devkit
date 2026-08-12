@@ -44,7 +44,7 @@ precommit:
 
 # Diagnostics only — always exits 0 (#1418; replaces the deleted
 # TestHostGitSignatureSetup skip-on-failure tests).
-# Diagnose host prerequisites: git identity, commit signing, ssh-agent, gh auth
+# Diagnose host prerequisites: git identity, signing, hooks path, ssh-agent, gh auth
 [group('info')]
 doctor:
     #!/usr/bin/env bash
@@ -74,6 +74,19 @@ doctor:
         echo "PASS commit signing: $format key $signingkey"
     else
         echo "WARN commit signing: incomplete (commit.gpgsign=$gpgsign, gpg.format=$format, user.signingkey=$signingkey)"
+    fi
+
+    # .githooks is tracked, so a fresh clone has the shims on disk — but git
+    # ignores them until core.hooksPath points there, and only scripts/init.sh
+    # (or devcontainer / dev-shell entry) sets it. Until then every commit-side
+    # gate is present, believed active, and inert. Refs #1430.
+    hookspath="$(git config core.hooksPath || true)"
+    if [ "$hookspath" = ".githooks" ]; then
+        echo "PASS git hooks: core.hooksPath -> .githooks"
+    elif [ -z "$hookspath" ]; then
+        echo "WARN git hooks: core.hooksPath not set, .githooks is tracked but inert (run: ./scripts/init.sh)"
+    else
+        echo "WARN git hooks: core.hooksPath=$hookspath, expected .githooks (run: ./scripts/init.sh)"
     fi
 
     if [ -n "${SSH_AUTH_SOCK:-}" ] && ssh-add -l >/dev/null 2>&1; then

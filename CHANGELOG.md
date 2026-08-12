@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`just doctor` reports whether the git hooks are actually wired** ([#1430](https://github.com/vig-os/devkit/issues/1430))
+  - New `core.hooksPath` diagnostic: `PASS` when it points at `.githooks`,
+    `WARN` otherwise, distinguishing "not set" (a fresh clone, where the
+    tracked `.githooks/` shims are on disk but inert) from "set to something
+    else", both with a `./scripts/init.sh` remediation hint
+  - Closes the last gap in #1430: an un-initialised clone now has a local
+    signal it can read before its first commit lands, complementing the CI
+    branch-name and `Refs:` gates that hold regardless of local git config
+  - `doctor` remains diagnostics-only and still always exits 0
 - **Branch-types knob (`DEVKIT_BRANCH_TYPES`) + CI branch-name gate** ([#1432](https://github.com/vig-os/devkit/issues/1432))
   - New `.vig-os` key: a comma-separated full replacement of the
     issue-numbered `<type>/<issue>-<summary>` branch-type set, rendered into

@@ -60,6 +60,43 @@ _run_doctor() {
     assert_output --partial "PASS gh auth"
 }
 
+# Make DOCTOR_WORK a real repository so `git config core.hooksPath` resolves
+# against a known local config and can never walk up into the host's checkout
+# (the run already pins GIT_CONFIG_GLOBAL/SYSTEM, so global state cannot leak
+# either). This is the shape of the case #1430 reports: a fresh clone that has
+# .githooks on disk but no core.hooksPath pointing at it.
+_init_clone() {
+    git -c init.defaultBranch=main init -q "$DOCTOR_WORK"
+}
+
+@test "doctor warns when core.hooksPath is unset in a fresh clone" {
+    _init_clone
+    _run_doctor
+    assert_success
+    assert_output --partial "WARN git hooks"
+    assert_output --partial "core.hooksPath not set"
+    assert_output --partial "scripts/init.sh"
+}
+
+@test "doctor reports PASS when core.hooksPath points at .githooks" {
+    _init_clone
+    git -C "$DOCTOR_WORK" config core.hooksPath .githooks
+    _run_doctor
+    assert_success
+    assert_output --partial "PASS git hooks"
+    refute_output --partial "WARN git hooks"
+}
+
+@test "doctor warns and names the value when core.hooksPath points elsewhere" {
+    _init_clone
+    git -C "$DOCTOR_WORK" config core.hooksPath .git/hooks
+    _run_doctor
+    assert_success
+    assert_output --partial "WARN git hooks"
+    assert_output --partial "core.hooksPath=.git/hooks"
+    assert_output --partial "scripts/init.sh"
+}
+
 @test "doctor warns when the signing key path does not exist" {
     git config --file "$GIT_GLOBAL" commit.gpgsign true
     git config --file "$GIT_GLOBAL" gpg.format ssh
