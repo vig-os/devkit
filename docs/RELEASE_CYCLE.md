@@ -479,7 +479,7 @@ Release Summary:
 
 - **Earlier validation**: All checks happen at the start in CI
 - **Safer workflow**: Tag is created AFTER successful build/test, not before
-- **Automatic rollback**: Failed releases roll back the release branch; tags are not deleted (forward-fix policy, independent of whether GitHub immutability applies)—recover with a new RC or a careful final retry per docs above
+- **Automatic rollback**: Failed releases revert only the finalize commit(s) the run wrote (refusing when the branch moved mid-run, #1462); tags are not deleted (forward-fix policy, independent of whether GitHub immutability applies)—recover with a new RC or a careful final retry per docs above
 - **Audit trail**: All steps are recorded in GitHub Actions logs with actor information
 - **Reproducible**: Uses consistent CI environment, not dependent on local tooling
 
@@ -774,7 +774,7 @@ gh workflow run release.yml \
 **Key characteristics:**
 - Tag created AFTER successful build/test (safer than before)
 - Final GitHub Release is a **draft** until a human publishes it from the UI
-- Automatic rollback resets the release branch only; tags are not deleted (forward-fix policy)
+- Automatic rollback reverts only the run's own finalize commit(s) on the release branch (no-op when finalize never ran; refuses if the branch moved mid-run, #1462); tags are not deleted (forward-fix policy)
 - All in one workflow for atomic operation
 - Audit trail in GitHub Actions logs
 - Dispatch is pinned to `release/X.Y.Z` so candidate/final runs use the release branch workflow definition
@@ -1039,7 +1039,8 @@ gh issue list --label release
 
 # 3. Examine what was rolled back (issue will document this)
 # The workflow automatically:
-#   - Reset release branch to pre-finalization state (best-effort)
+#   - Reverted this run's finalize commit(s) only — no-op when finalize never
+#     ran; refuses (loud step failure) if the branch moved during the run (#1462)
 #   - Left any pushed tags in place (forward-fix policy)
 #   - Created this issue for investigation
 

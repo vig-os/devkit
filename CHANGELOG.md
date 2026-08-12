@@ -189,6 +189,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Release rollback no longer resets the branch to a stale run-start snapshot** ([#1462](https://github.com/vig-os/devkit/issues/1462))
+  - The `release.yml` rollback job rebuilt the branch tree at `PRE_SHA`
+    (captured when `validate` started) whenever a failed run's tip had moved,
+    silently destroying commits merged mid-run — twice on `release/1.8.0`
+    ([#1459](https://github.com/vig-os/devkit/issues/1459) /
+    [#1460](https://github.com/vig-os/devkit/issues/1460)), both times with
+    `finalize` skipped and nothing to roll back
+  - The rollback now no-ops when `finalize` never ran (and on candidates,
+    which are branch-neutral), and otherwise refuses loudly unless the tip is
+    exactly the commit(s) this run wrote — the finalize commit, optionally
+    with the sync-issues commit on top, parented on the snapshot — which
+    `finalize` now exports as job outputs; only then is the tree revert
+    performed, making it equivalent to reverting the run's own commits
+  - The scaffolded consumer `release.yml` rollback carried the same exposure
+    as a `git reset --hard` + force push; it now runs the identical guarded
+    Git Data API revert (no history rewrite, no release-branch checkout), and
+    `release-core.yml` exposes `finalize_result` / `finalize_commit_sha` to
+    the caller. The devkit PR-body restore step likewise skips when
+    `finalize` never rewrote the PR body
 - **`just worktree-start` no longer unsets `core.hooksPath` repo-wide** ([#1463](https://github.com/vig-os/devkit/issues/1463))
   - `core.hooksPath` is shared repo config, so unsetting it from inside the
     new linked worktree silently disarmed the main checkout's tracked
