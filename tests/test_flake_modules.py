@@ -730,3 +730,173 @@ def test_rust_module_rejects_unknown_tool_group() -> None:
     assert "unknown tool group" in result.stderr and "@perf" in result.stderr, (
         f"error must name the group and list the available ones; got: {result.stderr[-500:]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# mkRustProject consumer guards (#1450) — found by adopting the pack on a
+# second consumer (gerchowl/squelch: single-crate, no binaries, heavily
+# feature-gated). The two guards below turn failures that were opaque or
+# partial into ones that name the fix; the two coverage tests pin behaviour
+# the pack promised in #1400 but did not ship.
+#
+# These need project shape, which is why the older mkRustProject coverage
+# stops at a schema smoke test. A dependency-free crate keeps the lockfile a
+# literal, so the whole set runs at EVAL time — no vendoring, no network, no
+# compile.
+# ---------------------------------------------------------------------------
+
+
+def _minimal_crate(root: Path, *, with_lock: bool = True) -> Path:
+    """Write the smallest crate crane will accept, and return its path."""
+    (root / "src").mkdir(parents=True, exist_ok=True)
+    (root / "Cargo.toml").write_text(
+        '[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n'
+    )
+    (root / "src" / "lib.rs").write_text("pub fn answer() -> u8 { 42 }\n")
+    if with_lock:
+        (root / "Cargo.lock").write_text(
+            'version = 3\n\n[[package]]\nname = "fixture"\nversion = "0.0.0"\n'
+        )
+    return root
+
+
+def _mk_rust_project_expr(
+    src: Path, attr: str, *, overlay: bool = True, extra: str = ""
+) -> str:
+    """An expression selecting ``attr`` off a ``mkRustProject`` call on ``src``."""
+    overlays = "[ flake.overlays.default ]" if overlay else "[ ]"
+    return f"""
+    let
+      flake = builtins.getFlake "path:{REPO_ROOT}";
+      system = builtins.currentSystem;
+      pkgs = import flake.inputs.nixpkgs {{
+        inherit system;
+        overlays = {overlays};
+        config.allowUnfree = true;
+      }};
+      rust = flake.lib.mkRustProject {{
+        inherit pkgs;
+        src = {src};
+        {extra}
+      }};
+    in {attr}
+    """
+
+
+def test_mk_rust_project_refuses_pkgs_without_the_devkit_overlay(
+    tmp_path: Path,
+) -> None:
+    """A ``pkgs`` lacking ``overlays.default`` is named as such, not as ``vig-utils``.
+
+    ``mkProjectShell`` pulls ``nix/devtools.nix``, which references
+    ``vig-utils`` — a package only the overlay provides. Without the overlay
+    the dev shell died with ``undefined variable 'vig-utils'``, pointing inside
+    devkit at a name the consumer has never seen.
+
+    The reason this is a guard rather than a docs fix: ``checks`` and
+    ``packages`` never touch ``mkProjectShell``, so they evaluate fine without
+    the overlay. The unguarded result is a repo whose ``nix flake check`` is
+    green and whose ``nix develop`` is broken — the silent split the pack
+    exists to close, one layer up.
+    """
+    src = _minimal_crate(tmp_path)
+    result = _nix_eval_expr(
+        _mk_rust_project_expr(src, "rust.devShell.drvPath", overlay=False)
+    )
+    assert result.returncode != 0, (
+        "a pkgs without devkit's overlay must fail eval, not produce a shell"
+    )
+    assert "overlays.default" in result.stderr, (
+        "the error must name the overlay the consumer has to add; "
+        f"got: {result.stderr[-800:]}"
+    )
+    assert "undefined variable" not in result.stderr, (
+        "the raw nixpkgs error must be replaced, not merely preceded; "
+        f"got: {result.stderr[-800:]}"
+    )
+
+
+def test_mk_rust_project_names_a_missing_cargo_lock(tmp_path: Path) -> None:
+    """A source tree with no ``Cargo.lock`` fails with the library case spelled out.
+
+    A flake's ``src`` is the git tree, so a repo that gitignores its lockfile —
+    the long-standing library convention — hands crane a source without one.
+    crane's own message is good but reachable only from the derivations that
+    vendor: ``fmt`` takes ``src`` alone and passed regardless, so a consumer
+    who built one check first saw green.
+
+    Asserted through ``fmt`` for exactly that reason.
+    """
+    src = _minimal_crate(tmp_path, with_lock=False)
+    result = _nix_eval_expr(_mk_rust_project_expr(src, "rust.checks.fmt.drvPath"))
+    assert result.returncode != 0, (
+        "fmt must not evaluate against a lockless tree — it passing is what "
+        "made the missing lockfile look like a partial success"
+    )
+    assert "Cargo.lock" in result.stderr, (
+        f"the error must name Cargo.lock; got: {result.stderr[-800:]}"
+    )
+
+
+def test_mk_rust_project_ships_a_doctest_check(tmp_path: Path) -> None:
+    """``checks.doctest`` exists (#1400's stage table, unshipped in #1429).
+
+    #1400 assigns pre-push ``nextest`` **and** ``cargo test --doc``. nextest
+    cannot run doctests by design, and ``cargoDoc`` only lints rustdoc, so a
+    consumer whose doctests ran under ``cargo test`` lost them on adoption
+    without being told.
+    """
+    src = _minimal_crate(tmp_path)
+    result = subprocess.run(
+        [
+            "nix",
+            "eval",
+            "--impure",
+            "--json",
+            "--expr",
+            _mk_rust_project_expr(src, "builtins.attrNames rust.checks"),
+        ],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stderr[-1500:]
+    names = json.loads(result.stdout)
+    assert "doctest" in names, (
+        f"the default check suite must run doctests; got {names!r}"
+    )
+
+
+def test_mk_rust_project_threads_cargo_extra_args(tmp_path: Path) -> None:
+    """``cargoExtraArgs`` reaches every derivation through ``commonArgs``.
+
+    The checks built default features only, and nothing reached
+    ``buildDepsOnly`` / ``nextest`` / ``doc`` / the package builds —
+    ``clippyExtraArgs`` covers clippy alone. A feature-gated crate therefore
+    got less linting from the pack than from a bare ``cargo clippy
+    --all-features``, because the gated code was never compiled.
+    """
+    src = _minimal_crate(tmp_path)
+    result = subprocess.run(
+        [
+            "nix",
+            "eval",
+            "--impure",
+            "--raw",
+            "--expr",
+            _mk_rust_project_expr(
+                src,
+                "rust.commonArgs.cargoExtraArgs",
+                extra='cargoExtraArgs = "--all-features";',
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stderr[-1500:]
+    assert "--all-features" in result.stdout, (
+        f"cargoExtraArgs must land in commonArgs; got {result.stdout!r}"
+    )
