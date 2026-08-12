@@ -63,20 +63,20 @@ doctor:
     # neither does an ad-hoc checkout — so the direct git command is always the
     # primary fix and the mode entry point is named on top of it. Refs #1448.
     mode="$(sed -n 's/^DEVKIT_MODE=//p' "{{ justfile_directory() }}/.vig-os" 2>/dev/null | head -n1 | tr -d '[:space:]')"
-    hint="run: git config core.hooksPath .githooks"
+    hint="(run: git config core.hooksPath .githooks)"
     case "$mode" in
-        devcontainer) hint="$hint (normally set by the devcontainer setup; reopen the container)" ;;
-        direnv)       hint="$hint (normally set on dev-shell entry; run: direnv allow)" ;;
-        both)         hint="$hint (normally set by the devcontainer setup, or on dev-shell entry: direnv allow)" ;;
+        devcontainer) hint="$hint; normally set by the devcontainer setup: reopen the container" ;;
+        direnv)       hint="$hint; normally set on dev-shell entry: run direnv allow" ;;
+        both)         hint="$hint; normally set by the devcontainer setup (reopen the container) or on dev-shell entry (direnv allow)" ;;
     esac
 
     hookspath="$(git config core.hooksPath || true)"
     if [ "$hookspath" = ".githooks" ]; then
         echo "PASS git hooks: core.hooksPath -> .githooks"
     elif [ -z "$hookspath" ]; then
-        echo "WARN git hooks: core.hooksPath not set, .githooks is tracked but inert ($hint)"
+        echo "WARN git hooks: core.hooksPath not set, .githooks is tracked but inert $hint"
     else
-        echo "WARN git hooks: core.hooksPath=$hookspath, expected .githooks ($hint)"
+        echo "WARN git hooks: core.hooksPath=$hookspath, expected .githooks $hint"
     fi
 
     if [ -n "${SSH_AUTH_SOCK:-}" ] && ssh-add -l >/dev/null 2>&1; then
