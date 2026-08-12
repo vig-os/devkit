@@ -31,6 +31,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -773,6 +774,107 @@ class TestCommitMsgHooksConsumerSurface:
             "validate-commit-msg"
         ]
         assert consumer["args"] == scaffold["args"] == STOCK_VALIDATE_ARGS
+
+
+@functools.cache
+def _vig_utils_console_scripts() -> frozenset[str]:
+    """Console scripts vig-utils installs.
+
+    Read from ``packages/vig-utils/pyproject.toml`` rather than hardcoded, so
+    the class-wide guard below covers every current *and* future script
+    without a second list to keep in sync.
+    """
+    data = tomllib.loads(
+        (REPO_ROOT / "packages" / "vig-utils" / "pyproject.toml").read_text()
+    )
+    return frozenset(data["project"]["scripts"])
+
+
+class TestCheckExpirationsConsumerSurface:
+    """``check-expirations`` resolves the pinned vig-utils too (#1447).
+
+    It was the last vig-utils hook whose consumer fragment shelled out to
+    ``uv run``, i.e. to the *consumer's* project venv — which carries no
+    vig-utils, and which many consumers do not have at all (no
+    ``pyproject.toml``). Same defect and same fix as the three hooks of #1434.
+    """
+
+    def test_entry_resolves_the_pinned_vig_utils(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """Store-path entry, so the hook follows the consumer's devkit pin."""
+        entry = _normalize(consumer_config)["hooks"]["check-expirations"]["entry"]
+        argv = shlex.split(entry)
+        assert argv[0].startswith("/nix/store/"), (
+            f"check-expirations entry is not a store path: {entry!r}"
+        )
+        assert argv[0].endswith("/bin/check-expirations"), entry
+
+    def test_scope_and_argv_match_the_scaffolded_render(
+        self, consumer_config: dict[str, Any], rendered_portable: dict[str, Any]
+    ) -> None:
+        """Only the resolution changes: the hook still guards the same files.
+
+        A docker-mode consumer (scaffolded YAML) and a direnv consumer
+        (flake-generated) must enforce the same expiries over the same paths.
+        """
+        consumer = _normalize(consumer_config)["hooks"]["check-expirations"]
+        scaffold = _normalize(rendered_portable["scaffold"])["hooks"][
+            "check-expirations"
+        ]
+        scaffold_argv = shlex.split(scaffold["entry"])
+        assert scaffold_argv[:3] == ["uv", "run", "check-expirations"]
+        assert shlex.split(consumer["entry"])[1:] == [".trivyignore", ".vulnixignore"]
+        assert scaffold_argv[3:] == shlex.split(consumer["entry"])[1:]
+        assert consumer["files"] == scaffold["files"]
+        assert consumer["language"] == "system"
+        assert consumer["pass_filenames"] is False
+
+    def test_portable_render_keeps_the_uv_run_entry(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """The committed YAMLs stay PATH-portable — no store-path churn.
+
+        Only the *consumer* (flake-generated) fragment resolves a store path;
+        the runner and scaffold renders are committed artifacts pinned by the
+        drift gate, so they keep the ``uv run`` form (docs/NIX.md).
+        """
+        for render in ("runner", "scaffold"):
+            entry = _normalize(rendered_portable[render])["hooks"]["check-expirations"][
+                "entry"
+            ]
+            assert entry.startswith("uv run check-expirations "), (render, entry)
+
+
+class TestNoConsumerHookResolvesVigUtilsThroughTheVenv:
+    """Class-wide guard for the #1434/#1447 defect, on every consumer shell.
+
+    A ``uv run <vig-utils script>`` entry on the consumer surface resolves
+    against the *consumer's* project venv, which devkit neither controls nor
+    can assume exists. Every consumer fragment that names a vig-utils console
+    script must resolve a ``nix/vig-utils.nix`` store path instead. Pinning
+    the class — rather than one hook at a time — is what keeps the next hook
+    added to ``nix/hooks.nix`` from reintroducing it.
+    """
+
+    def test_every_vig_utils_entry_is_a_store_path(self) -> None:
+        scripts = _vig_utils_console_scripts()
+        offenders: list[str] = []
+        for shell, config in _consumer_config_set().items():
+            for hook_id, hook in _normalize(config)["hooks"].items():
+                argv = shlex.split(hook.get("entry") or "")
+                if not argv:
+                    continue
+                names = {Path(argv[0]).name, *(argv[1:3] if argv[0] == "uv" else [])}
+                if not names & scripts:
+                    continue
+                if not argv[0].startswith("/nix/store/"):
+                    offenders.append(f"{shell}:{hook_id}: {hook['entry']!r}")
+        assert not offenders, (
+            "consumer hook entries resolve vig-utils through the project venv "
+            "instead of the pinned store path (#1434, #1447):\n  "
+            + "\n  ".join(offenders)
+        )
 
 
 @pytest.fixture(scope="module")
