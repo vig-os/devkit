@@ -63,6 +63,17 @@ _run_doctor() {
         just --justfile "$WS/justfile" --working-directory "$WS" doctor
 }
 
+# Same, but from another checkout of the same repo ($1) — the shipped justfile
+# is tracked, so a linked worktree carries its own copy exactly as a consumer
+# would run it there.
+_run_doctor_at() {
+    local wd="$1"
+    shift
+    run env -u SSH_AUTH_SOCK PATH="$STUBS:$PATH" \
+        GIT_CONFIG_GLOBAL="$GIT_GLOBAL" GIT_CONFIG_SYSTEM=/dev/null "$@" \
+        just --justfile "$wd/justfile" --working-directory "$wd" doctor
+}
+
 # ── layering: the recipe must ship in the MANAGED layer ───────────────────────
 
 @test "doctor ships in the managed root justfile, not the preserved justfile.project" {
@@ -208,6 +219,73 @@ _run_doctor() {
         assert_success
         refute_output --partial "scripts/init.sh"
     done
+}
+
+# ── linked worktrees: unset core.hooksPath is the INTENDED state (#1454) ──────
+# The scaffolded `just worktree-start` (.devcontainer/justfile.worktree)
+# deliberately unsets core.hooksPath in the worktree — prek refuses to install
+# its shims while it is set — and installs them instead. `hooks` is one of git's
+# shared (common-dir) paths, so those shims land in the COMMON git dir and git
+# runs them from inside the linked worktree: the gates are LIVE. The fresh-clone
+# "tracked but inert" WARN is a lie there, and its remediation would undo the
+# worktree setup. A linked worktree with NO installed shim is genuinely inert
+# and must stay a WARN.
+
+# Fixture git with a pinned identity and no signing, so host global/system
+# config can never make the fixture commit fail.
+_git_fixture() {
+    env GIT_CONFIG_GLOBAL="$GIT_GLOBAL" GIT_CONFIG_SYSTEM=/dev/null \
+        git -c user.name=Fixture -c user.email=fixture@example.com \
+            -c commit.gpgsign=false "$@"
+}
+
+# Scaffold the fixture in mode $1, commit it (so the linked checkout carries the
+# justfile, .githooks and .vig-os a consumer really has there), and add a linked
+# worktree. $2 = "hooks" installs an executable pre-commit shim where git looks
+# with core.hooksPath unset — the common git dir, where `prek install` lands
+# from inside a linked worktree. Echoes the worktree path.
+_scaffold_linked_worktree() {
+    _scaffold_repo "$1"
+    _git_fixture -C "$WS" add -A
+    _git_fixture -C "$WS" commit -q -m "fixture"
+    if [ "${2:-}" = "hooks" ]; then
+        printf '#!/usr/bin/env bash\nexit 0\n' >"$WS/.git/hooks/pre-commit"
+        chmod +x "$WS/.git/hooks/pre-commit"
+    fi
+    _git_fixture -C "$WS" worktree add -q "$BATS_TEST_TMPDIR/linked" -b fixture/wt
+    echo "$BATS_TEST_TMPDIR/linked"
+}
+
+@test "consumer doctor reports PASS in a linked worktree with hooks installed" {
+    local linked
+    linked="$(_scaffold_linked_worktree direnv hooks)"
+    _run_doctor_at "$linked"
+    assert_success
+    assert_output --partial "PASS git hooks"
+    assert_output --partial "linked worktree"
+    refute_output --partial "WARN git hooks"
+    refute_output --partial "scripts/init.sh"
+}
+
+@test "consumer doctor warns in a linked worktree with no hooks installed" {
+    local linked
+    linked="$(_scaffold_linked_worktree direnv)"
+    _run_doctor_at "$linked"
+    assert_success
+    assert_output --partial "WARN git hooks"
+    assert_output --partial "core.hooksPath not set"
+    assert_output --partial "run: git config core.hooksPath .githooks"
+    refute_output --partial "scripts/init.sh"
+}
+
+@test "consumer doctor reports PASS in a linked worktree that still has core.hooksPath" {
+    local linked
+    linked="$(_scaffold_linked_worktree direnv)"
+    git -C "$linked" config core.hooksPath .githooks
+    _run_doctor_at "$linked"
+    assert_success
+    assert_output --partial "PASS git hooks"
+    refute_output --partial "WARN git hooks"
 }
 
 # ── drift guard between the two doctor implementations ────────────────────────

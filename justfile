@@ -80,9 +80,25 @@ doctor:
     # ignores them until core.hooksPath points there, and only scripts/init.sh
     # (or devcontainer / dev-shell entry) sets it. Until then every commit-side
     # gate is present, believed active, and inert. Refs #1430.
+    #
+    # A linked worktree is the one place where unset is the INTENDED state
+    # (#1454): `just worktree-start` unsets core.hooksPath there on purpose
+    # (prek refuses to install its shims while it is set) and installs the shims
+    # instead. `hooks` is one of git's shared paths, so they land in the common
+    # git dir and git runs them from inside the worktree — the gates are live,
+    # and the fresh-clone remediation would undo the setup. Claim that only when
+    # a shim is really installed and executable: a worktree without one is inert
+    # exactly like any other unset case. `--git-path hooks/pre-commit` resolves
+    # to the file git itself would run (`.git` is a FILE in a linked worktree,
+    # so a literal `.git/hooks/...` test could never see it).
     hookspath="$(git config core.hooksPath || true)"
+    gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null || true)"
+    commondir="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+    installed="$(git rev-parse --git-path hooks/pre-commit 2>/dev/null || true)"
     if [ "$hookspath" = ".githooks" ]; then
         echo "PASS git hooks: core.hooksPath -> .githooks"
+    elif [ -z "$hookspath" ] && [ -n "$gitdir" ] && [ "$gitdir" != "$commondir" ] && [ -x "$installed" ]; then
+        echo "PASS git hooks: linked worktree, installed at $installed (core.hooksPath unset by design)"
     elif [ -z "$hookspath" ]; then
         echo "WARN git hooks: core.hooksPath not set, .githooks is tracked but inert (run: ./scripts/init.sh)"
     else

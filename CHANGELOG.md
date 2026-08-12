@@ -189,6 +189,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`just doctor` no longer calls the git hooks inert inside a linked worktree** ([#1454](https://github.com/vig-os/devkit/issues/1454))
+  - `just worktree-start` unsets `core.hooksPath` in the worktree on purpose —
+    prek refuses to install its shims while it is set — and installs those
+    shims instead; `hooks` is one of git's shared paths, so they land in the
+    common git dir and git runs them from inside the worktree. Both `doctor`
+    recipes read that intended state as the fresh-clone failure and reported
+    `WARN git hooks: … tracked but inert`, whose remediation would have undone
+    the worktree setup
+  - A linked worktree with an installed, executable `hooks/pre-commit` now
+    reports `PASS git hooks: linked worktree, installed at <path>`. A linked
+    worktree with no installed shim is genuinely inert and still warns, as do
+    all the other unset and set-elsewhere cases
+  - Fixed in devkit's own `justfile` and the scaffolded
+    `assets/workspace/justfile` in the same change, keeping the two recipes in
+    step for the [#1448](https://github.com/vig-os/devkit/issues/1448) drift
+    guard
 - **`check-expirations` resolves from the devkit pin in generated consumer hooks** ([#1447](https://github.com/vig-os/devkit/issues/1447))
   - It was the last vig-utils hook whose flake-generated consumer fragment
     shelled out to `uv run`, i.e. to the *consumer's* project venv — which
