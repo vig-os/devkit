@@ -2129,13 +2129,25 @@ echo "Copying files from $TEMPLATE_DIR to $WORKSPACE_DIR..."
 # silently skips it. Content comparison is the only sound check here; the
 # template is small, so the cost is negligible.
 if [[ "$SMOKE_TEST" == "true" ]]; then
-    # Smoke mode: clean deploy (--delete removes stale files), then overlay
-    # smoke-test assets. /CHANGELOG.md is root-anchored (#953 semantics): the
-    # consumer's ROOT changelog is consumer state — its own frozen release
-    # history (## [X.Y.Z] - TBD) must survive re-deploys (#1403). The anchor
-    # keeps .devcontainer/CHANGELOG.md (devkit's manifest mirror) syncing, and
-    # the exclude also shields the root file from --delete.
-    rsync -avL --checksum --delete --exclude='.git' --exclude='.venv' --exclude='/CHANGELOG.md' --exclude='docs/issues/' --exclude='docs/pull-requests/' "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
+    # Smoke mode: overwrite the managed scaffold (no preserve excludes — every
+    # deploy is a fresh render), then overlay smoke-test assets.
+    #
+    # No --delete (#1466). It removed every tracked path the template does not
+    # ship, which is the consumer's own payload: the smoke repo's pyproject.toml,
+    # uv.lock, src/ and tests/. That was invisible while commit-action built the
+    # deploy tree additively; once #1443 began publishing `git ls-files --deleted`
+    # the 1.8.0-rc3 deploy committed those deletions and the smoke repo lost its
+    # Python project. Retirement is expressed by the #1348 manifest (pruned below,
+    # in this mode as in any other), not by a blanket delete — and the drift gate
+    # re-scaffolds in NORMAL mode, which never deletes, so gate and deploy now
+    # agree by construction. The docs/issues/ + docs/pull-requests/ excludes went
+    # with it: they existed only to shield sync-issues output from --delete.
+    #
+    # /CHANGELOG.md is root-anchored (#953 semantics): the consumer's ROOT
+    # changelog is consumer state — its own frozen release history
+    # (## [X.Y.Z] - TBD) must survive re-deploys (#1403). The anchor keeps
+    # .devcontainer/CHANGELOG.md (devkit's manifest mirror) syncing.
+    rsync -avL --checksum --exclude='.git' --exclude='.venv' --exclude='/CHANGELOG.md' "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
 
     SMOKE_TEST_DIR="$SCRIPT_DIR/smoke-test"
     if [[ -d "$SMOKE_TEST_DIR" ]]; then

@@ -19,10 +19,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-## [1.8.0] - TBD
+## [1.8.0](https://github.com/vig-os/devkit/releases/tag/1.8.0) - 2026-08-12
 
 ### Added
 
+- **`just doctor` now ships on the consumer surface** ([#1448](https://github.com/vig-os/devkit/issues/1448))
+  - The host preflight added in
+    [#1418](https://github.com/vig-os/devkit/issues/1418) /
+    [#1430](https://github.com/vig-os/devkit/issues/1430) existed only in
+    devkit's own justfile, so a scaffolded repo had none. The managed root
+    `justfile` now carries the same diagnostic — git identity, commit signing,
+    `core.hooksPath`, ssh-agent, `gh` auth — reported as `PASS`/`WARN` lines,
+    always exiting 0
+  - The `core.hooksPath` remediation hint is delivery-mode aware, read from
+    `.vig-os` `DEVKIT_MODE`: the universal
+    `git config core.hooksPath .githooks` in every mode, plus the entry point
+    that normally wires it (reopen the devcontainer, or `direnv allow` for the
+    dev-shell hook from [#1112](https://github.com/vig-os/devkit/issues/1112)).
+    `bare` and ad-hoc checkouts, where nothing wires it, get the direct command
+    only — never devkit's own `./scripts/init.sh`, which no consumer has
+  - Lives in the managed root `justfile`, the only justfile layer present in
+    every delivery mode, so upgrades deliver it; `justfile.project` is
+    preserved on upgrade and would never reach an existing consumer
 - **`just doctor` reports whether the git hooks are actually wired** ([#1430](https://github.com/vig-os/devkit/issues/1430))
   - New `core.hooksPath` diagnostic: `PASS` when it points at `.githooks`,
     `WARN` otherwise, distinguishing "not set" (a fresh clone, where the
@@ -161,6 +179,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Dead `git_user_name` / `git_user_email` plumbing dropped from the scaffolded release workflows** ([#1470](https://github.com/vig-os/devkit/issues/1470))
+  - The Git Data API rollback ([#1462](https://github.com/vig-os/devkit/issues/1462))
+    removed the last consumer of the git identity threaded through the release
+    train, so the `release.yml` dispatch inputs (`git-user-name` /
+    `git-user-email`), the `release-core.yml` `workflow_call` declarations, and
+    the `prepare-release.yml` dispatch inputs plus their forwarding into the
+    `prepare-release-extension.yml` hook contract are all gone
+  - Orchestrator and core ship together via the scaffold, so caller and callee
+    change in lockstep — no consumer action is needed beyond the normal
+    upgrade. Preserved consumer copies of `prepare-release-extension.yml` that
+    still declare the optional pair remain valid and simply fall back to their
+    own declared defaults
+
 - **`devc-upgrade` recipe removed from the scaffold** ([#1421](https://github.com/vig-os/devkit/issues/1421))
   - Upgrades are driven by the `devkit-upgrade` workflow's adoption PRs; the
     local recipe wrapped `install.sh --force` and steered users around the
@@ -171,6 +202,103 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Smoke deploys no longer delete consumer-owned files** ([#1466](https://github.com/vig-os/devkit/issues/1466))
+  - The smoke-mode scaffold copy ran `rsync --delete`, removing every tracked
+    path the template does not ship — the smoke repo's own `pyproject.toml`,
+    `uv.lock`, `src/` and `tests/` among them. Harmless while the deploy
+    commit was built additively; once
+    [#1443](https://github.com/vig-os/devkit/issues/1443) started publishing
+    the installer's deletions, the deploy committed them and the repo lost its
+    Python project, which in turn made the scaffold-drift gate re-render
+    CodeQL and `.gitignore` language-neutral and aborted the release gate
+  - Retiring a path is the
+    [#1348](https://github.com/vig-os/devkit/issues/1348) manifest's job, and
+    the drift gate re-scaffolds in normal mode, which never deletes — so smoke
+    mode now copies without `--delete` and the two modes agree by construction
+- **Release rollback no longer resets the branch to a stale run-start snapshot** ([#1462](https://github.com/vig-os/devkit/issues/1462))
+  - The `release.yml` rollback job rebuilt the branch tree at `PRE_SHA`
+    (captured when `validate` started) whenever a failed run's tip had moved,
+    silently destroying commits merged mid-run — twice on `release/1.8.0`
+    ([#1459](https://github.com/vig-os/devkit/issues/1459) /
+    [#1460](https://github.com/vig-os/devkit/issues/1460)), both times with
+    `finalize` skipped and nothing to roll back
+  - The rollback now no-ops when `finalize` never ran (and on candidates,
+    which are branch-neutral), and otherwise refuses loudly unless the tip is
+    exactly the commit(s) this run wrote — the finalize commit, optionally
+    with the sync-issues commit on top, parented on the snapshot — which
+    `finalize` now exports as job outputs; only then is the tree revert
+    performed, making it equivalent to reverting the run's own commits
+  - The scaffolded consumer `release.yml` rollback carried the same exposure
+    as a `git reset --hard` + force push; it now runs the identical guarded
+    Git Data API revert (no history rewrite, no release-branch checkout), and
+    `release-core.yml` exposes `finalize_result` / `finalize_commit_sha` to
+    the caller. The devkit PR-body restore step likewise skips when
+    `finalize` never rewrote the PR body
+- **`just worktree-start` no longer unsets `core.hooksPath` repo-wide** ([#1463](https://github.com/vig-os/devkit/issues/1463))
+  - `core.hooksPath` is shared repo config, so unsetting it from inside the
+    new linked worktree silently disarmed the main checkout's tracked
+    `.githooks` shims — the
+    [#1430](https://github.com/vig-os/devkit/issues/1430) failure mode,
+    self-inflicted by a primary devkit workflow
+  - A relative `core.hooksPath` resolves against each worktree's root and
+    `.githooks` is tracked, so when it is set the tracked shims already cover
+    every hook stage in the new worktree: `worktree-start` now leaves the
+    config untouched and skips the `prek install`, falling back to the old
+    install-into-shared-`.git/hooks` path only when no hooks path is
+    configured at all
+  - Fixed in both copies (devkit's `justfile.worktree` and the scaffolded
+    `.devcontainer/justfile.worktree`), pinned by bats tests driving the real
+    recipe in a sandbox repo
+- **`just doctor` no longer calls the git hooks inert inside a linked worktree** ([#1454](https://github.com/vig-os/devkit/issues/1454))
+  - `just worktree-start` unsets `core.hooksPath` in the worktree on purpose —
+    prek refuses to install its shims while it is set — and installs those
+    shims instead; `hooks` is one of git's shared paths, so they land in the
+    common git dir and git runs them from inside the worktree. Both `doctor`
+    recipes read that intended state as the fresh-clone failure and reported
+    `WARN git hooks: … tracked but inert`, whose remediation would have undone
+    the worktree setup
+  - A linked worktree with an installed, executable `hooks/pre-commit` now
+    reports `PASS git hooks: linked worktree, installed at <path>`. A linked
+    worktree with no installed shim is genuinely inert and still warns, as do
+    all the other unset and set-elsewhere cases
+  - Fixed in devkit's own `justfile` and the scaffolded
+    `assets/workspace/justfile` in the same change, keeping the two recipes in
+    step for the [#1448](https://github.com/vig-os/devkit/issues/1448) drift
+    guard
+- **`check-expirations` resolves from the devkit pin in generated consumer hooks** ([#1447](https://github.com/vig-os/devkit/issues/1447))
+  - It was the last vig-utils hook whose flake-generated consumer fragment
+    shelled out to `uv run`, i.e. to the *consumer's* project venv — which
+    carries no `vig-utils`, and which many consumers do not have at all (no
+    `pyproject.toml`). The entry now resolves a `nix/vig-utils.nix` store
+    path, like the three hooks fixed in
+    [#1434](https://github.com/vig-os/devkit/issues/1434) and every other
+    tool-naming consumer fragment, so the hook follows the devkit pin the
+    consumer bumps with `nix flake update vigos`
+  - The committed `.pre-commit-config.yaml` renders are unchanged: only the
+    consumer surface moves off `uv run`, and a new class-wide test rejects any
+    future consumer fragment that names a vig-utils console script without a
+    store path
+- **Smoke deploy now publishes installer deletions to the deploy branch** ([#1443](https://github.com/vig-os/devkit/issues/1443))
+  - The smoke-test dispatch deploy committed via `commit-action`, which builds
+    its tree additively from working-tree contents and cannot express file
+    deletions — so paths the installer removed (retired scaffold paths, #1348)
+    silently survived on the deploy branch and the scaffold-drift gate rejected
+    the deploy PR (its second live catch, after
+    [#1344](https://github.com/vig-os/devkit/issues/1344)); caught on the
+    1.8.0-rc1 dispatch, where the per-PR renovate-changelog workflows retired
+    by [#1423](https://github.com/vig-os/devkit/issues/1423) rode along
+  - The deploy job now publishes `git ls-files --deleted` as a follow-up
+    verified API commit of null-sha tree entries — the same tree-API pattern
+    the scaffolded `devkit-upgrade.yml` already uses for adoption PRs (which
+    were never affected)
+- **Smoke dispatch template deploy branch is now dot-free** ([#1444](https://github.com/vig-os/devkit/issues/1444))
+  - The template still generated `chore/deploy-<tag>` with dots, which the
+    scaffolded CI branch-name gate
+    ([#1432](https://github.com/vig-os/devkit/issues/1432)) rejects
+    (`^chore/[a-z0-9]+(-[a-z0-9]+)*$`). The live listener was hand-fixed
+    (devkit-smoke-test#354) but every deploy overlays the template back over
+    it, re-arming the regression for the next train. Dots now map to dashes
+    in the template SSoT, matching the live listener
 - **Flake-generated hooks now carry the commit-message and agent-identity guards** ([#1434](https://github.com/vig-os/devkit/issues/1434))
   - A direnv consumer on flake-generated hooks had **no local commit-message
     or agent-identity enforcement at all**: `validate-commit-msg`,

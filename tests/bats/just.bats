@@ -210,6 +210,25 @@ EOF
     assert_success
 }
 
+@test "smoke-test dispatch publishes installer deletions to the deploy branch (#1443)" {
+    # commit-action builds its tree additively from working-tree contents, so
+    # paths the installer deleted (retired scaffold paths, #1348) never reach
+    # the deploy branch and the scaffold-drift gate rejects the PR. The deploy
+    # job must publish those deletions explicitly (null-sha tree entries, the
+    # same tree-API pattern as the scaffolded devkit-upgrade.yml).
+    run bash -lc 'grep -Fq -- "Publish installer deletions via verified API commit" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "git ls-files --deleted" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "{path: \$p, mode: \"100644\", type: \"blob\", sha: null}" assets/smoke-test/.github/workflows/repository-dispatch.yml'
+    assert_success
+}
+
+@test "smoke-test dispatch deploy branch name is dot-free (#1444)" {
+    # The scaffolded CI branch-name gate (#1432) allows chore branches only as
+    # ^chore/[a-z0-9]+(-[a-z0-9]+)*$ — dots rejected. The live listener was
+    # hand-fixed (devkit-smoke-test#354) but the template SSoT must match, or
+    # every deploy reverts the fix and the next train's deploy PR fails CI.
+    run bash -lc 'grep -Fq -- "BRANCH_NAME=\"chore/deploy-\${TAG//./-}\"" assets/smoke-test/.github/workflows/repository-dispatch.yml && ! grep -Fq -- "BRANCH_NAME=\"chore/deploy-\${TAG}\"" assets/smoke-test/.github/workflows/repository-dispatch.yml'
+    assert_success
+}
+
 @test "smoke-test dispatch preflight validates required workflow contract" {
     run bash -lc "grep -Fq -- 'Preflight check required release workflows on dispatch ref' assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- 'REQUIRED_WORKFLOWS=(prepare-release.yml release.yml promote-release.yml)' assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- 'for workflow_file in \"\${REQUIRED_WORKFLOWS[@]}\"; do' assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- 'WORKFLOW_CHECK_OUTPUT=\"\$(gh workflow view \"\${workflow_file}\" --ref \"\${WORKFLOW_REF}\" --yaml 2>&1 >/dev/null)\"' assets/smoke-test/.github/workflows/repository-dispatch.yml"
     assert_success

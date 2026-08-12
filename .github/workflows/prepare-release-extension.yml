@@ -84,16 +84,6 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: false
         type: boolean
-      git_user_name:
-        description: "Git user name for commits"
-        required: false
-        default: "vigOS Release Bot"
-        type: string
-      git_user_email:
-        description: "Git user email for commits"
-        required: false
-        default: "release@vig-os.local"
-        type: string
 
 permissions:
   contents: read
