@@ -87,7 +87,22 @@
   # ---- build inputs --------------------------------------------------------
   nativeBuildInputs ? [ ],
   buildInputs ? [ ],
-  # Merged into every crane derivation. For CMAKE_*, PKG_CONFIG_PATH, etc.
+  # Raw attrs merged, LAST, into every crane derivation — the unrestricted
+  # escape hatch for anything this function does not expose. Environment
+  # variables are the common case (CMAKE_*, PKG_CONFIG_PATH), but it is not
+  # limited to them: whatever you put here reaches mkDerivation, and because
+  # it merges last it beats every argument above.
+  #
+  # Named `craneArgs` since #1450. It was `buildEnv`, which was a lie of
+  # omission that cost a consumer real time: they needed feature selection,
+  # found this was the only seam that reached `buildDepsOnly`, and had to
+  # discover by reading the source that an argument documented as holding env
+  # vars would take `cargoExtraArgs`. Use `cargoExtraArgs` for that now; this
+  # is for the genuinely unanticipated.
+  craneArgs ? { },
+  # Deprecated alias, still honoured so the second consumer's flake keeps
+  # working. Merged after `craneArgs` on the reasoning that anyone still
+  # passing the old name is doing so deliberately.
   buildEnv ? { },
 
   # ---- behaviour -----------------------------------------------------------
@@ -147,7 +162,7 @@
   hooksExcludes ? [ ],
   workflow ? "gitflow",
   shellHook ? null,
-  # Extra dev-shell environment. Distinct from `buildEnv`, which goes to the
+  # Extra dev-shell environment. Distinct from `craneArgs`, which goes to the
   # build derivations.
   shellEnv ? { },
 }:
@@ -348,6 +363,7 @@ let
   # Still last, so an escape-hatch override beats everything above it. Note
   # that it is a raw commonArgs merge, not an env-var attrset — the name is
   # historical.
+  // craneArgs
   // buildEnv;
 
   cargoArtifacts = craneLib.buildDepsOnly commonArgs;
@@ -472,7 +488,7 @@ let
         commonArgs
         // {
           inherit cargoArtifacts;
-          # Top-level rather than under `env`, so a consumer's `buildEnv`
+          # Top-level rather than under `env`, so a consumer's `craneArgs`
           # cannot collide with it through two different mechanisms.
           RUSTDOCFLAGS = "--deny warnings";
         }

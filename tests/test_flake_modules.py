@@ -900,3 +900,54 @@ def test_mk_rust_project_threads_cargo_extra_args(tmp_path: Path) -> None:
     assert "--all-features" in result.stdout, (
         f"cargoExtraArgs must land in commonArgs; got {result.stdout!r}"
     )
+
+
+def test_mk_rust_project_dev_shell_evaluates_with_the_overlay(tmp_path: Path) -> None:
+    """The overlay guard's POSITIVE direction (#1450).
+
+    ``hasOverlay`` is a proxy: it infers "the overlay was applied" from the
+    presence of one package, ``vig-utils``. Proxies drift. If devkit's overlay
+    ever renames or drops that package, the guard starts throwing
+    "you did not apply the overlay" at consumers who did — and the negative
+    test above would still pass, because it asserts a throw.
+
+    The rule this branch is built on is that a gate needs a fixture for
+    known-bad input AND known-good input; the guard shipped with only the
+    first. This is the second, and it is the one that fails when the sentinel
+    stops tracking what it stands for.
+    """
+    src = _minimal_crate(tmp_path)
+    result = _nix_eval_expr(_mk_rust_project_expr(src, "rust.devShell.drvPath"))
+    assert result.returncode == 0, (
+        "the dev shell must evaluate when devkit's overlay IS applied — if this "
+        "fails, the `pkgs ? vig-utils` sentinel has stopped tracking the "
+        f"overlay and the guard now rejects correct configurations; got: {result.stderr[-800:]}"
+    )
+    assert ".drv" in result.stdout, (
+        f"expected a derivation path; got: {result.stdout[-200:]}"
+    )
+
+
+def test_mk_rust_project_accepts_crane_args_and_the_deprecated_alias(
+    tmp_path: Path,
+) -> None:
+    """``craneArgs`` is honoured, and the old ``buildEnv`` name still works (#1450).
+
+    ``buildEnv`` was documented as holding environment variables while in fact
+    being a raw merge into every crane derivation — which cost the second
+    consumer real time, since it was the only seam reaching ``buildDepsOnly``
+    and nothing said so. It is renamed to ``craneArgs``; the old name stays
+    accepted so an existing consumer flake keeps evaluating.
+    """
+    src = _minimal_crate(tmp_path)
+    for arg in ("craneArgs", "buildEnv"):
+        result = _nix_eval_expr(
+            _mk_rust_project_expr(
+                src,
+                "rust.checks.fmt.drvPath",
+                extra=f'{arg} = {{ CARGO_PROFILE_RELEASE_DEBUG = "0"; }};',
+            )
+        )
+        assert result.returncode == 0, (
+            f"`{arg}` must be accepted by mkRustProject; got: {result.stderr[-500:]}"
+        )
