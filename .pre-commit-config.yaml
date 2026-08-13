@@ -175,6 +175,7 @@ repos:
         name: typos (source typo checker)
         entry: typos --force-exclude
         language: system
+        stages: [pre-commit]
 
   # License Compliance Check (runs only when dependencies change)
   - repo: local

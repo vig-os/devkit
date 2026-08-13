@@ -127,6 +127,7 @@ repos:
         name: typos (source typo checker)
         entry: typos --force-exclude
         language: system
+        stages: [pre-commit]
 
   # Security exception expiry enforcement (Refs: #566)
   - repo: local
