@@ -99,6 +99,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Renew the glibc exception block in the vulnix register**
+  ([#1481](https://github.com/vig-os/devkit/issues/1481))
+  - The block expired 2026-08-12, failing `check-expirations` on every branch
+    (the hook runs inside the flake's `pre-commit` check) and on the nightly
+    security scan
+  - Re-verified against the current pin before renewing: all six CVEs are still
+    live findings against `glibc-2.42-67`, so none could be dropped the way the
+    gawk block was after its rev advance; the advisories cover glibc through
+    2.43, so advancing the pin cannot clear them either
+  - Renewed onto the shared `2026-09-02` grid date, and each entry now records
+    its CVSS and the advisory's required vector in place of the previous
+    "specifics unverified offline" placeholder
+
+
 ## [1.8.0](https://github.com/vig-os/devkit/releases/tag/1.8.0) - 2026-08-12
 
 ### Added
