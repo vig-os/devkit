@@ -8,7 +8,8 @@ the near-identical ``test_vig_os_declares_X_key`` /
 ``test_resolve_toolchain_emits_X_output`` tests that had accreted one per
 feature file (#1413).
 
-Refs: #1044, #1045, #1173, #1207, #1228, #1282, #1284, #1295, #1296, #1431
+Refs: #1044, #1045, #1173, #1207, #1228, #1282, #1284, #1295, #1296, #1431,
+#1478
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ MANIFEST_KEYS = [
     ("DEVKIT_AUTO_UPGRADE", "#1296"),
     ("DEVKIT_UPGRADE_EXCLUDE", "#1296"),
     ("DEVKIT_DRIFT_CHECK", "#1295"),
+    ("DEVKIT_LANGUAGES", "#1478"),
 ]
 
 # (output, issue) — outputs the resolve-toolchain composite action must declare
@@ -45,6 +47,7 @@ RESOLVE_OUTPUTS = [
     ("branch-types", "#1432"),
     ("drift-check", "#1295"),
     ("drift-image", "#1295"),
+    ("languages", "#1478"),
 ]
 
 

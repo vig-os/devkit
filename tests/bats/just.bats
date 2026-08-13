@@ -395,3 +395,81 @@ STUB
     assert_line "LD_LIBRARY_PATH=/pre/existing"
     refute_output --partial "LD_LIBRARY_PATH=:"
 }
+
+# ── recipe skip/exit-5 semantics (#1478) ──────────────────────────────────────
+# The scaffolded recipes are guarded on `[ -f pyproject.toml ]`, so a repo whose
+# Python project was deleted ran NOTHING and exited 0 — silently (#1466). Two
+# mitigations: the guard now reports the skip instead of no-oping in silence,
+# and pytest's exit 5 ("no tests collected") is swallowed ONLY while the repo has
+# no `tests/` directory. Once a test directory exists, zero collected is a
+# signal, not a no-op (#1281 narrowed, not reverted).
+
+_recipe_fixture() {
+    RC_DIR="$BATS_TEST_TMPDIR/recipes"
+    mkdir -p "$RC_DIR/bin"
+    cp "$PROJECT_ROOT/assets/workspace/justfile" "$RC_DIR/justfile"
+    cp "$PROJECT_ROOT/assets/workspace/justfile.project" "$RC_DIR/justfile.project"
+    # `just` substitutes {{SHORT_NAME}} at scaffold time; do the same here.
+    sed -i 's/{{SHORT_NAME}}/testproj/' "$RC_DIR/justfile.project"
+}
+
+# A `uv` stub whose `run pytest` exits with $1 (5 = no tests collected).
+_uv_stub() {
+    cat > "$RC_DIR/bin/uv" <<STUB
+#!/usr/bin/env bash
+echo "uv \$*"
+exit $1
+STUB
+    chmod +x "$RC_DIR/bin/uv"
+}
+
+@test "just test reports the skip when pyproject.toml is absent (#1478)" {
+    _recipe_fixture
+    run just -f "$RC_DIR/justfile" -d "$RC_DIR" test
+    assert_success
+    assert_output --partial "pyproject.toml"
+    assert_output --partial "skipping"
+}
+
+@test "just lint/format/sync report the skip when pyproject.toml is absent (#1478)" {
+    _recipe_fixture
+    for recipe in lint format sync; do
+        run just -f "$RC_DIR/justfile" -d "$RC_DIR" "$recipe"
+        assert_success
+        assert_output --partial "skipping"
+    done
+}
+
+@test "just test swallows pytest exit 5 when there is no tests/ directory (#1281)" {
+    _recipe_fixture
+    _uv_stub 5
+    touch "$RC_DIR/pyproject.toml"
+    run env PATH="$RC_DIR/bin:$PATH" just -f "$RC_DIR/justfile" -d "$RC_DIR" test
+    assert_success
+}
+
+@test "just test propagates pytest exit 5 once a tests/ directory exists (#1478)" {
+    _recipe_fixture
+    _uv_stub 5
+    touch "$RC_DIR/pyproject.toml"
+    mkdir -p "$RC_DIR/tests"
+    run env PATH="$RC_DIR/bin:$PATH" just -f "$RC_DIR/justfile" -d "$RC_DIR" test
+    assert_failure
+}
+
+@test "just test-cov propagates pytest exit 5 once a tests/ directory exists (#1478)" {
+    _recipe_fixture
+    _uv_stub 5
+    touch "$RC_DIR/pyproject.toml"
+    mkdir -p "$RC_DIR/tests"
+    run env PATH="$RC_DIR/bin:$PATH" just -f "$RC_DIR/justfile" -d "$RC_DIR" test-cov
+    assert_failure
+}
+
+@test "just test still propagates a real pytest failure (#1478)" {
+    _recipe_fixture
+    _uv_stub 1
+    touch "$RC_DIR/pyproject.toml"
+    run env PATH="$RC_DIR/bin:$PATH" just -f "$RC_DIR/justfile" -d "$RC_DIR" test
+    assert_failure
+}
