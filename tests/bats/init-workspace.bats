@@ -3171,6 +3171,21 @@ _referenced_secrets() {
     assert_success
 }
 
+@test "actionlint passes over the trunk-rendered workflows (#1479)" {
+    # The per-mode fixtures above all render the gitflow default. The trunk
+    # render substitutes a ${{ }} expression into workflow env values (the
+    # CHANGELOG freeze target and the ref the #617 wait watches it on, #1479),
+    # a render class only actionlint can validate — a malformed expression, or
+    # one landing in a job without `needs: validate`, would otherwise reach a
+    # consumer's release train unlinted.
+    local ws="$BATS_TEST_TMPDIR/al-trunk"
+    mkdir -p "$ws"
+    run _scaffold_ex both "$ws" --workflow trunk
+    assert_success
+    run bash -c "cd '$ws' && git init -q && actionlint"
+    assert_success
+}
+
 @test "actionlint passes over the smoke-test workflow templates (#995)" {
     # The smoke-test overlay ships standalone workflows (no reusable siblings),
     # so they are linted in-place by explicit path from the repo root. The repo

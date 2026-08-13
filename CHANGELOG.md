@@ -97,6 +97,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Trunk release preparation: the release PR is no longer empty, and the freeze
+  never pushes to the trunk**
+  ([#1479](https://github.com/vig-os/devkit/issues/1479))
+  - `prepare-release.yml` now creates `release/X.Y.Z` **before** the changelog
+    freeze and fast-forwards it onto the freeze commit afterwards. Under
+    `DEVKIT_WORKFLOW=trunk` the freeze targets the release branch instead of
+    `main`, so the draft release PR carries exactly one commit — it previously
+    froze onto `main` and cut the branch from that same post-freeze SHA, and
+    `gh pr create` failed with *"No commits between main and release/X.Y.Z"*
+  - A trunk consumer's Commit App therefore needs **no bypass on the `main`
+    ruleset**: the prepare phase only ever writes to `release/*`. `main` gets
+    the frozen changelog when the release PR merges at promote time
+  - New same-SHA guard in `open-pr`: head and base are resolved and compared
+    before the PR is created, so a collapsed topology fails with a named cause
+    instead of an opaque GitHub refusal
+  - The `gitflow` leg is behaviour-identical: the freeze still lands on `dev`
+    and the release branch still ends up at the freeze commit
+
 ### Security
 
 - **Renew the glibc exception block in the vulnix register**
