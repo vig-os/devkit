@@ -91,6 +91,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **CI fails when a declared language's project file disappears**
+  ([#1478](https://github.com/vig-os/devkit/issues/1478))
+  - New `.vig-os` key `DEVKIT_LANGUAGES` — a comma-separated subset of
+    `python,node,rust,nix` recording the languages a repo DECLARES. It is a
+    declaration, not a detection cache: the scaffold seeds it from the marker
+    files it detects, ADDS a newly detected language on a later upgrade, and
+    never removes one. Dropping a language is a deliberate hand-edit; the
+    scaffold prints a loud notice when a declared language's marker is absent,
+    and an unknown name fails the scaffold. The key ships empty, so a
+    language-neutral repo and every consumer adopting from an older devkit are
+    unaffected (the value is seeded on the adoption scaffold)
+  - New early gate in the scaffolded `ci.yml`: `resolve-toolchain` emits the
+    declared list as a `languages` output and one step fails the run when a
+    declared language's marker file (`pyproject.toml` / `package.json` /
+    `Cargo.toml`) is missing. It runs in the job every toolchain job already
+    `needs:`, so lint/test never start on a repo whose project is gone —
+    closing the blind spot that let a deleted Python suite report a green
+    `Tests` check ([#1466](https://github.com/vig-os/devkit/issues/1466)).
+    `nix` is declared but not gated (no single marker file)
+  - The scaffolded `justfile.project` recipes now REPORT the skip
+    (`no pyproject.toml — skipping`) instead of no-oping in silence, and
+    `test` / `test-cov` only swallow pytest's exit 5 ("no tests collected")
+    while the repo has no `tests/` directory — once one exists, zero collected
+    propagates as a failure
+
 ### Deprecated
 
 ### Removed
