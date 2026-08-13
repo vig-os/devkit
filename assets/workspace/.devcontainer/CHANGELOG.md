@@ -91,6 +91,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`sync-manifest` and `check-agent-identity` run once per commit, at
+  `pre-commit`** ([#1491](https://github.com/vig-os/devkit/issues/1491))
+  - Both hooks carried neither `stages:` nor a file filter, so each ran at
+    *every* hook stage — three `uv run` invocations per commit for one useful
+    result. Neither was broken by it (unlike `typos`,
+    [#1489](https://github.com/vig-os/devkit/issues/1489), which received a
+    filename and rejected rebases); this is the waste that trap left behind
+  - For `check-agent-identity` the pin also settles a real disagreement between
+    surfaces: flake-generated (direnv) consumers have always run it at
+    `pre-commit` only, because git-hooks.nix defaults it there, while the
+    committed configs ran it at all three. **Consumers are affected**: the hook
+    is scaffolded, so adopting this release aligns a scaffolded repo with what
+    its direnv counterpart already did
+  - The message stages were not wanted: git exports the same
+    `GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL` to all three stages of an ordinary
+    commit, including under `git commit --author=…` — the case this hook exists
+    to catch — so the `commit-msg` round only re-read what `pre-commit` had
+    already rejected on. The one path where the message stages fire alone is
+    `git merge`, where git exports no author at all and the hook fell back to
+    `git config user.*`, the persistent identity that fails the committer's very
+    next ordinary commit
+  - No coverage is lost elsewhere: `prek run --all-files` and the CI lint lane
+    both run the `pre-commit` stage
 - **CI fails when a declared language's project file disappears**
   ([#1478](https://github.com/vig-os/devkit/issues/1478))
   - New `.vig-os` key `DEVKIT_LANGUAGES` — a comma-separated subset of
