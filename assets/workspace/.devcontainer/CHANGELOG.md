@@ -137,6 +137,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The promote gate checks the release PR before publishing, not after**
+  ([#1487](https://github.com/vig-os/devkit/issues/1487))
+  - Devkit's own `promote-release.yml` verified the release PR's draft status,
+    approvals and CI **only in the `merge` job** — which runs after `promote`
+    has already moved GHCR `:latest` and published the draft GitHub Release. An
+    unapproved PR therefore failed the promote *from an already-published
+    state*, leaving the release public while `main` lacked the release commit,
+    and published releases are immutable org-wide. The check now also runs in
+    `validate`, so the promote refuses before anything is published
+  - The trigger was the default state of every final release, not an edge case:
+    a final `release.yml` run's `finalize` job always pushes to the release
+    branch, which always dismisses the approval under the org-wide stale-review
+    dismissal ([#1474](https://github.com/vig-os/devkit/issues/1474)). Only
+    operator discipline had kept it latent
+  - The `validate` copy mirrors the scaffold template's, so it also brings the
+    mergeability gate ([#1132](https://github.com/vig-os/devkit/issues/1132)) —
+    BEHIND / BLOCKED / DIRTY — which the upstream workflow had never carried in
+    either job. The `merge` copy is kept: PR state can change between the jobs
 - **Trunk release preparation: the release PR is no longer empty, and the freeze
   never pushes to the trunk**
   ([#1479](https://github.com/vig-os/devkit/issues/1479))
