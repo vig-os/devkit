@@ -143,7 +143,21 @@ let
   };
 
   # Shared per-hook filters used by more than one artifact of the same hook.
-  shellcheckExclude = "(^|/)\\.envrc$";
+  # .envrc files are direnv stdlib scripts with no shebang (SC2148).
+  #
+  # assets/guardrails/ is VENDORED shell (#1488). It is clean at
+  # `-S warning` — the severity where real bugs live — and is covered by
+  # `checks.guardrails-canary`, which runs every gate against a known-bad
+  # fixture and asserts it fires. What it is NOT clean at is the default
+  # `style` severity: 18 findings, ten of them SC2181 (`$?` rather than
+  # `if cmd;`), several of them deliberate in a test harness.
+  #
+  # Rewriting 3,000 lines of working, fixture-covered shell for style points
+  # is the trade this repo already declined once when it decided not to port
+  # these gates to Python: the risk is asymmetric, because a subtly broken
+  # gate REPORTS SUCCESS. The bar kept here is error+warning, enforced by
+  # `checks.guardrails-shellcheck`, not an exemption from review.
+  shellcheckExclude = "(^|/)\\.envrc$|^assets/guardrails/";
   # The three JSONC scaffold files carry a `//` provenance banner (#1053) that
   # VS Code and the devcontainer CLI accept but check-json's strict parser
   # rejects. Exclude them from every check-json surface (matched at repo root or

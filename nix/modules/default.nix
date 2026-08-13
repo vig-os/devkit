@@ -13,10 +13,13 @@
 #
 # Candidate modules — geant4, fortran/f2py, root — are deliberately NOT
 # defined until a concrete consumer asks (YAGNI; see the ADR). `rust` was such
-# a candidate and shipped on gerchowl/filesender's ask (#1400).
+# a candidate and shipped on gerchowl/filesender's ask (#1400); `guardrails`
+# (#1488) is not from that list — it absorbs the org's semantic gates from a
+# personal repo so devkit stops depending on one.
 {
   native = import ./native.nix;
   node = import ./node.nix;
   docs = import ./docs.nix;
   rust = import ./rust.nix;
+  guardrails = import ./guardrails.nix;
 }

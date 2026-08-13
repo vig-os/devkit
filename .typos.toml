@@ -10,3 +10,11 @@ unexcepted = "unexcepted"
 Nd = "Nd"
 # podman rootless-networking helper package name (#1106), not a misspelling
 passt = "passt"
+# Vendored guardrails gates (#1488). All three are false positives in shell:
+# `tatus` is the tail of the regex class `[Ss]tatus:`, `fnd` is a shell
+# function name in the test harness, and `mis-attributes` is a real word.
+# Added as words rather than excluding assets/guardrails/ wholesale, so the
+# prose in those files stays spell-checked.
+tatus = "tatus"
+fnd = "fnd"
+mis = "mis"

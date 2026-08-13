@@ -838,6 +838,11 @@
           config.allowUnfree = true;
         };
 
+        # The vendored semantic gates (#1488). Built once per system and used
+        # both by the `guardrails` capability module (via callPackage) and by
+        # the canary check below.
+        guardrailsPkg = pkgs.callPackage ./nix/guardrails.nix { };
+
         # treefmt-nix: one `nix fmt` entrypoint + a `checks.formatting` gate over
         # the whole repo. The enabled programs mirror the pre-commit formatters —
         # nixfmt (same package as devTools/the hook), ruff-format, and
@@ -1198,6 +1203,54 @@
             statix check ${./nix}
             touch "$out"
           '';
+
+          # error+warning shellcheck over the vendored gates. They are
+          # excluded from the repo-wide hook (which runs at `style`) because
+          # rewriting working, fixture-covered shell for SC2181 is a bad
+          # trade — but "excluded from the strict hook" must not become
+          # "unchecked", so the real bar is enforced here. Refs #1488.
+          guardrails-shellcheck =
+            pkgs.runCommand "guardrails-shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; }
+              ''
+                shellcheck -S warning -x ${./assets/guardrails}/gates/*.sh \
+                                        ${./assets/guardrails}/tools/*.sh
+                touch "$out"
+              '';
+
+          # Every guardrails gate is fed a KNOWN-BAD fixture and must reject
+          # it, and a known-good one and must stay quiet (#1488, #1492).
+          #
+          # This is the assurance half of the guardrails module, and it is
+          # deliberately not a check that the gates are *configured*. This
+          # org's record is eight instances of something configured, believed
+          # active and never executed — four of them "listed in the config,
+          # did not run". A check that reads YAML would have caught none of
+          # them. "Protected" has to mean the gate rejected a known-bad input,
+          # because that is the only claim config drift cannot counterfeit.
+          #
+          # It runs upstream's own fixtures against the PACKAGED scripts —
+          # the exact files a consumer gets, not a copy — so a packaging
+          # mistake (a missing runtime dependency in the wrapper, say) fails
+          # here rather than in someone's repo.
+          guardrails-canary =
+            pkgs.runCommand "guardrails-canary"
+              {
+                nativeBuildInputs = [
+                  pkgs.git
+                  guardrailsPkg
+                ]
+                ++ guardrailsPkg.runtimeInputs;
+              }
+              ''
+                export HOME="$TMPDIR"
+                git config --global user.email ci@vig-os.invalid
+                git config --global user.name CI
+                git config --global init.defaultBranch main
+                set -e
+                bash ${guardrailsPkg}/share/guardrails/gates/test-gates.sh
+                bash ${guardrailsPkg}/share/guardrails/gates/test-adr-matrix.sh
+                touch "$out"
+              '';
 
           # The sandbox-pure subset of the pre-commit hooks, run by the prek
           # runner via git-hooks.nix (see preCommitCheck above). Refs #778.
