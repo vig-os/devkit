@@ -44,7 +44,8 @@ Workflow dispatch contract:
   - `dev`
 - Dispatch and wait operations must use the same ref context to avoid default-branch drift:
   - dispatch via `gh workflow run <workflow> --ref dev ...`
-  - run discovery via `gh run list --workflow <workflow> --branch dev ...`
+  - run discovery via `gh run list --workflow <workflow> --branch dev --event workflow_dispatch ...`
+- Every wait binds to the run its own job dispatched ([#1477](https://github.com/vig-os/devkit/issues/1477)). The receiver stamps a `DISPATCH_TS` immediately before `gh workflow run` (backdated 60 s against runner/server clock skew) and accepts only a run whose `createdAt` is at or after that stamp **and** whose `databaseId` exceeds the baseline captured with the *same* `--workflow`/`--branch`/`--event` filters. The first matching run is locked on for the rest of the wait — a later run cannot hijack it — and its id and URL are logged. With no bound run the wait polls to its timeout and fails loudly; it never reports the conclusion of a run it did not dispatch. An id-ordering guard alone matched the previous RC's completed run on the 1.8.0 final, and promote was dispatched before the release existed.
 
 ### Receiver Responsibilities
 
