@@ -1447,8 +1447,13 @@ done
 #
 # Anchoring is load-bearing: `heads/dev\b` (word boundary) never touches
 # `development`/`devkit`/`devcontainer`; `ref: dev$` / ` from dev$` are
-# end-anchored. /dev/null device paths and the dev_sha/DEV_SHA variable names
-# are deliberately preserved (behavior is unaffected by their spelling).
+# end-anchored. /dev/null device paths are deliberately preserved (behavior is
+# unaffected by their spelling).
+#
+# One retarget is NOT a plain dev->main rename: the CHANGELOG freeze targets the
+# release branch under trunk (#1479). That is still an anchored substitution
+# rather than a structural rewrite, because the shipped asset already creates
+# release/X.Y.Z before it freezes.
 render_workflow_model() {
     local model="$1"
     [[ "$model" == "trunk" ]] || return 0
@@ -1456,10 +1461,22 @@ render_workflow_model() {
     local wf="$WORKSPACE_DIR/.github/workflows"
 
     # prepare-release.yml — retarget the release base dev -> main (#590/#617
-    # logic is base-agnostic) and scrub the inert dev step-names/comments so a
-    # trunk repo carries no `dev` cruft (variable names + /dev/null stay intact).
+    # logic is base-agnostic), point the CHANGELOG freeze at the release branch
+    # instead of the trunk (#1479), and scrub the inert dev step-names/comments
+    # so a trunk repo carries no `dev` cruft (/dev/null stays intact).
     local pr="$wf/prepare-release.yml"
     if [[ -f "$pr" ]]; then
+        # Freeze target (#1479). Under trunk the base branch IS the PR base, so
+        # freezing onto it would leave the release PR's head and base at the same
+        # commit (GitHub then refuses to open it) and would push straight to a
+        # trunk a require-PR ruleset protects. The asset creates release/X.Y.Z
+        # BEFORE the freeze precisely so this stays a literal substitution: the
+        # freeze commit (and the rollback's restore commit) target the release
+        # branch, and the ref reads that watch the freeze — the #617 wait and the
+        # rollback's post-delete guard — follow via FREEZE_REF. Both run BEFORE
+        # the blanket heads/dev retarget below, which must not claim these lines.
+        sed -i -E 's|^([[:space:]]*TARGET_BRANCH:) refs/heads/dev$|\1 refs/heads/${{ needs.validate.outputs.release_branch }}|' "$pr"
+        sed -i -E 's|^([[:space:]]*FREEZE_REF:) heads/dev$|\1 heads/${{ needs.validate.outputs.release_branch }}|' "$pr"
         # Behavioral branch literals: checkout refs + REST ref reads + targets.
         sed -i -E 's|^([[:space:]]*ref:) dev$|\1 main|' "$pr"
         sed -i -E 's|heads/dev\b|heads/main|g' "$pr"
@@ -1468,12 +1485,8 @@ render_workflow_model() {
         # above are what drive the retarget).
         sed -i 's|Checkout dev branch|Checkout main branch|' "$pr"
         sed -i 's|Capture pre-prepare dev SHA|Capture pre-prepare main SHA|' "$pr"
-        sed -i 's| to dev via API| to main via API|g' "$pr"
-        sed -i 's|Wait for dev to advance|Wait for main to advance|' "$pr"
-        sed -i 's|freeze commit-action updates dev|freeze commit-action updates main|' "$pr"
-        sed -i 's|dev still at pre-freeze SHA|main still at pre-freeze SHA|' "$pr"
-        sed -i 's|ERROR: dev did not advance|ERROR: main did not advance|' "$pr"
-        sed -i 's|CHANGELOG.md on dev|CHANGELOG.md on main|g' "$pr"
+        sed -i 's| to dev via API| to the release branch via API|g' "$pr"
+        sed -i 's|CHANGELOG.md on dev|CHANGELOG.md on the release branch|g' "$pr"
         # The #590 rationale comment describes the gitflow main/dev sync merge,
         # which does not exist in trunk — reword it (full-line anchored swaps).
         sed -i 's|dated release, matching$|dated release, so the|' "$pr"
