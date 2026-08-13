@@ -98,7 +98,7 @@ repos:
         # .envrc files (root + the scaffolded template stub) are direnv stdlib
         # scripts with no shebang; exclude them from SC2148 at any path.
         args: ["-x"]
-        exclude: (^|/)\.envrc$
+        exclude: (^|/)\.envrc$|^assets/guardrails/
 
   # GitHub Actions workflow linting (actionlint from the flake dev-shell). Lints
   # THIS repo's own .github/workflows/ via auto-discovery; actionlint's bundled

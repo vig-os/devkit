@@ -951,3 +951,80 @@ def test_mk_rust_project_accepts_crane_args_and_the_deprecated_alias(
         assert result.returncode == 0, (
             f"`{arg}` must be accepted by mkRustProject; got: {result.stderr[-500:]}"
         )
+
+
+# ---------------------------------------------------------------------------
+# guardrails module (#1488) — the semantic-gate capability. Unlike `rust`, it
+# contributes `packages` ONLY: hook ENTRIES are a scaffold concern (#1492), so
+# there is no contract change to test here. What must hold is that the gates
+# are on PATH, that the option validation is loud, and — the part that
+# actually matters — that every gate still rejects a known-bad fixture, which
+# `checks.<system>.guardrails-canary` asserts.
+# ---------------------------------------------------------------------------
+
+
+def _guardrails_expr(entry: str, attr: str = ".drvPath") -> str:
+    return f"""
+    let
+      flake = builtins.getFlake "path:{REPO_ROOT}";
+      system = builtins.currentSystem;
+      pkgs = import flake.inputs.nixpkgs {{
+        inherit system;
+        overlays = [ flake.overlays.default ];
+        config.allowUnfree = true;
+      }};
+    in (flake.lib.mkProjectShell {{ inherit pkgs; modules = [ {entry} ]; }}){attr}
+    """
+
+
+def test_guardrails_is_in_capability_module_registry() -> None:
+    """The registry resolves ``guardrails`` (#1488)."""
+    result = _nix_eval_expr(_guardrails_expr('"guardrails"'))
+    assert result.returncode == 0, (
+        f"the guardrails module must resolve from the registry; got: {result.stderr[-500:]}"
+    )
+
+
+def test_guardrails_puts_the_gates_on_path(current_system: str) -> None:
+    """The shell exposes the gate executables (#1488).
+
+    The bare-name form must work: unlike ``rust``, this module has no
+    mandatory option, because contributing packages is the whole of what it
+    does and there is no second half a consumer could forget to wire.
+    """
+    proc = _develop_module(
+        current_system,
+        "guardrails",
+        "for b in guardrails guardrails-trace guardrails-no-fake-impl "
+        "guardrails-no-hardcoded guardrails-derived-docs; do command -v $b; done",
+    )
+    assert proc.returncode == 0, (
+        "guardrails devshell is missing gate executables: "
+        f"rc={proc.returncode} stdout={proc.stdout.strip()!r} stderr={proc.stderr.strip()[:300]}"
+    )
+
+
+def test_guardrails_rejects_an_unknown_gate() -> None:
+    """A mistyped gate name fails eval and lists the real ones (#1488).
+
+    The available set is derived from the vendored directory rather than a
+    hand-kept list, so this also pins that the two cannot disagree.
+    """
+    result = _nix_eval_expr(
+        _guardrails_expr('{ name = "guardrails"; gates = [ "no-such-gate" ]; }')
+    )
+    assert result.returncode != 0, "an unknown gate name must fail eval, not pass"
+    assert "no-such-gate" in result.stderr and "no-fake-impl" in result.stderr, (
+        f"error must name the bad gate and list the available ones; got: {result.stderr[-600:]}"
+    )
+
+
+def test_guardrails_rejects_an_unknown_option() -> None:
+    """Unknown options throw rather than silently doing nothing (#1488)."""
+    result = _nix_eval_expr(
+        _guardrails_expr('{ name = "guardrails"; frobnicate = 1; }')
+    )
+    assert result.returncode != 0, "an unknown option must fail eval"
+    assert "frobnicate" in result.stderr and "guardrails module" in result.stderr, (
+        f"error must name the option and the module; got: {result.stderr[-500:]}"
+    )

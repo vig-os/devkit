@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`guardrails` capability module — the org's semantic gates, now devkit-owned**
+  ([#1488](https://github.com/vig-os/devkit/issues/1488),
+  [#1492](https://github.com/vig-os/devkit/issues/1492))
+  - devkit shipped 26 hooks to consumers and every one was syntactic. These 15
+    gates are the semantic half: no fake implementations, no hardcoded magic
+    values, no commented-out code, generated docs matching their source
+    command, no debug prints, trunk protection, ADR/feature-matrix coherence
+  - Vendored from `gerchowl/guardrails` under Apache-2.0 (the same licence and
+    holder as devkit, so the copies need no separate attribution). devkit is
+    now the source of truth; the upstream personal repo is being retired, so
+    the org's semantic enforcement no longer depends on one person's account
+  - **The module contributes `packages` only — no contract change.** Hook
+    ENTRIES are a scaffold concern, not a shell one: `.pre-commit-config.yaml`
+    is read by the runner from a bare git tree, by CI containers that never
+    enter `nix develop`, and by humans reading a diff. #1492 records why this
+    resolves the opposite way to `checks` (#1427) despite looking similar
+  - New `checks.guardrails-canary`: every gate is fed a known-bad fixture and
+    must reject it, and a known-good one and must stay quiet. This is the
+    assurance half — "protected" means *the gate rejected a known-bad input*,
+    not *the entry is in the config*, because four of this org's eight
+    recorded gate failures were "listed, did not run"
+  - New `checks.guardrails-shellcheck` at error+warning over the vendored
+    shell; the repo-wide hook (which runs at `style`) skips that tree rather
+    than force a rewrite of 3,000 lines of working, fixture-covered script
+
 - **Rust performance tooling: `@perf` tool groups + a deterministic ratchet**
   ([#1400](https://github.com/vig-os/devkit/issues/1400),
   [#1440](https://github.com/vig-os/devkit/issues/1440))
