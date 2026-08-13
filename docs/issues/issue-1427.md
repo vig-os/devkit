@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-11T22:40:09Z
-updated: 2026-08-12T06:14:59Z
+updated: 2026-08-13T11:26:21Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1427
-comments: 3
+comments: 4
 labels: none
 assignees: none
-milestone: none
+milestone: 1.9.0
 projects: none
 parent: none
 children: none
-synced: 2026-08-12T13:33:44.000Z
+synced: 2026-08-13T14:59:13.675Z
 ---
 
 # [Issue 1427]: [Decision: where do a capability module's CHECKS live — lib function or a v2 contract field?](https://github.com/vig-os/devkit/issues/1427)
@@ -285,4 +285,12 @@ the original claim in any case.
 
 Refs: #1400
 
+
+---
+
+# [Comment #4]() by [c-vigo]()
+
+_Posted on August 13, 2026 at 11:26 AM_
+
+Decided and shipped in #1429: checks live in a composed lib function (`lib.mkRustProject`), not a v2 contract field. The v1 module contract is unchanged; the `rust` module makes `checks` mandatory with no default so a toolchain-only Rust shell fails at eval instead of silently gating nothing. Recorded in `f64240e4`. Ships in 1.9.0.
 

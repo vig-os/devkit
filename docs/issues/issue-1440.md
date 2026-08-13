@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-12T07:54:01Z
-updated: 2026-08-12T09:48:24Z
+updated: 2026-08-13T11:26:25Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1440
-comments: 2
+comments: 3
 labels: none
 assignees: none
-milestone: none
+milestone: 1.9.0
 projects: none
 parent: none
 children: none
-synced: 2026-08-12T13:33:41.895Z
+synced: 2026-08-13T14:59:13.206Z
 ---
 
 # [Issue 1440]: [Decision: should crane + fenix be devkit inputs, or move out of the shared lock?](https://github.com/vig-os/devkit/issues/1440)
@@ -199,4 +199,12 @@ _Posted on August 12, 2026 at 09:48 AM_
 **The main question stays open**, deliberately. The consolidated recommendation above is to move `crane`/`fenix` out to consumers — which reverses my own original call — but the case for it rests on ecosystem convention and the year-three trajectory, not on cost. That makes it a convention decision for the ADR owner rather than something to land inside a feature PR.
 
 Whoever picks this up: the two measurements in the comment above are the ones that matter, and the second one shrank the cost side of the argument by 85%. Neither changed the case against.
+
+---
+
+# [Comment #3]() by [c-vigo]()
+
+_Posted on August 13, 2026 at 11:26 AM_
+
+Decided and shipped in #1429: `crane` and `fenix` stay devkit inputs. 85% of the measured cost was fenix's transitive `rust-analyzer-src`, which now `follows` nixpkgs (lock nodes 15 -> 14, fetched source ~33 MB -> ~5 MB) while `rust-analyzer` remains in the built toolchain. Eval is lazy, so Python-only consumers pay lock size only. Ships in 1.9.0.
 

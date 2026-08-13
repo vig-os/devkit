@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-10T12:34:30Z
-updated: 2026-08-11T13:05:06Z
+updated: 2026-08-13T11:26:37Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1400
-comments: 2
+comments: 3
 labels: none
 assignees: none
-milestone: none
+milestone: 1.9.0
 projects: none
 parent: none
 children: none
-synced: 2026-08-12T04:13:09.882Z
+synced: 2026-08-13T14:59:14.192Z
 ---
 
 # [Issue 1400]: [Rust language pack — and reconciling devkit with gerchowl/guardrails](https://github.com/vig-os/devkit/issues/1400)
@@ -277,4 +277,12 @@ who merely runs `nix run <repo>` — dev-only tooling in the consumer's path. Th
 consumer repo currently has exactly this problem with two governance inputs. The
 pack should recommend a separate `dev/flake.nix` rather than reproducing it
 across every Rust repo in the org.
+
+---
+
+# [Comment #3]() by [c-vigo]()
+
+_Posted on August 13, 2026 at 11:26 AM_
+
+Both halves have landed: the Rust language pack in #1429 (+ #1452 hardening) and the guardrails reconciliation in #1495. The collision this issue opened on is resolved by keeping hook entries a scaffold concern (#1492) and shipping the gates as a PATH-contributing capability module. Ships in 1.9.0.
 
