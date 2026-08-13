@@ -234,13 +234,18 @@ EOF
     assert_success
 }
 
-@test "smoke-test dispatch wait logic tracks prepare-release run after dispatch" {
-    run bash -lc 'grep -Fq -- "Capture latest prepare-release run id" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "gh run list --workflow prepare-release.yml --branch \"\${WORKFLOW_REF}\"" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "BEFORE_RUN_ID: \${{ steps.capture_prepare_before.outputs.before_run_id }}" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "[ \"\${RUN_ID}\" -gt \"\${BEFORE_RUN_ID}\" ]" assets/smoke-test/.github/workflows/repository-dispatch.yml'
+@test "smoke-test dispatch wait logic binds to the dispatched prepare-release run (#1477)" {
+    # The pre-#1477 guard was the id ordering alone, which matched a stale
+    # completed run and let the wait pass without ever observing its own
+    # dispatch. The baseline stays, but the wait must also bind on the dispatch
+    # stamp; full shape + behaviour coverage lives in
+    # tests/test_smoke_dispatch_wait.py.
+    run bash -lc 'grep -Fq -- "Capture latest prepare-release run id" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "gh run list --workflow prepare-release.yml --branch \"\${WORKFLOW_REF}\" --event workflow_dispatch" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "BEFORE_RUN_ID: \${{ steps.capture_prepare_before.outputs.before_run_id }}" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "DISPATCH_TS: \${{ steps.trigger_prepare.outputs.dispatch_ts }}" assets/smoke-test/.github/workflows/repository-dispatch.yml && ! grep -Fq -- "[ \"\${RUN_ID}\" -gt \"\${BEFORE_RUN_ID}\" ]" assets/smoke-test/.github/workflows/repository-dispatch.yml'
     assert_success
 }
 
-@test "smoke-test dispatch wait logic tracks release run after dispatch" {
-    run bash -lc 'grep -Fq -- "Capture latest release run id" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "gh run list --workflow release.yml --branch \"\${WORKFLOW_REF}\"" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "BEFORE_RUN_ID: \${{ steps.capture_release_before.outputs.before_run_id }}" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "[ \"\${RUN_ID}\" -gt \"\${BEFORE_RUN_ID}\" ]" assets/smoke-test/.github/workflows/repository-dispatch.yml'
+@test "smoke-test dispatch wait logic binds to the dispatched release run (#1477)" {
+    run bash -lc 'grep -Fq -- "Capture latest release run id" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "gh run list --workflow release.yml --branch \"\${WORKFLOW_REF}\" --event workflow_dispatch" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "BEFORE_RUN_ID: \${{ steps.capture_release_before.outputs.before_run_id }}" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "DISPATCH_TS: \${{ steps.trigger_release.outputs.dispatch_ts }}" assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- "select(.createdAt >= \$ts and .databaseId > (\$before | tonumber))" assets/smoke-test/.github/workflows/repository-dispatch.yml'
     assert_success
 }
 

@@ -139,6 +139,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     instead of an opaque GitHub refusal
   - The `gitflow` leg is behaviour-identical: the freeze still lands on `dev`
     and the release branch still ends up at the freeze commit
+- **Smoke listener waits now bind to the run they dispatched**
+  ([#1477](https://github.com/vig-os/devkit/issues/1477))
+  - The listener's three "trigger a workflow, then wait for it" sites
+    (prepare-release, release, promote-release) accepted any run that was
+    `completed` and newer than a pre-dispatch id baseline. The dispatched run
+    takes a moment to appear in the API, so the first poll could return a
+    PREVIOUS run — already completed, still newer than a stale baseline — and
+    the wait exited success having observed nothing. On the 1.8.0 final the
+    release wait passed 1.5 s after starting, matching the rc4 run from 47
+    minutes earlier, and promote-release was then dispatched against a repo
+    with no `1.8.0` release
+  - Each trigger step now stamps a `DISPATCH_TS` immediately before
+    `gh workflow run` (backdated 60 s against runner/server clock skew) and the
+    wait accepts only a run created at or after that stamp AND newer than the
+    baseline. The first such run is locked on, so a later run cannot hijack the
+    wait, and its id and URL are logged for diagnosis
+  - Baseline capture and poll now use identical `--workflow` / `--branch` /
+    `--event workflow_dispatch` filters, so the baseline describes the
+    population being polled. Without a bound run the wait keeps polling to its
+    timeout and fails loudly — it can no longer report success on a run it
+    never observed
+  - The listener runs from `vig-os/devkit-smoke-test`'s DEFAULT branch, so this
+    asset change needs the usual manual redeploy there to be live
 
 ### Security
 

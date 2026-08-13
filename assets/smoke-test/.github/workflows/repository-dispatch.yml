@@ -575,40 +575,75 @@ jobs:
           GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
         run: |
           set -euo pipefail
+          # Filters must match the poll in the wait step exactly, or the baseline
+          # does not describe the population being polled (vig-os/devkit#1477).
           BEFORE_RUN_ID="$(
-            gh run list --workflow prepare-release.yml --branch "${WORKFLOW_REF}" --limit 1 --json databaseId --jq '.[0].databaseId // 0' 2>/dev/null || echo 0
+            gh run list --workflow prepare-release.yml --branch "${WORKFLOW_REF}" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0' 2>/dev/null || echo 0
           )"
           echo "before_run_id=${BEFORE_RUN_ID}" >> "${GITHUB_OUTPUT}"
 
       - name: Trigger prepare-release
+        id: trigger_prepare
         env:
           GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
           BASE_VERSION: ${{ needs.validate.outputs.base_version }}
         run: |
           set -euo pipefail
+          # Stamp the dispatch time immediately before dispatching so the wait
+          # step can bind to the run this job started. Backdated by 60s: the
+          # stamp is taken on the runner and compared against a server-side
+          # createdAt, and skew in the wrong direction would filter the
+          # dispatched run out of its own wait and turn every wait into a
+          # timeout. The margin is far smaller than the gap to any plausible
+          # earlier run (the run wrongly matched on the 1.8.0 final was 47
+          # minutes old -- vig-os/devkit#1477).
+          DISPATCH_TS="$(date -u -d '60 seconds ago' +%Y-%m-%dT%H:%M:%SZ)"
+          echo "dispatch_ts=${DISPATCH_TS}" >> "${GITHUB_OUTPUT}"
           gh workflow run prepare-release.yml --ref "${WORKFLOW_REF}" -f version="${BASE_VERSION}"
 
       - name: Wait for prepare-release completion
         env:
           GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
           BEFORE_RUN_ID: ${{ steps.capture_prepare_before.outputs.before_run_id }}
+          DISPATCH_TS: ${{ steps.trigger_prepare.outputs.dispatch_ts }}
         run: |
           set -euo pipefail
           TIMEOUT=1200
           INTERVAL=30
           ELAPSED=0
+          RUN_ID=""
+          RUN_URL=""
 
           while [ "${ELAPSED}" -lt "${TIMEOUT}" ]; do
-            RUN_ID="$(gh run list --workflow prepare-release.yml --branch "${WORKFLOW_REF}" --limit 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)"
-            if [ -n "${RUN_ID}" ] && [ "${RUN_ID}" -gt "${BEFORE_RUN_ID}" ]; then
+            if [ -z "${RUN_ID}" ]; then
+              # Bind to the run this job dispatched: newer than the pre-dispatch
+              # baseline AND created no earlier than the dispatch stamp. The
+              # oldest such run is ours; a later one must never hijack the wait,
+              # so the id is resolved once and then locked on. ISO-8601 `Z`
+              # stamps compare correctly as strings, and `gh --jq` cannot take
+              # `--arg`, so the JSON is piped to jq.
+              MATCH="$(
+                gh run list --workflow prepare-release.yml --branch "${WORKFLOW_REF}" --event workflow_dispatch --limit 20 --json databaseId,createdAt,url 2>/dev/null \
+                  | jq -r --arg ts "${DISPATCH_TS}" --arg before "${BEFORE_RUN_ID}" \
+                    '[.[] | select(.createdAt >= $ts and .databaseId > ($before | tonumber))] | sort_by(.databaseId) | .[0] // empty | "\(.databaseId) \(.url)"' \
+                  || true
+              )"
+              if [ -n "${MATCH}" ]; then
+                RUN_ID="${MATCH%% *}"
+                RUN_URL="${MATCH##* }"
+                echo "Bound to dispatched prepare-release run ${RUN_ID} (${RUN_URL})"
+              fi
+            fi
+
+            if [ -n "${RUN_ID}" ]; then
               STATUS="$(gh run view "${RUN_ID}" --json status --jq '.status' 2>/dev/null || echo unknown)"
               if [ "${STATUS}" = "completed" ]; then
                 CONCLUSION="$(gh run view "${RUN_ID}" --json conclusion --jq '.conclusion' 2>/dev/null || echo unknown)"
                 if [ "${CONCLUSION}" != "success" ]; then
-                  echo "ERROR: prepare-release workflow concluded with '${CONCLUSION}'"
+                  echo "ERROR: prepare-release workflow run ${RUN_ID} concluded with '${CONCLUSION}' (${RUN_URL})"
                   exit 1
                 fi
-                echo "prepare-release workflow completed successfully"
+                echo "prepare-release workflow run ${RUN_ID} completed successfully (${RUN_URL})"
                 exit 0
               fi
             fi
@@ -618,6 +653,9 @@ jobs:
             echo "Waiting for prepare-release workflow... (${ELAPSED}s/${TIMEOUT}s)"
           done
 
+          if [ -z "${RUN_ID}" ]; then
+            echo "ERROR: no prepare-release run created at or after ${DISPATCH_TS} was ever observed; the dispatch may never have started a run"
+          fi
           echo "ERROR: timed out waiting for prepare-release workflow completion"
           exit 1
 
@@ -744,12 +782,15 @@ jobs:
           GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
         run: |
           set -euo pipefail
+          # Filters must match the poll in the wait step exactly, or the baseline
+          # does not describe the population being polled (vig-os/devkit#1477).
           BEFORE_RUN_ID="$(
-            gh run list --workflow release.yml --branch "${WORKFLOW_REF}" --limit 1 --json databaseId --jq '.[0].databaseId // 0' 2>/dev/null || echo 0
+            gh run list --workflow release.yml --branch "${WORKFLOW_REF}" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0' 2>/dev/null || echo 0
           )"
           echo "before_run_id=${BEFORE_RUN_ID}" >> "${GITHUB_OUTPUT}"
 
       - name: Trigger release workflow
+        id: trigger_release
         env:
           GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
           BASE_VERSION: ${{ needs.validate.outputs.base_version }}
@@ -761,6 +802,16 @@ jobs:
           if [ "${RELEASE_KIND}" = "candidate" ] && [ -n "${RC_NUMBER}" ]; then
             EXTRA=( -f "rc-number=${RC_NUMBER}" )
           fi
+          # Stamp the dispatch time immediately before dispatching so the wait
+          # step can bind to the run this job started. Backdated by 60s: the
+          # stamp is taken on the runner and compared against a server-side
+          # createdAt, and skew in the wrong direction would filter the
+          # dispatched run out of its own wait and turn every wait into a
+          # timeout. The margin is far smaller than the gap to any plausible
+          # earlier run (the run wrongly matched on the 1.8.0 final was 47
+          # minutes old -- vig-os/devkit#1477).
+          DISPATCH_TS="$(date -u -d '60 seconds ago' +%Y-%m-%dT%H:%M:%SZ)"
+          echo "dispatch_ts=${DISPATCH_TS}" >> "${GITHUB_OUTPUT}"
           gh workflow run release.yml \
             --ref "${WORKFLOW_REF}" \
             -f version="${BASE_VERSION}" \
@@ -772,23 +823,45 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
           BEFORE_RUN_ID: ${{ steps.capture_release_before.outputs.before_run_id }}
+          DISPATCH_TS: ${{ steps.trigger_release.outputs.dispatch_ts }}
         run: |
           set -euo pipefail
           TIMEOUT=1800
           INTERVAL=30
           ELAPSED=0
+          RUN_ID=""
+          RUN_URL=""
 
           while [ "${ELAPSED}" -lt "${TIMEOUT}" ]; do
-            RUN_ID="$(gh run list --workflow release.yml --branch "${WORKFLOW_REF}" --limit 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)"
-            if [ -n "${RUN_ID}" ] && [ "${RUN_ID}" -gt "${BEFORE_RUN_ID}" ]; then
+            if [ -z "${RUN_ID}" ]; then
+              # Bind to the run this job dispatched: newer than the pre-dispatch
+              # baseline AND created no earlier than the dispatch stamp. The
+              # oldest such run is ours; a later one must never hijack the wait,
+              # so the id is resolved once and then locked on. ISO-8601 `Z`
+              # stamps compare correctly as strings, and `gh --jq` cannot take
+              # `--arg`, so the JSON is piped to jq.
+              MATCH="$(
+                gh run list --workflow release.yml --branch "${WORKFLOW_REF}" --event workflow_dispatch --limit 20 --json databaseId,createdAt,url 2>/dev/null \
+                  | jq -r --arg ts "${DISPATCH_TS}" --arg before "${BEFORE_RUN_ID}" \
+                    '[.[] | select(.createdAt >= $ts and .databaseId > ($before | tonumber))] | sort_by(.databaseId) | .[0] // empty | "\(.databaseId) \(.url)"' \
+                  || true
+              )"
+              if [ -n "${MATCH}" ]; then
+                RUN_ID="${MATCH%% *}"
+                RUN_URL="${MATCH##* }"
+                echo "Bound to dispatched release run ${RUN_ID} (${RUN_URL})"
+              fi
+            fi
+
+            if [ -n "${RUN_ID}" ]; then
               STATUS="$(gh run view "${RUN_ID}" --json status --jq '.status' 2>/dev/null || echo unknown)"
               if [ "${STATUS}" = "completed" ]; then
                 CONCLUSION="$(gh run view "${RUN_ID}" --json conclusion --jq '.conclusion' 2>/dev/null || echo unknown)"
                 if [ "${CONCLUSION}" != "success" ]; then
-                  echo "ERROR: release workflow concluded with '${CONCLUSION}'"
+                  echo "ERROR: release workflow run ${RUN_ID} concluded with '${CONCLUSION}' (${RUN_URL})"
                   exit 1
                 fi
-                echo "release workflow completed successfully"
+                echo "release workflow run ${RUN_ID} completed successfully (${RUN_URL})"
                 exit 0
               fi
             fi
@@ -798,6 +871,9 @@ jobs:
             echo "Waiting for release workflow... (${ELAPSED}s/${TIMEOUT}s)"
           done
 
+          if [ -z "${RUN_ID}" ]; then
+            echo "ERROR: no release run created at or after ${DISPATCH_TS} was ever observed; the dispatch may never have started a run"
+          fi
           echo "ERROR: timed out waiting for release workflow completion"
           exit 1
 
@@ -910,17 +986,30 @@ jobs:
           GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
         run: |
           set -euo pipefail
+          # Filters must match the poll in the wait step exactly, or the baseline
+          # does not describe the population being polled (vig-os/devkit#1477).
           BEFORE_RUN_ID="$(
-            gh run list --workflow promote-release.yml --branch "${WORKFLOW_REF}" --limit 1 --json databaseId --jq '.[0].databaseId // 0' 2>/dev/null || echo 0
+            gh run list --workflow promote-release.yml --branch "${WORKFLOW_REF}" --event workflow_dispatch --limit 1 --json databaseId --jq '.[0].databaseId // 0' 2>/dev/null || echo 0
           )"
           echo "before_run_id=${BEFORE_RUN_ID}" >> "${GITHUB_OUTPUT}"
 
       - name: Trigger promote-release workflow
+        id: trigger_promote
         env:
           GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
           BASE_VERSION: ${{ needs.validate.outputs.base_version }}
         run: |
           set -euo pipefail
+          # Stamp the dispatch time immediately before dispatching so the wait
+          # step can bind to the run this job started. Backdated by 60s: the
+          # stamp is taken on the runner and compared against a server-side
+          # createdAt, and skew in the wrong direction would filter the
+          # dispatched run out of its own wait and turn every wait into a
+          # timeout. The margin is far smaller than the gap to any plausible
+          # earlier run (the run wrongly matched on the 1.8.0 final was 47
+          # minutes old -- vig-os/devkit#1477).
+          DISPATCH_TS="$(date -u -d '60 seconds ago' +%Y-%m-%dT%H:%M:%SZ)"
+          echo "dispatch_ts=${DISPATCH_TS}" >> "${GITHUB_OUTPUT}"
           gh workflow run promote-release.yml \
             --ref "${WORKFLOW_REF}" \
             -f version="${BASE_VERSION}"
@@ -929,23 +1018,45 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
           BEFORE_RUN_ID: ${{ steps.capture_promote_before.outputs.before_run_id }}
+          DISPATCH_TS: ${{ steps.trigger_promote.outputs.dispatch_ts }}
         run: |
           set -euo pipefail
           TIMEOUT=1800
           INTERVAL=30
           ELAPSED=0
+          RUN_ID=""
+          RUN_URL=""
 
           while [ "${ELAPSED}" -lt "${TIMEOUT}" ]; do
-            RUN_ID="$(gh run list --workflow promote-release.yml --branch "${WORKFLOW_REF}" --limit 1 --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)"
-            if [ -n "${RUN_ID}" ] && [ "${RUN_ID}" -gt "${BEFORE_RUN_ID}" ]; then
+            if [ -z "${RUN_ID}" ]; then
+              # Bind to the run this job dispatched: newer than the pre-dispatch
+              # baseline AND created no earlier than the dispatch stamp. The
+              # oldest such run is ours; a later one must never hijack the wait,
+              # so the id is resolved once and then locked on. ISO-8601 `Z`
+              # stamps compare correctly as strings, and `gh --jq` cannot take
+              # `--arg`, so the JSON is piped to jq.
+              MATCH="$(
+                gh run list --workflow promote-release.yml --branch "${WORKFLOW_REF}" --event workflow_dispatch --limit 20 --json databaseId,createdAt,url 2>/dev/null \
+                  | jq -r --arg ts "${DISPATCH_TS}" --arg before "${BEFORE_RUN_ID}" \
+                    '[.[] | select(.createdAt >= $ts and .databaseId > ($before | tonumber))] | sort_by(.databaseId) | .[0] // empty | "\(.databaseId) \(.url)"' \
+                  || true
+              )"
+              if [ -n "${MATCH}" ]; then
+                RUN_ID="${MATCH%% *}"
+                RUN_URL="${MATCH##* }"
+                echo "Bound to dispatched promote-release run ${RUN_ID} (${RUN_URL})"
+              fi
+            fi
+
+            if [ -n "${RUN_ID}" ]; then
               STATUS="$(gh run view "${RUN_ID}" --json status --jq '.status' 2>/dev/null || echo unknown)"
               if [ "${STATUS}" = "completed" ]; then
                 CONCLUSION="$(gh run view "${RUN_ID}" --json conclusion --jq '.conclusion' 2>/dev/null || echo unknown)"
                 if [ "${CONCLUSION}" != "success" ]; then
-                  echo "ERROR: promote-release workflow concluded with '${CONCLUSION}'"
+                  echo "ERROR: promote-release workflow run ${RUN_ID} concluded with '${CONCLUSION}' (${RUN_URL})"
                   exit 1
                 fi
-                echo "promote-release workflow completed successfully"
+                echo "promote-release workflow run ${RUN_ID} completed successfully (${RUN_URL})"
                 exit 0
               fi
             fi
@@ -955,6 +1066,9 @@ jobs:
             echo "Waiting for promote-release workflow... (${ELAPSED}s/${TIMEOUT}s)"
           done
 
+          if [ -z "${RUN_ID}" ]; then
+            echo "ERROR: no promote-release run created at or after ${DISPATCH_TS} was ever observed; the dispatch may never have started a run"
+          fi
           echo "ERROR: timed out waiting for promote-release workflow completion"
           exit 1
 
