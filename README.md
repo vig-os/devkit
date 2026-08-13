@@ -211,7 +211,7 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 - **Registry**: `ghcr.io/vig-os/devcontainer`
 - **Architecture**: Multi-platform support (AMD64, ARM64)
 - **License**: Apache
-- **Latest Version**: [1.8.0](https://github.com/vig-os/devkit/releases/tag/1.8.0) - 2026-08-12
+- **Latest Version**: [1.9.0](https://github.com/vig-os/devkit/releases/tag/1.9.0) - 2026-08-13
 - **Image tags**: bare semver (`0.2.1`, `latest`) — git tags use `v` prefix (`v0.2.1`) but image tags do not
 
 ## Features
