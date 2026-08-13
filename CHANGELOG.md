@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.9.0] - TBD
+
+### Added
+
 - **`guardrails` capability module — the org's semantic gates, now devkit-owned**
   ([#1488](https://github.com/vig-os/devkit/issues/1488),
   [#1492](https://github.com/vig-os/devkit/issues/1492))
@@ -179,10 +193,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     are kept: each guards a different irreversible act (burning the immutable
     `X.Y.Z` tag; moving `:latest` and merging to `main`)
 
-### Deprecated
-
-### Removed
-
 ### Fixed
 
 - **The promote gate checks the release PR before publishing, not after**
@@ -273,7 +283,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Renewed onto the shared `2026-09-02` grid date, and each entry now records
     its CVSS and the advisory's required vector in place of the previous
     "specifics unverified offline" placeholder
-
 
 ## [1.8.0](https://github.com/vig-os/devkit/releases/tag/1.8.0) - 2026-08-12
 
