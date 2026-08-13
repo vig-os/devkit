@@ -115,6 +115,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `test` / `test-cov` only swallow pytest's exit 5 ("no tests collected")
     while the repo has no `tests/` directory — once one exists, zero collected
     propagates as a failure
+- **Release docs: the release PR must be re-approved before promote**
+  ([#1474](https://github.com/vig-os/devkit/issues/1474))
+  - A final `release.yml` run's `finalize` job pushes to `release/X.Y.Z` (the
+    CHANGELOG date stamp and the `sync-issues` commit), which dismisses the PR
+    approval that same run required wherever stale-review dismissal is enabled.
+    `promote-release.yml` re-checks approvals before merging, so re-approving is
+    a mandatory step between the final and the promote dispatch
+  - `docs/RELEASE_CYCLE.md` now says so in Phase 2 step 7, the Phase 3
+    prerequisites, the release lifecycle diagram, and the `release.yml`
+    reference, and carries the re-approval commands as an explicit Phase 5 step
+    before the promote dispatch; `docs/DOWNSTREAM_RELEASE.md` mirrors the
+    operator step for consumers
+  - Documentation only — no workflow or behaviour change. Both approval gates
+    are kept: each guards a different irreversible act (burning the immutable
+    `X.Y.Z` tag; moving `:latest` and merging to `main`)
 
 ### Deprecated
 
