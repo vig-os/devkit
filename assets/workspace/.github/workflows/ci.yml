@@ -105,6 +105,9 @@ jobs:
           sparse-checkout: |
             .vig-os
             .github/actions/resolve-toolchain
+            pyproject.toml
+            package.json
+            Cargo.toml
           sparse-checkout-cone-mode: false
 
       - name: Resolve toolchain
@@ -114,6 +117,65 @@ jobs:
           registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
           registry-username: ${{ github.actor }}
           image-tag: ${{ inputs.image-tag }}
+
+      # Declared-language gate (#1478). `just test` / `just lint` are guarded on
+      # `[ -f pyproject.toml ]` and exit 0 when it is absent, so a repo whose
+      # entire Python project was deleted still reported a green `Tests` check
+      # (#1466) — CI could not tell "no suite by design" from "the suite
+      # vanished". The `.vig-os` declaration is the missing evidence; this step
+      # asserts it.
+      #
+      # ONE gate for the whole workflow, run as a step of resolve-toolchain
+      # rather than as its own job: every toolchain job already `needs:` this
+      # one, so a failure here stops lint/test/commit-checks before they start
+      # (which covers the identical lint/format blind spot at the same time), it
+      # reuses the checkout this job already performs, and it costs no extra
+      # runner, container pull or `needs:` edge in the summary gate. The marker
+      # files are added to the sparse checkout above for exactly this step.
+      #
+      # A language-neutral repo declares nothing and stays green. `nix` is
+      # declared but never gated: it has no single marker file (flake.nix ships
+      # with every direnv scaffold), so its absence is not decidable from a path.
+      # The declared list reaches the shell via env, never inline `${{ }}` (the
+      # zizmor template-injection gate / #1279 env-routing pattern).
+      - name: Check declared languages
+        env:
+          LANGUAGES: ${{ steps.resolve.outputs.languages }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$LANGUAGES" ]]; then
+            echo "No languages declared in .vig-os (DEVKIT_LANGUAGES) — nothing to check."
+            exit 0
+          fi
+
+          MISSING=()
+          IFS=',' read -ra declared <<< "$LANGUAGES"
+          for lang in "${declared[@]}"; do
+            case "$lang" in
+              python) marker="pyproject.toml" ;;
+              node) marker="package.json" ;;
+              rust) marker="Cargo.toml" ;;
+              nix)
+                echo "Declared language 'nix': no single marker file — not gated."
+                continue
+                ;;
+              *)
+                echo "::warning::Unknown language '$lang' in DEVKIT_LANGUAGES — not gated. Expected a subset of: python, node, rust, nix."
+                continue
+                ;;
+            esac
+            if [[ -f "$marker" ]]; then
+              echo "Declared language '$lang': $marker present."
+            else
+              echo "::error::Declared language '$lang' but $marker is missing from the repository root."
+              MISSING+=("$lang ($marker)")
+            fi
+          done
+
+          if [[ ${#MISSING[@]} -gt 0 ]]; then
+            echo "::error::.vig-os declares language(s) whose project file is gone: ${MISSING[*]}. The lint/test recipes skip a language whose marker file is absent, so nothing else in this workflow would notice. Restore the missing file(s), or — if the language was dropped deliberately — remove it from DEVKIT_LANGUAGES in .vig-os."
+            exit 1
+          fi
 
   lint:
     name: Lint & Format

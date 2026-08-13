@@ -24,15 +24,21 @@ info:
 # CODE QUALITY
 # -------------------------------------------------------------------------------
 
+# The uv-backed recipes below are guarded on pyproject.toml so they stay safe in
+# a non-Python repo — but they REPORT the skip instead of no-oping in silence: a
+# repo that lost its pyproject.toml used to run nothing, print nothing and exit 0
+# (#1478). Whether the skip is legitimate is asserted once in CI, against the
+# languages this repo declares in .vig-os (DEVKIT_LANGUAGES).
+
 # Run all linters
 [group('quality')]
 lint:
-    @if [ -f pyproject.toml ]; then uv run ruff check .; fi
+    @if [ -f pyproject.toml ]; then uv run ruff check .; else echo "just lint: no pyproject.toml — skipping"; fi
 
 # Format code
 [group('quality')]
 format:
-    @if [ -f pyproject.toml ]; then uv run ruff format .; fi
+    @if [ -f pyproject.toml ]; then uv run ruff format .; else echo "just format: no pyproject.toml — skipping"; fi
 
 # Run pre-commit hooks on all files
 [group('quality')]
@@ -43,15 +49,18 @@ precommit:
 # TESTING
 # -------------------------------------------------------------------------------
 
-# Run tests with pytest (exit 5 = "no tests collected" is a no-op, not a failure)
+# Run tests with pytest. Exit 5 ("no tests collected") is a no-op ONLY while the
+# repo has no tests/ directory — a fresh scaffold. Once a test directory exists,
+# zero collected is a signal, not a no-op, so it propagates (#1281 narrowed by
+# #1478).
 [group('test')]
 test *args:
-    @if [ -f pyproject.toml ]; then uv run pytest {{ args }} || { rc=$?; [ "$rc" -eq 5 ] || exit "$rc"; }; fi
+    @if [ ! -f pyproject.toml ]; then echo "just test: no pyproject.toml — skipping"; elif uv run pytest {{ args }}; then :; else rc=$?; if [ "$rc" -eq 5 ] && [ ! -d tests ]; then echo "just test: no tests collected and no tests/ directory — skipping"; else exit "$rc"; fi; fi
 
-# Run tests with coverage (exit 5 = "no tests collected" is a no-op, not a failure)
+# Run tests with coverage (same exit-5 rule as `test` above)
 [group('test')]
 test-cov *args:
-    @if [ -f pyproject.toml ]; then uv run pytest --cov --cov-report=term-missing {{ args }} || { rc=$?; [ "$rc" -eq 5 ] || exit "$rc"; }; fi
+    @if [ ! -f pyproject.toml ]; then echo "just test-cov: no pyproject.toml — skipping"; elif uv run pytest --cov --cov-report=term-missing {{ args }}; then :; else rc=$?; if [ "$rc" -eq 5 ] && [ ! -d tests ]; then echo "just test-cov: no tests collected and no tests/ directory — skipping"; else exit "$rc"; fi; fi
 
 # -------------------------------------------------------------------------------
 # DEPENDENCIES
@@ -60,7 +69,7 @@ test-cov *args:
 # Sync dependencies (all groups; extras are opt-in, e.g. `just sync --all-extras`)
 [group('deps')]
 sync *args="--all-groups":
-    @if [ -f pyproject.toml ]; then uv sync {{ args }}; fi
+    @if [ -f pyproject.toml ]; then uv sync {{ args }}; else echo "just sync: no pyproject.toml — skipping"; fi
 
 # Update all dependencies
 [group('deps')]
