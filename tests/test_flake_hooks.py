@@ -217,6 +217,45 @@ class TestPortableRenderFidelity:
             assert "rev" not in hook, profile
 
 
+class TestTyposRunsOnlyAtPreCommit:
+    """typos lints source, never the commit-message buffer (#1489).
+
+    With no ``stages:`` a pre-commit hook runs at EVERY stage, and typos has
+    ``pass_filenames: true``, so the commit-msg round hands it
+    ``COMMIT_EDITMSG``. typos reads short letter runs inside abbreviated git
+    SHAs as misspelled words, and ``git rebase --continue`` writes the rebase
+    todo into that buffer as comment lines::
+
+        #    pick <sha> # docs(release): document the re-approval
+
+    so the commit is refused over a *comment* that never enters the message.
+    The natural workarounds are editing git's own todo or ``--no-verify``,
+    which this repo forbids.
+
+    Pinning ``pre-commit`` costs no coverage — ``prek run --all-files`` and the
+    CI lane both run that stage — and it must hold on every surface: the trap
+    shipped to every scaffolded consumer too (``scaffold = true``).
+    """
+
+    def test_portable_renders_pin_the_pre_commit_stage(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        for profile in ("runner", "scaffold"):
+            hook = _normalize(rendered_portable[profile])["hooks"]["typos"]
+            assert hook.get("stages") == ["pre-commit"], (
+                f"{profile}: typos runs at every stage, so the commit-msg round "
+                "lints COMMIT_EDITMSG (#1489)"
+            )
+
+    def test_consumer_surface_pins_the_pre_commit_stage(self) -> None:
+        """Direnv consumers install real git hooks from this render."""
+        for name, config in _consumer_config_set().items():
+            hooks = _normalize(config)["hooks"]
+            if "typos" not in hooks:
+                continue  # the customized shell disables it on purpose
+            assert hooks["typos"].get("stages") == ["pre-commit"], name
+
+
 class TestCheckJsonExcludesJsoncBanners:
     """check-json skips the `//`-bannered JSONC scaffold files (#1053).
 

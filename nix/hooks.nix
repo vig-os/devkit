@@ -635,12 +635,25 @@ let
         files = "\\.nix$";
       };
     };
+    # `stages` is mandatory here (#1489): a hook with none runs at EVERY stage,
+    # and typos passes filenames — so the commit-msg round hands it
+    # COMMIT_EDITMSG. typos reads short letter runs inside abbreviated git
+    # SHAs as misspelled words, and `git rebase --continue` writes the rebase
+    # todo into that buffer as comment lines ("# pick <sha> # <subject>"), so
+    # the commit is refused over a comment that never enters the message —
+    # and the natural workarounds are editing git's own todo or --no-verify,
+    # which this repo forbids. Pinning the pre-commit stage costs no coverage:
+    # `prek run --all-files` and the CI lane both run it. The git-hooks.nix
+    # surfaces (check/consumer) already default to pre-commit, so only the
+    # portable YAML render needs the pin — all three are held by
+    # tests/test_flake_hooks.py::TestTyposRunsOnlyAtPreCommit.
     typos = {
       scaffold = true;
       yaml = {
         name = "typos (source typo checker)";
         entry = "typos --force-exclude";
         language = "system";
+        stages = [ "pre-commit" ];
       };
       check = _: {
         enable = true;

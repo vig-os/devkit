@@ -155,6 +155,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     mergeability gate ([#1132](https://github.com/vig-os/devkit/issues/1132)) —
     BEHIND / BLOCKED / DIRTY — which the upstream workflow had never carried in
     either job. The `merge` copy is kept: PR state can change between the jobs
+- **`typos` no longer lints the commit-message buffer, so a rebase can commit**
+  ([#1489](https://github.com/vig-os/devkit/issues/1489))
+  - The hook carried no `stages:`, so it ran at *every* hook stage — and since
+    it passes filenames, the `commit-msg` round handed it `COMMIT_EDITMSG`.
+    `typos` reads short letter runs inside abbreviated git SHAs as misspelled
+    words, and `git rebase --continue` writes the rebase todo into that buffer
+    as comment lines, so a legitimate rebase was refused over a *comment* that
+    never enters the commit message. It now runs at `pre-commit` only, which is
+    what a source typo checker is for
+  - **Consumers are affected too**: the hook is scaffolded, so every scaffolded
+    repo shipped the same trap. Adopting this release fixes it. Flake-generated
+    (direnv) consumers were never affected — git-hooks.nix already defaults the
+    hook to the `pre-commit` stage
+  - No coverage is lost: `prek run --all-files` and the CI lint lane both run
+    the `pre-commit` stage
 - **Trunk release preparation: the release PR is no longer empty, and the freeze
   never pushes to the trunk**
   ([#1479](https://github.com/vig-os/devkit/issues/1479))
