@@ -19,16 +19,46 @@ Release was undrafted, and only then did the merge fail — leaving a
 half-promoted release. The validate job must query mergeability and reject a
 non-mergeable PR before the promote job undrafts the Release.
 
+Issue #1487: the same gate, the same reasoning — but the *upstream* copy had
+it only in ``merge``. Devkit's own ``promote-release.yml`` checked the release
+PR's draft status, approvals, CI and (not at all) mergeability after ``promote``
+had already moved GHCR ``:latest`` and published the Release, so an unapproved
+PR failed the promote from a published state. #1474 made the trigger condition
+the default: a final ``release.yml`` run always pushes to the release branch and
+so always dismisses the approval. Both copies now carry the gate in ``validate``
+*and* keep it in ``merge`` — state can change between the two jobs — so these
+suites are parametrized over both copies rather than pinning the scaffold alone.
+
 The tag-move and re-query choreography is bash and not unit-testable here.
 
-Refs: #1045, #1132
+Refs: #1045, #1132, #1487
 """
 
 from __future__ import annotations
 
-from tests.workflow_scaffold import WORKFLOWS, load_workflow
+from typing import TYPE_CHECKING
+
+import pytest
+
+from tests.workflow_scaffold import (
+    REPO_ROOT,
+    WORKFLOWS,
+    load_workflow,
+    step_by_name,
+    steps_of_job,
+)
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 PROMOTE = WORKFLOWS / "promote-release.yml"
+
+# copy id -> the promote-release.yml carrying the release-PR gate (#1487)
+PROMOTE_COPIES: dict[str, Path] = {
+    "devkit": REPO_ROOT / ".github" / "workflows" / "promote-release.yml",
+    "scaffold": WORKFLOWS / "promote-release.yml",
+}
+COPIES = list(PROMOTE_COPIES)
 
 
 # ── floating tags (#1045) ─────────────────────────────────────────────────────
@@ -118,30 +148,61 @@ def test_push_failure_emits_actionable_error() -> None:
     assert "first-release-floating-tags" in script
 
 
-# ── validate gates on PR mergeability (#1132) ─────────────────────────────────
+# ── validate gates on the release PR (#1132, #1487) ───────────────────────────
 
 
-def _validate_pr_step_run() -> str:
-    workflow = load_workflow(PROMOTE)
-    steps = workflow["jobs"]["validate"]["steps"]
-    step = next(s for s in steps if s.get("name") == "Find and verify release PR")
+def _pr_gate_run(copy: str, job: str) -> str:
+    """The bash body of the ``Find and verify release PR`` step of ``job``."""
+    workflow = load_workflow(PROMOTE_COPIES[copy])
+    step = step_by_name(steps_of_job(workflow, job), "Find and verify release PR")
     return step["run"]
 
 
-def test_validate_queries_pr_mergeability() -> None:
+def _validate_pr_step_run(copy: str = "scaffold") -> str:
+    return _pr_gate_run(copy, "validate")
+
+
+@pytest.mark.parametrize("copy", COPIES)
+def test_validate_gates_release_pr_before_promote(copy: str) -> None:
+    """Draft, approval and CI are all checked in validate — before the publish.
+
+    #1487: the upstream copy gated only in ``merge``, which runs *after*
+    ``promote`` moved ``:latest`` and undrafted the Release.
+    """
+    run = _validate_pr_step_run(copy)
+    assert "isDraft" in run
+    assert "still in draft" in run
+    assert "reviewDecision" in run
+    assert "not approved" in run
+    assert "statusCheckRollup" in run
+    assert "failed CI checks" in run
+
+
+@pytest.mark.parametrize("copy", COPIES)
+def test_merge_retains_release_pr_gate(copy: str) -> None:
+    """The merge copy of the gate stays: PR state can change between the jobs."""
+    run = _pr_gate_run(copy, "merge")
+    assert "isDraft" in run
+    assert "reviewDecision" in run
+
+
+@pytest.mark.parametrize("copy", COPIES)
+def test_validate_queries_pr_mergeability(copy: str) -> None:
     """The validate PR check fetches the PR's merge state."""
-    run = _validate_pr_step_run()
+    run = _validate_pr_step_run(copy)
     assert "mergeStateStatus" in run
     assert "mergeable" in run
 
 
-def test_validate_rejects_behind_pr() -> None:
+@pytest.mark.parametrize("copy", COPIES)
+def test_validate_rejects_behind_pr(copy: str) -> None:
     """A BEHIND (not-up-to-date) PR is rejected before the irreversible promote."""
-    run = _validate_pr_step_run()
+    run = _validate_pr_step_run(copy)
     assert "BEHIND" in run
 
 
-def test_validate_requeries_unknown_mergeability() -> None:
+@pytest.mark.parametrize("copy", COPIES)
+def test_validate_requeries_unknown_mergeability(copy: str) -> None:
     """GitHub computes mergeability async, so UNKNOWN is re-queried, not trusted."""
-    run = _validate_pr_step_run()
+    run = _validate_pr_step_run(copy)
     assert "UNKNOWN" in run
