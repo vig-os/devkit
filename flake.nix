@@ -30,6 +30,45 @@
     # Refs #819.
     home-manager.url = "github:nix-community/home-manager/release-26.05";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
+    # ---- Rust language pack (#1400) -------------------------------------
+    # crane: the cargo build library behind lib.mkRustProject's checks and
+    # packages. Dependency-free (like process-compose-flake), so it adds one
+    # leaf lock entry and nothing transitive.
+    crane.url = "github:ipetkov/crane";
+    # fenix: resolves a toolchain from a repo's rust-toolchain.toml, so nix
+    # and rustup agree on the compiler. nixpkgs' Rust tracks the channel and
+    # cannot honour a pin, which is the one thing a language pack must do.
+    #
+    # These are inputs of devkit rather than arguments a Rust consumer passes
+    # in, and that is a deliberate tradeoff: every consumer — including the
+    # Python-only ones — pays for them in lock size and in fetch at eval. The
+    # alternative makes each Rust repo pin its own fenix, which is per-repo
+    # drift on precisely the axis devkit exists to hold still. If the eval
+    # cost turns out to bite, mkRustProject takes `crane`/`fenix` overrides
+    # and the inputs can move out without a consumer-visible change.
+    #
+    # Written as one attrset rather than three dotted keys because statix
+    # flags the repetition (`checks.statix`, which is a required gate).
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+      # fenix pulls the rust-analyzer SOURCE TREE — 28 MB, and 85% of
+      # everything these two inputs cost a downstream consumer. It feeds
+      # exactly one thing: fenix's *nightly* rust-analyzer derivation, which
+      # this pack never builds. `fromToolchainFile` takes its components from
+      # the release-channel manifest instead, so following this away costs
+      # nothing — verified by building filesender's toolchain (whose
+      # rust-toolchain.toml lists rust-analyzer as a component) with the
+      # follows in place and finding `rust-analyzer` in the result.
+      #
+      # Pointed at nixpkgs because every consumer already has it, so the node
+      # disappears from downstream locks rather than being replaced. Lock
+      # nodes 15 -> 14, fetched source ~33 MB -> ~5 MB.
+      #
+      # A consumer who genuinely wants fenix's nightly rust-analyzer must
+      # override this back; nothing in devkit does. Refs #1440.
+      inputs.rust-analyzer-src.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -43,6 +82,8 @@
       process-compose-flake,
       services-flake,
       home-manager,
+      crane,
+      fenix,
     }:
     let
       # ---------------------------------------------------------------------
@@ -199,6 +240,11 @@
       # the generated per-module `checks.<system>.module-<name>` below. See
       # docs/rfcs/ADR-capability-modules.md for the v1 contract.
       capabilityModules = import ./nix/modules/default.nix;
+
+      # How the generated `module-<name>` smoke check instantiates a module
+      # whose options are mandatory (nix/modules/check-entries.nix). Names
+      # absent here use the plain string form, unchanged.
+      capabilityModuleCheckEntries = import ./nix/modules/check-entries.nix;
 
       # One definition of the pre-commit hook set (#883): nix/hooks.nix
       # renders the sandbox-pure `checks.pre-commit` gate, the PATH-portable
@@ -731,6 +777,29 @@
       # mkProjectServices — reusable local dev-services builder (#795).
       #
       # Boots declared services (Postgres, SeaweedFS, Redis, …) as native processes via
+      # ---------------------------------------------------------------------
+      # mkRustProject — the Rust consumer's single entry point (#1400, #1427).
+      #
+      # Composes ABOVE mkProjectShell rather than inside the capability-module
+      # contract, because `checks` is not the shape that contract composes
+      # (the reasoning is in nix/mk-rust-project.nix's header, the decision
+      # in vig-os/devkit#1427). One call returns the dev shell, the checks and
+      # the packages together:
+      #
+      #   rust = inputs.devkit.lib.mkRustProject {
+      #     inherit pkgs;
+      #     src = ./.;
+      #     toolchainHash = "sha256-…";
+      #     crates = [ "my-cli" ];
+      #   };
+      #   devShells.default = rust.devShell;
+      #   checks = rust.checks;
+      #   packages = rust.packages;
+      # ---------------------------------------------------------------------
+      mkRustProject = import ./nix/mk-rust-project.nix {
+        inherit mkProjectShell crane fenix;
+      };
+
       # process-compose + services-flake — no Docker/Podman daemon — with the
       # service versions coming from the caller's `pkgs` (the pinned nixpkgs
       # lock, never out-of-lock image tags). services-flake is consumed through
@@ -768,6 +837,11 @@
           ];
           config.allowUnfree = true;
         };
+
+        # The vendored semantic gates (#1488). Built once per system and used
+        # both by the `guardrails` capability module (via callPackage) and by
+        # the canary check below.
+        guardrailsPkg = pkgs.callPackage ./nix/guardrails.nix { };
 
         # treefmt-nix: one `nix fmt` entrypoint + a `checks.formatting` gate over
         # the whole repo. The enabled programs mirror the pre-commit formatters —
@@ -1130,6 +1204,54 @@
             touch "$out"
           '';
 
+          # error+warning shellcheck over the vendored gates. They are
+          # excluded from the repo-wide hook (which runs at `style`) because
+          # rewriting working, fixture-covered shell for SC2181 is a bad
+          # trade — but "excluded from the strict hook" must not become
+          # "unchecked", so the real bar is enforced here. Refs #1488.
+          guardrails-shellcheck =
+            pkgs.runCommand "guardrails-shellcheck" { nativeBuildInputs = [ pkgs.shellcheck ]; }
+              ''
+                shellcheck -S warning -x ${./assets/guardrails}/gates/*.sh \
+                                        ${./assets/guardrails}/tools/*.sh
+                touch "$out"
+              '';
+
+          # Every guardrails gate is fed a KNOWN-BAD fixture and must reject
+          # it, and a known-good one and must stay quiet (#1488, #1492).
+          #
+          # This is the assurance half of the guardrails module, and it is
+          # deliberately not a check that the gates are *configured*. This
+          # org's record is eight instances of something configured, believed
+          # active and never executed — four of them "listed in the config,
+          # did not run". A check that reads YAML would have caught none of
+          # them. "Protected" has to mean the gate rejected a known-bad input,
+          # because that is the only claim config drift cannot counterfeit.
+          #
+          # It runs upstream's own fixtures against the PACKAGED scripts —
+          # the exact files a consumer gets, not a copy — so a packaging
+          # mistake (a missing runtime dependency in the wrapper, say) fails
+          # here rather than in someone's repo.
+          guardrails-canary =
+            pkgs.runCommand "guardrails-canary"
+              {
+                nativeBuildInputs = [
+                  pkgs.git
+                  guardrailsPkg
+                ]
+                ++ guardrailsPkg.runtimeInputs;
+              }
+              ''
+                export HOME="$TMPDIR"
+                git config --global user.email ci@vig-os.invalid
+                git config --global user.name CI
+                git config --global init.defaultBranch main
+                set -e
+                bash ${guardrailsPkg}/share/guardrails/gates/test-gates.sh
+                bash ${guardrailsPkg}/share/guardrails/gates/test-adr-matrix.sh
+                touch "$out"
+              '';
+
           # The sandbox-pure subset of the pre-commit hooks, run by the prek
           # runner via git-hooks.nix (see preCommitCheck above). Refs #778.
           pre-commit = preCommitCheck;
@@ -1154,7 +1276,7 @@
           name: _:
           pkgs.lib.nameValuePair "module-${name}" (mkProjectShell {
             inherit pkgs;
-            modules = [ name ];
+            modules = [ (capabilityModuleCheckEntries.${name} or name) ];
           })
         ) capabilityModules
         # The ci homeConfigurations build as Tier-0 checks. x86_64-darwin is
@@ -1615,6 +1737,7 @@
         inherit
           mkProjectShell
           mkProjectServices
+          mkRustProject
           devTools
           ;
         # PATH-portable renders of the one hook-set definition (#883):

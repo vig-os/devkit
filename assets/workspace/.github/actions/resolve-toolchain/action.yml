@@ -98,6 +98,13 @@ outputs:
       keeps ci.yml's scaffold-drift job enabled, `false` self-skips it. Emitted
       for every mode so the job's `if:` can gate on it with no re-scaffold.
     value: ${{ steps.resolve.outputs.drift-check }}
+  languages:
+    description: >-
+      Comma-separated project languages DECLARED in DEVKIT_LANGUAGES, for the
+      ci.yml gate that fails when a declared language's marker file is gone. An
+      EXPLICIT EMPTY STRING when the key is absent/empty (nothing declared), so
+      a language-neutral repo — and any consumer predating the key — stays green.
+    value: ${{ steps.resolve.outputs.languages }}
 
 runs:
   using: composite
@@ -120,6 +127,7 @@ runs:
         COMMIT_TYPES=""
         BRANCH_TYPES=""
         DRIFT_CHECK=""
+        LANGUAGES=""
 
         if [[ -f .vig-os ]]; then
           # Tolerant KEY=VALUE parsing shared with resolve-image (#781): capture
@@ -131,7 +139,7 @@ runs:
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
 
             case "$line" in
-              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_REFS_POLICY=*|DEVKIT_COMMIT_TYPES=*|DEVKIT_BRANCH_TYPES=*|DEVKIT_DRIFT_CHECK=*)
+              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_REFS_POLICY=*|DEVKIT_COMMIT_TYPES=*|DEVKIT_BRANCH_TYPES=*|DEVKIT_DRIFT_CHECK=*|DEVKIT_LANGUAGES=*)
                 key="${line%%=*}"
                 value="${line#*=}"
                 value="${value#"${value%%[![:space:]]*}"}"
@@ -154,6 +162,7 @@ runs:
                   DEVKIT_COMMIT_TYPES) COMMIT_TYPES="$value" ;;
                   DEVKIT_BRANCH_TYPES) BRANCH_TYPES="$value" ;;
                   DEVKIT_DRIFT_CHECK) DRIFT_CHECK="$value" ;;
+                  DEVKIT_LANGUAGES) LANGUAGES="$value" ;;
                 esac
                 ;;
             esac
@@ -302,6 +311,26 @@ runs:
         DRIFT_CHECK="${DRIFT_CHECK:-true}"
         [[ "$DRIFT_CHECK" == "false" ]] || DRIFT_CHECK="true"
         echo "drift-check=$DRIFT_CHECK" >> "$GITHUB_OUTPUT"
+
+        # Declared languages (#1478): DEVKIT_LANGUAGES is the repo's own
+        # statement of which language projects it carries — a DECLARATION the
+        # scaffold seeds and only ever grows, never a detection cache. Normalize
+        # only (trim each entry, drop empties); the enum guard lives at the write
+        # path (init-workspace.sh) and the ci.yml gate skips a name it cannot map
+        # to a marker, so a surprise literal warns instead of breaking CI.
+        # Emitted for every mode, ALWAYS (an explicit empty string when nothing
+        # is declared) so the gate can treat empty as "nothing to assert".
+        RESOLVED_LANGUAGES=""
+        if [[ -n "$LANGUAGES" ]]; then
+          IFS=',' read -ra language_entries <<< "$LANGUAGES"
+          for entry in "${language_entries[@]}"; do
+            entry="${entry#"${entry%%[![:space:]]*}"}"
+            entry="${entry%"${entry##*[![:space:]]}"}"
+            [[ -z "$entry" ]] && continue
+            RESOLVED_LANGUAGES+="${RESOLVED_LANGUAGES:+,}$entry"
+          done
+        fi
+        echo "languages=$RESOLVED_LANGUAGES" >> "$GITHUB_OUTPUT"
 
         # Resolve the version tag: explicit override wins, else DEVKIT_VERSION,
         # else the legacy DEVCONTAINER_VERSION.

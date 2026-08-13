@@ -84,7 +84,7 @@ repos:
         # .envrc files (root + the scaffolded template stub) are direnv stdlib
         # scripts with no shebang; exclude them from SC2148 at any path.
         args: ["-x"]
-        exclude: (^|/)\.envrc$
+        exclude: (^|/)\.envrc$|^assets/guardrails/
 
   # Markdown linting (pymarkdown from the flake toolchain; excludes auto-generated
   # docs). Packaged in nix/pymarkdown.nix and promoted to a language: system hook
@@ -127,6 +127,7 @@ repos:
         name: typos (source typo checker)
         entry: typos --force-exclude
         language: system
+        stages: [pre-commit]
 
   # Security exception expiry enforcement (Refs: #566)
   - repo: local
@@ -156,6 +157,7 @@ repos:
         entry: uv run check-agent-identity
         language: system
         pass_filenames: false
+        stages: [pre-commit]
 
   # Commit message validation (commit-msg stage). Scope is free-form
   # ("alphanumeric and hyphens only" per docs/COMMIT_MESSAGE_STANDARD.md);

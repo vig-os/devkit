@@ -150,7 +150,7 @@ jobs:
     outputs:
       changelog: ${{ steps.changelog.outputs.changelog }}
       prepare_start_sha: ${{ steps.pre_state.outputs.prepare_start_sha }}
-      dev_sha: ${{ steps.create_branch.outputs.dev_sha }}
+      freeze_sha: ${{ steps.freeze_wait.outputs.freeze_sha }}
 
     steps:
       - name: Generate Commit App Token
@@ -181,6 +181,49 @@ jobs:
           PREPARE_START_SHA=$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
             gh api "repos/${{ github.repository }}/git/ref/heads/dev" --jq '.object.sha')
           echo "prepare_start_sha=$PREPARE_START_SHA" >> "$GITHUB_OUTPUT"
+
+      # The release branch is cut from the base BEFORE the changelog freeze, so
+      # that the freeze target is free to be either branch (#1479). That keeps
+      # this file model-agnostic: the trunk render is a literal substitution of
+      # the freeze target (release/X.Y.Z there, so the freeze never pushes to
+      # the protected trunk and the release PR carries a real commit), with no
+      # step reordering. The branch starts at the PRE-freeze base SHA and is
+      # fast-forwarded onto the freeze commit further down.
+      - name: Create release branch from dev
+        id: create_branch
+        env:
+          GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
+          RELEASE_BRANCH: ${{ needs.validate.outputs.release_branch }}
+          PREPARE_START_SHA: ${{ steps.pre_state.outputs.prepare_start_sha }}
+        run: |
+          set -euo pipefail
+          BRANCH_CREATED=true
+          retry --retries 3 --backoff 5 --max-backoff 60 -- \
+            gh api "repos/${{ github.repository }}/git/refs" \
+            -f ref="refs/heads/$RELEASE_BRANCH" \
+            -f sha="$PREPARE_START_SHA" || {
+              if retry --retries 2 --backoff 5 --max-backoff 20 -- \
+                gh api "repos/${{ github.repository }}/git/ref/heads/$RELEASE_BRANCH" >/dev/null 2>&1; then
+                echo "Release branch already exists: $RELEASE_BRANCH"
+                BRANCH_CREATED=false
+              else
+                exit 1
+              fi
+            }
+          echo "branch_created=$BRANCH_CREATED" >> "$GITHUB_OUTPUT"
+
+      # Absorbs GitHub's ref read-after-write lag before anything else touches
+      # the branch — under a trunk render the very next writer is the changelog
+      # freeze itself, which targets this branch.
+      - name: Verify release branch is resolvable
+        env:
+          GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
+          RELEASE_BRANCH: ${{ needs.validate.outputs.release_branch }}
+        run: |
+          set -euo pipefail
+          retry --retries 10 --backoff 2 --max-backoff 30 -- \
+            gh api "repos/${{ github.repository }}/git/ref/heads/$RELEASE_BRANCH" --jq '.object.sha'
+          echo "✓ Release branch ref verified as resolvable"
 
       # Bot-PR entries (Renovate, devkit adoptions) are synthesized into
       # Unreleased right before the freeze so they ride the freeze commit; the
@@ -245,56 +288,67 @@ jobs:
             and create fresh empty Unreleased section for continued development.
           FILE_PATHS: CHANGELOG.md
 
-      - name: Create release branch from dev
-        id: create_branch
+      - name: Wait for the freeze commit to become visible
+        id: freeze_wait
         env:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
-          RELEASE_BRANCH: ${{ needs.validate.outputs.release_branch }}
+          FREEZE_REF: heads/dev
           PREPARE_START_SHA: ${{ steps.pre_state.outputs.prepare_start_sha }}
         run: |
           set -euo pipefail
-          # Wait for dev to advance past the pre-freeze SHA before branching (#617).
-          # The freeze commit-action updates dev's ref, but a REST ref read can
-          # briefly return the stale pre-freeze SHA (read-after-write lag); branching
-          # then would create release/X.Y.Z without the freeze. `retry` only retries
-          # on failure, so a stale-but-successful read slips through -- assert the SHA
-          # actually changed instead of trusting the first read.
-          DEV_SHA=""
+          # Wait for the freeze target to advance past the pre-freeze SHA (#617).
+          # The freeze commit-action updates that ref, but a REST ref read can
+          # briefly return the stale pre-freeze SHA (read-after-write lag); acting
+          # on it would fast-forward release/X.Y.Z to a commit without the freeze.
+          # `retry` only retries on failure, so a stale-but-successful read slips
+          # through -- assert the SHA actually changed instead of trusting the
+          # first read.
+          FREEZE_SHA=""
           for attempt in $(seq 1 8); do
-            DEV_SHA=$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
-              gh api "repos/${{ github.repository }}/git/ref/heads/dev" --jq '.object.sha')
-            if [ "$DEV_SHA" != "$PREPARE_START_SHA" ]; then
+            FREEZE_SHA=$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
+              gh api "repos/${{ github.repository }}/git/ref/$FREEZE_REF" --jq '.object.sha')
+            if [ "$FREEZE_SHA" != "$PREPARE_START_SHA" ]; then
               break
             fi
-            echo "dev still at pre-freeze SHA $DEV_SHA (attempt $attempt/8); waiting for freeze to propagate..."
+            echo "$FREEZE_REF still at pre-freeze SHA $FREEZE_SHA (attempt $attempt/8); waiting for the freeze to propagate..."
             sleep 5
           done
-          if [ "$DEV_SHA" = "$PREPARE_START_SHA" ]; then
-            echo "ERROR: dev did not advance past pre-freeze SHA $PREPARE_START_SHA; freeze commit not visible"
+          if [ "$FREEZE_SHA" = "$PREPARE_START_SHA" ]; then
+            echo "ERROR: $FREEZE_REF did not advance past pre-freeze SHA $PREPARE_START_SHA; freeze commit not visible"
             exit 1
           fi
-          retry --retries 3 --backoff 5 --max-backoff 60 -- \
-            gh api "repos/${{ github.repository }}/git/refs" \
-            -f ref="refs/heads/$RELEASE_BRANCH" \
-            -f sha="$DEV_SHA" || {
-              if retry --retries 2 --backoff 5 --max-backoff 20 -- \
-                gh api "repos/${{ github.repository }}/git/ref/heads/$RELEASE_BRANCH" >/dev/null 2>&1; then
-                echo "Release branch already exists: $RELEASE_BRANCH"
-              else
-                exit 1
-              fi
-            }
-          echo "dev_sha=$DEV_SHA" >> "$GITHUB_OUTPUT"
+          echo "freeze_sha=$FREEZE_SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Verify release branch is resolvable
+      # Fast-forward release/X.Y.Z onto the freeze commit, so the branch (and
+      # every downstream consumer of `freeze_sha`) carries the frozen CHANGELOG.
+      # The update is NON-force: under gitflow the branch sits exactly one commit
+      # behind the freeze, a genuine fast-forward; under trunk the freeze already
+      # landed ON this branch, so the SHAs match and the step short-circuits.
+      #
+      # Gated on this run having created the branch: a pre-existing release/X.Y.Z
+      # (a re-prepare race -- `validate` normally refuses it) may carry commits
+      # that are NOT ancestors of the freeze commit, where the update is not a
+      # fast-forward at all and force=false would rightly refuse it. Skipping
+      # keeps the tolerant behaviour that branch creation has always had. (#1479)
+      - name: Fast-forward release branch to the freeze commit
+        if: ${{ steps.create_branch.outputs.branch_created == 'true' }}
         env:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           RELEASE_BRANCH: ${{ needs.validate.outputs.release_branch }}
+          FREEZE_SHA: ${{ steps.freeze_wait.outputs.freeze_sha }}
         run: |
           set -euo pipefail
-          retry --retries 10 --backoff 2 --max-backoff 30 -- \
-            gh api "repos/${{ github.repository }}/git/ref/heads/$RELEASE_BRANCH" --jq '.object.sha'
-          echo "✓ Release branch ref verified as resolvable"
+          BRANCH_SHA=$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
+            gh api "repos/${{ github.repository }}/git/ref/heads/$RELEASE_BRANCH" --jq '.object.sha')
+          if [ "$BRANCH_SHA" = "$FREEZE_SHA" ]; then
+            echo "✓ $RELEASE_BRANCH already carries the freeze commit"
+          else
+            retry --retries 3 --backoff 5 --max-backoff 60 -- \
+              gh api -X PATCH "repos/${{ github.repository }}/git/refs/heads/$RELEASE_BRANCH" \
+              -f sha="$FREEZE_SHA" \
+              -F force=false
+            echo "✓ Fast-forwarded $RELEASE_BRANCH to the freeze commit $FREEZE_SHA"
+          fi
 
       # The release branch keeps the empty ## Unreleased section (no stripping).
       # main therefore retains ## Unreleased above the dated release, matching
@@ -316,7 +370,7 @@ jobs:
     with:
       version: ${{ needs.validate.outputs.version }}
       release_branch: ${{ needs.validate.outputs.release_branch }}
-      branch_sha: ${{ needs.prepare.outputs.dev_sha }}
+      branch_sha: ${{ needs.prepare.outputs.freeze_sha }}
       dry_run: ${{ inputs.dry-run }}
     secrets: inherit
 
@@ -392,6 +446,21 @@ jobs:
           if [ -n "$EXISTING_PR_URL" ]; then
             PR_URL="$EXISTING_PR_URL"
           else
+            # Same-SHA guard (#1479): GitHub refuses to open a pull request whose
+            # head and base resolve to the same commit ("No commits between main
+            # and release/X.Y.Z"). That is precisely what a release branch cut
+            # from a post-freeze base produces, and a local-git simulation cannot
+            # express the server-side refusal (why #1206 could not catch it), so
+            # the topology is asserted here where the diagnosis is unambiguous.
+            BASE_SHA=$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
+              gh api "repos/${{ github.repository }}/git/ref/heads/main" --jq '.object.sha')
+            HEAD_SHA=$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
+              gh api "repos/${{ github.repository }}/git/ref/heads/$RELEASE_BRANCH" --jq '.object.sha')
+            if [ "$BASE_SHA" = "$HEAD_SHA" ]; then
+              echo "ERROR: $RELEASE_BRANCH and main are the same commit ($HEAD_SHA)"
+              echo "The release PR would carry zero commits; the changelog freeze did not reach $RELEASE_BRANCH."
+              exit 1
+            fi
             PR_URL=$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
               gh pr create \
                 --base main \
@@ -467,22 +536,28 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           RELEASE_BRANCH: ${{ needs.validate.outputs.release_branch }}
+          FREEZE_REF: heads/dev
           PREPARE_START_SHA: ${{ needs.prepare.outputs.prepare_start_sha }}
-          POST_FREEZE_DEV_SHA: ${{ needs.prepare.outputs.dev_sha }}
+          POST_FREEZE_SHA: ${{ needs.prepare.outputs.freeze_sha }}
         run: |
           set -euo pipefail
           CHANGELOG_ROLLBACK_NEEDED=false
           retry --retries 3 --backoff 5 --max-backoff 60 -- \
             gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$RELEASE_BRANCH" || true
 
-          if [ -z "${PREPARE_START_SHA:-}" ] || [ -z "${POST_FREEZE_DEV_SHA:-}" ]; then
+          if [ -z "${PREPARE_START_SHA:-}" ] || [ -z "${POST_FREEZE_SHA:-}" ]; then
             echo "changelog_rollback_needed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
-          CURRENT_DEV_SHA=$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
-            gh api "repos/${{ github.repository }}/git/ref/heads/dev" --jq '.object.sha')
-          if [ "$CURRENT_DEV_SHA" != "$POST_FREEZE_DEV_SHA" ]; then
+          # Read the freeze target AFTER the delete above, and tolerate a missing
+          # ref: under a trunk render the freeze lives on the release branch that
+          # was just deleted, so an unresolvable ref is the correct "the freeze is
+          # already gone, nothing to restore" answer -- and the restore commit
+          # below can then never touch the trunk (#1479).
+          CURRENT_FREEZE_SHA=$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
+            gh api "repos/${{ github.repository }}/git/ref/$FREEZE_REF" --jq '.object.sha' || echo "")
+          if [ "$CURRENT_FREEZE_SHA" != "$POST_FREEZE_SHA" ]; then
             echo "changelog_rollback_needed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -490,7 +565,7 @@ jobs:
           retry --retries 3 --backoff 5 --max-backoff 60 -- \
             gh api "repos/${{ github.repository }}/contents/CHANGELOG.md?ref=$PREPARE_START_SHA" --jq '.content' | tr -d '\n' | base64 -d > /tmp/changelog.pre.md
           retry --retries 3 --backoff 5 --max-backoff 60 -- \
-            gh api "repos/${{ github.repository }}/contents/CHANGELOG.md?ref=$CURRENT_DEV_SHA" --jq '.content' | tr -d '\n' | base64 -d > /tmp/changelog.current.md
+            gh api "repos/${{ github.repository }}/contents/CHANGELOG.md?ref=$CURRENT_FREEZE_SHA" --jq '.content' | tr -d '\n' | base64 -d > /tmp/changelog.current.md
           if ! cmp -s /tmp/changelog.pre.md /tmp/changelog.current.md; then
             cp /tmp/changelog.pre.md CHANGELOG.md
             CHANGELOG_ROLLBACK_NEEDED=true

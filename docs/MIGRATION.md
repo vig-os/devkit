@@ -395,6 +395,39 @@ unknown keys:
 | `DEVKIT_BRANCH_TYPES` | Comma-separated FULL REPLACEMENT of the issue-numbered `<type>/<issue>-<summary>` branch-type set, driving the local `no-commit-to-branch` guard, the flake-generated consumer surface, and CI's branch-name gate; empty (default) => the stock set (`feature,bugfix,hotfix,release,docs,test,refactor`). The `chore/`, `renovate/`, `worktree/` clauses are never knob-driven. Pre-#1432 direnv consumers hand-port the flake reader (see [Commit and branch policy on the flake surface](#commit-and-branch-policy-on-the-flake-surface-direnv-consumers), [#1432](https://github.com/vig-os/devkit/issues/1432)) |
 | `DEVKIT_AUTO_UPGRADE` | Opt-out for the scaffolded `devkit-upgrade.yml` weekly schedule; empty (default) or any value but `false` keeps the auto-adoption poll on. `false` disables only the schedule — manual `workflow_dispatch` always runs ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
 | `DEVKIT_UPGRADE_EXCLUDE` | Comma-separated (whitespace-tolerant) paths the `devkit-upgrade` workflow resets before the adoption commit, so generated-doc churn never rides along in the upgrade diff; empty (default) => no exclusions ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
+| `DEVKIT_LANGUAGES` | Comma-separated (whitespace-tolerant) subset of `python,node,rust,nix` the repo DECLARES. A declaration, not a detection cache: the scaffold seeds it from detection, ADDS a newly detected language, and never removes one (see [Declared project languages](#declared-project-languages), [#1478](https://github.com/vig-os/devkit/issues/1478)) |
+
+### Declared project languages
+
+`DEVKIT_LANGUAGES` records which language projects a repo is *expected* to
+carry, so CI can tell "this repo has no Python suite by design" from "this
+repo's Python suite vanished". The scaffolded `just test` / `just lint` recipes
+are guarded on `[ -f pyproject.toml ]` and exit 0 when it is absent, so before
+this key a repo that lost its whole Python project still reported a green
+`Tests` check ([#1466](https://github.com/vig-os/devkit/issues/1466)).
+
+- **Seeded, then sticky.** The scaffold seeds the key from the marker files it
+  detects (`pyproject.toml` -> `python`, `package.json` -> `node`,
+  `Cargo.toml` -> `rust`, `*.nix` beyond `flake.nix` -> `nix`) and ADDS a
+  language that appeared since the last run. It NEVER removes one. Stickiness is
+  the point: a detection cache would be rewritten to empty by the same scaffold
+  run that observed the deletion.
+- **Removing a language is a hand-edit** of the `.vig-os` line. When a declared
+  language's marker is absent, the scaffold keeps the declaration and prints a
+  loud notice; an unknown language name fails the scaffold.
+- **The CI gate.** `resolve-toolchain` emits the declared list as its
+  `languages` output and one early `ci.yml` step fails when a declared
+  language's marker file is missing. It runs in the job every toolchain job
+  already `needs:`, so lint/test never start against a repo whose project is
+  gone. `nix` is declared but never gated — it has no single marker file, since
+  `flake.nix` ships with every direnv scaffold.
+- **Adoption is a no-op.** The key ships empty; a consumer upgrading from an
+  older devkit has it seeded from detection on the adoption scaffold, and a
+  language-neutral repo declares nothing and stays green.
+- The declaration drives the gate ONLY. `.gitignore` fragments, the `codeql.yml`
+  language matrix and the Node `justfile.project` seed keep rendering from live
+  detection — divergence between declared and detected is exactly the signal the
+  gate exists to surface.
 
 ### Scaffold feature opt-outs
 

@@ -56,6 +56,18 @@ After final `release.yml` has pushed tag `X.Y.Z` and created a **draft** GitHub 
 3. **Merge** — merge `release/X.Y.Z` → `main` (triggers `sync-main-to-dev` under the gitflow model — see [Workflow models](#workflow-models))
 4. **Cleanup** (best-effort, does not fail the workflow) — delete remote git tags matching `${VERSION}-rc*` that have **no** GitHub Release
 
+**Re-approve the release PR before dispatching promote** ([#1474](https://github.com/vig-os/devkit/issues/1474)). The final `release.yml` run's `finalize` job pushes to `release/X.Y.Z` (CHANGELOG date stamp plus the `sync-issues` commit), so on any repository with stale-review dismissal enabled the approval that authorised the final dispatch is already dismissed when promote validates it in step 1 above — and any later push to the release branch dismisses it again:
+
+```bash
+# Current state (REVIEW_REQUIRED after finalize)
+gh pr view <PR_NUMBER> --json reviewDecision
+
+# Re-approve (must be a human account other than the PR author)
+gh -R <owner>/<repo> pr review <PR_NUMBER> --approve
+```
+
+Full reasoning and the upstream runbook: [`docs/RELEASE_CYCLE.md`](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#phase-5-post-release-cleanup).
+
 **Upstream (`vig-os/devcontainer`) only:** Root `promote-release.yml` also prunes GHCR RC package versions via the org Packages API using **`GITHUB_TOKEN`** with **repo Admin** on the `devcontainer` package (one-time **Manage Actions access** grant). See [GitHub App Configuration](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#github-app-configuration) and [Registry and cleanup tokens](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#registry-and-cleanup-tokens-upstream) in `docs/RELEASE_CYCLE.md`.
 
 This template does **not** implement upstream-only steps (GHCR `:latest`, cosign, cross-repo smoke-test gate). Projects that need registry or deploy promotion after merge should run separate automation or extend their `release-extension.yml` / own workflows; see [Extension Hook](#extension-hook).
@@ -69,8 +81,19 @@ is still cut, driven through the RC train, finalized, and merged. The models
 differ only in the base the release branch forks from and merges back to, which
 is settled entirely at scaffold time (an anchored `dev -> main` render — see
 [`docs/rfcs/ADR-workflow-model.md`](https://github.com/vig-os/devkit/blob/main/docs/rfcs/ADR-workflow-model.md)).
-One release step is model-dependent:
+Two release steps are model-dependent:
 
+- **The changelog freeze targets `dev` under `gitflow` and `release/X.Y.Z` under
+  `trunk`** ([#1479](https://github.com/vig-os/devkit/issues/1479)).
+  `prepare-release.yml` cuts `release/X.Y.Z` from the base *before* it freezes,
+  then commits the freeze to the model's freeze target and fast-forwards the
+  release branch onto it (a no-op under `trunk`, where the freeze already landed
+  there). Under `trunk` the base branch is also the release PR's base, so
+  freezing onto it would leave head and base at the same commit — GitHub then
+  refuses to open the PR — and would push straight to the trunk. Consequence for
+  a trunk consumer: **the Commit App needs no bypass on the `main` ruleset**; it
+  only ever writes to `release/*`. `main` receives the frozen changelog when the
+  release PR merges at promote time.
 - **`sync-main-to-dev.yml` runs only under `gitflow`.** The gitflow model keeps a
   long-lived `dev` integration branch, so a push to `main` (including a release
   merge) opens a PR syncing `main` back into `dev`. The `trunk` model has no
@@ -192,7 +215,7 @@ Contract inputs:
 
 - `version` — the release version being prepared (`X.Y.Z`)
 - `release_branch` — the release branch just created (`release/X.Y.Z`)
-- `branch_sha` — the post-freeze head SHA the release branch was created from
+- `branch_sha` — the post-freeze head SHA of the release branch (the changelog-freeze commit)
 - `dry_run` — validate without making changes (extensions must honor it)
 
 `prepare-release.yml` calls the hook with `secrets: inherit`, so an extension can mint the `COMMIT_APP` token to push to the write-protected release branch — the same bypass and identity the changelog-freeze commit already uses.

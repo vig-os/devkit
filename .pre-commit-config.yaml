@@ -98,7 +98,7 @@ repos:
         # .envrc files (root + the scaffolded template stub) are direnv stdlib
         # scripts with no shebang; exclude them from SC2148 at any path.
         args: ["-x"]
-        exclude: (^|/)\.envrc$
+        exclude: (^|/)\.envrc$|^assets/guardrails/
 
   # GitHub Actions workflow linting (actionlint from the flake dev-shell). Lints
   # THIS repo's own .github/workflows/ via auto-discovery; actionlint's bundled
@@ -167,6 +167,7 @@ repos:
         entry: uv run python scripts/sync_manifest.py sync assets/workspace/
         language: system
         pass_filenames: false
+        stages: [pre-commit]
 
   # Typo Linting (typos sourced from the flake dev-shell)
   - repo: local
@@ -175,6 +176,7 @@ repos:
         name: typos (source typo checker)
         entry: typos --force-exclude
         language: system
+        stages: [pre-commit]
 
   # License Compliance Check (runs only when dependencies change)
   - repo: local
@@ -244,6 +246,7 @@ repos:
         entry: uv run check-agent-identity
         language: system
         pass_filenames: false
+        stages: [pre-commit]
 
   # Commit message validation (commit-msg stage)
   - repo: local

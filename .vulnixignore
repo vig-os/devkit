@@ -79,20 +79,53 @@ CVE-2022-36883
 
 # glibc 2.42 — the base C library. Loaded by essentially every process in the
 #   closure, so unconditionally present; most glibc CVEs need a specific local
-#   vector (crafted input/locale/regex), mitigated by the single-user model but
-#   NOT individually verified here.
-Expiration: 2026-08-12
-# CVE-2025-15281 — glibc (base libc, loaded everywhere); specifics unverified offline.
+#   vector (crafted input/locale/regex), mitigated by the single-user model.
+#
+#   RE-VERIFIED 2026-08-13 (#1481) against the last green nightly scan on the
+#   current pin 531670d871c0 (run 31569093850, findings of 2026-08-12). All six
+#   entries are STILL live findings against glibc-2.42-67 — none became
+#   droppable the way the gawk block did after its rev advance (#1328) — so this
+#   is a renewed risk acceptance, not a date bump. The "advance the rev" lever
+#   has nowhere to land: the advisories scope the defects to "2.34 to 2.43" and
+#   "2.7 to 2.43", so 2.43 is itself affected and only backported patches can
+#   clear them. Renewed onto the shared 2026-09-02 grid date so the whole
+#   register is reviewed in one pass (#1337).
+#
+#   The same scan reports two further glibc CVEs deliberately absent from this
+#   register: CVE-2026-4438 (5.4) and CVE-2026-6238 (6.5) are below the gate's
+#   CVSS 7.0 threshold and need no exception.
+#
+#   The per-CVE notes below now carry the NVD CVSS and the advisory's own
+#   description of the required vector, which the 2026-06-23 HONESTY NOTE above
+#   could not (that triage had no CVE data offline). The reachability lines are
+#   an assessment of those vectors against this deployment model — they are NOT
+#   an audit of which closure members call the affected functions.
+Expiration: 2026-09-02
+# CVE-2025-15281 (7.5) — wordexp() with WRDE_REUSE|WRDE_APPEND returns
+#   uninitialized we_wordv, aborting on a later wordfree(). Needs a program using
+#   that flag pair; not a pattern in the image's own tooling.
 CVE-2025-15281
-# CVE-2026-4046 — glibc (base libc, loaded everywhere); specifics unverified offline.
+# CVE-2026-4046 (7.5) — iconv() assertion failure (crash/DoS) converting from the
+#   IBM1390/IBM1399 charsets. Reachable only where untrusted input is converted
+#   from those two charsets; the container's locales are UTF-8.
 CVE-2026-4046
-# CVE-2026-4437 — glibc (base libc, loaded everywhere); specifics unverified offline.
+# CVE-2026-4437 (7.5) — gethostbyaddr(_r) via the DNS backend can accept a
+#   non-answer section as a valid answer, given a crafted response. Needs a
+#   hostile or compromised resolver, and the legacy resolver API.
 CVE-2026-4437
-# CVE-2026-5435 — glibc (base libc, loaded everywhere); specifics unverified offline.
+# CVE-2026-5435 (7.3) — deprecated ns_printrrf/ns_printrr/fp_nquery ignore the
+#   caller's buffer length: out-of-bounds write when printing TSIG records. Needs
+#   a caller of those deprecated resolver-printing functions.
 CVE-2026-5435
-# CVE-2026-5450 — glibc (base libc, loaded everywhere); specifics unverified offline.
+# CVE-2026-5450 (9.8) — scanf-family %mc with an explicit field width > 1024
+#   overflows the heap by one byte. The highest-scored entry here; needs a
+#   program parsing attacker-controlled input with that specific %mc + width
+#   construct, which is a rare pattern.
 CVE-2026-5450
-# CVE-2026-5928 — glibc (base libc, loaded everywhere); specifics unverified offline.
+# CVE-2026-5928 (7.5) — ungetwc() operates on the byte read pointer instead of
+#   the wide one, allowing a read before the buffer (heap disclosure or crash).
+#   The advisory states the spurious-match case "is not possible in the standard
+#   Unicode character sets"; this image runs UTF-8 locales throughout.
 CVE-2026-5928
 
 # Remaining lower-reachability components (provenance per note). Specifics

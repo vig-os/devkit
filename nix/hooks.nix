@@ -143,7 +143,21 @@ let
   };
 
   # Shared per-hook filters used by more than one artifact of the same hook.
-  shellcheckExclude = "(^|/)\\.envrc$";
+  # .envrc files are direnv stdlib scripts with no shebang (SC2148).
+  #
+  # assets/guardrails/ is VENDORED shell (#1488). It is clean at
+  # `-S warning` — the severity where real bugs live — and is covered by
+  # `checks.guardrails-canary`, which runs every gate against a known-bad
+  # fixture and asserts it fires. What it is NOT clean at is the default
+  # `style` severity: 18 findings, ten of them SC2181 (`$?` rather than
+  # `if cmd;`), several of them deliberate in a test harness.
+  #
+  # Rewriting 3,000 lines of working, fixture-covered shell for style points
+  # is the trade this repo already declined once when it decided not to port
+  # these gates to Python: the risk is asymmetric, because a subtly broken
+  # gate REPORTS SUCCESS. The bar kept here is error+warning, enforced by
+  # `checks.guardrails-shellcheck`, not an exemption from review.
+  shellcheckExclude = "(^|/)\\.envrc$|^assets/guardrails/";
   # The three JSONC scaffold files carry a `//` provenance banner (#1053) that
   # VS Code and the devcontainer CLI accept but check-json's strict parser
   # rejects. Exclude them from every check-json surface (matched at repo root or
@@ -635,12 +649,25 @@ let
         files = "\\.nix$";
       };
     };
+    # `stages` is mandatory here (#1489): a hook with none runs at EVERY stage,
+    # and typos passes filenames — so the commit-msg round hands it
+    # COMMIT_EDITMSG. typos reads short letter runs inside abbreviated git
+    # SHAs as misspelled words, and `git rebase --continue` writes the rebase
+    # todo into that buffer as comment lines ("# pick <sha> # <subject>"), so
+    # the commit is refused over a comment that never enters the message —
+    # and the natural workarounds are editing git's own todo or --no-verify,
+    # which this repo forbids. Pinning the pre-commit stage costs no coverage:
+    # `prek run --all-files` and the CI lane both run it. The git-hooks.nix
+    # surfaces (check/consumer) already default to pre-commit, so only the
+    # portable YAML render needs the pin — all three are held by
+    # tests/test_flake_hooks.py::TestTyposRunsOnlyAtPreCommit.
     typos = {
       scaffold = true;
       yaml = {
         name = "typos (source typo checker)";
         entry = "typos --force-exclude";
         language = "system";
+        stages = [ "pre-commit" ];
       };
       check = _: {
         enable = true;
@@ -661,12 +688,19 @@ let
         pass_filenames = false;
       };
     };
+    # Runner-only (no consumer fragment): the generator needs THIS repo's
+    # scripts and venv. `stages` is the same fix as #1489 without the bug —
+    # with none, the manifest generator reran at prepare-commit-msg and
+    # commit-msg too, three `uv run` invocations per commit for one useful
+    # result. It only ever has anything to say about staged files, so
+    # pre-commit is the one stage it belongs at. Refs #1491.
     sync-manifest = {
       yaml = {
         name = "sync-manifest";
         entry = "uv run python scripts/sync_manifest.py sync assets/workspace/";
         language = "system";
         pass_filenames = false;
+        stages = [ "pre-commit" ];
       };
     };
     pip-licenses = {
@@ -826,6 +860,20 @@ let
     # pre-commit-stage, so `prek run --all-files` also enforces it in the
     # scaffold's lint job. The blocklist it reads (.github/agent-blocklist.toml)
     # is already manifest-synced into the scaffold. Refs #1031.
+    #
+    # "pre-commit-stage" above was only ever true of the consumer fragment,
+    # which git-hooks.nix defaults there; the yaml fragment carried no `stages`
+    # and so ran at all three, and the two surfaces disagreed about when this
+    # hook fires. Pinning reconciles them, and the message stages are the ones
+    # to drop: git exports GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL to every stage of
+    # an ordinary commit with identical values — including under an `--author=`
+    # override, the case this hook exists for — so the commit-msg round re-reads
+    # what pre-commit already rejected on. The lone path where the message
+    # stages fire and pre-commit does not is `git merge`, and git exports no
+    # author there at all: the hook falls back to `git config user.*`, the
+    # persistent identity that fails the committer's very next ordinary commit.
+    # That leaves a merge as the one commit this no longer guards locally, in
+    # exchange for dropping two of three runs per commit. Refs #1491.
     check-agent-identity = {
       scaffold = true;
       yaml = {
@@ -833,6 +881,7 @@ let
         entry = "uv run check-agent-identity";
         language = "system";
         pass_filenames = false;
+        stages = [ "pre-commit" ];
       };
       consumer = pkgs: {
         enable = true;

@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-12T09:33:35Z
-updated: 2026-08-12T09:33:35Z
+updated: 2026-08-13T11:26:28Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1450
-comments: 0
+comments: 1
 labels: feature, effort:small, semver:minor
 assignees: none
-milestone: none
+milestone: 1.9.0
 projects: none
 parent: none
 children: none
-synced: 2026-08-12T13:33:39.767Z
+synced: 2026-08-13T14:59:12.722Z
 ---
 
 # [Issue 1450]: [Rust pack: four consumer-hardening fixes from the second consumer](https://github.com/vig-os/devkit/issues/1450)
@@ -76,4 +76,12 @@ Note a real interaction: a top-level `cargoExtraArgs` would collide with `buildC
 ---
 
 Refs #1400, #1429.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on August 13, 2026 at 11:26 AM_
+
+Shipped in #1452 (merged into the pack branch before it landed, so the released notes never show the corrected behaviour). All four consumer-hardening items from `gerchowl/squelch` are in. Ships in 1.9.0.
 

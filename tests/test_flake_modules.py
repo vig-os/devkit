@@ -10,6 +10,11 @@ are exported, and a trivial setuptools C-extension sdist builds and installs
 with ``uv`` (the pycatima-class scenario from #639/#879). For ``node`` (#1027):
 ``node`` + bundled ``npm`` resolve, and the ``{ name = "node"; version = …; }``
 per-module-options form pins the Node major (the mechanism the ADR deferred).
+For ``rust`` (#1400, decision in #1427): the bare-form guard (which is the
+single most important test — the whole design rests on it) fires at eval, the
+explicit ``{ name = "rust"; checks = "none"; }`` opt-out evaluates, the
+module's per-option validation throws with a targeted message, and
+``lib.mkRustProject`` composes above the module as a callable entry point.
 
 The zero-module parity guarantee (the default dev-shell is byte-identical to
 the pre-module builder) is covered by ``tests/test_flake_devshell.py`` staying
@@ -23,6 +28,7 @@ Refs: #884
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from typing import TYPE_CHECKING
@@ -384,4 +390,641 @@ def test_node_module_rejects_non_int_version(
         "invalid Node version" in result.stderr and "integer major" in result.stderr
     ), (
         f"error must be the module-scoped invalid-version throw; got: {result.stderr[-500:]}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# rust module (#1400, decision in #1427) — the Rust dev-shell capability. v1
+# contract (packages + env + shellHook) with a MANDATORY ``checks`` option and
+# no default: the whole point of the module is to refuse the bare
+# ``modules = [ "rust" ]`` form loudly, because a v1 module cannot contribute
+# ``checks.<system>.*`` and a hand-wired Rust repo with a green ``nix flake
+# check`` that compiles nothing is exactly the failure the language pack
+# exists to prevent. ``lib.mkRustProject`` composes above ``mkProjectShell``
+# and wires shell + checks + packages from one call; the check-entries
+# registry (nix/modules/check-entries.nix) is how the generated per-module
+# smoke check instantiates a module whose options are mandatory. See
+# docs/rfcs/ADR-capability-modules.md and nix/mk-rust-project.nix.
+# ---------------------------------------------------------------------------
+
+
+def _rust_module_expr(entry: str) -> str:
+    """A ``mkProjectShell`` expression whose sole module entry is ``entry``.
+
+    Shared by the guard/opt-out/option-validation tests — each one only differs
+    in the attrset (or bare string) it hands to ``modules``. ``.drvPath`` forces
+    evaluation to the derivation, which is the only stage where the module's
+    guards fire (the shell body never runs, so throws surface as eval errors).
+    """
+    return f"""
+    let
+      flake = builtins.getFlake "path:{REPO_ROOT}";
+      system = builtins.currentSystem;
+      pkgs = import flake.inputs.nixpkgs {{
+        inherit system;
+        overlays = [ flake.overlays.default ];
+        config.allowUnfree = true;
+      }};
+    in (flake.lib.mkProjectShell {{
+      inherit pkgs;
+      modules = [ {entry} ];
+    }}).drvPath
+    """
+
+
+def _nix_eval_expr(
+    expr: str, *, timeout: int = 300
+) -> subprocess.CompletedProcess[str]:
+    """Run ``nix eval --impure --expr`` and return the completed process.
+
+    Used by the guard/option-validation tests, which assert on the error
+    surfaced in ``stderr`` — a non-zero exit is the expected shape.
+    """
+    return subprocess.run(
+        ["nix", "eval", "--impure", "--expr", expr],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=timeout,
+    )
+
+
+def test_rust_is_in_capability_module_registry() -> None:
+    """``rust`` is one of the shipped capability modules (#1400).
+
+    Reads the registry names via the same generated per-module check
+    ``checks.<system>.module-<name>`` the other modules are asserted through —
+    a check whose existence is proof the flake resolved the ``rust`` entry in
+    ``nix/modules/default.nix``. Kept parallel to how ``native``/``node``/
+    ``docs`` are exercised so a new entry cannot ship without extending the
+    per-family assertions below.
+    """
+    system = nix_helpers.current_system()
+    names = set(
+        nix_helpers.nix_eval_json(
+            f"{REPO_ROOT}#checks.{system}", apply="builtins.attrNames"
+        )
+    )
+    assert "module-rust" in names, (
+        "the flake must expose checks.<system>.module-rust from the "
+        f"nix/modules/ registry; got: {sorted(n for n in names if n.startswith('module-'))}"
+    )
+
+
+def test_rust_module_check_evaluates(current_system: str) -> None:
+    """``checks.<system>.module-rust`` evaluates to a real derivation (#1400).
+
+    The generated smoke check MUST reach a drvPath — the registry entry, the
+    ``rust`` module import and the ``check-entries.nix`` override for the
+    mandatory-options form all have to resolve before this returns a store
+    path. Only asks for ``.drvPath`` (cheap eval) rather than building the
+    devshell, which would pull the Rust toolchain into the cache; the deeper
+    end-to-end tests own that cost when they need it.
+    """
+    drv = nix_helpers.nix_eval_raw(
+        f"{REPO_ROOT}#checks.{current_system}.module-rust.drvPath"
+    )
+    assert drv.startswith("/nix/store/") and drv.endswith(".drv"), (
+        f"module-rust must evaluate to a .drv path; got {drv!r}"
+    )
+
+
+def test_rust_module_bare_form_throws_with_mkrustproject_guidance() -> None:
+    """``modules = [ "rust" ]`` fails at eval with the ``mkRustProject`` fix (#1427).
+
+    THIS is the single most important test — the whole design rests on it. The
+    ``rust`` module's ``checks`` option is mandatory with no default so a
+    hand-written bare entry never silently produces a toolchain-only shell
+    (the failure mode: five things believed active, none of them run, CI green
+    compiling nothing). The eval error must name the composed entry point
+    (``mkRustProject``) and the option (``checks``) so the message itself
+    routes the reader to the fix and to the deliberate opt-out spelled out in
+    the module header.
+    """
+    result = _nix_eval_expr(_rust_module_expr('"rust"'))
+    assert result.returncode != 0, (
+        'bare `modules = [ "rust" ]` MUST fail eval — this is the guard the '
+        "language pack rests on; got a successful eval instead"
+    )
+    stderr = result.stderr
+    assert "mkRustProject" in stderr, (
+        f"guard message must name mkRustProject (the fix); got: {stderr[-800:]}"
+    )
+    assert "checks" in stderr, (
+        "guard message must name the `checks` option (the mandatory knob); "
+        f"got: {stderr[-800:]}"
+    )
+
+
+def test_rust_module_explicit_opt_out_evaluates() -> None:
+    """``{ name = "rust"; checks = "none"; }`` is the sanctioned toolchain-only form.
+
+    The deliberate opt-out from the guard above (#1427): a scratch shell, a
+    repo whose Rust is incidental, a consumer that already owns its own
+    checks. It is spelled out because a default would BE the failure mode.
+    Evaluate to a drvPath to confirm the module returns a valid contribution
+    (packages/env/shellHook) instead of throwing.
+    """
+    result = _nix_eval_expr(_rust_module_expr('{ name = "rust"; checks = "none"; }'))
+    assert result.returncode == 0, (
+        'explicit opt-out `{ name = "rust"; checks = "none"; }` must '
+        f"evaluate; got: {result.stderr[-500:]}"
+    )
+    assert result.stdout.strip().startswith('"/nix/store/'), (
+        f"opt-out form must return a store drvPath; got: {result.stdout!r}"
+    )
+
+
+def test_rust_module_rejects_unknown_option() -> None:
+    """An unrecognized ``rust`` option fails eval and names the option (#1400).
+
+    Every rust option is enumerated in ``knownOptions``; anything else throws
+    before the module returns a contribution, so a typo (or an unsupported
+    knob) is a hard eval error rather than a silently-ignored no-op — the same
+    strictness the ``node`` module applies (see
+    ``test_node_module_rejects_unknown_option``).
+    """
+    result = _nix_eval_expr(
+        _rust_module_expr('{ name = "rust"; checks = "none"; frobnicate = 1; }')
+    )
+    assert result.returncode != 0, "unknown rust option must fail eval, not pass"
+    assert "frobnicate" in result.stderr and "rust module" in result.stderr, (
+        "error must name the offending option and the module; "
+        f"got: {result.stderr[-500:]}"
+    )
+
+
+def test_rust_module_rejects_invalid_checks_value() -> None:
+    """A ``checks`` value outside ``{"mkRustProject","none"}`` fails eval (#1427).
+
+    The ``checks`` option is the module's acknowledgement token: the
+    mkRustProject-set value or the deliberate opt-out are the only honest
+    answers. Any other string (e.g. ``"yes"``) is a hand-edited fake and must
+    throw with a message naming both valid values.
+    """
+    result = _nix_eval_expr(_rust_module_expr('{ name = "rust"; checks = "yes"; }'))
+    assert result.returncode != 0, "invalid `checks` value must fail eval, not pass"
+    stderr = result.stderr
+    assert "rust module" in stderr and "checks" in stderr, (
+        f"error must name the module and the option; got: {stderr[-500:]}"
+    )
+    # Both sanctioned values are surfaced in the message so the reader learns
+    # what the correct answers are, not just that theirs is wrong.
+    assert "mkRustProject" in stderr and "none" in stderr, (
+        "error must enumerate the two valid `checks` values (mkRustProject, "
+        f"none); got: {stderr[-500:]}"
+    )
+
+
+def test_rust_module_rejects_unknown_tool() -> None:
+    """An unknown ``tools`` name fails eval and names it (#1400).
+
+    The curated ``toolMap`` in the module is a name -> package map, chosen so a
+    consumer's ``tools`` list stays reviewable and a typo becomes an eval
+    error rather than a silently-missing cargo helper on the shell PATH. The
+    error must name the offending tool so the reader can fix or drop it.
+    """
+    result = _nix_eval_expr(
+        _rust_module_expr(
+            '{ name = "rust"; checks = "none"; tools = [ "not-a-cargo-tool" ]; }'
+        )
+    )
+    assert result.returncode != 0, "unknown rust tool name must fail eval, not pass"
+    stderr = result.stderr
+    assert "not-a-cargo-tool" in stderr and "rust module" in stderr, (
+        f"error must name the offending tool and the module; got: {stderr[-500:]}"
+    )
+
+
+def test_mk_rust_project_is_exposed_as_a_function() -> None:
+    """``lib.mkRustProject`` is a callable function (#1400).
+
+    The composed entry point sits above ``mkProjectShell`` and returns
+    ``{ devShell, checks, packages, craneLib, cargoArtifacts, commonArgs,
+    toolchain, src }`` from a single call. Kept as a cheap schema smoke test:
+    calling it needs a Rust source tree (project shape a devkit test cannot
+    ambiently supply), so the deep end-to-end coverage of the shape lives in
+    the first consumer (gerchowl/filesender). ``--apply`` reduces the raw
+    function to a discriminator string — ``nix eval --raw`` on a bare function
+    is a type error, hence the direct subprocess call.
+    """
+    result = subprocess.run(
+        [
+            "nix",
+            "eval",
+            "--raw",
+            f"{REPO_ROOT}#lib.mkRustProject",
+            "--apply",
+            'f: if builtins.isFunction f then "ok" else "not-a-function"',
+        ],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=120,
+    )
+    assert result.returncode == 0 and result.stdout.strip() == "ok", (
+        "lib.mkRustProject must be a function; "
+        f"rc={result.returncode} stdout={result.stdout!r} "
+        f"stderr={result.stderr[-500:]}"
+    )
+
+
+def test_zero_module_shell_unaffected_by_rust_module(current_system: str) -> None:
+    """The default dev-shell's drvPath is byte-identical to the no-modules build (#884, #1400).
+
+    The ADR's zero-module invariant, re-asserted after the Rust pack shipped:
+    adding a module to the registry must not perturb the shell a consumer who
+    never asks for it gets. This is the same shape as ``TestZeroHooksParity``
+    (tests/test_flake_hooks.py) — compare the flake's own
+    ``devShells.<system>.default.drvPath`` to a freshly-built
+    ``mkProjectShell { inherit pkgs; }`` and require equality — but pinned
+    here so a future module cannot silently leak into the default path.
+    """
+    expr = f"""
+    let
+      flake = builtins.getFlake "path:{REPO_ROOT}";
+      system = "{current_system}";
+      pkgs = import flake.inputs.nixpkgs {{
+        inherit system;
+        overlays = [ flake.overlays.default ];
+        config.allowUnfree = true;
+      }};
+    in {{
+      default = flake.devShells.${{system}}.default.drvPath;
+      zeroModules = (flake.lib.mkProjectShell {{ inherit pkgs; }}).drvPath;
+    }}
+    """
+    result = subprocess.run(
+        ["nix", "eval", "--impure", "--json", "--expr", expr],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stderr
+    paths = json.loads(result.stdout)
+    assert paths["default"] == paths["zeroModules"], (
+        "adding the rust module must not perturb the zero-module default "
+        f"dev-shell drv; got {paths!r}"
+    )
+
+
+def test_rust_tool_group_expands_and_skips_unavailable_members() -> None:
+    """``tools = [ "@perf" ]`` expands, dropping members this platform lacks (#1400).
+
+    A group is a request for *this platform's* kit, so members that are not
+    packaged here (heaptrack, valgrind and poop are Linux-only) are skipped
+    rather than failing eval. Without this, every consumer writes the same
+    ``optionals stdenv.isLinux`` by hand and some of them get it wrong.
+    """
+    with_group = _nix_eval_expr(
+        _rust_module_expr('{ name = "rust"; checks = "none"; tools = [ "@perf" ]; }')
+    )
+    assert with_group.returncode == 0, (
+        f"@perf group must evaluate on this platform; got: {with_group.stderr[-500:]}"
+    )
+
+    # The shell derivation must actually differ from a no-tools one. Asserting
+    # only that it evaluates would pass even if the group silently expanded to
+    # nothing -- which is exactly the "configured, contributes nothing" failure
+    # this suite exists to catch.
+    without = _nix_eval_expr(
+        _rust_module_expr('{ name = "rust"; checks = "none"; tools = [ ]; }')
+    )
+    assert without.returncode == 0, (
+        f"empty tools must evaluate; got: {without.stderr[-500:]}"
+    )
+    assert with_group.stdout != without.stdout, (
+        "@perf expanded to no packages -- the group contributed nothing"
+    )
+
+
+def test_rust_explicit_unavailable_tool_still_throws() -> None:
+    """A tool named EXPLICITLY is not silently skipped (#1400).
+
+    The asymmetry against groups is deliberate and is the reason groups exist:
+    asking for ``@perf`` is asking for whatever this platform has, but naming
+    ``heaptrack`` is a request that can only be met or refused. Silently
+    dropping it would hand someone a shell missing the one tool they asked
+    for -- configured, believed present, never there.
+    """
+    result = _nix_eval_expr(
+        _rust_module_expr(
+            '{ name = "rust"; checks = "none"; tools = [ "heaptrack" ]; }'
+        )
+    )
+    if result.returncode == 0:
+        # Linux: heaptrack IS available, so there is nothing to refuse.
+        return
+    assert "heaptrack" in result.stderr and "unavailable-on" in result.stderr, (
+        f"error must name the tool and the platform; got: {result.stderr[-500:]}"
+    )
+
+
+def test_rust_module_rejects_unknown_tool_group() -> None:
+    """A mistyped group name fails eval and lists the real groups (#1400)."""
+    result = _nix_eval_expr(
+        _rust_module_expr('{ name = "rust"; checks = "none"; tools = [ "@perff" ]; }')
+    )
+    assert result.returncode != 0, "unknown tool group must fail eval, not pass"
+    assert "unknown tool group" in result.stderr and "@perf" in result.stderr, (
+        f"error must name the group and list the available ones; got: {result.stderr[-500:]}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# mkRustProject consumer guards (#1450) — found by adopting the pack on a
+# second consumer (gerchowl/squelch: single-crate, no binaries, heavily
+# feature-gated). The two guards below turn failures that were opaque or
+# partial into ones that name the fix; the two coverage tests pin behaviour
+# the pack promised in #1400 but did not ship.
+#
+# These need project shape, which is why the older mkRustProject coverage
+# stops at a schema smoke test. A dependency-free crate keeps the lockfile a
+# literal, so the whole set runs at EVAL time — no vendoring, no network, no
+# compile.
+# ---------------------------------------------------------------------------
+
+
+def _minimal_crate(root: Path, *, with_lock: bool = True) -> Path:
+    """Write the smallest crate crane will accept, and return its path."""
+    (root / "src").mkdir(parents=True, exist_ok=True)
+    (root / "Cargo.toml").write_text(
+        '[package]\nname = "fixture"\nversion = "0.0.0"\nedition = "2021"\n'
+    )
+    (root / "src" / "lib.rs").write_text("pub fn answer() -> u8 { 42 }\n")
+    if with_lock:
+        (root / "Cargo.lock").write_text(
+            'version = 3\n\n[[package]]\nname = "fixture"\nversion = "0.0.0"\n'
+        )
+    return root
+
+
+def _mk_rust_project_expr(
+    src: Path, attr: str, *, overlay: bool = True, extra: str = ""
+) -> str:
+    """An expression selecting ``attr`` off a ``mkRustProject`` call on ``src``."""
+    overlays = "[ flake.overlays.default ]" if overlay else "[ ]"
+    return f"""
+    let
+      flake = builtins.getFlake "path:{REPO_ROOT}";
+      system = builtins.currentSystem;
+      pkgs = import flake.inputs.nixpkgs {{
+        inherit system;
+        overlays = {overlays};
+        config.allowUnfree = true;
+      }};
+      rust = flake.lib.mkRustProject {{
+        inherit pkgs;
+        src = {src};
+        {extra}
+      }};
+    in {attr}
+    """
+
+
+def test_mk_rust_project_refuses_pkgs_without_the_devkit_overlay(
+    tmp_path: Path,
+) -> None:
+    """A ``pkgs`` lacking ``overlays.default`` is named as such, not as ``vig-utils``.
+
+    ``mkProjectShell`` pulls ``nix/devtools.nix``, which references
+    ``vig-utils`` — a package only the overlay provides. Without the overlay
+    the dev shell died with ``undefined variable 'vig-utils'``, pointing inside
+    devkit at a name the consumer has never seen.
+
+    The reason this is a guard rather than a docs fix: ``checks`` and
+    ``packages`` never touch ``mkProjectShell``, so they evaluate fine without
+    the overlay. The unguarded result is a repo whose ``nix flake check`` is
+    green and whose ``nix develop`` is broken — the silent split the pack
+    exists to close, one layer up.
+    """
+    src = _minimal_crate(tmp_path)
+    result = _nix_eval_expr(
+        _mk_rust_project_expr(src, "rust.devShell.drvPath", overlay=False)
+    )
+    assert result.returncode != 0, (
+        "a pkgs without devkit's overlay must fail eval, not produce a shell"
+    )
+    assert "overlays.default" in result.stderr, (
+        "the error must name the overlay the consumer has to add; "
+        f"got: {result.stderr[-800:]}"
+    )
+    assert "undefined variable" not in result.stderr, (
+        "the raw nixpkgs error must be replaced, not merely preceded; "
+        f"got: {result.stderr[-800:]}"
+    )
+
+
+def test_mk_rust_project_names_a_missing_cargo_lock(tmp_path: Path) -> None:
+    """A source tree with no ``Cargo.lock`` fails with the library case spelled out.
+
+    A flake's ``src`` is the git tree, so a repo that gitignores its lockfile —
+    the long-standing library convention — hands crane a source without one.
+    crane's own message is good but reachable only from the derivations that
+    vendor: ``fmt`` takes ``src`` alone and passed regardless, so a consumer
+    who built one check first saw green.
+
+    Asserted through ``fmt`` for exactly that reason.
+    """
+    src = _minimal_crate(tmp_path, with_lock=False)
+    result = _nix_eval_expr(_mk_rust_project_expr(src, "rust.checks.fmt.drvPath"))
+    assert result.returncode != 0, (
+        "fmt must not evaluate against a lockless tree — it passing is what "
+        "made the missing lockfile look like a partial success"
+    )
+    assert "Cargo.lock" in result.stderr, (
+        f"the error must name Cargo.lock; got: {result.stderr[-800:]}"
+    )
+
+
+def test_mk_rust_project_ships_a_doctest_check(tmp_path: Path) -> None:
+    """``checks.doctest`` exists (#1400's stage table, unshipped in #1429).
+
+    #1400 assigns pre-push ``nextest`` **and** ``cargo test --doc``. nextest
+    cannot run doctests by design, and ``cargoDoc`` only lints rustdoc, so a
+    consumer whose doctests ran under ``cargo test`` lost them on adoption
+    without being told.
+    """
+    src = _minimal_crate(tmp_path)
+    result = subprocess.run(
+        [
+            "nix",
+            "eval",
+            "--impure",
+            "--json",
+            "--expr",
+            _mk_rust_project_expr(src, "builtins.attrNames rust.checks"),
+        ],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stderr[-1500:]
+    names = json.loads(result.stdout)
+    assert "doctest" in names, (
+        f"the default check suite must run doctests; got {names!r}"
+    )
+
+
+def test_mk_rust_project_threads_cargo_extra_args(tmp_path: Path) -> None:
+    """``cargoExtraArgs`` reaches every derivation through ``commonArgs``.
+
+    The checks built default features only, and nothing reached
+    ``buildDepsOnly`` / ``nextest`` / ``doc`` / the package builds —
+    ``clippyExtraArgs`` covers clippy alone. A feature-gated crate therefore
+    got less linting from the pack than from a bare ``cargo clippy
+    --all-features``, because the gated code was never compiled.
+    """
+    src = _minimal_crate(tmp_path)
+    result = subprocess.run(
+        [
+            "nix",
+            "eval",
+            "--impure",
+            "--raw",
+            "--expr",
+            _mk_rust_project_expr(
+                src,
+                "rust.commonArgs.cargoExtraArgs",
+                extra='cargoExtraArgs = "--all-features";',
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stderr[-1500:]
+    assert "--all-features" in result.stdout, (
+        f"cargoExtraArgs must land in commonArgs; got {result.stdout!r}"
+    )
+
+
+def test_mk_rust_project_dev_shell_evaluates_with_the_overlay(tmp_path: Path) -> None:
+    """The overlay guard's POSITIVE direction (#1450).
+
+    ``hasOverlay`` is a proxy: it infers "the overlay was applied" from the
+    presence of one package, ``vig-utils``. Proxies drift. If devkit's overlay
+    ever renames or drops that package, the guard starts throwing
+    "you did not apply the overlay" at consumers who did — and the negative
+    test above would still pass, because it asserts a throw.
+
+    The rule this branch is built on is that a gate needs a fixture for
+    known-bad input AND known-good input; the guard shipped with only the
+    first. This is the second, and it is the one that fails when the sentinel
+    stops tracking what it stands for.
+    """
+    src = _minimal_crate(tmp_path)
+    result = _nix_eval_expr(_mk_rust_project_expr(src, "rust.devShell.drvPath"))
+    assert result.returncode == 0, (
+        "the dev shell must evaluate when devkit's overlay IS applied — if this "
+        "fails, the `pkgs ? vig-utils` sentinel has stopped tracking the "
+        f"overlay and the guard now rejects correct configurations; got: {result.stderr[-800:]}"
+    )
+    assert ".drv" in result.stdout, (
+        f"expected a derivation path; got: {result.stdout[-200:]}"
+    )
+
+
+def test_mk_rust_project_accepts_crane_args_and_the_deprecated_alias(
+    tmp_path: Path,
+) -> None:
+    """``craneArgs`` is honoured, and the old ``buildEnv`` name still works (#1450).
+
+    ``buildEnv`` was documented as holding environment variables while in fact
+    being a raw merge into every crane derivation — which cost the second
+    consumer real time, since it was the only seam reaching ``buildDepsOnly``
+    and nothing said so. It is renamed to ``craneArgs``; the old name stays
+    accepted so an existing consumer flake keeps evaluating.
+    """
+    src = _minimal_crate(tmp_path)
+    for arg in ("craneArgs", "buildEnv"):
+        result = _nix_eval_expr(
+            _mk_rust_project_expr(
+                src,
+                "rust.checks.fmt.drvPath",
+                extra=f'{arg} = {{ CARGO_PROFILE_RELEASE_DEBUG = "0"; }};',
+            )
+        )
+        assert result.returncode == 0, (
+            f"`{arg}` must be accepted by mkRustProject; got: {result.stderr[-500:]}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# guardrails module (#1488) — the semantic-gate capability. Unlike `rust`, it
+# contributes `packages` ONLY: hook ENTRIES are a scaffold concern (#1492), so
+# there is no contract change to test here. What must hold is that the gates
+# are on PATH, that the option validation is loud, and — the part that
+# actually matters — that every gate still rejects a known-bad fixture, which
+# `checks.<system>.guardrails-canary` asserts.
+# ---------------------------------------------------------------------------
+
+
+def _guardrails_expr(entry: str, attr: str = ".drvPath") -> str:
+    return f"""
+    let
+      flake = builtins.getFlake "path:{REPO_ROOT}";
+      system = builtins.currentSystem;
+      pkgs = import flake.inputs.nixpkgs {{
+        inherit system;
+        overlays = [ flake.overlays.default ];
+        config.allowUnfree = true;
+      }};
+    in (flake.lib.mkProjectShell {{ inherit pkgs; modules = [ {entry} ]; }}){attr}
+    """
+
+
+def test_guardrails_is_in_capability_module_registry() -> None:
+    """The registry resolves ``guardrails`` (#1488)."""
+    result = _nix_eval_expr(_guardrails_expr('"guardrails"'))
+    assert result.returncode == 0, (
+        f"the guardrails module must resolve from the registry; got: {result.stderr[-500:]}"
+    )
+
+
+def test_guardrails_puts_the_gates_on_path(current_system: str) -> None:
+    """The shell exposes the gate executables (#1488).
+
+    The bare-name form must work: unlike ``rust``, this module has no
+    mandatory option, because contributing packages is the whole of what it
+    does and there is no second half a consumer could forget to wire.
+    """
+    proc = _develop_module(
+        current_system,
+        "guardrails",
+        "for b in guardrails guardrails-trace guardrails-no-fake-impl "
+        "guardrails-no-hardcoded guardrails-derived-docs; do command -v $b; done",
+    )
+    assert proc.returncode == 0, (
+        "guardrails devshell is missing gate executables: "
+        f"rc={proc.returncode} stdout={proc.stdout.strip()!r} stderr={proc.stderr.strip()[:300]}"
+    )
+
+
+def test_guardrails_rejects_an_unknown_gate() -> None:
+    """A mistyped gate name fails eval and lists the real ones (#1488).
+
+    The available set is derived from the vendored directory rather than a
+    hand-kept list, so this also pins that the two cannot disagree.
+    """
+    result = _nix_eval_expr(
+        _guardrails_expr('{ name = "guardrails"; gates = [ "no-such-gate" ]; }')
+    )
+    assert result.returncode != 0, "an unknown gate name must fail eval, not pass"
+    assert "no-such-gate" in result.stderr and "no-fake-impl" in result.stderr, (
+        f"error must name the bad gate and list the available ones; got: {result.stderr[-600:]}"
+    )
+
+
+def test_guardrails_rejects_an_unknown_option() -> None:
+    """Unknown options throw rather than silently doing nothing (#1488)."""
+    result = _nix_eval_expr(
+        _guardrails_expr('{ name = "guardrails"; frobnicate = 1; }')
+    )
+    assert result.returncode != 0, "an unknown option must fail eval"
+    assert "frobnicate" in result.stderr and "guardrails module" in result.stderr, (
+        f"error must name the option and the module; got: {result.stderr[-500:]}"
     )

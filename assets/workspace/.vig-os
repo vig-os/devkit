@@ -147,3 +147,21 @@ DEVKIT_UPGRADE_EXCLUDE=
 # it via resolve-toolchain's `drift-check` output, so flipping it takes effect
 # with no re-scaffold; the value round-trips across `--force` upgrades (#1295).
 DEVKIT_DRIFT_CHECK=
+
+# Project languages this repo DECLARES — a comma-separated (whitespace-tolerant)
+# subset of: python, node, rust, nix. A DECLARATION, not a detection cache. The
+# scaffold SEEDS it from the marker files it detects (pyproject.toml /
+# package.json / Cargo.toml / *.nix beyond flake.nix) and ADDS a newly detected
+# language on a later upgrade, but NEVER removes one — dropping a language is a
+# deliberate hand-edit of this line, and the scaffold prints a loud notice when a
+# declared language's marker is absent. Stickiness is the whole point: a deploy
+# that deleted a repo's entire Python project also re-ran the scaffold in the
+# same commit, so a cache would have been rewritten to empty and the `Tests`
+# check stayed green (#1466). Empty (default) => nothing declared, so a
+# language-neutral repo (and every consumer upgrading from an older devkit,
+# whose key is seeded from detection on the adoption scaffold) is unaffected.
+# Pure runtime gate — CI reads it via resolve-toolchain's `languages` output and
+# fails ONE early ci.yml step when a declared language's marker file is missing;
+# `nix` is declared but never gated (no single marker file). Written back only
+# for a non-empty value (#1478).
+DEVKIT_LANGUAGES=

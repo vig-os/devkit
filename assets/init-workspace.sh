@@ -355,6 +355,11 @@ MANIFEST_AUTO_UPGRADE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_AUTO_UPGR
 MANIFEST_UPGRADE_EXCLUDE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_UPGRADE_EXCLUDE || true)"
 MANIFEST_DRIFT_CHECK="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_DRIFT_CHECK || true)"
 
+# Declared project languages (#1478): read before the template overwrite, both to
+# seed the sticky declaration further down and to write it back — the template
+# ships the key empty, so without the read an upgrade would erase the declaration.
+MANIFEST_LANGUAGES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_LANGUAGES || true)"
+
 # The pin this workspace carried BEFORE this run rewrites it (#1348). Read here,
 # far ahead of the #852 rewrite further down, because it is the only evidence of
 # which devkit generation produced the tree we are upgrading — and the
@@ -591,6 +596,44 @@ case "$MANIFEST_DRIFT_CHECK" in
         exit 1
         ;;
 esac
+
+# Declared project languages (#1478): the repo's own statement of which language
+# projects it is expected to carry. Parsed here (the same charset/enum guard shape
+# as DEVKIT_FEATURES_DISABLED — an unknown name aborts rather than silently
+# declaring nothing); SEEDED from detection and only ever GROWN further down,
+# where DETECTED_LANGUAGES is computed. Pure `.vig-os` key, no CLI flag.
+VALID_LANGUAGES=(python node rust nix)
+DECLARED_LANGUAGES=()
+
+# True when language $1 is already in DECLARED_LANGUAGES.
+language_declared() {
+    local name="$1" l
+    for l in ${DECLARED_LANGUAGES[@]+"${DECLARED_LANGUAGES[@]}"}; do
+        [[ "$l" == "$name" ]] && return 0
+    done
+    return 1
+}
+
+if [[ -n "$MANIFEST_LANGUAGES" ]]; then
+    IFS=',' read -ra _raw_langs <<< "$MANIFEST_LANGUAGES"
+    for _lang in "${_raw_langs[@]}"; do
+        # Trim surrounding whitespace (leading + trailing).
+        _lang="${_lang#"${_lang%%[![:space:]]*}"}"
+        _lang="${_lang%"${_lang##*[![:space:]]}"}"
+        [[ -z "$_lang" ]] && continue
+        _valid_lang=false
+        for _v in "${VALID_LANGUAGES[@]}"; do
+            [[ "$_lang" == "$_v" ]] && { _valid_lang=true; break; }
+        done
+        if [[ "$_valid_lang" != "true" ]]; then
+            echo "Error: Invalid DEVKIT_LANGUAGES in $VIG_OS_MANIFEST: $_lang (expected a comma-separated subset of: python, node, rust, nix)" >&2
+            exit 1
+        fi
+        # De-duplicate: the value is rewritten on every scaffold, so a repeated
+        # entry must not multiply across upgrades.
+        language_declared "$_lang" || DECLARED_LANGUAGES+=("$_lang")
+    done
+fi
 
 # Get SHORT_NAME - from env var, manifest, or prompt (#885)
 if [[ -z "${SHORT_NAME:-}" && -n "$MANIFEST_PROJECT" ]]; then
@@ -942,6 +985,54 @@ if find "$WORKSPACE_DIR" \
     | grep -q .; then
     DETECTED_LANGUAGES+=("nix")
 fi
+
+# ── declared languages: seed from detection, never narrow (#1478) ─────────────
+# DETECTED_LANGUAGES above is live truth and keeps driving every scaffold render
+# (.gitignore fragments, codeql.yml's language matrix, the Node justfile.project
+# seed). DECLARED_LANGUAGES is the repo's persisted DECLARATION, written back to
+# .vig-os, and it is deliberately NOT a detection cache: the scaffold seeds it
+# from detection, ADDS a language that appeared since the last run, and never
+# removes one. A cache would not have caught #1466 — the deploy that deleted
+# pyproject.toml re-ran the scaffold in the same commit, so the cache would have
+# been rewritten to empty and CI would still have been green. Divergence between
+# declared and detected is exactly the signal the CI gate exists to surface, so
+# it is reported loudly here and reconciled by nobody but the consumer.
+for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
+    language_declared "$lang" || DECLARED_LANGUAGES+=("$lang")
+done
+
+# Canonicalize to the VALID_LANGUAGES order so the written-back value is
+# deterministic (a hand-written `node,python` normalizes once, then is stable —
+# an unstable order would read as scaffold drift on every upgrade).
+_ordered_languages=()
+for _v in "${VALID_LANGUAGES[@]}"; do
+    language_declared "$_v" && _ordered_languages+=("$_v")
+done
+DECLARED_LANGUAGES=(${_ordered_languages[@]+"${_ordered_languages[@]}"})
+
+# Loud notice per declared-but-undetected language: the scaffold keeps the
+# declaration (sticky), it does not reconcile it. `nix` is called out separately
+# because CI cannot gate it — it has no single marker file.
+for lang in ${DECLARED_LANGUAGES[@]+"${DECLARED_LANGUAGES[@]}"}; do
+    _still_detected=false
+    for _d in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
+        [[ "$_d" == "$lang" ]] && { _still_detected=true; break; }
+    done
+    [[ "$_still_detected" == "true" ]] && continue
+    case "$lang" in
+        python) _marker="pyproject.toml" ;;
+        node) _marker="package.json" ;;
+        rust) _marker="Cargo.toml" ;;
+        nix) _marker="*.nix files beyond flake.nix" ;;
+        *) _marker="its marker file" ;;
+    esac
+    echo "Notice: DEVKIT_LANGUAGES declares '$lang' but $_marker is absent." >&2
+    if [[ "$lang" == "nix" ]]; then
+        echo "Notice: the declaration is STICKY — the scaffold keeps '$lang' (CI does not gate nix: it has no single marker file). Drop it from DEVKIT_LANGUAGES in .vig-os if this repo is deliberately no longer a nix project (#1478)." >&2
+    else
+        echo "Notice: the declaration is STICKY — the scaffold keeps '$lang', and CI's declared-language gate will FAIL until $_marker is restored. Drop '$lang' from DEVKIT_LANGUAGES in .vig-os if this repo is deliberately no longer a $lang project (#1478)." >&2
+    fi
+done
 
 # Seed npm-mapped justfile.project recipes on the FIRST scaffold of a Node
 # consumer (#1027). justfile.project is a PRESERVE_FILE: the stock template
@@ -1447,8 +1538,13 @@ done
 #
 # Anchoring is load-bearing: `heads/dev\b` (word boundary) never touches
 # `development`/`devkit`/`devcontainer`; `ref: dev$` / ` from dev$` are
-# end-anchored. /dev/null device paths and the dev_sha/DEV_SHA variable names
-# are deliberately preserved (behavior is unaffected by their spelling).
+# end-anchored. /dev/null device paths are deliberately preserved (behavior is
+# unaffected by their spelling).
+#
+# One retarget is NOT a plain dev->main rename: the CHANGELOG freeze targets the
+# release branch under trunk (#1479). That is still an anchored substitution
+# rather than a structural rewrite, because the shipped asset already creates
+# release/X.Y.Z before it freezes.
 render_workflow_model() {
     local model="$1"
     [[ "$model" == "trunk" ]] || return 0
@@ -1456,10 +1552,22 @@ render_workflow_model() {
     local wf="$WORKSPACE_DIR/.github/workflows"
 
     # prepare-release.yml — retarget the release base dev -> main (#590/#617
-    # logic is base-agnostic) and scrub the inert dev step-names/comments so a
-    # trunk repo carries no `dev` cruft (variable names + /dev/null stay intact).
+    # logic is base-agnostic), point the CHANGELOG freeze at the release branch
+    # instead of the trunk (#1479), and scrub the inert dev step-names/comments
+    # so a trunk repo carries no `dev` cruft (/dev/null stays intact).
     local pr="$wf/prepare-release.yml"
     if [[ -f "$pr" ]]; then
+        # Freeze target (#1479). Under trunk the base branch IS the PR base, so
+        # freezing onto it would leave the release PR's head and base at the same
+        # commit (GitHub then refuses to open it) and would push straight to a
+        # trunk a require-PR ruleset protects. The asset creates release/X.Y.Z
+        # BEFORE the freeze precisely so this stays a literal substitution: the
+        # freeze commit (and the rollback's restore commit) target the release
+        # branch, and the ref reads that watch the freeze — the #617 wait and the
+        # rollback's post-delete guard — follow via FREEZE_REF. Both run BEFORE
+        # the blanket heads/dev retarget below, which must not claim these lines.
+        sed -i -E 's|^([[:space:]]*TARGET_BRANCH:) refs/heads/dev$|\1 refs/heads/${{ needs.validate.outputs.release_branch }}|' "$pr"
+        sed -i -E 's|^([[:space:]]*FREEZE_REF:) heads/dev$|\1 heads/${{ needs.validate.outputs.release_branch }}|' "$pr"
         # Behavioral branch literals: checkout refs + REST ref reads + targets.
         sed -i -E 's|^([[:space:]]*ref:) dev$|\1 main|' "$pr"
         sed -i -E 's|heads/dev\b|heads/main|g' "$pr"
@@ -1468,12 +1576,8 @@ render_workflow_model() {
         # above are what drive the retarget).
         sed -i 's|Checkout dev branch|Checkout main branch|' "$pr"
         sed -i 's|Capture pre-prepare dev SHA|Capture pre-prepare main SHA|' "$pr"
-        sed -i 's| to dev via API| to main via API|g' "$pr"
-        sed -i 's|Wait for dev to advance|Wait for main to advance|' "$pr"
-        sed -i 's|freeze commit-action updates dev|freeze commit-action updates main|' "$pr"
-        sed -i 's|dev still at pre-freeze SHA|main still at pre-freeze SHA|' "$pr"
-        sed -i 's|ERROR: dev did not advance|ERROR: main did not advance|' "$pr"
-        sed -i 's|CHANGELOG.md on dev|CHANGELOG.md on main|g' "$pr"
+        sed -i 's| to dev via API| to the release branch via API|g' "$pr"
+        sed -i 's|CHANGELOG.md on dev|CHANGELOG.md on the release branch|g' "$pr"
         # The #590 rationale comment describes the gitflow main/dev sync merge,
         # which does not exist in trunk — reword it (full-line anchored swaps).
         sed -i 's|dated release, matching$|dated release, so the|' "$pr"
@@ -2632,6 +2736,16 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     # silently re-enables the drift gate the consumer disabled.
     if [[ -n "$MANIFEST_DRIFT_CHECK" ]]; then
         write_manifest_value DEVKIT_DRIFT_CHECK "$MANIFEST_DRIFT_CHECK"
+    fi
+    # Declared languages (#1478): bare in the template (DEVKIT_LANGUAGES=), so
+    # the declaration is written back — else an upgrade would erase it and the
+    # CI gate would go silent exactly when it is needed. Unlike the other
+    # round-tripped keys this one is not merely preserved: it is the union of
+    # the previous declaration and this run's detection, so a first scaffold
+    # SEEDS it and a later one GROWS it. A language-neutral repo has an empty
+    # union and keeps the bare template line.
+    if [[ ${#DECLARED_LANGUAGES[@]} -gt 0 ]]; then
+        write_manifest_value DEVKIT_LANGUAGES "$(IFS=','; echo "${DECLARED_LANGUAGES[*]}")"
     fi
 fi
 

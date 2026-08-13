@@ -22,10 +22,14 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from tests.workflow_scaffold import (
     INIT_WORKSPACE,
     WORKSPACE,
     cached_tree,
+    jobs,
+    load_workflow,
     scaffold,
     scaffold_tree,
 )
@@ -124,16 +128,19 @@ def test_trunk_prepare_release_has_no_dev_cruft() -> None:
     """No residual `dev` in prepare-release beyond /dev/null + the SHA var names.
 
     The maintainer decision (#1208) rewrites the inert dev step-names/comments to
-    main so a trunk repo carries no dev cruft; only the device path and the
-    dev_sha/DEV_SHA variable/output names (behavior-neutral) are preserved.
+    main so a trunk repo carries no dev cruft; only the device path is preserved
+    (the dev_sha/DEV_SHA names the render used to carry are gone since #1479
+    renamed them to the model-neutral freeze_sha/FREEZE_SHA).
     """
     text = _wf(cached_tree("trunk"), "prepare-release.yml")
     # The branch base itself is retargeted: no heads/dev ref survives, the
-    # release branch forks from refs/heads/main (the checkout-ref half lives in
+    # release branch forks from heads/main (the checkout-ref half lives in
     # test_workflow_prepare_extension.py::test_trunk_prepare_forks_release_branch_from_main).
+    # `refs/heads/main` is deliberately NOT asserted: since #1479 nothing in a
+    # trunk render writes to the trunk, so main appears only as a ref *read*.
     assert "heads/dev" not in text
-    assert "refs/heads/main" in text
-    allowed = ("/dev/null", "dev_sha", "DEV_SHA")
+    assert "heads/main" in text
+    allowed = ("/dev/null",)
     stray = [
         line
         for line in text.splitlines()
@@ -262,15 +269,194 @@ def test_template_flake_guards_workflow_forwarding() -> None:
 
 
 def test_anchoring_preserves_dev_prefixed_and_device_tokens() -> None:
-    """Anchoring must not touch /dev/null, dev_sha, or development/devkit tokens.
+    """Anchoring must not touch /dev/null or development/devkit tokens.
 
     The render's word-boundary/end anchors exist precisely so these behaviorally
     or lexically dev-adjacent tokens survive. /dev/null in particular would be a
-    catastrophic corruption if rewritten.
+    catastrophic corruption if rewritten. (The ``dev_sha`` output this also used
+    to pin is gone — #1479 renamed it ``freeze_sha`` — so the devkit-prefixed
+    composite name carries the word-boundary half of the assertion now.)
     """
     text = _wf(cached_tree("trunk"), "prepare-release.yml")
     assert "/dev/null" in text  # device path, not a branch ref
-    assert "dev_sha:" in text  # workflow output variable name preserved
+    assert "setup-devkit-toolchain" in text  # dev-prefixed token preserved
+
+
+# ── release topology: branch before freeze, freeze off the trunk (#1479) ─────
+#
+# The trunk render is a literal ``dev -> main`` substitution, so the SHIPPED
+# (gitflow) asset has to carry an ordering that is already model-agnostic:
+#
+#   1. capture the base head (BASE_SHA),
+#   2. create ``release/X.Y.Z`` AT that SHA,
+#   3. freeze the changelog onto the freeze target — the base branch under
+#      gitflow, the release branch under trunk,
+#   4. wait for the freeze target to advance past BASE_SHA (#617),
+#   5. fast-forward ``release/X.Y.Z`` onto the freeze commit (a real FF under
+#      gitflow, a no-op under trunk — the freeze already landed there).
+#
+# Freezing onto the base first (the pre-#1479 order) collapses the two-branch
+# topology under trunk: head and base resolve to the SAME commit, so
+# ``gh pr create`` fails with "No commits between main and release/X.Y.Z", and
+# the freeze is a direct push to a trunk that a require-PR ruleset protects.
+
+SCAFFOLD_PREPARE = WORKSPACE / ".github" / "workflows" / "prepare-release.yml"
+
+# The freeze target the trunk render substitutes for gitflow's refs/heads/dev.
+TRUNK_FREEZE_TARGET = "refs/heads/${{ needs.validate.outputs.release_branch }}"
+TRUNK_FREEZE_REF = "heads/${{ needs.validate.outputs.release_branch }}"
+
+
+def _prepare_doc(model: str) -> dict:
+    """The parsed prepare-release.yml for a workflow model.
+
+    gitflow reads the shipped asset directly (the render is a no-op for it);
+    trunk reads the rendered scaffold tree.
+    """
+    if model == "gitflow":
+        return load_workflow(SCAFFOLD_PREPARE)
+    path = cached_tree(model) / ".github" / "workflows" / "prepare-release.yml"
+    return load_workflow(path)
+
+
+def _steps(doc: dict, job: str) -> list[dict]:
+    return [s for s in (jobs(doc)[job].get("steps") or []) if isinstance(s, dict)]
+
+
+def _is_commit_action(step: dict) -> bool:
+    return "vig-os/commit-action" in str(step.get("uses", ""))
+
+
+def _is_branch_create(step: dict) -> bool:
+    run = str(step.get("run", ""))
+    return "git/refs" in run and '-f ref="refs/heads/$RELEASE_BRANCH"' in run
+
+
+def _index_where(steps: list[dict], pred, what: str) -> int:
+    for i, step in enumerate(steps):
+        if pred(step):
+            return i
+    raise AssertionError(f"no step {what}")
+
+
+@pytest.mark.parametrize("model", ["gitflow", "trunk"])
+def test_release_branch_is_created_before_the_changelog_freeze(model: str) -> None:
+    """Ordering invariant that makes the trunk render a literal substitution."""
+    steps = _steps(_prepare_doc(model), "prepare")
+    create = _index_where(steps, _is_branch_create, "creating release/X.Y.Z")
+    freeze = _index_where(steps, _is_commit_action, "committing the changelog freeze")
+    assert create < freeze, (
+        "release/X.Y.Z must be created BEFORE the changelog freeze, so the "
+        "freeze target can be the release branch under trunk (#1479)"
+    )
+
+
+def test_gitflow_freeze_still_targets_dev() -> None:
+    """The gitflow leg is unchanged: the freeze commit still lands on dev."""
+    steps = _steps(_prepare_doc("gitflow"), "prepare")
+    freeze = steps[_index_where(steps, _is_commit_action, "committing the freeze")]
+    assert (freeze.get("env") or {}).get("TARGET_BRANCH") == "refs/heads/dev"
+
+
+def test_trunk_freeze_targets_the_release_branch() -> None:
+    """Trunk: the freeze lands on release/X.Y.Z, never on the trunk (#1479)."""
+    steps = _steps(_prepare_doc("trunk"), "prepare")
+    freeze = steps[_index_where(steps, _is_commit_action, "committing the freeze")]
+    assert (freeze.get("env") or {}).get("TARGET_BRANCH") == TRUNK_FREEZE_TARGET
+
+
+def test_trunk_never_commits_to_the_trunk_branch() -> None:
+    """No commit-action anywhere in a trunk render writes to ``main``.
+
+    Both the prepare freeze and the rollback's changelog restore must target
+    the release branch: a direct push to the trunk is refused by a require-PR
+    ruleset unless the Commit App is a bypass actor — the collision class
+    #1227 resolved by not pushing to ``main`` at all.
+    """
+    doc = _prepare_doc("trunk")
+    targets = [
+        (step.get("env") or {}).get("TARGET_BRANCH")
+        for job in jobs(doc).values()
+        if isinstance(job, dict)
+        for step in (job.get("steps") or [])
+        if isinstance(step, dict) and _is_commit_action(step)
+    ]
+    assert targets, "expected at least one commit-action step"
+    assert set(targets) == {TRUNK_FREEZE_TARGET}, targets
+
+
+@pytest.mark.parametrize("job", ["prepare", "rollback"])
+def test_gitflow_freeze_ref_reads_dev(job: str) -> None:
+    """The freeze-target ref read (#617 wait, rollback guard) follows dev."""
+    refs = [
+        (step.get("env") or {}).get("FREEZE_REF")
+        for step in _steps(_prepare_doc("gitflow"), job)
+        if (step.get("env") or {}).get("FREEZE_REF")
+    ]
+    assert refs == ["heads/dev"], refs
+
+
+@pytest.mark.parametrize("job", ["prepare", "rollback"])
+def test_trunk_freeze_ref_reads_the_release_branch(job: str) -> None:
+    """Under trunk the freeze lives on the release branch, so its ref reads do too.
+
+    The rollback deletes ``release/X.Y.Z`` first, so its post-delete read of
+    this ref cannot resolve — which is exactly the "nothing to restore" answer
+    the trunk leg needs, and never a read of (or a write to) ``main``.
+    """
+    refs = [
+        (step.get("env") or {}).get("FREEZE_REF")
+        for step in _steps(_prepare_doc("trunk"), job)
+        if (step.get("env") or {}).get("FREEZE_REF")
+    ]
+    assert refs == [TRUNK_FREEZE_REF], refs
+
+
+@pytest.mark.parametrize("model", ["gitflow", "trunk"])
+def test_release_branch_fast_forward_is_gated_and_non_forcing(model: str) -> None:
+    """Step 5 is a NON-force FF, taken only on a branch this run created.
+
+    A pre-existing ``release/X.Y.Z`` (re-prepare race; ``validate`` normally
+    rejects it) may already carry commits that are not ancestors of the freeze
+    commit, where the update is not a fast-forward at all — so the tolerant
+    pre-#1479 behaviour is kept by skipping it.
+    """
+    steps = _steps(_prepare_doc(model), "prepare")
+    ff = [s for s in steps if "-X PATCH" in str(s.get("run", ""))]
+    assert len(ff) == 1, "expected exactly one release-branch fast-forward step"
+    assert "-F force=false" in str(ff[0]["run"]), (
+        "the release-branch fast-forward must pin force=false"
+    )
+    assert "branch_created == 'true'" in str(ff[0].get("if", "")), (
+        "the fast-forward must be gated on this run having created the branch"
+    )
+
+
+@pytest.mark.parametrize("model", ["gitflow", "trunk"])
+def test_open_pr_refuses_a_zero_commit_release_pr(model: str) -> None:
+    """The same-SHA guard: head == base is caught in-workflow, before the PR call.
+
+    GitHub refuses to open a PR whose head and base resolve to the same commit
+    ("No commits between main and release/X.Y.Z") — the exact trunk failure of
+    #1479. A local-git simulation cannot express that server-side refusal (why
+    the #1206 spike could not catch it), so the workflow asserts it itself.
+    """
+    steps = _steps(_prepare_doc(model), "open-pr")
+    step = steps[
+        _index_where(
+            steps,
+            lambda s: "gh pr create" in str(s.get("run", "")),
+            "opening the draft PR",
+        )
+    ]
+    run = str(step["run"])
+    guard = run.find('"$BASE_SHA" = "$HEAD_SHA"')
+    assert guard != -1, (
+        "the PR-opening step must compare the resolved base and head SHAs"
+    )
+    assert guard < run.find("gh pr create"), (
+        "the same-SHA guard must run before the PR is created"
+    )
 
 
 # ── guards (enum + contradiction) ────────────────────────────────────────────
