@@ -290,6 +290,132 @@ jobs:
           fi
           echo "✓ Downstream published final release verified for $VERSION"
 
+      # Repo-scoped App token: the cross-repo token above is scoped to
+      # devkit-smoke-test and cannot read this repository's PRs. Mirrors the
+      # merge job's token step, whose identity is proven on every promote.
+      - name: Generate token for the release-PR gate
+        id: release_pr_token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      # #1487: this gate must run in validate, NOT only in merge. The sequence
+      # is validate → promote (moves :latest, undrafts the Release — both
+      # effectively irreversible: published releases are immutable org-wide) →
+      # merge. Checking the PR only in merge means an unapproved, draft or
+      # CI-red PR fails the promote from an already-published state, leaving
+      # the release public while main lacks the release commit.
+      #
+      # The trigger is the DEFAULT state, not an edge case: a final release.yml
+      # run's finalize job always pushes to the release branch, which always
+      # dismisses the approval under the org-wide stale-review dismissal
+      # (#1474). The merge copy of this check stays — PR state can change
+      # between the two jobs — so this is a duplication, not a move.
+      - name: Find and verify release PR
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
+          GH_TOKEN: ${{ steps.release_pr_token.outputs.token }}
+        run: |
+          set -euo pipefail
+          PR_JSON=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh pr list \
+            --head "release/$VERSION" \
+            --base main \
+            --json number,isDraft,reviewDecision,statusCheckRollup \
+            --limit 1)
+
+          PR_COUNT=$(echo "$PR_JSON" | jq 'length')
+          if [ "$PR_COUNT" != "1" ]; then
+            echo "ERROR: Expected exactly 1 PR from release/$VERSION to main, found $PR_COUNT"
+            exit 1
+          fi
+
+          PR_NUMBER=$(echo "$PR_JSON" | jq -r '.[0].number')
+          IS_DRAFT=$(echo "$PR_JSON" | jq -r '.[0].isDraft')
+          REVIEW_DECISION=$(echo "$PR_JSON" | jq -r '.[0].reviewDecision')
+
+          if [ "$IS_DRAFT" = "true" ]; then
+            echo "ERROR: PR #$PR_NUMBER is still in draft"
+            exit 1
+          fi
+          if [ "$REVIEW_DECISION" = "APPROVED" ]; then
+            echo "PR #$PR_NUMBER is approved"
+          elif [ "$REVIEW_DECISION" = "null" ] || [ -z "$REVIEW_DECISION" ]; then
+            APPROVED_COUNT=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh api \
+              --paginate --slurp \
+              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews" \
+              | jq 'add | map(select(.state == "APPROVED")) | length')
+            if [ "$APPROVED_COUNT" -eq 0 ]; then
+              echo "ERROR: PR #$PR_NUMBER is not approved (reviewDecision: $REVIEW_DECISION, approved reviews: 0)"
+              echo "A final release run dismisses the approval (#1474) — re-approve the release PR before promoting."
+              exit 1
+            fi
+            echo "reviewDecision='$REVIEW_DECISION' but $APPROVED_COUNT approved review(s) found"
+          else
+            echo "ERROR: PR #$PR_NUMBER is not approved (status: $REVIEW_DECISION)"
+            echo "A final release run dismisses the approval (#1474) — re-approve the release PR before promoting."
+            exit 1
+          fi
+
+          STATUS_ROLLUP=$(echo "$PR_JSON" | jq -r '.[0].statusCheckRollup // []')
+          CI_FAILED=$(echo "$STATUS_ROLLUP" | jq '[.[] | select(.conclusion == "FAILURE" or .conclusion == "ERROR")] | length')
+          if [ "$CI_FAILED" != "0" ]; then
+            echo "ERROR: PR #$PR_NUMBER has failed CI checks"
+            exit 1
+          fi
+
+          CI_PENDING=$(echo "$STATUS_ROLLUP" | jq '[.[] | select(.conclusion == null or .conclusion == "" or .conclusion == "PENDING" or .conclusion == "IN_PROGRESS" or .conclusion == "QUEUED")] | length')
+          if [ "$CI_PENDING" != "0" ]; then
+            echo "ERROR: PR #$PR_NUMBER has checks still in progress"
+            exit 1
+          fi
+
+          CI_SUCCESS=$(echo "$STATUS_ROLLUP" | jq '[.[] | select(.conclusion == "SUCCESS")] | length')
+          if [ "$CI_SUCCESS" = "0" ]; then
+            echo "ERROR: PR #$PR_NUMBER has no successful CI checks"
+            exit 1
+          fi
+
+          # Mergeability gate (#1132). Approved + CI-green is not the same as
+          # mergeable: a PR that is BEHIND main, BLOCKED or DIRTY would undraft
+          # the Release and only then fail to merge. GitHub computes
+          # mergeability asynchronously, so re-query while either field is
+          # UNKNOWN rather than trusting the first read.
+          MERGEABLE="UNKNOWN"
+          MERGE_STATE="UNKNOWN"
+          for attempt in 1 2 3 4 5; do
+            MERGE_JSON=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
+              gh pr view "$PR_NUMBER" --json mergeable,mergeStateStatus)
+            MERGEABLE=$(echo "$MERGE_JSON" | jq -r '.mergeable')
+            MERGE_STATE=$(echo "$MERGE_JSON" | jq -r '.mergeStateStatus')
+            if [ "$MERGEABLE" != "UNKNOWN" ] && [ "$MERGE_STATE" != "UNKNOWN" ]; then
+              break
+            fi
+            echo "Mergeability still computing (mergeable=$MERGEABLE, mergeStateStatus=$MERGE_STATE), retry $attempt/5..."
+            sleep $((attempt * 5))
+          done
+
+          if [ "$MERGEABLE" != "MERGEABLE" ]; then
+            echo "ERROR: PR #$PR_NUMBER is not mergeable (mergeable=$MERGEABLE, mergeStateStatus=$MERGE_STATE)"
+            echo "Refusing to promote: the publish step is irreversible and this merge would fail after it."
+            exit 1
+          fi
+          case "$MERGE_STATE" in
+            CLEAN | HAS_HOOKS | UNSTABLE)
+              echo "PR #$PR_NUMBER is mergeable (mergeStateStatus=$MERGE_STATE)"
+              ;;
+            BEHIND)
+              echo "ERROR: PR #$PR_NUMBER is BEHIND main — update release/$VERSION to base before promoting"
+              exit 1
+              ;;
+            *)
+              echo "ERROR: PR #$PR_NUMBER is not in a mergeable state (mergeStateStatus=$MERGE_STATE)"
+              exit 1
+              ;;
+          esac
+
+          echo "✓ PR #$PR_NUMBER verified for promote"
+
       - name: Summary
         env:
           VERSION: ${{ steps.vars.outputs.version }}
