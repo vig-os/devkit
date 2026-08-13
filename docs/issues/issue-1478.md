@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-12T14:32:56Z
-updated: 2026-08-12T14:32:56Z
+updated: 2026-08-13T08:32:17Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1478
-comments: 0
+comments: 1
 labels: bug
-assignees: none
-milestone: Backlog
+assignees: c-vigo
+milestone: 1.9.0
 projects: none
 parent: none
 children: none
-synced: 2026-08-13T04:18:10.744Z
+synced: 2026-08-13T14:59:11.045Z
 ---
 
 # [Issue 1478]: [[BUG] CI reports Tests green when pyproject.toml is missing — a deleted Python suite passes silently](https://github.com/vig-os/devkit/issues/1478)
@@ -80,4 +80,14 @@ devkit 1.8.0, `assets/workspace/justfile.project`, and the `Tests` job in the sc
 Changed
 
 Refs: #1281, #1466
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on August 13, 2026 at 08:32 AM_
+
+Fixed on `dev` via #1484 (merged as `bcc92144`).
+
+Closing manually: a PR merged into `dev` does not auto-close its issue in this repo — the `Closes` keyword only fires for PRs targeting the default branch. Ships in the next release train.
 

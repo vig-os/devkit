@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-12T14:23:14Z
-updated: 2026-08-12T14:23:14Z
+updated: 2026-08-13T08:32:19Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1477
-comments: 0
+comments: 1
 labels: bug
-assignees: none
-milestone: 1.8.1
+assignees: c-vigo
+milestone: 1.9.0
 projects: none
 parent: none
 children: none
-synced: 2026-08-13T04:18:11.120Z
+synced: 2026-08-13T14:59:11.457Z
 ---
 
 # [Issue 1477]: [[BUG] Smoke listener's wait-for-workflow matches a stale run — promote fires before the release exists](https://github.com/vig-os/devkit/issues/1477)
@@ -84,4 +84,14 @@ devkit 1.8.0 (released), `assets/smoke-test/.github/workflows/repository-dispatc
 Fixed
 
 Refs: #1443, #1392
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on August 13, 2026 at 08:32 AM_
+
+Fixed on `dev` via #1485 (merged as `55a4190b`).
+
+Closing manually: a PR merged into `dev` does not auto-close its issue in this repo — the `Closes` keyword only fires for PRs targeting the default branch. Ships in the next release train.
 
