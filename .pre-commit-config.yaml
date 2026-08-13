@@ -167,6 +167,7 @@ repos:
         entry: uv run python scripts/sync_manifest.py sync assets/workspace/
         language: system
         pass_filenames: false
+        stages: [pre-commit]
 
   # Typo Linting (typos sourced from the flake dev-shell)
   - repo: local
@@ -245,6 +246,7 @@ repos:
         entry: uv run check-agent-identity
         language: system
         pass_filenames: false
+        stages: [pre-commit]
 
   # Commit message validation (commit-msg stage)
   - repo: local

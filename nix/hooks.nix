@@ -674,12 +674,19 @@ let
         pass_filenames = false;
       };
     };
+    # Runner-only (no consumer fragment): the generator needs THIS repo's
+    # scripts and venv. `stages` is the same fix as #1489 without the bug —
+    # with none, the manifest generator reran at prepare-commit-msg and
+    # commit-msg too, three `uv run` invocations per commit for one useful
+    # result. It only ever has anything to say about staged files, so
+    # pre-commit is the one stage it belongs at. Refs #1491.
     sync-manifest = {
       yaml = {
         name = "sync-manifest";
         entry = "uv run python scripts/sync_manifest.py sync assets/workspace/";
         language = "system";
         pass_filenames = false;
+        stages = [ "pre-commit" ];
       };
     };
     pip-licenses = {
@@ -839,6 +846,20 @@ let
     # pre-commit-stage, so `prek run --all-files` also enforces it in the
     # scaffold's lint job. The blocklist it reads (.github/agent-blocklist.toml)
     # is already manifest-synced into the scaffold. Refs #1031.
+    #
+    # "pre-commit-stage" above was only ever true of the consumer fragment,
+    # which git-hooks.nix defaults there; the yaml fragment carried no `stages`
+    # and so ran at all three, and the two surfaces disagreed about when this
+    # hook fires. Pinning reconciles them, and the message stages are the ones
+    # to drop: git exports GIT_AUTHOR_NAME/GIT_AUTHOR_EMAIL to every stage of
+    # an ordinary commit with identical values — including under an `--author=`
+    # override, the case this hook exists for — so the commit-msg round re-reads
+    # what pre-commit already rejected on. The lone path where the message
+    # stages fire and pre-commit does not is `git merge`, and git exports no
+    # author there at all: the hook falls back to `git config user.*`, the
+    # persistent identity that fails the committer's very next ordinary commit.
+    # That leaves a merge as the one commit this no longer guards locally, in
+    # exchange for dropping two of three runs per commit. Refs #1491.
     check-agent-identity = {
       scaffold = true;
       yaml = {
@@ -846,6 +867,7 @@ let
         entry = "uv run check-agent-identity";
         language = "system";
         pass_filenames = false;
+        stages = [ "pre-commit" ];
       };
       consumer = pkgs: {
         enable = true;

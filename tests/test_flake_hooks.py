@@ -256,6 +256,59 @@ class TestTyposRunsOnlyAtPreCommit:
             assert hooks["typos"].get("stages") == ["pre-commit"], name
 
 
+class TestUnfilteredLocalHooksPinTheirStage:
+    """The remaining stage-less local hooks run once, at pre-commit (#1491).
+
+    Split out of #1489, which fixed the one hook of this group that actually
+    broke a commit. ``sync-manifest`` and ``check-agent-identity`` carry neither
+    ``stages:`` nor a file filter, so each commit pays for three invocations of
+    a ``uv run`` entry point where one is meant.
+
+    For ``check-agent-identity`` the pin also reconciles a real disagreement
+    between surfaces: the consumer fragment has always run at pre-commit only
+    (git-hooks.nix defaults it there), while the yaml fragment behind both
+    committed configs ran at every stage. The message stages are genuinely not
+    wanted — git exports ``GIT_AUTHOR_NAME``/``GIT_AUTHOR_EMAIL`` to all three
+    stages of an ordinary commit with identical values, including under an
+    ``--author=`` override, so the hook sees the same identity at pre-commit
+    that it saw at commit-msg. The one path where only the message stages fire
+    is ``git merge``, and there git exports no author at all: the hook falls
+    back to ``git config user.*``, the persistent identity that already fails
+    the next ordinary commit at pre-commit.
+    """
+
+    def test_runner_render_pins_the_stage(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """sync-manifest is runner-only — a repo generator for this repo."""
+        hook = _normalize(rendered_portable["runner"])["hooks"]["sync-manifest"]
+        assert hook.get("stages") == ["pre-commit"], (
+            "sync-manifest runs at every stage, so each commit re-runs the "
+            "manifest generator three times (#1491)"
+        )
+
+    def test_portable_renders_pin_the_agent_identity_stage(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        for profile in ("runner", "scaffold"):
+            hook = _normalize(rendered_portable[profile])["hooks"][
+                "check-agent-identity"
+            ]
+            assert hook.get("stages") == ["pre-commit"], (
+                f"{profile}: check-agent-identity guards the author, not the "
+                "message, and its consumer fragment runs at pre-commit only "
+                "(#1491)"
+            )
+
+    def test_consumer_surface_pins_the_agent_identity_stage(self) -> None:
+        """The surface the yaml fragments are being reconciled against."""
+        for name, config in _consumer_config_set().items():
+            hooks = _normalize(config)["hooks"]
+            if "check-agent-identity" not in hooks:
+                continue  # the customized shell disables it on purpose
+            assert hooks["check-agent-identity"].get("stages") == ["pre-commit"], name
+
+
 class TestCheckJsonExcludesJsoncBanners:
     """check-json skips the `//`-bannered JSONC scaffold files (#1053).
 
