@@ -59,6 +59,18 @@ After final `release.yml` has pushed tag `X.Y.Z` and created a **draft** GitHub 
 3. **Merge** — merge `release/X.Y.Z` → `main` (triggers `sync-main-to-dev` under the gitflow model — see [Workflow models](#workflow-models))
 4. **Cleanup** (best-effort, does not fail the workflow) — delete remote git tags matching `${VERSION}-rc*` that have **no** GitHub Release
 
+**Re-approve the release PR before dispatching promote** ([#1474](https://github.com/vig-os/devkit/issues/1474)). The final `release.yml` run's `finalize` job pushes to `release/X.Y.Z` (CHANGELOG date stamp plus the `sync-issues` commit), so on any repository with stale-review dismissal enabled the approval that authorised the final dispatch is already dismissed when promote validates it in step 1 above — and any later push to the release branch dismisses it again:
+
+```bash
+# Current state (REVIEW_REQUIRED after finalize)
+gh pr view <PR_NUMBER> --json reviewDecision
+
+# Re-approve (must be a human account other than the PR author)
+gh -R <owner>/<repo> pr review <PR_NUMBER> --approve
+```
+
+Full reasoning and the upstream runbook: [`docs/RELEASE_CYCLE.md`](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#phase-5-post-release-cleanup).
+
 **Upstream (`vig-os/devcontainer`) only:** Root `promote-release.yml` also prunes GHCR RC package versions via the org Packages API using **`GITHUB_TOKEN`** with **repo Admin** on the `devcontainer` package (one-time **Manage Actions access** grant). See [GitHub App Configuration](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#github-app-configuration) and [Registry and cleanup tokens](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#registry-and-cleanup-tokens-upstream) in `docs/RELEASE_CYCLE.md`.
 
 This template does **not** implement upstream-only steps (GHCR `:latest`, cosign, cross-repo smoke-test gate). Projects that need registry or deploy promotion after merge should run separate automation or extend their `release-extension.yml` / own workflows; see [Extension Hook](#extension-hook).
