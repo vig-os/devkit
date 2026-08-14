@@ -220,8 +220,13 @@ EOF
     assert_success
 }
 
-@test "smoke-test dispatch gates the final release on human PR approval instead of self-approving" {
-    run bash -lc "grep -Fq -- 'Gate final release on human approval of release PR' assets/smoke-test/.github/workflows/repository-dispatch.yml && ! grep -Fq -- 'gh pr review' assets/smoke-test/.github/workflows/repository-dispatch.yml && grep -Fq -- 'reviewDecision' assets/smoke-test/.github/workflows/repository-dispatch.yml"
+@test "smoke-test dispatch carries no human-approval gate and never self-approves" {
+    # #1506: the release-PR approval poll was a #1391 workaround, not a control
+    # — the smoke repo's Main protection requires 0 approving reviews
+    # (org-config#167), so reviewDecision is never computed there and any
+    # remaining poll would time out un-unblockably. The gate must be gone, and
+    # no self-approval may replace it (the rejected #1391 option 1).
+    run bash -lc "! grep -Fq -- 'Gate final release on human approval of release PR' assets/smoke-test/.github/workflows/repository-dispatch.yml && ! grep -Fq -- 'reviewDecision' assets/smoke-test/.github/workflows/repository-dispatch.yml && ! grep -Fq -- 'gh pr review' assets/smoke-test/.github/workflows/repository-dispatch.yml"
     assert_success
 }
 

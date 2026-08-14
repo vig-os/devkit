@@ -263,3 +263,33 @@ def test_validate_requeries_unknown_mergeability(copy: str) -> None:
     """GitHub computes mergeability async, so UNKNOWN is re-queried, not trusted."""
     run = _validate_pr_step_run(copy)
     assert "UNKNOWN" in run
+
+
+# ── protection-aware approval gate (#1506) ────────────────────────────────────
+#
+# The scaffold copy runs on repos whose Main protection may require 0 approving
+# reviews (the smoke repo since org-config#167, and the solo-adoption class).
+# There GitHub never computes reviewDecision, so the unconditional gate falls
+# into the #438 fallback, counts zero approved reviews, and fails a PR the
+# platform itself would merge. The scaffold gates therefore consult the base
+# branch's rules first and skip the approval assertion — explicitly, logged —
+# when no approving review is required. Draft, CI, and mergeability checks are
+# unaffected. Devkit's own copy stays unconditional (#1504 keeps the promote
+# gates as they are; devkit's main requires 1 review).
+
+
+@pytest.mark.parametrize("job", ["validate", "merge"])
+def test_scaffold_gate_skips_approval_when_none_required(job: str) -> None:
+    """Both scaffold gate copies consult the branch rules and log the skip."""
+    run = _pr_gate_run("scaffold", job)
+    assert "rules/branches" in run
+    assert "required_approving_review_count" in run
+    assert "approval gate skipped" in run
+
+
+@pytest.mark.parametrize("job", ["validate", "merge"])
+def test_devkit_gate_stays_unconditional(job: str) -> None:
+    """Devkit's own promote gates carry no protection-count skip (#1504)."""
+    run = _pr_gate_run("devkit", job)
+    assert "rules/branches" not in run
+    assert "approval gate skipped" not in run
