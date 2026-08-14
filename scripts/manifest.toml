@@ -98,6 +98,9 @@ transforms = [
   # Downstream release.yml declares create-release; upstream root justfile.gh does not pass it.
   { type = "Sed", pattern = '(?m)^publish-candidate version ref="" \*flags:', replace = 'publish-candidate version ref="" create-release="false" *flags:' },
   { type = "Sed", pattern = '-f "release-kind=candidate" \{\{ flags \}\}', replace = '-f "release-kind=candidate" -f "create-release={{ create-release }}" {{ flags }}' },
+  # abandon-release stays devkit-only until the consumer variant ships the
+  # workflow it dispatches (follow-up to #1504).
+  { type = "RemoveBlock", start_pattern = "^# Abandon a finalized-but-unpublished release", end_pattern = "^$" },
   { type = "RemoveBlock", start_pattern = "^# Pull image from registry", end_pattern = "^\\s+podman pull" },
   { type = "StripTrailingBlankLines" },
 ]

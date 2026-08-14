@@ -118,7 +118,7 @@ EOF
     # (tag-ruleset bypass, same machinery as the RC prune), keep the
     # release-attached-tag guard, close the release PR, and drop the branch.
     local wf=.github/workflows/abandon-release.yml
-    run bash -lc "grep -Fq -- 'isDraft' $wf && grep -Fq -- 'RELEASE_APP_CLIENT_ID' $wf && grep -Fq -- 'git/refs/tags/' $wf && grep -Fq -- 'git/refs/heads/' $wf && grep -Fq -- 'gh pr close' $wf"
+    run bash -lc "grep -Fq -- '.draft' $wf && grep -Fq -- 'RELEASE_APP_CLIENT_ID' $wf && grep -Fq -- 'git/refs/tags/' $wf && grep -Fq -- 'git/refs/heads/' $wf && grep -Fq -- 'gh pr close' $wf"
     assert_success
     # Published (non-draft) releases must be an explicit hard refusal.
     run bash -lc "grep -Eq -- 'published|tombstone' $wf"
