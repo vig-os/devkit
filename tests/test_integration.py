@@ -1341,6 +1341,7 @@ class TestJustRecipes:
             "finalize-release",
             "promote-release",
             "publish-candidate",
+            "abandon-release",
             "reset-changelog",
         ]:
             assert re.search(rf"(?m)^{recipe_name}(?:\s+.*)?:$", content), (
@@ -1357,6 +1358,7 @@ class TestJustRecipes:
         assert 'REF="dev"' in content
         assert 'gh workflow run release.yml --ref "$REF"' in content
         assert 'gh workflow run promote-release.yml --ref "$REF"' in content
+        assert 'gh workflow run abandon-release.yml --ref "$REF"' in content
         assert "release-kind=final" in content
         assert "release-kind=candidate" in content
         assert "create-release={{ create-release }}" in content

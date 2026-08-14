@@ -4430,6 +4430,8 @@ _scaffold_seeded() {
     assert_success
     run test -f "$ws/.github/workflows/release.yml"
     assert_success
+    run test -f "$ws/.github/workflows/abandon-release.yml"
+    assert_success
     _seed_features_disabled "$ws" "release,skills"
     run _upgrade_no_flags "$ws"
     assert_success
@@ -4437,6 +4439,8 @@ _scaffold_seeded() {
     run test -e "$ws/.github/workflows/release.yml"
     assert_failure
     run test -e "$ws/.github/workflows/promote-release.yml"
+    assert_failure
+    run test -e "$ws/.github/workflows/abandon-release.yml"
     assert_failure
     run test -e "$ws/.claude/skills/tdd"
     assert_failure
