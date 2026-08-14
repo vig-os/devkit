@@ -768,40 +768,13 @@ jobs:
           gh pr edit "${PR_NUMBER}" --remove-label "release-kind:final" >/dev/null 2>&1 || true
           gh pr edit "${PR_NUMBER}" --add-label "${LABEL}"
 
-      - name: Gate final release on human approval of release PR
-        env:
-          GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
-          PR_NUMBER: ${{ steps.locate_release_pr.outputs.release_pr }}
-          PR_URL: ${{ steps.locate_release_pr.outputs.release_pr_url }}
-          RELEASE_KIND: ${{ needs.validate.outputs.release_kind }}
-        run: |
-          set -euo pipefail
-          # The org blocks workflow-token PR approvals (vig-os/org-config#122),
-          # and every dispatch recreates the release branch and PR from scratch,
-          # so an up-front human approval cannot survive to this point. Candidate
-          # dispatches follow the deferred-approval model (approval gates the
-          # final release only) and leave the PR unapproved; the final dispatch
-          # pauses here until a human approves the freshly created PR. See
-          # vig-os/devkit#1391.
-          if [ "${RELEASE_KIND}" != "final" ]; then
-            echo "Candidate dispatch: release PR #${PR_NUMBER} intentionally left unapproved (human approval gates the final release only)."
-            exit 0
-          fi
-          TIMEOUT=1800
-          INTERVAL=20
-          ELAPSED=0
-          echo "Final dispatch: waiting up to $((TIMEOUT / 60)) minutes for a human to approve release PR #${PR_NUMBER}: ${PR_URL}"
-          while [ "${ELAPSED}" -lt "${TIMEOUT}" ]; do
-            DECISION="$(gh pr view "${PR_NUMBER}" --json reviewDecision --jq '.reviewDecision // empty' 2>/dev/null || true)"
-            if [ "${DECISION}" = "APPROVED" ]; then
-              echo "Release PR #${PR_NUMBER} approved by a human reviewer."
-              exit 0
-            fi
-            sleep "${INTERVAL}"
-            ELAPSED=$((ELAPSED + INTERVAL))
-          done
-          echo "::error::Timed out waiting for human approval of release PR #${PR_NUMBER} (${PR_URL}). Approve the PR, then re-run the failed jobs of this workflow run to resume the final release."
-          exit 1
+      # No human-approval gate here (#1506): the release PR is entirely
+      # bot-authored scaffold output, this repo's Main protection requires no
+      # approving reviews (vig-os/org-config#167), and the operative controls
+      # are green smoke CI plus devkit's published-smoke-release validation at
+      # promote. The former review-decision poll (vig-os/devkit#1391) could
+      # never resolve under a count-0 ruleset — GitHub computes that field
+      # only when the base branch requires reviews.
 
   trigger-release:
     name: Trigger and wait for release workflow
