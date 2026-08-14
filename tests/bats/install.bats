@@ -1051,3 +1051,82 @@ STUB
     assert_success
     assert_output --partial "nix flake update vigos"
 }
+
+# ── name-agnostic devkit input discovery + loud skip (#1497) ──────────────────
+# flake.nix is a PRESERVE_FILE, so the consumer's devkit input may be named
+# anything and may pin a ref in either form (?ref=X, or the /X path suffix the
+# field case used). The #1263 advance was guarded by a grep matching only an
+# input literally named `vigos` at the unpinned URL — every other spelling was
+# skipped with no message at all, so the weekly upgrade reported success while
+# the flake input (where the Rust pack lives entirely) stayed frozen. The
+# advance is now keyed on the URL, not the name, and EVERY outcome prints a
+# `flake-bump:` line the upgrade workflow surfaces in the adoption PR.
+
+@test "upgrade advances a floating input named devkit (#1497)" {
+    dir="$BATS_TEST_TMPDIR/flake-renamed"
+    log="$BATS_TEST_TMPDIR/flake-renamed-nix.log"
+    _make_flake_workspace "$dir" 'devkit.url = "github:vig-os/devkit";'
+    _run_install_nix_stub "$dir" "$log" 0 --force
+    assert_success
+    assert_output --partial "flake-bump: advanced"
+    run grep -F "flake update devkit --flake $dir" "$log"
+    assert_success
+}
+
+@test "the floating vigos advance reports flake-bump: advanced (#1497)" {
+    dir="$BATS_TEST_TMPDIR/flake-report-advanced"
+    log="$BATS_TEST_TMPDIR/flake-report-advanced-nix.log"
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit";'
+    _run_install_nix_stub "$dir" "$log" 0 --force
+    assert_success
+    assert_output --partial "flake-bump: advanced"
+}
+
+@test "a path-ref pinned input is left alone but reported (#1497)" {
+    dir="$BATS_TEST_TMPDIR/flake-path-ref"
+    log="$BATS_TEST_TMPDIR/flake-path-ref-nix.log"
+    _make_flake_workspace "$dir" 'devkit.url = "github:vig-os/devkit/dev";'
+    _run_install_nix_stub "$dir" "$log" 0 --force
+    assert_success
+    assert_output --partial "flake-bump: skipped"
+    assert_output --partial "dev"
+    run grep -F "flake update" "$log"
+    assert_failure
+}
+
+@test "a ?ref= pinned input reports the skip (#1497)" {
+    dir="$BATS_TEST_TMPDIR/flake-qref-report"
+    log="$BATS_TEST_TMPDIR/flake-qref-report-nix.log"
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.1";'
+    _run_install_nix_stub "$dir" "$log" 0 --force
+    assert_success
+    assert_output --partial "flake-bump: skipped"
+    assert_output --partial "1.4.1"
+    run grep -F "flake update" "$log"
+    assert_failure
+}
+
+@test "no recognized devkit input reports it and advances nothing (#1497)" {
+    dir="$BATS_TEST_TMPDIR/flake-no-input"
+    log="$BATS_TEST_TMPDIR/flake-no-input-nix.log"
+    _make_flake_workspace "$dir" 'scitadel.url = "github:vig-os/scitadel";'
+    _run_install_nix_stub "$dir" "$log" 0 --force
+    assert_success
+    assert_output --partial "flake-bump: no devkit input"
+    run grep -F "flake update" "$log"
+    assert_failure
+}
+
+@test "the doc-comment example never counts as the devkit input (#1497)" {
+    # _make_flake_workspace always writes the commented example line above the
+    # real input; with no real devkit input present, the comment alone must not
+    # trigger an advance or a pinned-skip report.
+    dir="$BATS_TEST_TMPDIR/flake-comment-only"
+    log="$BATS_TEST_TMPDIR/flake-comment-only-nix.log"
+    _make_flake_workspace "$dir" 'scitadel.url = "github:vig-os/scitadel";'
+    _run_install_nix_stub "$dir" "$log" 0 --force
+    assert_success
+    refute_output --partial "flake-bump: skipped"
+    run grep -F "flake update" "$log"
+    assert_failure
+}

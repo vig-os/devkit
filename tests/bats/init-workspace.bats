@@ -1146,16 +1146,17 @@ _scaffold_with_version_file() {
 # a pinned vigos ref in the consumer's flake.nix differs from the DEVKIT_VERSION
 # being written. A floating (unpinned) input is intentional and never warns.
 
-# Pre-seed $ws/flake.nix carrying a $url vigos input, then --force upgrade the
-# direnv scaffold to $target (via the image built-tag record).
+# Pre-seed $ws/flake.nix carrying a $url devkit input (named $4, default
+# vigos — the input name is the consumer's choice, #1497), then --force
+# upgrade the direnv scaffold to $target (via the image built-tag record).
 _upgrade_direnv_with_flake_url() {
-    local ws="$1" target="$2" url="$3"
+    local ws="$1" target="$2" url="$3" name="${4:-vigos}"
     mkdir -p "$ws"
     cat >"$ws/flake.nix" <<EOF
 {
   inputs = {
-    vigos.url = "$url";
-    nixpkgs.follows = "vigos/nixpkgs";
+    $name.url = "$url";
+    nixpkgs.follows = "$name/nixpkgs";
   };
 }
 EOF
@@ -1180,7 +1181,32 @@ EOF
 @test "init-workspace is silent when the vigos flake input floats unpinned (#1093)" {
     run _upgrade_direnv_with_flake_url "$BATS_TEST_TMPDIR/e2e-1093-float" 1.2.0 "github:vig-os/devkit"
     assert_success
-    refute_output --partial "pinned vigos flake input is still"
+    refute_output --partial "flake input is still"
+}
+
+# ── the skew warning is name-agnostic and knows both pin forms (#1497) ────────
+# flake.nix is a PRESERVE_FILE: an input named `devkit`, or pinned with the
+# `/ref` path suffix instead of `?ref=`, is a legitimate consumer choice — the
+# field case carried `devkit.url = "github:vig-os/devkit/dev"` and got neither
+# a bump nor a warning from any mechanism.
+
+@test "init-workspace warns on a path-ref pin that lags the target (#1497)" {
+    run _upgrade_direnv_with_flake_url "$BATS_TEST_TMPDIR/e2e-1497-pathref" 1.2.0 "github:vig-os/devkit/1.1.0"
+    assert_success
+    assert_output --partial "flake input is still 1.1.0"
+}
+
+@test "init-workspace warns on a renamed pinned input, naming it (#1497)" {
+    run _upgrade_direnv_with_flake_url "$BATS_TEST_TMPDIR/e2e-1497-renamed" 1.2.0 "github:vig-os/devkit?ref=1.1.0" devkit
+    assert_success
+    assert_output --partial "pinned devkit flake input is still 1.1.0"
+    assert_output --partial "nix flake update devkit"
+}
+
+@test "init-workspace stays silent on an aligned path-ref pin (#1497)" {
+    run _upgrade_direnv_with_flake_url "$BATS_TEST_TMPDIR/e2e-1497-aligned" 1.2.0 "github:vig-os/devkit/1.2.0"
+    assert_success
+    refute_output --partial "flake input is still"
 }
 
 # ── skew warning reads the real pin, not the doc-comment (#1110) ──────────────
