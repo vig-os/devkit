@@ -68,6 +68,7 @@
     {
       "description": "Devkit-managed workflows and composite actions are regenerated wholesale on every devkit upgrade, so their SHA-pinned action digests are advanced upstream by devkit's own Renovate and shipped with each devkit release — never here. Disabling them stops duplicate/clobbering pin-bump PRs in consumer repos. This rule is intentionally last so a consumer's own later packageRules (in their preserved renovate.json) win: a consumer that wants to manage a specific managed file can re-enable it there. Refs vig-os/devkit#1332.",
       "matchFileNames": [
+        ".github/workflows/abandon-release.yml",
         ".github/workflows/ci.yml",
         ".github/workflows/codeql.yml",
         ".github/workflows/devkit-upgrade.yml",

@@ -108,6 +108,22 @@ publish-candidate version ref="" create-release="false" *flags:
     echo "✓ Candidate release workflow triggered for version {{ version }}"
     echo "Monitor progress: gh run list --workflow release.yml"
 
+# Abandon a finalized-but-unpublished release: delete draft Release + tag, close PR, delete branch (draft-only, enforced server-side)
+[group('release')]
+abandon-release version ref="" *flags:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Safe only while the X.Y.Z Release is a DRAFT — the workflow hard-refuses
+    # a published release (publishing tombstones the tag name permanently).
+    REF="{{ ref }}"
+    if [ -z "$REF" ]; then
+        REF="dev"
+    fi
+    gh workflow run abandon-release.yml --ref "$REF" -f "version={{ version }}" {{ flags }}
+    echo ""
+    echo "✓ Abandon workflow triggered for version {{ version }}"
+    echo "Monitor progress: gh run list --workflow abandon-release.yml"
+
 # Reset CHANGELOG Unreleased section (after merging release to dev)
 [group('release')]
 reset-changelog:

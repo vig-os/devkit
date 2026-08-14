@@ -18,8 +18,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     idempotent and re-runnable, with a fail-closed verification pass
   - Hard-refuses a **published** release: deleting one tombstones its tag
     name permanently (the 1.5.0 ghost); fix forward instead
-  - Devkit-only for now (a manifest `RemoveBlock` keeps the recipe out of the
-    consumer scaffold until the consumer variant ships the workflow)
+
+- **Consumer abandon-release: the scaffold ships the workflow the recipe
+  dispatches** ([#1511](https://github.com/vig-os/devkit/issues/1511))
+  - `.github/workflows/abandon-release.yml` joins the scaffolded release set:
+    the same draft-only server-side guards as devkit's, with the tag composed
+    as `<DEVKIT_TAG_PREFIX>X.Y.Z` via a leading `resolve-toolchain` job and
+    the consumer `publish-release` concurrency lane
+  - The `just abandon-release` recipe now syncs into the consumer
+    `justfile.gh` (the devkit-only `RemoveBlock` is dropped), and the
+    workflow is part of the `release` feature group
+  - Documented in `docs/DOWNSTREAM_RELEASE.md` as the guarded exception to
+    the no-tag-deletion rollback policy
 
 ### Changed
 

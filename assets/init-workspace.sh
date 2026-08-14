@@ -1378,6 +1378,7 @@ feature_paths() {
                 ".github/workflows/prepare-release.yml" \
                 ".github/workflows/prepare-release-extension.yml" \
                 ".github/workflows/promote-release.yml" \
+                ".github/workflows/abandon-release.yml" \
                 ".github/workflows/sync-main-to-dev.yml" \
                 "docs/DOWNSTREAM_RELEASE.md"
             ;;
