@@ -2566,8 +2566,11 @@ _upgrade_no_flags() {
     checkout_ln=$(awk -v s="$token_ln" 'NR > s && /name: Checkout repository/ { print NR; exit }' "$prom")
     echo "token=$token_ln checkout=$checkout_ln"
     [ -n "$checkout_ln" ]
-    run grep -qF 'x-access-token:' "$prom"
-    assert_failure
+    # Scoped to the rendered job: other jobs in the base template legitimately
+    # build a push URL this way.
+    reset_ln=$(grep -n '^  reset-sync-mirror:' "$prom" | cut -d: -f1)
+    run awk -v s="$reset_ln" 'NR >= s' "$prom"
+    refute_output --partial 'x-access-token:'
     # The push is gated on the archive guard, never unconditional (#1503).
     run grep -qF "if: \${{ steps.archive_guard.outputs.safe == 'true' }}" "$prom"
     assert_success
