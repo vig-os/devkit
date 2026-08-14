@@ -54,22 +54,22 @@ changelog-neutral. Preview the pending block anytime with
 
 After final `release.yml` has pushed tag `X.Y.Z` and created a **draft** GitHub Release, run **`promote-release.yml`** (or `just promote-release X.Y.Z` from the devcontainer; dispatches on `release/X.Y.Z` by default) to:
 
-1. **Validate** — semver, draft release for `X.Y.Z`, release PR not draft / approved / CI green
+1. **Validate** — semver, draft release for `X.Y.Z`, release PR not draft / approved (when the base branch requires reviews) / CI green
 2. **Promote** — `gh release edit --draft=false`
 3. **Merge** — merge `release/X.Y.Z` → `main` (triggers `sync-main-to-dev` under the gitflow model — see [Workflow models](#workflow-models))
 4. **Cleanup** (best-effort, does not fail the workflow) — delete remote git tags matching `${VERSION}-rc*` that have **no** GitHub Release
 
-**Re-approve the release PR before dispatching promote** ([#1474](https://github.com/vig-os/devkit/issues/1474)). The final `release.yml` run's `finalize` job pushes to `release/X.Y.Z` (CHANGELOG date stamp plus the `sync-issues` commit), so on any repository with stale-review dismissal enabled the approval that authorised the final dispatch is already dismissed when promote validates it in step 1 above — and any later push to the release branch dismisses it again:
+**Approve the release PR immediately before dispatching promote** ([#1504](https://github.com/vig-os/devkit/issues/1504)) — this is the release cycle's single human approval; `release.yml` collects none. It happens here, after finalize, because the final `release.yml` run's `finalize` job pushes to `release/X.Y.Z` (CHANGELOG date stamp plus the `sync-issues` commit), and on any repository with stale-review dismissal enabled a push dismisses existing approvals — so an earlier approval could never survive to promote, and any later push to the release branch dismisses this one again:
 
 ```bash
-# Current state (REVIEW_REQUIRED after finalize)
+# Current state (REVIEW_REQUIRED until approved)
 gh pr view <PR_NUMBER> --json reviewDecision
 
-# Re-approve (must be a human account other than the PR author)
+# Approve (must be a human account other than the PR author)
 gh -R <owner>/<repo> pr review <PR_NUMBER> --approve
 ```
 
-Full reasoning and the upstream runbook: [`docs/RELEASE_CYCLE.md`](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#phase-5-post-release-cleanup).
+On a repository whose `main` ruleset requires **no** approving reviews (solo projects), promote's gates skip the approval assertion — explicitly, logged — and this step disappears ([#1506](https://github.com/vig-os/devkit/issues/1506)). Full reasoning and the upstream runbook: [`docs/RELEASE_CYCLE.md`](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#phase-5-post-release-cleanup).
 
 **Upstream (`vig-os/devcontainer`) only:** Root `promote-release.yml` also prunes GHCR RC package versions via the org Packages API using **`GITHUB_TOKEN`** with **repo Admin** on the `devcontainer` package (one-time **Manage Actions access** grant). See [GitHub App Configuration](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#github-app-configuration) and [Registry and cleanup tokens](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#registry-and-cleanup-tokens-upstream) in `docs/RELEASE_CYCLE.md`.
 

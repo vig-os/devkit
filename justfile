@@ -293,14 +293,15 @@ test version="dev":
 #   3. just publish-candidate X.Y.Z  - Build/test/publish X.Y.Z-rcN to verify
 #                                       (gates on CI only; PR may stay draft); repeat as needed
 #   4. Mark PR ready for review (gh pr ready PR_NUMBER)
-#   5. Get PR approval from reviewer
-#   6. just finalize-release X.Y.Z   - Triggers release.yml (final) that:
+#   5. just finalize-release X.Y.Z   - Triggers release.yml (final) that:
 #      - Validates PR status and all prerequisites (requires an RC published in step 3)
 #      - Sets release date in CHANGELOG, syncs PR docs
 #      - Builds and tests container images; creates X.Y.Z tag; pushes versioned GHCR images
 #      - Creates draft GitHub Release; dispatches smoke-test (not :latest yet)
 #      - On failure: automatic rollback and issue creation
-#   7. Wait for devkit-smoke-test to publish its final release for X.Y.Z
+#   6. Wait for devkit-smoke-test to publish its final release for X.Y.Z (unattended, #1506)
+#   7. Approve the release PR (the cycle's single human approval, #1504) —
+#      or reject with `just abandon-release X.Y.Z` (draft-only)
 #   8. just promote-release X.Y.Z    - Triggers promote-release.yml that:
 #      - Updates GHCR :latest, publishes the draft GitHub Release, merges release PR to main
 #      - Merging to main triggers sync-main-to-dev.yml (PR main -> dev, auto-merge if clean)

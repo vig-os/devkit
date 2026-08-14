@@ -158,21 +158,23 @@ graph TB
     L --> M["Publish X.Y.Z-rcN"]
     M --> U{External gate pass?}
     U -->|No| I
-    U -->|Yes| J["Mark PR ready<br/>Approve (authorises the final dispatch)"]
+    U -->|Yes| J["Mark PR ready"]
     J --> N["just finalize-release X.Y.Z"]
     N --> O["Workflow: set release date<br/>build & test"]
     O --> P{Tests pass?}
     P -->|No| Q["Automatic rollback<br/>+ issue creation"]
     P -->|Yes| R["Workflow: create tag<br/>publish images<br/>draft GitHub Release (final only)"]
-    R --> R2["Re-approve PR<br/>(finalize dismissed the approval)"]
-    R2 --> S["Merge PR to main"]
+    R --> R2{Accept the release?}
+    R2 -->|Yes| R3["Approve PR<br/>(the single human approval)"]
+    R2 -->|No| AB["just abandon-release X.Y.Z<br/>(draft-only rejection path)"]
+    R3 --> S["Merge PR to main"]
     S --> T["Workflow: sync-main-to-dev<br/>PR-based sync"]
 ```
 
 ### Release Phases
 
 1. **Preparation** (`prepare-release`): Freeze CHANGELOG on dev, create release branch, reset Unreleased on dev, open draft PR
-2. **Review & Testing**: CI validation, fix issues, publish candidates to verify; mark PR ready and get approvals last (this is the final-release gate, not the candidate gate — the approval authorises the final dispatch and does not survive it, see [Phase 5](#phase-5-post-release-cleanup))
+2. **Review & Testing**: CI validation, fix issues, publish candidates to verify; mark the PR ready last (the draft gate is the final-release gate, not the candidate gate). No approval is collected here — the cycle's single human approval happens at promote time ([Phase 5](#phase-5-post-release-cleanup), [#1504](https://github.com/vig-os/devkit/issues/1504))
 3. **Candidate Publish** (`publish-candidate`): Build/test/publish `X.Y.Z-rcN` and dispatch cross-repo validation workflow
 4. **Cross-Repo Validation**: Smoke-test runs asynchronously after candidate and final publish; see `docs/CROSS_REPO_RELEASE_GATE.md`. Before promotion, **`promote-release.yml`** requires a published **final** (non-draft, non-prerelease) GitHub Release for the version tag on `devkit-smoke-test` so human acceptance downstream is reflected before `:latest` and the draft release are published.
 5. **Finalization & Post-Release**: Publish final image/tag, open a **draft** GitHub Release for human review, then merge PR to `main` and let sync automation update `dev`
@@ -314,11 +316,11 @@ This is the main quality gate. The release branch and draft PR serve as the coor
    just publish-candidate 1.0.0
    ```
 
-   Candidate dispatch gates on **CI only** — the PR may stay a draft and need
-   not be approved yet ([#902](https://github.com/vig-os/devkit/issues/902)).
-   RCs are disposable: auto-incrementing `rcN` tags that never touch `:latest`,
-   create no GitHub Release, and are pruned at promote. Iterate freely until the
-   image behaves as intended.
+   Candidate dispatch gates on **CI only** — the PR may stay a draft
+   ([#902](https://github.com/vig-os/devkit/issues/902)). RCs are disposable:
+   auto-incrementing `rcN` tags that never touch `:latest`, create no GitHub
+   Release, and are pruned at promote. Iterate freely until the image behaves
+   as intended.
 
    **Hard rule: never dispatch `release.yml` — candidate or final — until the
    release-branch PR's CI is fully green.** The release PR being opened by
@@ -374,38 +376,31 @@ This is the main quality gate. The release branch and draft PR serve as the coor
    # Continue testing on release branch
    ```
 
-6. **Request Reviews**
-   - Add reviewers to the PR in GitHub UI
-   - Address feedback
-   - Iterate until approved
-
-7. **Mark Ready for Review & Get Approval** (gate into finalization)
+6. **Mark Ready for Review** (gate into finalization)
 
    Once the candidate behaves correctly and the CHANGELOG is settled, promote
-   the PR out of draft and collect approval — this is the gate the **final**
-   release enforces (candidates do not):
+   the PR out of draft — this is the gate the **final** release enforces
+   (candidates do not):
 
    ```bash
    # Removes draft status (or use the "Ready for review" button in the UI)
    gh pr ready <PR_NUMBER>
    ```
 
-   Because this happens last, the approval lands on the release content as it
-   will ship, not an intermediate one — everything after it is the mechanical
-   finalization that automation writes on top (CHANGELOG date stamp,
-   regenerated docs, `sync-issues`).
+   No approval is collected at this point. The finalize run pushes its own
+   commits on top of the release branch (CHANGELOG date stamp, regenerated
+   docs, `sync-issues`), and a push dismisses existing approvals wherever
+   stale-review dismissal is enabled (org-wide in `vig-os`) — so an approval
+   here could never survive to promote. The cycle's **single human approval**
+   is instead collected after finalize and immediately before the promote
+   dispatch, where it lands on the release content exactly as it ships
+   ([Phase 5](#phase-5-post-release-cleanup),
+   [#1504](https://github.com/vig-os/devkit/issues/1504); supersedes the
+   two-approval flow of
+   [#1474](https://github.com/vig-os/devkit/issues/1474)).
 
-   **This approval authorises the final *dispatch*; it does not survive it.**
-   Those finalization commits are pushed to `release/X.Y.Z`, and a push
-   dismisses existing approvals wherever stale-review dismissal is enabled
-   (org-wide in `vig-os`), so the PR is back to `REVIEW_REQUIRED` the moment
-   the final run finishes. `promote-release.yml` re-checks approvals
-   independently, so the PR must be **re-approved before the promote dispatch**
-   — see [Phase 5](#phase-5-post-release-cleanup)
-   ([#1474](https://github.com/vig-os/devkit/issues/1474)).
-
-**Iteration:** Repeat steps 3-6 until the candidate is verified and reviewers
-approve, then do step 7 once before finalizing.
+**Iteration:** Repeat steps 3-5 until the candidate is verified, then do
+step 6 once before finalizing.
 
 ### Phase 3: Finalization (GitHub Actions Workflow)
 
@@ -413,17 +408,16 @@ approve, then do step 7 once before finalizing.
 Phase 2 require just the first bullet):
 - All CI checks passed on `release/X.Y.Z`
 - PR marked as ready for review (not draft)
-- PR has required approvals (**consumed by this run** — see below)
 - No uncommitted changes
 
-**The final run destroys the approval it requires.** Its `finalize` job pushes
-to `release/X.Y.Z` (CHANGELOG date stamp, regenerated docs, plus the
-`sync-issues` commit on top), and any push dismisses existing approvals wherever
-stale-review dismissal is enabled — org-wide in `vig-os`, and in every consumer
-repository with that setting. The release PR is therefore `REVIEW_REQUIRED`
-again as soon as this workflow finishes and must be re-approved before the
-promote dispatch ([Phase 5](#phase-5-post-release-cleanup),
-[#1474](https://github.com/vig-os/devkit/issues/1474)).
+No approval is required to dispatch the final
+([#1504](https://github.com/vig-os/devkit/issues/1504)): the `finalize` job
+pushes to `release/X.Y.Z` (CHANGELOG date stamp, regenerated docs, plus the
+`sync-issues` commit on top), and any push dismisses existing approvals
+wherever stale-review dismissal is enabled — org-wide in `vig-os`, and in
+every consumer repository with that setting — so an up-front approval could
+never survive this run. The single human approval is collected before the
+promote dispatch instead ([Phase 5](#phase-5-post-release-cleanup)).
 
 **Execute:**
 
@@ -445,7 +439,7 @@ The `release.yml` workflow performs the entire remaining release process. Behavi
    - Checks release branch exists
    - Verifies CHANGELOG has `## [X.Y.Z] - TBD`
    - For **final**: allows an existing **draft** GitHub Release for the publish tag (retry path); rejects a **published** (non-draft) release for the same tag
-   - Confirms PR exists and CI passed; for **final** also requires it to be not draft and approved (candidates skip the draft/approval gate — [#902](https://github.com/vig-os/devkit/issues/902))
+   - Confirms PR exists and CI passed; for **final** also requires it to be not draft (candidates skip the draft gate — [#902](https://github.com/vig-os/devkit/issues/902)); review state is not checked — the approval gate lives in `promote-release.yml` ([#1504](https://github.com/vig-os/devkit/issues/1504))
    - Records pre-finalization commit for rollback
 
 2. ✅ **Finalize** job (skipped if --dry-run)
@@ -508,37 +502,26 @@ Release Summary:
 
 Cross-repository validation gate rationale, mechanics, payload contract, and pass/fail interpretation are documented in `docs/CROSS_REPO_RELEASE_GATE.md`.
 
-Automated with one exception: on the **final** dispatch the smoke-test listener pauses at a human-approval gate and waits (up to 30 minutes) for a maintainer to approve the smoke-test release PR. Since this repo's `release.yml` does not block on downstream state, nothing on the devkit side signals that the listener is waiting — the operator step is part of the Phase 5 runbook below.
+Fully automated: no human interaction happens in `devkit-smoke-test` during a release ([#1506](https://github.com/vig-os/devkit/issues/1506) removed the former smoke-PR approval gate — the smoke PR is entirely bot-authored, its Main protection requires no approving reviews, and the operative controls are green smoke CI plus the published-smoke-release requirement that `promote-release.yml` enforces).
 
 ### Phase 5: Post-Release Cleanup
 
 **This repository (`vig-os/devcontainer`) — manual promote path:**
 
 1. Verify the workflow run succeeded and the smoke-test dispatch was triggered.
-2. **Approve the smoke-test release PR** (final dispatch only): the smoke-test listener recreates the smoke release PR from scratch and pauses at its `Gate final release on human approval of release PR` step, polling for a **human** approval for up to 30 minutes (workflow self-approval is blocked org-wide — [org-config#122](https://github.com/vig-os/org-config/pull/122); candidates run with the PR deliberately unapproved). Find and approve the freshly created PR while the gate is waiting:
+2. **Migrate RC-pinned consumers to the final tag** ([#880](https://github.com/vig-os/devkit/issues/880)): consumers pin the devcontainer image via their `.vig-os` file (`DEVCONTAINER_VERSION=X.Y.Z-rcN`). The **`cleanup`** job ("Cleanup RC artifacts") in `promote-release.yml` deletes all `X.Y.Z-rc*` git tags and GHCR image versions, so any consumer still pinned to an RC (e.g. field-validation repos) can no longer pull its image. Bump those pins to `DEVCONTAINER_VERSION=X.Y.Z` before running promote (preferred), or immediately after — the RC images and tags are gone once the cleanup job has run.
+3. **Approve the release PR** — the cycle's single human approval ([#1504](https://github.com/vig-os/devkit/issues/1504)): the final `release.yml` run pushed the date stamp and the `sync-issues` commit to `release/X.Y.Z`, so this approval lands on the release content exactly as it ships. `promote-release.yml` requires it twice-checked — hoisted into **`validate`** before the irreversible publish ([#1487](https://github.com/vig-os/devkit/issues/1487)) and re-checked in **`merge`** — and the platform enforces it regardless: the Release App is not a Main-protection bypass actor, so `gh pr merge` fails without a live approval. Approve immediately before dispatching promote, and again after **any** later push to the release branch (a push dismisses approvals via org-wide stale-review dismissal):
 
    ```bash
-   # Locate the waiting listener run and the release PR it created
-   gh -R vig-os/devkit-smoke-test run list --workflow repository-dispatch.yml --limit 1
-   gh -R vig-os/devkit-smoke-test pr list --label release-kind:final
-
-   # Approve it (must be a human account, not the PR author)
-   gh -R vig-os/devkit-smoke-test pr review <PR_NUMBER> --approve
-   ```
-
-   If the gate already timed out, approve the PR and **re-run the failed jobs** of that listener run to resume the final release. Full gate contract and failure modes: [`docs/CROSS_REPO_RELEASE_GATE.md`](CROSS_REPO_RELEASE_GATE.md).
-3. **Migrate RC-pinned consumers to the final tag** ([#880](https://github.com/vig-os/devkit/issues/880)): consumers pin the devcontainer image via their `.vig-os` file (`DEVCONTAINER_VERSION=X.Y.Z-rcN`). The **`cleanup`** job ("Cleanup RC artifacts") in `promote-release.yml` deletes all `X.Y.Z-rc*` git tags and GHCR image versions, so any consumer still pinned to an RC (e.g. field-validation repos) can no longer pull its image. Bump those pins to `DEVCONTAINER_VERSION=X.Y.Z` before running promote (preferred), or immediately after — the RC images and tags are gone once the cleanup job has run.
-4. **Re-approve the release PR** ([#1474](https://github.com/vig-os/devkit/issues/1474)): the final `release.yml` run pushed the date stamp and the `sync-issues` commit to `release/X.Y.Z`, which dismissed the approval collected in [Phase 2](#phase-2-review--testing) step 7. `promote-release.yml` re-checks approvals in its **`merge`** job, which runs *after* `promote` has already published the draft release and moved `:latest` — so a stale-dismissed approval leaves the release half-promoted. Approve immediately before dispatching promote, and again after **any** later push to the release branch:
-
-   ```bash
-   # Current state (REVIEW_REQUIRED after finalize)
+   # Current state (REVIEW_REQUIRED until approved)
    gh pr view <PR_NUMBER> --json reviewDecision
 
-   # Re-approve (must be a human account other than the PR author)
+   # Approve (must be a human account other than the PR author)
    gh -R vig-os/devkit pr review <PR_NUMBER> --approve
    ```
 
-5. After smoke-test has published its **final** GitHub Release for `X.Y.Z`, run **`promote-release.yml`** (e.g. `just promote-release X.Y.Z`), which updates GHCR `:latest`, publishes the draft release, merges the release PR, and runs best-effort RC cleanup. See [Release Phases](#release-phases) step 6 and [`docs/CROSS_REPO_RELEASE_GATE.md`](CROSS_REPO_RELEASE_GATE.md).
+   To **reject** the release instead, run `just abandon-release X.Y.Z` — see [Abandoning a finalized release](#abandoning-a-finalized-release-before-promote).
+4. After smoke-test has published its **final** GitHub Release for `X.Y.Z`, run **`promote-release.yml`** (e.g. `just promote-release X.Y.Z`), which updates GHCR `:latest`, publishes the draft release, merges the release PR, and runs best-effort RC cleanup. See [Release Phases](#release-phases) step 6 and [`docs/CROSS_REPO_RELEASE_GATE.md`](CROSS_REPO_RELEASE_GATE.md).
 
 **Consumer projects** using templates from `assets/workspace/` follow [Downstream release workflows](DOWNSTREAM_RELEASE.md): final `release.yml` leaves a **draft** GitHub Release; run **`promote-release.yml`** (or `just promote-release X.Y.Z`) to publish the release and merge to `main` (no upstream GHCR/smoke-test gate in that template).
 
@@ -663,6 +646,12 @@ just publish-candidate X.Y.Z
 # Finalize release (X.Y.Z + latest)
 just finalize-release X.Y.Z
 
+# Promote the final release (:latest, publish draft Release, merge PR)
+just promote-release X.Y.Z
+
+# Abandon a finalized-but-unpublished release (draft-only rejection path)
+just abandon-release X.Y.Z
+
 # Reset CHANGELOG after release
 just reset-changelog
 ```
@@ -748,7 +737,7 @@ gh workflow run prepare-release.yml --ref dev -f "version=1.0.0" -f "dry-run=tru
    - Verifies release branch exists
    - Checks CHANGELOG has `[X.Y.Z] - TBD`
    - For **final**: rejects a **published** GitHub Release for the publish tag; allows an existing **draft** (retry path)
-   - Verifies PR: CI passed (both kinds); for **final** also not draft and approved (candidates defer the draft/approval gate — [#902](https://github.com/vig-os/devkit/issues/902))
+   - Verifies PR: CI passed (both kinds); for **final** also not draft (candidates defer the draft gate — [#902](https://github.com/vig-os/devkit/issues/902)); review state is not checked — the approval gate lives in `promote-release.yml` ([#1504](https://github.com/vig-os/devkit/issues/1504))
    - Records pre-finalization commit for rollback
    - Outputs: PR number, release date, pre-finalization SHA, publish tag metadata
 
@@ -805,7 +794,7 @@ gh workflow run release.yml \
 **Key characteristics:**
 - Tag created AFTER successful build/test (safer than before)
 - Final GitHub Release is a **draft** until a human publishes it from the UI
-- The final run's `finalize` pushes dismiss the release PR approval its own `validate` job required (stale-review dismissal); re-approve before `promote-release.yml` ([#1474](https://github.com/vig-os/devkit/issues/1474))
+- The final run requires no approval — its `finalize` pushes would dismiss one anyway (stale-review dismissal); the single human approval is collected before `promote-release.yml` ([#1504](https://github.com/vig-os/devkit/issues/1504))
 - Automatic rollback reverts only the run's own finalize commit(s) on the release branch (no-op when finalize never ran; refuses if the branch moved mid-run, #1462); tags are not deleted (forward-fix policy)
 - All in one workflow for atomic operation
 - Audit trail in GitHub Actions logs
@@ -950,7 +939,7 @@ just finalize-release X.Y.Z
 
 #### "PR is still in draft status"
 
-**Cause:** The **final** release PR hasn't been marked as ready for review. (Candidates don't hit this — they defer the draft/approval gate; see [#902](https://github.com/vig-os/devkit/issues/902).)
+**Cause:** The **final** release PR hasn't been marked as ready for review. (Candidates don't hit this — they defer the draft gate; see [#902](https://github.com/vig-os/devkit/issues/902).)
 
 **Solution:**
 
@@ -962,17 +951,16 @@ gh pr ready <PR_NUMBER>
 # Navigate to PR → Click "Ready for review" button
 ```
 
-#### "PR has not been approved"
+#### "PR is not approved" (promote-release)
 
-**Cause:** The **final** release PR needs at least one approval. (Candidates don't require approval; see [#902](https://github.com/vig-os/devkit/issues/902).)
+**Cause:** `promote-release.yml` — both its `validate` and `merge` jobs — requires a live approval on the release PR; this is the cycle's single human approval ([#1504](https://github.com/vig-os/devkit/issues/1504)). `release.yml` never checks review state. A previously granted approval is dismissed by **any** push to the release branch (org-wide stale-review dismissal).
 
 **Solution:**
 
 ```bash
-# Add reviewers to the PR
-gh pr edit <PR_NUMBER> --add-reviewer <USERNAME>
-
-# Wait for approval
+# Approve (must be a human account other than the PR author),
+# then re-dispatch promote
+gh -R vig-os/devkit pr review <PR_NUMBER> --approve
 ```
 
 #### "CI checks have failed"
@@ -1057,6 +1045,30 @@ git branch -D release/X.Y.Z
 gh pr close <PR_NUMBER>
 ```
 
+#### Abandoning a Finalized Release (before promote)
+
+Rejecting a release at the promote gate — after finalize has already created
+the `X.Y.Z` tag and the draft GitHub Release — has a first-class path
+([#1504](https://github.com/vig-os/devkit/issues/1504)):
+
+```bash
+just abandon-release X.Y.Z
+```
+
+This dispatches `abandon-release.yml`, which (as the Release App, the same
+tag-ruleset-bypass machinery as promote's RC prune) deletes the **draft**
+GitHub Release by id, deletes the `X.Y.Z` tag, closes the release PR with an
+audit comment, and deletes `release/X.Y.Z`. Every step is idempotent, so a
+partially failed run is simply re-dispatched. The version number remains
+available for a re-cut.
+
+**Draft-only, enforced server-side:** the workflow hard-refuses when the
+`X.Y.Z` Release is already **published** — deleting a published release
+tombstones its tag name permanently (see
+[Restarting a Finalized Release](#restarting-a-finalized-release--the-point-of-no-return)).
+Past that point, fix forward instead. RC tags and GHCR RC images are *not*
+pruned by abandon; a re-cut of the same version reclaims them at its promote.
+
 #### If Release Workflow Fails (Automatic Rollback)
 
 The workflow automatically performs rollback on failure:
@@ -1118,7 +1130,9 @@ entirely on draft status** (see
 
 - **Restarts are cheap only while every GitHub Release object in the pipeline —
   this repo's draft release AND `devkit-smoke-test`'s — is still a draft.**
-  Drafts never tombstone; deleting them is always safe.
+  Drafts never tombstone; deleting them is always safe. For this repo's side,
+  `just abandon-release X.Y.Z` is the packaged form of that deletion
+  ([Abandoning a Finalized Release](#abandoning-a-finalized-release-before-promote)).
 - **The point of no return is the moment `devkit-smoke-test` publishes its
   final release for `X.Y.Z`.** From then on the version is committed: a restart
   requires deleting a *published* release, which permanently tombstones the tag

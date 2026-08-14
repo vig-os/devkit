@@ -176,6 +176,7 @@ Available recipes:
     precommit                                  # Run pre-commit hooks on all files
 
     [release]
+    abandon-release version ref="" *flags      # Abandon a finalized-but-unpublished release: delete draft Release + tag, close PR, delete branch (draft-only, enforced server-side)
     changelog-preview                          # Preview the bot changelog entries the next release would synthesize (#1423)
     finalize-release version ref="" *flags     # Finalize and publish release via GitHub Actions workflow (step 3, after testing)
     prepare-release version ref="" *flags      # Prepare release branch for testing (step 1)

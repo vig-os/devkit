@@ -290,7 +290,7 @@ jobs:
           PR_JSON=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh pr list \
             --head "release/$VERSION" \
             --base main \
-            --json number,isDraft,reviewDecision,statusCheckRollup \
+            --json number,isDraft,statusCheckRollup \
             --limit 1)
 
           PR_COUNT=$(echo "$PR_JSON" | jq 'length')
@@ -301,40 +301,24 @@ jobs:
 
           PR_NUMBER=$(echo "$PR_JSON" | jq -r '.[0].number')
           IS_DRAFT=$(echo "$PR_JSON" | jq -r '.[0].isDraft')
-          REVIEW_DECISION=$(echo "$PR_JSON" | jq -r '.[0].reviewDecision')
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
 
-          # The draft + approval gate applies only to the final release, which
-          # burns the immutable X.Y.Z tag. Release candidates are disposable
-          # verification artifacts (auto-incrementing rcN tags, never touch
-          # :latest, no GitHub Release, pruned at promote), so they gate on CI
-          # only and may run against a still-draft, not-yet-approved PR. The
-          # approval that protects `main` is re-enforced by promote-release's
-          # merge job regardless. See #902.
+          # The draft gate applies only to the final release, which burns the
+          # immutable X.Y.Z tag. Release candidates are disposable verification
+          # artifacts (auto-incrementing rcN tags, never touch :latest, no
+          # GitHub Release, pruned at promote), so they gate on CI only and may
+          # run against a still-draft PR (#902). Neither kind gates on review
+          # state here: the single human sign-off of the cycle is collected by
+          # promote-release's validate/merge gates, where it lands on the
+          # release content exactly as it ships — finalize commits included
+          # (#1504).
           if [ "$RELEASE_KIND" = "final" ]; then
             if [ "$IS_DRAFT" = "true" ]; then
               echo "ERROR: PR #$PR_NUMBER is still in draft"
               exit 1
             fi
-            if [ "$REVIEW_DECISION" = "APPROVED" ]; then
-              echo "PR #$PR_NUMBER is approved"
-            elif [ "$REVIEW_DECISION" = "null" ] || [ -z "$REVIEW_DECISION" ]; then
-              # Bot approval fallback when gh pr list leaves reviewDecision empty (#438)
-              APPROVED_COUNT=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh api \
-                --paginate --slurp \
-                "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews" \
-                | jq 'add | map(select(.state == "APPROVED")) | length')
-              if [ "$APPROVED_COUNT" -eq 0 ]; then
-                echo "ERROR: PR #$PR_NUMBER is not approved (reviewDecision: $REVIEW_DECISION, approved reviews: 0)"
-                exit 1
-              fi
-              echo "reviewDecision='$REVIEW_DECISION' but $APPROVED_COUNT approved review(s) found"
-            else
-              echo "ERROR: PR #$PR_NUMBER is not approved (status: $REVIEW_DECISION)"
-              exit 1
-            fi
           else
-            echo "Release kind '$RELEASE_KIND': deferring draft/approval gate to the final release (CI checks still enforced below)"
+            echo "Release kind '$RELEASE_KIND': deferring the draft gate to the final release (CI checks still enforced below)"
           fi
 
           STATUS_ROLLUP=$(echo "$PR_JSON" | jq -r '.[0].statusCheckRollup // []')

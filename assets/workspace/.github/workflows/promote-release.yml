@@ -204,7 +204,22 @@ jobs:
             echo "ERROR: PR #$PR_NUMBER is still in draft"
             exit 1
           fi
-          if [ "$REVIEW_DECISION" = "APPROVED" ]; then
+
+          # Protection-aware approval gate (#1506): assert only what the base
+          # branch actually requires. On a repo whose main ruleset requires no
+          # approving reviews (the smoke repo, solo-adoption consumers) GitHub
+          # never computes reviewDecision, so an unconditional assertion falls
+          # into the #438 fallback, counts zero approved reviews, and fails a
+          # PR the platform itself would merge. The rules endpoint sees
+          # rulesets only, not classic branch protection — a classic-protection
+          # repo skips here and degrades to the platform's own merge-time
+          # refusal (fail-late, never fail-open).
+          REQUIRED_APPROVALS=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh api \
+            "repos/${GITHUB_REPOSITORY}/rules/branches/main" \
+            | jq '[.[] | select(.type == "pull_request") | .parameters.required_approving_review_count // 0] | max // 0')
+          if [ "$REQUIRED_APPROVALS" -eq 0 ]; then
+            echo "Base branch requires no approving reviews — approval gate skipped (#1506)"
+          elif [ "$REVIEW_DECISION" = "APPROVED" ]; then
             echo "PR #$PR_NUMBER is approved"
           elif [ "$REVIEW_DECISION" = "null" ] || [ -z "$REVIEW_DECISION" ]; then
             APPROVED_COUNT=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh api \
@@ -417,7 +432,14 @@ jobs:
             exit 1
           fi
 
-          if [ "$REVIEW_DECISION" = "APPROVED" ]; then
+          # Protection-aware approval gate (#1506) — same skip as validate;
+          # PR state can change between the jobs, so the merge copy re-checks.
+          REQUIRED_APPROVALS=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh api \
+            "repos/${GITHUB_REPOSITORY}/rules/branches/main" \
+            | jq '[.[] | select(.type == "pull_request") | .parameters.required_approving_review_count // 0] | max // 0')
+          if [ "$REQUIRED_APPROVALS" -eq 0 ]; then
+            echo "Base branch requires no approving reviews — approval gate skipped (#1506)"
+          elif [ "$REVIEW_DECISION" = "APPROVED" ]; then
             echo "PR #$PR_NUMBER is approved"
           elif [ "$REVIEW_DECISION" = "null" ] || [ -z "$REVIEW_DECISION" ]; then
             APPROVED_COUNT=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh api \

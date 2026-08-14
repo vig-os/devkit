@@ -1019,7 +1019,8 @@ Once this first release lands (by the manual sequence below) the workflow is on
 
 > **The manual promote cannot be "resumed" by the workflow later.** Promote's
 > validate job hard-requires a **still-draft** GitHub Release and an **open,
-> approved** release PR. Once you undraft the Release and merge the PR by hand
+> approved** (where the base branch requires reviews — [#1506](https://github.com/vig-os/devkit/issues/1506))
+> release PR. Once you undraft the Release and merge the PR by hand
 > (below), those preconditions are gone, so a half-completed manual promote can
 > never be finished by the registered workflow. Run the sequence through to the
 > end in one go.
@@ -1028,7 +1029,8 @@ Once this first release lands (by the manual sequence below) the workflow is on
 
 Prerequisites (produced by the final `release.yml` run): the git tag
 `<prefix>X.Y.Z` exists, its **draft** GitHub Release exists, and the
-`release/X.Y.Z → main` PR is open, approved, and CI-green. `<prefix>` is
+`release/X.Y.Z → main` PR is open, CI-green, and approved (where the base
+branch requires reviews). `<prefix>` is
 `DEVKIT_TAG_PREFIX` (e.g. `v`), empty for bare `X.Y.Z` tags. Use a token with
 `contents: write` on the repo (the Release App token, or an admin PAT).
 

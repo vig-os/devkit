@@ -9,7 +9,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`just abandon-release X.Y.Z` — first-class rejection path at promote time**
+  ([#1504](https://github.com/vig-os/devkit/issues/1504))
+  - Dispatches the new `abandon-release.yml`, which (as the Release App, the
+    same tag-ruleset-bypass machinery as promote's RC prune) deletes the
+    **draft** GitHub Release by id, deletes the `X.Y.Z` tag, closes the
+    release PR with an audit comment, and deletes `release/X.Y.Z` —
+    idempotent and re-runnable, with a fail-closed verification pass
+  - Hard-refuses a **published** release: deleting one tombstones its tag
+    name permanently (the 1.5.0 ghost); fix forward instead
+  - Devkit-only for now (a manifest `RemoveBlock` keeps the recipe out of the
+    consumer scaffold until the consumer variant ships the workflow)
+
 ### Changed
+
+- **Release train: the single human approval is collected at promote, not
+  before finalize** ([#1504](https://github.com/vig-os/devkit/issues/1504))
+  - `release.yml`'s validate job (and the consumer `release-core.yml`) no
+    longer asserts review state for finals — the draft and CI gates stay;
+    candidates are unchanged ([#902](https://github.com/vig-os/devkit/issues/902))
+  - The promote-side gates ([#1487](https://github.com/vig-os/devkit/issues/1487))
+    are unchanged and become the cycle's only approval, landing on the release
+    content exactly as it ships — finalize commits included. Supersedes the
+    two-approval flow of [#1474](https://github.com/vig-os/devkit/issues/1474)
+    under its own stated revisit condition
+
+- **Smoke-test gate: the human approval of the smoke release PR is gone**
+  ([#1506](https://github.com/vig-os/devkit/issues/1506))
+  - The listener's `Gate final release on human approval of release PR` poll
+    is removed: the smoke PR is entirely bot-authored, its Main protection
+    requires no approving reviews
+    ([org-config#167](https://github.com/vig-os/org-config/issues/167)), and
+    the operative controls are green smoke CI plus devkit's
+    published-smoke-release validation at promote. Resolves the
+    [#1391](https://github.com/vig-os/devkit/issues/1391) workaround by
+    removal rather than by auto-approval
+  - The consumer `promote-release.yml` approval gates (validate + merge) are
+    now protection-aware: when the base branch's rules require zero approving
+    reviews, the approval assertion is skipped — explicitly, logged — instead
+    of falling into the [#438](https://github.com/vig-os/devkit/issues/438)
+    fallback and failing a PR the platform itself would merge. Repos whose
+    rules require reviews are unchanged; devkit's own promote gates are
+    untouched
+  - Sequencing with the ruleset change is recorded in
+    `docs/CROSS_REPO_RELEASE_GATE.md` (either half alone breaks the final leg)
 
 ### Deprecated
 
