@@ -365,3 +365,10 @@ jobs:
 Release workflow logic is centralized in shipped local reusable workflows (`release-core.yml`, `release-publish.yml`) while extension logic remains project-owned (`release-extension.yml`).
 
 This reduces drift in release safety checks while preserving downstream customization boundaries.
+
+Two independent staleness axes are reported in CI ([#1497](https://github.com/vig-os/devkit/issues/1497)):
+
+- **Scaffold drift** (`scaffold-drift` job, gate): the working tree diverges from what the *pinned* `DEVKIT_VERSION` would scaffold. Opt out with `DEVKIT_DRIFT_CHECK=false`.
+- **Pin staleness** (`devkit-staleness` job, warn-only): the pin itself is behind the latest devkit release — invisible to the drift gate by construction, since it compares the pin against itself. The report is a `::warning` annotation plus a step-summary block; it never fails the build and is not silenced by the drift opt-out.
+
+The flake-input axis is reported by the upgrade lane itself: `install.sh --force` prints one `flake-bump:` line per run — advanced (any input name at the floating `github:vig-os/devkit` URL), or skipped with the reason (a pinned ref, in either `?ref=X` or `/X` form, is never auto-bumped) — and `devkit-upgrade.yml` carries that line into the adoption PR body.

@@ -70,6 +70,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Upgrade staleness is observable on both axes**
+  ([#1497](https://github.com/vig-os/devkit/issues/1497))
+  - The flake auto-bump is name-agnostic: any input at the floating
+    `github:vig-os/devkit` URL is advanced, whatever the consumer named it;
+    pinned refs (`?ref=X` or the `/X` path form) are never auto-bumped but
+    the skip is reported — every `install.sh --force` run prints one
+    `flake-bump:` outcome line, and `devkit-upgrade.yml` carries it into the
+    adoption PR body and the step summary
+  - The #1093 pin-skew warning is likewise name-agnostic and now recognizes
+    the `/X` path-ref form
+  - New warn-only `devkit-staleness` job in the scaffolded `ci.yml`: compares
+    `DEVKIT_VERSION` against the latest devkit release and annotates PRs with
+    "N release(s) behind" — cheap API query, not gated on
+    `DEVKIT_DRIFT_CHECK`, never fails the build, and deliberately outside the
+    summary gate
+
 - **`install.sh --force` no longer wipes `.vig-os` on a mid-run failure**
   ([#1480](https://github.com/vig-os/devkit/issues/1480))
   - `.vig-os` and the root `.gitignore` are snapshotted before the template

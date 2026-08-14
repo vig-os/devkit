@@ -466,6 +466,71 @@ jobs:
               exit 1
             '
 
+  # Warn-only staleness report (#1497): scaffold-drift resolves its comparison
+  # image from the consumer's own DEVKIT_VERSION pin, so "behind the latest
+  # devkit release" is invisible to it by construction — a consumer sat two
+  # minor versions behind with a green drift check. This job answers that
+  # question with a cheap API query and NEVER fails the build: the report is a
+  # ::warning annotation plus a step-summary block, not a gate. Deliberately
+  # not gated on DEVKIT_DRIFT_CHECK (no docker, no image pull — disabling the
+  # expensive drift gate must not silence the cheap staleness report) and
+  # deliberately absent from the summary gate's needs (warn-only must never
+  # block a merge).
+  devkit-staleness:
+    name: Devkit staleness
+    needs: [resolve-toolchain]
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+
+    steps:
+      - name: Compare DEVKIT_VERSION against the latest devkit release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PIN: ${{ needs.resolve-toolchain.outputs.image-tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PIN" ]; then
+            echo "No DEVKIT_VERSION pin resolved; nothing to compare."
+            exit 0
+          fi
+          # Stable releases only: drafts and prereleases never count as "the
+          # release you are behind". Every failure path (offline runner, API
+          # error, missing gh on a self-hosted runner) degrades to a skip.
+          RELEASES="$(gh api repos/vig-os/devkit/releases --paginate \
+            --jq '.[] | select((.draft or .prerelease) | not) | .tag_name' 2>/dev/null || true)"
+          if [ -z "$RELEASES" ]; then
+            echo "Could not list devkit releases (offline or API error); skipping the staleness report."
+            exit 0
+          fi
+          LATEST="$(printf '%s\n' "$RELEASES" | sort -V | tail -n1)"
+          if [ "$PIN" = "$LATEST" ]; then
+            echo "DEVKIT_VERSION ${PIN} is the latest devkit release."
+            exit 0
+          fi
+          # Count the stable releases strictly newer than the pin. GNU
+          # `sort -V` orders `X.Y.Z-rcN` AFTER `X.Y.Z` (Debian convention, the
+          # opposite of semver), so map the prerelease dash to a tilde — which
+          # version-sorts before the final — and an rc pin counts as behind
+          # its own published final.
+          SORT_PIN="$(printf '%s' "$PIN" | sed 's/-/~/')"
+          BEHIND="$(printf '%s\n%s\n' "$RELEASES" "$SORT_PIN" | sort -uV \
+            | awk -v pin="$SORT_PIN" 'f { c++ } $0 == pin { f = 1 } END { print c + 0 }')"
+          if [ "$BEHIND" -eq 0 ]; then
+            echo "DEVKIT_VERSION ${PIN} is ahead of the latest published release (${LATEST})."
+            exit 0
+          fi
+          echo "::warning::DEVKIT_VERSION ${PIN} is ${BEHIND} release(s) behind the latest devkit release (${LATEST}). Run the devkit-upgrade workflow or 'install.sh --force --version ${LATEST}' to catch up."
+          {
+            echo "## Devkit staleness"
+            echo ""
+            echo "- **Pinned:** \`${PIN}\`"
+            echo "- **Latest:** \`${LATEST}\`"
+            echo "- **Behind:** ${BEHIND} stable release(s)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   # Blocks PRs that introduce known-vulnerable dependencies, off GitHub's
   # dependency graph (lockfiles + action pins alike) — no toolchain, no
   # container, no resolve-toolchain. Doubly guarded, mirroring the codeql.yml
