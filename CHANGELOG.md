@@ -35,6 +35,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `notify-failure` retries the upstream incident issue, which died to the
     same transient 20 s later and filed nothing at all
 
+- **Mirror-mode release: the archive fold committed nothing, silently**
+  ([#1502](https://github.com/vig-os/devkit/issues/1502))
+  - The fold passed its path list to `commit-action` newline-separated, but
+    the action parses `FILE_PATHS` as comma-separated. The whole blob resolved
+    to one nonexistent path, so the action logged `No files to commit` and
+    returned **success**: the job announced "Folding 92 mirror archive
+    path(s)" and the release branch never moved, taking the issue/PR snapshots
+    out of `main`. Single-file callers could never expose it
+  - The list is now comma-joined from `git diff --cached -z`, which also fixes
+    two latent mis-parses in the old `git status --porcelain | awk '{print $2}'`
+    (C-quoted paths containing spaces, and `R old -> new` renames), and fails
+    loudly on a path containing a comma rather than mis-splitting it
+  - The re-pull step now **verifies the post-condition**: if the release branch
+    does not carry the mirror's archive after the fold, the leg fails instead
+    of reporting success
+
+- **Mirror-mode promote: the mirror reset 403'd, and would have deleted the
+  archive if it had succeeded**
+  ([#1503](https://github.com/vig-os/devkit/issues/1503))
+  - `promote-release.yml`'s `reset-sync-mirror` embedded the Commit App token
+    in the push URL, but `actions/checkout` persists its own credentials as
+    `http.<host>.extraheader`, which outranks URL userinfo. The force-push
+    therefore ran as `github-actions[bot]` under `contents: read` and failed
+    with a 403 on every mirror-mode consumer — after the release was already
+    published, so the red run misrepresented an otherwise healthy promote.
+    The job now generates the App token *before* checkout and checks out with
+    it, and `contents: read` stays deliberately in place
+  - **A new guard makes the reset non-destructive by construction.** The step
+    force-pushes `main` onto the mirror on the assumption that main carries the
+    folded archive; with the fold broken ([#1502](https://github.com/vig-os/devkit/issues/1502))
+    that assumption was false and the push would have destroyed the only copy
+    of the snapshots. The push is now gated on verifying that main holds every
+    archive path the mirror carries, and skips with a `::warning::` otherwise —
+    a stale mirror self-heals at the next nightly sync; deleted snapshots do not
+
 ### Security
 
 ## [1.9.0](https://github.com/vig-os/devkit/releases/tag/1.9.0) - 2026-08-13

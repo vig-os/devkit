@@ -1782,19 +1782,31 @@ YAML
             echo "Mirror carries no snapshot dirs; skipping fold."
             exit 0
           fi
-          CHANGED="\$(git status --porcelain -- docs/issues docs/pull-requests | awk '{print \$2}')"
+          # commit-action parses FILE_PATHS as a COMMA-separated list and logs
+          # "No files to commit" + exits 0 when nothing resolves, so a
+          # newline-joined value folds NOTHING while every step stays green
+          # (#1502). Build the list from the staged diff with NUL framing:
+          # git status --porcelain C-quotes paths containing spaces and renders
+          # renames as "R old -> new", both of which mis-parse. The tr has to
+          # run inside the pipeline — command substitution drops NUL bytes.
+          mirror_paths() {
+            git diff --cached --name-only --no-renames --diff-filter=ACM -z -- docs/issues docs/pull-requests
+          }
+          if mirror_paths | tr '\0' '\n' | grep -q ','; then
+            echo "ERROR: a mirror archive path contains a comma, which FILE_PATHS cannot represent:"
+            mirror_paths | tr '\0' '\n' | grep ','
+            exit 1
+          fi
+          CHANGED="\$(mirror_paths | tr '\0' ',')"
+          CHANGED="\${CHANGED%,}"
           if [ -z "\$CHANGED" ]; then
             echo "eligible=false" >> "\$GITHUB_OUTPUT"
             echo "Release branch already matches the mirror archive; nothing to fold."
             exit 0
           fi
-          {
-            echo "file_paths<<PATHS_EOF"
-            printf '%s\n' "\$CHANGED"
-            echo "PATHS_EOF"
-          } >> "\$GITHUB_OUTPUT"
+          echo "file_paths=\$CHANGED" >> "\$GITHUB_OUTPUT"
           echo "eligible=true" >> "\$GITHUB_OUTPUT"
-          echo "Folding \$(printf '%s\n' "\$CHANGED" | wc -l) mirror archive path(s) into the release branch."
+          echo "Folding \$(printf '%s\n' "\$CHANGED" | tr ',' '\n' | wc -l) mirror archive path(s) into the release branch."
 
       - name: Commit folded archive to the release branch
         if: \${{ steps.mirror_fold.outputs.eligible == 'true' }}
@@ -1807,7 +1819,7 @@ YAML
           COMMIT_MESSAGE: "chore: fold sync mirror archive into release \${{ needs.validate.outputs.version }}"
           FILE_PATHS: \${{ steps.mirror_fold.outputs.file_paths }}
 
-      - name: Re-pull release branch after fold
+      - name: Re-pull release branch and verify the fold landed
         if: \${{ steps.mirror_fold.outputs.eligible == 'true' }}
         env:
           VERSION: \${{ needs.validate.outputs.version }}
@@ -1815,6 +1827,20 @@ YAML
           set -euo pipefail
           retry --retries 3 --backoff 3 --max-backoff 20 -- git fetch origin "release/\$VERSION"
           git reset --hard "origin/release/\$VERSION"
+          # Assert the POST-CONDITION, not the step outcome: commit-action
+          # reports success when it commits nothing (#1502), and a fold that
+          # announces N paths and lands zero must not be green — promote later
+          # force-resets the mirror onto main and would take the only copy of
+          # the archive with it. M/D = a mirror path this branch lacks or has
+          # stale; A = a release-only path, tolerated (archives only grow).
+          retry --retries 3 --backoff 3 --max-backoff 20 -- git fetch origin "${MANIFEST_SYNC_TARGET}"
+          UNFOLDED="\$(git diff --name-only --no-renames --diff-filter=MD FETCH_HEAD HEAD -- docs/issues docs/pull-requests)"
+          if [ -n "\$UNFOLDED" ]; then
+            echo "ERROR: the fold did not land — release/\$VERSION is missing or stale for:"
+            printf '%s\n' "\$UNFOLDED"
+            exit 1
+          fi
+          echo "Fold verified: release/\$VERSION carries the mirror archive."
 YAML
             # shellcheck disable=SC2016  # literal $VERSION: the anchor is the rendered YAML's shell line, not an expansion
             sed -i '/^          git reset --hard "origin\/release\/\$VERSION"$/r '"$fold_block" "$rc"
@@ -1853,15 +1879,14 @@ YAML
         shell: bash
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-
-      - name: Set up devkit toolchain
-        uses: ./.github/actions/setup-devkit-toolchain
-        with:
-          mode: \${{ needs.resolve-toolchain.outputs.mode }}
-          devkit-version: \${{ needs.resolve-toolchain.outputs.image-tag }}
-
+      # Token FIRST, then check out with it: git authenticates through the
+      # credentials checkout persists as http.<host>.extraheader, and that
+      # header outranks any userinfo embedded in a push URL. The previous
+      # form (default checkout + token in the URL) therefore pushed as
+      # github-actions[bot] and 403'd on every run (#1503). \`contents: read\`
+      # above is deliberate and stays: the mirror reset must carry the Commit
+      # App identity, so do not "fix" a future 403 by granting the Actions
+      # token \`contents: write\`.
       - name: Generate commit app token
         id: commit_app_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
@@ -1869,21 +1894,63 @@ YAML
           client-id: \${{ secrets.COMMIT_APP_CLIENT_ID }}
           private-key: \${{ secrets.COMMIT_APP_PRIVATE_KEY }}
 
-      - name: Force-reset mirror to main
-        env:
-          APP_TOKEN: \${{ steps.commit_app_token.outputs.token }}
-          GITHUB_REPOSITORY: \${{ github.repository }}
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          token: \${{ steps.commit_app_token.outputs.token }}
+
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: \${{ needs.resolve-toolchain.outputs.mode }}
+          devkit-version: \${{ needs.resolve-toolchain.outputs.image-tag }}
+
+      - name: Verify main carries the mirror archive
+        id: archive_guard
         run: |
           set -euo pipefail
-          # After the merged release PR, main carries the folded archive; the
-          # mirror re-bases onto it so divergence stays bounded (#1424). Push,
-          # never the REST refs API (#1157, #1377). The mirror is unprotected
-          # and its history is regenerated state — a force reset loses
-          # nothing; a racing nightly sync self-heals at its next run.
+          # The reset below is only the harmless housekeeping its comment
+          # claims if main ALREADY carries the archive the mirror is being
+          # reset away from — the release fold puts it there (#1424). When the
+          # fold is skipped or broken (#1502), force-pushing main onto the
+          # mirror would delete the only copy of the snapshots. So assert the
+          # precondition and skip loudly instead: a stale mirror self-heals at
+          # the next nightly sync, deleted snapshots do not.
           retry --retries 3 --backoff 3 --max-backoff 20 -- git fetch origin main
-          MAIN_SHA="\$(git rev-parse origin/main)"
-          REMOTE_URL="https://x-access-token:\${APP_TOKEN}@github.com/\${GITHUB_REPOSITORY}.git"
-          retry --retries 3 --backoff 5 --max-backoff 30 -- git push --force "\$REMOTE_URL" "\${MAIN_SHA}:refs/heads/${MANIFEST_SYNC_TARGET}"
+          MAIN_SHA="\$(git rev-parse FETCH_HEAD)"
+          echo "main_sha=\$MAIN_SHA" >> "\$GITHUB_OUTPUT"
+          MIRROR_REF="\$(retry --retries 3 --backoff 3 --max-backoff 20 -- git ls-remote origin "refs/heads/${MANIFEST_SYNC_TARGET}")"
+          if [ -z "\$MIRROR_REF" ]; then
+            echo "safe=false" >> "\$GITHUB_OUTPUT"
+            echo "::warning::Mirror branch '${MANIFEST_SYNC_TARGET}' not found; nothing to reset."
+            exit 0
+          fi
+          retry --retries 3 --backoff 3 --max-backoff 20 -- git fetch origin "${MANIFEST_SYNC_TARGET}"
+          STRANDED="\$(git diff --name-only --no-renames --diff-filter=MD FETCH_HEAD "\$MAIN_SHA" -- docs/issues docs/pull-requests)"
+          if [ -n "\$STRANDED" ]; then
+            echo "safe=false" >> "\$GITHUB_OUTPUT"
+            echo "::warning::Skipping the mirror reset: main is missing or stale for \$(printf '%s\n' "\$STRANDED" | wc -l) archive path(s) the mirror carries. Check the release fold (#1502)."
+            printf '%s\n' "\$STRANDED"
+            exit 0
+          fi
+          echo "safe=true" >> "\$GITHUB_OUTPUT"
+          echo "main carries the mirror archive; the reset is safe."
+
+      - name: Force-reset mirror to main
+        if: \${{ steps.archive_guard.outputs.safe == 'true' }}
+        env:
+          MAIN_SHA: \${{ steps.archive_guard.outputs.main_sha }}
+        run: |
+          set -euo pipefail
+          # After the merged release PR, main carries the folded archive (the
+          # step above proved it), so the mirror re-bases onto main and its
+          # divergence stays bounded (#1424). Push, never the REST refs API
+          # (#1157, #1377). The mirror is unprotected and its history is
+          # regenerated state — with the guard above passing, a force reset
+          # loses nothing; a racing nightly sync self-heals at its next run.
+          # The push authenticates as the Commit App through the credentials
+          # the checkout persisted (#1503).
+          retry --retries 3 --backoff 5 --max-backoff 30 -- git push --force origin "\${MAIN_SHA}:refs/heads/${MANIFEST_SYNC_TARGET}"
           echo "Mirror '${MANIFEST_SYNC_TARGET}' reset to main @ \${MAIN_SHA}"
 YAML
         fi
