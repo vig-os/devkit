@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-13T07:30:04Z
-updated: 2026-08-13T07:30:04Z
+updated: 2026-08-14T13:09:34Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1480
-comments: 0
-labels: none
+comments: 1
+labels: bug, priority:high, area:workspace, effort:medium, semver:patch
 assignees: none
-milestone: none
+milestone: 1.10.0
 projects: none
 parent: none
 children: none
-synced: 2026-08-13T14:59:10.216Z
+synced: 2026-08-14T16:05:18.195Z
 ---
 
 # [Issue 1480]: [install.sh --force is not atomic: a mid-run failure leaves .vig-os wiped](https://github.com/vig-os/devkit/issues/1480)
@@ -79,4 +79,12 @@ Worth noting separately: `chmod -R u+w "$WORKSPACE_DIR"` walks the consumer's **
 devkit's nix detection requires `*.nix` files **beyond** `flake.nix`, so a single-`flake.nix` repo is never nix-detected and never gets the `nix.gitignore` fragment. That is already filed as ask 3 on #1400 and was independently confirmed by the second Rust-pack consumer. Every Rust language-pack repo is a single-`flake.nix` repo by construction, so this will keep producing untracked `result` symlinks in exactly the repos the pack targets.
 
 Refs: #1400
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on August 14, 2026 at 01:09 PM_
+
+Delivered by #1513 (merged to dev): init-workspace.sh now snapshots .vig-os and the root .gitignore before the template copy and restores them byte-for-byte on any failing exit inside the refill window, with a loud message naming what was restored. The u+w permission sweep is scoped to template-derived paths — consumer .git/target/node_modules trees are no longer walked. The dirty-tree preflight (suggestion 4) already existed via install.sh's run_preflight_guard (#1283); the nix-detection gap stays tracked on #1400.
 
