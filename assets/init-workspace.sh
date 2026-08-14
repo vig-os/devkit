@@ -1782,19 +1782,31 @@ YAML
             echo "Mirror carries no snapshot dirs; skipping fold."
             exit 0
           fi
-          CHANGED="\$(git status --porcelain -- docs/issues docs/pull-requests | awk '{print \$2}')"
+          # commit-action parses FILE_PATHS as a COMMA-separated list and logs
+          # "No files to commit" + exits 0 when nothing resolves, so a
+          # newline-joined value folds NOTHING while every step stays green
+          # (#1502). Build the list from the staged diff with NUL framing:
+          # git status --porcelain C-quotes paths containing spaces and renders
+          # renames as "R old -> new", both of which mis-parse. The tr has to
+          # run inside the pipeline — command substitution drops NUL bytes.
+          mirror_paths() {
+            git diff --cached --name-only --no-renames --diff-filter=ACM -z -- docs/issues docs/pull-requests
+          }
+          if mirror_paths | tr '\0' '\n' | grep -q ','; then
+            echo "ERROR: a mirror archive path contains a comma, which FILE_PATHS cannot represent:"
+            mirror_paths | tr '\0' '\n' | grep ','
+            exit 1
+          fi
+          CHANGED="\$(mirror_paths | tr '\0' ',')"
+          CHANGED="\${CHANGED%,}"
           if [ -z "\$CHANGED" ]; then
             echo "eligible=false" >> "\$GITHUB_OUTPUT"
             echo "Release branch already matches the mirror archive; nothing to fold."
             exit 0
           fi
-          {
-            echo "file_paths<<PATHS_EOF"
-            printf '%s\n' "\$CHANGED"
-            echo "PATHS_EOF"
-          } >> "\$GITHUB_OUTPUT"
+          echo "file_paths=\$CHANGED" >> "\$GITHUB_OUTPUT"
           echo "eligible=true" >> "\$GITHUB_OUTPUT"
-          echo "Folding \$(printf '%s\n' "\$CHANGED" | wc -l) mirror archive path(s) into the release branch."
+          echo "Folding \$(printf '%s\n' "\$CHANGED" | tr ',' '\n' | wc -l) mirror archive path(s) into the release branch."
 
       - name: Commit folded archive to the release branch
         if: \${{ steps.mirror_fold.outputs.eligible == 'true' }}
@@ -1807,7 +1819,7 @@ YAML
           COMMIT_MESSAGE: "chore: fold sync mirror archive into release \${{ needs.validate.outputs.version }}"
           FILE_PATHS: \${{ steps.mirror_fold.outputs.file_paths }}
 
-      - name: Re-pull release branch after fold
+      - name: Re-pull release branch and verify the fold landed
         if: \${{ steps.mirror_fold.outputs.eligible == 'true' }}
         env:
           VERSION: \${{ needs.validate.outputs.version }}
@@ -1815,6 +1827,20 @@ YAML
           set -euo pipefail
           retry --retries 3 --backoff 3 --max-backoff 20 -- git fetch origin "release/\$VERSION"
           git reset --hard "origin/release/\$VERSION"
+          # Assert the POST-CONDITION, not the step outcome: commit-action
+          # reports success when it commits nothing (#1502), and a fold that
+          # announces N paths and lands zero must not be green — promote later
+          # force-resets the mirror onto main and would take the only copy of
+          # the archive with it. M/D = a mirror path this branch lacks or has
+          # stale; A = a release-only path, tolerated (archives only grow).
+          retry --retries 3 --backoff 3 --max-backoff 20 -- git fetch origin "${MANIFEST_SYNC_TARGET}"
+          UNFOLDED="\$(git diff --name-only --no-renames --diff-filter=MD FETCH_HEAD HEAD -- docs/issues docs/pull-requests)"
+          if [ -n "\$UNFOLDED" ]; then
+            echo "ERROR: the fold did not land — release/\$VERSION is missing or stale for:"
+            printf '%s\n' "\$UNFOLDED"
+            exit 1
+          fi
+          echo "Fold verified: release/\$VERSION carries the mirror archive."
 YAML
             # shellcheck disable=SC2016  # literal $VERSION: the anchor is the rendered YAML's shell line, not an expansion
             sed -i '/^          git reset --hard "origin\/release\/\$VERSION"$/r '"$fold_block" "$rc"

@@ -17,6 +17,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Mirror-mode release: the archive fold committed nothing, silently**
+  ([#1502](https://github.com/vig-os/devkit/issues/1502))
+  - The fold passed its path list to `commit-action` newline-separated, but
+    the action parses `FILE_PATHS` as comma-separated. The whole blob resolved
+    to one nonexistent path, so the action logged `No files to commit` and
+    returned **success**: the job announced "Folding 92 mirror archive
+    path(s)" and the release branch never moved, taking the issue/PR snapshots
+    out of `main`. Single-file callers could never expose it
+  - The list is now comma-joined from `git diff --cached -z`, which also fixes
+    two latent mis-parses in the old `git status --porcelain | awk '{print $2}'`
+    (C-quoted paths containing spaces, and `R old -> new` renames), and fails
+    loudly on a path containing a comma rather than mis-splitting it
+  - The re-pull step now **verifies the post-condition**: if the release branch
+    does not carry the mirror's archive after the fold, the leg fails instead
+    of reporting success
+
 ### Security
 
 ## [1.9.0](https://github.com/vig-os/devkit/releases/tag/1.9.0) - 2026-08-13
