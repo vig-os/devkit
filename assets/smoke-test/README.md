@@ -68,6 +68,9 @@ The full security policy and project-general accepted findings live in
 - **BranchProtectionID** / **CodeReviewID**: the automated deploy/release PRs are
   merged without human review by design. Requiring approving reviews would stall
   the `chore/deploy-<tag>` auto-merge and defeat the purpose of the smoke test.
+  The Main protection accordingly requires zero approving reviews
+  ([org-config#167](https://github.com/vig-os/org-config/issues/167),
+  [vig-os/devkit#1506](https://github.com/vig-os/devkit/issues/1506)).
 - **PinnedDependenciesID** (`download-then-run`): the installer in
   `.github/workflows/repository-dispatch.yml` is fetched by immutable release
   tag, retried, and validated post-install. The `curl | bash` step cannot be
