@@ -2512,8 +2512,14 @@ _upgrade_no_flags() {
     assert_success
     run grep -qF 'name: Commit folded archive to the release branch' "$rc"
     assert_success
-    run grep -qF 'name: Re-pull release branch after fold' "$rc"
+    run grep -qF 'name: Re-pull release branch and verify the fold landed' "$rc"
     assert_success
+    # commit-action parses FILE_PATHS as a COMMA-separated list and returns
+    # SUCCESS when it resolves nothing, so a newline-joined value folds
+    # silently (#1502). The output must be a single-line comma list — no
+    # heredoc framing.
+    run grep -qF 'PATHS_EOF' "$rc"
+    assert_failure
     # Ordering: Pull < fold staging < finalize SHA, so the fold commit is on
     # origin before the local reset that feeds `git rev-parse HEAD` (the tag
     # target) — a fold after the SHA capture would ship an untagged commit.
@@ -2540,6 +2546,32 @@ _upgrade_no_flags() {
     run grep -qF 'git push --force' "$prom"
     assert_success
     run grep -qF ':refs/heads/sync/issue-mirror' "$prom"
+    assert_success
+}
+
+@test "DEVKIT_SYNC_TARGET checks the mirror reset job out as the Commit App (#1503)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1503-token"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    prom="$ws/.github/workflows/promote-release.yml"
+    # The token must reach git through CHECKOUT, not a push URL: checkout's
+    # persisted http.<host>.extraheader outranks URL userinfo, so an unowned
+    # checkout pushes as github-actions[bot] and 403s under `contents: read`
+    # (#1503). Token generation therefore precedes checkout in this job.
+    token_ln=$(grep -n 'id: commit_app_token' "$prom" | tail -1 | cut -d: -f1)
+    checkout_ln=$(awk -v s="$token_ln" 'NR > s && /name: Checkout repository/ { print NR; exit }' "$prom")
+    echo "token=$token_ln checkout=$checkout_ln"
+    [ -n "$checkout_ln" ]
+    run grep -qF 'x-access-token:' "$prom"
+    assert_failure
+    # The push is gated on the archive guard, never unconditional (#1503).
+    run grep -qF "if: \${{ steps.archive_guard.outputs.safe == 'true' }}" "$prom"
+    assert_success
+    run grep -qF 'name: Verify main carries the mirror archive' "$prom"
     assert_success
 }
 
