@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.10.0] - TBD
+
+### Added
+
 - **`just abandon-release X.Y.Z` — first-class rejection path at promote time**
   ([#1504](https://github.com/vig-os/devkit/issues/1504))
   - Dispatches the new `abandon-release.yml`, which (as the Release App, the
@@ -63,10 +77,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     untouched
   - Sequencing with the ruleset change is recorded in
     `docs/CROSS_REPO_RELEASE_GATE.md` (either half alone breaks the final leg)
-
-### Deprecated
-
-### Removed
 
 ### Fixed
 
@@ -170,8 +180,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     throwaway `file://` remote: create (the first release of a level, the
     `#1157` case), move, idempotent skip, annotated-tag peel, and a refused push
     still failing loud with its remediation annotation
-
-### Security
 
 ## [1.9.0](https://github.com/vig-os/devkit/releases/tag/1.9.0) - 2026-08-13
 
