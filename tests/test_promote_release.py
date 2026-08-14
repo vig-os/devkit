@@ -103,21 +103,78 @@ def _move_step_script() -> str:
     return move["run"]
 
 
-def test_move_tag_force_pushes_with_explicit_app_token() -> None:
-    """Floating tags are mutated via ``git push --force`` with the App token.
+def _floating_tags_job() -> dict:
+    return load_workflow(PROMOTE)["jobs"]["floating-tags"]
+
+
+def test_move_tag_force_pushes_as_the_release_app() -> None:
+    """Floating tags are mutated via ``git push --force`` as the Release App.
 
     #1377: ``POST /git/refs`` does not honor the Release App's Integration
     ruleset bypass for the ``creation`` rule (first release of every new
     floating level fails HTTP 422), while the very same installation token
-    creating tags via ``git push`` is bypassed fine. The token must be plumbed
-    explicitly into the push URL — the checkout step's persisted credentials
-    are the default ``github.token``, which has no bypass.
+    creating tags via ``git push`` is bypassed fine.
+
+    #1508: plumbing that token into the push URL does not deliver it. Checkout
+    persists its own credentials as ``http.<host>.extraheader``, and that header
+    outranks URL userinfo — so the push authenticated as the Actions identity,
+    which this job denies (``contents: read``) and the ruleset does not bypass.
+    The token has to reach git through the CHECKOUT.
     """
+    job = _floating_tags_job()
+    steps = job["steps"]
+    token = next(i for i, s in enumerate(steps) if s.get("id") == "release_app_token")
+    checkout = next(
+        i for i, s in enumerate(steps) if "checkout" in str(s.get("uses", ""))
+    )
+
+    assert token < checkout, (
+        "the App token must be generated BEFORE checkout, so checkout can "
+        "persist it as the credentials git actually uses (#1508)"
+    )
+    assert steps[checkout].get("with", {}).get("token") == (
+        "${{ steps.release_app_token.outputs.token }}"
+    ), "checkout must carry the Release App token, not the default github.token"
+
     script = _move_step_script()
     assert "git push" in script
     assert "--force" in script
-    # Explicit App-token auth, not checkout's persisted credentials.
-    assert "x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}" in script
+    assert "git push --force origin" in script, (
+        "push to the remote checkout authenticated; a URL with embedded "
+        "userinfo is silently ignored in favour of the extraheader (#1508)"
+    )
+
+
+def test_floating_tags_job_embeds_no_token_in_a_url() -> None:
+    """No git remote in the job may carry userinfo — it would be ignored (#1508)."""
+    steps = _floating_tags_job()["steps"]
+    body = "\n".join(str(s.get("run", "")) for s in steps)
+
+    assert "x-access-token" not in body, (
+        "a token in the push/fetch URL is dead weight: checkout's extraheader "
+        "wins, so the operation runs under the WRONG identity (#1508)"
+    )
+    assert "REMOTE_URL" not in body
+
+
+def test_floating_tags_job_keeps_the_actions_token_read_only() -> None:
+    """The fix is the App identity, never a wider GITHUB_TOKEN (#1508)."""
+    perms = _floating_tags_job()["permissions"]
+
+    assert perms["contents"] == "read", (
+        "granting contents: write would make the push succeed under the "
+        "ACTIONS identity, defeating the App-identity model (#1508)"
+    )
+
+
+def test_release_tag_is_fetched_from_the_authenticated_remote() -> None:
+    """The shallow tag fetch rides the same credentials as the push (#1508).
+
+    Not cosmetic: on a private consumer an unauthenticated fetch fails outright,
+    so the remote must be the one checkout configured.
+    """
+    script = _move_step_script()
+    assert "git fetch --no-tags --depth 1 origin" in script
 
 
 def test_move_tag_never_mutates_refs_via_rest() -> None:
