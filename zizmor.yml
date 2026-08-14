@@ -56,6 +56,7 @@ rules:
       - sync-main-to-dev.yml
   github-app:
     ignore:
+      - abandon-release.yml
       - prepare-release.yml
       - promote-release.yml
       - release-core.yml
