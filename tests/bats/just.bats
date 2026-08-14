@@ -100,6 +100,7 @@ EOF
         'finalize-release:REF="release/{{ version }}"'
         'promote-release:REF="release/{{ version }}"'
         'publish-candidate:REF="release/{{ version }}"'
+        'abandon-release:REF="dev"'
     )
     for entry in "${table[@]}"; do
         recipe="${entry%%:*}"
@@ -108,6 +109,20 @@ EOF
         run bash -lc "awk '/^$recipe version ref=\"\" \\*flags:/{flag=1; next} /^\$/{if(flag){exit}} flag' justfile.gh | grep -Fq -- '$expected'"
         assert_success
     done
+}
+
+@test "abandon-release workflow refuses a published release and deletes as the Release App" {
+    # #1504: the abandon path is safe only while the X.Y.Z Release is a draft —
+    # a published release tombstones its tag name permanently (the 1.5.0 ghost).
+    # The workflow must gate on isDraft, do the tag delete with the Release App
+    # (tag-ruleset bypass, same machinery as the RC prune), keep the
+    # release-attached-tag guard, close the release PR, and drop the branch.
+    local wf=.github/workflows/abandon-release.yml
+    run bash -lc "grep -Fq -- 'isDraft' $wf && grep -Fq -- 'RELEASE_APP_CLIENT_ID' $wf && grep -Fq -- 'git/refs/tags/' $wf && grep -Fq -- 'git/refs/heads/' $wf && grep -Fq -- 'gh pr close' $wf"
+    assert_success
+    # Published (non-draft) releases must be an explicit hard refusal.
+    run bash -lc "grep -Eq -- 'published|tombstone' $wf"
+    assert_success
 }
 
 @test "prepare-release workflow defines rollback job on failure or cancellation" {
