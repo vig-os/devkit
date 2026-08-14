@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-## [1.10.0] - TBD
+## [1.10.0](https://github.com/vig-os/devkit/releases/tag/1.10.0) - 2026-08-14
 
 ### Added
 
@@ -147,8 +147,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `promote-release.yml`'s `reset-sync-mirror` embedded the Commit App token
     in the push URL, but `actions/checkout` persists its own credentials as
     `http.<host>.extraheader`, which outranks URL userinfo. The force-push
-    therefore ran as `github-actions[bot]` under `contents: read` and failed
-    with a 403 on every mirror-mode consumer — after the release was already
+    therefore ran as the default GitHub Actions identity under `contents: read`
+    and failed with a 403 on every mirror-mode consumer — after the release was already
     published, so the red run misrepresented an otherwise healthy promote.
     The job now generates the App token *before* checkout and checks out with
     it, and `contents: read` stays deliberately in place

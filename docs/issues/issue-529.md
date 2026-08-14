@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-08-13T15:43:25Z
+updated: 2026-08-14T12:41:30Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-14T04:14:24.855Z
+synced: 2026-08-14T16:05:18.626Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -25,14 +25,14 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
  - [ ] <!-- unschedule-branch=renovate/github-codeql-action-digest -->chore(deps): update github/codeql-action digest to ff2f1c6
- - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update cachix/install-nix-action action to v31.11.1
+ - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update github-actions (minor and patch) (`aquasecurity/trivy`, `cachix/install-nix-action`)
  - [ ] <!-- unschedule-branch=renovate/astral-sh-setup-uv-10.x -->ci(actions): update astral-sh/setup-uv action to v10
  - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
  - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
 
 ## Detected Dependencies
 
-<details><summary>github-actions (36)</summary>
+<details><summary>github-actions (38)</summary>
 <blockquote>
 
 <details><summary>.github/actions/setup-env/action.yml (3)</summary>
@@ -63,6 +63,14 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 </details>
 
+<details><summary>.github/workflows/abandon-release.yml (3)</summary>
+
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `ubuntu 24.04`
+ - `ubuntu 24.04`
+
+</details>
+
 <details><summary>.github/workflows/ci.yml (29)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
@@ -90,8 +98,8 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
- - `aquasecurity/trivy v0.73.0`
- - `aquasecurity/trivy v0.73.0`
+ - `aquasecurity/trivy v0.73.0` → [Updates: `v0.74.0`]
+ - `aquasecurity/trivy v0.73.0` → [Updates: `v0.74.0`]
  - `ubuntu 24.04`
  - `ubuntu 24.04`
 
@@ -226,7 +234,7 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/github-script v9.0.0@3a2844b7e9c422d3c10d287c895573f7108da1b3`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
- - `aquasecurity/trivy v0.73.0`
+ - `aquasecurity/trivy v0.73.0` → [Updates: `v0.74.0`]
  - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -260,8 +268,8 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `aquasecurity/trivy-action v0.36.0@ed142fd0673e97e23eac54620cfb913e5ce36c25`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `ubuntu 24.04`
- - `aquasecurity/trivy v0.73.0`
- - `aquasecurity/trivy v0.73.0`
+ - `aquasecurity/trivy v0.73.0` → [Updates: `v0.74.0`]
+ - `aquasecurity/trivy v0.73.0` → [Updates: `v0.74.0`]
 
 </details>
 
@@ -341,7 +349,17 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342` → [Updates: `v31.11.1`]
  - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
- - `astral-sh/setup-uv v9.0.0@c771a70e6277c0a99b617c7a806ffedaca235ff9` → [Updates: `v10.0.0`]
+ - `astral-sh/setup-uv v9.0.0@c771a70e6277c0a99b617c7a806ffedaca235ff9` → [Updates: `v10.0.1`]
+
+</details>
+
+<details><summary>assets/workspace/.github/workflows/abandon-release.yml (5)</summary>
+
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `ubuntu 24.04`
+ - `ubuntu 24.04`
+ - `ubuntu 24.04`
 
 </details>
 
@@ -411,8 +429,8 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
