@@ -1378,6 +1378,7 @@ feature_paths() {
                 ".github/workflows/prepare-release.yml" \
                 ".github/workflows/prepare-release-extension.yml" \
                 ".github/workflows/promote-release.yml" \
+                ".github/workflows/abandon-release.yml" \
                 ".github/workflows/sync-main-to-dev.yml" \
                 "docs/DOWNSTREAM_RELEASE.md"
             ;;
@@ -1782,19 +1783,31 @@ YAML
             echo "Mirror carries no snapshot dirs; skipping fold."
             exit 0
           fi
-          CHANGED="\$(git status --porcelain -- docs/issues docs/pull-requests | awk '{print \$2}')"
+          # commit-action parses FILE_PATHS as a COMMA-separated list and logs
+          # "No files to commit" + exits 0 when nothing resolves, so a
+          # newline-joined value folds NOTHING while every step stays green
+          # (#1502). Build the list from the staged diff with NUL framing:
+          # git status --porcelain C-quotes paths containing spaces and renders
+          # renames as "R old -> new", both of which mis-parse. The tr has to
+          # run inside the pipeline — command substitution drops NUL bytes.
+          mirror_paths() {
+            git diff --cached --name-only --no-renames --diff-filter=ACM -z -- docs/issues docs/pull-requests
+          }
+          if mirror_paths | tr '\0' '\n' | grep -q ','; then
+            echo "ERROR: a mirror archive path contains a comma, which FILE_PATHS cannot represent:"
+            mirror_paths | tr '\0' '\n' | grep ','
+            exit 1
+          fi
+          CHANGED="\$(mirror_paths | tr '\0' ',')"
+          CHANGED="\${CHANGED%,}"
           if [ -z "\$CHANGED" ]; then
             echo "eligible=false" >> "\$GITHUB_OUTPUT"
             echo "Release branch already matches the mirror archive; nothing to fold."
             exit 0
           fi
-          {
-            echo "file_paths<<PATHS_EOF"
-            printf '%s\n' "\$CHANGED"
-            echo "PATHS_EOF"
-          } >> "\$GITHUB_OUTPUT"
+          echo "file_paths=\$CHANGED" >> "\$GITHUB_OUTPUT"
           echo "eligible=true" >> "\$GITHUB_OUTPUT"
-          echo "Folding \$(printf '%s\n' "\$CHANGED" | wc -l) mirror archive path(s) into the release branch."
+          echo "Folding \$(printf '%s\n' "\$CHANGED" | tr ',' '\n' | wc -l) mirror archive path(s) into the release branch."
 
       - name: Commit folded archive to the release branch
         if: \${{ steps.mirror_fold.outputs.eligible == 'true' }}
@@ -1807,7 +1820,7 @@ YAML
           COMMIT_MESSAGE: "chore: fold sync mirror archive into release \${{ needs.validate.outputs.version }}"
           FILE_PATHS: \${{ steps.mirror_fold.outputs.file_paths }}
 
-      - name: Re-pull release branch after fold
+      - name: Re-pull release branch and verify the fold landed
         if: \${{ steps.mirror_fold.outputs.eligible == 'true' }}
         env:
           VERSION: \${{ needs.validate.outputs.version }}
@@ -1815,6 +1828,20 @@ YAML
           set -euo pipefail
           retry --retries 3 --backoff 3 --max-backoff 20 -- git fetch origin "release/\$VERSION"
           git reset --hard "origin/release/\$VERSION"
+          # Assert the POST-CONDITION, not the step outcome: commit-action
+          # reports success when it commits nothing (#1502), and a fold that
+          # announces N paths and lands zero must not be green — promote later
+          # force-resets the mirror onto main and would take the only copy of
+          # the archive with it. M/D = a mirror path this branch lacks or has
+          # stale; A = a release-only path, tolerated (archives only grow).
+          retry --retries 3 --backoff 3 --max-backoff 20 -- git fetch origin "${MANIFEST_SYNC_TARGET}"
+          UNFOLDED="\$(git diff --name-only --no-renames --diff-filter=MD FETCH_HEAD HEAD -- docs/issues docs/pull-requests)"
+          if [ -n "\$UNFOLDED" ]; then
+            echo "ERROR: the fold did not land — release/\$VERSION is missing or stale for:"
+            printf '%s\n' "\$UNFOLDED"
+            exit 1
+          fi
+          echo "Fold verified: release/\$VERSION carries the mirror archive."
 YAML
             # shellcheck disable=SC2016  # literal $VERSION: the anchor is the rendered YAML's shell line, not an expansion
             sed -i '/^          git reset --hard "origin\/release\/\$VERSION"$/r '"$fold_block" "$rc"
@@ -1853,15 +1880,14 @@ YAML
         shell: bash
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-
-      - name: Set up devkit toolchain
-        uses: ./.github/actions/setup-devkit-toolchain
-        with:
-          mode: \${{ needs.resolve-toolchain.outputs.mode }}
-          devkit-version: \${{ needs.resolve-toolchain.outputs.image-tag }}
-
+      # Token FIRST, then check out with it: git authenticates through the
+      # credentials checkout persists as http.<host>.extraheader, and that
+      # header outranks any userinfo embedded in a push URL. The previous
+      # form (default checkout + token in the URL) therefore pushed as
+      # github-actions[bot] and 403'd on every run (#1503). \`contents: read\`
+      # above is deliberate and stays: the mirror reset must carry the Commit
+      # App identity, so do not "fix" a future 403 by granting the Actions
+      # token \`contents: write\`.
       - name: Generate commit app token
         id: commit_app_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
@@ -1869,21 +1895,63 @@ YAML
           client-id: \${{ secrets.COMMIT_APP_CLIENT_ID }}
           private-key: \${{ secrets.COMMIT_APP_PRIVATE_KEY }}
 
-      - name: Force-reset mirror to main
-        env:
-          APP_TOKEN: \${{ steps.commit_app_token.outputs.token }}
-          GITHUB_REPOSITORY: \${{ github.repository }}
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          token: \${{ steps.commit_app_token.outputs.token }}
+
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: \${{ needs.resolve-toolchain.outputs.mode }}
+          devkit-version: \${{ needs.resolve-toolchain.outputs.image-tag }}
+
+      - name: Verify main carries the mirror archive
+        id: archive_guard
         run: |
           set -euo pipefail
-          # After the merged release PR, main carries the folded archive; the
-          # mirror re-bases onto it so divergence stays bounded (#1424). Push,
-          # never the REST refs API (#1157, #1377). The mirror is unprotected
-          # and its history is regenerated state — a force reset loses
-          # nothing; a racing nightly sync self-heals at its next run.
+          # The reset below is only the harmless housekeeping its comment
+          # claims if main ALREADY carries the archive the mirror is being
+          # reset away from — the release fold puts it there (#1424). When the
+          # fold is skipped or broken (#1502), force-pushing main onto the
+          # mirror would delete the only copy of the snapshots. So assert the
+          # precondition and skip loudly instead: a stale mirror self-heals at
+          # the next nightly sync, deleted snapshots do not.
           retry --retries 3 --backoff 3 --max-backoff 20 -- git fetch origin main
-          MAIN_SHA="\$(git rev-parse origin/main)"
-          REMOTE_URL="https://x-access-token:\${APP_TOKEN}@github.com/\${GITHUB_REPOSITORY}.git"
-          retry --retries 3 --backoff 5 --max-backoff 30 -- git push --force "\$REMOTE_URL" "\${MAIN_SHA}:refs/heads/${MANIFEST_SYNC_TARGET}"
+          MAIN_SHA="\$(git rev-parse FETCH_HEAD)"
+          echo "main_sha=\$MAIN_SHA" >> "\$GITHUB_OUTPUT"
+          MIRROR_REF="\$(retry --retries 3 --backoff 3 --max-backoff 20 -- git ls-remote origin "refs/heads/${MANIFEST_SYNC_TARGET}")"
+          if [ -z "\$MIRROR_REF" ]; then
+            echo "safe=false" >> "\$GITHUB_OUTPUT"
+            echo "::warning::Mirror branch '${MANIFEST_SYNC_TARGET}' not found; nothing to reset."
+            exit 0
+          fi
+          retry --retries 3 --backoff 3 --max-backoff 20 -- git fetch origin "${MANIFEST_SYNC_TARGET}"
+          STRANDED="\$(git diff --name-only --no-renames --diff-filter=MD FETCH_HEAD "\$MAIN_SHA" -- docs/issues docs/pull-requests)"
+          if [ -n "\$STRANDED" ]; then
+            echo "safe=false" >> "\$GITHUB_OUTPUT"
+            echo "::warning::Skipping the mirror reset: main is missing or stale for \$(printf '%s\n' "\$STRANDED" | wc -l) archive path(s) the mirror carries. Check the release fold (#1502)."
+            printf '%s\n' "\$STRANDED"
+            exit 0
+          fi
+          echo "safe=true" >> "\$GITHUB_OUTPUT"
+          echo "main carries the mirror archive; the reset is safe."
+
+      - name: Force-reset mirror to main
+        if: \${{ steps.archive_guard.outputs.safe == 'true' }}
+        env:
+          MAIN_SHA: \${{ steps.archive_guard.outputs.main_sha }}
+        run: |
+          set -euo pipefail
+          # After the merged release PR, main carries the folded archive (the
+          # step above proved it), so the mirror re-bases onto main and its
+          # divergence stays bounded (#1424). Push, never the REST refs API
+          # (#1157, #1377). The mirror is unprotected and its history is
+          # regenerated state — with the guard above passing, a force reset
+          # loses nothing; a racing nightly sync self-heals at its next run.
+          # The push authenticates as the Commit App through the credentials
+          # the checkout persisted (#1503).
+          retry --retries 3 --backoff 5 --max-backoff 30 -- git push --force origin "\${MAIN_SHA}:refs/heads/${MANIFEST_SYNC_TARGET}"
           echo "Mirror '${MANIFEST_SYNC_TARGET}' reset to main @ \${MAIN_SHA}"
 YAML
         fi
@@ -2219,6 +2287,65 @@ fi
 
 # Copy template contents to workspace
 echo "Initializing workspace from template..."
+# ── Torn-window guard (#1480) ────────────────────────────────────────────────
+# The template copy below overwrites .vig-os and the root .gitignore with
+# template content (every knob empty, consumer sections gone) that is only
+# refilled by the write-backs hundreds of lines further down. .vig-os is the
+# INPUT of the next --force run, so an abort inside that window must not
+# persist the blanked state: a run in the field aborted there and silently
+# erased the repo's identity and feature opt-outs. Snapshot both files before
+# the copy, restore them on any failing exit, and disarm once the late
+# write-back has completed.
+TORN_WINDOW_SNAPSHOT_DIR=""
+
+restore_torn_window() {
+    local status=$?
+    if [[ "$status" -eq 0 || -z "$TORN_WINDOW_SNAPSHOT_DIR" ]]; then
+        return 0
+    fi
+    local restored=()
+    if [[ -f "$TORN_WINDOW_SNAPSHOT_DIR/vig-os" ]]; then
+        cp -f "$TORN_WINDOW_SNAPSHOT_DIR/vig-os" "$VIG_OS_MANIFEST"
+        restored+=(".vig-os")
+    fi
+    if [[ -f "$TORN_WINDOW_SNAPSHOT_DIR/gitignore" ]]; then
+        cp -f "$TORN_WINDOW_SNAPSHOT_DIR/gitignore" "$WORKSPACE_DIR/.gitignore"
+        restored+=(".gitignore")
+    fi
+    {
+        echo ""
+        echo "ERROR: workspace initialization failed mid-scaffold."
+        if [[ ${#restored[@]} -gt 0 ]]; then
+            echo "Restored the pre-run ${restored[*]} (the scaffold copy had already overwritten them)."
+        fi
+        echo "Other scaffold files may be half-applied — review with 'git status' and"
+        echo "recover with 'git checkout -- <path>' where needed."
+    } >&2
+    rm -rf "$TORN_WINDOW_SNAPSHOT_DIR"
+    return 0
+}
+
+arm_torn_window_guard() {
+    TORN_WINDOW_SNAPSHOT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/vig-os-preimage.XXXXXX")"
+    if [[ -f "$VIG_OS_MANIFEST" ]]; then
+        cp "$VIG_OS_MANIFEST" "$TORN_WINDOW_SNAPSHOT_DIR/vig-os"
+    fi
+    if [[ -f "$WORKSPACE_DIR/.gitignore" ]]; then
+        cp "$WORKSPACE_DIR/.gitignore" "$TORN_WINDOW_SNAPSHOT_DIR/gitignore"
+    fi
+    trap restore_torn_window EXIT
+}
+
+disarm_torn_window_guard() {
+    trap - EXIT
+    if [[ -n "$TORN_WINDOW_SNAPSHOT_DIR" ]]; then
+        rm -rf "$TORN_WINDOW_SNAPSHOT_DIR"
+        TORN_WINDOW_SNAPSHOT_DIR=""
+    fi
+}
+
+arm_torn_window_guard
+
 echo "Copying files from $TEMPLATE_DIR to $WORKSPACE_DIR..."
 
 # Note: Excluding .venv - it is used directly from the container image
@@ -2333,7 +2460,29 @@ fi
 # files, but those inherit the store's read-only (0444) mode. Make the scaffold
 # user-writable so the placeholder substitution below — and the user's own edits
 # — work. No-op on the Debian image (its template files are already writable).
-chmod -R u+w "$WORKSPACE_DIR"
+# Scoped to template-derived paths (#1480), keyed on the template tree like the
+# +x sweep below (#1195): a blanket `chmod -R` walked the consumer's ENTIRE
+# workspace — .git object packs (deliberately 0444), a multi-GB Cargo target/,
+# node_modules — none of which the scaffold writes, and every one of them a
+# surface for the transient fts walk failure that aborted a run in the field.
+# Symlinks are skipped: chmod would follow them to a target the scaffold does
+# not own (a preserved store symlink target is read-only by design, #1117).
+sweep_scaffold_writable() {
+    local src_dir="$1" src_path rel dest
+    while IFS= read -r -d '' src_path; do
+        rel="${src_path#"$src_dir"/}"
+        dest="$WORKSPACE_DIR/$rel"
+        if [[ -e "$dest" && ! -L "$dest" ]]; then
+            chmod u+w "$dest"
+        fi
+    done < <(find -L "$src_dir" -mindepth 1 -print0)
+}
+chmod u+w "$WORKSPACE_DIR"
+sweep_scaffold_writable "$TEMPLATE_DIR"
+# Smoke overlays land outside the template tree; sweep them the same way.
+if [[ "$SMOKE_TEST" == "true" && -n "${SMOKE_TEST_DIR:-}" && -d "$SMOKE_TEST_DIR" ]]; then
+    sweep_scaffold_writable "$SMOKE_TEST_DIR"
+fi
 
 # Early write-back (#885): the rsync above just replaced .vig-os with the
 # template, so until the late write-back below the manifest would claim the
@@ -2528,21 +2677,31 @@ if [[ -n "${VIG_OS_VERSION:-}" && -f "$WORKSPACE_DIR/.vig-os" ]]; then
         # `|| true`: a floating input yields no grep match (exit 1), which would
         # abort under `set -o pipefail`; an empty pinned_ref is the intended
         # "unpinned, no warning" signal.
-        # Anchor on `^[[:space:]]*vigos\.url` so we read the REAL input line only:
-        # the standard-layout flake.nix ships a doc-comment EXAMPLE line
+        # Anchor on `^[[:space:]]*<name>\.url` so we read the REAL input line
+        # only: the standard-layout flake.nix ships a doc-comment EXAMPLE line
         # (`#   vigos.url = "github:vig-os/devkit?ref=<tag>";`) above it, and an
         # unanchored match picked that comment first, reporting the literal
         # `<tag>` and false-firing even on an aligned pin (#1110).
-        pinned_ref="$(grep -oE '^[[:space:]]*vigos\.url[[:space:]]*=[[:space:]]*"github:vig-os/devkit\?ref=[^"]+"' \
-            "$WORKSPACE_DIR/flake.nix" 2>/dev/null \
-            | sed -E 's/.*\?ref=([^"]+)".*/\1/' | head -n1 || true)"
+        # Name-agnostic and pin-form-agnostic (#1497): flake.nix is a
+        # PRESERVE_FILE, so the input may be named anything, and a ref pins in
+        # either form (?ref=X, or the /X path suffix the field case carried) —
+        # the literal-`vigos`/`?ref=`-only match left exactly those consumers
+        # with neither a bump nor a warning from any mechanism.
+        pinned_line="$(grep -E '^[[:space:]]*(inputs\.)?[A-Za-z0-9_-]+\.url[[:space:]]*=[[:space:]]*"github:vig-os/devkit[/?][^"]+"' \
+            "$WORKSPACE_DIR/flake.nix" 2>/dev/null | head -n1 || true)"
+        pinned_input=""
+        pinned_ref=""
+        if [[ -n "$pinned_line" ]]; then
+            pinned_input="$(sed -E 's/^[[:space:]]*(inputs\.)?([A-Za-z0-9_-]+)\.url.*/\2/' <<<"$pinned_line")"
+            pinned_ref="$(sed -E 's|.*"github:vig-os/devkit[/?](ref=)?([^"]+)".*|\2|' <<<"$pinned_line")"
+        fi
         if [[ -n "$pinned_ref" && "$pinned_ref" != "$VIG_OS_VERSION" ]]; then
             echo "" >&2
-            echo "WARNING: scaffold upgraded to ${VIG_OS_VERSION}, but the pinned vigos flake input is still ${pinned_ref}." >&2
+            echo "WARNING: scaffold upgraded to ${VIG_OS_VERSION}, but the pinned ${pinned_input} flake input is still ${pinned_ref}." >&2
             echo "         The two must move together — they deliver coupled halves of the same" >&2
             echo "         change (e.g. #1053's JSONC banner + its check-json exclude). Update your" >&2
-            echo "         flake.nix to 'vigos.url = \"github:vig-os/devkit?ref=${VIG_OS_VERSION}\";' and run" >&2
-            echo "         'nix flake update vigos', else strict hooks may reject files this scaffold wrote." >&2
+            echo "         flake.nix to '${pinned_input}.url = \"github:vig-os/devkit?ref=${VIG_OS_VERSION}\";' and run" >&2
+            echo "         'nix flake update ${pinned_input}', else strict hooks may reject files this scaffold wrote." >&2
             echo "" >&2
         fi
     fi
@@ -2748,6 +2907,10 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
         write_manifest_value DEVKIT_LANGUAGES "$(IFS=','; echo "${DECLARED_LANGUAGES[*]}")"
     fi
 fi
+
+# The late write-back above completed: .vig-os and .gitignore hold this run's
+# resolved values again, so a later failure must NOT roll them back (#1480).
+disarm_torn_window_guard
 
 # Restore executable permissions on shell scripts and hooks (must be after sed -i).
 # Scope the +x to the scaffold-delivered script set only: key the sweep on the

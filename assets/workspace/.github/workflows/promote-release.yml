@@ -204,7 +204,22 @@ jobs:
             echo "ERROR: PR #$PR_NUMBER is still in draft"
             exit 1
           fi
-          if [ "$REVIEW_DECISION" = "APPROVED" ]; then
+
+          # Protection-aware approval gate (#1506): assert only what the base
+          # branch actually requires. On a repo whose main ruleset requires no
+          # approving reviews (the smoke repo, solo-adoption consumers) GitHub
+          # never computes reviewDecision, so an unconditional assertion falls
+          # into the #438 fallback, counts zero approved reviews, and fails a
+          # PR the platform itself would merge. The rules endpoint sees
+          # rulesets only, not classic branch protection — a classic-protection
+          # repo skips here and degrades to the platform's own merge-time
+          # refusal (fail-late, never fail-open).
+          REQUIRED_APPROVALS=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh api \
+            "repos/${GITHUB_REPOSITORY}/rules/branches/main" \
+            | jq '[.[] | select(.type == "pull_request") | .parameters.required_approving_review_count // 0] | max // 0')
+          if [ "$REQUIRED_APPROVALS" -eq 0 ]; then
+            echo "Base branch requires no approving reviews — approval gate skipped (#1506)"
+          elif [ "$REVIEW_DECISION" = "APPROVED" ]; then
             echo "PR #$PR_NUMBER is approved"
           elif [ "$REVIEW_DECISION" = "null" ] || [ -z "$REVIEW_DECISION" ]; then
             APPROVED_COUNT=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh api \
@@ -417,7 +432,14 @@ jobs:
             exit 1
           fi
 
-          if [ "$REVIEW_DECISION" = "APPROVED" ]; then
+          # Protection-aware approval gate (#1506) — same skip as validate;
+          # PR state can change between the jobs, so the merge copy re-checks.
+          REQUIRED_APPROVALS=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh api \
+            "repos/${GITHUB_REPOSITORY}/rules/branches/main" \
+            | jq '[.[] | select(.type == "pull_request") | .parameters.required_approving_review_count // 0] | max // 0')
+          if [ "$REQUIRED_APPROVALS" -eq 0 ]; then
+            echo "Base branch requires no approving reviews — approval gate skipped (#1506)"
+          elif [ "$REVIEW_DECISION" = "APPROVED" ]; then
             echo "PR #$PR_NUMBER is approved"
           elif [ "$REVIEW_DECISION" = "null" ] || [ -z "$REVIEW_DECISION" ]; then
             APPROVED_COUNT=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh api \
@@ -614,21 +636,32 @@ jobs:
       GH_REPO: ${{ github.repository }}
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-
-      - name: Set up devkit toolchain
-        uses: ./.github/actions/setup-devkit-toolchain
-        with:
-          mode: ${{ needs.resolve-toolchain.outputs.mode }}
-          devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
-
+      # Token FIRST, then check out with it. Tag pushes must authenticate as the
+      # Release App: the default github.token is not a bypass actor for the Tag
+      # ruleset, and this job deliberately keeps `contents: read` so it cannot
+      # push under the Actions identity at all. The token has to arrive through
+      # CHECKOUT — git authenticates via the credentials checkout persists as
+      # http.<host>.extraheader, and that header outranks any token embedded in
+      # a remote URL, so the previous "App token in the push URL" form was
+      # silently ignored (#1508). Do not "fix" a future 403 here by granting
+      # contents: write; that would move tag pushes to the Actions identity.
       - name: Generate release app token
         id: release_app_token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
         with:
           client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          token: ${{ steps.release_app_token.outputs.token }}
+
+      - name: Set up devkit toolchain
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: ${{ needs.resolve-toolchain.outputs.mode }}
+          devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
 
       - name: Move floating major/minor tags
         env:
@@ -663,16 +696,13 @@ jobs:
           REST="${VERSION#*.}"
           MINOR="${REST%%.*}"
 
-          # Tag pushes must authenticate as the Release App EXPLICITLY: the
-          # checkout step's persisted credentials are the default github.token,
-          # which is not a bypass actor for the Tag ruleset.
-          REMOTE_URL="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-
           # `git push <sha>:<ref>` requires the commit object locally, and the
           # checkout above is a shallow clone of the workflow head — fetch the
-          # release tag so its peeled commit is available to push.
+          # release tag so its peeled commit is available to push. `origin`
+          # carries the Release App credentials the checkout persisted (#1508),
+          # which an unauthenticated fetch would lack on a private repo.
           retry --retries 3 --backoff 5 --max-backoff 30 -- \
-            git fetch --no-tags --depth 1 "$REMOTE_URL" "refs/tags/${RELEASE_TAG}"
+            git fetch --no-tags --depth 1 origin "refs/tags/${RELEASE_TAG}"
 
           # Create-or-update a lightweight floating tag at the release commit,
           # idempotently (skip when it already points there). Force is required
@@ -692,11 +722,12 @@ jobs:
             # (#1157, #1377) — while the very same installation token pushing
             # tags over git is bypassed fine (exactly how release-publish.yml
             # creates the release tags). Push also unifies create and move
-            # into one branch-free path. Publish + merge already succeeded, so
-            # on failure fail loud with actionable remediation rather than
-            # leaving the advertised `@${name}` pin silently missing or stale.
+            # into one branch-free path. `origin` is the App-authenticated
+            # remote (#1508). Publish + merge already succeeded, so on failure
+            # fail loud with actionable remediation rather than leaving the
+            # advertised `@${name}` pin silently missing or stale.
             if ! retry --retries 3 --backoff 5 --max-backoff 30 -- \
-                git push --force "$REMOTE_URL" "${TARGET_SHA}:refs/tags/${name}"; then
+                git push --force origin "${TARGET_SHA}:refs/tags/${name}"; then
               echo "::error title=Floating tag ${name} not moved::Could not force-push floating tag '${name}' to ${TARGET_SHA}. The GitHub Release is published and the release PR merged — only this floating tag is missing or stale, which silently breaks the advertised 'uses: ...@${name}' pin. The push authenticates as the Release App, which the repo Tag ruleset must list as a bypass actor; verify the ruleset's bypass list and the RELEASE_APP_CLIENT_ID / RELEASE_APP_PRIVATE_KEY secrets, or remediate once by hand (temporarily add an admin bypass to the ruleset, force-move refs/tags/${name} -> ${TARGET_SHA}, then revert). See https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md#first-release-floating-tags."
               return 1
             fi

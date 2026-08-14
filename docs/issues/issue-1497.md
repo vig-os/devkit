@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-13T10:19:03Z
-updated: 2026-08-13T10:19:03Z
+updated: 2026-08-14T13:39:35Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1497
-comments: 0
-labels: none
+comments: 1
+labels: bug, priority:medium, area:ci, effort:medium, semver:patch
 assignees: none
-milestone: none
+milestone: 1.10.0
 projects: none
 parent: none
 children: none
-synced: 2026-08-13T14:59:06.626Z
+synced: 2026-08-14T16:05:17.266Z
 ---
 
 # [Issue 1497]: [Upgrade staleness is unobservable on both axes: the auto-bump grep misses most consumers, and scaffold-drift compares the pin to itself](https://github.com/vig-os/devkit/issues/1497)
@@ -64,4 +64,12 @@ Not a recommendation — the trade is devkit's:
 - [ ] Something, somewhere, answers "is this repo behind?" without the answer being derived from the repo's own pin
 
 Refs: #1400, #1488
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on August 14, 2026 at 01:39 PM_
+
+Delivered by #1514 (merged to dev). Both acceptance criteria met: (1) the flake auto-bump is keyed on the github:vig-os/devkit URL — any-name floating inputs are advanced, pinned refs (?ref=X or /X) are skipped with a printed reason, and every install.sh --force run emits one flake-bump: line that devkit-upgrade.yml surfaces in the adoption PR body and step summary; the #1093 skew warning learned the same discovery. (2) The new warn-only devkit-staleness job in the scaffolded ci.yml compares DEVKIT_VERSION against the latest devkit release — not derived from the repo's own pin — and annotates PRs with the behind-count. Suggestion 4 (mkRustProject eval-time notice) was deliberately left out; say the word if it should become its own issue.
 

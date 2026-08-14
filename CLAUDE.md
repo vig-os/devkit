@@ -120,7 +120,7 @@ Each phase gets its own commit. Do not write implementation before its test. Ski
 The recurring heavy workflow in this repo is the release train. The SSoT is
 [`docs/RELEASE_CYCLE.md`](docs/RELEASE_CYCLE.md); start there. Companion docs:
 
-- [`docs/CROSS_REPO_RELEASE_GATE.md`](docs/CROSS_REPO_RELEASE_GATE.md) -- smoke-test dispatch contract; the **final** dispatch pauses on a human approval of the smoke release PR
+- [`docs/CROSS_REPO_RELEASE_GATE.md`](docs/CROSS_REPO_RELEASE_GATE.md) -- smoke-test dispatch contract; runs unattended end-to-end (the cycle's single human approval is the devkit release PR, collected before promote)
 - [`docs/DOWNSTREAM_RELEASE.md`](docs/DOWNSTREAM_RELEASE.md) -- release workflows in consumer repos
 - [`docs/MIGRATION.md`](docs/MIGRATION.md) and [`docs/SOLO_ADOPTION.md`](docs/SOLO_ADOPTION.md) -- consumer adoption paths
 - [`docs/WORKFLOW_SECURITY.md`](docs/WORKFLOW_SECURITY.md) -- App/token model behind the workflows

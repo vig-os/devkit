@@ -965,10 +965,16 @@ EOF
     assert_failure
 }
 
-@test "init-workspace.sh makes the scaffold user-writable (#664)" {
+@test "init-workspace.sh makes the scaffold user-writable (#664/#1480)" {
+    # Scoped to template-derived paths since #1480 (behavior covered in
+    # tests/bats/upgrade-atomicity.bats); the blanket -R over the whole
+    # workspace must not come back — it walked .git and consumer build trees.
+    # shellcheck disable=SC2016
+    run grep -F 'sweep_scaffold_writable "$TEMPLATE_DIR"' "$INIT_WORKSPACE_SH"
+    assert_success
     # shellcheck disable=SC2016
     run grep -E 'chmod -R u\+w "\$WORKSPACE_DIR"' "$INIT_WORKSPACE_SH"
-    assert_success
+    assert_failure
 }
 
 # ── parse-github-remote-lib (#509) ─────────────────────────────────────────
@@ -1140,16 +1146,17 @@ _scaffold_with_version_file() {
 # a pinned vigos ref in the consumer's flake.nix differs from the DEVKIT_VERSION
 # being written. A floating (unpinned) input is intentional and never warns.
 
-# Pre-seed $ws/flake.nix carrying a $url vigos input, then --force upgrade the
-# direnv scaffold to $target (via the image built-tag record).
+# Pre-seed $ws/flake.nix carrying a $url devkit input (named $4, default
+# vigos — the input name is the consumer's choice, #1497), then --force
+# upgrade the direnv scaffold to $target (via the image built-tag record).
 _upgrade_direnv_with_flake_url() {
-    local ws="$1" target="$2" url="$3"
+    local ws="$1" target="$2" url="$3" name="${4:-vigos}"
     mkdir -p "$ws"
     cat >"$ws/flake.nix" <<EOF
 {
   inputs = {
-    vigos.url = "$url";
-    nixpkgs.follows = "vigos/nixpkgs";
+    $name.url = "$url";
+    nixpkgs.follows = "$name/nixpkgs";
   };
 }
 EOF
@@ -1174,7 +1181,32 @@ EOF
 @test "init-workspace is silent when the vigos flake input floats unpinned (#1093)" {
     run _upgrade_direnv_with_flake_url "$BATS_TEST_TMPDIR/e2e-1093-float" 1.2.0 "github:vig-os/devkit"
     assert_success
-    refute_output --partial "pinned vigos flake input is still"
+    refute_output --partial "flake input is still"
+}
+
+# ── the skew warning is name-agnostic and knows both pin forms (#1497) ────────
+# flake.nix is a PRESERVE_FILE: an input named `devkit`, or pinned with the
+# `/ref` path suffix instead of `?ref=`, is a legitimate consumer choice — the
+# field case carried `devkit.url = "github:vig-os/devkit/dev"` and got neither
+# a bump nor a warning from any mechanism.
+
+@test "init-workspace warns on a path-ref pin that lags the target (#1497)" {
+    run _upgrade_direnv_with_flake_url "$BATS_TEST_TMPDIR/e2e-1497-pathref" 1.2.0 "github:vig-os/devkit/1.1.0"
+    assert_success
+    assert_output --partial "flake input is still 1.1.0"
+}
+
+@test "init-workspace warns on a renamed pinned input, naming it (#1497)" {
+    run _upgrade_direnv_with_flake_url "$BATS_TEST_TMPDIR/e2e-1497-renamed" 1.2.0 "github:vig-os/devkit?ref=1.1.0" devkit
+    assert_success
+    assert_output --partial "pinned devkit flake input is still 1.1.0"
+    assert_output --partial "nix flake update devkit"
+}
+
+@test "init-workspace stays silent on an aligned path-ref pin (#1497)" {
+    run _upgrade_direnv_with_flake_url "$BATS_TEST_TMPDIR/e2e-1497-aligned" 1.2.0 "github:vig-os/devkit/1.2.0"
+    assert_success
+    refute_output --partial "flake input is still"
 }
 
 # ── skew warning reads the real pin, not the doc-comment (#1110) ──────────────
@@ -2512,8 +2544,14 @@ _upgrade_no_flags() {
     assert_success
     run grep -qF 'name: Commit folded archive to the release branch' "$rc"
     assert_success
-    run grep -qF 'name: Re-pull release branch after fold' "$rc"
+    run grep -qF 'name: Re-pull release branch and verify the fold landed' "$rc"
     assert_success
+    # commit-action parses FILE_PATHS as a COMMA-separated list and returns
+    # SUCCESS when it resolves nothing, so a newline-joined value folds
+    # silently (#1502). The output must be a single-line comma list — no
+    # heredoc framing.
+    run grep -qF 'PATHS_EOF' "$rc"
+    assert_failure
     # Ordering: Pull < fold staging < finalize SHA, so the fold commit is on
     # origin before the local reset that feeds `git rev-parse HEAD` (the tag
     # target) — a fold after the SHA capture would ship an untagged commit.
@@ -2540,6 +2578,35 @@ _upgrade_no_flags() {
     run grep -qF 'git push --force' "$prom"
     assert_success
     run grep -qF ':refs/heads/sync/issue-mirror' "$prom"
+    assert_success
+}
+
+@test "DEVKIT_SYNC_TARGET checks the mirror reset job out as the Commit App (#1503)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1503-token"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    prom="$ws/.github/workflows/promote-release.yml"
+    # The token must reach git through CHECKOUT, not a push URL: checkout's
+    # persisted http.<host>.extraheader outranks URL userinfo, so an unowned
+    # checkout pushes as github-actions[bot] and 403s under `contents: read`
+    # (#1503). Token generation therefore precedes checkout in this job.
+    token_ln=$(grep -n 'id: commit_app_token' "$prom" | tail -1 | cut -d: -f1)
+    checkout_ln=$(awk -v s="$token_ln" 'NR > s && /name: Checkout repository/ { print NR; exit }' "$prom")
+    echo "token=$token_ln checkout=$checkout_ln"
+    [ -n "$checkout_ln" ]
+    # Scoped to the rendered job: other jobs in the base template legitimately
+    # build a push URL this way.
+    reset_ln=$(grep -n '^  reset-sync-mirror:' "$prom" | cut -d: -f1)
+    run awk -v s="$reset_ln" 'NR >= s' "$prom"
+    refute_output --partial 'x-access-token:'
+    # The push is gated on the archive guard, never unconditional (#1503).
+    run grep -qF "if: \${{ steps.archive_guard.outputs.safe == 'true' }}" "$prom"
+    assert_success
+    run grep -qF 'name: Verify main carries the mirror archive' "$prom"
     assert_success
 }
 
@@ -4395,6 +4462,8 @@ _scaffold_seeded() {
     assert_success
     run test -f "$ws/.github/workflows/release.yml"
     assert_success
+    run test -f "$ws/.github/workflows/abandon-release.yml"
+    assert_success
     _seed_features_disabled "$ws" "release,skills"
     run _upgrade_no_flags "$ws"
     assert_success
@@ -4402,6 +4471,8 @@ _scaffold_seeded() {
     run test -e "$ws/.github/workflows/release.yml"
     assert_failure
     run test -e "$ws/.github/workflows/promote-release.yml"
+    assert_failure
+    run test -e "$ws/.github/workflows/abandon-release.yml"
     assert_failure
     run test -e "$ws/.claude/skills/tdd"
     assert_failure

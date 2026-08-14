@@ -176,6 +176,7 @@ Available recipes:
     precommit                                  # Run pre-commit hooks on all files
 
     [release]
+    abandon-release version ref="" *flags      # Abandon a finalized-but-unpublished release: delete draft Release + tag, close PR, delete branch (draft-only, enforced server-side)
     changelog-preview                          # Preview the bot changelog entries the next release would synthesize (#1423)
     finalize-release version ref="" *flags     # Finalize and publish release via GitHub Actions workflow (step 3, after testing)
     prepare-release version ref="" *flags      # Prepare release branch for testing (step 1)
@@ -211,7 +212,7 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 - **Registry**: `ghcr.io/vig-os/devcontainer`
 - **Architecture**: Multi-platform support (AMD64, ARM64)
 - **License**: Apache
-- **Latest Version**: [1.9.0](https://github.com/vig-os/devkit/releases/tag/1.9.0) - 2026-08-13
+- **Latest Version**: [1.10.0](https://github.com/vig-os/devkit/releases/tag/1.10.0) - 2026-08-14
 - **Image tags**: bare semver (`0.2.1`, `latest`) — git tags use `v` prefix (`v0.2.1`) but image tags do not
 
 ## Features

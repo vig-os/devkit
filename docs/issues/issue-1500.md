@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-13T14:43:26Z
-updated: 2026-08-13T14:45:22Z
+updated: 2026-08-13T20:21:57Z
 author: vig-os-release-app[bot]
 author_url: https://github.com/vig-os-release-app[bot]
 url: https://github.com/vig-os/devkit/issues/1500
-comments: 1
+comments: 2
 labels: bug
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-13T14:59:05.926Z
+synced: 2026-08-14T04:14:24.385Z
 ---
 
 # [Issue 1500]: [Smoke-test dispatch failed for 1.9.0-rc1](https://github.com/vig-os/devkit/issues/1500)
@@ -73,4 +73,16 @@ My own `gh` calls from a workstation were taking HTTP 500/502 in the same window
 Attempt 1 additionally left an **unlabeled** deploy PR that the label-based cleanup could not reclaim, so the documented re-run recovery dead-ended until I added the label by hand. That is a real latent gap and is filed separately as #1499.
 
 Upstream state is unaffected: devkit's own `release.yml` run for 1.9.0-rc1 completed green (both arches built and tested, tag at the release head, multi-arch manifest published), and the RC image has been validated by hand. Retrying the listener.
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on August 13, 2026 at 08:21 PM_
+
+Closing as not-planned, matching the #1475 precedent for auto-filed dispatch incidents.
+
+The cause was a GitHub-side 5xx burst, not a devkit defect — full evidence in the comment above. The 1.9.0 train completed: released and promoted at 15:41:34Z, `:latest` moved, release PR #1498 merged, sync PR #1501 merged conflict-free.
+
+The one actionable finding this exposed — a partially-created deploy PR being invisible to the label-based stale-PR cleanup — is tracked separately in #1499.
 

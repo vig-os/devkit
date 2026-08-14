@@ -184,8 +184,8 @@ reference, see [docs/RELEASE_CYCLE.md](docs/RELEASE_CYCLE.md).
    - Fix any issues via bugfix PRs to `release/X.Y.Z`
    - Publish candidates to verify: `just publish-candidate X.Y.Z` (gates on CI
      only; the PR may stay a draft — repeat as needed)
-   - Mark PR as ready for review and get approval (required only for the final
-     release, once the candidate is verified)
+   - Mark the PR as ready for review (required only for the final release,
+     once the candidate is verified; no approval is collected yet)
 
 4. **Finalize and publish** (validates, finalizes CHANGELOG, builds, tests, signs, and publishes)
 
@@ -194,17 +194,27 @@ reference, see [docs/RELEASE_CYCLE.md](docs/RELEASE_CYCLE.md).
    ```
 
    The workflow will:
-   - Validate CI status and PR approval
+   - Validate CI status and that the PR is out of draft
    - Set the release date in CHANGELOG
    - Build and test multi-arch images (amd64, arm64)
    - Scan for vulnerabilities with Trivy
-   - Push to GHCR with `:latest` and `:X.Y.Z` tags
+   - Push to GHCR with `:X.Y.Z` tags (`:latest` moves at promote)
    - Sign images with Sigstore cosign
    - Generate SBOM and attest provenance
    - Automatically roll back on failure
 
-5. **Merge the release PR into `main`**
-   - The `sync-main-to-dev` workflow automatically opens a PR to merge `main` into `dev`
+5. **Approve and promote** — approve the release PR (the cycle's single human
+   approval, after finalize so it covers the release content exactly as it
+   ships), then:
+
+   ```bash
+   just promote-release X.Y.Z
+   ```
+
+   This publishes the draft GitHub Release, moves `:latest`, and merges the
+   release PR into `main`; the `sync-main-to-dev` workflow then automatically
+   opens a PR to merge `main` into `dev`. To reject the release instead, run
+   `just abandon-release X.Y.Z` (safe only while the Release is a draft).
 
 ## Version Tagging
 

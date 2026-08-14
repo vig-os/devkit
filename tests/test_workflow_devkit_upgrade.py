@@ -225,6 +225,40 @@ def test_bootstraps_installsh_and_commits_in_project_shell() -> None:
     assert "install-nix-action" in text
 
 
+def test_upgrade_step_captures_the_flake_bump_report() -> None:
+    """The install.sh output's ``flake-bump:`` line becomes a step output (#1497).
+
+    install.sh prints exactly one ``flake-bump:`` line per run (advanced /
+    skipped-with-reason / no input recognized). A silent decline was the whole
+    bug — the workflow must capture the line so the adoption PR can carry it.
+    """
+    doc = yaml.safe_load(TEMPLATE.read_text(encoding="utf-8"))
+    (job,) = doc["jobs"].values()
+    step = next(
+        s
+        for s in job["steps"]
+        if str(s.get("name", "")).startswith("Run the devkit upgrade")
+    )
+    assert step.get("id") == "upgrade"
+    run = str(step["run"])
+    assert "tee" in run, "install.sh output must be captured, not discarded"
+    assert "flake-bump:" in run
+    assert "flake-bump=" in run and "GITHUB_OUTPUT" in run
+
+
+def test_pr_body_carries_the_flake_bump_report_via_env() -> None:
+    """The adoption PR body includes the flake-bump outcome, env-routed (#1497).
+
+    Routed through ``env:`` (never ``${{ }}`` inside ``run:``) per the
+    template-injection doctrine pinned below.
+    """
+    doc = yaml.safe_load(TEMPLATE.read_text(encoding="utf-8"))
+    (job,) = doc["jobs"].values()
+    step = next(s for s in job["steps"] if "adoption PR" in str(s.get("name", "")))
+    assert step["env"]["FLAKE_BUMP"] == "${{ steps.upgrade.outputs.flake-bump }}"
+    assert "$FLAKE_BUMP" in str(step["run"])
+
+
 def test_reset_excluded_paths() -> None:
     """DEVKIT_UPGRADE_EXCLUDE paths are reset to the base branch before commit."""
     text = TEMPLATE.read_text(encoding="utf-8")

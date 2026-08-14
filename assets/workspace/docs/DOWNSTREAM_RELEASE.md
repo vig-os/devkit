@@ -54,26 +54,32 @@ changelog-neutral. Preview the pending block anytime with
 
 After final `release.yml` has pushed tag `X.Y.Z` and created a **draft** GitHub Release, run **`promote-release.yml`** (or `just promote-release X.Y.Z` from the devcontainer; dispatches on `release/X.Y.Z` by default) to:
 
-1. **Validate** — semver, draft release for `X.Y.Z`, release PR not draft / approved / CI green
+1. **Validate** — semver, draft release for `X.Y.Z`, release PR not draft / approved (when the base branch requires reviews) / CI green
 2. **Promote** — `gh release edit --draft=false`
 3. **Merge** — merge `release/X.Y.Z` → `main` (triggers `sync-main-to-dev` under the gitflow model — see [Workflow models](#workflow-models))
 4. **Cleanup** (best-effort, does not fail the workflow) — delete remote git tags matching `${VERSION}-rc*` that have **no** GitHub Release
 
-**Re-approve the release PR before dispatching promote** ([#1474](https://github.com/vig-os/devkit/issues/1474)). The final `release.yml` run's `finalize` job pushes to `release/X.Y.Z` (CHANGELOG date stamp plus the `sync-issues` commit), so on any repository with stale-review dismissal enabled the approval that authorised the final dispatch is already dismissed when promote validates it in step 1 above — and any later push to the release branch dismisses it again:
+**Approve the release PR immediately before dispatching promote** ([#1504](https://github.com/vig-os/devkit/issues/1504)) — this is the release cycle's single human approval; `release.yml` collects none. It happens here, after finalize, because the final `release.yml` run's `finalize` job pushes to `release/X.Y.Z` (CHANGELOG date stamp plus the `sync-issues` commit), and on any repository with stale-review dismissal enabled a push dismisses existing approvals — so an earlier approval could never survive to promote, and any later push to the release branch dismisses this one again:
 
 ```bash
-# Current state (REVIEW_REQUIRED after finalize)
+# Current state (REVIEW_REQUIRED until approved)
 gh pr view <PR_NUMBER> --json reviewDecision
 
-# Re-approve (must be a human account other than the PR author)
+# Approve (must be a human account other than the PR author)
 gh -R <owner>/<repo> pr review <PR_NUMBER> --approve
 ```
 
-Full reasoning and the upstream runbook: [`docs/RELEASE_CYCLE.md`](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#phase-5-post-release-cleanup).
+On a repository whose `main` ruleset requires **no** approving reviews (solo projects), promote's gates skip the approval assertion — explicitly, logged — and this step disappears ([#1506](https://github.com/vig-os/devkit/issues/1506)). Full reasoning and the upstream runbook: [`docs/RELEASE_CYCLE.md`](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#phase-5-post-release-cleanup).
 
 **Upstream (`vig-os/devcontainer`) only:** Root `promote-release.yml` also prunes GHCR RC package versions via the org Packages API using **`GITHUB_TOKEN`** with **repo Admin** on the `devcontainer` package (one-time **Manage Actions access** grant). See [GitHub App Configuration](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#github-app-configuration) and [Registry and cleanup tokens](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#registry-and-cleanup-tokens-upstream) in `docs/RELEASE_CYCLE.md`.
 
 This template does **not** implement upstream-only steps (GHCR `:latest`, cosign, cross-repo smoke-test gate). Projects that need registry or deploy promotion after merge should run separate automation or extend their `release-extension.yml` / own workflows; see [Extension Hook](#extension-hook).
+
+## Abandon release (draft-only rejection path)
+
+To **reject** a finalized-but-unpublished release instead of promoting it, run **`abandon-release.yml`** (or `just abandon-release X.Y.Z`; dispatches on `dev` by default — the release branch is about to be deleted, so it cannot be the dispatch ref; under the trunk model pass the ref explicitly: `just abandon-release X.Y.Z main`). As the Release App (tag-ruleset bypass, the same machinery as promote's RC prune) it deletes the **draft** GitHub Release, deletes the `<DEVKIT_TAG_PREFIX>X.Y.Z` tag, closes the release PR with an audit comment, and deletes `release/X.Y.Z`. The version number remains available for a re-cut; RC artifacts are **not** pruned (a re-cut of the same version reclaims them at its promote). Every step is idempotent, so a partially failed run can simply be re-dispatched.
+
+This is the explicit, guarded exception to the no-tag-deletion rollback policy above: it is safe **only while the Release is a draft**, and the workflow hard-refuses a published release ([#1511](https://github.com/vig-os/devkit/issues/1511)). Publishing tombstones the tag name permanently — after promote, the only path is fixing forward with the next version.
 
 ## Workflow models
 
@@ -362,3 +368,10 @@ jobs:
 Release workflow logic is centralized in shipped local reusable workflows (`release-core.yml`, `release-publish.yml`) while extension logic remains project-owned (`release-extension.yml`).
 
 This reduces drift in release safety checks while preserving downstream customization boundaries.
+
+Two independent staleness axes are reported in CI ([#1497](https://github.com/vig-os/devkit/issues/1497)):
+
+- **Scaffold drift** (`scaffold-drift` job, gate): the working tree diverges from what the *pinned* `DEVKIT_VERSION` would scaffold. Opt out with `DEVKIT_DRIFT_CHECK=false`.
+- **Pin staleness** (`devkit-staleness` job, warn-only): the pin itself is behind the latest devkit release — invisible to the drift gate by construction, since it compares the pin against itself. The report is a `::warning` annotation plus a step-summary block; it never fails the build and is not silenced by the drift opt-out.
+
+The flake-input axis is reported by the upgrade lane itself: `install.sh --force` prints one `flake-bump:` line per run — advanced (any input name at the floating `github:vig-os/devkit` URL), or skipped with the reason (a pinned ref, in either `?ref=X` or `/X` form, is never auto-bumped) — and `devkit-upgrade.yml` carries that line into the adoption PR body.
