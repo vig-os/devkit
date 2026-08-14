@@ -182,9 +182,20 @@ jobs:
             --description "Automated smoke-test deploy PRs" \
             --force
 
+          # Reclaim by head branch as well as by label (vig-os/devkit#1499).
+          # `gh pr create --label` labels in a SECOND mutation, so a transient
+          # there leaves an open, UNLABELLED deploy PR that a label-only query
+          # cannot see — and the documented re-run recovery then deadlocks on
+          # "a pull request already exists". The deploy branch name is
+          # deterministic and is pushed BEFORE the PR exists, so it is the one
+          # selector no partial failure can lose.
           mapfile -t OPEN_DEPLOY_PRS < <(
-            gh pr list --base dev --state open --label deploy \
-              --json number --jq '.[].number'
+            gh pr list --base dev --state open --limit 100 \
+              --json number,headRefName,labels \
+              --jq '.[]
+                    | select((.headRefName | startswith("chore/deploy-"))
+                             or (any(.labels[]; .name == "deploy")))
+                    | .number'
           )
 
           if [ "${#OPEN_DEPLOY_PRS[@]}" -eq 0 ]; then
@@ -403,13 +414,19 @@ jobs:
             -f sha="$COMMIT" -F force=true >/dev/null
           echo "Published ${#DELETED[@]} deletion(s) as ${COMMIT}."
 
-      - name: Create deploy PR
+      # Two mutations in one step is what broke the 1.9.0 rc1 deploy
+      # (vig-os/devkit#1499): `gh pr create --label` created the PR and then
+      # 500'd on the labelling, so the step exited 1 without ever writing
+      # pr_url and every downstream job skipped. Create (or adopt) here,
+      # record the url immediately, and label in a separate step.
+      - name: Create or adopt deploy PR
         id: create_pr
         env:
           GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
           TAG: ${{ needs.validate.outputs.tag }}
           BRANCH_NAME: ${{ steps.prepare_branch.outputs.branch_name }}
         run: |
+          set -euo pipefail
           PR_BODY="$(
             printf '%s\n' \
               "Automated smoke-test deployment commit created by repository_dispatch." \
@@ -419,15 +436,42 @@ jobs:
               "- Target: dev"
           )"
           PR_URL="$(
-            gh pr create \
-              --base dev \
-              --head "${BRANCH_NAME}" \
-              --title "chore: deploy ${TAG}" \
-              --body "${PR_BODY}" \
-              --label deploy
+            gh pr list --base dev --head "${BRANCH_NAME}" --state open \
+              --json url --jq '.[0].url // empty'
           )"
+          if [ -n "${PR_URL}" ]; then
+            echo "Adopted existing deploy PR: ${PR_URL}"
+          else
+            PR_URL="$(
+              gh pr create \
+                --base dev \
+                --head "${BRANCH_NAME}" \
+                --title "chore: deploy ${TAG}" \
+                --body "${PR_BODY}"
+            )"
+            echo "Created PR: ${PR_URL}"
+          fi
           echo "pr_url=${PR_URL}" >> "${GITHUB_OUTPUT}"
-          echo "Created PR: ${PR_URL}"
+
+      - name: Label deploy PR
+        id: label_pr
+        env:
+          GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
+          PR_URL: ${{ steps.create_pr.outputs.pr_url }}
+        run: |
+          set -uo pipefail
+          # Advisory, not load-bearing: `Close stale deploy PRs` reclaims by
+          # head branch, so an unlabelled deploy PR stays recoverable. Retry
+          # the transient, then carry on rather than failing the deploy job
+          # and stranding pr_url (vig-os/devkit#1499).
+          for attempt in 1 2 3; do
+            if gh pr edit "${PR_URL}" --add-label deploy; then
+              exit 0
+            fi
+            echo "Labelling attempt ${attempt} failed; retrying..."
+            sleep $((attempt * 5))
+          done
+          echo "Warning: could not label ${PR_URL} -- the stale-PR cleanup reclaims it by branch"
 
       - name: Enable auto-merge
         env:
@@ -1279,8 +1323,21 @@ jobs:
           EOF
           )"
 
-          gh issue create \
-            --repo vig-os/devkit \
-            --title "Smoke-test dispatch failed for ${TAG:-unknown}" \
-            --label bug \
-            --body "${ISSUE_BODY}"
+          # This issue is the only signal left when the orchestration is
+          # already down, and it dies to the same transient class as everything
+          # it reports: on 1.9.0 rc1 it 500'd 20 s after the deploy did, so no
+          # incident was filed at all and vig-os/devkit#1499 had to be written
+          # by hand. Retry before giving up, and fail loudly if it never lands.
+          for attempt in 1 2 3; do
+            if gh issue create \
+              --repo vig-os/devkit \
+              --title "Smoke-test dispatch failed for ${TAG:-unknown}" \
+              --label bug \
+              --body "${ISSUE_BODY}"; then
+              exit 0
+            fi
+            echo "Issue creation attempt ${attempt} failed; retrying..."
+            sleep $((attempt * 5))
+          done
+          echo "ERROR: could not file the upstream failure issue"
+          exit 1

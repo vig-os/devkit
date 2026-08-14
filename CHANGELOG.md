@@ -17,6 +17,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Smoke listener: a partially-created deploy PR is recoverable again**
+  ([#1499](https://github.com/vig-os/devkit/issues/1499))
+  - `gh pr create --label` labels in a second mutation. When that mutation hit
+    a transient GraphQL 500 on the 1.9.0 rc1 train, the step failed *after*
+    creating the PR: `pr_url` never reached `GITHUB_OUTPUT` (so every
+    downstream job skipped) and an unlabelled deploy PR was left open, which
+    the label-only stale-PR cleanup could not see. The documented recovery —
+    re-run the failed jobs — then deadlocked on "a pull request already
+    exists" until a human labelled the PR by hand
+  - Stale deploy PRs are now reclaimed by head branch (`chore/deploy-*`) as
+    well as by label; the branch name is pushed before the PR exists, so no
+    partial failure can lose it
+  - The deploy step adopts an open PR already on the deploy branch instead of
+    failing on it, and records `pr_url` before any labelling; labelling moved
+    to its own retrying, non-fatal step
+  - `notify-failure` retries the upstream incident issue, which died to the
+    same transient 20 s later and filed nothing at all
+
 - **Mirror-mode release: the archive fold committed nothing, silently**
   ([#1502](https://github.com/vig-os/devkit/issues/1502))
   - The fold passed its path list to `commit-action` newline-separated, but
