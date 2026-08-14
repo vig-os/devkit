@@ -70,6 +70,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`install.sh --force` no longer wipes `.vig-os` on a mid-run failure**
+  ([#1480](https://github.com/vig-os/devkit/issues/1480))
+  - `.vig-os` and the root `.gitignore` are snapshotted before the template
+    copy and restored byte-for-byte on any failing exit inside the refill
+    window, with a loud message naming what was restored and warning that
+    other scaffold files may be half-applied
+  - The `u+w` permission sweep is scoped to template-derived paths (keyed on
+    the template tree, like the #1195 `+x` sweep) — it no longer walks the
+    consumer's `.git`, `target/`, or `node_modules`, the surface of the
+    transient walk failure that aborted the field run destructively
+
 - **Smoke listener: a partially-created deploy PR is recoverable again**
   ([#1499](https://github.com/vig-os/devkit/issues/1499))
   - `gh pr create --label` labels in a second mutation. When that mutation hit
