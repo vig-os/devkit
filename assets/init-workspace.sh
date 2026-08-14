@@ -2287,6 +2287,65 @@ fi
 
 # Copy template contents to workspace
 echo "Initializing workspace from template..."
+# ── Torn-window guard (#1480) ────────────────────────────────────────────────
+# The template copy below overwrites .vig-os and the root .gitignore with
+# template content (every knob empty, consumer sections gone) that is only
+# refilled by the write-backs hundreds of lines further down. .vig-os is the
+# INPUT of the next --force run, so an abort inside that window must not
+# persist the blanked state: a run in the field aborted there and silently
+# erased the repo's identity and feature opt-outs. Snapshot both files before
+# the copy, restore them on any failing exit, and disarm once the late
+# write-back has completed.
+TORN_WINDOW_SNAPSHOT_DIR=""
+
+restore_torn_window() {
+    local status=$?
+    if [[ "$status" -eq 0 || -z "$TORN_WINDOW_SNAPSHOT_DIR" ]]; then
+        return 0
+    fi
+    local restored=()
+    if [[ -f "$TORN_WINDOW_SNAPSHOT_DIR/vig-os" ]]; then
+        cp -f "$TORN_WINDOW_SNAPSHOT_DIR/vig-os" "$VIG_OS_MANIFEST"
+        restored+=(".vig-os")
+    fi
+    if [[ -f "$TORN_WINDOW_SNAPSHOT_DIR/gitignore" ]]; then
+        cp -f "$TORN_WINDOW_SNAPSHOT_DIR/gitignore" "$WORKSPACE_DIR/.gitignore"
+        restored+=(".gitignore")
+    fi
+    {
+        echo ""
+        echo "ERROR: workspace initialization failed mid-scaffold."
+        if [[ ${#restored[@]} -gt 0 ]]; then
+            echo "Restored the pre-run ${restored[*]} (the scaffold copy had already overwritten them)."
+        fi
+        echo "Other scaffold files may be half-applied — review with 'git status' and"
+        echo "recover with 'git checkout -- <path>' where needed."
+    } >&2
+    rm -rf "$TORN_WINDOW_SNAPSHOT_DIR"
+    return 0
+}
+
+arm_torn_window_guard() {
+    TORN_WINDOW_SNAPSHOT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/vig-os-preimage.XXXXXX")"
+    if [[ -f "$VIG_OS_MANIFEST" ]]; then
+        cp "$VIG_OS_MANIFEST" "$TORN_WINDOW_SNAPSHOT_DIR/vig-os"
+    fi
+    if [[ -f "$WORKSPACE_DIR/.gitignore" ]]; then
+        cp "$WORKSPACE_DIR/.gitignore" "$TORN_WINDOW_SNAPSHOT_DIR/gitignore"
+    fi
+    trap restore_torn_window EXIT
+}
+
+disarm_torn_window_guard() {
+    trap - EXIT
+    if [[ -n "$TORN_WINDOW_SNAPSHOT_DIR" ]]; then
+        rm -rf "$TORN_WINDOW_SNAPSHOT_DIR"
+        TORN_WINDOW_SNAPSHOT_DIR=""
+    fi
+}
+
+arm_torn_window_guard
+
 echo "Copying files from $TEMPLATE_DIR to $WORKSPACE_DIR..."
 
 # Note: Excluding .venv - it is used directly from the container image
@@ -2401,7 +2460,29 @@ fi
 # files, but those inherit the store's read-only (0444) mode. Make the scaffold
 # user-writable so the placeholder substitution below — and the user's own edits
 # — work. No-op on the Debian image (its template files are already writable).
-chmod -R u+w "$WORKSPACE_DIR"
+# Scoped to template-derived paths (#1480), keyed on the template tree like the
+# +x sweep below (#1195): a blanket `chmod -R` walked the consumer's ENTIRE
+# workspace — .git object packs (deliberately 0444), a multi-GB Cargo target/,
+# node_modules — none of which the scaffold writes, and every one of them a
+# surface for the transient fts walk failure that aborted a run in the field.
+# Symlinks are skipped: chmod would follow them to a target the scaffold does
+# not own (a preserved store symlink target is read-only by design, #1117).
+sweep_scaffold_writable() {
+    local src_dir="$1" src_path rel dest
+    while IFS= read -r -d '' src_path; do
+        rel="${src_path#"$src_dir"/}"
+        dest="$WORKSPACE_DIR/$rel"
+        if [[ -e "$dest" && ! -L "$dest" ]]; then
+            chmod u+w "$dest"
+        fi
+    done < <(find -L "$src_dir" -mindepth 1 -print0)
+}
+chmod u+w "$WORKSPACE_DIR"
+sweep_scaffold_writable "$TEMPLATE_DIR"
+# Smoke overlays land outside the template tree; sweep them the same way.
+if [[ "$SMOKE_TEST" == "true" && -n "${SMOKE_TEST_DIR:-}" && -d "$SMOKE_TEST_DIR" ]]; then
+    sweep_scaffold_writable "$SMOKE_TEST_DIR"
+fi
 
 # Early write-back (#885): the rsync above just replaced .vig-os with the
 # template, so until the late write-back below the manifest would claim the
@@ -2816,6 +2897,10 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
         write_manifest_value DEVKIT_LANGUAGES "$(IFS=','; echo "${DECLARED_LANGUAGES[*]}")"
     fi
 fi
+
+# The late write-back above completed: .vig-os and .gitignore hold this run's
+# resolved values again, so a later failure must NOT roll them back (#1480).
+disarm_torn_window_guard
 
 # Restore executable permissions on shell scripts and hooks (must be after sed -i).
 # Scope the +x to the scaffold-delivered script set only: key the sweep on the

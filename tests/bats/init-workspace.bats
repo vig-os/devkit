@@ -965,10 +965,16 @@ EOF
     assert_failure
 }
 
-@test "init-workspace.sh makes the scaffold user-writable (#664)" {
+@test "init-workspace.sh makes the scaffold user-writable (#664/#1480)" {
+    # Scoped to template-derived paths since #1480 (behavior covered in
+    # tests/bats/upgrade-atomicity.bats); the blanket -R over the whole
+    # workspace must not come back — it walked .git and consumer build trees.
+    # shellcheck disable=SC2016
+    run grep -F 'sweep_scaffold_writable "$TEMPLATE_DIR"' "$INIT_WORKSPACE_SH"
+    assert_success
     # shellcheck disable=SC2016
     run grep -E 'chmod -R u\+w "\$WORKSPACE_DIR"' "$INIT_WORKSPACE_SH"
-    assert_success
+    assert_failure
 }
 
 # ── parse-github-remote-lib (#509) ─────────────────────────────────────────
