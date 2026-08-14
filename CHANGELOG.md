@@ -70,6 +70,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     archive path the mirror carries, and skips with a `::warning::` otherwise —
     a stale mirror self-heals at the next nightly sync; deleted snapshots do not
 
+- **Floating tags: the promote-time push ran under the wrong identity**
+  ([#1508](https://github.com/vig-os/devkit/issues/1508))
+  - `promote-release.yml`'s `floating-tags` job embedded the Release App token
+    in the push URL, but `actions/checkout` persists its own credentials as
+    `http.<host>.extraheader`, which outranks URL userinfo. The push therefore
+    authenticated as the Actions identity — which the job denies
+    (`contents: read`) and the Tag ruleset does not bypass — so the token the
+    step went out of its way to plumb through was never used
+  - The App token is now generated **before** checkout and passed to it, so the
+    shallow tag fetch and the force-push both carry the App identity;
+    `contents: read` stays, deliberately
+  - This affected the `git push` form introduced in 1.7.0
+    ([#1377](https://github.com/vig-os/devkit/issues/1377)). No consumer had
+    adopted it — the only two repos that set `DEVKIT_FLOATING_TAGS` are still on
+    1.6.0, where the move went through `gh api` — so **no released floating tag
+    was ever wrong**; the path had simply never executed
+  - The move script is now covered by tests that run its real bash against a
+    throwaway `file://` remote: create (the first release of a level, the
+    `#1157` case), move, idempotent skip, annotated-tag peel, and a refused push
+    still failing loud with its remediation annotation
+
 ### Security
 
 ## [1.9.0](https://github.com/vig-os/devkit/releases/tag/1.9.0) - 2026-08-13
