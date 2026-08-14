@@ -2677,21 +2677,31 @@ if [[ -n "${VIG_OS_VERSION:-}" && -f "$WORKSPACE_DIR/.vig-os" ]]; then
         # `|| true`: a floating input yields no grep match (exit 1), which would
         # abort under `set -o pipefail`; an empty pinned_ref is the intended
         # "unpinned, no warning" signal.
-        # Anchor on `^[[:space:]]*vigos\.url` so we read the REAL input line only:
-        # the standard-layout flake.nix ships a doc-comment EXAMPLE line
+        # Anchor on `^[[:space:]]*<name>\.url` so we read the REAL input line
+        # only: the standard-layout flake.nix ships a doc-comment EXAMPLE line
         # (`#   vigos.url = "github:vig-os/devkit?ref=<tag>";`) above it, and an
         # unanchored match picked that comment first, reporting the literal
         # `<tag>` and false-firing even on an aligned pin (#1110).
-        pinned_ref="$(grep -oE '^[[:space:]]*vigos\.url[[:space:]]*=[[:space:]]*"github:vig-os/devkit\?ref=[^"]+"' \
-            "$WORKSPACE_DIR/flake.nix" 2>/dev/null \
-            | sed -E 's/.*\?ref=([^"]+)".*/\1/' | head -n1 || true)"
+        # Name-agnostic and pin-form-agnostic (#1497): flake.nix is a
+        # PRESERVE_FILE, so the input may be named anything, and a ref pins in
+        # either form (?ref=X, or the /X path suffix the field case carried) —
+        # the literal-`vigos`/`?ref=`-only match left exactly those consumers
+        # with neither a bump nor a warning from any mechanism.
+        pinned_line="$(grep -E '^[[:space:]]*(inputs\.)?[A-Za-z0-9_-]+\.url[[:space:]]*=[[:space:]]*"github:vig-os/devkit[/?][^"]+"' \
+            "$WORKSPACE_DIR/flake.nix" 2>/dev/null | head -n1 || true)"
+        pinned_input=""
+        pinned_ref=""
+        if [[ -n "$pinned_line" ]]; then
+            pinned_input="$(sed -E 's/^[[:space:]]*(inputs\.)?([A-Za-z0-9_-]+)\.url.*/\2/' <<<"$pinned_line")"
+            pinned_ref="$(sed -E 's|.*"github:vig-os/devkit[/?](ref=)?([^"]+)".*|\2|' <<<"$pinned_line")"
+        fi
         if [[ -n "$pinned_ref" && "$pinned_ref" != "$VIG_OS_VERSION" ]]; then
             echo "" >&2
-            echo "WARNING: scaffold upgraded to ${VIG_OS_VERSION}, but the pinned vigos flake input is still ${pinned_ref}." >&2
+            echo "WARNING: scaffold upgraded to ${VIG_OS_VERSION}, but the pinned ${pinned_input} flake input is still ${pinned_ref}." >&2
             echo "         The two must move together — they deliver coupled halves of the same" >&2
             echo "         change (e.g. #1053's JSONC banner + its check-json exclude). Update your" >&2
-            echo "         flake.nix to 'vigos.url = \"github:vig-os/devkit?ref=${VIG_OS_VERSION}\";' and run" >&2
-            echo "         'nix flake update vigos', else strict hooks may reject files this scaffold wrote." >&2
+            echo "         flake.nix to '${pinned_input}.url = \"github:vig-os/devkit?ref=${VIG_OS_VERSION}\";' and run" >&2
+            echo "         'nix flake update ${pinned_input}', else strict hooks may reject files this scaffold wrote." >&2
             echo "" >&2
         fi
     fi
