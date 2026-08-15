@@ -2,21 +2,21 @@
 type: issue
 state: open
 created: 2026-08-14T15:43:43Z
-updated: 2026-08-14T15:43:43Z
+updated: 2026-08-14T17:20:51Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1519
-comments: 0
+comments: 1
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-14T16:05:12.256Z
+synced: 2026-08-15T02:57:59.294Z
 ---
 
-# [Issue 1519]: [Smallest denominator, not the sum: drop speculative defaults, and make the tier matrix executable](https://github.com/vig-os/devkit/issues/1519)
+# [Issue 1519]: [Smallest denominator, not the sum: stop shipping speculative defaults to every Rust consumer](https://github.com/vig-os/devkit/issues/1519)
 
 Two related problems, one principle. Raised by a consumer asking why devkit hands every Rust repo things it never asked for.
 
@@ -101,4 +101,32 @@ Real consumers today: `cli` and `mcp` (filesender), `lib` (squelch, and filesend
 - [ ] The ADR states the smallest-denominator rule, so the next addition has to argue for itself
 
 Refs: #1400, #1488
+
+---
+
+# [Comment #1]() by [gerchowl]()
+
+_Posted on August 14, 2026 at 05:20 PM_
+
+**Part 2 moved to #1523, and reframed — "tiers" was my word and it was wrong.**
+
+Two corrections from the consumer who raised this:
+
+**1. It is a matrix, not tiers.** A tier implies a ladder, but `gerchowl/filesender` is `cli` AND `mcp` AND `lib` *simultaneously*. A ladder cannot express that; a matrix can, by occupying several columns and resolving conflicts explicitly.
+
+**2. It is org-level, not Rust-level.** Scoping it inside the Rust pack means IndexedDB, Yjs, CodeMirror and xterm have nowhere to live — which is already visible in the symptom: the filesender ADR carries a **complete React stack** (Vite 8, Zustand, TanStack Router/Query, Zod, Tailwind v4 + shadcn) inside a document titled "A Rust language pack", because the org has no other home for it. devkit's `node` module contributes `nodejs` and no guidance at all.
+
+And the primary product is not gating. It is **a findable, dated, definitive answer per cell**, so neither a new project nor an agent re-derives it stochastically. Gating is a second consumer of the same registry.
+
+---
+
+**This issue keeps Part 1**, which stands on its own and is the immediately actionable half: stop shipping speculative defaults to every consumer.
+
+- Drop `libiconv` — and replace it with the documented seam rather than silence
+- Align tools with checks (`cargo-deny` when `deny.toml` exists; `cargo-about` when `about.toml` exists)
+- Decide `auditable` and `linker` deliberately
+- State the smallest-denominator rule in the ADR, so the next default has to argue for itself
+
+Refs: #1523
+
 
