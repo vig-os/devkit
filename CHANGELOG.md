@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A failed `devkit-upgrade` now leaves a tracking issue in the consumer repo**
+  ([#1530](https://github.com/vig-os/devkit/issues/1530))
+  - The adoption branch only reaches the remote in the publish step, so a
+    failure before it (version resolve, scaffold run, in-shell commit) was
+    visible only as a red scheduled run — and the consumer's `DEVKIT_VERSION`
+    then stopped moving, silently, week after week
+  - A new `report` job files **one** issue per repo carrying the run URL, the
+    failing step (read off the run's own job records) and the pinned vs target
+    version; every repeat failure comments on that same issue, and the next
+    fully green run closes it with a link to the green run
+  - Not a revert of [#1405](https://github.com/vig-os/devkit/issues/1405): that
+    dropped the per-adoption issue on the **success** path, where the bot PR is
+    the artifact. This one exists only where there is no artifact
+  - Reporting is best-effort by design: the `issues: write` grant is minted as
+    a **separate**, `continue-on-error` token, so an App installation that
+    never received it degrades to a warning instead of turning a working
+    upgrade red. Grant `issues: write` to the devkit-upgrade App to switch
+    reporting on
+
 ### Changed
 
 ### Deprecated
