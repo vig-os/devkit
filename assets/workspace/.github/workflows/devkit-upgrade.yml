@@ -231,7 +231,16 @@ jobs:
           # preinstalled podman can pair with a stale system crun that rejects
           # podman >= 5's OCI configs (#1305) — auto-detection now prefers a
           # responsive docker anyway, this makes the choice self-documenting.
-          curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh \
+          #
+          # The installer comes from the TARGET's own tag, not main (#1532):
+          # installer and scaffold payload must move together — a main-tip
+          # installer paired with a released payload is an untested combination,
+          # and it is what every scheduled run got while main was ahead of the
+          # latest release. It also removes the window where any push to devkit
+          # main changes code executing here with contents: write. No main
+          # fallback: the resolve step above admits only X.Y.Z[-pre] versions,
+          # and every devkit tag of that shape carries a root-level install.sh.
+          curl -sSfL "https://raw.githubusercontent.com/vig-os/devkit/refs/tags/${TARGET}/install.sh" \
             | bash -s -- --force --version "$TARGET" --skip-preflight --docker . \
             | tee "$RUNNER_TEMP/install.log"
           # Surface the flake-input advance outcome (#1497): install.sh prints
