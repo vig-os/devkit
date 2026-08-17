@@ -236,9 +236,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     path(s)" and the release branch never moved, taking the issue/PR snapshots
     out of `main`. Single-file callers could never expose it
   - The list is now comma-joined from `git diff --cached -z`, which also fixes
-    two latent mis-parses in the old `git status --porcelain | awk '{print $2}'`
+    two latent misparses in the old `git status --porcelain | awk '{print $2}'`
     (C-quoted paths containing spaces, and `R old -> new` renames), and fails
-    loudly on a path containing a comma rather than mis-splitting it
+    loudly on a path containing a comma rather than missplitting it
   - The re-pull step now **verifies the post-condition**: if the release branch
     does not carry the mirror's archive after the fold, the leg fails instead
     of reporting success

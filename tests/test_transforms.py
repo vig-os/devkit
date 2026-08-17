@@ -644,6 +644,24 @@ class TestChangelogMirrorSanitization:
         by_src = {entry.src: entry for entry in sync_manifest.MANIFEST}
         assert by_src["CHANGELOG.md"].is_transformed
 
+    def test_mirror_is_the_source_plus_the_transforms(self, tmp_path):
+        """Nothing but the sanitizing transforms separates mirror from source.
+
+        The mirror used to be a non-transformed entry, checksummed against the
+        root by the image gate (test_image.py::test_manifest_files); a transformed
+        entry is only checked for existence there, so the equality pin lives here
+        now — it also catches a stale (unsynced) mirror.
+        """
+        sync_manifest = _load_sync_manifest()
+        entry = next(e for e in sync_manifest.MANIFEST if e.src == "CHANGELOG.md")
+        copy = tmp_path / "CHANGELOG.md"
+        copy.write_text(self._root_changelog(), encoding="utf-8")
+        for transform in entry.transforms:
+            transform.apply(copy)
+        assert copy.read_text(encoding="utf-8") == self._mirror().read_text(
+            encoding="utf-8"
+        )
+
     def test_transforms_are_idempotent_on_the_sanitized_mirror(self, tmp_path):
         """Re-applying the transforms to an already-synced mirror is a no-op.
 

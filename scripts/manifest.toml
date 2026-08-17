@@ -57,9 +57,24 @@ src = ".pymarkdown"
 [[entries]]
 src = ".pymarkdown.config.md"
 
+# Devkit's changelog, git-tracked by every devcontainer-mode consumer — so their
+# own typos hook lints it against a `.typos.toml` that was seeded once and is
+# never overwritten by an upgrade. The released 1.10.0 entry's `mis-parses` /
+# `mis-splitting` lint only under #1488's `mis` entry, so a consumer seeded
+# before that fails its upgrade at the commit step, exactly as org-config did in
+# #1529. Released changelog text is immutable, so the tokens are de-hyphenated in
+# the generated DEST only: `misparses` / `missplitting` are clean under
+# `typos --isolated` (no allowlist at all), which the hyphenated forms are not.
+# Idempotent by construction — neither replacement contains its own pattern — and
+# no future entry can freeze another such token in, because the
+# check-unreleased-typos hook lints `## Unreleased` with no allowlist. Refs #1534.
 [[entries]]
 src = "CHANGELOG.md"
 dest = ".devcontainer/CHANGELOG.md"
+transforms = [
+  { type = "Sed", pattern = "mis-parses", replace = "misparses" },
+  { type = "Sed", pattern = "mis-splitting", replace = "missplitting" },
+]
 
 [[entries]]
 src = ".vscode/settings.json"
