@@ -403,7 +403,10 @@ jobs:
   report:
     name: Report upgrade outcome
     needs: upgrade
-    if: needs.upgrade.result == 'failure' || needs.upgrade.result == 'success'
+    # The !cancelled() is load-bearing: a job-level `if` without a status-check
+    # function gets an implicit success() gate, which would skip this job on
+    # exactly the failed runs it exists to report.
+    if: ${{ !cancelled() && (needs.upgrade.result == 'failure' || needs.upgrade.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

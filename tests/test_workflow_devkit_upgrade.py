@@ -332,6 +332,10 @@ def test_report_is_a_separate_result_gated_job() -> None:
     cond = str(report["if"])
     assert "needs.upgrade.result == 'failure'" in cond
     assert "needs.upgrade.result == 'success'" in cond
+    # Without a status-check function in the expression, Actions applies an
+    # implicit success() to a job-level `if` — the report job would be skipped
+    # on exactly the failed runs it exists for.
+    assert "!cancelled()" in cond
     # Reading this run's own step conclusions is all the default token needs.
     assert report["permissions"] == {"actions": "read"}
     assert "timeout-minutes" in report
