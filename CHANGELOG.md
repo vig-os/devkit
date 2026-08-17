@@ -17,6 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Generated mirror-fold comment now lints under the stock consumer typos
+  seed** ([#1529](https://github.com/vig-os/devkit/issues/1529))
+  - A comment the `DEVKIT_SYNC_TARGET` block renders into the managed
+    `release-core.yml` used a token that only devkit's own `.typos.toml`
+    allowlists, so every mirror-mode consumer whose seeded `.typos.toml`
+    predates that entry failed its `devkit-upgrade` at the commit step —
+    `.typos.toml` is seeded once and never overwritten, so the consumer could
+    not receive the entry. Reworded; the tree the scaffold generates is now
+    typo-clean with no allowlist at all
+  - Pinned by a new bats fixture that renders a mirror-mode workspace in both
+    workflow models and runs `typos` (no allowlist) plus `actionlint` over it
+    ([#1531](https://github.com/vig-os/devkit/issues/1531)) — the fold block
+    has one consumer in the org, so nothing else linted it
+
 ### Security
 
 ## [1.10.0](https://github.com/vig-os/devkit/releases/tag/1.10.0) - 2026-08-14

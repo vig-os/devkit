@@ -1788,7 +1788,7 @@ YAML
           # newline-joined value folds NOTHING while every step stays green
           # (#1502). Build the list from the staged diff with NUL framing:
           # git status --porcelain C-quotes paths containing spaces and renders
-          # renames as "R old -> new", both of which mis-parse. The tr has to
+          # renames as "R old -> new", both of which parse wrong. The tr has to
           # run inside the pipeline — command substitution drops NUL bytes.
           mirror_paths() {
             git diff --cached --name-only --no-renames --diff-filter=ACM -z -- docs/issues docs/pull-requests
