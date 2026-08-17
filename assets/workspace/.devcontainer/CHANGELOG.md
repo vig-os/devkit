@@ -36,6 +36,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Release CI gate now counts only the latest run of each check**
+  ([#1522](https://github.com/vig-os/devkit/issues/1522))
+  - The gate counted **every** FAILURE entry in the release PR head SHA's
+    `statusCheckRollup`. A superseded workflow run leaves its check runs
+    attached to that same SHA, so the gate refused a branch `gh pr checks` —
+    which keeps only the latest run per name — reported green. During the
+    1.10.0 train that forced deleting the superseded run to proceed
+    ([#1516](https://github.com/vig-os/devkit/issues/1516))
+  - All six copies of the gate now group the rollup by check name and evaluate
+    the most recent run of each: devkit's `release.yml` and `promote-release.yml`
+    (validate and merge), and the consumer `release-core.yml` and
+    `promote-release.yml` (validate and merge). A re-run still in flight is the
+    latest, so it holds the gate open as before, and a genuinely failing latest
+    run still blocks
 - **Describing a bot-identity bug no longer trips the agent-fingerprint check**
   ([#1521](https://github.com/vig-os/devkit/issues/1521))
   - The `emails` blocklist was matched as a bare substring over the whole
