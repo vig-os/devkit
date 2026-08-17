@@ -309,6 +309,41 @@ class TestUnfilteredLocalHooksPinTheirStage:
             assert hooks["check-agent-identity"].get("stages") == ["pre-commit"], name
 
 
+class TestUnreleasedChangelogTypoGate:
+    """The Unreleased typo gate is devkit-only, filtered and stage-pinned (#1534).
+
+    Devkit's CHANGELOG.md is synced into the scaffold and git-tracked by every
+    devcontainer-mode consumer, whose ``.typos.toml`` is seeded once and never
+    overwritten — so a token that needs a *newer* allowlist entry than the seed
+    breaks that consumer's upgrade at the commit step (#1529), and a released
+    entry can never be edited to fix it. The gate lints only the ``## Unreleased``
+    section, with no allowlist, before the text can reach a release.
+
+    Runner-only and NOT scaffolded: it guards devkit's own changelog (a consumer's
+    changelog is synced nowhere), and the entry is a ``uv run`` script from this
+    repo. Filtered to CHANGELOG.md and pinned to pre-commit so an ordinary commit
+    pays nothing for it (#1491).
+    """
+
+    HOOK_ID = "check-unreleased-typos"
+
+    def test_runner_render_carries_the_gate(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        hook = _normalize(rendered_portable["runner"])["hooks"][self.HOOK_ID]
+        assert hook["repo"] == "local"
+        assert hook["entry"] == "uv run python scripts/check_unreleased_typos.py"
+        assert hook["language"] == "system"
+        assert hook["files"] == r"^CHANGELOG\.md$"
+        assert hook["pass_filenames"] is False
+        assert hook["stages"] == ["pre-commit"]
+
+    def test_the_gate_is_not_scaffolded(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        assert self.HOOK_ID not in _normalize(rendered_portable["scaffold"])["hooks"]
+
+
 class TestCheckJsonExcludesJsoncBanners:
     """check-json skips the `//`-bannered JSONC scaffold files (#1053).
 
