@@ -458,7 +458,7 @@ jobs:
       - name: Report HIGH/CRITICAL/MEDIUM vulnerabilities (non-blocking)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          version: 'v0.73.0'
+          version: 'v0.74.0'
           input: /tmp/image.tar
           format: 'table'
           severity: 'HIGH,CRITICAL,MEDIUM'
@@ -476,7 +476,7 @@ jobs:
           TRIVY_SKIP_DB_UPDATE: 'true'
           TRIVY_SKIP_JAVA_DB_UPDATE: 'true'
         with:
-          version: 'v0.73.0'
+          version: 'v0.74.0'
           input: /tmp/image.tar
           format: 'cyclonedx'
           output: 'sbom-cyclonedx.json'
