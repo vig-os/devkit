@@ -20,7 +20,15 @@ All six gate sites are covered: the two named in the issue (devkit's
 ``release.yml``, the scaffold's ``release-core.yml``) plus the four promote
 gates, which carry the identical logic and the identical hazard.
 
-Refs: #1516, #1522
+Issue #1538 extends the same executed fixtures to **StatusContext** entries.
+The counts classified on ``.conclusion`` alone — a CheckRun-only field — so a
+commit status (which carries ``state``) always fell into the pending bucket and
+held the gate open forever: a red status could never block, a green one never
+stop counting as pending. The gates now classify on a normalized verdict,
+``.conclusion // .state``, which is unambiguous because CheckRuns have no
+``state`` and StatusContexts no ``conclusion``.
+
+Refs: #1516, #1522, #1538
 """
 
 from __future__ import annotations
@@ -190,17 +198,57 @@ def test_failure_on_a_distinct_name_still_blocks(site: str) -> None:
 
 
 @pytest.mark.parametrize("site", SITES)
-def test_status_contexts_keep_their_current_treatment(site: str) -> None:
-    """A StatusContext has no ``conclusion``, so it counts as pending — as before.
+@pytest.mark.parametrize("state", ["FAILURE", "ERROR"])
+def test_red_status_context_blocks_as_failed(site: str, state: str) -> None:
+    """#1538: a red commit status must count as failed, not as pending.
 
-    Dedup must not quietly reclassify commit statuses: this pins the pre-#1522
-    behavior rather than blessing it.
+    The sharpest case is ``release-core.yml``, whose gate checks failures only:
+    while a red status counted as pending it did not block that copy at all.
+    """
+    proc = run_ci_gate(
+        _gate(site),
+        [
+            status_context("ci/legacy", state, T1),
+            check_run("Test Summary", "SUCCESS", T1),
+        ],
+    )
+    assert proc.returncode != 0
+    assert "failed CI checks" in _output(proc)
+
+
+@pytest.mark.parametrize("site", SITES)
+def test_green_status_context_lets_the_gate_pass(site: str) -> None:
+    """#1538: a SUCCESS commit status alongside green checks must not hold the gate."""
+    proc = run_ci_gate(
+        _gate(site),
+        [
+            status_context("ci/legacy", "SUCCESS", T1),
+            check_run("Test Summary", "SUCCESS", T1),
+        ],
+    )
+    assert proc.returncode == 0, _output(proc)
+
+
+@pytest.mark.parametrize("site", SITES)
+def test_green_status_context_alone_is_a_successful_check(site: str) -> None:
+    """A rollup of nothing but green commit statuses satisfies the success count."""
+    proc = run_ci_gate(_gate(site), [status_context("ci/legacy", "SUCCESS", T1)])
+    assert proc.returncode == 0, _output(proc)
+
+
+@pytest.mark.parametrize("site", SITES)
+@pytest.mark.parametrize("state", ["PENDING", "EXPECTED"])
+def test_unfinished_status_context_still_holds_the_gate(site: str, state: str) -> None:
+    """A non-terminal commit status keeps waiting — ``EXPECTED`` included.
+
+    ``release-core.yml`` gates on failures only, so there the gate passes; what
+    matters everywhere is that an unfinished status is never read as failed.
     """
     gate = _gate(site)
     proc = run_ci_gate(
         gate,
         [
-            status_context("ci/legacy", "SUCCESS", T1),
+            status_context("ci/legacy", state, T1),
             check_run("Test Summary", "SUCCESS", T1),
         ],
     )
@@ -208,6 +256,32 @@ def test_status_contexts_keep_their_current_treatment(site: str) -> None:
     if "CI_PENDING" in gate:
         assert proc.returncode != 0
         assert "in progress" in _output(proc)
+    else:
+        assert proc.returncode == 0, _output(proc)
+
+
+@pytest.mark.parametrize("site", SITES)
+def test_mixed_rollup_classifies_each_kind_independently(site: str) -> None:
+    """CheckRuns and StatusContexts share the buckets without contaminating them.
+
+    A green status must drop out of the pending count while an in-progress
+    CheckRun (``conclusion: null``) stays in it — and is never counted failed,
+    which a normalized verdict falling through to a missing field could do.
+    """
+    gate = _gate(site)
+    proc = run_ci_gate(
+        gate,
+        [
+            status_context("ci/legacy", "SUCCESS", T1),
+            check_run("Test Summary", "SUCCESS", T1),
+            check_run("Project Checks", None, T2),
+        ],
+    )
+    assert "failed CI checks" not in _output(proc)
+    if "$CI_PENDING checks" in gate:  # only this copy prints the count
+        assert "has 1 checks still in progress" in _output(proc)
+    elif "CI_PENDING" in gate:
+        assert proc.returncode != 0
     else:
         assert proc.returncode == 0, _output(proc)
 
@@ -223,8 +297,8 @@ def test_distinct_status_contexts_are_not_collapsed(site: str) -> None:
     proc = run_ci_gate(
         gate,
         [
-            status_context("ci/one", "SUCCESS", T1),
-            status_context("ci/two", "SUCCESS", T2),
+            status_context("ci/one", "PENDING", T1),
+            status_context("ci/two", "PENDING", T2),
             check_run("Test Summary", "SUCCESS", T2),
         ],
     )
@@ -234,6 +308,39 @@ def test_distinct_status_contexts_are_not_collapsed(site: str) -> None:
         assert proc.returncode != 0
     else:
         assert proc.returncode == 0, _output(proc)
+
+
+@pytest.mark.parametrize("site", SITES)
+def test_status_context_supersedes_a_same_keyed_check_run(site: str) -> None:
+    """A context colliding with a check name shares its dedup bucket.
+
+    #1522 keys on ``.name // .context``, so a status whose context equals a
+    check name groups with it and the newer entry wins whichever kind it is.
+    Pinned as-is: classifying ``state`` does not change the grouping.
+    """
+    proc = run_ci_gate(
+        _gate(site),
+        [
+            check_run("Project Checks", "FAILURE", T1),
+            status_context("Project Checks", "SUCCESS", T2),
+            check_run("Test Summary", "SUCCESS", T2),
+        ],
+    )
+    assert proc.returncode == 0, _output(proc)
+
+
+@pytest.mark.parametrize("site", SITES)
+def test_differently_keyed_status_context_stays_a_separate_entry(site: str) -> None:
+    """A red status under its own key is not absorbed by a green check run."""
+    proc = run_ci_gate(
+        _gate(site),
+        [
+            check_run("Project Checks", "SUCCESS", T2),
+            status_context("ci/project-checks", "FAILURE", T1),
+        ],
+    )
+    assert proc.returncode != 0
+    assert "failed CI checks" in _output(proc)
 
 
 @pytest.mark.parametrize("site", SITES)
