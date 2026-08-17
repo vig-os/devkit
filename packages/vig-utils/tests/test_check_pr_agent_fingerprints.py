@@ -37,6 +37,83 @@ class TestCanonicalBlocklist:
         assert "claude" in blocklist["names"]
 
 
+# Verbatim 1.10.0 CHANGELOG wording for #1503, before commit 2c533424 reworded
+# it to unblock the release train (Refs: #1516). prepare-release renders the
+# CHANGELOG section into the release PR body, so this text is what the check saw.
+HISTORICAL_1503_ENTRY = (
+    "  - `promote-release.yml`'s `reset-sync-mirror` embedded the Commit App "
+    "token\n"
+    "    in the push URL, but `actions/checkout` persists its own credentials "
+    "as\n"
+    "    `http.<host>.extraheader`, which outranks URL userinfo. The "
+    "force-push\n"
+    "    therefore ran as `github-actions[bot]` under `contents: read` and "
+    "failed\n"
+    "    with a 403 on every mirror-mode consumer — after the release was "
+    "already\n"
+    "    published, so the red run misrepresented an otherwise healthy "
+    "promote.\n"
+    "    The job now generates the App token *before* checkout and checks out "
+    "with\n"
+    "    it, and `contents: read` stays deliberately in place\n"
+)
+
+
+class TestDescriptiveIdentityMentions:
+    """A PR body that *describes* a bot-identity bug must not fail the check.
+
+    Refs: #1521 (follow-up to the #1516 release-train blocker). These tests run
+    against the real ``.github/agent-blocklist.toml`` so they encode the gate as
+    CI actually enforces it.
+    """
+
+    @pytest.fixture
+    def blocklist_path(self) -> Path:
+        path = agent_blocklist_path(start=Path(__file__))
+        assert path.exists(), f"canonical blocklist missing at {path}"
+        return path
+
+    def _run(self, blocklist_path: Path, title: str, body: str) -> int:
+        with (
+            patch.dict("os.environ", {"PR_TITLE": title, "PR_BODY": body}, clear=True),
+            patch(
+                "vig_utils.check_pr_agent_fingerprints.agent_blocklist_path",
+                return_value=blocklist_path,
+            ),
+        ):
+            return check_pr_agent_fingerprints.main()
+
+    def test_release_pr_body_describing_bot_identity_bug_passes(self, blocklist_path):
+        assert (
+            self._run(
+                blocklist_path,
+                "release: 1.10.0",
+                f"## [1.10.0]\n\n### Fixed\n\n{HISTORICAL_1503_ENTRY}",
+            )
+            == 0
+        )
+
+    def test_real_attribution_trailer_still_fails(self, blocklist_path):
+        assert (
+            self._run(
+                blocklist_path,
+                "feat: add thing",
+                "Co-authored-by: Agent <cursoragent@cursor.com>",
+            )
+            == 1
+        )
+
+    def test_bot_identity_author_line_still_fails(self, blocklist_path):
+        assert (
+            self._run(
+                blocklist_path,
+                "chore: sync mirror",
+                "Author: GitHub Actions <github-actions[bot]@users.noreply.github.com>",
+            )
+            == 1
+        )
+
+
 class TestMain:
     """Tests for main entrypoint."""
 
