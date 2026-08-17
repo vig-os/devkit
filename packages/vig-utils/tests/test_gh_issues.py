@@ -130,6 +130,132 @@ class TestFormatCiStatus:
         assert "1/1" in result
 
 
+class TestDedupeStatusChecks:
+    """Test _dedupe_status_checks recency keying.
+
+    Ref: #1539
+    """
+
+    def test_in_progress_rerun_beats_older_completed_failure(self):
+        """A live rerun (completedAt null) wins over the FAILURE it supersedes."""
+        rollup = [
+            {
+                "name": "Project Checks",
+                "conclusion": "FAILURE",
+                "status": "COMPLETED",
+                "startedAt": "2026-08-17T12:00:00Z",
+                "completedAt": "2026-08-17T12:05:00Z",
+            },
+            {
+                "name": "Project Checks",
+                "conclusion": None,
+                "status": "IN_PROGRESS",
+                "startedAt": "2026-08-17T12:30:00Z",
+                "completedAt": None,
+            },
+        ]
+        result = gh_issues._dedupe_status_checks(rollup)
+        assert len(result) == 1
+        assert result[0]["status"] == "IN_PROGRESS"
+
+    def test_newer_completed_success_beats_older_failure(self):
+        """A completed rerun that passed wins over the older FAILURE."""
+        rollup = [
+            {
+                "name": "Project Checks",
+                "conclusion": "FAILURE",
+                "startedAt": "2026-08-17T12:00:00Z",
+                "completedAt": "2026-08-17T12:05:00Z",
+            },
+            {
+                "name": "Project Checks",
+                "conclusion": "SUCCESS",
+                "startedAt": "2026-08-17T12:30:00Z",
+                "completedAt": "2026-08-17T12:35:00Z",
+            },
+        ]
+        result = gh_issues._dedupe_status_checks(rollup)
+        assert [c["conclusion"] for c in result] == ["SUCCESS"]
+
+    def test_distinct_names_are_untouched(self):
+        """Different check names all survive dedup."""
+        rollup = [
+            {
+                "name": "Build",
+                "conclusion": "SUCCESS",
+                "startedAt": "2026-08-17T12:00:00Z",
+            },
+            {
+                "name": "Test",
+                "conclusion": "FAILURE",
+                "startedAt": "2026-08-17T11:00:00Z",
+            },
+        ]
+        result = gh_issues._dedupe_status_checks(rollup)
+        assert {c["name"] for c in result} == {"Build", "Test"}
+        assert len(result) == 2
+
+    def test_winner_is_order_independent(self):
+        """Input order does not change which run of a name survives."""
+        older = {
+            "name": "Project Checks",
+            "conclusion": "FAILURE",
+            "startedAt": "2026-08-17T12:00:00Z",
+            "completedAt": "2026-08-17T12:05:00Z",
+        }
+        newer = {
+            "name": "Project Checks",
+            "conclusion": None,
+            "status": "IN_PROGRESS",
+            "startedAt": "2026-08-17T12:30:00Z",
+            "completedAt": None,
+        }
+        forward = gh_issues._dedupe_status_checks([older, newer])
+        backward = gh_issues._dedupe_status_checks([newer, older])
+        assert forward == backward == [newer]
+
+    def test_status_context_falls_back_to_created_at(self):
+        """StatusContexts carry createdAt, not startedAt; recency still works."""
+        rollup = [
+            {
+                "name": "legacy/status",
+                "state": "FAILURE",
+                "createdAt": "2026-08-17T12:00:00Z",
+            },
+            {
+                "name": "legacy/status",
+                "state": "SUCCESS",
+                "createdAt": "2026-08-17T12:30:00Z",
+            },
+        ]
+        result = gh_issues._dedupe_status_checks(rollup)
+        assert [c["state"] for c in result] == ["SUCCESS"]
+
+    def test_in_progress_rerun_shown_as_pending_in_ci_cell(self):
+        """The CI cell reports the live rerun as pending, not as a failure."""
+        pr = {
+            "number": 7,
+            "statusCheckRollup": [
+                {
+                    "name": "Project Checks",
+                    "conclusion": "FAILURE",
+                    "startedAt": "2026-08-17T12:00:00Z",
+                    "completedAt": "2026-08-17T12:05:00Z",
+                },
+                {
+                    "name": "Project Checks",
+                    "conclusion": None,
+                    "startedAt": "2026-08-17T12:30:00Z",
+                    "completedAt": None,
+                },
+            ],
+        }
+        result = gh_issues._format_ci_status(pr, "a/b")
+        assert "⏳" in result
+        assert "0/1" in result
+        assert "yellow" in result
+
+
 class TestGhLink:
     """Test _gh_link helper for clickable issue/PR numbers."""
 
