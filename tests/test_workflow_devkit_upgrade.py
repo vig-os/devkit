@@ -239,11 +239,45 @@ def test_publishes_a_verified_commit_via_api_not_git_push() -> None:
 def test_bootstraps_installsh_and_commits_in_project_shell() -> None:
     """The upgrade runs install.sh --force --version and commits inside nix develop."""
     text = TEMPLATE.read_text(encoding="utf-8")
-    assert "raw.githubusercontent.com/vig-os/devkit/main/install.sh" in text
+    # The installer is fetched over the network; which ref it comes from is
+    # pinned by the test below.
+    assert "raw.githubusercontent.com/vig-os/devkit/" in text
+    assert "install.sh" in text
     assert "--force" in text and "--version" in text
     assert "nix develop -c git commit" in text
     # A nix installer action provides the `flake update vigos` leg.
     assert "install-nix-action" in text
+
+
+def test_installer_is_fetched_from_the_target_release_tag() -> None:
+    """The installer comes from ``$TARGET``'s tag, never ``main`` tip (#1532).
+
+    Fetching ``install.sh`` from ``main`` while installing a pinned ``$TARGET``
+    pairs an installer with a scaffold payload from a different ref — an
+    untested combination, and precisely the one every *scheduled* consumer run
+    gets whenever ``main`` is ahead of the latest release. It also means any
+    push to devkit ``main`` immediately changes code that executes with
+    ``contents: write`` in every consumer repo, with no review gate between the
+    commit and the fleet. Pinning the fetch to the target tag closes both:
+    installer and payload move together, and only a published release can
+    change what runs.
+
+    No ``main`` fallback: the resolve step accepts only a strict
+    ``X.Y.Z[-prerelease]`` semver, and every devkit tag of that shape carries a
+    root-level ``install.sh``.
+    """
+    text = TEMPLATE.read_text(encoding="utf-8")
+    step = step_by_id(_jobs(text)["upgrade"]["steps"], "upgrade")
+    run = str(step["run"])
+    # Double-quoted: the URL now interpolates $TARGET.
+    assert (
+        'curl -sSfL "https://raw.githubusercontent.com/vig-os/devkit'
+        '/refs/tags/${TARGET}/install.sh"' in run
+    )
+    # TARGET is already env-routed into this step — no new plumbing.
+    assert step["env"]["TARGET"] == "${{ steps.resolve.outputs.target }}"
+    # No main-tip installer fetch survives anywhere in the template.
+    assert "devkit/main/install.sh" not in text
 
 
 def test_upgrade_step_captures_the_flake_bump_report() -> None:
