@@ -331,9 +331,14 @@ jobs:
           # would rank the live run oldest and let the stale FAILURE win.
           # StatusContexts carry context/createdAt instead of name/startedAt
           # and have no rerun history, so each one is its own latest.
+          # Classify on a normalized verdict (#1538): CheckRuns carry
+          # `conclusion`, StatusContexts `state`, and neither has the other's
+          # field, so `.conclusion // .state` buckets both kinds without
+          # double-counting — an in-progress CheckRun still resolves to null
+          # and counts as pending.
           LATEST_CHECKS=$(echo "$STATUS_ROLLUP" | jq '[group_by(.name // .context // "?")[] | max_by(.startedAt // .createdAt // "")]')
 
-          CI_FAILED=$(echo "$LATEST_CHECKS" | jq '[.[] | select(.conclusion == "FAILURE" or .conclusion == "ERROR")] | length')
+          CI_FAILED=$(echo "$LATEST_CHECKS" | jq '[.[] | (.conclusion // .state) as $v | select($v == "FAILURE" or $v == "ERROR")] | length')
           if [ "$CI_FAILED" != "0" ]; then
             echo "ERROR: PR #$PR_NUMBER has failed CI checks"
             exit 1
