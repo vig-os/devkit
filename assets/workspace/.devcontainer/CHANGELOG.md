@@ -102,6 +102,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     workflow models and runs `typos` (no allowlist) plus `actionlint` over it
     ([#1531](https://github.com/vig-os/devkit/issues/1531)) — the fold block
     has one consumer in the org, so nothing else linted it
+- **Synced devkit changelog no longer leans on a typos allowlist entry the
+  consumer may not have**
+  ([#1534](https://github.com/vig-os/devkit/issues/1534))
+  - `assets/workspace/.devcontainer/CHANGELOG.md` is a manifest-synced copy of
+    the root changelog, and devcontainer-mode consumers **git-track** it — so
+    their own typos hook lints it against a `.typos.toml` that is seeded once
+    and never overwritten. The released 1.10.0 entry carries two hyphenated
+    compounds that lint only under
+    [#1488](https://github.com/vig-os/devkit/issues/1488)'s allowlist entry, so
+    a consumer seeded before that release would fail its upgrade at the commit
+    step, exactly as org-config did in
+    [#1529](https://github.com/vig-os/devkit/issues/1529) — and neither of the
+    two config files that could fix it is ever overwritten
+  - Released changelog text is immutable, so the manifest de-hyphenates those
+    two spellings in the generated **dest** only: the root file keeps its
+    released bytes and the mirror is clean under `typos --isolated`, with no
+    allowlist at all
+  - A new devkit-only `check-unreleased-typos` hook lints the `## Unreleased`
+    section with no allowlist before it can be committed, so no future release
+    can freeze another seed-dependent word into immutable text — catching one
+    after the release is useless. Released sections keep their allowlisted
+    tokens and are out of scope
+  - The [#1531](https://github.com/vig-os/devkit/issues/1531) render lint gains
+    a devcontainer-mode leg: that tracked tree — synced changelog and
+    `version-check.sh` included — must need no allowlist entry newer than the
+    grandfathered words every live consumer's seed predates
 
 ### Security
 
