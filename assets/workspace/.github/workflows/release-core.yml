@@ -322,7 +322,18 @@ jobs:
           fi
 
           STATUS_ROLLUP=$(echo "$PR_JSON" | jq -r '.[0].statusCheckRollup // []')
-          CI_FAILED=$(echo "$STATUS_ROLLUP" | jq '[.[] | select(.conclusion == "FAILURE" or .conclusion == "ERROR")] | length')
+
+          # Evaluate only the LATEST run of each check name (#1522), the way
+          # `gh pr checks` does: a superseded workflow run leaves its FAILURE
+          # check runs attached to the same head SHA and would refuse a branch
+          # that is actually green (#1516). Recency key is startedAt, not
+          # completedAt — completedAt is null while a rerun is in flight, which
+          # would rank the live run oldest and let the stale FAILURE win.
+          # StatusContexts carry context/createdAt instead of name/startedAt
+          # and have no rerun history, so each one is its own latest.
+          LATEST_CHECKS=$(echo "$STATUS_ROLLUP" | jq '[group_by(.name // .context // "?")[] | max_by(.startedAt // .createdAt // "")]')
+
+          CI_FAILED=$(echo "$LATEST_CHECKS" | jq '[.[] | select(.conclusion == "FAILURE" or .conclusion == "ERROR")] | length')
           if [ "$CI_FAILED" != "0" ]; then
             echo "ERROR: PR #$PR_NUMBER has failed CI checks"
             exit 1
