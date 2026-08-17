@@ -365,21 +365,26 @@ jobs:
           # actually green (#1516). Recency key is startedAt, not completedAt —
           # completedAt is null while a rerun is in flight. StatusContexts key
           # on context/createdAt and are each their own latest.
+          # Classify on a normalized verdict (#1538): CheckRuns carry
+          # `conclusion`, StatusContexts `state`, and neither has the other's
+          # field, so `.conclusion // .state` buckets both kinds without
+          # double-counting — an in-progress CheckRun still resolves to null
+          # and counts as pending.
           LATEST_CHECKS=$(echo "$STATUS_ROLLUP" | jq '[group_by(.name // .context // "?")[] | max_by(.startedAt // .createdAt // "")]')
 
-          CI_FAILED=$(echo "$LATEST_CHECKS" | jq '[.[] | select(.conclusion == "FAILURE" or .conclusion == "ERROR")] | length')
+          CI_FAILED=$(echo "$LATEST_CHECKS" | jq '[.[] | (.conclusion // .state) as $v | select($v == "FAILURE" or $v == "ERROR")] | length')
           if [ "$CI_FAILED" != "0" ]; then
             echo "ERROR: PR #$PR_NUMBER has failed CI checks"
             exit 1
           fi
 
-          CI_PENDING=$(echo "$LATEST_CHECKS" | jq '[.[] | select(.conclusion == null or .conclusion == "" or .conclusion == "PENDING" or .conclusion == "IN_PROGRESS" or .conclusion == "QUEUED")] | length')
+          CI_PENDING=$(echo "$LATEST_CHECKS" | jq '[.[] | (.conclusion // .state) as $v | select($v == null or $v == "" or $v == "PENDING" or $v == "IN_PROGRESS" or $v == "QUEUED" or $v == "EXPECTED")] | length')
           if [ "$CI_PENDING" != "0" ]; then
             echo "ERROR: PR #$PR_NUMBER has checks still in progress"
             exit 1
           fi
 
-          CI_SUCCESS=$(echo "$LATEST_CHECKS" | jq '[.[] | select(.conclusion == "SUCCESS")] | length')
+          CI_SUCCESS=$(echo "$LATEST_CHECKS" | jq '[.[] | (.conclusion // .state) as $v | select($v == "SUCCESS")] | length')
           if [ "$CI_SUCCESS" = "0" ]; then
             echo "ERROR: PR #$PR_NUMBER has no successful CI checks"
             exit 1
@@ -601,21 +606,26 @@ jobs:
           # actually green (#1516). Recency key is startedAt, not completedAt —
           # completedAt is null while a rerun is in flight. StatusContexts key
           # on context/createdAt and are each their own latest.
+          # Classify on a normalized verdict (#1538): CheckRuns carry
+          # `conclusion`, StatusContexts `state`, and neither has the other's
+          # field, so `.conclusion // .state` buckets both kinds without
+          # double-counting — an in-progress CheckRun still resolves to null
+          # and counts as pending.
           LATEST_CHECKS=$(echo "$STATUS_ROLLUP" | jq '[group_by(.name // .context // "?")[] | max_by(.startedAt // .createdAt // "")]')
 
-          CI_FAILED=$(echo "$LATEST_CHECKS" | jq '[.[] | select(.conclusion == "FAILURE" or .conclusion == "ERROR")] | length')
+          CI_FAILED=$(echo "$LATEST_CHECKS" | jq '[.[] | (.conclusion // .state) as $v | select($v == "FAILURE" or $v == "ERROR")] | length')
           if [ "$CI_FAILED" != "0" ]; then
             echo "ERROR: PR #$PR_NUMBER has failed CI checks"
             exit 1
           fi
 
-          CI_PENDING=$(echo "$LATEST_CHECKS" | jq '[.[] | select(.conclusion == null or .conclusion == "" or .conclusion == "PENDING" or .conclusion == "IN_PROGRESS" or .conclusion == "QUEUED")] | length')
+          CI_PENDING=$(echo "$LATEST_CHECKS" | jq '[.[] | (.conclusion // .state) as $v | select($v == null or $v == "" or $v == "PENDING" or $v == "IN_PROGRESS" or $v == "QUEUED" or $v == "EXPECTED")] | length')
           if [ "$CI_PENDING" != "0" ]; then
             echo "ERROR: PR #$PR_NUMBER has checks still in progress"
             exit 1
           fi
 
-          CI_SUCCESS=$(echo "$LATEST_CHECKS" | jq '[.[] | select(.conclusion == "SUCCESS")] | length')
+          CI_SUCCESS=$(echo "$LATEST_CHECKS" | jq '[.[] | (.conclusion // .state) as $v | select($v == "SUCCESS")] | length')
           if [ "$CI_SUCCESS" = "0" ]; then
             echo "ERROR: PR #$PR_NUMBER has no successful CI checks"
             exit 1

@@ -50,6 +50,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `promote-release.yml` (validate and merge). A re-run still in flight is the
     latest, so it holds the gate open as before, and a genuinely failing latest
     run still blocks
+- **Release CI gate now reads commit-status results**
+  ([#1538](https://github.com/vig-os/devkit/issues/1538))
+  - The gate classified every `statusCheckRollup` entry by `.conclusion`, a
+    field only Checks-API entries carry. A commit status reports `state`
+    instead, so it always landed in the pending bucket and held the gate open
+    **forever**: a red status could never block, a green one never stop
+    counting as pending
+  - All six copies now classify each entry on a normalized verdict that falls
+    back from `.conclusion` to `.state`: `FAILURE`/`ERROR` block,
+    `PENDING`/`EXPECTED` wait, `SUCCESS` counts as a passing check. Checks-API
+    entries are unaffected — an in-progress one still resolves to null and
+    counts as pending
+  - Latent today (nothing in the org publishes commit statuses); it becomes
+    live the day a consumer adopts a tool that reports through the status API
 - **Describing a bot-identity bug no longer trips the agent-fingerprint check**
   ([#1521](https://github.com/vig-os/devkit/issues/1521))
   - The `emails` blocklist was matched as a bare substring over the whole
