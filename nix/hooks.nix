@@ -703,6 +703,27 @@ let
         stages = [ "pre-commit" ];
       };
     };
+    # Runner-only and devkit-only (#1534): it guards THIS repo's CHANGELOG.md,
+    # which is manifest-synced into the scaffold and git-tracked by every
+    # devcontainer-mode consumer — whose `.typos.toml` is seeded once and never
+    # overwritten, so a word needing a newer allowlist entry than that seed
+    # breaks the consumer's upgrade at the commit step (#1529) and can never be
+    # reworded once released. The gate lints the `## Unreleased` section with NO
+    # allowlist (`typos --isolated`), before the text can reach a release;
+    # released sections keep their allowlisted tokens and are out of scope. Not
+    # scaffolded: a consumer's changelog is synced nowhere, and the entry is a
+    # `uv run` script from this repo. Filtered + pre-commit-pinned so an ordinary
+    # commit pays nothing for it (#1491).
+    check-unreleased-typos = {
+      yaml = {
+        name = "check-unreleased-typos (no-allowlist lint of the Unreleased section)";
+        entry = "uv run python scripts/check_unreleased_typos.py";
+        language = "system";
+        files = "^CHANGELOG\\.md$";
+        pass_filenames = false;
+        stages = [ "pre-commit" ];
+      };
+    };
     pip-licenses = {
       yaml = {
         name = "pip-licenses (check dependency licenses)";

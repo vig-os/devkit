@@ -26,34 +26,46 @@
 #                release-core.yml and a whole job into promote-release.yml, which
 #                nothing linted before.
 #
-# The workspace is rendered in `direnv` mode, the shape of the sole mirror-mode
-# consumer. A devcontainer-mode tree additionally ships `.devcontainer/` — the
-# synced devkit CHANGELOG and `version-check.sh` — whose prose does lean on seed
-# entries (`Nd`, `passt`, and released changelog text that may never be edited).
-# Whether the seed should carry words for those at all is the open question in
-# #1529, not the subject of this pin.
+# The two `--isolated` legs render `direnv` mode, the shape of the sole
+# mirror-mode consumer, which tracks zero `.devcontainer/` files. A
+# devcontainer-mode tree additionally ships `.devcontainer/` — the synced devkit
+# CHANGELOG and `version-check.sh` — and a consumer git-tracks those, so a third
+# render covers that mode (#1534). Its bar cannot be `--isolated`: released
+# changelog text is immutable and legitimately carries `passt` (a package name),
+# `unexcepted` (the CVE-policy term), abbreviated SHAs typos reads as `ba`, and
+# `version-check.sh`'s `Nd` duration syntax. The bar that *is* meaningful — and
+# the one #1529 broke — is that generated content must not depend on an allowlist
+# entry NEWER than the consumer's seed, since `.typos.toml` is seeded once and
+# never overwritten. So that leg runs `--isolated --config` against a frozen,
+# grandfathered word set (`_GRANDFATHERED_WORDS`): the four entries that predate
+# every live consumer's seed, and none of #1488's, which is exactly what the
+# org-config upgrade lacked.
 
 setup() {
     load test_helper
     MIRROR_GITFLOW="$BATS_FILE_TMPDIR/mirror-gitflow"
     MIRROR_TRUNK="$BATS_FILE_TMPDIR/mirror-trunk"
+    MIRROR_DEVCONTAINER="$BATS_FILE_TMPDIR/mirror-devcontainer"
 }
 
-# Render both mirror-mode workspaces ONCE for the whole file: the tests only
-# lint the rendered trees, and scaffold+upgrade is the slow part.
+# Render every mirror-mode workspace ONCE for the whole file: the tests only
+# lint the rendered trees, and scaffold+upgrade is the slow part (~0.6s each).
 setup_file() {
     local root
     root="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     _render_mirror "$root" gitflow "$BATS_FILE_TMPDIR/mirror-gitflow" || return 1
     _render_mirror "$root" trunk "$BATS_FILE_TMPDIR/mirror-trunk" || return 1
+    _render_mirror "$root" gitflow "$BATS_FILE_TMPDIR/mirror-devcontainer" \
+        devcontainer || return 1
 }
 
-# Render a mirror-mode consumer workspace for workflow model $2 into $3.
+# Render a mirror-mode consumer workspace for workflow model $2 into $3, in
+# delivery mode $4 (default `direnv`).
 # Mirror mode is not a scaffold flag: the manifest key is set on the scaffolded
 # workspace and a second (upgrade) pass injects the fold block, which is how a
 # consumer reaches this state.
 _render_mirror() {
-    local root="$1" model="$2" ws="$3"
+    local root="$1" model="$2" ws="$3" mode="${4:-direnv}"
     local stub="$BATS_FILE_TMPDIR/stub-bin"
     mkdir -p "$ws" "$stub"
     printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
@@ -64,7 +76,7 @@ _render_mirror() {
         SHORT_NAME=testproj \
         GITHUB_REPOSITORY=test/repo \
         bash "$root/assets/init-workspace.sh" --force --no-prompts \
-        --mode direnv --workflow "$model" \
+        --mode "$mode" --workflow "$model" \
         >"$ws.log" 2>&1 || { cat "$ws.log" >&2; return 1; }
     sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
     env PATH="$stub:$PATH" \
@@ -87,6 +99,30 @@ _render_mirror() {
 # typos as a consumer with an untouched seed would see it: no allowlist.
 _typos_strict() { (cd "$1" && typos --hidden --isolated); }
 
+# The allowlist entries a consumer's seeded `.typos.toml` is assumed to carry:
+# `Nd` (#759, version-check.sh's duration syntax), `unexcepted` (#637, the CVE
+# exception-register term), `passt` (#1106, a rootless-networking package name)
+# and `ba` (abbreviated commit SHAs in the synced changelog's Renovate entries).
+# Deliberately frozen and deliberately WITHOUT #1488's `tatus`/`fnd`/`mis`: a
+# consumer seeded before that release does not have them, which is the whole of
+# #1529/#1534. A new entry needed here means generated content just acquired a
+# dependency on the seed — reword the content instead of extending this list.
+_GRANDFATHERED_WORDS='Nd ba passt unexcepted'
+
+# typos over a rendered tree, allowing only the grandfathered words. `--isolated`
+# is required *with* `--config`: without it typos MERGES the discovered
+# `.typos.toml` (the tree's own seed, which carries the newer entries) and the
+# assertion passes vacuously.
+_typos_grandfathered() {
+    local cfg="$BATS_FILE_TMPDIR/typos-grandfathered.toml"
+    local word
+    echo '[default.extend-words]' >"$cfg"
+    for word in $_GRANDFATHERED_WORDS; do
+        echo "$word = \"$word\"" >>"$cfg"
+    done
+    (cd "$1" && typos --hidden --isolated --config "$cfg")
+}
+
 _actionlint() { (cd "$1" && actionlint); }
 
 @test "the gitflow mirror-fold render is typos-clean with no allowlist (#1529)" {
@@ -96,6 +132,13 @@ _actionlint() { (cd "$1" && actionlint); }
 
 @test "the trunk mirror-fold render is typos-clean with no allowlist (#1529)" {
     run _typos_strict "$MIRROR_TRUNK"
+    assert_success
+}
+
+@test "the devcontainer render needs no post-#1488 typos seed entry (#1534)" {
+    # The tracked tree a devcontainer-mode consumer commits, including the
+    # synced .devcontainer/CHANGELOG.md and version-check.sh.
+    run _typos_grandfathered "$MIRROR_DEVCONTAINER"
     assert_success
 }
 

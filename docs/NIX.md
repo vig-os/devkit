@@ -442,7 +442,8 @@ enables it for itself.
   Hooks that cannot run in the sandbox stay **runner-only** in the committed
   render and carry no gate profile in `nix/hooks.nix`: the generators
   `generate-docs`/`sync-manifest`, `pip-licenses` (reads `uv.lock`),
-  `no-commit-to-branch` and `destroyed-symlinks`
+  `check-unreleased-typos` (a repo script over this repo's own `CHANGELOG.md`,
+  #1534), `no-commit-to-branch` and `destroyed-symlinks`
   (git-state-dependent), `check-agent-identity` (inspects the commit
   author/committer), and the `commit-msg`/`prepare-commit-msg`-stage hooks (never
   run by `--all-files`). `checks.pre-commit` is thus a Nix-verified guarantee that
