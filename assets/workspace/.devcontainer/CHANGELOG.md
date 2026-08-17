@@ -80,6 +80,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **`devkit-upgrade` fetches `install.sh` from the target release tag, not
+  `main`** ([#1532](https://github.com/vig-os/devkit/issues/1532))
+  - The managed workflow ran a `main`-tip installer while scaffolding a pinned
+    `$TARGET` payload — an untested pairing, and the one every *scheduled*
+    consumer run got whenever `main` was ahead of the latest release. It also
+    meant any push to devkit `main` immediately changed code executing with
+    `contents: write` in every consumer repo, with no review gate
+  - The fetch is now `refs/tags/${TARGET}/install.sh`, so installer and payload
+    move together and only a published release can change what runs. No `main`
+    fallback is needed: the resolve step admits only `X.Y.Z[-prerelease]`
+    versions, and every devkit tag of that shape carries a root-level
+    `install.sh`
+  - Scorecard's `Pinned-Dependencies` finding on the consumer copy is expected
+    to remain — it wants a commit SHA, and SHA-pinning a self-upgrading
+    installer is circular by construction; dismiss it consumer-side
+
 ## [1.10.0](https://github.com/vig-os/devkit/releases/tag/1.10.0) - 2026-08-14
 
 ### Added
