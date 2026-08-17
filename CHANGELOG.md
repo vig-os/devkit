@@ -64,6 +64,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     counts as pending
   - Latent today (nothing in the org publishes commit statuses); it becomes
     live the day a consumer adopts a tool that reports through the status API
+- **`just gh-issues` CI column now shows the live re-run, not the failure it
+  supersedes**
+  ([#1539](https://github.com/vig-os/devkit/issues/1539))
+  - The PR table's latest-per-name check dedup keyed recency on `completedAt`,
+    which is null while a re-run is in flight: the live run ranked as the
+    *oldest* run of its name, so the column reported the superseded FAILURE
+    during exactly the window someone watches a re-run
+  - Recency is now keyed on `startedAt` (set at creation, never null) with a
+    `createdAt` fallback for commit statuses, matching the release CI gates
+    ([#1522](https://github.com/vig-os/devkit/issues/1522)). Display-only — the
+    table is not a gate
 - **Describing a bot-identity bug no longer trips the agent-fingerprint check**
   ([#1521](https://github.com/vig-os/devkit/issues/1521))
   - The `emails` blocklist was matched as a bare substring over the whole
