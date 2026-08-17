@@ -36,6 +36,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Describing a bot-identity bug no longer trips the agent-fingerprint check**
+  ([#1521](https://github.com/vig-os/devkit/issues/1521))
+  - The `emails` blocklist was matched as a bare substring over the whole
+    content, while `names` had carried an attribution-context guard since
+    [#274](https://github.com/vig-os/devkit/issues/274). A changelog entry that
+    quoted a CI bot identity in an inline code span therefore blocked its own
+    release PR, because `prepare-release` renders the changelog section into the
+    PR body — exactly what stalled the 1.10.0 train
+    ([#1516](https://github.com/vig-os/devkit/issues/1516))
+  - `contains_agent_fingerprint` now strips inline code spans before matching
+    `emails`, so a quoted identity reads as prose. Matching stays
+    case-insensitive, `names` and trailer rules are untouched, and a plain-text
+    attribution — a `Co-authored-by` trailer, a sign-off, an author line —
+    still fails
 - **Generated mirror-fold comment now lints under the stock consumer typos
   seed** ([#1529](https://github.com/vig-os/devkit/issues/1529))
   - A comment the `DEVKIT_SYNC_TARGET` block renders into the managed
