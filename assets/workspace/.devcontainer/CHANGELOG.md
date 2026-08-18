@@ -75,6 +75,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `createdAt` fallback for commit statuses, matching the release CI gates
     ([#1522](https://github.com/vig-os/devkit/issues/1522)). Display-only — the
     table is not a gate
+- **`just gh-issues` CI column now reads commit-status results**
+  ([#1544](https://github.com/vig-os/devkit/issues/1544))
+  - The PR table grouped the rollup by `name` and classified each entry by
+    `conclusion`, both fields only Checks-API entries carry. Every commit
+    status on a PR collapsed into a single `"?"` bucket, and whatever survived
+    rendered as pending: a red status never showed as failed, a green one never
+    counted toward the pass tally
+  - Grouping now keys on name-or-context and each entry is classified on a
+    normalized verdict that falls back from `conclusion` to `state`, so the
+    table reads a rollup exactly as the release CI gates do
+    ([#1522](https://github.com/vig-os/devkit/issues/1522),
+    [#1538](https://github.com/vig-os/devkit/issues/1538)). Checks-API entries
+    render as before. Display-only — the table is not a gate
 - **Describing a bot-identity bug no longer trips the agent-fingerprint check**
   ([#1521](https://github.com/vig-os/devkit/issues/1521))
   - The `emails` blocklist was matched as a bare substring over the whole

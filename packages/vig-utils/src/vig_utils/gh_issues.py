@@ -385,15 +385,36 @@ def _started(check: dict) -> str:
     return check.get("startedAt") or check.get("createdAt") or ""
 
 
+def _check_key(check: dict) -> str:
+    """Return a check's dedup/display key, mirroring the gates' jq expression.
+
+    CheckRuns carry a name, StatusContexts a context; keying on name-or-context
+    keeps every commit status in its own bucket instead of collapsing them all
+    into one "?" (#1537, same grouping as the release gates).
+    """
+    return check.get("name") or check.get("context") or "?"
+
+
+def _verdict(check: dict) -> str:
+    """Return a check's normalized verdict, mirroring the gates' jq expression.
+
+    CheckRuns carry `conclusion`, StatusContexts `state`, and neither has the
+    other's field, so the fallback classifies both kinds without
+    double-counting (#1538). An in-flight CheckRun still resolves to "" and so
+    counts as pending.
+    """
+    return check.get("conclusion") or check.get("state") or ""
+
+
 def _dedupe_status_checks(rollup: list[dict]) -> list[dict]:
-    """Deduplicate statusCheckRollup by check name, keeping latest by startedAt."""
-    by_name: dict[str, dict] = {}
+    """Deduplicate statusCheckRollup by check key, keeping latest by startedAt."""
+    by_key: dict[str, dict] = {}
     for check in rollup:
-        name = check.get("name") or "?"
-        existing = by_name.get(name)
+        key = _check_key(check)
+        existing = by_key.get(key)
         if existing is None or _started(check) >= _started(existing):
-            by_name[name] = check
-    return list(by_name.values())
+            by_key[key] = check
+    return list(by_key.values())
 
 
 def _format_ci_status(pr: dict, owner_repo: str) -> str:
@@ -403,8 +424,8 @@ def _format_ci_status(pr: dict, owner_repo: str) -> str:
         return _styled("—", "dim")
 
     total = len(rollup)
-    passed = sum(1 for c in rollup if c.get("conclusion") == "SUCCESS")
-    failed = sum(1 for c in rollup if c.get("conclusion") in ("FAILURE", "ERROR"))
+    passed = sum(1 for c in rollup if _verdict(c) == "SUCCESS")
+    failed = sum(1 for c in rollup if _verdict(c) in ("FAILURE", "ERROR"))
     pending = total - passed - failed
 
     url = f"https://github.com/{owner_repo}/pull/{pr['number']}/checks"
@@ -413,9 +434,7 @@ def _format_ci_status(pr: dict, owner_repo: str) -> str:
 
     if failed > 0:
         failed_names = [
-            c.get("name", "?")
-            for c in rollup
-            if c.get("conclusion") in ("FAILURE", "ERROR")
+            _check_key(c) for c in rollup if _verdict(c) in ("FAILURE", "ERROR")
         ]
         text = f"✗ {passed}/{total} {', '.join(failed_names)}"
         return link_prefix + _styled(text, "red") + link_suffix
