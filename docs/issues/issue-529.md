@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-08-17T01:32:55Z
+updated: 2026-08-18T02:01:03Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,28 +13,29 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-17T03:06:40.563Z
+synced: 2026-08-18T03:02:17.856Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.<br>[View this repository on the Mend.io Web Portal](https://developer.mend.io/github/vig-os/devkit).
 
-## Rate-Limited
+## Awaiting Schedule
 
-The following updates are currently rate-limited. To force their creation now, click on a checkbox below.
+The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
- - [ ] <!-- unlimit-branch=renovate/astral-sh-setup-uv-10.x -->ci(actions): update astral-sh/setup-uv action to v10
- - [ ] <!-- unlimit-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
- - [ ] <!-- create-all-rate-limited-prs -->🔐 **Create all rate-limited PRs at once** 🔐
+ - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
 
-## Open
 
-The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
+---
 
- - [ ] <!-- rebase-branch=renovate/github-codeql-action-digest -->[chore(deps): update github/codeql-action digest to ff2f1c6](../pull/1524)
- - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch)](../pull/1525) (`aquasecurity/trivy`, `cachix/install-nix-action`)
- - [ ] <!-- rebase-all-open-prs -->**Click on this checkbox to rebase all open PRs at once**
+> [!WARNING]
+> Renovate failed to look up the following dependencies: `Failed to look up github-releases package aquasecurity/trivy: no-result`.
+> 
+> Files affected: `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/workflows/security-scan.yml`
+
+---
+
 
 ## Detected Dependencies
 
@@ -43,7 +44,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 <details><summary>.github/actions/setup-env/action.yml (3)</summary>
 
- - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342` → [Updates: `v31.11.1`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
  - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
  - `actions/setup-node v7.0.0@820762786026740c76f36085b0efc47a31fe5020`
 
@@ -104,8 +105,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
- - `aquasecurity/trivy v0.73.0` → [Updates: `v0.74.0`]
- - `aquasecurity/trivy v0.73.0` → [Updates: `v0.74.0`]
+ - `aquasecurity/trivy v0.74.0`
+ - `aquasecurity/trivy v0.74.0`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
 
@@ -114,8 +115,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>.github/workflows/codeql.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `github/codeql-action v4@5595ccaf912efad79be6eef63a5619ff05969be3` → [Updates: `v4`]
- - `github/codeql-action v4@5595ccaf912efad79be6eef63a5619ff05969be3` → [Updates: `v4`]
+ - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd`
+ - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd`
  - `ubuntu 24.04`
 
 </details>
@@ -130,10 +131,10 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>.github/workflows/home-matrix.yml (7)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342` → [Updates: `v31.11.1`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
  - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342` → [Updates: `v31.11.1`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
  - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
  - `ubuntu 24.04-arm`
 
@@ -142,7 +143,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>.github/workflows/nix-cachix.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342` → [Updates: `v31.11.1`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
  - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
  - `ubuntu 24.04`
 
@@ -151,7 +152,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>.github/workflows/nix-image.yml (6)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342` → [Updates: `v31.11.1`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
  - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
  - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
  - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
@@ -240,7 +241,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/github-script v9.0.0@3a2844b7e9c422d3c10d287c895573f7108da1b3`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
- - `aquasecurity/trivy v0.73.0` → [Updates: `v0.74.0`]
+ - `aquasecurity/trivy v0.74.0`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -261,7 +262,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
- - `github/codeql-action v4@5595ccaf912efad79be6eef63a5619ff05969be3` → [Updates: `v4`]
+ - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd`
  - `ubuntu 24.04`
 
 </details>
@@ -274,8 +275,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `aquasecurity/trivy-action v0.36.0@ed142fd0673e97e23eac54620cfb913e5ce36c25`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `ubuntu 24.04`
- - `aquasecurity/trivy v0.73.0` → [Updates: `v0.74.0`]
- - `aquasecurity/trivy v0.73.0` → [Updates: `v0.74.0`]
+ - `aquasecurity/trivy v0.74.0`
+ - `aquasecurity/trivy v0.74.0`
 
 </details>
 
@@ -307,7 +308,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342` → [Updates: `v31.11.1`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
  - `vig-os/commit-action v0.3.2@0361e9aa65b64711a18286ac5dfdcba7cc7a2ac7`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `ubuntu 24.04`
@@ -317,7 +318,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>assets/smoke-test/.github/workflows/direnv-smoke.yml (5)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342` → [Updates: `v31.11.1`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
  - `ubuntu 24.04`
@@ -353,9 +354,9 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 <details><summary>assets/workspace/.github/actions/setup-devkit-toolchain/action.yml (3)</summary>
 
- - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342` → [Updates: `v31.11.1`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
  - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
- - `astral-sh/setup-uv v9.0.0@c771a70e6277c0a99b617c7a806ffedaca235ff9` → [Updates: `v10.0.1`]
+ - `astral-sh/setup-uv v10.0.1@20cfd1bf945f4377ade1205e4dbc17946fc9a30d`
 
 </details>
 
@@ -386,17 +387,18 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>assets/workspace/.github/workflows/codeql.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `github/codeql-action v4@5595ccaf912efad79be6eef63a5619ff05969be3` → [Updates: `v4`]
- - `github/codeql-action v4@5595ccaf912efad79be6eef63a5619ff05969be3` → [Updates: `v4`]
+ - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd`
+ - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd`
  - `ubuntu 24.04`
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/devkit-upgrade.yml (3)</summary>
+<details><summary>assets/workspace/.github/workflows/devkit-upgrade.yml (4)</summary>
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.0@630ae543ea3a38a9a4166f03376c02c50f408342` → [Updates: `v31.11.1`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
 
 </details>
 
@@ -491,7 +493,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
- - `github/codeql-action v4@5595ccaf912efad79be6eef63a5619ff05969be3` → [Updates: `v4`]
+ - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd`
  - `ubuntu 24.04`
 
 </details>
