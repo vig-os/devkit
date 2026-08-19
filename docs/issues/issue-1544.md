@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-17T14:50:41Z
-updated: 2026-08-17T14:50:41Z
+updated: 2026-08-18T06:25:18Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1544
-comments: 0
+comments: 1
 labels: bug, priority:low, area:ci, effort:small, semver:patch
 assignees: none
 milestone: 1.11.0
 projects: none
 parent: none
 children: none
-synced: 2026-08-18T03:02:12.721Z
+synced: 2026-08-19T03:04:35.433Z
 ---
 
 # [Issue 1544]: [[BUG] gh-issues PR table is blind to StatusContexts: name-only grouping and conclusion-only rendering](https://github.com/vig-os/devkit/issues/1544)
@@ -55,3 +55,11 @@ With a rollup mixing CheckRuns and StatusContexts:
 - CheckRun-only rollups render exactly as today (regression pins).
 
 Refs: #1539
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on August 18, 2026 at 06:25 AM_
+
+Fixed in #1545 (merged to dev): _check_key (name or context) now drives both the dedup grouping and the failed-names cell, and _verdict (conclusion or state) drives the pass/fail tallies — mirroring the release gates' jq exactly, including tie behavior. Bonus fix: present-but-null names no longer render as None in the red cell. PENDING/EXPECTED and all CheckRun-only rendering unchanged (regression-pinned). CI needed three attempts due to the 2026-08-17 GitHub outage (codeload.github.com 502/503/429 during action download — runners never reached our steps); attempt 3 fully green.
+
