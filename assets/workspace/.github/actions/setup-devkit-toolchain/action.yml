@@ -111,7 +111,7 @@ runs:
     # the "Configure host Nix" step below (enforced by test).
     - name: Install Nix (upstream CppNix)
       if: inputs.mode == 'direnv' && steps.detect-nix.outputs.has-nix != 'true'
-      uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342  # v31.11.0
+      uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31.11.1
       with:
         extra_nix_config: |
           experimental-features = nix-command flakes
@@ -371,7 +371,7 @@ runs:
     # ── bare — host, provision the pinned toolchain with uv ───────────────────
     - name: Set up uv
       if: inputs.mode == 'bare'
-      uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+      uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
 
     - name: Install host toolchain (just, prek, vig-utils)
       if: inputs.mode == 'bare'

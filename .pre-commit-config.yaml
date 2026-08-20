@@ -169,6 +169,20 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
 
+  # Changelog Unreleased typo gate (devkit-only, Refs: #1534). The synced mirror
+  # (assets/workspace/.devcontainer/CHANGELOG.md) is git-tracked by every
+  # devcontainer-mode consumer, whose .typos.toml is seeded once and never
+  # overwritten — so no released entry may need an allowlist entry to lint.
+  - repo: local
+    hooks:
+      - id: check-unreleased-typos
+        name: check-unreleased-typos (no-allowlist lint of the Unreleased section)
+        entry: uv run python scripts/check_unreleased_typos.py
+        language: system
+        files: ^CHANGELOG\.md$
+        pass_filenames: false
+        stages: [pre-commit]
+
   # Typo Linting (typos sourced from the flake dev-shell)
   - repo: local
     hooks:

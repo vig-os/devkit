@@ -7,14 +7,15 @@
 # What it does, in order:
 #
 # 1. Release branch: regenerates the synced workspace mirror
-#    (assets/workspace/.devcontainer/CHANGELOG.md, a verbatim copy of the root
-#    CHANGELOG.md) so it matches the frozen root on the release branch, then
-#    commits it via the COMMIT_APP token — the same identity/mechanism as the
-#    freeze commit. This is the devkit-specific `sync_manifest.py sync` step that
-#    used to be hardcoded in prepare-release.yml (#1059); moving it here makes
-#    prepare-release.yml scaffold-shaped and keeps the mirror correct on the
-#    branch the image is built from (tests/test_image.py::test_manifest_files
-#    checksums mirror == root).
+#    (assets/workspace/.devcontainer/CHANGELOG.md, the root CHANGELOG.md plus the
+#    #1534 sanitizing transforms) so it matches the frozen root on the release
+#    branch, then commits it via the COMMIT_APP token — the same
+#    identity/mechanism as the freeze commit. This is the devkit-specific
+#    `sync_manifest.py sync` step that used to be hardcoded in prepare-release.yml
+#    (#1059); moving it here makes prepare-release.yml scaffold-shaped and keeps
+#    the mirror correct on the branch the image is built from (the mirror is a
+#    transformed manifest entry, so tests/test_transforms.py pins it against the
+#    root and tests/test_image.py::test_manifest_files checks it ships).
 #
 # 2. Dev reconciliation: the freeze commit is scaffold-verbatim (root
 #    CHANGELOG.md only), so dev's mirror is stale after every prepare — the

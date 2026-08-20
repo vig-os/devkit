@@ -46,8 +46,17 @@ doctor:
     gpgsign="$(git config commit.gpgsign || true)"
     format="$(git config gpg.format || true)"
     signingkey="$(git config user.signingkey || true)"
+    # git expands a leading `~/` itself when it consumes user.signingkey, but
+    # `test -r` does not — the shell expands `~` only as an unquoted literal at
+    # the start of a word, never the contents of a variable. Expand it here too,
+    # or a working tilde-path setup reads as incomplete (#1546). The PASS line
+    # keeps reporting the raw value, so it still mirrors git config.
+    keypath="$signingkey"
+    case "$keypath" in
+        "~/"*) keypath="$HOME/${keypath#\~/}" ;;
+    esac
     if [ "$gpgsign" = "true" ] && [ -n "$signingkey" ] && \
-        { [ "$format" != "ssh" ] || [ -r "$signingkey" ] || \
+        { [ "$format" != "ssh" ] || [ -r "$keypath" ] || \
           [ "${signingkey#ssh-}" != "$signingkey" ]; }; then
         echo "PASS commit signing: $format key $signingkey"
     else

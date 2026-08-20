@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-14T15:32:34Z
-updated: 2026-08-14T15:32:34Z
+updated: 2026-08-17T08:20:28Z
 author: github-actions[bot]
 author_url: https://github.com/github-actions[bot]
 url: https://github.com/vig-os/devkit/issues/1518
-comments: 0
+comments: 1
 labels: bug, area:ci
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-14T16:05:12.543Z
+synced: 2026-08-18T03:02:17.442Z
 ---
 
 # [Issue 1518]: [Release 1.10.0-rc1 failed -- automatic rollback](https://github.com/vig-os/devkit/issues/1518)
@@ -51,4 +51,12 @@ Release 1.10.0-rc1 encountered an error during the automated release workflow.
 4. Publish a new release candidate to validate the fix; re-run the final workflow when ready
 
 For details, check the workflow run linked above.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on August 17, 2026 at 08:20 AM_
+
+Root cause of the rc1 failure was #1516 (agent-fingerprint check blocking the release PR plus the validate gate counting superseded FAILURE runs), closed 2026-08-14; 1.10.0 shipped and was promoted the same day. The two remaining remediations are tracked in #1521 (fingerprint context guard for emails) and #1522 (latest-per-name check-run dedup in the CI-green gate), both on milestone 1.11.0. No manual cleanup was needed: the rollback succeeded and no orphaned rc1 images or draft releases remain. Closing as resolved.
 

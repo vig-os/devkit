@@ -130,6 +130,269 @@ class TestFormatCiStatus:
         assert "1/1" in result
 
 
+class TestDedupeStatusChecks:
+    """Test _dedupe_status_checks recency keying.
+
+    Ref: #1539
+    """
+
+    def test_in_progress_rerun_beats_older_completed_failure(self):
+        """A live rerun (completedAt null) wins over the FAILURE it supersedes."""
+        rollup = [
+            {
+                "name": "Project Checks",
+                "conclusion": "FAILURE",
+                "status": "COMPLETED",
+                "startedAt": "2026-08-17T12:00:00Z",
+                "completedAt": "2026-08-17T12:05:00Z",
+            },
+            {
+                "name": "Project Checks",
+                "conclusion": None,
+                "status": "IN_PROGRESS",
+                "startedAt": "2026-08-17T12:30:00Z",
+                "completedAt": None,
+            },
+        ]
+        result = gh_issues._dedupe_status_checks(rollup)
+        assert len(result) == 1
+        assert result[0]["status"] == "IN_PROGRESS"
+
+    def test_newer_completed_success_beats_older_failure(self):
+        """A completed rerun that passed wins over the older FAILURE."""
+        rollup = [
+            {
+                "name": "Project Checks",
+                "conclusion": "FAILURE",
+                "startedAt": "2026-08-17T12:00:00Z",
+                "completedAt": "2026-08-17T12:05:00Z",
+            },
+            {
+                "name": "Project Checks",
+                "conclusion": "SUCCESS",
+                "startedAt": "2026-08-17T12:30:00Z",
+                "completedAt": "2026-08-17T12:35:00Z",
+            },
+        ]
+        result = gh_issues._dedupe_status_checks(rollup)
+        assert [c["conclusion"] for c in result] == ["SUCCESS"]
+
+    def test_distinct_names_are_untouched(self):
+        """Different check names all survive dedup."""
+        rollup = [
+            {
+                "name": "Build",
+                "conclusion": "SUCCESS",
+                "startedAt": "2026-08-17T12:00:00Z",
+            },
+            {
+                "name": "Test",
+                "conclusion": "FAILURE",
+                "startedAt": "2026-08-17T11:00:00Z",
+            },
+        ]
+        result = gh_issues._dedupe_status_checks(rollup)
+        assert {c["name"] for c in result} == {"Build", "Test"}
+        assert len(result) == 2
+
+    def test_winner_is_order_independent(self):
+        """Input order does not change which run of a name survives."""
+        older = {
+            "name": "Project Checks",
+            "conclusion": "FAILURE",
+            "startedAt": "2026-08-17T12:00:00Z",
+            "completedAt": "2026-08-17T12:05:00Z",
+        }
+        newer = {
+            "name": "Project Checks",
+            "conclusion": None,
+            "status": "IN_PROGRESS",
+            "startedAt": "2026-08-17T12:30:00Z",
+            "completedAt": None,
+        }
+        forward = gh_issues._dedupe_status_checks([older, newer])
+        backward = gh_issues._dedupe_status_checks([newer, older])
+        assert forward == backward == [newer]
+
+    def test_status_context_falls_back_to_created_at(self):
+        """StatusContexts carry createdAt, not startedAt; recency still works."""
+        rollup = [
+            {
+                "context": "legacy/status",
+                "state": "FAILURE",
+                "createdAt": "2026-08-17T12:00:00Z",
+            },
+            {
+                "context": "legacy/status",
+                "state": "SUCCESS",
+                "createdAt": "2026-08-17T12:30:00Z",
+            },
+        ]
+        result = gh_issues._dedupe_status_checks(rollup)
+        assert [c["state"] for c in result] == ["SUCCESS"]
+
+    def test_distinct_status_contexts_stay_separate_entries(self):
+        """Two contexts are two buckets, not one "?" bucket. Ref: #1544."""
+        rollup = [
+            {
+                "context": "ci/legacy",
+                "state": "SUCCESS",
+                "createdAt": "2026-08-17T12:00:00Z",
+            },
+            {
+                "context": "security/scan",
+                "state": "FAILURE",
+                "createdAt": "2026-08-17T11:00:00Z",
+            },
+        ]
+        result = gh_issues._dedupe_status_checks(rollup)
+        assert {c["context"] for c in result} == {"ci/legacy", "security/scan"}
+        assert len(result) == 2
+
+    def test_status_context_supersedes_a_same_keyed_check_run(self):
+        """A context equal to a check name shares its bucket; newest wins.
+
+        Mirrors the release gates' ``.name // .context // "?"`` grouping
+        (#1537/#1541). Ref: #1544.
+        """
+        rollup = [
+            {
+                "name": "Project Checks",
+                "conclusion": "FAILURE",
+                "startedAt": "2026-08-17T12:00:00Z",
+                "completedAt": "2026-08-17T12:05:00Z",
+            },
+            {
+                "context": "Project Checks",
+                "state": "SUCCESS",
+                "createdAt": "2026-08-17T12:30:00Z",
+            },
+        ]
+        result = gh_issues._dedupe_status_checks(rollup)
+        assert len(result) == 1
+        assert result[0]["state"] == "SUCCESS"
+
+    def test_in_progress_rerun_shown_as_pending_in_ci_cell(self):
+        """The CI cell reports the live rerun as pending, not as a failure."""
+        pr = {
+            "number": 7,
+            "statusCheckRollup": [
+                {
+                    "name": "Project Checks",
+                    "conclusion": "FAILURE",
+                    "startedAt": "2026-08-17T12:00:00Z",
+                    "completedAt": "2026-08-17T12:05:00Z",
+                },
+                {
+                    "name": "Project Checks",
+                    "conclusion": None,
+                    "startedAt": "2026-08-17T12:30:00Z",
+                    "completedAt": None,
+                },
+            ],
+        }
+        result = gh_issues._format_ci_status(pr, "a/b")
+        assert "⏳" in result
+        assert "0/1" in result
+        assert "yellow" in result
+
+
+class TestFormatCiStatusCommitStatuses:
+    """Test _format_ci_status classification of StatusContext entries.
+
+    StatusContexts carry ``state`` where CheckRuns carry ``conclusion``, so the
+    cell classifies on a normalized verdict, as the release gates do.
+
+    Ref: #1544
+    """
+
+    def _pr(self, rollup: list[dict]) -> dict:
+        return {"number": 3, "statusCheckRollup": rollup}
+
+    @pytest.mark.parametrize("state", ["FAILURE", "ERROR"])
+    def test_red_state_renders_failed(self, state):
+        """A red commit status turns the cell red and names the context."""
+        pr = self._pr(
+            [
+                {
+                    "context": "ci/legacy",
+                    "state": state,
+                    "createdAt": "2026-08-17T12:00:00Z",
+                },
+            ]
+        )
+        result = gh_issues._format_ci_status(pr, "a/b")
+        assert "✗" in result
+        assert "0/1" in result
+        assert "red" in result
+        assert "ci/legacy" in result
+
+    def test_success_state_counts_as_passed(self):
+        """A green commit status counts toward the pass tally."""
+        pr = self._pr(
+            [
+                {
+                    "context": "ci/legacy",
+                    "state": "SUCCESS",
+                    "createdAt": "2026-08-17T12:00:00Z",
+                },
+                {
+                    "context": "security/scan",
+                    "state": "SUCCESS",
+                    "createdAt": "2026-08-17T12:00:00Z",
+                },
+            ]
+        )
+        result = gh_issues._format_ci_status(pr, "a/b")
+        assert "✓" in result
+        assert "2/2" in result
+        assert "green" in result
+
+    @pytest.mark.parametrize("state", ["PENDING", "EXPECTED"])
+    def test_non_terminal_state_renders_pending(self, state):
+        """PENDING and EXPECTED statuses render as pending, not as passed."""
+        pr = self._pr(
+            [
+                {
+                    "name": "Build",
+                    "conclusion": "SUCCESS",
+                    "startedAt": "2026-08-17T12:00:00Z",
+                },
+                {
+                    "context": "ci/legacy",
+                    "state": state,
+                    "createdAt": "2026-08-17T12:00:00Z",
+                },
+            ]
+        )
+        result = gh_issues._format_ci_status(pr, "a/b")
+        assert "⏳" in result
+        assert "1/2" in result
+        assert "yellow" in result
+
+    def test_red_status_context_beats_green_check_runs(self):
+        """A red commit status alongside green checks still reports failure."""
+        pr = self._pr(
+            [
+                {
+                    "name": "Build",
+                    "conclusion": "SUCCESS",
+                    "startedAt": "2026-08-17T12:00:00Z",
+                },
+                {
+                    "context": "ci/legacy",
+                    "state": "FAILURE",
+                    "createdAt": "2026-08-17T12:00:00Z",
+                },
+            ]
+        )
+        result = gh_issues._format_ci_status(pr, "a/b")
+        assert "✗" in result
+        assert "1/2" in result
+        assert "red" in result
+        assert "ci/legacy" in result
+
+
 class TestGhLink:
     """Test _gh_link helper for clickable issue/PR numbers."""
 

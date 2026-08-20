@@ -33,6 +33,19 @@
 # adjustment ONLY — no risk assessment below was re-opened, re-verified or
 # changed by it, and every rationale stands as previously written.
 #
+# STAGGER (#1553), 2026-08-20: that grid had since collapsed onto a single
+# Wednesday — 29 of the 33 live entries across the three registers shared
+# 2026-09-02, so one stalled review would have taken every open PR, both
+# nightly scan lanes and the release train red on the same Thursday. Each block
+# now sits on its OWN Wednesday, spread by week-multiples and ordered by how
+# soon its remediation lever can move ("stagger across weeks, not weekdays",
+# docs/CONTAINER_SECURITY.md): podman 2026-09-02 (kept as the anchor), unbound
+# 09-09, libssh2 6603x 09-16, libssh2 CVE-2026-58050 09-23, lower-reachability
+# 09-30, fzf 10-07, glibc 10-14. The Class-1 CPE-mismatch block keeps its
+# yearly 2027-06-23. Like the 2026-08-04 snap, a re-date is a scheduling
+# adjustment ONLY — no risk assessment below was re-opened, re-verified or
+# changed by it.
+#
 # Tracking: https://github.com/vig-os/devkit/issues/637
 
 # ============================================================================
@@ -100,7 +113,13 @@ CVE-2022-36883
 #   could not (that triage had no CVE data offline). The reachability lines are
 #   an assessment of those vectors against this deployment model — they are NOT
 #   an audit of which closure members call the affected functions.
-Expiration: 2026-09-02
+#
+#   Re-dated 2026-08-20 (#1553): 2026-09-02 -> 2026-10-14, the longest window
+#   of the vulnix blocks. The 2026-08-13 renewal above already established that
+#   the "advance the rev" lever has nowhere to land — the advisories scope the
+#   defects through 2.43 — so an earlier re-review would have no new evidence
+#   to act on. Extension is a scheduling adjustment; the assessment stands.
+Expiration: 2026-10-14
 # CVE-2025-15281 (7.5) — wordexp() with WRDE_REUSE|WRDE_APPEND returns
 #   uninitialized we_wordv, aborting on a later wordfree(). Needs a program using
 #   that flag pair; not a pattern in the image's own tooling.
@@ -130,7 +149,10 @@ CVE-2026-5928
 
 # Remaining lower-reachability components (provenance per note). Specifics
 # unverified offline; medium-near expiry to force re-review.
-Expiration: 2026-09-02
+# Re-dated 2026-08-20 (#1553): 2026-09-02 -> 2026-09-30, off the shared cliff
+#   date. Still "medium-near" as the line above intends — 4 weeks later, mid-way
+#   through the staggered grid. Scheduling only; the notes below stand.
+Expiration: 2026-09-30
 # zlib 1.3.2 — ubiquitous compression dep (curl, openssh, git, nix, python).
 #   Reachable on any decompression path; specifics unverified offline.
 CVE-2026-27820
@@ -170,7 +192,7 @@ CVE-2025-62689
 #      2026-07-28 "no fix in the pinned channel" note was already stale.
 #    - CVE-2026-56123: the pin ships socat 1.8.1.3, past the 1.8.1.2 fix.)
 
-Expiration: 2026-08-19
+Expiration: 2026-10-07
 # (gzip CVE-2026-41992 removed 2026-08-04 (#1327): contrary to the "no nixpkgs
 #   patch yet" note above, the pinned rev applies CVE-2026-41992.patch to gzip
 #   1.14, so vulnix no longer reports it.)
@@ -185,10 +207,24 @@ Expiration: 2026-08-19
 # Re-verified 2026-08-04 (#1328): the pin was advanced to nixos-26.05 @
 #   2026-08-03 (rev 531670d8) and rebuilt; the closure still ships fzf 0.72.0,
 #   so this block is retained.
+# Renewed 2026-08-20 (#1547): the expiry fired as the grid intends and took both
+#   nightly lanes red (run 32335643087) before the scan itself ran. Both CVEs are
+#   still live findings against fzf-0.72.0 in the last green scan (run
+#   32219442917, 2026-08-19, pin 531670d8), and the rev-advance lever still has
+#   nowhere to land: nixos-26.05, release-26.05 and staging-26.05 all ship 0.72.0
+#   with no backport PR open (0.74.3 is master/unstable only). Renewed risk
+#   acceptance, not a date bump — the 2026-07-14 assessment above is unchanged
+#   and both findings stay availability-only. Renewed onto the shared 2026-09-02
+#   grid date so the whole register is reviewed in one pass (#1337).
+# Re-dated 2026-08-20 (#1553): 2026-09-02 -> 2026-10-07. That shared grid date
+#   is exactly the cliff this re-date breaks up. Both findings are
+#   availability-only on a 64-bit image and no 26.05 backport is open, so this
+#   block takes a later slot than the ones whose backport could land in any
+#   week's bump. Extension is scheduling only; the assessment above stands.
 CVE-2026-53432
 CVE-2026-53433
 
-Expiration: 2026-09-02
+Expiration: 2026-09-23
 # (libxml2 CVE-2026-11979 removed 2026-08-04 (#1327): the pinned rev applies
 #   CVE-2026-11979.patch to both libxml2 attrs (2.13.9 and 2.15.3), so vulnix
 #   no longer reports it.)
@@ -205,6 +241,9 @@ Expiration: 2026-09-02
 # Re-verified 2026-08-04 (#1328): the pin was advanced to nixos-26.05 @
 #   2026-08-03 (rev 531670d8) and rebuilt; libssh2 is still 1.11.1, so this
 #   exception is retained.
+# Re-dated 2026-08-20 (#1553): 2026-09-02 -> 2026-09-23, one week after the
+#   6603x batch below, so the two libssh2 passes stay adjacent (same package,
+#   same lever) without sharing a Wednesday. Scheduling only.
 CVE-2026-58050
 
 # ============================================================================
@@ -237,6 +276,10 @@ Expiration: 2026-09-02
 # Re-verified 2026-08-04 (#1328): the pin was advanced to nixos-26.05 @
 #   2026-08-03 (rev 531670d8) and rebuilt; the closure still ships podman 5.8.2,
 #   so this is retained.
+# Grid note 2026-08-20 (#1553): KEPT at 2026-09-02 while the rest of the
+#   register was staggered off that date. This block asks for a weekly
+#   re-check and the release-26.05 backport can merge at any time, so it keeps
+#   the earliest window and anchors the staggered grid.
 CVE-2026-57231
 
 # ============================================================================
@@ -278,9 +321,13 @@ CVE-2026-57231
 # Re-verified 2026-08-04 (#1328): the pin was advanced to nixos-26.05 @
 # 2026-08-03 (rev 531670d8) and rebuilt; the closure still ships unbound 1.25.1,
 # so this block is retained.
+# Re-dated 2026-08-20 (#1553): 2026-09-02 -> 2026-09-09, the earliest window
+# after podman. The staging-26.05 backport is already merged, so 1.25.2 can
+# reach the pinned channel in any week's Renovate bump and the "short expiry to
+# force near-term re-check" above is preserved. Scheduling only.
 # ============================================================================
 
-Expiration: 2026-09-02
+Expiration: 2026-09-09
 # unbound 1.25.1 — CVE-2026-50252 (NVD 9.3 CRITICAL; upstream rates Medium):
 #   cache poisoning via per-thread source-port population under SO_REUSEPORT —
 #   resolver daemon behavior; no daemon runs here.
@@ -338,9 +385,15 @@ CVE-2026-55973
 # 26.05 backport NixOS/nixpkgs#550166 targets staging-26.05 and is still open,
 # so the patched derivation has NOT reached the pinned nixos-26.05 channel.
 # Same expiry as the batch; the whole block drops on the rev-advance.
+#
+# Re-dated 2026-08-20 (#1553): 2026-09-02 -> 2026-09-16, kept near-term as the
+# "short expiry to force near-term re-check" above asks: NixOS/nixpkgs#550166 is
+# open against staging-26.05, so the findings can drop out on a rev-advance at
+# short notice. Scheduling only; the batch keeps one shared date and
+# CVE-2026-58050 sits a week later so the two libssh2 passes do not collide.
 # ============================================================================
 
-Expiration: 2026-09-02
+Expiration: 2026-09-16
 # libssh2 1.11.1 — CVE-2026-66032 (8.8): double-free in sftp_open()
 #   (src/sftp.c); a malicious server answers SSH_FXP_OPEN with an FX_OK status
 #   and a follow-up oversized packet, making the client free the same response

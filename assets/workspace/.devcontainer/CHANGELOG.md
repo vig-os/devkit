@@ -19,6 +19,258 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [1.11.0](https://github.com/vig-os/devkit/releases/tag/1.11.0) - 2026-08-20
+
+### Added
+
+- **A security exception now gives seven days' notice before it fails
+  everything** ([#1552](https://github.com/vig-os/devkit/issues/1552))
+  - `check-expirations` runs in all PR CI, in pre-commit, in both nightly scan
+    lanes and in the release train, so one lapsed block reds every open branch
+    at once — three times in two months
+    ([#1260](https://github.com/vig-os/devkit/issues/1260),
+    [#1481](https://github.com/vig-os/devkit/issues/1481),
+    [#1547](https://github.com/vig-os/devkit/issues/1547)) — with no prior
+    signal, even though every date had been chosen deliberately weeks earlier
+  - `check-expirations` gains `--warn-days N` (emit `::warning::` annotations
+    for entries falling due within N days, exit code untouched) and `--json`
+    (emit the `expired`/`expiring` classification on stdout). The flags compose,
+    and they keep the utility the single parser of the `Expiration:` grammar —
+    no caller re-implements it
+  - The nightly `security-scan` gains a third, non-failing issue class: one
+    deduplicated notice per scanned ref per distinct upcoming expiry date,
+    titled `Security exception register (<ref>): exceptions expire <date>`,
+    covering `.vulnixignore`, `.trivyignore` **and**
+    `.github/dependency-review-allow.txt`
+  - The step runs *before* the blocking validation step, so an already-red
+    register still reports what is coming next, and it is `continue-on-error`
+    so a missed notice can never turn a green scan red
+  - Seven days is one expiry-grid period: dates land on a Wednesday, so the
+    notice does too, one full Renovate cycle ahead of the red. The issue body
+    spells out that a renewal is a re-verification, not a date bump — read the
+    findings delta, delete what the pin advance cleared — because the notice
+    deliberately arrives before that data exists
+  - Default behaviour is unchanged: no existing call site, exit code or output
+    moves
+
+- **A failed `devkit-upgrade` now leaves a tracking issue in the consumer repo**
+  ([#1530](https://github.com/vig-os/devkit/issues/1530))
+  - The adoption branch only reaches the remote in the publish step, so a
+    failure before it (version resolve, scaffold run, in-shell commit) was
+    visible only as a red scheduled run — and the consumer's `DEVKIT_VERSION`
+    then stopped moving, silently, week after week
+  - A new `report` job files **one** issue per repo carrying the run URL, the
+    failing step (read off the run's own job records) and the pinned vs target
+    version; every repeat failure comments on that same issue, and the next
+    fully green run closes it with a link to the green run
+  - Not a revert of [#1405](https://github.com/vig-os/devkit/issues/1405): that
+    dropped the per-adoption issue on the **success** path, where the bot PR is
+    the artifact. This one exists only where there is no artifact
+  - Reporting is best-effort by design: the `issues: write` grant is minted as
+    a **separate**, `continue-on-error` token, so an App installation that
+    never received it degrades to a warning instead of turning a working
+    upgrade red. Grant `issues: write` to the devkit-upgrade App to switch
+    reporting on
+
+### Changed
+
+- **Security-exception expiries are staggered across distinct Wednesdays**
+  ([#1553](https://github.com/vig-os/devkit/issues/1553))
+  - 29 of the 33 live exception entries expired on the same day, `2026-09-02`:
+    24 in `.vulnixignore` (7 blocks), 4 in `.trivyignore` (3 blocks) and the
+    one `.github/dependency-review-allow.txt` entry. One stalled review on that
+    date would have taken every open PR's CI, both nightly `security-scan`
+    lanes and the release train red at once — the cliff that
+    `docs/CONTAINER_SECURITY.md` already warns about ("stagger across weeks,
+    not weekdays")
+  - Each block now owns a distinct Wednesday, spread by week-multiples and
+    ordered by how soon its remediation lever can move: podman keeps
+    `2026-09-02` as the anchor (weekly re-check, backport open), then unbound
+    `09-09`, the libssh2 6603x batch `09-16`, libssh2 `CVE-2026-58050` `09-23`,
+    the lower-reachability batch `09-30`, fzf `10-07` and glibc `10-14` (no
+    rev-advance lever exists, so it takes the longest window). The
+    `.trivyignore` blocks follow at `10-21`/`10-28`/`11-04` and the
+    dependency-review allow-list at `11-11`, keeping that register's review off
+    the vulnix weeks
+  - The Class-1 CPE-mismatch block keeps its yearly `2027-06-23`
+  - Scheduling only: no risk assessment was re-opened and no entry was added or
+    removed. Every re-dated block records the move and its justification in the
+    register's own note style
+
+#### Dependencies
+
+- Update `github/codeql-action` from `5595cca` to `ff2f1c6` ([#1524](https://github.com/vig-os/devkit/pull/1524))
+- Update `aquasecurity/trivy` from `v0.73.0` to `v0.74.0` ([#1525](https://github.com/vig-os/devkit/pull/1525))
+- Update `cachix/install-nix-action` from `v31.11.0` to `v31.11.1` ([#1525](https://github.com/vig-os/devkit/pull/1525))
+- Update `astral-sh/setup-uv` from `v9.0.0` to `v10.0.1` ([#1526](https://github.com/vig-os/devkit/pull/1526))
+- Lock file maintenance (pip) ([#1527](https://github.com/vig-os/devkit/pull/1527), [#1556](https://github.com/vig-os/devkit/pull/1556))
+
+### Fixed
+
+- **`just doctor` no longer calls a tilde signing-key path incomplete**
+  ([#1546](https://github.com/vig-os/devkit/issues/1546))
+  - `user.signingkey = ~/.ssh/<key>.pub` is a working SSH-signing setup — git
+    expands the leading `~/` when it consumes the value — but the readability
+    guard tested it with `test -r`, which performs no tilde expansion, so a
+    correctly configured host was told its signing was `incomplete`
+  - The guard now expands a leading `~/` against `$HOME` before the test, in
+    both the devkit `justfile` and the scaffolded `assets/workspace/justfile`.
+    The `PASS` line still reports the raw value, so it keeps mirroring
+    `git config`
+
+- **A nightly security scan that fails before the gate now files a tracking
+  issue too** ([#1548](https://github.com/vig-os/devkit/issues/1548))
+  - The issue-opening step was guarded on `steps.vulnix-gate.outcome ==
+    'failure'` — an outcome that is *empty* whenever an earlier step fails. An
+    expired `.vulnixignore` register, a failed closure build or a vulnix crash
+    therefore produced a red run and nothing else, on a workflow whose whole
+    point is that a scheduled run has no other signal
+  - It fired for real on 2026-08-20: an expired block failed the job's first
+    step on both lanes and surfaced nowhere
+    ([#1547](https://github.com/vig-os/devkit/issues/1547))
+  - The guard is now `failure()` alone, and the two failure classes carry
+    distinct titles that dedup independently per ref: a red gate keeps its
+    existing title, while a pre-gate failure files *run failed before the vulnix
+    gate* and names the failing step, read off the run's own job records
+    (`actions: read`). A pre-gate failure means the closure went **unscanned**,
+    not clean — the body says so
+- **Release CI gate now counts only the latest run of each check**
+  ([#1522](https://github.com/vig-os/devkit/issues/1522))
+  - The gate counted **every** FAILURE entry in the release PR head SHA's
+    `statusCheckRollup`. A superseded workflow run leaves its check runs
+    attached to that same SHA, so the gate refused a branch `gh pr checks` —
+    which keeps only the latest run per name — reported green. During the
+    1.10.0 train that forced deleting the superseded run to proceed
+    ([#1516](https://github.com/vig-os/devkit/issues/1516))
+  - All six copies of the gate now group the rollup by check name and evaluate
+    the most recent run of each: devkit's `release.yml` and `promote-release.yml`
+    (validate and merge), and the consumer `release-core.yml` and
+    `promote-release.yml` (validate and merge). A re-run still in flight is the
+    latest, so it holds the gate open as before, and a genuinely failing latest
+    run still blocks
+- **Release CI gate now reads commit-status results**
+  ([#1538](https://github.com/vig-os/devkit/issues/1538))
+  - The gate classified every `statusCheckRollup` entry by `.conclusion`, a
+    field only Checks-API entries carry. A commit status reports `state`
+    instead, so it always landed in the pending bucket and held the gate open
+    **forever**: a red status could never block, a green one never stop
+    counting as pending
+  - All six copies now classify each entry on a normalized verdict that falls
+    back from `.conclusion` to `.state`: `FAILURE`/`ERROR` block,
+    `PENDING`/`EXPECTED` wait, `SUCCESS` counts as a passing check. Checks-API
+    entries are unaffected — an in-progress one still resolves to null and
+    counts as pending
+  - Latent today (nothing in the org publishes commit statuses); it becomes
+    live the day a consumer adopts a tool that reports through the status API
+- **`just gh-issues` CI column now shows the live re-run, not the failure it
+  supersedes**
+  ([#1539](https://github.com/vig-os/devkit/issues/1539))
+  - The PR table's latest-per-name check dedup keyed recency on `completedAt`,
+    which is null while a re-run is in flight: the live run ranked as the
+    *oldest* run of its name, so the column reported the superseded FAILURE
+    during exactly the window someone watches a re-run
+  - Recency is now keyed on `startedAt` (set at creation, never null) with a
+    `createdAt` fallback for commit statuses, matching the release CI gates
+    ([#1522](https://github.com/vig-os/devkit/issues/1522)). Display-only — the
+    table is not a gate
+- **`just gh-issues` CI column now reads commit-status results**
+  ([#1544](https://github.com/vig-os/devkit/issues/1544))
+  - The PR table grouped the rollup by `name` and classified each entry by
+    `conclusion`, both fields only Checks-API entries carry. Every commit
+    status on a PR collapsed into a single `"?"` bucket, and whatever survived
+    rendered as pending: a red status never showed as failed, a green one never
+    counted toward the pass tally
+  - Grouping now keys on name-or-context and each entry is classified on a
+    normalized verdict that falls back from `conclusion` to `state`, so the
+    table reads a rollup exactly as the release CI gates do
+    ([#1522](https://github.com/vig-os/devkit/issues/1522),
+    [#1538](https://github.com/vig-os/devkit/issues/1538)). Checks-API entries
+    render as before. Display-only — the table is not a gate
+- **Describing a bot-identity bug no longer trips the agent-fingerprint check**
+  ([#1521](https://github.com/vig-os/devkit/issues/1521))
+  - The `emails` blocklist was matched as a bare substring over the whole
+    content, while `names` had carried an attribution-context guard since
+    [#274](https://github.com/vig-os/devkit/issues/274). A changelog entry that
+    quoted a CI bot identity in an inline code span therefore blocked its own
+    release PR, because `prepare-release` renders the changelog section into the
+    PR body — exactly what stalled the 1.10.0 train
+    ([#1516](https://github.com/vig-os/devkit/issues/1516))
+  - `contains_agent_fingerprint` now strips inline code spans before matching
+    `emails`, so a quoted identity reads as prose. Matching stays
+    case-insensitive, `names` and trailer rules are untouched, and a plain-text
+    attribution — a `Co-authored-by` trailer, a sign-off, an author line —
+    still fails
+- **Generated mirror-fold comment now lints under the stock consumer typos
+  seed** ([#1529](https://github.com/vig-os/devkit/issues/1529))
+  - A comment the `DEVKIT_SYNC_TARGET` block renders into the managed
+    `release-core.yml` used a token that only devkit's own `.typos.toml`
+    allowlists, so every mirror-mode consumer whose seeded `.typos.toml`
+    predates that entry failed its `devkit-upgrade` at the commit step —
+    `.typos.toml` is seeded once and never overwritten, so the consumer could
+    not receive the entry. Reworded; the tree the scaffold generates is now
+    typo-clean with no allowlist at all
+  - Pinned by a new bats fixture that renders a mirror-mode workspace in both
+    workflow models and runs `typos` (no allowlist) plus `actionlint` over it
+    ([#1531](https://github.com/vig-os/devkit/issues/1531)) — the fold block
+    has one consumer in the org, so nothing else linted it
+- **Synced devkit changelog no longer leans on a typos allowlist entry the
+  consumer may not have**
+  ([#1534](https://github.com/vig-os/devkit/issues/1534))
+  - `assets/workspace/.devcontainer/CHANGELOG.md` is a manifest-synced copy of
+    the root changelog, and devcontainer-mode consumers **git-track** it — so
+    their own typos hook lints it against a `.typos.toml` that is seeded once
+    and never overwritten. The released 1.10.0 entry carries two hyphenated
+    compounds that lint only under
+    [#1488](https://github.com/vig-os/devkit/issues/1488)'s allowlist entry, so
+    a consumer seeded before that release would fail its upgrade at the commit
+    step, exactly as org-config did in
+    [#1529](https://github.com/vig-os/devkit/issues/1529) — and neither of the
+    two config files that could fix it is ever overwritten
+  - Released changelog text is immutable, so the manifest de-hyphenates those
+    two spellings in the generated **dest** only: the root file keeps its
+    released bytes and the mirror is clean under `typos --isolated`, with no
+    allowlist at all
+  - A new devkit-only `check-unreleased-typos` hook lints the `## Unreleased`
+    section with no allowlist before it can be committed, so no future release
+    can freeze another seed-dependent word into immutable text — catching one
+    after the release is useless. Released sections keep their allowlisted
+    tokens and are out of scope
+  - The [#1531](https://github.com/vig-os/devkit/issues/1531) render lint gains
+    a devcontainer-mode leg: that tracked tree — synced changelog and
+    `version-check.sh` included — must need no allowlist entry newer than the
+    grandfathered words every live consumer's seed predates
+
+### Security
+
+- **`devkit-upgrade` fetches `install.sh` from the target release tag, not
+  `main`** ([#1532](https://github.com/vig-os/devkit/issues/1532))
+  - The managed workflow ran a `main`-tip installer while scaffolding a pinned
+    `$TARGET` payload — an untested pairing, and the one every *scheduled*
+    consumer run got whenever `main` was ahead of the latest release. It also
+    meant any push to devkit `main` immediately changed code executing with
+    `contents: write` in every consumer repo, with no review gate
+  - The fetch is now `refs/tags/${TARGET}/install.sh`, so installer and payload
+    move together and only a published release can change what runs. No `main`
+    fallback is needed: the resolve step admits only `X.Y.Z[-prerelease]`
+    versions, and every devkit tag of that shape carries a root-level
+    `install.sh`
+  - Scorecard's `Pinned-Dependencies` finding on the consumer copy is expected
+    to remain — it wants a commit SHA, and SHA-pinning a self-upgrading
+    installer is circular by construction; dismiss it consumer-side
+- **Renew the fzf exception block in the vulnix register**
+  ([#1547](https://github.com/vig-os/devkit/issues/1547))
+  - The block expired 2026-08-19, failing `check-expirations` on every branch
+    (the hook runs inside the flake's `pre-commit` check) and on both lanes of
+    the nightly security scan, which aborts before vulnix ever runs
+  - Re-verified against the current pin before renewing: both CVEs are still
+    live findings against `fzf-0.72.0`, and `nixos-26.05`, `release-26.05` and
+    `staging-26.05` all still ship 0.72.0 with no backport PR open, so
+    advancing the pin cannot clear them either
+  - Renewed onto the shared `2026-09-02` grid date, so the whole register comes
+    up for review in one pass. The risk assessment is unchanged: both findings
+    are availability-only and unreachable on this image (32-bit-only overflow;
+    opt-in `--listen` server)
+
 ## [1.10.0](https://github.com/vig-os/devkit/releases/tag/1.10.0) - 2026-08-14
 
 ### Added
@@ -134,9 +386,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     path(s)" and the release branch never moved, taking the issue/PR snapshots
     out of `main`. Single-file callers could never expose it
   - The list is now comma-joined from `git diff --cached -z`, which also fixes
-    two latent mis-parses in the old `git status --porcelain | awk '{print $2}'`
+    two latent misparses in the old `git status --porcelain | awk '{print $2}'`
     (C-quoted paths containing spaces, and `R old -> new` renames), and fails
-    loudly on a path containing a comma rather than mis-splitting it
+    loudly on a path containing a comma rather than missplitting it
   - The re-pull step now **verifies the post-condition**: if the release branch
     does not carry the mirror's archive after the fold, the leg fails instead
     of reporting success

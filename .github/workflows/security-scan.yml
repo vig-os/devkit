@@ -24,7 +24,19 @@
 #   - A deduplicated `security-scan` tracking issue is opened per ref (#965,
 #     #1237), with a ref-distinct title so the two lanes never collide on dedup.
 #     Scheduled runs execute from the default branch with no other signal, so a
-#     red gate must surface as an issue, not just a red run.
+#     red run must surface as an issue, not just a red run.
+#   - Two failure classes, two titles, deduped independently (#1548): a red
+#     GATE (unexcepted HIGH/CRITICAL findings) and a failure anywhere BEFORE the
+#     gate (expired `.vulnixignore` register, closure build, vulnix crash) —
+#     the latter means the closure went UNSCANNED, which used to surface
+#     nowhere at all.
+#
+# Ahead of failure (#1552):
+#   - A third, non-failing issue class: exceptions within 7 days of expiring get
+#     an advance-notice issue, one per (ref x distinct expiry date), so the
+#     re-review is scheduled work instead of the day-after outage that #1260,
+#     #1481 and #1547 each were. It is a notice, not a gate — the hard gate is
+#     still the validation step.
 #
 # Artifacts:
 #   - vulnix findings (JSON + table) and a CycloneDX SBOM (uploaded)
@@ -70,7 +82,8 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
-      issues: write  # open a deduplicated tracking issue when the vulnix gate fails (#965)
+      issues: write  # open a deduplicated tracking issue when the nightly scan fails (#965)
+      actions: read  # name the failing step from this run's own job records (#1548)
 
     steps:
       - name: Checkout repository
@@ -87,6 +100,99 @@ jobs:
           sync-dependencies: 'true'
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      # ADVANCE NOTICE, not a gate (#1552). Deliberately placed BEFORE the
+      # validation step below: an already-red register fails that step and ends
+      # the job, so a notice scheduled after it would go silent exactly on the
+      # runs where the next wave of expiries is most worth knowing about. This
+      # step never fails the job (`continue-on-error`) — the hard gate stays the
+      # validation step, and a missed notice must never turn a green scan red.
+      #
+      # 7 days is one expiry-grid period: `docs/CONTAINER_SECURITY.md` puts every
+      # `Expiration:` on a Wednesday so an entry turns red on the Thursday AFTER
+      # the week's Renovate nixpkgs bump and the first nightly findings delta. A
+      # 7-day lead therefore lands the notice on a Wednesday too, one full
+      # Renovate cycle ahead of the red.
+      #
+      # All three registers are covered, not just `.vulnixignore`: the nightly
+      # scan only gates on that one, but `.trivyignore` and the dependency-review
+      # allow-list red every branch just as hard when they lapse (#1260).
+      - name: Warn on security exceptions expiring within 7 days
+        # Best-effort by construction: a classification hiccup or an issue the
+        # API refuses to create degrades to a warning, never a red nightly scan.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SCAN_REF: ${{ matrix.ref }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          WARN_DAYS: '7'
+        run: |
+          set -euo pipefail
+          # `--json` keeps check-expirations the single parser of the
+          # `Expiration:` grammar — the workflow never re-implements it. The
+          # `|| true` is for the EXPIRED case only: the utility still exits 1 on
+          # an expired entry (and still prints the payload), and that failure is
+          # the next step's verdict to deliver, not this one's.
+          PAYLOAD="$(uv run check-expirations --warn-days "$WARN_DAYS" --json \
+            .vulnixignore .trivyignore .github/dependency-review-allow.txt || true)"
+          if ! jq -e . <<<"$PAYLOAD" > /dev/null 2>&1; then
+            echo "::warning::could not classify the exception registers; the validation step below reports the real failure"
+            exit 0
+          fi
+          # ONE ISSUE PER (ref x distinct expiry date). Per-date rather than one
+          # rolling issue because a date maps 1:1 to a single combined review
+          # pass, it dedups on a stable title, and staggered dates get their own
+          # issues — which reinforces the "stagger across weeks" rule in
+          # docs/CONTAINER_SECURITY.md instead of flattening it back into one.
+          mapfile -t EXPIRIES < <(jq -r '[.expiring[].expiration] | unique | .[]' <<<"$PAYLOAD")
+          if [ "${#EXPIRIES[@]}" -eq 0 ]; then
+            echo "No security exceptions expire within ${WARN_DAYS} days on ${SCAN_REF}"
+            exit 0
+          fi
+          gh label create security-scan \
+            --description 'Automated nightly security scan findings for the Nix devcontainer image' \
+            --color BFD4F2 --force 2>/dev/null || true
+          for EXPIRY in "${EXPIRIES[@]}"; do
+            TITLE="Security exception register (${SCAN_REF}): exceptions expire ${EXPIRY}"
+            # Same dedup shape as the failure-reporting step below (title, not
+            # label alone, so human-filed security-scan issues never collide) —
+            # with an exact-title filter on top, because GitHub's search
+            # tokenises a date and would otherwise let one date's open issue
+            # suppress another date's notice.
+            EXISTING="$(gh issue list --state open --label security-scan \
+              --search "\"$TITLE\" in:title" --json number,title \
+              | jq -r --arg t "$TITLE" 'map(select(.title == $t)) | .[0].number // empty')"
+            if [ -n "$EXISTING" ]; then
+              echo "Open notice already exists for ${EXPIRY}: #${EXISTING} -- skipping create"
+              continue
+            fi
+            ENTRIES="$(jq -r --arg d "$EXPIRY" \
+              '.expiring[] | select(.expiration == $d) | "- `\(.id)` — `\(.file)` (\(.days_left) day(s) left)"' \
+              <<<"$PAYLOAD")"
+            BODY="$(cat <<EOF
+          The following security exceptions on \`${SCAN_REF}\` expire on **${EXPIRY}** — within ${WARN_DAYS} days. They are still valid; \`check-expirations\` starts failing every branch, both nightly lanes and the release train the day *after* that date.
+
+          ${ENTRIES}
+
+          - **Scanned ref:** \`${SCAN_REF}\`
+          - **Expiry date:** ${EXPIRY}
+          - **Workflow run:** ${RUN_URL}
+
+          **A renewal is a re-verification, not a date bump.** Before touching any date:
+
+          1. Read the latest nightly findings delta for this ref (the \`nix-image-cve-scan-${SCAN_REF}\` artifact on the most recent run) against the current closure.
+          2. **Delete** every entry the pin advance has cleared — the expiry grid exists so entries die rather than roll forward.
+          3. Renew only what is still genuinely accepted, re-stating the rationale, and snap the new date onto the Wednesday grid.
+
+          See \`docs/CONTAINER_SECURITY.md\` (*Exception registers* / *Expiry dates land on a Wednesday*). Close this issue once the register has been reconciled.
+          EOF
+          )"
+            gh issue create \
+              --title "$TITLE" \
+              --label security-scan --label security \
+              --body "$BODY" \
+              || echo "::warning::could not open the expiry notice for ${EXPIRY}"
+          done
 
       - name: Validate .vulnixignore exception expirations
         run: uv run check-expirations .vulnixignore
@@ -169,7 +275,7 @@ jobs:
       - name: Generate Nix image SBOM (CycloneDX)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          version: 'v0.73.0'
+          version: 'v0.74.0'
           input: /tmp/nix-image.tar.gz
           format: 'cyclonedx'
           output: 'sbom-nix-cyclonedx.json'
@@ -178,7 +284,7 @@ jobs:
         continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          version: 'v0.73.0'
+          version: 'v0.74.0'
           scan-type: 'sbom'
           scan-ref: 'sbom-nix-cyclonedx.json'
           format: 'table'
@@ -227,14 +333,21 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Restore the deduplicated tracking issue lost in the Debian->Nix cutover
-      # (#965): a scheduled run from the default branch has no other signal, so a
-      # red vulnix gate must surface as an issue, not just a red run.
-      - name: Open a tracking issue when the vulnix gate fails
-        # failure() lets this step run despite the failing gate; the outcome
-        # guard scopes it to a gate failure (not an infra/scan crash upstream).
-        if: ${{ failure() && steps.vulnix-gate.outcome == 'failure' }}
+      # (#965): a scheduled run from the default branch has no other signal, so
+      # a red scan must surface as an issue, not just a red run.
+      - name: Open a tracking issue when the nightly scan fails
+        # `failure()` ALONE. The previous guard also required
+        # `steps.vulnix-gate.outcome == 'failure'`, which scoped reporting to the
+        # one failure mode that happens AT the gate: any earlier step (register
+        # validation, closure build, the vulnix run itself) leaves that outcome
+        # empty, so the guard was false and the run died silently. An expired
+        # `.vulnixignore` block did exactly that on both lanes on 2026-08-20,
+        # failing the FIRST step of the job (#1548). The two classes carry
+        # distinct titles below, so each dedups independently per ref (#1237).
+        if: ${{ failure() }}
         env:
           GH_TOKEN: ${{ github.token }}
+          GATE_OUTCOME: ${{ steps.vulnix-gate.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SECURITY_URL: ${{ github.server_url }}/${{ github.repository }}/security
           SCAN_REF: ${{ matrix.ref }}
@@ -245,25 +358,15 @@ jobs:
           gh label create security-scan \
             --description 'Automated nightly security scan findings for the Nix devcontainer image' \
             --color BFD4F2 --force 2>/dev/null || true
-          # Dedup by the auto-issue's distinctive title, NOT the label alone, so
-          # we never collide with human-filed security-scan issues (per-CVE
-          # triage, this very regression, etc.). One open tracking issue at a
-          # time; it is closed when a later scheduled run passes the gate. The
-          # ref is in the title so the main and dev lanes dedup independently
-          # and never collide on each other's issue (#1237).
-          TITLE="Nightly security scan (${SCAN_REF}): unexcepted HIGH/CRITICAL vulnix findings"
-          EXISTING=$(gh issue list --state open --label security-scan \
-            --search "\"$TITLE\" in:title" --json number -q '.[0].number // empty')
-          if [ -n "$EXISTING" ]; then
-            echo "Open tracking issue already exists: #$EXISTING -- skipping create"
-            exit 0
-          fi
-          BODY="$(cat <<EOF
+          SCAN_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          if [ "${GATE_OUTCOME}" = "failure" ]; then
+            TITLE="Nightly security scan (${SCAN_REF}): unexcepted HIGH/CRITICAL vulnix findings"
+            BODY="$(cat <<EOF
           The nightly vulnix gate found **unexcepted HIGH/CRITICAL** CVEs in the \`${SCAN_REF}\` Nix image closure (after \`.vulnixignore\`).
 
           - **Scanned ref:** \`${SCAN_REF}\`
           - **Scan target:** flake \`devkitImageEnv\` (image package closure)
-          - **Scan date (UTC):** $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          - **Scan date (UTC):** ${SCAN_DATE}
           - **Workflow run:** ${RUN_URL}
           - **Findings artifact:** \`nix-image-cve-scan-${SCAN_REF}\` on the run above (\`vulnix-findings.json\`, \`vulnix-report.txt\`)
           - **Security tab:** ${SECURITY_URL}
@@ -271,6 +374,41 @@ jobs:
           **To remediate:** advance the pinned nixpkgs rev if a fix has landed, or add a time-boxed \`.vulnixignore\` exception with a rationale (see \`docs/CONTAINER_SECURITY.md\`). Close this issue once a later scheduled run passes the gate.
           EOF
           )"
+          else
+            # Name the failing step from this run's own job records (the
+            # devkit-upgrade report's lookup, #1530) — no per-step
+            # instrumentation to keep in sync with the steps above. Scoped to
+            # THIS matrix leg by job-name suffix, so the dev lane never reports
+            # main's failing step.
+            FAILED="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs" \
+              --jq "[.jobs[] | select(.name | endswith(\"[${SCAN_REF}]\")) | .steps[]? | select(.conclusion == \"failure\") | .name] | join(\", \")" \
+              2>/dev/null || true)"
+            [ -n "$FAILED" ] || FAILED='unknown, see the run log'
+            TITLE="Nightly security scan (${SCAN_REF}): run failed before the vulnix gate"
+            BODY="$(cat <<EOF
+          The nightly security scan for \`${SCAN_REF}\` failed **before the vulnix gate ran**, so this run produced no CVE verdict at all — the closure is unscanned, not clean.
+
+          - **Scanned ref:** \`${SCAN_REF}\`
+          - **Failing step:** ${FAILED}
+          - **Scan date (UTC):** ${SCAN_DATE}
+          - **Workflow run:** ${RUN_URL}
+
+          **Most likely cause:** an expired \`.vulnixignore\` exception. The register's expiry dates are *designed* to fire (Wednesday grid, see \`docs/CONTAINER_SECURITY.md\`); renew or drop the block and the scan resumes. Otherwise triage the failing step in the run log — a closure build or vulnix crash needs a different fix. Close this issue once a later scheduled run completes.
+          EOF
+          )"
+          fi
+          # Dedup by the auto-issue's distinctive title, NOT the label alone, so
+          # we never collide with human-filed security-scan issues (per-CVE
+          # triage, this very regression, etc.). One open tracking issue per
+          # class per ref; it is closed when a later scheduled run recovers. The
+          # ref is in the title so the main and dev lanes dedup independently
+          # and never collide on each other's issue (#1237).
+          EXISTING=$(gh issue list --state open --label security-scan \
+            --search "\"$TITLE\" in:title" --json number -q '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "Open tracking issue already exists: #$EXISTING -- skipping create"
+            exit 0
+          fi
           gh issue create \
             --title "$TITLE" \
             --label security-scan --label security \

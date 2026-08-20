@@ -12,14 +12,19 @@ Two families live here:
   the loader, the ``on:``-key quirk handling, job/step lookups, and the
   resolve-toolchain executed-bash harness live here once instead of as
   per-file private copies.
+- The CI-green gate harness (#1522): ``extract_ci_gate``/``run_ci_gate`` slice
+  the release-PR CI gate out of a workflow step and EXECUTE it against a
+  fixture ``statusCheckRollup``. Shape assertions cannot tell a correct jq
+  filter from a plausible one — the #1516 stale-FAILURE hazard is behavior.
 
-Refs: #1210, #1413
+Refs: #1210, #1413, #1522
 """
 
 from __future__ import annotations
 
 import atexit
 import functools
+import json
 import os
 import re
 import shutil
@@ -125,6 +130,55 @@ def run_resolve_toolchain(
         text=True,
     )
     return parse_github_output(github_output)
+
+
+_GATE_START_RE = re.compile(r"^\s*STATUS_ROLLUP=")
+_GATE_ASSIGN_RE = re.compile(r"^\s*CI_[A-Z_]+=")
+
+
+def extract_ci_gate(run: str) -> str:
+    """Slice the release-PR CI-green gate out of a verification step's bash.
+
+    The gate runs from the ``STATUS_ROLLUP=`` assignment through the ``fi`` of
+    the last ``CI_*`` check, so the slice adapts to copies that carry only the
+    failure check (``release-core.yml``) as well as those that also gate on
+    pending/success. Everything around it (``gh pr list``, draft, approval and
+    mergeability gates) needs GitHub and is left out.
+    """
+    lines = run.splitlines()
+    starts = [i for i, line in enumerate(lines) if _GATE_START_RE.match(line)]
+    assert len(starts) == 1, f"expected exactly one STATUS_ROLLUP gate, got {starts}"
+    start = starts[0]
+    assigns = [
+        i for i, line in enumerate(lines) if i > start and _GATE_ASSIGN_RE.match(line)
+    ]
+    assert assigns, "no CI_* assignment after STATUS_ROLLUP"
+    end = next(i for i in range(assigns[-1], len(lines)) if lines[i].strip() == "fi")
+    return "\n".join(lines[start : end + 1])
+
+
+def run_ci_gate(gate: str, rollup: list[dict]) -> subprocess.CompletedProcess[str]:
+    """Execute an extracted CI gate against a fixture ``statusCheckRollup``.
+
+    ``rollup`` is wrapped in the ``gh pr list`` envelope the gate reads
+    (``PR_JSON`` = a one-element array). Returns the completed process so
+    callers assert on both the exit code and the operator-facing message.
+    """
+    payload = json.dumps([{"statusCheckRollup": rollup}])
+    script = "\n".join(
+        [
+            "set -euo pipefail",
+            "PR_NUMBER=1",
+            "PR_JSON=$(cat <<'DEVKIT_PR_JSON'",
+            payload,
+            "DEVKIT_PR_JSON",
+            ")",
+            gate,
+        ]
+    )
+    return subprocess.run(
+        ["bash", "-c", script], capture_output=True, text=True, check=False
+    )
 
 
 def parse_github_output(path: Path) -> dict[str, str]:

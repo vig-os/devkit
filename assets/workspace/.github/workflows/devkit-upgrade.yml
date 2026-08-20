@@ -10,10 +10,17 @@
 # adoption issue (vig-os/devkit#1405) — like a Renovate PR, the bot PR is the
 # traceable artifact and the changelog entry (vig-os/devkit#1404) links it.
 #
+# A FAILED run does leave an artifact (vig-os/devkit#1530): the `report` job
+# files one tracking issue per repo, comments on it on every repeat failure and
+# closes it on the next green run. Without it a failure is visible only as a red
+# scheduled run and the pin silently stops moving.
+#
 # Requires a dedicated GitHub App identity: DEVKIT_UPGRADE_APP_CLIENT_ID +
 # DEVKIT_UPGRADE_APP_PRIVATE_KEY (repo or org secrets) feed a per-run
 # installation token minted in-workflow — contents:write + pull-requests:write +
-# workflows:write on this repo. The legacy numeric
+# workflows:write on this repo, plus issues:write for the failure report (the
+# only optional grant: the report degrades to a warning without it, the upgrade
+# itself is unaffected). The legacy numeric
 # DEVKIT_UPGRADE_APP_ID still works this release (either value is a valid App
 # JWT issuer); vig-os/devkit#1366 retires it. The default GITHUB_TOKEN cannot
 # open the PR: PRs it creates do not trigger CI. A static PAT is not supported
@@ -53,6 +60,11 @@ jobs:
       # identity, so the PR triggers CI); the default token stays read-only
       # for the public releases/latest query.
       contents: read
+    outputs:
+      # Consumed by the `report` job (#1530) so a failure alert can name the
+      # versions. Both are empty when the resolve step never got that far.
+      current: ${{ steps.resolve.outputs.current }}
+      target: ${{ steps.resolve.outputs.target }}
     steps:
       - name: Require the upgrade App identity
         env:
@@ -62,7 +74,7 @@ jobs:
         run: |
           set -euo pipefail
           if { [ -z "${APP_CLIENT_ID}" ] && [ -z "${APP_ID_LEGACY}" ]; } || [ -z "${APP_PRIVATE_KEY}" ]; then
-            echo "::error::DEVKIT_UPGRADE_APP_CLIENT_ID / DEVKIT_UPGRADE_APP_PRIVATE_KEY secrets are not configured. This workflow needs a dedicated GitHub App identity (contents:write + pull-requests:write + workflows:write): the default GITHUB_TOKEN cannot open a PR that triggers CI, and a static PAT is not supported. See https://github.com/vig-os/devkit/issues/1302."
+            echo "::error::DEVKIT_UPGRADE_APP_CLIENT_ID / DEVKIT_UPGRADE_APP_PRIVATE_KEY secrets are not configured. This workflow needs a dedicated GitHub App identity (contents:write + pull-requests:write + workflows:write, plus optional issues:write for the failure report): the default GITHUB_TOKEN cannot open a PR that triggers CI, and a static PAT is not supported. See https://github.com/vig-os/devkit/issues/1302."
             exit 1
           fi
           if [ -z "${APP_CLIENT_ID}" ]; then
@@ -139,6 +151,9 @@ jobs:
             echo "::error::.vig-os has no DEVKIT_VERSION pin."
             exit 1
           fi
+          # Published before anything below can fail, so a failure report always
+          # names the pin the repo is stuck on (#1530).
+          echo "current=${CURRENT}" >> "$GITHUB_OUTPUT"
 
           if [ "$EVENT_NAME" = "schedule" ]; then
             # Opt-out knob: gates the schedule path only. Empty (default) or any
@@ -197,7 +212,7 @@ jobs:
 
       - name: Install Nix
         if: steps.resolve.outputs.proceed == 'true'
-        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342  # v31.11.0
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31.11.1
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
@@ -216,7 +231,16 @@ jobs:
           # preinstalled podman can pair with a stale system crun that rejects
           # podman >= 5's OCI configs (#1305) — auto-detection now prefers a
           # responsive docker anyway, this makes the choice self-documenting.
-          curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh \
+          #
+          # The installer comes from the TARGET's own tag, not main (#1532):
+          # installer and scaffold payload must move together — a main-tip
+          # installer paired with a released payload is an untested combination,
+          # and it is what every scheduled run got while main was ahead of the
+          # latest release. It also removes the window where any push to devkit
+          # main changes code executing here with contents: write. No main
+          # fallback: the resolve step above admits only X.Y.Z[-pre] versions,
+          # and every devkit tag of that shape carries a root-level install.sh.
+          curl -sSfL "https://raw.githubusercontent.com/vig-os/devkit/refs/tags/${TARGET}/install.sh" \
             | bash -s -- --force --version "$TARGET" --skip-preflight --docker . \
             | tee "$RUNNER_TEMP/install.log"
           # Surface the flake-input advance outcome (#1497): install.sh prints
@@ -371,3 +395,124 @@ jobs:
             gh pr create --base "$BASE" --head "$BRANCH" --title "$TITLE" --body "$BODY"
             echo "Opened the adoption PR."
           fi
+
+  # Failure reporting (#1530). A failed upgrade leaves nothing in the repo: the
+  # adoption branch only reaches the remote in the publish step above, so an
+  # earlier failure (version resolve, scaffold run, in-shell commit) shows up
+  # only as a red scheduled run — and the pin then sits still, week after week.
+  # This is NOT the adoption issue #1405 removed: that one tracked the SUCCESS
+  # path, where the bot PR is already the artifact. Here there is no artifact by
+  # construction, so one tracking issue per repo carries the failure and closes
+  # itself when the upgrade works again.
+  #
+  # A separate job rather than a late `if: failure()` step: a step never runs
+  # once the job itself is aborted (the 30-minute timeout, a lost runner), which
+  # is exactly one of the silent failures this closes. Keying both legs on
+  # `needs.upgrade.result` also reports nothing for a cancelled run.
+  report:
+    name: Report upgrade outcome
+    needs: upgrade
+    # The !cancelled() is load-bearing: a job-level `if` without a status-check
+    # function gets an implicit success() gate, which would skip this job on
+    # exactly the failed runs it exists to report.
+    if: ${{ !cancelled() && (needs.upgrade.result == 'failure' || needs.upgrade.result == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Reads this run's own step conclusions to name the failing step; the
+      # tracking issue itself is written with the App token minted below.
+      actions: read
+    steps:
+      - name: Mint an issues-scoped App token
+        id: issues-token
+        # Best-effort, and load-bearing that it is: create-github-app-token
+        # FAILS the mint when it requests a permission the installation lacks,
+        # and this App has needed no Issues grant since #1405. Requesting it on
+        # the upgrade job's token would therefore turn every green upgrade red
+        # on an org that has not re-granted it — reporting may never break the
+        # path it reports on. Both legs below degrade to a warning instead.
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
+        with:
+          client-id: ${{ secrets.DEVKIT_UPGRADE_APP_CLIENT_ID || secrets.DEVKIT_UPGRADE_APP_ID }}
+          private-key: ${{ secrets.DEVKIT_UPGRADE_APP_PRIVATE_KEY }}
+          # Least-privilege mint (zizmor github-app): the report writes issues
+          # and nothing else — no contents, no PRs, no workflows.
+          permission-issues: write
+
+      - name: File or update the upgrade-failure issue
+        if: needs.upgrade.result == 'failure'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.issues-token.outputs.token }}
+          # No checkout in this job, so gh resolves the repo from the env.
+          GH_REPO: ${{ github.repository }}
+          # The default token reads this run's job records (actions: read).
+          RUN_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          CURRENT: ${{ needs.upgrade.outputs.current }}
+          TARGET: ${{ needs.upgrade.outputs.target }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::warning::This failure was not filed as a tracking issue: the devkit-upgrade App installation is missing the Issues (write) grant. Grant it and the next failure reports itself. See https://github.com/vig-os/devkit/issues/1530."
+            exit 0
+          fi
+          # The lookup keys on a body marker, not on the title: the title stays
+          # version-free so a failure on a NEW target still finds the one open
+          # issue (and no title goes stale), and a marker cannot collide with a
+          # human's issue the way a title prefix can. The plain issue listing is
+          # deliberate over `--search`: it enumerates the repo's open issues
+          # directly instead of the eventually-consistent search index, so an
+          # issue filed minutes ago is already visible. Bound: the 100 most
+          # recent open issues.
+          MARKER='<!-- devkit-upgrade-failure -->'
+          TITLE='chore(devkit): automated devkit upgrade is failing'
+          # Name the failing step from this run's own job records — no per-step
+          # instrumentation to keep in sync with the steps above.
+          FAILED="$(GH_TOKEN="$RUN_TOKEN" gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs" \
+            --jq '[.jobs[].steps[]? | select(.conclusion == "failure") | .name] | join(", ")' \
+            2>/dev/null || true)"
+          [ -n "$FAILED" ] || FAILED='unknown, see the run log'
+          DETAILS="$(printf -- '- Run: %s\n- Failing step: %s\n- Pinned devkit version: %s\n- Target devkit version: %s\n' \
+            "$RUN_URL" "$FAILED" "${CURRENT:-unknown}" "${TARGET:-unknown (the version resolve did not complete)}")"
+          NUM="$(gh issue list --state open --limit 100 --json number,body \
+            | jq -r --arg m "$MARKER" \
+              'map(select((.body // "") | contains($m))) | first | .number // empty')"
+          if [ -n "$NUM" ]; then
+            gh issue comment "$NUM" --body "$(printf 'The devkit upgrade failed again.\n\n%s' "$DETAILS")"
+            echo "Updated tracking issue #${NUM}."
+          else
+            gh issue create --title "$TITLE" --body "$(printf '%s\n\nThe managed devkit-upgrade workflow is failing, so this repo has stopped adopting new devkit releases.\n\n%s\nNothing was pushed: the adoption branch only reaches the remote once the upgrade commit is published, so there is no half-applied state to clean up. Fix the cause and re-run the workflow (or dispatch it with an explicit version) — this issue is filed, updated and closed by the workflow itself.\n' "$MARKER" "$DETAILS")"
+            echo "Filed a tracking issue."
+          fi
+
+      - name: Close the upgrade-failure issue
+        if: needs.upgrade.result == 'success'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ steps.issues-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # ANY fully green run self-cleans the alert, including the no-op
+          # "already current" and DEVKIT_AUTO_UPGRADE=false paths: the workflow
+          # ran end to end, so whatever was recorded no longer reproduces — and
+          # a consumer that opted out should not keep an open alert either.
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "No issues-scoped token; nothing to close."
+            exit 0
+          fi
+          MARKER='<!-- devkit-upgrade-failure -->'
+          NUM="$(gh issue list --state open --limit 100 --json number,body \
+            | jq -r --arg m "$MARKER" \
+              'map(select((.body // "") | contains($m))) | first | .number // empty')"
+          if [ -z "$NUM" ]; then
+            echo "No open devkit-upgrade tracking issue; nothing to close."
+            exit 0
+          fi
+          gh issue close "$NUM" \
+            --comment "$(printf 'The devkit upgrade ran green again: %s\n' "$RUN_URL")"
+          echo "Closed tracking issue #${NUM}."

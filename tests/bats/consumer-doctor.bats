@@ -124,6 +124,33 @@ _run_doctor_at() {
     assert_output --partial "WARN commit signing"
 }
 
+# A tilde path in user.signingkey is a working setup — git expands the leading
+# `~/` when it consumes the value, while `test -r` does not. The scaffolded
+# copy of the guard must expand it too, or a correctly configured consumer host
+# is reported as incomplete. Refs #1546.
+@test "consumer doctor reports PASS for a tilde signing key path" {
+    _scaffold_repo
+    printf 'ssh-ed25519 AAAA test\n' >"$BATS_TEST_TMPDIR/key.pub"
+    git config --file "$GIT_GLOBAL" commit.gpgsign true
+    git config --file "$GIT_GLOBAL" gpg.format ssh
+    # shellcheck disable=SC2088 # the literal, unexpanded tilde IS the fixture
+    git config --file "$GIT_GLOBAL" user.signingkey '~/key.pub'
+    _run_doctor HOME="$BATS_TEST_TMPDIR"
+    assert_success
+    assert_output --partial "PASS commit signing: ssh key ~/key.pub"
+}
+
+@test "consumer doctor warns when a tilde signing key path does not exist" {
+    _scaffold_repo
+    git config --file "$GIT_GLOBAL" commit.gpgsign true
+    git config --file "$GIT_GLOBAL" gpg.format ssh
+    # shellcheck disable=SC2088 # the literal, unexpanded tilde IS the fixture
+    git config --file "$GIT_GLOBAL" user.signingkey '~/missing.pub'
+    _run_doctor HOME="$BATS_TEST_TMPDIR"
+    assert_success
+    assert_output --partial "WARN commit signing"
+}
+
 # ── core.hooksPath verdict, per delivery mode ─────────────────────────────────
 # Devcontainer mode wires it in setup-git-conf.sh; direnv mode wires it on
 # dev-shell entry (githooksPathHook, #1112). Either way the wired state is the

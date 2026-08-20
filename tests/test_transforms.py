@@ -592,7 +592,92 @@ class TestManifestTransformedFlagCoversBanners:
         by_src = {entry.src: entry for entry in sync_manifest.MANIFEST}
         assert not by_src[".claude/worktrees.json"].is_transformed
         assert not by_src[".gitmessage"].is_transformed
-        assert not by_src["CHANGELOG.md"].is_transformed
+
+
+class TestChangelogMirrorSanitization:
+    """The synced changelog mirror carries no seed-dependent typo token (#1534).
+
+    ``assets/workspace/.devcontainer/CHANGELOG.md`` is a manifest-synced copy of
+    the root CHANGELOG.md, and devcontainer-mode consumers **git-track** it — so
+    their own typos hook lints it against a ``.typos.toml`` that was seeded once
+    and is never overwritten by an upgrade. The released 1.10.0 section's
+    ``mis-parses`` / ``mis-splitting`` lint only under #1488's ``mis`` entry, so a
+    consumer seeded before that would fail its upgrade at the commit step,
+    exactly as org-config did in #1529 — and neither of the two config files that
+    could fix it is ever overwritten.
+
+    Released changelog text is immutable by policy, so the fix acts on the
+    generated **dest**: the root file keeps its released bytes byte-for-byte and
+    the mirror carries de-hyphenated spellings that need no allowlist at all.
+    """
+
+    # Tokens the manifest transform rewrites in the mirror (#1534).
+    SANITIZED_TOKENS = ("mis-parses", "mis-splitting")
+
+    def _root_changelog(self):
+        return (project_root / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    def _mirror(self):
+        return project_root / "assets" / "workspace" / ".devcontainer" / "CHANGELOG.md"
+
+    def test_released_source_text_is_untouched(self):
+        """The immutable 1.10.0 entry keeps the tokens in the root changelog."""
+        content = self._root_changelog()
+        for token in self.SANITIZED_TOKENS:
+            assert token in content, (
+                f"{token!r} vanished from the root CHANGELOG.md — released entries "
+                "are immutable; only the synced mirror may be sanitized (#1534)"
+            )
+
+    def test_mirror_drops_the_seed_dependent_tokens(self):
+        """The synced mirror a consumer commits carries neither token."""
+        content = self._mirror().read_text(encoding="utf-8")
+        for token in self.SANITIZED_TOKENS:
+            assert token not in content, (
+                f"{token!r} reached {self._mirror()} — a consumer whose seeded "
+                ".typos.toml predates #1488 cannot commit it (#1534)"
+            )
+
+    def test_changelog_entry_is_flagged_transformed(self):
+        """The dest now differs from the src, so the identity gate must skip it."""
+        sync_manifest = _load_sync_manifest()
+        by_src = {entry.src: entry for entry in sync_manifest.MANIFEST}
+        assert by_src["CHANGELOG.md"].is_transformed
+
+    def test_mirror_is_the_source_plus_the_transforms(self, tmp_path):
+        """Nothing but the sanitizing transforms separates mirror from source.
+
+        The mirror used to be a non-transformed entry, checksummed against the
+        root by the image gate (test_image.py::test_manifest_files); a transformed
+        entry is only checked for existence there, so the equality pin lives here
+        now — it also catches a stale (unsynced) mirror.
+        """
+        sync_manifest = _load_sync_manifest()
+        entry = next(e for e in sync_manifest.MANIFEST if e.src == "CHANGELOG.md")
+        copy = tmp_path / "CHANGELOG.md"
+        copy.write_text(self._root_changelog(), encoding="utf-8")
+        for transform in entry.transforms:
+            transform.apply(copy)
+        assert copy.read_text(encoding="utf-8") == self._mirror().read_text(
+            encoding="utf-8"
+        )
+
+    def test_transforms_are_idempotent_on_the_sanitized_mirror(self, tmp_path):
+        """Re-applying the transforms to an already-synced mirror is a no-op.
+
+        The sync re-runs on every commit that touches the changelog (and on the
+        release branch), so the substitutions must be harmless on text that no
+        longer carries the tokens.
+        """
+        sync_manifest = _load_sync_manifest()
+        entry = next(e for e in sync_manifest.MANIFEST if e.src == "CHANGELOG.md")
+        assert entry.transforms, "the changelog entry must carry the #1534 transforms"
+        copy = tmp_path / "CHANGELOG.md"
+        before = self._mirror().read_text(encoding="utf-8")
+        copy.write_text(before, encoding="utf-8")
+        for transform in entry.transforms:
+            transform.apply(copy)
+        assert copy.read_text(encoding="utf-8") == before
 
 
 class TestDownstreamReleaseDocSync:
