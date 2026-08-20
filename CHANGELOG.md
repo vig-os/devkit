@@ -159,6 +159,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Scorecard's `Pinned-Dependencies` finding on the consumer copy is expected
     to remain — it wants a commit SHA, and SHA-pinning a self-upgrading
     installer is circular by construction; dismiss it consumer-side
+- **Renew the fzf exception block in the vulnix register**
+  ([#1547](https://github.com/vig-os/devkit/issues/1547))
+  - The block expired 2026-08-19, failing `check-expirations` on every branch
+    (the hook runs inside the flake's `pre-commit` check) and on both lanes of
+    the nightly security scan, which aborts before vulnix ever runs
+  - Re-verified against the current pin before renewing: both CVEs are still
+    live findings against `fzf-0.72.0`, and `nixos-26.05`, `release-26.05` and
+    `staging-26.05` all still ship 0.72.0 with no backport PR open, so
+    advancing the pin cannot clear them either
+  - Renewed onto the shared `2026-09-02` grid date, so the whole register comes
+    up for review in one pass. The risk assessment is unchanged: both findings
+    are availability-only and unreachable on this image (32-bit-only overflow;
+    opt-in `--listen` server)
 
 ## [1.10.0](https://github.com/vig-os/devkit/releases/tag/1.10.0) - 2026-08-14
 
