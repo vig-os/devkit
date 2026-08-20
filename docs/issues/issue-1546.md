@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-18T07:14:59Z
-updated: 2026-08-18T07:14:59Z
+updated: 2026-08-20T07:53:18Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1546
-comments: 0
+comments: 1
 labels: bug, priority:low, area:workspace, effort:small, semver:patch
 assignees: none
-milestone: none
+milestone: 1.11.0
 projects: none
 parent: none
 children: none
-synced: 2026-08-19T03:04:35.002Z
+synced: 2026-08-20T12:22:21.446Z
 ---
 
 # [Issue 1546]: [[BUG] just doctor warns 'commit signing: incomplete' for a tilde user.signingkey](https://github.com/vig-os/devkit/issues/1546)
@@ -101,4 +101,23 @@ Keep reporting the original `$signingkey` in the PASS line so the output still
 mirrors what is in git config.
 
 Refs: #1448 (the recipe this check ships in)
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on August 20, 2026 at 07:53 AM_
+
+Fixed on `dev` via #1551 (merge commit `9d37073c`), milestone 1.11.0.
+
+The readability guard now expands a leading `~/` against `$HOME` before `test -r`, in both the devkit `justfile` and the scaffolded `assets/workspace/justfile`; the PASS line still reports the raw value so it keeps mirroring `git config`. Four bats tests pin it — two for the PASS case, two twins asserting a tilde path to a *missing* file still WARNs.
+
+Verified on the reporting host:
+
+```text
+before: WARN commit signing: incomplete (commit.gpgsign=true, gpg.format=ssh, user.signingkey=~/.ssh/github.pub)
+after:  PASS commit signing: ssh key ~/.ssh/github.pub
+```
+
+Consumers pick it up on their next upgrade — the fix is in the managed root `justfile`, which is regenerated, not in the preserved `justfile.project`.
 
