@@ -13,6 +13,15 @@
 # (nearest Wednesday, shift <= 3 days) live in docs/CONTAINER_SECURITY.md. The
 # dates below were snapped onto that grid on 2026-08-04, each extended by 1 day;
 # no risk assessment was re-opened or changed by the snap.
+#
+# STAGGER (#1553), 2026-08-20: the three blocks below had all landed on
+# 2026-09-02, sharing it with 24 .vulnixignore blocks and the
+# dependency-review allow-list — 29 of 33 live entries on one day. They are
+# three independent exceptions with three different remediation levers, so each
+# now carries its own Wednesday, placed after the .vulnixignore passes so the
+# two registers do not compete for the same review week: gh/Go stdlib
+# 2026-10-21, jq 2026-10-28, jwt-token 2026-11-04. Scheduling only — no risk
+# assessment below was re-opened or changed.
 
 # CVE-2026-42504: Go stdlib MIME header DoS in gh binary
 # Risk Assessment: LOW (devcontainer context)
@@ -21,7 +30,10 @@
 # - Latest gh v2.93.0 (2026-05-27) still embeds Go 1.26.3; fix requires Go 1.26.4 rebuild
 # - Fresh image build (gh 2.93.0, uv 0.11.19) cleared all other bundled-tool HIGH findings
 # - Tracking: https://github.com/vig-os/devkit/issues/512, #564
-Expiration: 2026-09-02
+# - Re-dated 2026-08-20 (#1553): 2026-09-02 -> 2026-10-21, off the shared cliff
+#   date. The lever is a gh release rebuilt on Go 1.26.4, which no weekly bump
+#   can bring forward, so the extension costs no review signal; scheduling only.
+Expiration: 2026-10-21
 CVE-2026-42504
 
 # jwt-token: Trivy secret scan false positive
@@ -29,7 +41,10 @@ CVE-2026-42504
 # - JWT-like string in typos crate test fixtures under /opt/pre-commit-cache
 # - Not a live credential; embedded test data only
 # - Tracking: https://github.com/vig-os/devkit/issues/512
-Expiration: 2026-09-02
+# - Re-dated 2026-08-20 (#1553): 2026-09-02 -> 2026-11-04. Not a vulnerability
+#   at all, so it takes one of the latest slots on the staggered grid;
+#   scheduling only.
+Expiration: 2026-11-04
 jwt-token
 
 # CVE-2026-32316, CVE-2026-40164: jq DoS / potential arbitrary code execution
@@ -40,6 +55,9 @@ jwt-token
 #   Time-box the ignore until the Nix image ships.
 # - jq processes trusted local JSON in devcontainer workflows, not untrusted input
 # - Tracking: https://github.com/vig-os/devkit/issues/805, #512
-Expiration: 2026-09-02
+# - Re-dated 2026-08-20 (#1553): 2026-09-02 -> 2026-10-28. :latest still cannot
+#   be rebuilt until the Nix publish-cutover (#639), so an earlier re-review has
+#   no new evidence to act on; scheduling only.
+Expiration: 2026-10-28
 CVE-2026-32316
 CVE-2026-40164
