@@ -38,9 +38,17 @@ def _job() -> dict:
 
 
 def _reporting_step() -> dict:
-    """The step that files the tracking issue (matched on what it runs)."""
+    """The step that files the FAILURE tracking issue.
+
+    Matched on what it runs *and* on its failure guard: the job also files a
+    non-failing advance-expiry notice (#1552), which creates issues too but
+    carries no ``if:``. Matching on ``gh issue create`` alone would pick
+    whichever comes first in the file.
+    """
     for step in _job()["steps"]:
-        if "gh issue create" in step.get("run", ""):
+        if "gh issue create" in step.get("run", "") and "failure()" in str(
+            step.get("if", "")
+        ):
             return step
     raise AssertionError("no tracking-issue step found in security-scan.yml")
 
