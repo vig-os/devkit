@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A security exception now gives seven days' notice before it fails
+  everything** ([#1552](https://github.com/vig-os/devkit/issues/1552))
+  - `check-expirations` runs in all PR CI, in pre-commit, in both nightly scan
+    lanes and in the release train, so one lapsed block reds every open branch
+    at once — three times in two months
+    ([#1260](https://github.com/vig-os/devkit/issues/1260),
+    [#1481](https://github.com/vig-os/devkit/issues/1481),
+    [#1547](https://github.com/vig-os/devkit/issues/1547)) — with no prior
+    signal, even though every date had been chosen deliberately weeks earlier
+  - `check-expirations` gains `--warn-days N` (emit `::warning::` annotations
+    for entries falling due within N days, exit code untouched) and `--json`
+    (emit the `expired`/`expiring` classification on stdout). The flags compose,
+    and they keep the utility the single parser of the `Expiration:` grammar —
+    no caller re-implements it
+  - The nightly `security-scan` gains a third, non-failing issue class: one
+    deduplicated notice per scanned ref per distinct upcoming expiry date,
+    titled `Security exception register (<ref>): exceptions expire <date>`,
+    covering `.vulnixignore`, `.trivyignore` **and**
+    `.github/dependency-review-allow.txt`
+  - The step runs *before* the blocking validation step, so an already-red
+    register still reports what is coming next, and it is `continue-on-error`
+    so a missed notice can never turn a green scan red
+  - Seven days is one expiry-grid period: dates land on a Wednesday, so the
+    notice does too, one full Renovate cycle ahead of the red. The issue body
+    spells out that a renewal is a re-verification, not a date bump — read the
+    findings delta, delete what the pin advance cleared — because the notice
+    deliberately arrives before that data exists
+  - Default behaviour is unchanged: no existing call site, exit code or output
+    moves
+
 - **A failed `devkit-upgrade` now leaves a tracking issue in the consumer repo**
   ([#1530](https://github.com/vig-os/devkit/issues/1530))
   - The adoption branch only reaches the remote in the publish step, so a

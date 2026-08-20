@@ -177,6 +177,35 @@ single combined re-review pass, which is the intent; but every block on the
 *same* Wednesday means one stalled review blocks the whole register. Spread
 renewals over different Wednesdays by choosing different week-multiples.
 
+#### Advance notice, one grid period ahead
+
+An expiry that fires is a *hard* failure everywhere at once — `check-expirations`
+runs in all PR CI, in pre-commit, in both nightly scan lanes and in the release
+train — so the nightly scan also gives **seven days' notice** before it happens
+([#1552](https://github.com/vig-os/devkit/issues/1552)).
+
+`security-scan.yml` runs `check-expirations --warn-days 7 --json` over all three
+registers (`.vulnixignore`, `.trivyignore`,
+`.github/dependency-review-allow.txt`) *before* the blocking validation step, so
+an already-red register still reports what is coming next. Every distinct
+upcoming expiry date gets one deduplicated tracking issue per scanned ref,
+titled `Security exception register (<ref>): exceptions expire <date>`.
+
+Seven days is exactly one grid period: because dates land on a Wednesday, the
+notice lands on a Wednesday too — one full Renovate cycle ahead of the red, so
+step 3 above (the findings delta) has still to happen when the notice arrives.
+
+**This is a notice, not a gate.** `--warn-days` never changes an exit code: an
+entry inside the window is still valid, an already-expired entry still fails,
+and the issue-opening step is `continue-on-error` so a missed notice can never
+turn a green scan red. The gate remains exactly where it was.
+
+**A renewal is a re-verification, not a date bump.** The notice arrives *before*
+the week's findings delta exists, so acting on it by bumping dates is precisely
+the blind extension the Wednesday grid is built to prevent. Read the delta
+first, delete every entry the pin advance cleared, and renew only what is still
+genuinely accepted — the tracking issue restates this in its body.
+
 ## Why pin `nixpkgs` (and not track an unpinned channel)?
 
 Building from an unpinned/rolling input has the same drawbacks the old
