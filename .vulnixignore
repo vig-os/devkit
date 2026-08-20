@@ -170,7 +170,7 @@ CVE-2025-62689
 #      2026-07-28 "no fix in the pinned channel" note was already stale.
 #    - CVE-2026-56123: the pin ships socat 1.8.1.3, past the 1.8.1.2 fix.)
 
-Expiration: 2026-08-19
+Expiration: 2026-09-02
 # (gzip CVE-2026-41992 removed 2026-08-04 (#1327): contrary to the "no nixpkgs
 #   patch yet" note above, the pinned rev applies CVE-2026-41992.patch to gzip
 #   1.14, so vulnix no longer reports it.)
@@ -185,6 +185,15 @@ Expiration: 2026-08-19
 # Re-verified 2026-08-04 (#1328): the pin was advanced to nixos-26.05 @
 #   2026-08-03 (rev 531670d8) and rebuilt; the closure still ships fzf 0.72.0,
 #   so this block is retained.
+# Renewed 2026-08-20 (#1547): the expiry fired as the grid intends and took both
+#   nightly lanes red (run 32335643087) before the scan itself ran. Both CVEs are
+#   still live findings against fzf-0.72.0 in the last green scan (run
+#   32219442917, 2026-08-19, pin 531670d8), and the rev-advance lever still has
+#   nowhere to land: nixos-26.05, release-26.05 and staging-26.05 all ship 0.72.0
+#   with no backport PR open (0.74.3 is master/unstable only). Renewed risk
+#   acceptance, not a date bump — the 2026-07-14 assessment above is unchanged
+#   and both findings stay availability-only. Renewed onto the shared 2026-09-02
+#   grid date so the whole register is reviewed in one pass (#1337).
 CVE-2026-53432
 CVE-2026-53433
 
