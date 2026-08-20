@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.11.0] - TBD
+
+### Added
+
 - **A security exception now gives seven days' notice before it fails
   everything** ([#1552](https://github.com/vig-os/devkit/issues/1552))
   - `check-expirations` runs in all PR CI, in pre-commit, in both nightly scan
@@ -83,9 +97,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     removed. Every re-dated block records the move and its justification in the
     register's own note style
 
-### Deprecated
+#### Dependencies
 
-### Removed
+- Update `github/codeql-action` from `5595cca` to `ff2f1c6` ([#1524](https://github.com/vig-os/devkit/pull/1524))
+- Update `aquasecurity/trivy` from `v0.73.0` to `v0.74.0` ([#1525](https://github.com/vig-os/devkit/pull/1525))
+- Update `cachix/install-nix-action` from `v31.11.0` to `v31.11.1` ([#1525](https://github.com/vig-os/devkit/pull/1525))
+- Update `astral-sh/setup-uv` from `v9.0.0` to `v10.0.1` ([#1526](https://github.com/vig-os/devkit/pull/1526))
+- Lock file maintenance (pip) ([#1527](https://github.com/vig-os/devkit/pull/1527), [#1556](https://github.com/vig-os/devkit/pull/1556))
 
 ### Fixed
 
