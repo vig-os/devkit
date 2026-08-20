@@ -36,6 +36,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A nightly security scan that fails before the gate now files a tracking
+  issue too** ([#1548](https://github.com/vig-os/devkit/issues/1548))
+  - The issue-opening step was guarded on `steps.vulnix-gate.outcome ==
+    'failure'` — an outcome that is *empty* whenever an earlier step fails. An
+    expired `.vulnixignore` register, a failed closure build or a vulnix crash
+    therefore produced a red run and nothing else, on a workflow whose whole
+    point is that a scheduled run has no other signal
+  - It fired for real on 2026-08-20: an expired block failed the job's first
+    step on both lanes and surfaced nowhere
+    ([#1547](https://github.com/vig-os/devkit/issues/1547))
+  - The guard is now `failure()` alone, and the two failure classes carry
+    distinct titles that dedup independently per ref: a red gate keeps its
+    existing title, while a pre-gate failure files *run failed before the vulnix
+    gate* and names the failing step, read off the run's own job records
+    (`actions: read`). A pre-gate failure means the closure went **unscanned**,
+    not clean — the body says so
 - **Release CI gate now counts only the latest run of each check**
   ([#1522](https://github.com/vig-os/devkit/issues/1522))
   - The gate counted **every** FAILURE entry in the release PR head SHA's

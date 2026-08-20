@@ -71,6 +71,12 @@ instead.
 The gate is **blocking** (#639): any unexcepted HIGH/CRITICAL finding fails the
 nightly scan.
 
+Every red nightly run surfaces as a deduplicated `security-scan` tracking issue
+per scanned ref (#965, #1237, #1548), under one of two titles: a red **gate**
+(unexcepted HIGH/CRITICAL findings), or a failure **before** the gate — an
+expired register, a failed closure build, a `vulnix` crash — where the closure
+went *unscanned* rather than clean.
+
 ### 3. CycloneDX SBOM + Trivy SBOM-mode scan (defence in depth)
 
 The same nightly job emits a **CycloneDX SBOM** of the Nix image (via Trivy) and

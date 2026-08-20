@@ -24,7 +24,12 @@
 #   - A deduplicated `security-scan` tracking issue is opened per ref (#965,
 #     #1237), with a ref-distinct title so the two lanes never collide on dedup.
 #     Scheduled runs execute from the default branch with no other signal, so a
-#     red gate must surface as an issue, not just a red run.
+#     red run must surface as an issue, not just a red run.
+#   - Two failure classes, two titles, deduped independently (#1548): a red
+#     GATE (unexcepted HIGH/CRITICAL findings) and a failure anywhere BEFORE the
+#     gate (expired `.vulnixignore` register, closure build, vulnix crash) —
+#     the latter means the closure went UNSCANNED, which used to surface
+#     nowhere at all.
 #
 # Artifacts:
 #   - vulnix findings (JSON + table) and a CycloneDX SBOM (uploaded)
@@ -70,7 +75,8 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
-      issues: write  # open a deduplicated tracking issue when the vulnix gate fails (#965)
+      issues: write  # open a deduplicated tracking issue when the nightly scan fails (#965)
+      actions: read  # name the failing step from this run's own job records (#1548)
 
     steps:
       - name: Checkout repository
@@ -227,14 +233,21 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # Restore the deduplicated tracking issue lost in the Debian->Nix cutover
-      # (#965): a scheduled run from the default branch has no other signal, so a
-      # red vulnix gate must surface as an issue, not just a red run.
-      - name: Open a tracking issue when the vulnix gate fails
-        # failure() lets this step run despite the failing gate; the outcome
-        # guard scopes it to a gate failure (not an infra/scan crash upstream).
-        if: ${{ failure() && steps.vulnix-gate.outcome == 'failure' }}
+      # (#965): a scheduled run from the default branch has no other signal, so
+      # a red scan must surface as an issue, not just a red run.
+      - name: Open a tracking issue when the nightly scan fails
+        # `failure()` ALONE. The previous guard also required
+        # `steps.vulnix-gate.outcome == 'failure'`, which scoped reporting to the
+        # one failure mode that happens AT the gate: any earlier step (register
+        # validation, closure build, the vulnix run itself) leaves that outcome
+        # empty, so the guard was false and the run died silently. An expired
+        # `.vulnixignore` block did exactly that on both lanes on 2026-08-20,
+        # failing the FIRST step of the job (#1548). The two classes carry
+        # distinct titles below, so each dedups independently per ref (#1237).
+        if: ${{ failure() }}
         env:
           GH_TOKEN: ${{ github.token }}
+          GATE_OUTCOME: ${{ steps.vulnix-gate.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SECURITY_URL: ${{ github.server_url }}/${{ github.repository }}/security
           SCAN_REF: ${{ matrix.ref }}
@@ -245,25 +258,15 @@ jobs:
           gh label create security-scan \
             --description 'Automated nightly security scan findings for the Nix devcontainer image' \
             --color BFD4F2 --force 2>/dev/null || true
-          # Dedup by the auto-issue's distinctive title, NOT the label alone, so
-          # we never collide with human-filed security-scan issues (per-CVE
-          # triage, this very regression, etc.). One open tracking issue at a
-          # time; it is closed when a later scheduled run passes the gate. The
-          # ref is in the title so the main and dev lanes dedup independently
-          # and never collide on each other's issue (#1237).
-          TITLE="Nightly security scan (${SCAN_REF}): unexcepted HIGH/CRITICAL vulnix findings"
-          EXISTING=$(gh issue list --state open --label security-scan \
-            --search "\"$TITLE\" in:title" --json number -q '.[0].number // empty')
-          if [ -n "$EXISTING" ]; then
-            echo "Open tracking issue already exists: #$EXISTING -- skipping create"
-            exit 0
-          fi
-          BODY="$(cat <<EOF
+          SCAN_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          if [ "${GATE_OUTCOME}" = "failure" ]; then
+            TITLE="Nightly security scan (${SCAN_REF}): unexcepted HIGH/CRITICAL vulnix findings"
+            BODY="$(cat <<EOF
           The nightly vulnix gate found **unexcepted HIGH/CRITICAL** CVEs in the \`${SCAN_REF}\` Nix image closure (after \`.vulnixignore\`).
 
           - **Scanned ref:** \`${SCAN_REF}\`
           - **Scan target:** flake \`devkitImageEnv\` (image package closure)
-          - **Scan date (UTC):** $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          - **Scan date (UTC):** ${SCAN_DATE}
           - **Workflow run:** ${RUN_URL}
           - **Findings artifact:** \`nix-image-cve-scan-${SCAN_REF}\` on the run above (\`vulnix-findings.json\`, \`vulnix-report.txt\`)
           - **Security tab:** ${SECURITY_URL}
@@ -271,6 +274,41 @@ jobs:
           **To remediate:** advance the pinned nixpkgs rev if a fix has landed, or add a time-boxed \`.vulnixignore\` exception with a rationale (see \`docs/CONTAINER_SECURITY.md\`). Close this issue once a later scheduled run passes the gate.
           EOF
           )"
+          else
+            # Name the failing step from this run's own job records (the
+            # devkit-upgrade report's lookup, #1530) — no per-step
+            # instrumentation to keep in sync with the steps above. Scoped to
+            # THIS matrix leg by job-name suffix, so the dev lane never reports
+            # main's failing step.
+            FAILED="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs" \
+              --jq "[.jobs[] | select(.name | endswith(\"[${SCAN_REF}]\")) | .steps[]? | select(.conclusion == \"failure\") | .name] | join(\", \")" \
+              2>/dev/null || true)"
+            [ -n "$FAILED" ] || FAILED='unknown, see the run log'
+            TITLE="Nightly security scan (${SCAN_REF}): run failed before the vulnix gate"
+            BODY="$(cat <<EOF
+          The nightly security scan for \`${SCAN_REF}\` failed **before the vulnix gate ran**, so this run produced no CVE verdict at all — the closure is unscanned, not clean.
+
+          - **Scanned ref:** \`${SCAN_REF}\`
+          - **Failing step:** ${FAILED}
+          - **Scan date (UTC):** ${SCAN_DATE}
+          - **Workflow run:** ${RUN_URL}
+
+          **Most likely cause:** an expired \`.vulnixignore\` exception. The register's expiry dates are *designed* to fire (Wednesday grid, see \`docs/CONTAINER_SECURITY.md\`); renew or drop the block and the scan resumes. Otherwise triage the failing step in the run log — a closure build or vulnix crash needs a different fix. Close this issue once a later scheduled run completes.
+          EOF
+          )"
+          fi
+          # Dedup by the auto-issue's distinctive title, NOT the label alone, so
+          # we never collide with human-filed security-scan issues (per-CVE
+          # triage, this very regression, etc.). One open tracking issue per
+          # class per ref; it is closed when a later scheduled run recovers. The
+          # ref is in the title so the main and dev lanes dedup independently
+          # and never collide on each other's issue (#1237).
+          EXISTING=$(gh issue list --state open --label security-scan \
+            --search "\"$TITLE\" in:title" --json number -q '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            echo "Open tracking issue already exists: #$EXISTING -- skipping create"
+            exit 0
+          fi
           gh issue create \
             --title "$TITLE" \
             --label security-scan --label security \
