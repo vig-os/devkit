@@ -4,7 +4,9 @@
 # directive. Expired exceptions cause CI to fail, forcing periodic review.
 # Expiration dates land on a Wednesday, per the expiry grid documented in
 # docs/CONTAINER_SECURITY.md (#1337); the date below was snapped onto that grid
-# on 2026-08-04 (+1 day), leaving its risk assessment unchanged.
+# on 2026-08-04 (+1 day), leaving its risk assessment unchanged. The entry has
+# since moved off 2026-09-02 (#1553), the date 29 of the 33 live entries across
+# the three registers shared — see its note below.
 #
 # Format:
 #   # <GHSA-ID>: <short description>
@@ -21,5 +23,10 @@
 # - Upstream package.json has never updated its version field from 0.2.0
 # - The lock file records 0.2.0 regardless of which git tag is used
 # Mitigation: Source is verified GitHub repository, not npm registry
-Expiration: 2026-09-02
+# Re-dated 2026-08-20 (#1553): 2026-09-02 -> 2026-11-11, the latest slot on the
+# staggered grid. This is a definitive false positive that can only change if
+# the advisory is withdrawn or upstream finally bumps its package.json version
+# field, neither of which a weekly review can influence. Scheduling only; the
+# risk assessment above is unchanged.
+Expiration: 2026-11-11
 GHSA-wvrr-2x4r-394v

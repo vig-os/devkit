@@ -30,6 +30,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Security-exception expiries are staggered across distinct Wednesdays**
+  ([#1553](https://github.com/vig-os/devkit/issues/1553))
+  - 29 of the 33 live exception entries expired on the same day, `2026-09-02`:
+    24 in `.vulnixignore` (7 blocks), 4 in `.trivyignore` (3 blocks) and the
+    one `.github/dependency-review-allow.txt` entry. One stalled review on that
+    date would have taken every open PR's CI, both nightly `security-scan`
+    lanes and the release train red at once — the cliff that
+    `docs/CONTAINER_SECURITY.md` already warns about ("stagger across weeks,
+    not weekdays")
+  - Each block now owns a distinct Wednesday, spread by week-multiples and
+    ordered by how soon its remediation lever can move: podman keeps
+    `2026-09-02` as the anchor (weekly re-check, backport open), then unbound
+    `09-09`, the libssh2 6603x batch `09-16`, libssh2 `CVE-2026-58050` `09-23`,
+    the lower-reachability batch `09-30`, fzf `10-07` and glibc `10-14` (no
+    rev-advance lever exists, so it takes the longest window). The
+    `.trivyignore` blocks follow at `10-21`/`10-28`/`11-04` and the
+    dependency-review allow-list at `11-11`, keeping that register's review off
+    the vulnix weeks
+  - The Class-1 CPE-mismatch block keeps its yearly `2027-06-23`
+  - Scheduling only: no risk assessment was re-opened and no entry was added or
+    removed. Every re-dated block records the move and its justification in the
+    register's own note style
+
 ### Deprecated
 
 ### Removed
