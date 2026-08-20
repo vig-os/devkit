@@ -36,6 +36,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`just doctor` no longer calls a tilde signing-key path incomplete**
+  ([#1546](https://github.com/vig-os/devkit/issues/1546))
+  - `user.signingkey = ~/.ssh/<key>.pub` is a working SSH-signing setup — git
+    expands the leading `~/` when it consumes the value — but the readability
+    guard tested it with `test -r`, which performs no tilde expansion, so a
+    correctly configured host was told its signing was `incomplete`
+  - The guard now expands a leading `~/` against `$HOME` before the test, in
+    both the devkit `justfile` and the scaffolded `assets/workspace/justfile`.
+    The `PASS` line still reports the raw value, so it keeps mirroring
+    `git config`
+
 - **A nightly security scan that fails before the gate now files a tracking
   issue too** ([#1548](https://github.com/vig-os/devkit/issues/1548))
   - The issue-opening step was guarded on `steps.vulnix-gate.outcome ==
