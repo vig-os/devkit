@@ -168,3 +168,29 @@ _init_linked_worktree() {
     assert_success
     assert_output --partial "WARN commit signing"
 }
+
+# git expands a leading `~/` itself when it consumes user.signingkey, so a
+# tilde path is a working signing setup. `test -r` performs no such expansion
+# (the shell only expands an unquoted literal `~`, never a variable's
+# contents), so the readability guard used to fail and report a correctly
+# configured host as incomplete. Refs #1546.
+@test "doctor reports PASS for a tilde signing key path" {
+    printf 'ssh-ed25519 AAAA test\n' >"$BATS_TEST_TMPDIR/key.pub"
+    git config --file "$GIT_GLOBAL" commit.gpgsign true
+    git config --file "$GIT_GLOBAL" gpg.format ssh
+    # shellcheck disable=SC2088 # the literal, unexpanded tilde IS the fixture
+    git config --file "$GIT_GLOBAL" user.signingkey '~/key.pub'
+    _run_doctor HOME="$BATS_TEST_TMPDIR"
+    assert_success
+    assert_output --partial "PASS commit signing: ssh key ~/key.pub"
+}
+
+@test "doctor warns when a tilde signing key path does not exist" {
+    git config --file "$GIT_GLOBAL" commit.gpgsign true
+    git config --file "$GIT_GLOBAL" gpg.format ssh
+    # shellcheck disable=SC2088 # the literal, unexpanded tilde IS the fixture
+    git config --file "$GIT_GLOBAL" user.signingkey '~/missing.pub'
+    _run_doctor HOME="$BATS_TEST_TMPDIR"
+    assert_success
+    assert_output --partial "WARN commit signing"
+}
