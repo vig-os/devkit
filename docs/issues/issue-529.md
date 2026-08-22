@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-08-21T00:25:59Z
+updated: 2026-08-21T16:12:10Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-21T03:09:50.111Z
+synced: 2026-08-22T03:01:27.101Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -24,18 +24,9 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
+ - [ ] <!-- unschedule-branch=renovate/github-codeql-action-digest -->chore(deps): update github/codeql-action digest to db488dd
  - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
-
-
----
-
-> [!WARNING]
-> Renovate failed to look up the following dependencies: `Failed to look up github-releases package aquasecurity/trivy: no-result`.
-> 
-> Files affected: `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/workflows/security-scan.yml`
-
----
-
+ - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
 
 ## Detected Dependencies
 
@@ -115,8 +106,8 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>.github/workflows/codeql.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd`
- - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd`
+ - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd` → [Updates: `v4`]
+ - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd` → [Updates: `v4`]
  - `ubuntu 24.04`
 
 </details>
@@ -262,7 +253,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
- - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd`
+ - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd` → [Updates: `v4`]
  - `ubuntu 24.04`
 
 </details>
@@ -387,8 +378,8 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>assets/workspace/.github/workflows/codeql.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd`
- - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd`
+ - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd` → [Updates: `v4`]
+ - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd` → [Updates: `v4`]
  - `ubuntu 24.04`
 
 </details>
@@ -493,7 +484,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
- - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd`
+ - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd` → [Updates: `v4`]
  - `ubuntu 24.04`
 
 </details>
