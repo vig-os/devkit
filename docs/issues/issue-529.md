@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-08-24T01:15:50Z
+updated: 2026-08-24T19:52:19Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,20 +13,29 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-24T03:10:40.061Z
+synced: 2026-08-25T03:05:52.691Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.<br>[View this repository on the Mend.io Web Portal](https://developer.mend.io/github/vig-os/devkit).
 
-## Open
+## Awaiting Schedule
 
-The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
+The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
- - [ ] <!-- rebase-branch=renovate/github-codeql-action-digest -->[chore(deps): update github/codeql-action digest to db488dd](../pull/1559)
- - [ ] <!-- rebase-branch=renovate/lock-file-maintenance -->[build(pip): lock file maintenance](../pull/1560)
- - [ ] <!-- rebase-all-open-prs -->**Click on this checkbox to rebase all open PRs at once**
+ - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
+
+
+---
+
+> [!WARNING]
+> Renovate failed to look up the following dependencies: `Failed to look up pypi package pyyaml: no-result`.
+> 
+> Files affected: `pyproject.toml`
+
+---
+
 
 ## Detected Dependencies
 
@@ -106,8 +115,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>.github/workflows/codeql.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd` → [Updates: `v4`]
- - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd` → [Updates: `v4`]
+ - `github/codeql-action v4@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28`
+ - `github/codeql-action v4@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28`
  - `ubuntu 24.04`
 
 </details>
@@ -253,7 +262,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
- - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd` → [Updates: `v4`]
+ - `github/codeql-action v4@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28`
  - `ubuntu 24.04`
 
 </details>
@@ -378,8 +387,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>assets/workspace/.github/workflows/codeql.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd` → [Updates: `v4`]
- - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd` → [Updates: `v4`]
+ - `github/codeql-action v4@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28`
+ - `github/codeql-action v4@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28`
  - `ubuntu 24.04`
 
 </details>
@@ -484,7 +493,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
- - `github/codeql-action v4@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd` → [Updates: `v4`]
+ - `github/codeql-action v4@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28`
  - `ubuntu 24.04`
 
 </details>
