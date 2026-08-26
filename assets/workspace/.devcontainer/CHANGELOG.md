@@ -17,6 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Scaffolded repos no longer emit Claude Code session-link attribution**
+  ([#1562](https://github.com/vig-os/devkit/issues/1562))
+  - cloud sessions (claude.ai/code, remote agents) read only committed repo
+    settings, and `attribution.sessionUrl` defaults to `true` — a separate gate
+    from `includeCoAuthoredBy` — so commits and PR bodies leaked
+    `claude.ai/code/session_…` links even in repos that already suppressed the
+    Co-Authored-By trailer
+  - the workspace template now ships a managed `.claude/settings.json`
+    (regenerated on upgrade) with `attribution` emptied, `sessionUrl: false`
+    and `includeCoAuthoredBy: false`; devkit's own repo settings carry the
+    identical block, drift-gated by test
+
 ### Security
 
 ## [1.11.0](https://github.com/vig-os/devkit/releases/tag/1.11.0) - 2026-08-20
