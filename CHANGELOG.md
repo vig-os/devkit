@@ -17,6 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The pinned `nixpkgs` rev now advances automatically every week**
+  ([#1565](https://github.com/vig-os/devkit/issues/1565))
+  - Renovate's `nix` manager — the documented mechanism — never opened a
+    `flake.lock` PR (beta manager, detects no flake inputs here, lock-file
+    maintenance needs a `nix` binary the hosted app does not run), so the pin
+    only ever advanced by hand and expiring security exceptions were re-reviewed
+    against an unchanged closure
+  - a new scheduled workflow (`update-nixpkgs.yml`, Mondays 04:30 UTC +
+    `workflow_dispatch`) runs `nix flake update nixpkgs` and opens a PR to
+    `dev`, mirroring the proven `update-nixpkgs-unstable` pattern; full PR CI
+    (closure rebuild included) remains the merge gate
+  - `docs/CONTAINER_SECURITY.md` (§1, §4 and the Wednesday expiry-grid
+    derivation) now describes the mechanism that actually runs
 - **Scaffolded repos no longer emit Claude Code session-link attribution**
   ([#1562](https://github.com/vig-os/devkit/issues/1562))
   - cloud sessions (claude.ai/code, remote agents) read only committed repo
