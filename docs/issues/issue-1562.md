@@ -1,22 +1,22 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-24T09:51:01Z
-updated: 2026-08-24T09:51:01Z
+updated: 2026-08-26T13:06:05Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1562
-comments: 0
-labels: feature, priority:medium, area:workflow, effort:small, semver:minor
+comments: 1
+labels: bug, priority:medium, area:workflow, effort:small, semver:patch
 assignees: none
-milestone: none
+milestone: 1.11.1
 projects: none
 parent: none
 children: none
-synced: 2026-08-25T03:05:52.455Z
+synced: 2026-08-26T13:51:57.169Z
 ---
 
-# [Issue 1562]: [[FEATURE] Suppress Claude Code session-link attribution in the workspace scaffold](https://github.com/vig-os/devkit/issues/1562)
+# [Issue 1562]: [[BUG] Suppress Claude Code session-link attribution in the workspace scaffold](https://github.com/vig-os/devkit/issues/1562)
 
 ## Description
 
@@ -130,4 +130,12 @@ Every repo scaffolded from devkit, across `vig-os`, `exo-pet`, `MorePET` and
 behaviour changes other than the attribution text disappearing. Whether it is a
 breaking change for consumers depends on which of the two options above is
 chosen for file ownership.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on August 26, 2026 at 01:06 PM_
+
+Resolved by #1567 (merged to dev): managed workspace-template .claude/settings.json ships attribution{commit:"",pr:"",sessionUrl:false} + includeCoAuthoredBy:false; devkit root settings carry the identical block, drift-gated by tests/test_attribution_settings.py. Consumers pick it up on their next devkit-upgrade after 1.11.1.
 
