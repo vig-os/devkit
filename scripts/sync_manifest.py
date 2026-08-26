@@ -138,6 +138,7 @@ _BANNER_SKIP: frozenset[str] = frozenset(
         "renovate.json",
         ".github/renovate-default.json",
         ".claude/worktrees.json",
+        ".claude/settings.json",
         ".pymarkdown",
         # The three JSONC scaffold files (.devcontainer/devcontainer.json,
         # .vscode/settings.json, .devcontainer/workspace.code-workspace.example)
