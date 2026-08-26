@@ -17,6 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+### Security
+
+## [1.11.1] - TBD
+
+### Changed
+
+#### Dependencies
+
+- Update `github/codeql-action` from `ff2f1c6` to `db488dd` ([#1559](https://github.com/vig-os/devkit/pull/1559))
+- Lock file maintenance (pip) ([#1560](https://github.com/vig-os/devkit/pull/1560))
+
+### Fixed
+
 - **The pinned `nixpkgs` rev now advances automatically every week**
   ([#1565](https://github.com/vig-os/devkit/issues/1565))
   - Renovate's `nix` manager — the documented mechanism — never opened a
