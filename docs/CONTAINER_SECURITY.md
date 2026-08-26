@@ -29,16 +29,22 @@ place. The Debian/`apt` build path has been decommissioned (#642).
 
 The toolchain and the image contents come from a single pinned `nixpkgs`
 revision in `flake.lock`. Because the closure is fully pinned, the CVE surface
-is exactly what that revision ships. Renovate keeps the pin current through two
-mechanisms in `renovate.json`:
+is exactly what that revision ships. A scheduled workflow
+([`update-nixpkgs.yml`](../.github/workflows/update-nixpkgs.yml), #1565) keeps
+the pin current: every Monday it runs `nix flake update nixpkgs` and opens a PR
+to `dev`, so upstream security fixes land through the normal PR/CI gate rather
+than a manual `nix flake update`.
 
-- The **`nix` manager** detects flake inputs and proposes pinned-input updates.
-- **`lockFileMaintenance`** (enabled, scheduled weekly) refreshes the locked
-  revisions of all inputs (notably `nixpkgs`) so upstream security fixes land
-  through the normal PR/CI gate rather than a manual `nix flake update`.
+> **Why not Renovate?** Renovate's `nix` manager was the documented mechanism
+> here but never opened a `flake.lock` PR: the manager is beta and detects no
+> flake inputs in this repo, and its lock-file maintenance delegates to a `nix`
+> binary the hosted app does not run (#1565). The manager stays enabled in
+> `renovate.json` (harmless, and a second signal if it ever starts working);
+> `lockFileMaintenance` remains in place for the pip/npm lockfiles.
 
-**Typical remediation time:** within the weekly `lockFileMaintenance` cycle, or
-immediately by merging an out-of-cycle `nixpkgs`-bump PR.
+**Typical remediation time:** within the weekly pin-advance cycle, or
+immediately by dispatching `update-nixpkgs.yml` (`workflow_dispatch`) for an
+out-of-cycle bump.
 
 ### 2. Nightly `vulnix` scan (primary detection)
 
@@ -91,10 +97,10 @@ gate).
 When a HIGH/CRITICAL CVE is real (not a `vulnix` false positive) and fixed
 upstream:
 
-- **Preferred:** bump the pinned `nixpkgs` rev (merge the Renovate
-  `nix`-manager / `lockFileMaintenance` PR, or open an out-of-cycle bump) so the
-  patched derivation enters the closure. This is reproducible and is captured by
-  the PR/CI gate.
+- **Preferred:** bump the pinned `nixpkgs` rev (merge the weekly
+  `update-nixpkgs.yml` PR, or dispatch that workflow for an out-of-cycle bump)
+  so the patched derivation enters the closure. This is reproducible and is
+  captured by the PR/CI gate.
 - **Rare escape hatch:** if only some inputs can move, pin the single patched
   package through a flake overlay, referencing the CVE in a comment, and remove
   the override once the base `nixpkgs` rev includes the fix.
@@ -147,10 +153,10 @@ release cadence may differ.
 valid through `D` and turns red on `D+1`. Wednesday is chosen so that `D+1` is
 the Thursday *after* the week's remediation data has arrived:
 
-1. Renovate opens the `nixpkgs`/`flake.lock` bump — the primary remediation
-   lever — in its Monday window (`schedule: ["before 9am on monday"]`, UTC, in
-   [`assets/workspace/.github/renovate-default.json`](../assets/workspace/.github/renovate-default.json);
-   **if that schedule changes, this convention should be re-derived**).
+1. The scheduled [`update-nixpkgs.yml`](../.github/workflows/update-nixpkgs.yml)
+   workflow opens the `nixpkgs`/`flake.lock` bump — the primary remediation
+   lever — in its Monday window (`cron: "30 4 * * 1"`, UTC; **if that schedule
+   changes, this convention should be re-derived**).
 2. The bump merges to `dev` on Monday or Tuesday. PR CI does **not** run
    `vulnix` (the authoritative CVE gate is the nightly scan), so the PR itself
    reveals nothing about which exceptions have gone dead.
@@ -162,7 +168,7 @@ the Thursday *after* the week's remediation data has arrived:
 A Wednesday expiry therefore turns red on Thursday, once that data exists and
 with two working days before the weekend. Earlier weekdays force a blind
 extension or, at worst (Sunday), a register that is already red when the week's
-Renovate PRs open — which is how [#550](https://github.com/vig-os/devkit/issues/550)
+Monday-window PRs open — which is how [#550](https://github.com/vig-os/devkit/issues/550)
 took 16 unrelated PRs red at once. Later weekdays lapse over an unattended
 weekend, blocking every commit (`check-expirations` runs in all PR CI, in
 pre-commit, and in the release train).
@@ -192,7 +198,7 @@ upcoming expiry date gets one deduplicated tracking issue per scanned ref,
 titled `Security exception register (<ref>): exceptions expire <date>`.
 
 Seven days is exactly one grid period: because dates land on a Wednesday, the
-notice lands on a Wednesday too — one full Renovate cycle ahead of the red, so
+notice lands on a Wednesday too — one full pin-advance cycle ahead of the red, so
 step 3 above (the findings delta) has still to happen when the notice arrives.
 
 **This is a notice, not a gate.** `--warn-days` never changes an exit code: an
@@ -240,7 +246,7 @@ New CVE reported by vulnix (Nix image)
    nixpkgs,        │         │
    with expiry)    ▼         ▼
               Accept in   Advance the nixpkgs rev
-              .vulnixignore  (Renovate bump / overlay
+              .vulnixignore  (weekly bump / overlay
               (awaiting-      pinning the patched pkg)
               upstream,
               with expiry)

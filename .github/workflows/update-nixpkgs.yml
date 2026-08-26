@@ -1,0 +1,133 @@
+# Scheduled bump of the pinned stable nixpkgs flake input.
+#
+# Advancing the pinned nixpkgs rev is the PRIMARY CVE-remediation lever
+# (docs/CONTAINER_SECURITY.md): vulnix matches by upstream version and cannot
+# see backported patches, so findings only die when the pin moves. Renovate's
+# `nix` manager was the documented mechanism for this but never opened a
+# flake.lock PR (beta manager, detects no flake inputs here, and lock-file
+# maintenance delegates to a `nix` binary the hosted app does not run), so the
+# pin only ever advanced by hand — see #1565.
+#
+# This workflow refreshes the pin weekly on a chore branch and opens a PR to
+# dev — the full CI pipeline on that PR (including the closure rebuild) is the
+# merge gate. The Monday window feeds the Wednesday expiry grid: bump lands
+# Mon/Tue, the first nightly scan produces the findings delta against the new
+# closure, and register reviews reconcile against that delta instead of
+# re-dating blindly (docs/CONTAINER_SECURITY.md, "Expiry dates land on a
+# Wednesday" — re-derive that convention if this schedule changes).
+#
+# A pin advance is a separate act with its own review: this workflow only
+# PROPOSES it. The PR/CI gate and the register reconciliation stay as they are.
+#
+# Refs #1565.
+name: Update nixpkgs
+
+on:  # yamllint disable-line rule:truthy
+  schedule:
+    # Mondays 04:30 UTC — ahead of the nixpkgs-unstable refresh (05:00) and
+    # Renovate's "before 9am on monday" window, so the security-relevant PR
+    # opens first in the Monday batch.
+    - cron: "30 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    name: Bump pinned nixpkgs lock
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Generate a token
+        id: generate-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
+        with:
+          client-id: ${{ secrets.COMMIT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.COMMIT_APP_PRIVATE_KEY }}
+
+      - name: Checkout dev
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: dev
+          token: ${{ steps.generate-token.outputs.token }}
+
+      - name: Install Nix (upstream CppNix)
+        uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31.11.1
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            accept-flake-config = true
+
+      - name: Update the nixpkgs input
+        run: nix flake update nixpkgs
+
+      - name: Detect lock change
+        id: detect
+        run: |
+          set -euo pipefail
+          if git diff --quiet flake.lock; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "flake.lock unchanged - nothing to do."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create or reset the chore branch at dev HEAD
+        if: steps.detect.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse HEAD)
+          if gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/chore/update-nixpkgs" >/dev/null 2>&1; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/git/refs/heads/chore/update-nixpkgs" \
+              -f sha="$sha" -F force=true >/dev/null
+          else
+            gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/heads/chore/update-nixpkgs" -f sha="$sha" >/dev/null
+          fi
+
+      # Commit via the GitHub API (vig-os/commit-action) so the commit carries
+      # GitHub's verified signature - the repo rules reject unsigned git-CLI
+      # pushes.
+      - name: Commit the lock bump via API
+        if: steps.detect.outputs.changed == 'true'
+        uses: vig-os/commit-action@0361e9aa65b64711a18286ac5dfdcba7cc7a2ac7  # v0.3.2
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TARGET_BRANCH: refs/heads/chore/update-nixpkgs
+          MAX_ATTEMPTS: "3"
+          COMMIT_MESSAGE: |-
+            build(nix): advance pinned nixpkgs rev (weekly refresh)
+
+            Refs: #1565
+          FILE_PATHS: flake.lock
+
+      # PR creation needs pull-requests: write, which the commit app does not
+      # have (least-privilege split: COMMIT_APP_* commits, RELEASE_APP_* does
+      # PR operations). Same two-app pattern as update-nixpkgs-unstable.yml.
+      - name: Generate Release App Token
+        if: steps.detect.outputs.changed == 'true'
+        id: release-app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Open PR if none exists
+        if: steps.detect.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.release-app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          if ! gh pr list --head chore/update-nixpkgs --base dev --state open \
+              --json number --jq '.[0].number' | grep -q .; then
+            body="$(printf 'Scheduled advance of the pinned stable nixpkgs rev - the primary CVE-remediation lever (docs/CONTAINER_SECURITY.md). Full CI on this PR, including the closure rebuild, is the merge gate.\n\nAfter merge, the first nightly security scan produces the findings delta against the new closure; reconcile the exception registers against that delta (delete cleared entries) rather than re-dating them.\n\nRefs: #1565\n')"
+            gh pr create --base dev --head chore/update-nixpkgs \
+              --title "build(nix): advance pinned nixpkgs rev (weekly refresh)" \
+              --body "$body"
+          fi
