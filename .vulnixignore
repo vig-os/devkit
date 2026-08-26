@@ -15,13 +15,13 @@
 # NOTE (vulnix over-reporting): vulnix matches NVD by package name + upstream
 # version and does NOT see nixpkgs' backported security patches, so it reports
 # CVEs already fixed in the shipped derivation. The primary remediation lever is
-# to advance the pinned nixpkgs rev (Renovate `nix` manager + lockFileMaintenance,
-# #638); genuinely-not-applicable findings are accepted here with a rationale.
+# to advance the pinned nixpkgs rev (weekly update-nixpkgs.yml advance, #1565);
+# genuinely-not-applicable findings are accepted here with a rationale.
 # Each accepted entry should record WHY (patched-in-nixpkgs / not-exploitable /
 # awaiting-upstream) per docs/CONTAINER_SECURITY.md.
 #
 # EXPIRY GRID (#1337): every `Expiration:` date lands on a WEDNESDAY, so the
-# entry turns red on the Thursday AFTER the week's Renovate nixpkgs bump has
+# entry turns red on the Thursday AFTER the week's nixpkgs pin advance has
 # merged and the first nightly scan has produced a findings delta against the
 # new closure — the moment a review can delete entries instead of extending
 # them. Rationale and the snapping rule (nearest Wednesday, shift <= 3 days)
@@ -46,6 +46,15 @@
 # adjustment ONLY — no risk assessment below was re-opened, re-verified or
 # changed by it.
 #
+# RECONCILED 2026-08-26 (#1563): the pin advance 531670d8 -> f4f69867 (#1568)
+# cleared FOUR whole blocks ahead of the 2026-09-02 anchor expiry — podman
+# (09-02), unbound (09-09), libssh2 6603x (09-16) and libssh2 CVE-2026-58050
+# (09-23) — and the NVD CPE correction dropped the three git Jenkins-plugin
+# entries from the Class-1 block. 14 entries deleted (tombstones below), each
+# absent from the first scan on the new closure (dispatch run 32969211536,
+# 2026-08-26, both refs green). Remaining grid: lower-reachability 09-30,
+# fzf 10-07, glibc 10-14, Class-1 (shellcheck only) 2027-06-23.
+#
 # Tracking: https://github.com/vig-os/devkit/issues/637
 
 # ============================================================================
@@ -64,11 +73,11 @@ Expiration: 2027-06-23
 # shellcheck 0.11.0 — CVE-2021-28794 is an RCE in the *VS Code ShellCheck
 # extension* (vscode-shellcheck), not the ShellCheck binary shipped here.
 CVE-2021-28794
-# git 2.54.0 — Jenkins *Git plugin* advisories (XSS/CSRF/permission checks),
-# not the git VCS. vulnix matches the "git" CPE against the wrong product.
-CVE-2022-30947
-CVE-2022-36882
-CVE-2022-36883
+# (git CVE-2022-30947, -36882, -36883 — the Jenkins *Git plugin* CPE mismatches
+#   — removed 2026-08-26 (#1563): all three vanished from the vulnix findings
+#   while git stayed at 2.54.0 across the pin advance, i.e. the NVD CPE data
+#   was corrected — exactly the outcome this block's yearly re-check waited
+#   for. If the feed ever regresses, the gate goes red and forces re-triage.)
 
 # --- Class 2: recent CVEs vulnix matches by package version against the
 #     current-stable nixpkgs (26.05). Every package below is genuinely present
@@ -78,8 +87,7 @@ CVE-2022-36883
 #     closure false positives. The shared mitigating context is the deployment
 #     model: an interactive, single-user dev container with no untrusted network
 #     services or inputs. The primary remediation is advancing the pinned
-#     nixpkgs rev as fixes land (Renovate `nix` manager + lockFileMaintenance,
-#     #638).
+#     nixpkgs rev as fixes land (weekly update-nixpkgs.yml advance, #1565).
 #
 #     HONESTY NOTE (#762): these are mostly 2026 CVEs whose per-CVE
 #     exploitability and CVSS could NOT be verified offline in this environment
@@ -224,63 +232,24 @@ Expiration: 2026-10-07
 CVE-2026-53432
 CVE-2026-53433
 
-Expiration: 2026-09-23
-# (libxml2 CVE-2026-11979 removed 2026-08-04 (#1327): the pinned rev applies
-#   CVE-2026-11979.patch to both libxml2 attrs (2.13.9 and 2.15.3), so vulnix
-#   no longer reports it.)
-# libssh2 1.11.1 — SSH client lib, in-closure via curl (sftp/scp backend);
-#   plain git uses openssh, so nothing here initiates a libssh2 SSH session
-#   unless a developer points curl at an scp://sftp:// URL. Integer-overflow
-#   heap overflow in the publickey subsystem wraps only on 32-bit size_t and
-#   the subsystem is not called by curl/libgit2 — unreachable on this 64-bit
-#   image. No upstream fix published yet (verified NVD/Debian/libssh2 repo,
-#   2026-07-04).
-# Re-verified 2026-07-28 (#1273): the pin was advanced to nixos-26.05 @
-#   2026-07-26 (rev 8623c4c2) and rebuilt; libssh2 is still 1.11.1 with no
-#   upstream fix, so this exception is retained.
-# Re-verified 2026-08-04 (#1328): the pin was advanced to nixos-26.05 @
-#   2026-08-03 (rev 531670d8) and rebuilt; libssh2 is still 1.11.1, so this
-#   exception is retained.
-# Re-dated 2026-08-20 (#1553): 2026-09-02 -> 2026-09-23, one week after the
-#   6603x batch below, so the two libssh2 passes stay adjacent (same package,
-#   same lever) without sharing a Wednesday. Scheduling only.
-CVE-2026-58050
+# (libssh2 CVE-2026-58050 removed 2026-08-26 (#1563), with it the libxml2
+#   CVE-2026-11979 tombstone of 2026-08-04 (#1327) that shared its block: the
+#   f4f69867 pin advance (#1568) ships libssh2 1.11.1 with CVE-2026-58050.patch
+#   applied; vulnix credits CVE-named patches and the finding is absent from
+#   the 2026-08-26 scan (run 32969211536). The 2026-07-04 assessment (publickey
+#   subsystem, 32-bit-only overflow, not called by curl/libgit2) was never
+#   contradicted; the entry dies on remediation, as the grid intends.)
 
 # ============================================================================
-# Triage 2026-07-07 — podman host-env-var leak (release-cycle fix, #905).
-# Verified ONLINE against NVD/GHSA and the nixpkgs branch contents
-# (release-26.05, staging-26.05, staging, master, nixpkgs-unstable) on
-# 2026-07-07. Real product match (no CPE collision).
+# (The 2026-07-07 podman block — CVE-2026-57231, the 2026-09-02 anchor expiry
+#  and the deadline driver of milestone 1.11.1 — was removed on 2026-08-26
+#  (#1563) rather than renewed: the f4f69867 pin advance (#1568) ships podman
+#  5.8.6 (>= the 5.8.4 fix; release-26.05 absorbed the 5.8.4 commits directly,
+#  which is why backport PR NixOS/nixpkgs#536367 was closed unmerged as a
+#  no-op). The finding is absent from the 2026-08-26 scan (run 32969211536).
+#  This is the flip-to-rev-advance the block's own note asked to re-check
+#  weekly for — resolved one week before the expiry would have fired.)
 # ============================================================================
-
-Expiration: 2026-09-02
-# podman 5.8.2 — container engine, a direct devTools member (nix/devtools.nix)
-#   and the binary backing the docker->podman shim (flake.nix). CVE-2026-57231
-#   (CVSS 7.5 HIGH): a malicious image manifest with malformed `Env` entries (a
-#   key with no value, exploitable via the `*` glob) makes podman leak matching
-#   HOST env vars into the container — a supply-chain risk only when running
-#   UNTRUSTED images. Here podman is a rootless CLI running developer/CI-chosen
-#   images, so exposure is bounded by the single-user dev model. Fixed upstream
-#   in 5.8.4 (2026-06-26) and 6.0.0; in nixpkgs the fix is on
-#   master/staging/unstable (5.8.4) but NOT in the pinned release-26.05 (still
-#   5.8.2) — backport PR NixOS/nixpkgs#536367 is open (draft, base
-#   release-26.05). Flip to a nixpkgs rev-advance when it lands; re-check weekly.
-# Re-verified 2026-07-28 (#1273): the pin was advanced to nixos-26.05 @
-#   2026-07-26 (rev 8623c4c2) and rebuilt; the closure still ships podman 5.8.2
-#   (the 5.8.4 fix has not reached the pinned channel), so this is retained.
-# Re-verified 2026-08-04 (#1327): nixos-26.05 HEAD still ships podman 5.8.2 and
-#   the release-26.05 backport (NixOS/nixpkgs#536367) is still a DRAFT,
-#   untouched since 2026-07-20 — the rev-advance lever still has nowhere to
-#   land. Expiry extended 2026-08-06 -> 2026-08-31 to align with the libssh2
-#   and unbound blocks, so the register gets one combined re-review pass.
-# Re-verified 2026-08-04 (#1328): the pin was advanced to nixos-26.05 @
-#   2026-08-03 (rev 531670d8) and rebuilt; the closure still ships podman 5.8.2,
-#   so this is retained.
-# Grid note 2026-08-20 (#1553): KEPT at 2026-09-02 while the rest of the
-#   register was staggered off that date. This block asks for a weekly
-#   re-check and the release-26.05 backport can merge at any time, so it keeps
-#   the earliest window and anchors the staggered grid.
-CVE-2026-57231
 
 # ============================================================================
 # (The 2026-07-14 gawk 5.4.0 CERT-PL block — CVE-2026-40467, -40468, -40469 and
@@ -295,123 +264,20 @@ CVE-2026-57231
 # ============================================================================
 
 # ============================================================================
-# Triage 2026-07-26 — unbound 1.25.2 security batch (nightly-scan fix, #1264).
-# Disclosed upstream 2026-07-22 with the unbound 1.25.2 release; surfaced in
-# the vulnix feed 2026-07-25 (nightly security-scan went red on BOTH refs, run
-# 30148910775 -> issues #1264 dev / #1265 main). Verified ONLINE against the
-# NLnet Labs security advisories, the upstream release notes, and the nixpkgs
-# branch contents (nixos-26.05, release-26.05, staging-26.05) on 2026-07-26.
-# Real product match (NLnet Labs unbound, no CPE collision). All five are
-# fixed upstream in unbound 1.25.2 (2026-07-22); the nixpkgs bump merged to
-# *staging* (NixOS/nixpkgs#544542, 2026-07-22) with a staging-26.05 backport
-# (NixOS/nixpkgs#544610, merged 2026-07-24) and has NOT reached nixos-26.05 —
-# the "advance the rev" lever has nowhere to land today (re-check at #1273).
-#
-# Closure provenance (nix why-depends): unbound enters ONLY as libunbound via
-# podman -> systemd -> gnutls (DNSSEC/DANE support) — the image never runs an
-# unbound daemon (systemd is not PID 1; no resolver service exists). All five
-# CVEs are daemon/resolver-context flaws (per-CVE notes below), so the
-# vulnerable code paths are effectively not exercised in this single-user dev
-# container — LOWEST-reachability class of the register, same as
-# libmicrohttpd. Flip to a nixpkgs rev-advance once 1.25.2 lands in the
-# pinned channel; short expiry to force near-term re-check.
-# Re-verified 2026-07-28 (#1273): the pin was advanced to nixos-26.05 @
-# 2026-07-26 (rev 8623c4c2) and rebuilt; the closure still ships unbound 1.25.1
-# (the 1.25.2 fix has not reached the pinned channel), so this block is retained.
-# Re-verified 2026-08-04 (#1328): the pin was advanced to nixos-26.05 @
-# 2026-08-03 (rev 531670d8) and rebuilt; the closure still ships unbound 1.25.1,
-# so this block is retained.
-# Re-dated 2026-08-20 (#1553): 2026-09-02 -> 2026-09-09, the earliest window
-# after podman. The staging-26.05 backport is already merged, so 1.25.2 can
-# reach the pinned channel in any week's Renovate bump and the "short expiry to
-# force near-term re-check" above is preserved. Scheduling only.
+# (The 2026-07-26 unbound 1.25.1 block — CVE-2026-50252, -32665, -40691,
+#  -44690, -55973 (#1264/#1265) — was removed on 2026-08-26 (#1563): the
+#  f4f69867 pin advance (#1568) ships unbound 1.26.0 (past the 1.25.2 fix
+#  release for all five). All five findings are absent from the 2026-08-26
+#  scan (run 32969211536). The block's "flip to a nixpkgs rev-advance once
+#  1.25.2 lands in the pinned channel" condition is exactly what happened.)
 # ============================================================================
 
-Expiration: 2026-09-09
-# unbound 1.25.1 — CVE-2026-50252 (NVD 9.3 CRITICAL; upstream rates Medium):
-#   cache poisoning via per-thread source-port population under SO_REUSEPORT —
-#   resolver daemon behavior; no daemon runs here.
-CVE-2026-50252
-# unbound 1.25.1 — CVE-2026-32665 (7.5): DNS-over-QUIC memory-budget bypass
-#   (DoS) — requires the DoQ server listener, never started here.
-CVE-2026-32665
-# unbound 1.25.1 — CVE-2026-40691 (7.5): "packet of death" heap overflow in
-#   DNSCrypt over TCP — requires the DNSCrypt server role, not enabled here.
-CVE-2026-40691
-# unbound 1.25.1 — CVE-2026-44690 (7.5): cache poisoning via RRSIG.labels
-#   manipulation in wildcard handling — resolver cache validation, daemon
-#   only.
-CVE-2026-44690
-# unbound 1.25.1 — CVE-2026-55973 (7.5): stack buffer overflow with the
-#   opt-in dns-error-reporting option — daemon config, not enabled here.
-CVE-2026-55973
-
 # ============================================================================
-# Triage 2026-08-04 — libssh2 1.11.1 malicious-server batch (nightly-scan fix,
-# #1327). Published on NVD 2026-07-24, surfaced in the vulnix feed 2026-07-30;
-# the nightly security scan went red on BOTH refs from 2026-07-31 (run
-# 30614074169 -> issues #1322 dev / #1323 main) and stayed red on 08-01..08-03.
-# A findings diff against the last green run (30523258723, 2026-07-30) confirms
-# these three are the ONLY delta. Verified ONLINE against NVD, the upstream
-# libssh2 repo/PR, the nixpkgs security tracker and the nixpkgs branch contents
-# (nixos-26.05, release-26.05, staging-26.05, master, nixpkgs-unstable) on
-# 2026-08-04. Real product match (libssh2, no CPE collision).
-#
-# Closure provenance: libssh2 enters ONLY as curl's scp/sftp backend (plain git
-# uses openssh; nothing in the image drives libssh2 SSH sessions). All three
-# are CLIENT-side flaws that require connecting to a MALICIOUS SSH server, so
-# they are reachable only if a developer points curl at a hostile scp://sftp://
-# endpoint — the same reachability class as CVE-2026-58050 above.
-#
-# Remediation lever: NONE today. Upstream has fixes in git (commit a2ed82d4,
-# libssh2/libssh2#2401) but has published no release since 1.11.1 (2024-10-16).
-# In nixpkgs, NixOS/nixpkgs#547491 ("apply debian patches for
-# CVE-2026-6603[2345]", tracker #545668) is open against *staging*, is not
-# merged, is gated behind NixOS/nixpkgs#546446 and still needs a release-26.05
-# backport afterwards; nixos-26.05 HEAD ships libssh2 1.11.1 with no 6603x
-# patch. Flip to a rev-advance once the patched derivation reaches the pinned
-# channel — vulnix credits CVE-named `patches` entries, so the findings drop
-# out on their own once it does. Short expiry to force near-term re-check.
-# Re-verified 2026-08-04 (#1328): the pin was advanced to nixos-26.05 @
-# 2026-08-03 (rev 531670d8) and rebuilt; libssh2 is still 1.11.1 and carries no
-# 6603x patch, so this block is retained.
-#
-# Extended 2026-08-07 (#1386): CVE-2026-66032 (8.8) — the fourth member of the
-# same upstream batch — was absent from the 2026-08-04 findings (published on
-# NVD 2026-07-24 but scored/ingested later) and first surfaced as the sole
-# blocker in the 1.7.0-rc1 Vulnix CVE Gate. Same closure provenance and
-# reachability class as the three below. nixpkgs status re-checked online
-# 2026-08-07: NixOS/nixpkgs#547491 merged to *master* 12:41Z that day, but the
-# 26.05 backport NixOS/nixpkgs#550166 targets staging-26.05 and is still open,
-# so the patched derivation has NOT reached the pinned nixos-26.05 channel.
-# Same expiry as the batch; the whole block drops on the rev-advance.
-#
-# Re-dated 2026-08-20 (#1553): 2026-09-02 -> 2026-09-16, kept near-term as the
-# "short expiry to force near-term re-check" above asks: NixOS/nixpkgs#550166 is
-# open against staging-26.05, so the findings can drop out on a rev-advance at
-# short notice. Scheduling only; the batch keeps one shared date and
-# CVE-2026-58050 sits a week later so the two libssh2 passes do not collide.
+# (The 2026-08-04 libssh2 malicious-server batch — CVE-2026-66032, -66033,
+#  -66034, -66035 (#1327, extended #1386) — was removed on 2026-08-26 (#1563):
+#  the f4f69867 pin advance (#1568) ships libssh2 1.11.1 with all four
+#  CVE-named patches applied (the staging-26.05 backport chain via
+#  NixOS/nixpkgs#550166 reached the pinned channel). vulnix credits CVE-named
+#  `patches` entries, so all four findings dropped out of the 2026-08-26 scan
+#  (run 32969211536) on their own — the exact exit the block predicted.)
 # ============================================================================
-
-Expiration: 2026-09-16
-# libssh2 1.11.1 — CVE-2026-66032 (8.8): double-free in sftp_open()
-#   (src/sftp.c); a malicious server answers SSH_FXP_OPEN with an FX_OK status
-#   and a follow-up oversized packet, making the client free the same response
-#   buffer twice and corrupting the authenticated client's heap. Reachable
-#   only through curl's sftp:// backend against a hostile server.
-CVE-2026-66032
-# libssh2 1.11.1 — CVE-2026-66033 (7.5): pre-auth integer underflow in
-#   ssh2_cipher_crypt() (src/openssl.c); a malicious server negotiating AES-GCM
-#   triggers an OOB read and a memcpy with a near-SIZE_MAX length, crashing the
-#   client before authentication. Availability only.
-CVE-2026-66033
-# libssh2 1.11.1 — CVE-2026-66034 (7.5): publickey subsystem accepts a
-#   server-supplied unsafe length and reads past the heap buffer; the error
-#   path may free an uninitialized pointer. Same subsystem as CVE-2026-58050,
-#   which curl/libgit2 do not call.
-CVE-2026-66034
-# libssh2 1.11.1 — CVE-2026-66035 (7.5): pre-auth heap buffer overflow in
-#   fullpacket() (src/transport.c); with Encrypt-then-MAC negotiated, a
-#   malicious server sends a packet smaller than the cipher block size and the
-#   library copies more data than it allocated.
-CVE-2026-66035
