@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-08-25T20:50:32Z
+updated: 2026-08-26T13:05:46Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-26T03:12:30.806Z
+synced: 2026-08-26T13:51:57.514Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -26,9 +26,20 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
 
+
+---
+
+> [!WARNING]
+> Renovate failed to look up the following dependencies: `Failed to look up github-releases package aquasecurity/trivy: no-result`.
+> 
+> Files affected: `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/workflows/security-scan.yml`
+
+---
+
+
 ## Detected Dependencies
 
-<details><summary>github-actions (38)</summary>
+<details><summary>github-actions (39)</summary>
 <blockquote>
 
 <details><summary>.github/actions/setup-env/action.yml (3)</summary>
@@ -294,6 +305,17 @@ The following updates are awaiting their schedule. To get an update now, click o
 </details>
 
 <details><summary>.github/workflows/update-nixpkgs-unstable.yml (6)</summary>
+
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
+ - `vig-os/commit-action v0.3.2@0361e9aa65b64711a18286ac5dfdcba7cc7a2ac7`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `ubuntu 24.04`
+
+</details>
+
+<details><summary>.github/workflows/update-nixpkgs.yml (6)</summary>
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
