@@ -33,6 +33,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Security exception register reconciled against the advanced nixpkgs pin —
+  14 entries deleted, none renewed**
+  ([#1563](https://github.com/vig-os/devkit/issues/1563),
+  [#1564](https://github.com/vig-os/devkit/issues/1564))
+  - the pin advance `531670d8` → `f4f69867`
+    ([#1568](https://github.com/vig-os/devkit/pull/1568)) cleared four whole
+    `.vulnixignore` blocks ahead of the 2026-09-02 anchor expiry: podman
+    `CVE-2026-57231` (5.8.6 ships the fix), the five unbound 1.25.1 CVEs
+    (1.26.0), and both libssh2 blocks (`CVE-2026-58050` + the four 6603x CVEs,
+    now patched in-derivation); the NVD CPE correction also retired the three
+    git Jenkins-plugin false positives
+  - every deletion verified against the first scan on the new closure
+    (run 32969211536, both refs green); remaining blocks
+    (glibc, fzf, lower-reachability, shellcheck) stand unchanged on their
+    staggered Wednesdays
+
 ## [1.11.0](https://github.com/vig-os/devkit/releases/tag/1.11.0) - 2026-08-20
 
 ### Added
