@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-08-26T23:43:04Z
+updated: 2026-08-28T02:49:28Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-27T12:42:14.743Z
+synced: 2026-08-28T14:15:36.224Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -25,6 +25,7 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
  - [ ] <!-- unschedule-branch=renovate/github-codeql-action-digest -->chore(deps): update github/codeql-action digest to cdf488f
+ - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update anchore/sbom-action action to v0.24.1
  - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
  - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
 
@@ -216,8 +217,8 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `sigstore/cosign-installer v4.1.2@6f9f17788090df1f26f669e9d70d6ae9567deba6`
  - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
  - `actions/download-artifact v8.0.1@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`
- - `anchore/sbom-action v0.24.0@e22c389904149dbc22b58101806040fa8d37a610`
- - `anchore/sbom-action v0.24.0@e22c389904149dbc22b58101806040fa8d37a610`
+ - `anchore/sbom-action v0.24.0@e22c389904149dbc22b58101806040fa8d37a610` → [Updates: `v0.24.1`]
+ - `anchore/sbom-action v0.24.0@e22c389904149dbc22b58101806040fa8d37a610` → [Updates: `v0.24.1`]
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `actions/attest-build-provenance v4.2.2@4d101475d8b20a2381f78447822ac1eab6504dd8`
  - `actions/attest-build-provenance v4.2.2@4d101475d8b20a2381f78447822ac1eab6504dd8`
