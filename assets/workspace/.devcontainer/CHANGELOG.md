@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A `vigos.sesh` project can now open with its own window layout**
+  ([#1583](https://github.com/vig-os/devkit/issues/1583))
+  - `layout.windows` chose *which* windows a session got, but the choice was
+    global: every seed in `sessions` opened identically, so a repo with no
+    pull-request workflow still started a dashboard window on a permanently
+    empty view, and a docs repo still got a git TUI it had no use for. The only
+    escape was disabling the module and hand-writing `sesh.toml`, discarding the
+    whole layout mechanism to change one window
+  - `vigos.sesh.layout.profiles` takes named window sets and a session's new
+    `layout` field selects one; `default` remains `layout.windows` and cannot be
+    redefined, so there is one home for the default set rather than two that can
+    disagree
+  - Delivery is sesh's own config rather than a new mechanism: a session with a
+    profile emits `startup_command = "sesh-layout <profile>"`, which sesh
+    resolves ahead of `[default_session]`, so a session naming no profile stays
+    bare and inherits the default. `sesh-layout` takes the profile as an
+    argument and stays a single binary — consumers probe for it by name to
+    detect a provisioned host
+  - A session naming an undefined profile fails at eval, listing the valid
+    names, rather than producing a `sesh.toml` whose sessions die at connect
+    time far from the definition that caused it
+  - Backward compatible: with `profiles` empty and no session setting `layout`,
+    the generated `sesh.toml` and layout script are unchanged
+
 ### Changed
 
 ### Deprecated
