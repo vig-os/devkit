@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.12.0] - TBD
+
+### Added
+
 - **`poppler-utils` joins the `docs` capability module**
   ([#1573](https://github.com/vig-os/devkit/issues/1573))
   - `modules = [ "docs" ]` shipped `typst`/`typstyle` — the *writing* side only;
@@ -25,9 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-### Deprecated
+#### Dependencies
 
-### Removed
+- Update `anchore/sbom-action` from `v0.24.0` to `v0.24.2` ([#1576](https://github.com/vig-os/devkit/pull/1576))
+- Update `github/codeql-action` from `db488dd` to `cdf488f` ([#1575](https://github.com/vig-os/devkit/pull/1575))
+- Lock file maintenance (pip) ([#1577](https://github.com/vig-os/devkit/pull/1577))
 
 ### Fixed
 
@@ -52,8 +68,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (jackdewinter/pymarkdown#1672/#1673/#1674), so a pin bump is not the remedy:
     `tests/test_pymarkdown_fix_safety.py` re-runs the reproducers against
     whatever version the flake pins
-
-### Security
 
 ## [1.11.1](https://github.com/vig-os/devkit/releases/tag/1.11.1) - 2026-08-26
 
