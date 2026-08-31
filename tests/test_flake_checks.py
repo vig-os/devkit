@@ -26,7 +26,14 @@ import subprocess
 
 import pytest
 
-from .nix_helpers import REPO_ROOT, current_system, nix_env, nix_eval_json
+from .nix_helpers import (
+    REPO_ROOT,
+    current_system,
+    flake_expr,
+    nix_env,
+    nix_eval_expr,
+    nix_eval_json,
+)
 
 pytestmark = pytest.mark.skipif(
     shutil.which("nix") is None,
@@ -326,6 +333,69 @@ def test_wave3_full_profile_config() -> None:
     assert cfg["neovim"] is True
     assert cfg["seshToml"] is True, "sesh.toml must be generated"
     assert cfg["seshSessions"] == [], "sesh sessions must default empty"
+
+
+def _sesh_toml(sesh_config: str) -> subprocess.CompletedProcess[str]:
+    """Render ``sesh.toml`` from a synthetic home config carrying ``vigos.sesh``.
+
+    The ci profiles declare no sessions, so per-session behaviour needs its own
+    configuration rather than ``_ci_full_config``.
+    """
+    return nix_eval_expr(
+        flake_expr(
+            "(flake.inputs.home-manager.lib.homeManagerConfiguration { "
+            "inherit pkgs; "
+            "modules = [ flake.homeManagerModules.sesh { "
+            'home = { username = "ci"; homeDirectory = "/home/ci"; '
+            'stateVersion = "26.05"; }; '
+            f"vigos.sesh = {sesh_config}; "
+            "} ]; "
+            '}).config.home.file.".config/sesh/sesh.toml".text',
+            system=current_system(),
+        )
+    )
+
+
+def test_sesh_session_selects_layout_profile() -> None:
+    """A session may pick a named layout profile; silent ones inherit (#1583).
+
+    The selecting session gets an explicit per-session ``startup_command``
+    (sesh resolves those ahead of ``[default_session]``), while a session that
+    names no profile stays bare and inherits the default layout.
+    """
+    result = _sesh_toml(
+        "{ enable = true; "
+        'layout.profiles.docs = [ { name = "files"; command = "yazi"; } '
+        '{ name = "edit"; command = "nvim ."; } ]; '
+        "sessions = [ "
+        '{ name = "app"; path = "/home/ci/app"; } '
+        '{ name = "notes"; path = "/home/ci/notes"; layout = "docs"; } '
+        "]; }"
+    )
+    assert result.returncode == 0, result.stderr
+    blocks = result.stdout.split("[[session]]")
+    app = next(b for b in blocks if '"app"' in b)
+    notes = next(b for b in blocks if '"notes"' in b)
+    assert "startup_command" not in app, (
+        "a session without a layout must inherit [default_session]"
+    )
+    assert 'startup_command = "sesh-layout docs"' in notes
+
+
+def test_sesh_unknown_layout_profile_fails_eval() -> None:
+    """A session naming a missing profile must fail at eval (#1583).
+
+    Catching it here beats emitting a sesh.toml whose sessions die at connect
+    time with an unknown-profile error; the message names the bad profile and
+    the valid ones.
+    """
+    result = _sesh_toml(
+        "{ enable = true; sessions = [ "
+        '{ name = "x"; path = "/home/ci/x"; layout = "nope"; } ]; }'
+    )
+    assert result.returncode != 0, "unknown layout profile must not evaluate"
+    assert "nope" in result.stderr, "the message must name the offending profile"
+    assert "default" in result.stderr, "the message must list the valid profiles"
 
 
 @pytest.mark.parametrize("template", ["personal", "python"])
