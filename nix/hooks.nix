@@ -532,6 +532,24 @@ let
     # hooks above rely on. The Nix gate operates on the sandboxed source copy, so
     # a fix never mutates the real tree; `scan` would be stricter than the runner
     # and would newly fail the gate on pre-existing unfixable markdown debt.
+    #
+    # THE FIX-MODE TRAP (#1574): three of pymarkdown's fixers are unsafe on
+    # ordinary documentation — fenced code indented inside ordered list items —
+    # so `.pymarkdown` ships md029, md031 and md046 DISABLED. md031 de-indents
+    # the second of two consecutive in-list fences to column 0 and still exits
+    # "success"; md029 renumbers deliberate continuation numbering (and crashes
+    # the whole run with BadPluginFixError when it collides with md031, which
+    # this comment's "tolerates unfixable violations" contract otherwise
+    # promises cannot happen); md046 converts fenced blocks to indented ones by
+    # deleting the fence markers, dropping their language tags. `pyml` pragmas
+    # gate `scan` but NOT `fix`, so there is no per-site opt-out. Because the
+    # hook fails on "files were modified", the operator reflex — re-add,
+    # re-commit — is exactly how such a rewrite lands as an unreviewed lint fix.
+    # All three reproduce on the pin (0.9.23) and on upstream 0.9.39
+    # (jackdewinter/pymarkdown#1672/#1673/#1674), so a pin bump is NOT the
+    # remedy: tests/test_pymarkdown_fix_safety.py re-runs the reproducers
+    # against whatever version the flake pins. A scan-only consumer can
+    # re-enable the three rules in its own (preserved) `.pymarkdown`.
     pymarkdown = {
       scaffold = true;
       yaml = {

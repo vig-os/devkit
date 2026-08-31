@@ -797,6 +797,20 @@ The contract:
   the generated set includes it — `direnv`/`bare` consumers gain markdown lint
   from the shared toolchain like `shellcheck`/`typos`. Toggle it off with
   `pymarkdown.enable = false` if a repo has no markdown to lint.
+- **The hook runs `fix`, so three rules ship disabled.** Since
+  [#1574](https://github.com/vig-os/devkit/issues/1574) the scaffolded
+  `.pymarkdown` disables `md029`, `md031` and `md046`: their *fixers* rewrite
+  document meaning on a fenced code block indented inside an ordered list item
+  (md031 de-indents the second such fence to column 0 and still exits
+  "success"; md029 renumbers deliberate continuation numbering and can abort
+  the run with `BadPluginFixError`; md046 deletes fence markers along with
+  their language tags). `pyml` pragmas gate `scan` but not `fix`, so there is
+  no per-site opt-out, and the hook's modify-and-fail loop makes re-add +
+  re-commit the reflex that lands the rewrite. Reproducers and rationale are in
+  `.pymarkdown.config.md`. **`.pymarkdown` is a preserved file — seeded once,
+  never overwritten** — so a repo scaffolded before this landed keeps its own
+  copy: add the three `"enabled": false` entries by hand (or re-enable them
+  deliberately if you run `scan` rather than `fix`).
 - **The commit-message and agent-identity guards are in the base set.** Since
   [#1434](https://github.com/vig-os/devkit/issues/1434) the generated config
   carries `validate-commit-msg` (`commit-msg` stage),
