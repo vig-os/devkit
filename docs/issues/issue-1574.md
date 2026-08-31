@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-28T12:00:24Z
-updated: 2026-08-28T12:15:05Z
+updated: 2026-08-31T06:32:59Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1574
-comments: 1
+comments: 2
 labels: bug, priority:medium, area:workspace, effort:small
 assignees: none
-milestone: none
+milestone: 1.12.0
 projects: none
 parent: none
 children: none
-synced: 2026-08-28T14:15:35.207Z
+synced: 2026-08-31T07:17:37.392Z
 ---
 
 # [Issue 1574]: [[BUG] pymarkdown fix-mode hook: fixer crashes on a common list idiom and silently rewrites document semantics (pin 0.9.23; all reproduced on upstream 0.9.39)](https://github.com/vig-os/devkit/issues/1574)
@@ -121,4 +121,12 @@ Proposed action 2 is done — the three bugs are filed upstream with the synthet
 - jackdewinter/pymarkdown#1674 — pragmas suppress scan but fix applies anyway (disable-next-line ol-prefix → list renumbered)
 
 Remaining on this issue: action 1 (ship md029/md046 disabled in the scaffolded .pymarkdown + hook-comment note) and action 3 (re-test these reproducers before trusting any pin bump — #1672/#1673/#1674 are the watch list for when a bump becomes worthwhile).
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on August 31, 2026 at 06:32 AM_
+
+Merged to `dev` — shipping in 1.12.0.
 

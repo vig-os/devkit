@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-28T08:08:36Z
-updated: 2026-08-28T08:08:46Z
+updated: 2026-08-31T06:32:55Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1573
-comments: 1
+comments: 2
 labels: feature, priority:low, effort:small, semver:minor
 assignees: none
-milestone: none
+milestone: 1.12.0
 projects: none
 parent: none
 children: none
-synced: 2026-08-28T14:15:35.746Z
+synced: 2026-08-31T07:17:38.004Z
 ---
 
 # [Issue 1573]: [feat(nix): add poppler-utils to the docs capability module](https://github.com/vig-os/devkit/issues/1573)
@@ -100,4 +100,12 @@ documents appears. Flagging so the two are not conflated.
 _Posted on August 28, 2026 at 08:08 AM_
 
 Origin and companion issue: [exo-pet/vault#70](https://github.com/exo-pet/vault/issues/70) — the vault keeps the OCR stack repo-local in a pinned `devShells.ocr`, and would only promote it to a shared `ocr` capability module if volume justifies it. This issue is the cheap half: PDF *reading* for all `docs` consumers.
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on August 31, 2026 at 06:32 AM_
+
+Merged to `dev` — shipping in 1.12.0.
 
