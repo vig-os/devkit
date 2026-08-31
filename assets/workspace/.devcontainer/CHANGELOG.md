@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`poppler-utils` joins the `docs` capability module**
+  ([#1573](https://github.com/vig-os/devkit/issues/1573))
+  - `modules = [ "docs" ]` shipped `typst`/`typstyle` — the *writing* side only;
+    with no `pdftotext`/`pdftoppm` on PATH there was no CLI path from a PDF to
+    text, and an agent's file reader (which shells out to `pdftoppm` to render a
+    page) could not open a PDF at all, in repos whose corpus is largely vendor
+    PDFs
+  - the module now also carries `poppler-utils` (~140 MB closure); OCR stays
+    deliberately out — `tesseract` (1.11 GB) and `ocrmypdf` (1.68 GB) would
+    charge every `docs` consumer an order of magnitude more for a capability
+    most never use
+  - `modules = [ ]` consumers are unaffected, per the zero-cost-when-unused
+    property
+
 ### Changed
 
 ### Deprecated
