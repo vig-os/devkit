@@ -107,10 +107,11 @@ devShells.default = vigos.lib.mkProjectShell {
     Node/TypeScript capability: `nodejs` (which bundles `npm`) in the shell,
     for consumers who previously hand-wired `extraPackages = [ pkgs.nodejs ]`.
   - `docs` ([#1178](https://github.com/vig-os/devkit/issues/1178)) — the
-    document-edition capability: `typst` (the document compiler) and `typstyle`
-    (its formatter) in the shell, for document-oriented consumers
-    (exo-pet/vault, the future `qms` app, EXOMA presentations/grants) that
-    previously pinned `typst` via PyPI. Opt in with:
+    document-edition capability: `typst` (the document compiler), `typstyle`
+    (its formatter) and `poppler-utils`
+    ([#1573](https://github.com/vig-os/devkit/issues/1573)) in the shell, for
+    document-oriented consumers (exo-pet/vault, the future `qms` app, EXOMA
+    presentations/grants) that previously pinned `typst` via PyPI. Opt in with:
 
     ```nix
     devShells.default = vigos.lib.mkProjectShell {
@@ -123,11 +124,22 @@ devShells.default = vigos.lib.mkProjectShell {
     per pin, so the module tracks the toolchain nixpkgs pin rather than exposing
     a selectable version (typst output is not stable across versions, so a
     consumer regenerates its `generated/` artifacts once under the pinned
-    toolchain — pin-tracking beats a bespoke version overlay). **Deliberate v1
-    exclusions:** pandoc/LaTeX (ask-gated until a consumer needs them), headless
-    drawio/excalidraw export (electron-shaped, stays repo-owned), and Python
-    doc-processing libraries (`pymupdf4llm`, `openpyxl`) which belong in the
-    consumer's own `pyproject.toml` via uv, not in a nix module.
+    toolchain — pin-tracking beats a bespoke version overlay).
+
+    **PDF reading is part of the capability.** `poppler-utils` puts `pdftotext`
+    and `pdftoppm` on the shell PATH: without them there is no CLI path from a
+    PDF to text, and an agent's file reader — which shells out to `pdftoppm` to
+    render a page — cannot open a PDF at all. Every named `docs` consumer
+    handles PDFs, and the ~140 MB closure is the small generic native CLI this
+    module exists to carry. **Deliberate v1 exclusions:** pandoc/LaTeX
+    (ask-gated until a consumer needs them), headless drawio/excalidraw export
+    (electron-shaped, stays repo-owned), Python doc-processing libraries
+    (`pymupdf4llm`, `openpyxl`) which belong in the consumer's own
+    `pyproject.toml` via uv, and **OCR** — `tesseract` (1.11 GB) and `ocrmypdf`
+    (1.68 GB) would charge every `docs` consumer an order of magnitude more than
+    `poppler-utils` for a capability most never use, so it stays repo-local
+    ([exo-pet/vault#70](https://github.com/exo-pet/vault/issues/70)) until a
+    second consumer justifies a dedicated `ocr` module.
   - **Candidates (ask-gated, not shipped):** `geant4`, `rust`, `fortran`/`f2py`,
     `root`.
 - **Per-module options (the `node` version).** A `modules` entry is either a

@@ -9,7 +9,7 @@
 # `poppler-utils` (#1573) is the reading half of the same capability: without
 # `pdftotext`/`pdftoppm` there is no CLI path from a PDF to text, and an agent's
 # file reader — which shells out to `pdftoppm` to render a page — cannot open a
-# PDF at all. All three named consumers handle PDFs, and at a 139 MB closure it
+# PDF at all. All three named consumers handle PDFs, and at a ~140 MB closure it
 # is the small generic native CLI this module exists to carry. OCR is NOT the
 # same call: `tesseract` (1.11 GB) and `ocrmypdf` (1.68 GB) would charge every
 # `docs` consumer an order of magnitude more for a capability EXOMA grant decks
