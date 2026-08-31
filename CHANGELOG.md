@@ -31,6 +31,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The `pymarkdown` hook no longer rewrites document meaning in `fix` mode**
+  ([#1574](https://github.com/vig-os/devkit/issues/1574))
+  - the generated hook runs `pymarkdown -c .pymarkdown fix`, so an enabled rule
+    is permission to rewrite the file; three fixers are unsafe on the ordinary
+    idiom of a fenced code block indented inside an ordered list item — `md031`
+    dumps the second of two consecutive in-list fences to column 0 and still
+    exits "success", `md029` renumbers deliberate continuation numbering (and
+    collides with `md031` into a `BadPluginFixError` that aborts the whole run),
+    and `md046` deletes fence markers along with their language tags
+  - `pyml` pragmas gate `scan` but not `fix`, so there was no per-site opt-out,
+    and the hook's modify-and-fail loop makes re-add + re-commit the reflex that
+    lands such a rewrite as an unreviewed "lint fix"
+  - the scaffolded `.pymarkdown` now ships `md029`, `md031` and `md046`
+    disabled, with the rationale in `.pymarkdown.config.md`, the trap recorded
+    in the `nix/hooks.nix` hook comment, and the adoption note in
+    `docs/MIGRATION.md` (`.pymarkdown` is preserved, so an existing consumer
+    adds the three entries by hand)
+  - all three reproduce on the pinned 0.9.23 and on upstream 0.9.39
+    (jackdewinter/pymarkdown#1672/#1673/#1674), so a pin bump is not the remedy:
+    `tests/test_pymarkdown_fix_safety.py` re-runs the reproducers against
+    whatever version the flake pins
+
 ### Security
 
 ## [1.11.1](https://github.com/vig-os/devkit/releases/tag/1.11.1) - 2026-08-26
