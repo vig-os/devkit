@@ -322,7 +322,8 @@ def test_node_module_rejects_unknown_option(current_system: str) -> None:
 # consumer (exo-pet/vault, future qms, EXOMA presentations/grants) opts in with
 # `modules = [ "docs" ]` instead of a PyPI typst pin. No version option in v1 —
 # nixpkgs carries a single typst per pin and the module tracks that pin. See
-# docs/rfcs/ADR-capability-modules.md.
+# docs/rfcs/ADR-capability-modules.md. #1573 adds the reading side of the same
+# capability (`poppler-utils`); OCR stays deliberately out (see that test).
 # ---------------------------------------------------------------------------
 
 
@@ -342,6 +343,35 @@ def test_docs_module_provides_typst_and_typstyle(current_system: str) -> None:
     )
     assert proc.returncode == 0, (
         "docs-module devshell is missing typst/typstyle: "
+        f"rc={proc.returncode} stdout={proc.stdout.strip()!r} "
+        f"stderr={proc.stderr.strip()[:300]}"
+    )
+
+
+def test_docs_module_provides_poppler_utils(current_system: str) -> None:
+    """The ``docs`` module puts ``pdftotext`` and ``pdftoppm`` on PATH (#1573).
+
+    ``typst``/``typstyle`` cover writing documents; ``poppler-utils`` covers
+    *reading* them, which every named ``docs`` consumer needs (exo-pet/vault's
+    corpus is largely vendor PDFs, and qms/EXOMA share that profile).
+    ``pdftoppm`` is the concrete blocker: it is what an agent's file reader
+    shells out to in order to render a PDF page, so without it a ``docs``
+    consumer cannot open a PDF at all. Both binaries must resolve from the
+    shell's own PATH, not the host's.
+
+    OCR (``tesseract`` at 1.11 GB, ``ocrmypdf`` at 1.68 GB) is deliberately NOT
+    here — it would charge every ``docs`` consumer an order of magnitude more
+    than ``poppler-utils``' 139 MB for a capability most never use; it stays
+    repo-local until a second consumer justifies its own module
+    (exo-pet/vault#70).
+    """
+    proc = _develop_module(
+        current_system,
+        "docs",
+        "command -v pdftotext && command -v pdftoppm && pdftotext -v && pdftoppm -v",
+    )
+    assert proc.returncode == 0, (
+        "docs-module devshell is missing poppler-utils (pdftotext/pdftoppm): "
         f"rc={proc.returncode} stdout={proc.stdout.strip()!r} "
         f"stderr={proc.stderr.strip()[:300]}"
     )
