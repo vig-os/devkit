@@ -67,6 +67,25 @@ def nix_eval_json(installable: str, *, apply: str | None = None, timeout: int = 
     return json.loads(result.stdout)
 
 
+def nix_eval_expr(expr: str, *, timeout: int = 600) -> subprocess.CompletedProcess[str]:
+    """``nix eval --raw --impure --expr <expr>`` -> the completed process.
+
+    ``--impure`` because synthetic configurations reach the flake through
+    ``builtins.getFlake`` on a local path (the same reason ``current_system``
+    needs it); the flake's own inputs stay locked.
+
+    The process is returned rather than asserted so callers can exercise a
+    module's eval-time *failure* guard as well as its success path.
+    """
+    return subprocess.run(
+        ["nix", "eval", "--raw", "--impure", "--expr", expr],
+        capture_output=True,
+        text=True,
+        env=nix_env(),
+        timeout=timeout,
+    )
+
+
 def nix_eval_raw(installable: str, *, timeout: int = 600) -> str:
     """``nix eval --raw <installable>`` -> stripped stdout."""
     result = subprocess.run(

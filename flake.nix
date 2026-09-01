@@ -30,6 +30,16 @@
     # Refs #819.
     home-manager.url = "github:nix-community/home-manager/release-26.05";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
+    # home-manager master, paired with nixpkgs-unstable: feeds ONLY the
+    # ci-hm-unstable eval guard (#1589) — the exported vigos.* modules are
+    # evaluated against whatever branch a consumer supplies, and a production
+    # consumer runs master+unstable, so that combination is release-gated
+    # here. One leaf lock node (follows keeps nixpkgs-unstable resolved once);
+    # fetched only when the guard itself is evaluated, so consumers who never
+    # touch it pay lock size, not a download. Kept fresh by the
+    # update-nixpkgs-unstable cron alongside nixpkgs-unstable.
+    home-manager-unstable.url = "github:nix-community/home-manager";
+    home-manager-unstable.inputs.nixpkgs.follows = "nixpkgs-unstable";
     # ---- Rust language pack (#1400) -------------------------------------
     # crane: the cargo build library behind lib.mkRustProject's checks and
     # packages. Dependency-free (like process-compose-flake), so it adds one
@@ -82,6 +92,7 @@
       process-compose-flake,
       services-flake,
       home-manager,
+      home-manager-unstable,
       crane,
       fenix,
     }:
@@ -1814,6 +1825,57 @@
             hmProfiles.full
           ];
         };
+      };
+
+      # ----------------------------------------------------------------------
+      # ci-hm-unstable — eval-only guard for the exported homeManagerModules
+      # on home-manager master + nixos-unstable (#1589). The vigos.* modules
+      # are exported as paths and evaluated against whatever nixpkgs and
+      # home-manager a consumer supplies; a production consumer wires the full
+      # set through the NixOS-module tier (`home-manager.users.<name>`, the
+      # first-class platform row) on exactly this branch pair, so the whole
+      # option surface must keep evaluating there. Never built: the blocking
+      # gate is an eval of its toplevel drvPath (tests/test_flake_checks.py),
+      # and the update-nixpkgs-unstable cron keeps both inputs fresh so a
+      # master-side break surfaces in that weekly PR, before a consumer lock
+      # bump discovers it downstream.
+      # ----------------------------------------------------------------------
+      nixosConfigurations.ci-hm-unstable = nixpkgs-unstable.lib.nixosSystem {
+        modules = [
+          home-manager-unstable.nixosModules.home-manager
+          {
+            # Throwaway eval-only host: just enough machine for the module
+            # system to close over. allowUnfree covers claude-code; vig-utils
+            # rides its overlay — the same wiring mkHomePkgs gives the stable
+            # matrix. The fast-mover overlay is deliberately absent: the base
+            # here IS the fast branch.
+            nixpkgs = {
+              hostPlatform = "x86_64-linux";
+              config.allowUnfree = true;
+              overlays = [ vigUtilsOverlay ];
+            };
+            boot.loader.grub.enable = false;
+            fileSystems."/" = {
+              device = "none";
+              fsType = "tmpfs";
+            };
+            system.stateVersion = "26.05";
+            users.users.ci = {
+              isNormalUser = true;
+              home = "/home/ci";
+            };
+            home-manager = {
+              useGlobalPkgs = true;
+              users.ci = {
+                imports = [
+                  ./nix/home/default.nix
+                  hmProfiles.full
+                ];
+                home.stateVersion = "26.05";
+              };
+            };
+          }
+        ];
       };
 
       # `nix flake init -t github:vig-os/devcontainer#personal` scaffolds a

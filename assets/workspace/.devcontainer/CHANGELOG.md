@@ -19,6 +19,130 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [1.13.0](https://github.com/vig-os/devkit/releases/tag/1.13.0) - 2026-09-01
+
+### Added
+
+- **A `vigos.sesh` project can now open with its own window layout**
+  ([#1583](https://github.com/vig-os/devkit/issues/1583))
+  - `layout.windows` chose *which* windows a session got, but the choice was
+    global: every seed in `sessions` opened identically, so a repo with no
+    pull-request workflow still started a dashboard window on a permanently
+    empty view, and a docs repo still got a git TUI it had no use for. The only
+    escape was disabling the module and hand-writing `sesh.toml`, discarding the
+    whole layout mechanism to change one window
+  - `vigos.sesh.layout.profiles` takes named window sets and a session's new
+    `layout` field selects one; `default` remains `layout.windows` and cannot be
+    redefined, so there is one home for the default set rather than two that can
+    disagree
+  - Delivery is sesh's own config rather than a new mechanism: a session with a
+    profile emits `startup_command = "sesh-layout <profile>"`, which sesh
+    resolves ahead of `[default_session]`, so a session naming no profile stays
+    bare and inherits the default. `sesh-layout` takes the profile as an
+    argument and stays a single binary — consumers probe for it by name to
+    detect a provisioned host
+  - A session naming an undefined profile fails at eval, listing the valid
+    names, rather than producing a `sesh.toml` whose sessions die at connect
+    time far from the definition that caused it
+  - Backward compatible: with `profiles` empty and no session setting `layout`,
+    the generated `sesh.toml` and layout script are unchanged
+- **`vigos.sesh` can now open projects on remote hosts**
+  ([#1585](https://github.com/vig-os/devkit/issues/1585))
+  - `vigos.sesh.remotes` declares a project × host × path inventory (`host` is
+    an `~/.ssh/config` alias — no connection details in the module); it renders
+    to `remotes.tsv` beside `sesh.toml` only when populated, so the empty
+    default is a bit-for-bit no-op
+  - The picker gains a runner stage that appears only when a project has more
+    than one location; the last-used runner is remembered and pre-selected, so
+    `Enter Enter` reconnects wherever the session was left running
+  - New `sesh-remote-connect` attach-or-creates over SSH (`tmux new -A`),
+    probing capability in the same round trip: `sesh-layout` on the remote
+    PATH gives the full standard layout, bare tmux a persistent blank session,
+    and neither a plain login shell after an explicit warning — no per-host
+    capability flags to go stale
+  - `vigos.sesh.remoteTerminal` opens the ssh client in its own terminal
+    window when picking a remote from inside tmux (a remote tmux must not nest
+    in the local popup); the null default uses a local tmux window instead, so
+    no personal terminal is baked into the module
+- **`vigos.ghdash` now follows the project you are in and takes per-project
+  section profiles** ([#1586](https://github.com/vig-os/devkit/issues/1586))
+  - New `gh-dash-repo [profile]` launches the dashboard scoped to the repo of
+    the launch directory (derived from `origin` — nothing is declared per
+    project and no file lands in project repos); outside a GitHub repo it
+    falls back to the `repoFilters` scope, so it is always valid
+  - `vigos.ghdash.profiles` names alternative section sets (a team repo wants
+    review queues a solo repo has no use for); filters are written scope-free
+    and the module appends the launch-time scope, so a profile cannot silently
+    ship unscoped. A `vigos.sesh` layout profile can point its dashboard
+    window at `gh-dash-repo <name>`, so selection rides the session entry that
+    already identifies the project
+  - Backward compatible: `programs.gh-dash.settings` is unchanged, bare
+    `gh-dash` keeps the `repoFilters` scope, and a per-repo scope is cheaper
+    than the widened filter it replaces
+- **A `vigos.ghdash` profile can now filter its issues view separately**
+  ([#1595](https://github.com/vig-os/devkit/issues/1595))
+  - A profile named one section list and the wrapper wrote it to both views,
+    but PR and issue queues are not filtered alike: the qualifiers that make a
+    PR profile useful (`review-requested:@me`, `draft:false`) either do not
+    apply to issues or mean something else, so a profile written for pull
+    requests landed a permanently empty section under Issues — the only escape
+    was writing the profile down to what both views understand
+  - A profile may now be `{ prSections; issuesSections; }` instead of a bare
+    list, with `issuesSections = [ ]` leaving the issues view empty rather
+    than wrong; issue filters are scope-free and get the launch-time scope
+    exactly as PR ones do
+  - The `default` profile keeps a consumer-set
+    `programs.gh-dash.settings.issuesSections` instead of overwriting it —
+    those sections carry the scope their author chose, and one that wants to
+    follow the launch repo writes the `__GH_DASH_SCOPE__` placeholder itself.
+    Since the `prs` window of a `vigos.sesh` layout runs `gh-dash-repo`, that
+    was the launch path where the setting silently disappeared
+  - Backward compatible: a bare list still means both views, so every profile
+    written against #1586 renders byte-identically
+- **CI now guards `homeManagerModules` on home-manager master + nixos-unstable**
+  ([#1589](https://github.com/vig-os/devkit/issues/1589))
+  - The `vigos.*` home modules are exported as paths and evaluated against
+    whatever nixpkgs and home-manager the consumer supplies, but devkit only
+    tested the stable side of that contract — an option rename on home-manager
+    `master`, or an unstable nixpkgs change under a module default, surfaced as
+    a consumer eval break after a lock bump, downstream
+  - A new eval-only `nixosConfigurations.ci-hm-unstable` wires the full module
+    set (every `enable` on) through the NixOS-module tier —
+    `home-manager.users.<name>`, the wiring the production consumer runs — on
+    home-manager `master` + `nixpkgs-unstable`, and a blocking Tier-0 test
+    forces its toplevel drvPath; nothing is built
+  - The weekly `update-nixpkgs-unstable` cron now bumps the new
+    `home-manager-unstable` input alongside `nixpkgs-unstable`, so a
+    master-side break surfaces on that PR's CI, inside devkit's release gate,
+    before any consumer lock bump
+
+### Changed
+
+#### Dependencies
+
+- Update `@devcontainers/cli` from `0.88.0` to `0.89.0` ([#1582](https://github.com/vig-os/devkit/pull/1582))
+
+### Security
+
+- **Except the rsync 3.5.0 advisory batch in the vulnix register**
+  ([#1592](https://github.com/vig-os/devkit/issues/1592),
+  [#1593](https://github.com/vig-os/devkit/issues/1593))
+  - The NVD feed published 17 new CVEs against `rsync-3.4.4` overnight, taking
+    both nightly scan lanes and the release train's `vulnix-gate` red; 8 score
+    >= 7.0 and are now excepted, the other 9 fall below the gate's threshold
+  - A feed event, not a closure change: the previous night's scan was green on
+    the same pin and the findings diff is 17 added / 0 removed / no other
+    package touched, so no exception had expired and nothing in this repo
+    caused it
+  - Advancing the pin cannot clear them today — all 17 are fixed in rsync
+    3.5.0, whose 26.05 backport reached `staging-next-26.05` on 2026-08-29 but
+    not yet `release-26.05` or the pinned `nixos-26.05`
+  - Expires `2026-09-23`, its own early slot on the staggered grid because this
+    block's lever moves soonest: it should die on the pin advance that ships
+    3.5.0 rather than be renewed. Six of the eight defects are `rsyncd`
+    daemon-only and this image never starts a daemon; the remaining two need
+    the user to point rsync at a hostile peer
+
 ## [1.12.0](https://github.com/vig-os/devkit/releases/tag/1.12.0) - 2026-08-31
 
 ### Added

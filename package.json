@@ -3,6 +3,6 @@
   "private": true,
   "description": "CI-only npm dependencies tracked by Dependabot",
   "dependencies": {
-    "@devcontainers/cli": "0.88.0"
+    "@devcontainers/cli": "0.89.0"
   }
 }

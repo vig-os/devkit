@@ -21,12 +21,20 @@ Refs: #674
 from __future__ import annotations
 
 import functools
+import json
 import shutil
 import subprocess
 
 import pytest
 
-from .nix_helpers import REPO_ROOT, current_system, nix_env, nix_eval_json
+from .nix_helpers import (
+    REPO_ROOT,
+    current_system,
+    flake_expr,
+    nix_env,
+    nix_eval_expr,
+    nix_eval_json,
+)
 
 pytestmark = pytest.mark.skipif(
     shutil.which("nix") is None,
@@ -243,6 +251,50 @@ def test_home_configuration_evaluates_end_to_end() -> None:
     assert result.stdout.strip() == "26.05"
 
 
+def test_hm_unstable_nixos_tier_evaluates() -> None:
+    """The full module set must evaluate on HM master + nixos-unstable (#1589).
+
+    The vigos.* home modules are exported as paths and evaluated against
+    whatever nixpkgs/home-manager the consumer supplies; a production consumer
+    runs them on home-manager ``master`` + ``nixos-unstable`` through the
+    NixOS-module tier. ``nixosConfigurations.ci-hm-unstable`` mirrors that
+    wiring; forcing its toplevel drvPath is the eval-only guard — an HM option
+    rename on master or an unstable nixpkgs change under a module default
+    fails here, before a consumer lock bump discovers it downstream.
+    """
+    result = subprocess.run(
+        [
+            "nix",
+            "eval",
+            "--json",
+            f"{REPO_ROOT}#nixosConfigurations.ci-hm-unstable.config",
+            "--apply",
+            (
+                "c: let vigos = c.home-manager.users.ci.vigos; in "
+                "{ drv = c.system.build.toplevel.drvPath; "
+                "enabled = builtins.filter "
+                "(n: vigos.${n}.enable or false) (builtins.attrNames vigos); }"
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        env=nix_env(),
+        timeout=1200,
+    )
+    if result.returncode != 0:
+        pytest.fail(
+            "ci-hm-unstable (HM master + nixos-unstable) does not evaluate:\n"
+            + result.stderr
+        )
+    info = json.loads(result.stdout)
+    assert info["drv"].endswith(".drv")
+    missing = (HM_MODULES - {"default"}) - set(info["enabled"])
+    assert not missing, (
+        f"ci-hm-unstable must enable the full vigos.* surface; missing: "
+        f"{sorted(missing)}"
+    )
+
+
 @functools.cache
 def _ci_full_config() -> dict:
     """One eval of the interesting ci-full-x86_64-linux config slice.
@@ -326,6 +378,264 @@ def test_wave3_full_profile_config() -> None:
     assert cfg["neovim"] is True
     assert cfg["seshToml"] is True, "sesh.toml must be generated"
     assert cfg["seshSessions"] == [], "sesh sessions must default empty"
+
+
+def _home_module_eval(
+    module: str, module_config: str, expr: str, extra: str = ""
+) -> subprocess.CompletedProcess[str]:
+    """Evaluate ``expr`` (in terms of ``cfg``) of a synthetic one-module config.
+
+    ``cfg`` is bound to the resolved home configuration carrying just
+    ``homeManagerModules.<module>`` with ``vigos.<module> = <module_config>``.
+    The ci profiles declare no per-module payload (sessions, remotes,
+    profiles), so behaviour tied to it needs its own configuration rather than
+    ``_ci_full_config``. ``extra`` appends further module attributes, for
+    behaviour that turns on a setting the module itself only ``mkDefault``s
+    (a consumer overriding ``programs.*`` directly). ``expr`` must produce a
+    string (``nix eval --raw``).
+    """
+    return nix_eval_expr(
+        flake_expr(
+            "let cfg = (flake.inputs.home-manager.lib.homeManagerConfiguration { "
+            "inherit pkgs; "
+            f"modules = [ flake.homeManagerModules.{module} {{ "
+            'home = { username = "ci"; homeDirectory = "/home/ci"; '
+            'stateVersion = "26.05"; }; '
+            f"vigos.{module} = {module_config}; "
+            f"{extra}"
+            "} ]; "
+            f"}}).config; in {expr}",
+            system=current_system(),
+        )
+    )
+
+
+def _sesh_toml(sesh_config: str) -> subprocess.CompletedProcess[str]:
+    """Render ``sesh.toml`` from a synthetic home config carrying ``vigos.sesh``."""
+    return _home_module_eval(
+        "sesh", sesh_config, 'cfg.home.file.".config/sesh/sesh.toml".text'
+    )
+
+
+def test_sesh_session_selects_layout_profile() -> None:
+    """A session may pick a named layout profile; silent ones inherit (#1583).
+
+    The selecting session gets an explicit per-session ``startup_command``
+    (sesh resolves those ahead of ``[default_session]``), while a session that
+    names no profile stays bare and inherits the default layout.
+    """
+    result = _sesh_toml(
+        "{ enable = true; "
+        'layout.profiles.docs = [ { name = "files"; command = "yazi"; } '
+        '{ name = "edit"; command = "nvim ."; } ]; '
+        "sessions = [ "
+        '{ name = "app"; path = "/home/ci/app"; } '
+        '{ name = "notes"; path = "/home/ci/notes"; layout = "docs"; } '
+        "]; }"
+    )
+    assert result.returncode == 0, result.stderr
+    blocks = result.stdout.split("[[session]]")
+    app = next(b for b in blocks if '"app"' in b)
+    notes = next(b for b in blocks if '"notes"' in b)
+    assert "startup_command" not in app, (
+        "a session without a layout must inherit [default_session]"
+    )
+    assert 'startup_command = "sesh-layout docs"' in notes
+
+
+def test_sesh_unknown_layout_profile_fails_eval() -> None:
+    """A session naming a missing profile must fail at eval (#1583).
+
+    Catching it here beats emitting a sesh.toml whose sessions die at connect
+    time with an unknown-profile error; the message names the bad profile and
+    the valid ones.
+    """
+    result = _sesh_toml(
+        "{ enable = true; sessions = [ "
+        '{ name = "x"; path = "/home/ci/x"; layout = "nope"; } ]; }'
+    )
+    assert result.returncode != 0, "unknown layout profile must not evaluate"
+    assert "nope" in result.stderr, "the message must name the offending profile"
+    assert "default" in result.stderr, "the message must list the valid profiles"
+
+
+def test_sesh_remotes_render_inventory() -> None:
+    """A populated remotes inventory must render to ``remotes.tsv`` (#1585).
+
+    One ``project\\thost\\tpath`` line per entry, in declaration order, so a
+    project checked out on several hosts lists each location for the picker's
+    runner stage. The dispatch script ships alongside so the rendered hosts
+    are reachable (``sesh-remote-connect`` is probed at connect time, not
+    declared per host).
+    """
+    result = _home_module_eval(
+        "sesh",
+        "{ enable = true; remotes = [ "
+        '{ project = "app"; host = "buildbox"; path = "/srv/app"; } '
+        '{ project = "app"; host = "lab"; path = "/data/app"; } '
+        "]; }",
+        'cfg.home.file.".config/sesh/remotes.tsv".text',
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "app\tbuildbox\t/srv/app\napp\tlab\t/data/app\n"
+
+
+def test_sesh_remote_connect_ships() -> None:
+    """The remote dispatch script must ship with the module (#1585).
+
+    ``sesh-remote-connect`` is useful standalone (attach-or-create over SSH
+    with the tiered capability probe), so it ships whenever the module is
+    enabled rather than only with a populated inventory.
+    """
+    result = _home_module_eval(
+        "sesh",
+        "{ enable = true; }",
+        "builtins.toJSON (builtins.any "
+        '(p: (p.name or "") == "sesh-remote-connect") cfg.home.packages)',
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "true"
+
+
+def test_sesh_empty_remotes_is_noop() -> None:
+    """With ``remotes = []`` no inventory file may exist (#1585).
+
+    The empty default must leave today's behaviour unchanged: no
+    ``remotes.tsv`` in ``home.file``, so the picker's runner stage never has
+    anything to offer and the one-keystroke flow is untouched.
+    """
+    result = _home_module_eval(
+        "sesh",
+        "{ enable = true; }",
+        'builtins.toJSON (cfg.home.file ? ".config/sesh/remotes.tsv")',
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "false"
+
+
+def test_ghdash_profiles_render_templates() -> None:
+    """Named section sets must render as per-profile templates (#1586).
+
+    Each profile becomes a full gh-dash config under
+    ``.config/gh-dash/profiles/<name>.yml`` whose sections carry the
+    ``__GH_DASH_SCOPE__`` placeholder the ``gh-dash-repo`` wrapper substitutes
+    at launch (gh-dash has no template variable for "the current repo").
+    ``default`` mirrors the generated sections and always exists, so the
+    wrapper is valid with no profiles declared; the wrapper itself ships as a
+    home package.
+    """
+    result = _home_module_eval(
+        "ghdash",
+        "{ enable = true; profiles.shared = [ "
+        '{ title = "Needs my review"; filters = "is:open review-requested:@me"; } '
+        "]; }",
+        'builtins.toJSON { default = cfg.home.file.".config/gh-dash/profiles/default.yml".text; '
+        'shared = cfg.home.file.".config/gh-dash/profiles/shared.yml".text; '
+        "wrapper = builtins.any "
+        '(p: (p.name or "") == "gh-dash-repo") cfg.home.packages; }',
+    )
+    assert result.returncode == 0, result.stderr
+    info = json.loads(result.stdout)
+    assert "__GH_DASH_SCOPE__" in info["default"]
+    assert "Involved" in info["default"], "default must mirror the generated sections"
+    assert "is:open review-requested:@me __GH_DASH_SCOPE__" in info["shared"], (
+        "profile filters are scope-free; the module appends the placeholder"
+    )
+    assert info["wrapper"] is True, "gh-dash-repo must ship with the module"
+    for name in ("default", "shared"):
+        template = json.loads(info[name])
+        assert template["prSections"] == template["issuesSections"], (
+            f"{name} names one section list, so both views must mirror it"
+        )
+
+
+def test_ghdash_profile_splits_pr_and_issue_sections() -> None:
+    """A profile may carry a distinct issues list (#1595).
+
+    PR and issue queues are not filtered alike — ``review-requested:@me`` is a
+    permanently empty section under Issues — so the attribute form takes both
+    keys instead of folding one list into both, and an explicit empty list
+    leaves the issues view empty rather than wrong. Issue filters are scoped
+    exactly as PR ones are.
+    """
+    result = _home_module_eval(
+        "ghdash",
+        "{ enable = true; profiles = { "
+        "split = { prSections = [ "
+        '{ title = "Needs my review"; filters = "is:open review-requested:@me"; } ]; '
+        'issuesSections = [ { title = "Assigned"; filters = "is:open assignee:@me"; } ]; }; '
+        'prOnly = { prSections = [ { title = "Open"; filters = "is:open"; } ]; '
+        "issuesSections = [ ]; }; "
+        "}; }",
+        'builtins.toJSON { split = cfg.home.file.".config/gh-dash/profiles/split.yml".text; '
+        'prOnly = cfg.home.file.".config/gh-dash/profiles/prOnly.yml".text; }',
+    )
+    assert result.returncode == 0, result.stderr
+    info = json.loads(result.stdout)
+    split = json.loads(info["split"])
+    assert [s["title"] for s in split["prSections"]] == ["Needs my review"]
+    assert [s["title"] for s in split["issuesSections"]] == ["Assigned"]
+    assert split["issuesSections"][0]["filters"] == (
+        "is:open assignee:@me __GH_DASH_SCOPE__"
+    ), "an issues list is scoped like a PR one — scope-free in, placeholder out"
+    pr_only = json.loads(info["prOnly"])
+    assert [s["title"] for s in pr_only["prSections"]] == ["Open"]
+    assert pr_only["issuesSections"] == [], "an explicit empty list must stay empty"
+
+
+def test_ghdash_default_profile_keeps_consumer_issue_sections() -> None:
+    """A consumer's own ``issuesSections`` must survive a launch (#1595).
+
+    The module only ``mkDefault``s that key, so any other value is the
+    consumer's own dashboard and passes through verbatim — its sections
+    already carry a concrete scope (one that wants to follow the launch repo
+    writes the placeholder itself). The `prs` window of a {option}`vigos.sesh`
+    layout runs ``gh-dash-repo``, so ``default`` is the template that actually
+    gets used, and it must not overwrite what bare ``gh-dash`` shows.
+    """
+    result = _home_module_eval(
+        "ghdash",
+        "{ enable = true; }",
+        'cfg.home.file.".config/gh-dash/profiles/default.yml".text',
+        extra=(
+            "programs.gh-dash.settings.issuesSections = [ "
+            '{ title = "Triage"; filters = "is:open no:assignee repo:acme/app"; } ]; '
+        ),
+    )
+    assert result.returncode == 0, result.stderr
+    template = json.loads(result.stdout)
+    assert [s["title"] for s in template["issuesSections"]] == ["Triage"], (
+        "the consumer's issues dashboard must not be replaced by the module's"
+    )
+    assert template["issuesSections"][0]["filters"] == (
+        "is:open no:assignee repo:acme/app"
+    ), "a hand-written section keeps the scope its author chose"
+    assert "__GH_DASH_SCOPE__" in template["prSections"][0]["filters"], (
+        "the generated PR sections still follow the launch repo"
+    )
+
+
+def test_ghdash_settings_unchanged_without_profiles() -> None:
+    """Empty ``profiles`` must leave the generated settings untouched (#1586).
+
+    The global config keeps the ``repoFilters``-derived scope so bare
+    ``gh-dash`` behaves exactly as before — the placeholder appears only in
+    the wrapper's templates, never in ``programs.gh-dash.settings``.
+    """
+    result = _home_module_eval(
+        "ghdash",
+        '{ enable = true; repoFilters = [ "repo:acme/app" ]; }',
+        "builtins.toJSON cfg.programs.gh-dash.settings",
+    )
+    assert result.returncode == 0, result.stderr
+    settings = json.loads(result.stdout)
+    assert "__GH_DASH_SCOPE__" not in result.stdout
+    assert [s["title"] for s in settings["prSections"]] == [
+        "Involved",
+        "Open",
+        "Recently closed",
+    ]
+    assert settings["prSections"][1]["filters"] == "is:open repo:acme/app"
 
 
 @pytest.mark.parametrize("template", ["personal", "python"])

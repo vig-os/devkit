@@ -281,3 +281,83 @@ CVE-2026-53433
 #  `patches` entries, so all four findings dropped out of the 2026-08-26 scan
 #  (run 32969211536) on their own — the exact exit the block predicted.)
 # ============================================================================
+
+# ============================================================================
+# Triage 2026-09-01 — the rsync 3.5.0 advisory batch (#1592/#1593).
+#
+# The nightly scan of 2026-09-01 (run 33493764209) went red on BOTH refs with
+# a single package: rsync 3.4.4, a direct member of the image env
+# (flake.nix). The NVD feed published 17 new rsync CVEs overnight; 8 score
+# >= 7.0 and are excepted below, the other 9 fall under the gate's threshold
+# and need no entry.
+#
+# This is a FEED event, not a closure change. The previous night's scan (run
+# 33386509290, 2026-08-31) was green on the same pin, and the findings diff is
+# 17 added / 0 removed / no other package touched — so nothing in this repo
+# caused it and no exception expired (the next grid date is 2026-09-30).
+#
+# The "advance the rev" lever exists but has nowhere to land TODAY. All 17 are
+# fixed in rsync 3.5.0, whose 26.05 backport (NixOS/nixpkgs#557467) merged into
+# staging-next-26.05 on 2026-08-29 — one hop short of release-26.05. As of this
+# triage staging-26.05 and staging-next-26.05 ship 3.5.0 while release-26.05
+# and the pinned nixos-26.05 still ship 3.4.4, so rebuilding on any rev
+# reachable today reproduces these findings unchanged.
+#
+# REACHABILITY. Unusually strong for this register, and the reason a 3-week
+# window is defensible rather than merely convenient: SIX of the eight are
+# rsyncd DAEMON-mode defects (53791, 70461, 70463, 53802, 53784 — and 53803
+# scopes its own impact to "installations where rsync runs with elevated
+# privileges such as setuid or privileged daemon configurations"). This image
+# ships rsync as an interactive CLI for a single user and never starts a
+# daemon: there is no rsyncd unit, no --daemon invocation and no module
+# config anywhere in the closure or the scaffold. Only two touch the actual
+# usage model — 70455 (receiver-side thread exhaustion driven by a malicious
+# SENDER) and 53795 (--temp-dir/--link-dest escaping the destination tree,
+# both caller-supplied) — and each still requires the user to point rsync at
+# a hostile peer.
+#
+# Expiration sits on its OWN Wednesday per the #1553 stagger, placed EARLY in
+# the grid (before lower-reachability 09-30) because this block's remediation
+# lever moves soonest of any in the register: the fix needs one staging-next
+# -> release-26.05 -> nixos-26.05 hop, which the weekly update-nixpkgs.yml
+# advance then picks up on its own. Expect this block to DIE on remediation
+# rather than be renewed; if 3.5.0 has not reached the pinned channel by then,
+# the gate goes red and forces a real re-review with fresh evidence.
+# ============================================================================
+Expiration: 2026-09-23
+# CVE-2026-53791 (9.1) — daemon: a crafted PROXY protocol header forges the
+#   source address, bypassing `hosts allow`/`hosts deny`. Daemon-only; no
+#   rsyncd runs in this image.
+CVE-2026-53791
+# CVE-2026-70461 (8.2) — daemon: add_implied_include() under-counts a trailing
+#   backslash when sizing its buffer, giving a one-byte attacker-controlled
+#   heap OOB write via a crafted --files-from entry against a read-only module.
+#   Daemon-only.
+CVE-2026-70461
+# CVE-2026-70463 (8.1) — daemon: the `auth users` parser splits on commas only,
+#   so an `@Group Name` entry breaks at the space and its deny rule is silently
+#   discarded. Daemon-only, and needs a module using group-based auth.
+CVE-2026-70463
+# CVE-2026-53795 (8.1) — an absolute path in --temp-dir or --link-dest escapes
+#   the rename-confinement logic and writes outside the destination tree. Both
+#   options are supplied by whoever invokes rsync; reachable only where a
+#   hostile peer or script controls the command line.
+CVE-2026-53795
+# CVE-2026-53803 (7.8) — ancillary writes (--log-file, --write-batch, daemon
+#   log/stats paths) follow a symlink planted at a predictable path. The
+#   advisory scopes the privilege escalation to setuid or privileged-daemon
+#   installs; rsync here is neither.
+CVE-2026-53803
+# CVE-2026-70455 (7.5) — the --zt short alias for --compress-threads evades the
+#   `refuse options` long-name matching, letting a remote SENDER spawn unbounded
+#   zstd worker threads on the receiver. Availability-only, and needs the user
+#   to pull from a hostile sender.
+CVE-2026-70455
+# CVE-2026-53802 (7.1) — daemon: symlinked --files-from / --password-file /
+#   filter-merge paths, or a --files-from escaping the module root, read files
+#   accessible to the daemon process. Daemon-only.
+CVE-2026-53802
+# CVE-2026-53784 (7.1) — daemon: with `use chroot` disabled, the module root is
+#   entered via chdir() without realpath(), so a symlinked path component makes
+#   later relative operations resolve outside the intended root. Daemon-only.
+CVE-2026-53784
