@@ -380,24 +380,36 @@ def test_wave3_full_profile_config() -> None:
     assert cfg["seshSessions"] == [], "sesh sessions must default empty"
 
 
-def _sesh_toml(sesh_config: str) -> subprocess.CompletedProcess[str]:
-    """Render ``sesh.toml`` from a synthetic home config carrying ``vigos.sesh``.
+def _home_module_eval(
+    module: str, module_config: str, expr: str
+) -> subprocess.CompletedProcess[str]:
+    """Evaluate ``expr`` (in terms of ``cfg``) of a synthetic one-module config.
 
-    The ci profiles declare no sessions, so per-session behaviour needs its own
-    configuration rather than ``_ci_full_config``.
+    ``cfg`` is bound to the resolved home configuration carrying just
+    ``homeManagerModules.<module>`` with ``vigos.<module> = <module_config>``.
+    The ci profiles declare no per-module payload (sessions, remotes,
+    profiles), so behaviour tied to it needs its own configuration rather than
+    ``_ci_full_config``. ``expr`` must produce a string (``nix eval --raw``).
     """
     return nix_eval_expr(
         flake_expr(
-            "(flake.inputs.home-manager.lib.homeManagerConfiguration { "
+            "let cfg = (flake.inputs.home-manager.lib.homeManagerConfiguration { "
             "inherit pkgs; "
-            "modules = [ flake.homeManagerModules.sesh { "
+            f"modules = [ flake.homeManagerModules.{module} {{ "
             'home = { username = "ci"; homeDirectory = "/home/ci"; '
             'stateVersion = "26.05"; }; '
-            f"vigos.sesh = {sesh_config}; "
+            f"vigos.{module} = {module_config}; "
             "} ]; "
-            '}).config.home.file.".config/sesh/sesh.toml".text',
+            f"}}).config; in {expr}",
             system=current_system(),
         )
+    )
+
+
+def _sesh_toml(sesh_config: str) -> subprocess.CompletedProcess[str]:
+    """Render ``sesh.toml`` from a synthetic home config carrying ``vigos.sesh``."""
+    return _home_module_eval(
+        "sesh", sesh_config, 'cfg.home.file.".config/sesh/sesh.toml".text'
     )
 
 
@@ -441,6 +453,114 @@ def test_sesh_unknown_layout_profile_fails_eval() -> None:
     assert result.returncode != 0, "unknown layout profile must not evaluate"
     assert "nope" in result.stderr, "the message must name the offending profile"
     assert "default" in result.stderr, "the message must list the valid profiles"
+
+
+def test_sesh_remotes_render_inventory() -> None:
+    """A populated remotes inventory must render to ``remotes.tsv`` (#1585).
+
+    One ``project\\thost\\tpath`` line per entry, in declaration order, so a
+    project checked out on several hosts lists each location for the picker's
+    runner stage. The dispatch script ships alongside so the rendered hosts
+    are reachable (``sesh-remote-connect`` is probed at connect time, not
+    declared per host).
+    """
+    result = _home_module_eval(
+        "sesh",
+        "{ enable = true; remotes = [ "
+        '{ project = "app"; host = "buildbox"; path = "/srv/app"; } '
+        '{ project = "app"; host = "lab"; path = "/data/app"; } '
+        "]; }",
+        'cfg.home.file.".config/sesh/remotes.tsv".text',
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "app\tbuildbox\t/srv/app\napp\tlab\t/data/app\n"
+
+
+def test_sesh_remote_connect_ships() -> None:
+    """The remote dispatch script must ship with the module (#1585).
+
+    ``sesh-remote-connect`` is useful standalone (attach-or-create over SSH
+    with the tiered capability probe), so it ships whenever the module is
+    enabled rather than only with a populated inventory.
+    """
+    result = _home_module_eval(
+        "sesh",
+        "{ enable = true; }",
+        "builtins.toJSON (builtins.any "
+        '(p: (p.name or "") == "sesh-remote-connect") cfg.home.packages)',
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "true"
+
+
+def test_sesh_empty_remotes_is_noop() -> None:
+    """With ``remotes = []`` no inventory file may exist (#1585).
+
+    The empty default must leave today's behaviour unchanged: no
+    ``remotes.tsv`` in ``home.file``, so the picker's runner stage never has
+    anything to offer and the one-keystroke flow is untouched.
+    """
+    result = _home_module_eval(
+        "sesh",
+        "{ enable = true; }",
+        'builtins.toJSON (cfg.home.file ? ".config/sesh/remotes.tsv")',
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "false"
+
+
+def test_ghdash_profiles_render_templates() -> None:
+    """Named section sets must render as per-profile templates (#1586).
+
+    Each profile becomes a full gh-dash config under
+    ``.config/gh-dash/profiles/<name>.yml`` whose sections carry the
+    ``__GH_DASH_SCOPE__`` placeholder the ``gh-dash-repo`` wrapper substitutes
+    at launch (gh-dash has no template variable for "the current repo").
+    ``default`` mirrors the generated sections and always exists, so the
+    wrapper is valid with no profiles declared; the wrapper itself ships as a
+    home package.
+    """
+    result = _home_module_eval(
+        "ghdash",
+        "{ enable = true; profiles.shared = [ "
+        '{ title = "Needs my review"; filters = "is:open review-requested:@me"; } '
+        "]; }",
+        'builtins.toJSON { default = cfg.home.file.".config/gh-dash/profiles/default.yml".text; '
+        'shared = cfg.home.file.".config/gh-dash/profiles/shared.yml".text; '
+        "wrapper = builtins.any "
+        '(p: (p.name or "") == "gh-dash-repo") cfg.home.packages; }',
+    )
+    assert result.returncode == 0, result.stderr
+    info = json.loads(result.stdout)
+    assert "__GH_DASH_SCOPE__" in info["default"]
+    assert "Involved" in info["default"], "default must mirror the generated sections"
+    assert "is:open review-requested:@me __GH_DASH_SCOPE__" in info["shared"], (
+        "profile filters are scope-free; the module appends the placeholder"
+    )
+    assert info["wrapper"] is True, "gh-dash-repo must ship with the module"
+
+
+def test_ghdash_settings_unchanged_without_profiles() -> None:
+    """Empty ``profiles`` must leave the generated settings untouched (#1586).
+
+    The global config keeps the ``repoFilters``-derived scope so bare
+    ``gh-dash`` behaves exactly as before — the placeholder appears only in
+    the wrapper's templates, never in ``programs.gh-dash.settings``.
+    """
+    result = _home_module_eval(
+        "ghdash",
+        '{ enable = true; repoFilters = [ "repo:acme/app" ]; }',
+        "builtins.toJSON cfg.programs.gh-dash.settings",
+    )
+    assert result.returncode == 0, result.stderr
+    settings = json.loads(result.stdout)
+    assert "__GH_DASH_SCOPE__" not in result.stdout
+    assert [s["title"] for s in settings["prSections"]] == [
+        "Involved",
+        "Open",
+        "Recently closed",
+    ]
+    assert settings["prSections"][1]["filters"] == "is:open repo:acme/app"
 
 
 @pytest.mark.parametrize("template", ["personal", "python"])

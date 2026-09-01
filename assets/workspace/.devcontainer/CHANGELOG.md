@@ -32,6 +32,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     time far from the definition that caused it
   - Backward compatible: with `profiles` empty and no session setting `layout`,
     the generated `sesh.toml` and layout script are unchanged
+- **`vigos.sesh` can now open projects on remote hosts**
+  ([#1585](https://github.com/vig-os/devkit/issues/1585))
+  - `vigos.sesh.remotes` declares a project × host × path inventory (`host` is
+    an `~/.ssh/config` alias — no connection details in the module); it renders
+    to `remotes.tsv` beside `sesh.toml` only when populated, so the empty
+    default is a bit-for-bit no-op
+  - The picker gains a runner stage that appears only when a project has more
+    than one location; the last-used runner is remembered and pre-selected, so
+    `Enter Enter` reconnects wherever the session was left running
+  - New `sesh-remote-connect` attach-or-creates over SSH (`tmux new -A`),
+    probing capability in the same round trip: `sesh-layout` on the remote
+    PATH gives the full standard layout, bare tmux a persistent blank session,
+    and neither a plain login shell after an explicit warning — no per-host
+    capability flags to go stale
+  - `vigos.sesh.remoteTerminal` opens the ssh client in its own terminal
+    window when picking a remote from inside tmux (a remote tmux must not nest
+    in the local popup); the null default uses a local tmux window instead, so
+    no personal terminal is baked into the module
+- **`vigos.ghdash` now follows the project you are in and takes per-project
+  section profiles** ([#1586](https://github.com/vig-os/devkit/issues/1586))
+  - New `gh-dash-repo [profile]` launches the dashboard scoped to the repo of
+    the launch directory (derived from `origin` — nothing is declared per
+    project and no file lands in project repos); outside a GitHub repo it
+    falls back to the `repoFilters` scope, so it is always valid
+  - `vigos.ghdash.profiles` names alternative section sets (a team repo wants
+    review queues a solo repo has no use for); filters are written scope-free
+    and the module appends the launch-time scope, so a profile cannot silently
+    ship unscoped. A `vigos.sesh` layout profile can point its dashboard
+    window at `gh-dash-repo <name>`, so selection rides the session entry that
+    already identifies the project
+  - Backward compatible: `programs.gh-dash.settings` is unchanged, bare
+    `gh-dash` keeps the `repoFilters` scope, and a per-repo scope is cheaper
+    than the widened filter it replaces
 - **CI now guards `homeManagerModules` on home-manager master + nixos-unstable**
   ([#1589](https://github.com/vig-os/devkit/issues/1589))
   - The `vigos.*` home modules are exported as paths and evaluated against
