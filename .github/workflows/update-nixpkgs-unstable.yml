@@ -1,12 +1,16 @@
-# Scheduled bump of the nixpkgs-unstable flake input.
+# Scheduled bump of the fast-branch flake inputs: nixpkgs-unstable and
+# home-manager-unstable (home-manager master).
 #
 # The fastMovers overlay (uv, gh, claude-code) tracks nixpkgs-unstable, so the
 # only thing standing between us and a fresh claude-code is this lock pin
-# (ADR-home-environment-modules rejects third-party claude-code flakes). This
-# workflow refreshes the pin weekly on a chore branch and opens a PR to dev —
-# the full CI pipeline on that PR is the merge gate.
+# (ADR-home-environment-modules rejects third-party claude-code flakes). The
+# home-manager-unstable pin feeds the ci-hm-unstable eval guard (#1589) — a
+# stale pin would make that guard test a frozen master snapshot, so both bump
+# together. This workflow refreshes the pins weekly on a chore branch and
+# opens a PR to dev — the full CI pipeline on that PR is the merge gate, and
+# where a home-manager master break against the vigos.* modules surfaces.
 #
-# Refs #817.
+# Refs #817, #1589.
 name: Update nixpkgs-unstable
 
 on:  # yamllint disable-line rule:truthy
@@ -46,8 +50,8 @@ jobs:
             experimental-features = nix-command flakes
             accept-flake-config = true
 
-      - name: Update the nixpkgs-unstable input
-        run: nix flake update nixpkgs-unstable
+      - name: Update the nixpkgs-unstable and home-manager-unstable inputs
+        run: nix flake update nixpkgs-unstable home-manager-unstable
 
       - name: Detect lock change
         id: detect
@@ -86,7 +90,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/chore/update-nixpkgs-unstable
           MAX_ATTEMPTS: "3"
-          COMMIT_MESSAGE: "chore(nix): bump nixpkgs-unstable (fast-movers refresh)"
+          COMMIT_MESSAGE: "chore(nix): bump nixpkgs-unstable + home-manager master"
           FILE_PATHS: flake.lock
 
       # PR creation needs pull-requests: write, which the commit app does not
@@ -108,8 +112,8 @@ jobs:
           set -euo pipefail
           if ! gh pr list --head chore/update-nixpkgs-unstable --base dev --state open \
               --json number --jq '.[0].number' | grep -q .; then
-            body="$(printf 'Scheduled refresh of the nixpkgs-unstable pin (uv, gh, claude-code via the fastMovers overlay). Full CI on this PR is the merge gate.\n\nRefs: #817\n')"
+            body="$(printf 'Scheduled refresh of the fast-branch pins: nixpkgs-unstable (uv, gh, claude-code via the fastMovers overlay) and home-manager master (the ci-hm-unstable eval guard). Full CI on this PR is the merge gate.\n\nRefs: #817, #1589\n')"
             gh pr create --base dev --head chore/update-nixpkgs-unstable \
-              --title "chore(nix): bump nixpkgs-unstable (fast-movers refresh)" \
+              --title "chore(nix): bump nixpkgs-unstable + home-manager master" \
               --body "$body"
           fi
