@@ -92,6 +92,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Except the rsync 3.5.0 advisory batch in the vulnix register**
+  ([#1592](https://github.com/vig-os/devkit/issues/1592),
+  [#1593](https://github.com/vig-os/devkit/issues/1593))
+  - The NVD feed published 17 new CVEs against `rsync-3.4.4` overnight, taking
+    both nightly scan lanes and the release train's `vulnix-gate` red; 8 score
+    >= 7.0 and are now excepted, the other 9 fall below the gate's threshold
+  - A feed event, not a closure change: the previous night's scan was green on
+    the same pin and the findings diff is 17 added / 0 removed / no other
+    package touched, so no exception had expired and nothing in this repo
+    caused it
+  - Advancing the pin cannot clear them today — all 17 are fixed in rsync
+    3.5.0, whose 26.05 backport reached `staging-next-26.05` on 2026-08-29 but
+    not yet `release-26.05` or the pinned `nixos-26.05`
+  - Expires `2026-09-23`, its own early slot on the staggered grid because this
+    block's lever moves soonest: it should die on the pin advance that ships
+    3.5.0 rather than be renewed. Six of the eight defects are `rsyncd`
+    daemon-only and this image never starts a daemon; the remaining two need
+    the user to point rsync at a hostile peer
+
 ## [1.12.0](https://github.com/vig-os/devkit/releases/tag/1.12.0) - 2026-08-31
 
 ### Added
