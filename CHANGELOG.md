@@ -65,6 +65,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Backward compatible: `programs.gh-dash.settings` is unchanged, bare
     `gh-dash` keeps the `repoFilters` scope, and a per-repo scope is cheaper
     than the widened filter it replaces
+- **A `vigos.ghdash` profile can now filter its issues view separately**
+  ([#1595](https://github.com/vig-os/devkit/issues/1595))
+  - A profile named one section list and the wrapper wrote it to both views,
+    but PR and issue queues are not filtered alike: the qualifiers that make a
+    PR profile useful (`review-requested:@me`, `draft:false`) either do not
+    apply to issues or mean something else, so a profile written for pull
+    requests landed a permanently empty section under Issues — the only escape
+    was writing the profile down to what both views understand
+  - A profile may now be `{ prSections; issuesSections; }` instead of a bare
+    list, with `issuesSections = [ ]` leaving the issues view empty rather
+    than wrong; issue filters are scope-free and get the launch-time scope
+    exactly as PR ones do
+  - The `default` profile keeps a consumer-set
+    `programs.gh-dash.settings.issuesSections` instead of overwriting it —
+    those sections carry the scope their author chose, and one that wants to
+    follow the launch repo writes the `__GH_DASH_SCOPE__` placeholder itself.
+    Since the `prs` window of a `vigos.sesh` layout runs `gh-dash-repo`, that
+    was the launch path where the setting silently disappeared
+  - Backward compatible: a bare list still means both views, so every profile
+    written against #1586 renders byte-identically
 - **CI now guards `homeManagerModules` on home-manager master + nixos-unstable**
   ([#1589](https://github.com/vig-os/devkit/issues/1589))
   - The `vigos.*` home modules are exported as paths and evaluated against
