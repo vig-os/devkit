@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-31T09:59:08Z
-updated: 2026-08-31T09:59:08Z
+updated: 2026-09-01T14:11:39Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1586
-comments: 0
-labels: feature
+comments: 1
+labels: feature, area:workspace, effort:medium, semver:minor
 assignees: none
-milestone: none
+milestone: 1.13.0
 projects: none
 parent: none
 children: none
-synced: 2026-09-01T07:38:48.086Z
+synced: 2026-09-01T15:12:53.856Z
 ---
 
 # [Issue 1586]: [[FEATURE] vigos.ghdash: per-project scope and section profiles](https://github.com/vig-os/devkit/issues/1586)
@@ -62,4 +62,12 @@ Two things worth deciding during design:
 - Makes the dashboard window in the standard `vigos.sesh` layout actually useful across projects, rather than correct for one of them.
 - Preserves the tuning defaults: a per-repo scope is *cheaper* than the widened filter it replaces.
 - Test surface: `tests/test_flake_checks.py` already asserts the ghdash contract; this adds profile rendering, the empty-profiles no-op guarantee, and the wrapper's fallback behaviour outside a GitHub repo.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 1, 2026 at 09:06 AM_
+
+Solved by #1591, merged to dev. gh-dash-repo [profile] launches the dashboard scoped to the repo derived from origin at the launch directory, falling back to the repoFilters scope outside a GitHub repo; vigos.ghdash.profiles names alternative section sets (filters written scope-free, the module appends the launch-time scope, default reserved for the generated sections). Templates carry the full merged settings with only the section keys swapped, so consumer tuning follows into every per-repo config; programs.gh-dash.settings itself is unchanged. A vigos.sesh layout profile can point its dashboard window at gh-dash-repo <name>, composing with #1583. Lands in the same release as #1585 as requested.
 
