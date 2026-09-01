@@ -381,7 +381,7 @@ def test_wave3_full_profile_config() -> None:
 
 
 def _home_module_eval(
-    module: str, module_config: str, expr: str
+    module: str, module_config: str, expr: str, extra: str = ""
 ) -> subprocess.CompletedProcess[str]:
     """Evaluate ``expr`` (in terms of ``cfg``) of a synthetic one-module config.
 
@@ -389,7 +389,10 @@ def _home_module_eval(
     ``homeManagerModules.<module>`` with ``vigos.<module> = <module_config>``.
     The ci profiles declare no per-module payload (sessions, remotes,
     profiles), so behaviour tied to it needs its own configuration rather than
-    ``_ci_full_config``. ``expr`` must produce a string (``nix eval --raw``).
+    ``_ci_full_config``. ``extra`` appends further module attributes, for
+    behaviour that turns on a setting the module itself only ``mkDefault``s
+    (a consumer overriding ``programs.*`` directly). ``expr`` must produce a
+    string (``nix eval --raw``).
     """
     return nix_eval_expr(
         flake_expr(
@@ -399,6 +402,7 @@ def _home_module_eval(
             'home = { username = "ci"; homeDirectory = "/home/ci"; '
             'stateVersion = "26.05"; }; '
             f"vigos.{module} = {module_config}; "
+            f"{extra}"
             "} ]; "
             f"}}).config; in {expr}",
             system=current_system(),
@@ -538,6 +542,77 @@ def test_ghdash_profiles_render_templates() -> None:
         "profile filters are scope-free; the module appends the placeholder"
     )
     assert info["wrapper"] is True, "gh-dash-repo must ship with the module"
+    for name in ("default", "shared"):
+        template = json.loads(info[name])
+        assert template["prSections"] == template["issuesSections"], (
+            f"{name} names one section list, so both views must mirror it"
+        )
+
+
+def test_ghdash_profile_splits_pr_and_issue_sections() -> None:
+    """A profile may carry a distinct issues list (#1595).
+
+    PR and issue queues are not filtered alike — ``review-requested:@me`` is a
+    permanently empty section under Issues — so the attribute form takes both
+    keys instead of folding one list into both, and an explicit empty list
+    leaves the issues view empty rather than wrong. Issue filters are scoped
+    exactly as PR ones are.
+    """
+    result = _home_module_eval(
+        "ghdash",
+        "{ enable = true; profiles = { "
+        "split = { prSections = [ "
+        '{ title = "Needs my review"; filters = "is:open review-requested:@me"; } ]; '
+        'issuesSections = [ { title = "Assigned"; filters = "is:open assignee:@me"; } ]; }; '
+        'prOnly = { prSections = [ { title = "Open"; filters = "is:open"; } ]; '
+        "issuesSections = [ ]; }; "
+        "}; }",
+        'builtins.toJSON { split = cfg.home.file.".config/gh-dash/profiles/split.yml".text; '
+        'prOnly = cfg.home.file.".config/gh-dash/profiles/prOnly.yml".text; }',
+    )
+    assert result.returncode == 0, result.stderr
+    info = json.loads(result.stdout)
+    split = json.loads(info["split"])
+    assert [s["title"] for s in split["prSections"]] == ["Needs my review"]
+    assert [s["title"] for s in split["issuesSections"]] == ["Assigned"]
+    assert split["issuesSections"][0]["filters"] == (
+        "is:open assignee:@me __GH_DASH_SCOPE__"
+    ), "an issues list is scoped like a PR one — scope-free in, placeholder out"
+    pr_only = json.loads(info["prOnly"])
+    assert [s["title"] for s in pr_only["prSections"]] == ["Open"]
+    assert pr_only["issuesSections"] == [], "an explicit empty list must stay empty"
+
+
+def test_ghdash_default_profile_keeps_consumer_issue_sections() -> None:
+    """A consumer's own ``issuesSections`` must survive a launch (#1595).
+
+    The module only ``mkDefault``s that key, so any other value is the
+    consumer's own dashboard and passes through verbatim — its sections
+    already carry a concrete scope (one that wants to follow the launch repo
+    writes the placeholder itself). The `prs` window of a {option}`vigos.sesh`
+    layout runs ``gh-dash-repo``, so ``default`` is the template that actually
+    gets used, and it must not overwrite what bare ``gh-dash`` shows.
+    """
+    result = _home_module_eval(
+        "ghdash",
+        "{ enable = true; }",
+        'cfg.home.file.".config/gh-dash/profiles/default.yml".text',
+        extra=(
+            "programs.gh-dash.settings.issuesSections = [ "
+            '{ title = "Triage"; filters = "is:open no:assignee repo:acme/app"; } ]; '
+        ),
+    )
+    assert result.returncode == 0, result.stderr
+    template = json.loads(result.stdout)
+    assert [s["title"] for s in template["issuesSections"]] == ["Triage"], (
+        "the consumer's issues dashboard must not be replaced by the module's"
+    )
+    assert template["issuesSections"][0]["filters"] == (
+        "is:open no:assignee repo:acme/app"
+    ), "a hand-written section keeps the scope its author chose"
+    assert "__GH_DASH_SCOPE__" in template["prSections"][0]["filters"], (
+        "the generated PR sections still follow the launch repo"
+    )
 
 
 def test_ghdash_settings_unchanged_without_profiles() -> None:
