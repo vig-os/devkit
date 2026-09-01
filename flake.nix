@@ -1845,31 +1845,34 @@
           home-manager-unstable.nixosModules.home-manager
           {
             # Throwaway eval-only host: just enough machine for the module
-            # system to close over.
-            nixpkgs.hostPlatform = "x86_64-linux";
+            # system to close over. allowUnfree covers claude-code; vig-utils
+            # rides its overlay — the same wiring mkHomePkgs gives the stable
+            # matrix. The fast-mover overlay is deliberately absent: the base
+            # here IS the fast branch.
+            nixpkgs = {
+              hostPlatform = "x86_64-linux";
+              config.allowUnfree = true;
+              overlays = [ vigUtilsOverlay ];
+            };
             boot.loader.grub.enable = false;
             fileSystems."/" = {
               device = "none";
               fsType = "tmpfs";
             };
             system.stateVersion = "26.05";
-            # allowUnfree covers claude-code; vig-utils rides its overlay —
-            # the same wiring mkHomePkgs gives the stable matrix. The
-            # fast-mover overlay is deliberately absent: the base here IS the
-            # fast branch.
-            nixpkgs.config.allowUnfree = true;
-            nixpkgs.overlays = [ vigUtilsOverlay ];
             users.users.ci = {
               isNormalUser = true;
               home = "/home/ci";
             };
-            home-manager.useGlobalPkgs = true;
-            home-manager.users.ci = {
-              imports = [
-                ./nix/home/default.nix
-                hmProfiles.full
-              ];
-              home.stateVersion = "26.05";
+            home-manager = {
+              useGlobalPkgs = true;
+              users.ci = {
+                imports = [
+                  ./nix/home/default.nix
+                  hmProfiles.full
+                ];
+                home.stateVersion = "26.05";
+              };
             };
           }
         ];
