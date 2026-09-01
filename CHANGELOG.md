@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.13.0] - TBD
+
+### Added
+
 - **A `vigos.sesh` project can now open with its own window layout**
   ([#1583](https://github.com/vig-os/devkit/issues/1583))
   - `layout.windows` chose *which* windows a session got, but the choice was
@@ -104,11 +118,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-### Deprecated
+#### Dependencies
 
-### Removed
-
-### Fixed
+- Update `@devcontainers/cli` from `0.88.0` to `0.89.0` ([#1582](https://github.com/vig-os/devkit/pull/1582))
 
 ### Security
 
