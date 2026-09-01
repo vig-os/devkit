@@ -8,6 +8,8 @@
 # derived from `origin`, not declared, so nothing lands in project repos —
 # and `profiles` names alternative section sets for projects whose workflow
 # differs (sections are the one key gh-dash replaces rather than merges).
+# A profile may hold one list per view (#1595): PR and issue queues are not
+# filtered alike, and a PR-shaped filter is a dead section under Issues.
 {
   config,
   lib,
@@ -57,27 +59,43 @@ let
     // lib.optionalAttrs (s.limit != null) { inherit (s) limit; }
   );
 
-  # Every wrapper-selectable template. `default` mirrors the generated
-  # sections, so `gh-dash-repo` is valid with no profiles declared — and, as
-  # with vigos.sesh layout profiles, it always wins over a same-named key.
-  profileTemplates = lib.mapAttrs (_: profileSections) cfg.profiles // {
-    default = mkSections placeholder;
-  };
+  # The issues view of the `default` template. The module only mkDefaults
+  # `programs.gh-dash.settings.issuesSections`, so anything else is the
+  # consumer's own dashboard: pass it through verbatim rather than replace it
+  # (#1595). Such a section already carries the scope its author chose — one
+  # that wants to follow the launch repo writes the placeholder itself.
+  defaultIssueSections =
+    if config.programs.gh-dash.settings.issuesSections == sections then
+      mkSections placeholder
+    else
+      config.programs.gh-dash.settings.issuesSections;
+
+  # Every wrapper-selectable template, each a { prSections; issuesSections; }
+  # pair — PR and issue queues are not filtered alike, so a profile that names
+  # only one list mirrors it and one that names both keeps them apart (#1595).
+  # `default` mirrors the generated sections, so `gh-dash-repo` is valid with
+  # no profiles declared — and, as with vigos.sesh layout profiles, it always
+  # wins over a same-named key.
+  profileTemplates =
+    lib.mapAttrs (_: p: {
+      prSections = profileSections p.prSections;
+      issuesSections = profileSections (
+        if p.issuesSections == null then p.prSections else p.issuesSections
+      );
+    }) cfg.profiles
+    // {
+      default = {
+        prSections = mkSections placeholder;
+        issuesSections = defaultIssueSections;
+      };
+    };
 
   # A template is the FULL merged settings with only the section keys
   # swapped, so consumer tuning (refetch interval, limits, layout) carries
   # into every per-repo config. Rendered as JSON — a subset of YAML, which
   # gh-dash reads fine — so the file text is eval-pure and assertable in
   # tests (a yaml generator would need a build).
-  templateText =
-    sections':
-    builtins.toJSON (
-      config.programs.gh-dash.settings
-      // {
-        prSections = sections';
-        issuesSections = sections';
-      }
-    );
+  templateText = template: builtins.toJSON (config.programs.gh-dash.settings // template);
 
   # Launch gh-dash scoped to the repo of the current directory:
   #   gh-dash-repo [profile]
@@ -147,6 +165,35 @@ let
       };
     };
   };
+
+  sectionList = lib.types.listOf sectionModule;
+
+  # A profile is one dashboard, so it stays one entry — but PR and issue
+  # queues take different filters, so it may name a list per view. A bare list
+  # coerces to "both views, same sections", which is what every profile
+  # written before #1595 means. The source type is shape-only (coercedTo
+  # forbids submodules there); the entries are checked by `prSections` once
+  # coerced, so a malformed section still fails at eval.
+  profileType = lib.types.coercedTo (lib.types.listOf lib.types.anything) (l: { prSections = l; }) (
+    lib.types.submodule {
+      options = {
+        prSections = lib.mkOption {
+          type = sectionList;
+          description = "Sections for the pull-request view.";
+        };
+        issuesSections = lib.mkOption {
+          type = lib.types.nullOr sectionList;
+          default = null;
+          description = ''
+            Sections for the issues view; null mirrors {option}`prSections`.
+            Set it when the two queues differ — a PR filter like
+            `review-requested:@me` is a permanently empty issues section —
+            and to `[ ]` to leave the issues view empty rather than wrong.
+          '';
+        };
+      };
+    }
+  );
 in
 {
   options.vigos.ghdash = {
@@ -163,30 +210,49 @@ in
       '';
     };
     profiles = lib.mkOption {
-      type = lib.types.attrsOf (lib.types.listOf sectionModule);
+      type = lib.types.attrsOf profileType;
       default = { };
       example = lib.literalExpression ''
         {
-          shared = [
-            {
-              title = "Needs my review";
-              filters = "is:open review-requested:@me";
-            }
+          solo = [
             {
               title = "Open";
               filters = "is:open";
             }
           ];
+          shared = {
+            prSections = [
+              {
+                title = "Needs my review";
+                filters = "is:open review-requested:@me";
+              }
+              {
+                title = "Open";
+                filters = "is:open";
+              }
+            ];
+            issuesSections = [
+              {
+                title = "Assigned to me";
+                filters = "is:open assignee:@me";
+              }
+            ];
+          };
         }
       '';
       description = ''
         Named section sets selected per launch (`gh-dash-repo <name>`), for
         projects whose workflow differs from the generated three sections —
-        a team repo wants review queues a solo repo has no use for. A
-        {option}`vigos.sesh` layout profile can point its dashboard window at
-        `gh-dash-repo <name>`, so selection rides the session entry that
+        a team repo wants review queues a solo repo has no use for. Each
+        profile is either a bare list (both views get those sections) or
+        `{ prSections; issuesSections; }`, since the qualifiers that make a
+        PR queue useful either do not apply to issues or mean something else.
+        A {option}`vigos.sesh` layout profile can point its dashboard window
+        at `gh-dash-repo <name>`, so selection rides the session entry that
         already identifies the project. The `default` profile is the
-        generated section set and cannot be redefined here.
+        generated section set and cannot be redefined here; its issues view
+        keeps a consumer-set `programs.gh-dash.settings.issuesSections`
+        instead of replacing it.
       '';
     };
   };
@@ -204,8 +270,8 @@ in
     home = {
       packages = [ ghDashRepo ];
       file = lib.mapAttrs' (
-        name: sections':
-        lib.nameValuePair ".config/gh-dash/profiles/${name}.yml" { text = templateText sections'; }
+        name: template:
+        lib.nameValuePair ".config/gh-dash/profiles/${name}.yml" { text = templateText template; }
       ) profileTemplates;
     };
   };
