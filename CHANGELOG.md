@@ -65,6 +65,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Backward compatible: `programs.gh-dash.settings` is unchanged, bare
     `gh-dash` keeps the `repoFilters` scope, and a per-repo scope is cheaper
     than the widened filter it replaces
+- **CI now guards `homeManagerModules` on home-manager master + nixos-unstable**
+  ([#1589](https://github.com/vig-os/devkit/issues/1589))
+  - The `vigos.*` home modules are exported as paths and evaluated against
+    whatever nixpkgs and home-manager the consumer supplies, but devkit only
+    tested the stable side of that contract — an option rename on home-manager
+    `master`, or an unstable nixpkgs change under a module default, surfaced as
+    a consumer eval break after a lock bump, downstream
+  - A new eval-only `nixosConfigurations.ci-hm-unstable` wires the full module
+    set (every `enable` on) through the NixOS-module tier —
+    `home-manager.users.<name>`, the wiring the production consumer runs — on
+    home-manager `master` + `nixpkgs-unstable`, and a blocking Tier-0 test
+    forces its toplevel drvPath; nothing is built
+  - The weekly `update-nixpkgs-unstable` cron now bumps the new
+    `home-manager-unstable` input alongside `nixpkgs-unstable`, so a
+    master-side break surfaces on that PR's CI, inside devkit's release gate,
+    before any consumer lock bump
 
 ### Changed
 

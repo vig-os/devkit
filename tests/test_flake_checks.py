@@ -251,6 +251,50 @@ def test_home_configuration_evaluates_end_to_end() -> None:
     assert result.stdout.strip() == "26.05"
 
 
+def test_hm_unstable_nixos_tier_evaluates() -> None:
+    """The full module set must evaluate on HM master + nixos-unstable (#1589).
+
+    The vigos.* home modules are exported as paths and evaluated against
+    whatever nixpkgs/home-manager the consumer supplies; a production consumer
+    runs them on home-manager ``master`` + ``nixos-unstable`` through the
+    NixOS-module tier. ``nixosConfigurations.ci-hm-unstable`` mirrors that
+    wiring; forcing its toplevel drvPath is the eval-only guard — an HM option
+    rename on master or an unstable nixpkgs change under a module default
+    fails here, before a consumer lock bump discovers it downstream.
+    """
+    result = subprocess.run(
+        [
+            "nix",
+            "eval",
+            "--json",
+            f"{REPO_ROOT}#nixosConfigurations.ci-hm-unstable.config",
+            "--apply",
+            (
+                "c: let vigos = c.home-manager.users.ci.vigos; in "
+                "{ drv = c.system.build.toplevel.drvPath; "
+                "enabled = builtins.filter "
+                "(n: vigos.${n}.enable or false) (builtins.attrNames vigos); }"
+            ),
+        ],
+        capture_output=True,
+        text=True,
+        env=nix_env(),
+        timeout=1200,
+    )
+    if result.returncode != 0:
+        pytest.fail(
+            "ci-hm-unstable (HM master + nixos-unstable) does not evaluate:\n"
+            + result.stderr
+        )
+    info = json.loads(result.stdout)
+    assert info["drv"].endswith(".drv")
+    missing = (HM_MODULES - {"default"}) - set(info["enabled"])
+    assert not missing, (
+        f"ci-hm-unstable must enable the full vigos.* surface; missing: "
+        f"{sorted(missing)}"
+    )
+
+
 @functools.cache
 def _ci_full_config() -> dict:
     """One eval of the interesting ci-full-x86_64-linux config slice.
