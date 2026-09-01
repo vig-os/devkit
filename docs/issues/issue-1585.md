@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-31T09:46:36Z
-updated: 2026-08-31T10:01:21Z
+updated: 2026-09-01T14:11:37Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1585
-comments: 0
-labels: feature
+comments: 1
+labels: feature, area:workspace, effort:medium, semver:minor
 assignees: none
-milestone: none
+milestone: 1.13.0
 projects: none
 parent: none
 children: none
-synced: 2026-09-01T07:38:48.448Z
+synced: 2026-09-01T15:12:54.345Z
 ---
 
 # [Issue 1585]: [[FEATURE] vigos.sesh: remote project seeds and a runner-aware picker](https://github.com/vig-os/devkit/issues/1585)
@@ -30,7 +30,7 @@ Work does not all happen locally: a repo may be checked out on a workstation, a 
 
 The reconnect case is the sharper one. A long-running session left on a remote host is exactly what you want to return to, and returning to it should not cost more keystrokes than starting a fresh local one.
 
-This also blocks a consumer migration: a downstream config carrying its own remote-aware picker cannot adopt `vigos.sesh`, because **both ship a binary named `sesh-picker`** and collide at build time. The remote capability has to exist here before that config can drop its own module.
+This also blocks a consumer migration: a downstream config carrying its own remote-aware picker cannot adopt `vigos.sesh`, because **both ship a binary named `sesh-picker`** and collide at build time. The remote capability has to exist here before that config can drop its own module ([c-vigo/vigo-nixos#18](https://github.com/c-vigo/vigo-nixos/issues/18)).
 
 ## Proposed Solution
 
@@ -79,4 +79,14 @@ Non-interactive SSH shells do not load home-manager session variables, so the di
 - Benefits anyone whose projects are not all on one machine — the multi-host case the module currently cannot express.
 - Test surface: `tests/test_flake_checks.py` already asserts the sesh contract; this adds the rendered inventory, the empty-inventory no-op guarantee, and the option schema. The interactive picker paths are shell and are not unit-testable here.
 
+
+
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 1, 2026 at 09:06 AM_
+
+Solved by #1591, merged to dev. vigos.sesh.remotes (project × host × path, rendered to remotes.tsv only when populated — empty default is a bit-for-bit no-op), the two-stage runner picker with last-used-runner memory, and sesh-remote-connect with the single-round-trip tiered capability probe are all in. The nested-tmux escape hatch is the new vigos.sesh.remoteTerminal option (null default opens a local tmux window; set e.g. "ghostty -e" for an own-window client). Ships in the next minor together with #1586, making the downstream sesh-picker/gh-dash-repo migration atomic.
 
