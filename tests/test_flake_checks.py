@@ -21,6 +21,7 @@ Refs: #674
 from __future__ import annotations
 
 import functools
+import json
 import shutil
 import subprocess
 
@@ -462,6 +463,60 @@ def test_sesh_empty_remotes_is_noop() -> None:
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == "false"
+
+
+def test_ghdash_profiles_render_templates() -> None:
+    """Named section sets must render as per-profile templates (#1586).
+
+    Each profile becomes a full gh-dash config under
+    ``.config/gh-dash/profiles/<name>.yml`` whose sections carry the
+    ``__GH_DASH_SCOPE__`` placeholder the ``gh-dash-repo`` wrapper substitutes
+    at launch (gh-dash has no template variable for "the current repo").
+    ``default`` mirrors the generated sections and always exists, so the
+    wrapper is valid with no profiles declared; the wrapper itself ships as a
+    home package.
+    """
+    result = _home_module_eval(
+        "ghdash",
+        "{ enable = true; profiles.shared = [ "
+        '{ title = "Needs my review"; filters = "is:open review-requested:@me"; } '
+        "]; }",
+        'builtins.toJSON { default = cfg.home.file.".config/gh-dash/profiles/default.yml".text; '
+        'shared = cfg.home.file.".config/gh-dash/profiles/shared.yml".text; '
+        "wrapper = builtins.any "
+        '(p: (p.name or "") == "gh-dash-repo") cfg.home.packages; }',
+    )
+    assert result.returncode == 0, result.stderr
+    info = json.loads(result.stdout)
+    assert "__GH_DASH_SCOPE__" in info["default"]
+    assert "Involved" in info["default"], "default must mirror the generated sections"
+    assert "is:open review-requested:@me __GH_DASH_SCOPE__" in info["shared"], (
+        "profile filters are scope-free; the module appends the placeholder"
+    )
+    assert info["wrapper"] is True, "gh-dash-repo must ship with the module"
+
+
+def test_ghdash_settings_unchanged_without_profiles() -> None:
+    """Empty ``profiles`` must leave the generated settings untouched (#1586).
+
+    The global config keeps the ``repoFilters``-derived scope so bare
+    ``gh-dash`` behaves exactly as before — the placeholder appears only in
+    the wrapper's templates, never in ``programs.gh-dash.settings``.
+    """
+    result = _home_module_eval(
+        "ghdash",
+        '{ enable = true; repoFilters = [ "repo:acme/app" ]; }',
+        "builtins.toJSON cfg.programs.gh-dash.settings",
+    )
+    assert result.returncode == 0, result.stderr
+    settings = json.loads(result.stdout)
+    assert "__GH_DASH_SCOPE__" not in result.stdout
+    assert [s["title"] for s in settings["prSections"]] == [
+        "Involved",
+        "Open",
+        "Recently closed",
+    ]
+    assert settings["prSections"][1]["filters"] == "is:open repo:acme/app"
 
 
 @pytest.mark.parametrize("template", ["personal", "python"])
