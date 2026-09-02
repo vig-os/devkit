@@ -29,6 +29,13 @@
 # produces the output — chicken-and-egg); `dependency-review` stays hosted too
 # (public-repo-only, toolchain-free, and reads GitHub's dependency-graph API).
 #
+# Dev-shell gcroot (#1601): those same three lanes pass the resolved
+# `dev-profile-path` (from the optional `.vig-os` key DEVKIT_DEV_PROFILE_PATH)
+# into the toolchain action. An EPHEMERAL self-hosted runner wipes RUNNER_TEMP —
+# and with it the dev-shell's gcroot — between jobs while its /nix/store
+# persists, so the closure every run needs is left collectable by the host's
+# nix.gc. Absent => the RUNNER_TEMP default, unchanged for hosted consumers.
+#
 # Jobs:
 #   1. resolve-toolchain — Resolve delivery mode + image from .vig-os
 #   2. lint              — Pre-commit hooks
@@ -81,6 +88,11 @@ jobs:
       image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
       runner-json: ${{ steps.resolve.outputs.runner-json }}
+      # Dev-shell gcroot (#1601): re-export the vetted DEVKIT_DEV_PROFILE_PATH
+      # so the toolchain lanes — the ones runner-json can move onto a
+      # self-hosted host — root the dev-shell where an ephemeral job cannot
+      # wipe it.
+      dev-profile-path: ${{ steps.resolve.outputs.dev-profile-path }}
       # Refs policy (#1282): re-export the composite action's mapped
       # --refs-optional-types list so commit-checks can consume it via needs.
       refs-optional-types: ${{ steps.resolve.outputs.refs-optional-types }}
@@ -210,6 +222,7 @@ jobs:
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          dev-profile-path: ${{ needs.resolve-toolchain.outputs.dev-profile-path }}
 
       - name: Sync project dependencies
         run: just sync
@@ -245,6 +258,7 @@ jobs:
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          dev-profile-path: ${{ needs.resolve-toolchain.outputs.dev-profile-path }}
 
       - name: Sync project dependencies
         run: just sync
@@ -285,6 +299,7 @@ jobs:
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          dev-profile-path: ${{ needs.resolve-toolchain.outputs.dev-profile-path }}
 
       # Branch-name gate (#1432 / #1430): validate the PR head ref against the
       # same branch-type set the local no-commit-to-branch guard renders from.

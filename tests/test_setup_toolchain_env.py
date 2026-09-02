@@ -25,6 +25,7 @@ from __future__ import annotations
 import os
 import subprocess
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 import yaml
@@ -177,12 +178,27 @@ def _write_nix_stub(
     every invocation, exactly as the real scaffolded flake does (#1189).
     ``devshell_env`` replaces the simulated dev-shell env records, so a test can
     pin one var's exact value (used for the PYTHONPATH cases, #1358).
+
+    Every ``--profile`` argument is appended to ``$DEVKIT_STUB_PROFILE_LOG`` when
+    that variable is set, so a test can assert which gcroot the step realised the
+    dev-shell into (#1601).
     """
     records = _DEVSHELL_ENV if devshell_env is None else devshell_env
     bin_dir.mkdir(parents=True, exist_ok=True)
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
+        "# Record every --profile argument so a test can assert which gcroot the",
+        "# step realised the dev-shell into (#1601).",
+        'if [ -n "${DEVKIT_STUB_PROFILE_LOG:-}" ]; then',
+        '  prev=""',
+        '  for a in "$@"; do',
+        '    if [ "$prev" = "--profile" ]; then',
+        '      printf \'%s\\n\' "$a" >> "$DEVKIT_STUB_PROFILE_LOG"',
+        "    fi",
+        '    prev="$a"',
+        "  done",
+        "fi",
     ]
     if banner:
         lines.append(f"echo {_bash_squote(BANNER)}")
@@ -234,6 +250,15 @@ def _bash_squote(s: str) -> str:
     return "'" + s.replace("'", "'\\''") + "'"
 
 
+class _StepRun(NamedTuple):
+    """One execution of the devshell step, with everything it produced."""
+
+    proc: subprocess.CompletedProcess[str]
+    env: dict[str, str]
+    raw: str
+    profiles: list[str]
+
+
 def _run_devshell_step(
     tmp_path: Path,
     *,
@@ -262,9 +287,39 @@ def _exec_devshell_step(
 ) -> tuple[dict[str, str], str]:
     """Execute the devshell step; return (parsed GITHUB_ENV map, raw text).
 
+    Asserts the step succeeded — the failure paths are exercised through
+    ``_execute_devshell_step`` instead.
+    """
+    run = _execute_devshell_step(
+        tmp_path,
+        banner=banner,
+        devshell_env=devshell_env,
+        pyproject=pyproject,
+        nixos=nixos,
+    )
+    assert run.proc.returncode == 0, (
+        f"devshell step failed:\nSTDOUT:\n{run.proc.stdout}\nSTDERR:\n{run.proc.stderr}"
+    )
+    return run.env, run.raw
+
+
+def _execute_devshell_step(
+    tmp_path: Path,
+    *,
+    banner: bool = False,
+    devshell_env: list[tuple[str, str]] | None = None,
+    pyproject: bool = False,
+    nixos: bool = False,
+    dev_profile_path: str | None = None,
+) -> _StepRun:
+    """Execute the devshell step; return the process, its GITHUB_ENV and gcroots.
+
     ``pyproject`` writes a ``pyproject.toml`` into the step's cwd, which is what
     the step reads to decide it is running for a Python consumer (#1028).
     ``nixos`` creates the file the runner-OS probe looks for (#1360).
+    ``dev_profile_path`` supplies the ``dev-profile-path`` input the action
+    routes through the environment (#1601); ``None`` leaves it unset, which is
+    the default every hosted consumer runs today.
     """
     script = _devshell_step_script()
 
@@ -293,6 +348,8 @@ def _exec_devshell_step(
     if nixos:
         nixos_marker.write_text("", encoding="utf-8")
 
+    profile_log = tmp_path / "nix-profiles"
+
     env = {
         **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
@@ -300,6 +357,10 @@ def _exec_devshell_step(
         "GITHUB_PATH": str(github_path),
         "RUNNER_TEMP": str(runner_temp),
         "DEVKIT_NIXOS_MARKER": str(nixos_marker),
+        # The action routes the `dev-profile-path` input through the step env
+        # (never inline `${{ }}` in `run:`), so the harness sets it the same way.
+        "DEVKIT_DEV_PROFILE_PATH": dev_profile_path or "",
+        "DEVKIT_STUB_PROFILE_LOG": str(profile_log),
         # Ambient var that the dev-shell leaves unchanged: must be filtered out.
         "AMBIENT_SHARED": "same-on-both-sides",
     }
@@ -318,11 +379,11 @@ def _exec_devshell_step(
         capture_output=True,
         text=True,
     )
-    assert proc.returncode == 0, (
-        f"devshell step failed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
-    )
     raw = github_env.read_text(encoding="utf-8")
-    return _parse_github_env(raw), raw
+    profiles = (
+        profile_log.read_text(encoding="utf-8").split() if profile_log.exists() else []
+    )
+    return _StepRun(proc, _parse_github_env(raw), raw, profiles)
 
 
 def _runner_path(github_path_text: str, base_path: str = "/usr/bin") -> list[str]:
@@ -848,3 +909,105 @@ def test_detect_step_probe_scrubs_ambient_nix_config(tmp_path: Path) -> None:
     assert "syntax error in configuration" not in proc.stdout, (
         f"ambient NIX_CONFIG parse error leaked into probe:\n{proc.stdout}"
     )
+
+
+# ── Dev-shell gcroot profile path (#1601) ────────────────────────────────────
+#
+# The step realises the dev-shell into a `--profile`, which is what makes it a
+# gcroot rather than a bare `nix develop`. Under `RUNNER_TEMP` that root dies
+# with the job — right for a hosted runner (the machine goes too), wrong for an
+# ephemeral self-hosted one whose `/nix/store` persists: the host's `nix.gc`
+# then collects the closure every CI run needs. `dev-profile-path` moves the
+# root somewhere that outlives the job; unset keeps today's behavior exactly.
+
+
+def _default_profile(tmp_path: Path) -> str:
+    """The gcroot path the step uses when `dev-profile-path` is unset."""
+    return str(tmp_path / "runner_temp" / "devkit-dev-profile")
+
+
+def test_gcroot_defaults_to_runner_temp(tmp_path: Path) -> None:
+    """Unset input => every realisation targets `$RUNNER_TEMP/devkit-dev-profile`."""
+    run = _execute_devshell_step(tmp_path)
+
+    assert run.proc.returncode == 0, run.proc.stderr
+    assert run.profiles, "the step must realise the dev-shell into a --profile"
+    assert set(run.profiles) == {_default_profile(tmp_path)}
+
+
+def test_gcroot_input_moves_every_realisation(tmp_path: Path) -> None:
+    """A configured path replaces `RUNNER_TEMP` for *every* `nix develop` call.
+
+    Not just the first: the PATH, uv-metadata and env-dump calls re-enter the
+    same profile, and a half-moved profile would leave the closure rooted in the
+    job-scoped location again.
+    """
+    persistent = tmp_path / "persistent" / "devkit-dev-profile"
+
+    run = _execute_devshell_step(tmp_path, dev_profile_path=str(persistent))
+
+    assert run.proc.returncode == 0, run.proc.stderr
+    assert run.profiles, "the step must realise the dev-shell into a --profile"
+    assert set(run.profiles) == {str(persistent)}
+    assert persistent.parent.is_dir(), (
+        "the step must create the configured profile's parent directory"
+    )
+
+
+def test_gcroot_input_accepts_an_existing_parent(tmp_path: Path) -> None:
+    """The usual self-hosted shape: the persistent directory already exists."""
+    persistent_dir = tmp_path / "nix-gcroots"
+    persistent_dir.mkdir()
+    persistent = persistent_dir / "devkit-dev-profile"
+
+    run = _execute_devshell_step(tmp_path, dev_profile_path=str(persistent))
+
+    assert run.proc.returncode == 0, run.proc.stderr
+    assert set(run.profiles) == {str(persistent)}
+
+
+def test_relative_gcroot_path_fails_loudly(tmp_path: Path) -> None:
+    """A relative path is rejected, never silently resolved against the cwd.
+
+    The step's cwd is the checkout, which the runner wipes between jobs — so a
+    relative value would reproduce the very bug the input exists to fix.
+    """
+    run = _execute_devshell_step(tmp_path, dev_profile_path="devkit-dev-profile")
+
+    assert run.proc.returncode != 0, "a relative dev-profile-path must fail the step"
+    assert "::error::" in run.proc.stdout + run.proc.stderr
+    assert not run.profiles, "the step must not realise a dev-shell after rejecting"
+
+
+def test_uncreatable_gcroot_parent_fails_loudly(tmp_path: Path) -> None:
+    """An unusable path fails the step instead of falling back to RUNNER_TEMP.
+
+    A silent fallback is indistinguishable from the bug: CI stays green while
+    the gcroot is job-scoped again.
+    """
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("", encoding="utf-8")
+
+    run = _execute_devshell_step(
+        tmp_path, dev_profile_path=str(blocker / "devkit-dev-profile")
+    )
+
+    assert run.proc.returncode != 0, "an uncreatable profile parent must fail the step"
+    assert "::error::" in run.proc.stdout + run.proc.stderr
+    assert not run.profiles, "the step must not realise a dev-shell after rejecting"
+    assert _default_profile(tmp_path) not in run.profiles
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory write bits")
+def test_unwritable_gcroot_parent_fails_loudly(tmp_path: Path) -> None:
+    """A read-only parent fails the step rather than dying inside `nix develop`."""
+    readonly = tmp_path / "readonly"
+    readonly.mkdir(mode=0o555)
+
+    run = _execute_devshell_step(
+        tmp_path, dev_profile_path=str(readonly / "devkit-dev-profile")
+    )
+
+    assert run.proc.returncode != 0, "an unwritable profile parent must fail the step"
+    assert "::error::" in run.proc.stdout + run.proc.stderr
+    assert not run.profiles, "the step must not realise a dev-shell after rejecting"

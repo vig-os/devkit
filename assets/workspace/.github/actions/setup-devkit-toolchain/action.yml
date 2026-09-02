@@ -49,6 +49,22 @@ inputs:
     description: Optional Cachix auth token for pushing to cachix-cache (direnv mode)
     required: false
     default: ''
+  dev-profile-path:
+    description: >-
+      Optional ABSOLUTE path for the direnv-mode dev-shell gcroot profile; empty
+      (default) => "$RUNNER_TEMP/devkit-dev-profile", i.e. today's behavior for
+      every consumer. Set it on a SELF-HOSTED runner whose /nix/store persists
+      across ephemeral jobs: RUNNER_TEMP is wiped when the job ends, so the
+      gcroot dies while the store survives and the host's nix.gc collects the
+      dev-shell closure every CI run needs. A path outside the runner's work
+      tree keeps the root alive between jobs (#1601). It must be a local
+      persistent directory, not a per-job tmpfs, and runner slots on the same
+      host are expected to SHARE it — concurrent `nix develop --profile`
+      realisations take the profile lock and converge on one generation. The
+      scaffolded ci.yml lanes source it from the DEVKIT_DEV_PROFILE_PATH
+      `.vig-os` key via resolve-toolchain, which vets the value once, up front.
+    required: false
+    default: ''
 
 runs:
   using: composite
@@ -152,8 +168,46 @@ runs:
     - name: Build repo flake dev-shell and export PATH
       if: inputs.mode == 'direnv'
       shell: bash
+      # Routed through the environment, never inline `${{ }}` in `run:` — a
+      # consumer-supplied value expanded into the script is the
+      # template-injection shape the zizmor gate rejects (#1279).
+      env:
+        DEVKIT_DEV_PROFILE_PATH: ${{ inputs.dev-profile-path }}
       run: |
         set -euo pipefail
+        # Where the dev-shell gcroot lands (#1601). `--profile` is what makes
+        # the realisation below a gcroot rather than a bare `nix develop`, and
+        # under RUNNER_TEMP that root is wiped with the job. Right for a hosted
+        # runner — the machine goes too — and wrong for an ephemeral self-hosted
+        # one whose /nix/store persists: nothing roots the closure between jobs,
+        # so a routine host nix.gc discards it and the next run re-realises the
+        # whole dev-shell. `dev-profile-path` moves the root out of RUNNER_TEMP.
+        DEVKIT_DEV_PROFILE="${DEVKIT_DEV_PROFILE_PATH:-}"
+        if [ -z "$DEVKIT_DEV_PROFILE" ]; then
+          DEVKIT_DEV_PROFILE="$RUNNER_TEMP/devkit-dev-profile"
+        else
+          # Validate loudly instead of falling back: a silently job-scoped
+          # gcroot is indistinguishable from the bug this input exists to fix —
+          # CI stays green while every run pays the re-realisation.
+          case "$DEVKIT_DEV_PROFILE" in
+            /*) ;;
+            *)
+              echo "::error::setup-devkit-toolchain: dev-profile-path must be an absolute path (got '$DEVKIT_DEV_PROFILE'). A relative path resolves against the checkout, which the runner wipes between jobs."
+              exit 1
+              ;;
+          esac
+          devkit_profile_dir="$(dirname "$DEVKIT_DEV_PROFILE")"
+          if ! mkdir -p "$devkit_profile_dir" 2>/dev/null; then
+            echo "::error::setup-devkit-toolchain: cannot create the dev-profile-path parent directory '$devkit_profile_dir'. Point dev-profile-path at a persistent, runner-writable location."
+            exit 1
+          fi
+          if [ ! -w "$devkit_profile_dir" ]; then
+            echo "::error::setup-devkit-toolchain: the dev-profile-path parent directory '$devkit_profile_dir' is not writable by the runner user."
+            exit 1
+          fi
+          echo "Dev-shell gcroot profile (dev-profile-path): $DEVKIT_DEV_PROFILE"
+        fi
+
         # Is the runner itself NixOS? In direnv mode this step runs on the
         # runner host, so this is the host OS, and it decides two things below:
         # whether a downloaded manylinux CPython could run here at all (#1360).
@@ -172,9 +226,9 @@ runs:
         # GITHUB_PATH so every following step runs as if inside `nix develop`.
         # Mirrors the devkit's setup-env action (adapted: the consumer flake at
         # the repo root, not the devkit's).
-        nix develop --profile "$RUNNER_TEMP/devkit-dev-profile" --command true
+        nix develop --profile "$DEVKIT_DEV_PROFILE" --command true
 
-        SHELL_PATH="$(nix develop --profile "$RUNNER_TEMP/devkit-dev-profile" \
+        SHELL_PATH="$(nix develop --profile "$DEVKIT_DEV_PROFILE" \
           --command bash -c 'printf "%s" "$PATH"')"
 
         # Always exclude the flake's podman (rootless podman on GitHub runners
@@ -212,7 +266,7 @@ runs:
         # carries PATH only): `uv sync` needs it to fetch the project's pinned
         # CPython, which nixpkgs does not package. Python consumers only (#1028).
         if [[ -f pyproject.toml ]]; then
-          UV_DL_JSON_URL="$(nix develop --profile "$RUNNER_TEMP/devkit-dev-profile" \
+          UV_DL_JSON_URL="$(nix develop --profile "$DEVKIT_DEV_PROFILE" \
             --command bash -c 'printf "UV_PYTHON_DOWNLOADS_JSON_URL=%s\n" "${UV_PYTHON_DOWNLOADS_JSON_URL:-}"' \
             | grep '^UV_PYTHON_DOWNLOADS_JSON_URL=' | tail -n1 | cut -d= -f2-)"
           if [ -n "$UV_DL_JSON_URL" ]; then
@@ -238,7 +292,7 @@ runs:
         # `nix develop` stdout would also capture shellHook output (the
         # scaffolded flake echoes a banner), gluing it onto the first NUL
         # record and corrupting GITHUB_ENV (#1189).
-        nix develop --profile "$RUNNER_TEMP/devkit-dev-profile" \
+        nix develop --profile "$DEVKIT_DEV_PROFILE" \
           --command bash -c 'env -0 > "$1"' _ "$RUNNER_TEMP/devkit-devshell-env"
 
         # Denylist: shell session state (must never override the CI shell) and

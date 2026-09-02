@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`DEVKIT_DEV_PROFILE_PATH`: keep the CI dev-shell gcroot across ephemeral
+  self-hosted jobs** ([#1601](https://github.com/vig-os/devkit/issues/1601))
+  - In `direnv` mode, `setup-devkit-toolchain` realises the repo's dev-shell
+    into a Nix profile under `$RUNNER_TEMP` — a gcroot that dies with the job.
+    Correct on a hosted runner, wrong on an ephemeral self-hosted one, whose
+    `/nix/store` persists: nothing roots the closure between jobs, so the host's
+    `nix.gc` collects it and every run re-realises the dev-shell. Measured on a
+    heavy dev-shell: a 26 s toolchain step becoming 180–237 s, in each of the
+    three lanes that run per CI run
+  - The new optional `.vig-os` key names an absolute, persistent, runner-writable
+    path for that profile. `resolve-toolchain` reads and vets it and emits a
+    `dev-profile-path` output; the `lint`, `test` and `commit-checks` lanes —
+    the ones `DEVKIT_CI_RUNNER` can move onto your runner — plumb it into the
+    toolchain action's new `dev-profile-path` input
+  - A value that could never persist (relative, or inside the runner's
+    `_work`/`_temp` tree) is refused at resolve time, before any lane realises a
+    dev-shell; a path the host cannot create or write fails the toolchain step
+    itself. Neither falls back silently — a job-scoped gcroot is
+    indistinguishable from the bug
+  - Absent or empty (the shipped default) keeps `$RUNNER_TEMP/devkit-dev-profile`
+    byte for byte, so hosted and self-hosted consumers alike are unchanged. The
+    key round-trips a `--force` upgrade like the other manifest knobs. See
+    [Keep the dev-shell gcroot across ephemeral self-hosted jobs](docs/MIGRATION.md#keep-the-dev-shell-gcroot-across-ephemeral-self-hosted-jobs)
+
 ### Changed
 
 ### Deprecated
