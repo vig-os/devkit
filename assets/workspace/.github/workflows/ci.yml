@@ -74,6 +74,21 @@ on:  # yamllint disable-line rule:truthy
         required: false
         type: string
 
+# Cancel a superseded run instead of letting it burn runner slots (#1602): a
+# force-push or rapid follow-up leaves the previous run's every lane finishing
+# for a commit that no longer matters — wasted minutes on a hosted runner, and
+# on a self-hosted consumer with a small fixed slot pool the replacement run
+# queues behind its own predecessor. Grouping per workflow AND per ref keeps
+# distinct refs (other PRs, dispatches on other branches) independent.
+# `!= 'push'` rather than a bare `true`: neither trigger is `push` today, so the
+# guard is inert, but a deploy gating on the exact-commit CI run must stay
+# satisfiable if one is ever added. Not `== 'pull_request'` either — a
+# dispatched re-test superseding the previous one is wanted. A cancelled run
+# cannot green the required check: the summary job trips on `cancelled` (#1371).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
 permissions:
   contents: read
   packages: read
