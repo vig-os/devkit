@@ -14,7 +14,8 @@ release time. These tests pin the deliverable without executing the workflow:
   ``DEVKIT_UPGRADE_APP_CLIENT_ID`` + ``DEVKIT_UPGRADE_APP_PRIVATE_KEY``, with a
   one-release legacy ``DEVKIT_UPGRADE_APP_ID`` fallback — #1365/#1366; fail-fast
   when absent; never the default ``GITHUB_TOKEN`` for the PR — #1302), the
-  ``install.sh`` bootstrap and the ``nix develop`` commit;
+  ``install.sh`` bootstrap and the ``nix develop`` commit — both run under a
+  Nix that trusts the consumer flake's own ``nixConfig`` (#1599);
 - no ``run:`` block interpolates a dispatch input or event field directly
   (zizmor template-injection: every such value is routed through ``env:``);
 - the base branch is workflow-model aware (``dev`` gitflow / ``main`` trunk),
@@ -37,9 +38,11 @@ import yaml
 
 from tests.workflow_scaffold import (
     INIT_WORKSPACE,
+    NIX_SETTINGS,
     WORKSPACE,
     cached_tree,
     needs_of,
+    parse_nix_settings,
     run_text_of_job,
     scaffold,
     step_by_id,
@@ -247,6 +250,33 @@ def test_bootstraps_installsh_and_commits_in_project_shell() -> None:
     assert "nix develop -c git commit" in text
     # A nix installer action provides the `flake update vigos` leg.
     assert "install-nix-action" in text
+
+
+def test_install_nix_carries_the_toolchain_nix_settings() -> None:
+    """The installer step must trust the consumer flake's own nixConfig (#1599).
+
+    ``install-nix-action`` with only ``experimental-features`` leaves the
+    runner's Nix untrusting: a consumer ``flake.nix`` that declares
+    ``nixConfig.extra-substituters`` gets
+
+        warning: ignoring untrusted flake configuration setting
+        'extra-substituters'. Pass '--accept-flake-config' to trust it
+
+    on BOTH Nix legs of this job (the ``nix flake update vigos`` inside
+    install.sh and the ``nix develop -c git commit`` after it), and the
+    dev-shell resolves against ``cache.nixos.org`` alone.
+
+    ``setup-devkit-toolchain`` — same scaffold payload, same runner class,
+    same consumer flake — has always passed the full set. Pin them to ONE
+    constant so the third copy cannot drift from the first two.
+
+    Not a regression of #773: that removed ``accept-flake-config`` from the
+    *image's baked* ``nix.conf``, where it would trust any foreign flake a
+    container ran. Here it is a per-runner setting in a job that evaluates the
+    consumer's own repo flake and nothing else.
+    """
+    step = step_by_name(_steps(TEMPLATE.read_text(encoding="utf-8")), "Install Nix")
+    assert parse_nix_settings(step["with"]["extra_nix_config"]) == NIX_SETTINGS
 
 
 def test_installer_is_fetched_from_the_target_release_tag() -> None:
