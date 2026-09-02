@@ -179,9 +179,20 @@ def test_resolve_emits_the_manifest_path(
         pytest.param("devkit-dev-profile", "relative", id="relative"),
         pytest.param("../gcroots/dev-profile", "relative", id="parent-relative"),
         pytest.param(
-            "/home/runner/work/_temp/devkit-dev-profile", "_work", id="runner-temp"
+            "/home/runner/actions-runner/_work/_temp/devkit-dev-profile",
+            "runner-temp",
+            id="runner-temp",
         ),
-        pytest.param("/home/runner/work/repo/repo/.gcroot", "_work", id="workspace"),
+        pytest.param(
+            "/home/runner/actions-runner/_work/repo/repo/.gcroot",
+            "workspace",
+            id="workspace",
+        ),
+        pytest.param(
+            "/home/runner/work/_temp/devkit-dev-profile",
+            "hosted runner-temp",
+            id="hosted-runner-temp",
+        ),
         pytest.param("/", "root", id="filesystem-root"),
     ],
 )
