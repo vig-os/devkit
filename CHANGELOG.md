@@ -17,6 +17,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The scaffolded upgrade workflow now trusts your flake's own `nixConfig`**
+  ([#1599](https://github.com/vig-os/devkit/issues/1599))
+  - `devkit-upgrade.yml` installed Nix with only `experimental-features`, so a
+    repo whose `flake.nix` declares `nixConfig.extra-substituters` had them
+    ignored on both Nix legs of the job — `install.sh`'s `nix flake update` and
+    the `nix develop` commit — each printing a `warning: ignoring untrusted
+    flake configuration setting` pair and resolving the dev-shell against
+    `cache.nixos.org` alone
+  - The installer step now carries the same four settings
+    `setup-devkit-toolchain` has always passed (`accept-flake-config` plus the
+    vig-os Cachix substituter and its public key), so the two Nix entry points
+    a consumer repo has behave identically
+  - Unchanged: the image's baked `nix.conf` still does not set
+    `accept-flake-config`. That
+    ([#773](https://github.com/vig-os/devkit/issues/773)) was about trusting a
+    *foreign* flake run inside the container; this is a per-runner setting in a
+    job that evaluates the consumer's own repo flake and nothing else
+  - Consumers pick this up on their next adoption PR; no repo-side edit is
+    needed
+
 ### Security
 
 ## [1.13.0](https://github.com/vig-os/devkit/releases/tag/1.13.0) - 2026-09-01
