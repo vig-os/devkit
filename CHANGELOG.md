@@ -35,6 +35,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **CI cancels superseded runs instead of letting them burn runner slots**
+  ([#1602](https://github.com/vig-os/devkit/issues/1602))
+  - `ci.yml` carried no `concurrency` block, so a force-push or a rapid
+    follow-up push left the previous run's every lane — lint, test,
+    commit-checks, scaffold-drift, summary — running to completion for a commit
+    that no longer matters. Wasted billed minutes on a hosted runner; worse on a
+    self-hosted consumer with a small fixed slot pool, where the stale run holds
+    the slots and the replacement run queues behind its own predecessor
+  - Runs are now grouped per workflow and per ref, so a superseded
+    `pull_request` or `workflow_dispatch` run is cancelled while distinct refs
+    (other PRs, dispatches on other branches) stay independent. Consumers pick
+    this up through the normal adoption PR; a hand-added block was never an
+    option, since `ci.yml` is a managed file and the edit failed `scaffold-drift`
+  - The cancel is conditioned on the event not being `push`: neither trigger is
+    `push` today, but a deploy gating on the exact-commit CI run stays
+    satisfiable if one is ever added
+  - Existing gate semantics are unchanged: a cancelled run cannot green the
+    required check (the summary job already trips on `cancelled`), and the
+    release-PR CI gate evaluates only the latest run per check name, so a
+    superseded run cannot refuse a branch that is green
+
 ### Deprecated
 
 ### Removed
