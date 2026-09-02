@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-08-31T16:41:54Z
+updated: 2026-09-02T03:26:24Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-01T07:38:49.108Z
+synced: 2026-09-02T07:01:34.097Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -24,7 +24,9 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
+ - [ ] <!-- unschedule-branch=renovate/cachix-cachix-action-digest -->chore(deps): update cachix/cachix-action digest to 38b0826
  - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
+ - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
 
 ## Detected Dependencies
 
@@ -34,7 +36,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>.github/actions/setup-env/action.yml (3)</summary>
 
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
- - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
+ - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71` → [Updates: `v17`]
  - `actions/setup-node v7.0.0@820762786026740c76f36085b0efc47a31fe5020`
 
 </details>
@@ -121,10 +123,10 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
- - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
+ - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71` → [Updates: `v17`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
- - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
+ - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71` → [Updates: `v17`]
  - `ubuntu 24.04-arm`
 
 </details>
@@ -133,7 +135,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
- - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
+ - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71` → [Updates: `v17`]
  - `ubuntu 24.04`
 
 </details>
@@ -142,7 +144,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
- - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
+ - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71` → [Updates: `v17`]
  - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
  - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
  - `ubuntu 24.04`
@@ -355,7 +357,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>assets/workspace/.github/actions/setup-devkit-toolchain/action.yml (3)</summary>
 
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
- - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71`
+ - `cachix/cachix-action v17@5f2d7c5294214f71b873db4b969586b980625e71` → [Updates: `v17`]
  - `astral-sh/setup-uv v10.0.1@20cfd1bf945f4377ade1205e4dbc17946fc9a30d`
 
 </details>
