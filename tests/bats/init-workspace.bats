@@ -2365,6 +2365,7 @@ _upgrade_no_flags() {
         'DEVKIT_TAG_PREFIX=v'
         'DEVKIT_FLOATING_TAGS=major,minor'
         'DEVKIT_CI_RUNNER=self-hosted,linux,x64,meatgrinder'
+        'DEVKIT_DEV_PROFILE_PATH=/var/lib/devkit/gcroots/dev-profile'
         'DEVKIT_DRIFT_CHECK=false'
         'DEVKIT_FEATURES_DISABLED=renovate,scanning'
     )
@@ -2382,9 +2383,9 @@ _upgrade_no_flags() {
 }
 
 @test "template .vig-os ships every optional knob key empty (#1173, #1228, #1282, #1295, #1284, #1431, #1432)" {
-    local keys=(DEVKIT_CI_RUNNER DEVKIT_SYNC_TARGET DEVKIT_SYNC_SCHEDULE
-        DEVKIT_REFS_POLICY DEVKIT_DRIFT_CHECK DEVKIT_FEATURES_DISABLED
-        DEVKIT_COMMIT_TYPES DEVKIT_BRANCH_TYPES)
+    local keys=(DEVKIT_CI_RUNNER DEVKIT_DEV_PROFILE_PATH DEVKIT_SYNC_TARGET
+        DEVKIT_SYNC_SCHEDULE DEVKIT_REFS_POLICY DEVKIT_DRIFT_CHECK
+        DEVKIT_FEATURES_DISABLED DEVKIT_COMMIT_TYPES DEVKIT_BRANCH_TYPES)
     for key in "${keys[@]}"; do
         echo "key: $key"
         run grep -x "${key}=" "$TEMPLATE_DIR/.vig-os"

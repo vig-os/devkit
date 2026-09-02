@@ -1,4 +1,4 @@
-"""Shape tests: the configurable dev-shell gcroot profile path (#1601).
+"""The configurable dev-shell gcroot profile path (#1601).
 
 ``setup-devkit-toolchain``'s direnv branch realises the consumer dev-shell into
 a ``--profile``. The ``--profile`` is what makes it a **gcroot** rather than a
@@ -7,16 +7,24 @@ ends. On a hosted runner that is correct — the machine is discarded too. On an
 **ephemeral self-hosted** runner the trade-off inverts: ``RUNNER_TEMP`` goes but
 the ``/nix/store`` stays, so nothing roots the dev-shell between jobs and the
 host's ``nix.gc`` collects the closure every CI run needs (measured: a 26 s step
-becoming 180–237 s, three toolchain lanes per run).
+becoming 180–237 s, and ``ci.yml`` pays it in three lanes per run).
 
-``dev-profile-path`` lets such a runner put the root somewhere that outlives the
-job. It is opt-in: unset reproduces today's behavior byte for byte, and the
-scaffolded workflows source it from the ``DEVKIT_DEV_PROFILE_PATH`` repository
-(or organization) variable — the same wiring as ``vars.CACHIX_CACHE``, and the
-only one that survives a devkit upgrade regenerating the managed workflows.
+The knob follows ``DEVKIT_CI_RUNNER`` (#1173) exactly, because it is the same
+class of fact — an infrastructure detail of the runner this repo builds on:
+declared in the consumer's committed ``.vig-os``, resolved by
+``resolve-toolchain``, injected into the managed workflow. No repo variable to
+declare, and it round-trips a ``--force`` upgrade through the persisted-values
+mechanism. Empty (the shipped default) keeps every consumer byte-identical.
 
-The *behavior* of the resolved path (default, validation, every realisation
-moving together) is executed bash and lives in ``test_setup_toolchain_env.py``.
+Validation is deliberately split. ``resolve-toolchain`` refuses a value no host
+could make persistent — relative, or inside the runner's ``_work`` tree — once,
+before any lane pays a realisation. Only the toolchain step, running on the
+target host, can tell whether the directory is actually creatable and writable,
+so that half stays there. A silent fallback in either place would be
+indistinguishable from the bug.
+
+The step's own behavior (default, validation, every realisation moving together)
+is executed bash and lives in ``test_setup_toolchain_env.py``.
 
 Refs: #1601
 """
@@ -24,22 +32,35 @@ Refs: #1601
 from __future__ import annotations
 
 import re
-from pathlib import Path
+from typing import TYPE_CHECKING
 
+import pytest
+
+from tests.workflow_scaffold import WORKFLOWS, WORKSPACE
+from tests.workflow_scaffold import exec_resolve_toolchain as _exec_resolve
 from tests.workflow_scaffold import load_workflow as _load
+from tests.workflow_scaffold import run_resolve_toolchain as _run_resolve
 
-# Repository root (tests/ -> repo root).
-REPO_ROOT = Path(__file__).resolve().parent.parent
-WORKSPACE = REPO_ROOT / "assets" / "workspace"
-WORKFLOWS = WORKSPACE / ".github" / "workflows"
-INIT_WORKSPACE = REPO_ROOT / "assets" / "init-workspace.sh"
+if TYPE_CHECKING:
+    from pathlib import Path
+
 ACTION = WORKSPACE / ".github" / "actions" / "setup-devkit-toolchain" / "action.yml"
 
+MANIFEST_KEY = "DEVKIT_DEV_PROFILE_PATH"
 INPUT_NAME = "dev-profile-path"
+OUTPUT_NAME = "dev-profile-path"
 ENV_NAME = "DEVKIT_DEV_PROFILE_PATH"
-WIRING = "${{ vars.DEVKIT_DEV_PROFILE_PATH }}"
+WIRING = "${{ needs.resolve-toolchain.outputs.dev-profile-path }}"
 DEVSHELL_STEP_NAME = "Build repo flake dev-shell and export PATH"
 TOOLCHAIN_USES = "./.github/actions/setup-devkit-toolchain"
+
+# A plausible persistent gcroot directory on a self-hosted runner host.
+PERSISTENT_PATH = "/var/lib/devkit/gcroots/dev-profile"
+
+# The lanes DEVKIT_CI_RUNNER can move onto the consumer's own runner, and so the
+# only ones where the profile path means anything: everything else in the
+# scaffold stays on the hosted default, where RUNNER_TEMP is exactly right.
+SELF_HOSTABLE_LANES = ("lint", "test", "commit-checks")
 
 # `--profile "<value>"` as the step writes it.
 PROFILE_RE = re.compile(r'--profile\s+"([^"]+)"')
@@ -53,18 +74,14 @@ def _devshell_step() -> dict:
     raise AssertionError(f"step {DEVSHELL_STEP_NAME!r} not found in {ACTION}")
 
 
-def _toolchain_steps(doc: object) -> list[dict]:
-    """Every `setup-devkit-toolchain` step anywhere in a workflow document."""
-    found: list[dict] = []
-    if isinstance(doc, dict):
-        if doc.get("uses") == TOOLCHAIN_USES:
-            found.append(doc)
-        for value in doc.values():
-            found += _toolchain_steps(value)
-    elif isinstance(doc, list):
-        for item in doc:
-            found += _toolchain_steps(item)
-    return found
+def _toolchain_step(job: dict) -> dict:
+    for step in job["steps"]:
+        if step.get("uses") == TOOLCHAIN_USES:
+            return step
+    raise AssertionError("job has no setup-devkit-toolchain step")
+
+
+# ── The action's input ────────────────────────────────────────────────────────
 
 
 def test_action_declares_an_optional_dev_profile_path() -> None:
@@ -93,6 +110,9 @@ def test_dev_profile_path_input_is_documented_for_self_hosted_runners() -> None:
     assert "RUNNER_TEMP" in description, (
         "the input description must name the default it replaces"
     )
+    assert MANIFEST_KEY in description, (
+        "the input description must name the .vig-os key that feeds it"
+    )
 
 
 def test_dev_profile_path_reaches_the_step_through_the_environment() -> None:
@@ -100,7 +120,7 @@ def test_dev_profile_path_reaches_the_step_through_the_environment() -> None:
 
     A consumer-supplied path expanded inline in `run:` is the template-injection
     shape the zizmor gate rejects; every other consumer-controlled value in this
-    scaffold takes the same env route.
+    scaffold takes the same env route (#1279).
     """
     step = _devshell_step()
 
@@ -126,31 +146,99 @@ def test_every_realisation_uses_the_resolved_profile() -> None:
     )
 
 
-def test_scaffolded_call_sites_pass_the_repository_variable() -> None:
-    """Every managed call site sources the path from `vars`.
+# ── resolve-toolchain: reading and vetting the manifest key ───────────────────
 
-    The workflows are regenerated on upgrade, so a repository/organization
-    variable is the only place a consumer can set this and keep it.
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(None, "", id="key-absent"),
+        pytest.param("", "", id="key-empty"),
+        pytest.param(PERSISTENT_PATH, PERSISTENT_PATH, id="absolute-path"),
+        pytest.param(f"  {PERSISTENT_PATH}  ", PERSISTENT_PATH, id="whitespace"),
+        pytest.param(f'"{PERSISTENT_PATH}"', PERSISTENT_PATH, id="quoted"),
+        pytest.param(f"{PERSISTENT_PATH}/", PERSISTENT_PATH, id="trailing-slash"),
+    ],
+)
+def test_resolve_emits_the_manifest_path(
+    tmp_path: Path, value: str | None, expected: str
+) -> None:
+    """The key round-trips to the output; absent/empty keeps today's default."""
+    manifest = "DEVKIT_MODE=direnv\nDEVKIT_VERSION=1.2.3\n"
+    if value is not None:
+        manifest += f"{MANIFEST_KEY}={value}\n"
+
+    outputs = _run_resolve(tmp_path, manifest)
+
+    assert outputs[OUTPUT_NAME] == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "why"),
+    [
+        pytest.param("devkit-dev-profile", "relative", id="relative"),
+        pytest.param("../gcroots/dev-profile", "relative", id="parent-relative"),
+        pytest.param(
+            "/home/runner/work/_temp/devkit-dev-profile", "_work", id="runner-temp"
+        ),
+        pytest.param("/home/runner/work/repo/repo/.gcroot", "_work", id="workspace"),
+        pytest.param("/", "root", id="filesystem-root"),
+    ],
+)
+def test_resolve_refuses_a_path_that_cannot_persist(
+    tmp_path: Path, value: str, why: str
+) -> None:
+    """A value no host could keep across jobs fails at resolve time.
+
+    Once, on the cheap hosted job that produces the output — not three times
+    over, after each toolchain lane has already realised the dev-shell.
     """
-    call_sites = 0
-    for workflow in sorted(WORKFLOWS.glob("*.yml")):
-        for step in _toolchain_steps(_load(workflow)):
-            call_sites += 1
-            assert step.get("with", {}).get(INPUT_NAME) == WIRING, (
-                f"{workflow.name}: setup-devkit-toolchain call site must pass "
-                f"{INPUT_NAME}: {WIRING}"
-            )
-    assert call_sites > 0, "no setup-devkit-toolchain call sites found"
+    manifest = f"DEVKIT_MODE=direnv\nDEVKIT_VERSION=1.2.3\n{MANIFEST_KEY}={value}\n"
+
+    proc, outputs = _exec_resolve(tmp_path, manifest)
+
+    assert proc.returncode != 0, f"a {why} dev-profile path must fail resolve"
+    assert "::error::" in proc.stdout + proc.stderr
+    assert MANIFEST_KEY in proc.stdout + proc.stderr, (
+        "the refusal must name the manifest key the consumer has to fix"
+    )
+    assert not outputs.get(OUTPUT_NAME), (
+        "a refused path must never reach the output — a lane would then use it"
+    )
 
 
-def test_installer_generated_call_sites_pass_the_repository_variable() -> None:
-    """The workflows the installer emits inline carry the same wiring."""
-    text = INIT_WORKSPACE.read_text(encoding="utf-8")
+def test_resolve_emits_the_path_in_every_mode(tmp_path: Path) -> None:
+    """The output is emitted unconditionally, like every other manifest knob."""
+    for mode in ("direnv", "both", "bare", "devcontainer"):
+        manifest = (
+            f"DEVKIT_MODE={mode}\nDEVKIT_VERSION=1.2.3\n"
+            f"{MANIFEST_KEY}={PERSISTENT_PATH}\n"
+        )
+        outputs = _run_resolve(tmp_path, manifest)
+        assert outputs[OUTPUT_NAME] == PERSISTENT_PATH, f"missing in mode {mode}"
 
-    call_sites = text.count(f"uses: {TOOLCHAIN_USES}")
-    wired = text.count(f"{INPUT_NAME}: \\{WIRING}")
 
-    assert call_sites > 0, "no setup-devkit-toolchain call sites in the installer"
-    assert wired == call_sites, (
-        f"{wired}/{call_sites} installer-generated call sites pass {INPUT_NAME}"
+# ── ci.yml: the lanes that can run on the consumer's runner ───────────────────
+
+
+def test_ci_resolve_job_reexports_the_dev_profile_path() -> None:
+    """The resolve job re-exports the output so the lanes can consume it."""
+    job = _load(WORKFLOWS / "ci.yml")["jobs"]["resolve-toolchain"]
+
+    assert job["outputs"].get(OUTPUT_NAME) == (
+        "${{ steps.resolve.outputs.dev-profile-path }}"
+    )
+
+
+@pytest.mark.parametrize("lane", SELF_HOSTABLE_LANES)
+def test_self_hostable_lanes_pass_the_resolved_path(lane: str) -> None:
+    """Every lane DEVKIT_CI_RUNNER can move off the hosted runner is wired.
+
+    These three are exactly the jobs that pay the re-realisation, three times
+    per CI run, when the gcroot did not survive the previous job.
+    """
+    job = _load(WORKFLOWS / "ci.yml")["jobs"][lane]
+
+    assert _toolchain_step(job)["with"].get(INPUT_NAME) == WIRING, (
+        f"the {lane} lane must pass {INPUT_NAME}: {WIRING}"
     )

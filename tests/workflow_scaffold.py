@@ -131,6 +131,22 @@ def run_resolve_toolchain(
     before mode/tag resolution, so callers exercising an error path (e.g. no
     manifest => default ``both`` mode with no tag) pass ``check=False``.
     """
+    proc, outputs = exec_resolve_toolchain(tmp_path, manifest)
+    if check:
+        assert proc.returncode == 0, (
+            f"resolve-toolchain failed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+        )
+    return outputs
+
+
+def exec_resolve_toolchain(
+    tmp_path: Path, manifest: str | None
+) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
+    """Same execution, returning the process too — for the loud-refusal paths.
+
+    A manifest value the action must reject fails the step with an ``::error::``
+    annotation, so a test needs the exit code and the log, not just the outputs.
+    """
     action = load_workflow(RESOLVE_ACTION)
     script = action["runs"]["steps"][0]["run"]
 
@@ -145,15 +161,15 @@ def run_resolve_toolchain(
         "INPUT_IMAGE_TAG": "",
         "GITHUB_OUTPUT": str(github_output),
     }
-    subprocess.run(
+    proc = subprocess.run(
         ["bash", "-c", script],
         cwd=tmp_path,
         env=env,
-        check=check,
+        check=False,
         capture_output=True,
         text=True,
     )
-    return parse_github_output(github_output)
+    return proc, parse_github_output(github_output)
 
 
 _GATE_START_RE = re.compile(r"^\s*STATUS_ROLLUP=")
