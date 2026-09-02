@@ -29,6 +29,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.workflow_scaffold import NIX_SETTINGS, parse_nix_settings
+
 # Repository root (tests/ -> repo root).
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ACTION = (
@@ -637,15 +639,8 @@ HOST_NIX_STEP_NAME = "Configure host Nix"
 
 # The Nix settings the toolchain needs, identically on both paths (fresh
 # install via install-nix-action's extra_nix_config, preinstalled host Nix via
-# NIX_CONFIG).
-_NIX_SETTINGS = {
-    "experimental-features": "nix-command flakes",
-    "accept-flake-config": "true",
-    "extra-substituters": "https://vig-os.cachix.org",
-    "extra-trusted-public-keys": (
-        "vig-os.cachix.org-1:yoOYRi3bvnM6ThxO0joLt7vtzhTfkq3r6jykeUMg7Bk="
-    ),
-}
+# NIX_CONFIG) — and, since #1599, in devkit-upgrade.yml's own installer step.
+# The expectation lives in workflow_scaffold so all three share one constant.
 
 
 def _action_steps() -> list[dict]:
@@ -702,12 +697,7 @@ def test_host_nix_config_step_writes_wellformed_nix_config(tmp_path: Path) -> No
     parsed = _parse_github_env(github_env.read_text(encoding="utf-8"))
     nix_config = parsed.get("NIX_CONFIG")
     assert nix_config, "NIX_CONFIG not written to GITHUB_ENV"
-    got = {}
-    for line in nix_config.splitlines():
-        assert " = " in line, f"malformed NIX_CONFIG line: {line!r}"
-        key, _, value = line.partition(" = ")
-        got[key] = value
-    assert got == _NIX_SETTINGS
+    assert parse_nix_settings(nix_config) == NIX_SETTINGS
 
 
 def test_install_and_host_paths_carry_identical_settings() -> None:
@@ -715,12 +705,7 @@ def test_install_and_host_paths_carry_identical_settings() -> None:
     settings must stay in lockstep — drift would give the two runner classes
     different Nix behavior."""
     install = _step_by_name(INSTALL_STEP_NAME)
-    extra = install["with"]["extra_nix_config"]
-    got = {}
-    for line in extra.strip().splitlines():
-        key, _, value = line.partition(" = ")
-        got[key] = value
-    assert got == _NIX_SETTINGS
+    assert parse_nix_settings(install["with"]["extra_nix_config"]) == NIX_SETTINGS
 
 
 # ── Host Nix version capture in the detect step (#1198) ──────────────────────
