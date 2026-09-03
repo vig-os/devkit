@@ -10,9 +10,13 @@ Org defaults are `lib.mkDefault`: **a bare assignment in your flake wins.**
   # Disable a whole module you don't want
   vigos.multiplexer.enable = false;   # keep your own tmux.conf
 
-  # Append rather than replace where the underlying option supports it
-  programs.tmux.extraConfig = ''
+  # Append rather than replace where the underlying option supports it.
+  # mkAfter lands after the org block, and tmux keeps the LAST binding of a
+  # key — so this is also how you take back a key the org config binds
+  # (here, stock last-window over the module's select-pane -R)
+  programs.tmux.extraConfig = lib.mkAfter ''
     bind r source-file ~/.config/tmux/tmux.conf
+    bind l last-window
   '';
 
   # Force a value against a non-default org setting (rare; check why first)

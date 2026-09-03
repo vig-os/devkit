@@ -33,6 +33,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     key round-trips a `--force` upgrade like the other manifest knobs. See
     [Keep the dev-shell gcroot across ephemeral self-hosted jobs](docs/MIGRATION.md#keep-the-dev-shell-gcroot-across-ephemeral-self-hosted-jobs)
 
+- **`vigos.multiplexer`: org tmux keybindings and terminal defaults**
+  ([#1605](https://github.com/vig-os/devkit/issues/1605))
+  - The module set five options and no keybindings, so every consumer
+    re-derived the same `extraConfig` — and a host running it bare (a shared
+    remote development guest, a devcontainer) got none of it. `prefix + X`,
+    kill the current session, is the concrete case: unbound in stock tmux, so
+    a habit built on one machine silently did nothing on the next
+  - `programs.tmux.terminal` now defaults to `tmux-256color`; home-manager's
+    default is `screen`, which advertises 8 colors and no italics. Everything
+    the org ships that draws color — starship, neovim, delta, lazygit,
+    `gh-dash` — was rendering degraded the moment it ran inside tmux, on every
+    host. A `terminal-overrides` line adds truecolor on top
+  - New bindings: `prefix + X` kills the session behind a confirm prompt;
+    splits and new windows inherit the pane's cwd; `v`/`y` in copy mode match
+    the module's own vi `keyMode`; `h`/`j`/`k`/`l` select panes. New settings:
+    `renumber-windows`, `focus-events`, `set-clipboard` (OSC 52 — a yank on a
+    remote host reaches the local clipboard with no X forwarding),
+    `detach-on-destroy off`, and per-session terminal titles
+  - Two behaviour changes for a host already enabling the module: `prefix + l`
+    is now `select-pane -R` rather than `last-window`, and a client whose
+    session is destroyed switches to another live session instead of dropping
+    to a shell (it still detaches if that was the last session). Everything
+    else is additive or a `mkDefault` a bare assignment overrides
+  - The block lands before any `lib.mkAfter` definition and tmux takes the
+    *last* binding of a key, so a consumer takes a key back through
+    `programs.tmux.extraConfig = lib.mkAfter …` — the same seam `vigos.sesh`
+    already uses for `bind o`
+
 ### Changed
 
 - **CI cancels superseded runs instead of letting them burn runner slots**
