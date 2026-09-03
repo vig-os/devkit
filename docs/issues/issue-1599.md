@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-02T05:37:54Z
-updated: 2026-09-02T05:37:54Z
+updated: 2026-09-02T07:11:58Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1599
-comments: 0
+comments: 1
 labels: chore, priority:low, area:ci, area:workspace, effort:small, semver:patch
 assignees: none
 milestone: Backlog
 projects: none
 parent: none
 children: none
-synced: 2026-09-02T07:01:33.209Z
+synced: 2026-09-03T07:05:16.958Z
 ---
 
 # [Issue 1599]: [[CHORE] devkit-upgrade.yml installs Nix without accept-flake-config — consumer flake substituters ignored](https://github.com/vig-os/devkit/issues/1599)
@@ -112,4 +112,55 @@ adding a third independent expectation.
 
 Consumers pick this up on their next adoption PR — the workflow is
 devkit-managed, so no consumer-side edit is wanted or durable.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 2, 2026 at 07:11 AM_
+
+Solved by #1600, merged to `dev` as `d86d6f37`.
+
+**What shipped**
+
+`assets/workspace/.github/workflows/devkit-upgrade.yml`'s `Install Nix` step now
+carries the same four settings `setup-devkit-toolchain` has always passed —
+`accept-flake-config = true` plus the vig-os Cachix substituter and its public
+key — so both Nix legs of the job (`install.sh`'s `nix flake update vigos` and
+the `nix develop -c git commit`) stop discarding the consumer flake's own
+`nixConfig`.
+
+Rather than add a third independent copy of the expectation, the settings moved
+into `tests/workflow_scaffold.py` as one `NIX_SETTINGS` constant plus a
+`parse_nix_settings()` helper. The new
+`test_workflow_devkit_upgrade.py::test_install_nix_carries_the_toolchain_nix_settings`
+asserts against it, and the two existing assertions in
+`test_setup_toolchain_env.py` were pointed at it as well (net −22 lines of
+hand-rolled parsing there). The three places that ship these settings can no
+longer drift apart silently — which was the acceptance criterion.
+
+**Acceptance criteria**
+
+- [x] The `Install Nix` step carries the same settings as the toolchain action
+- [x] A test keeps them in lockstep — one shared constant, three assertions
+- [x] `test_image.py::test_nix_conf_does_not_accept_flake_config` still passes;
+      the baked image config was not touched (CI's `Image Tests` lane green)
+- [ ] Both `warning: ignoring untrusted flake configuration setting` lines gone
+      from a consumer's next upgrade run — verifiable only after a consumer
+      adopts the release carrying this; not blocking closure
+
+**Verification**
+
+TDD, both phases real: RED `1 failed, 42 passed`, reporting exactly the three
+missing keys; GREEN `70 passed`. Full local suite `1570 passed, 3 skipped`;
+`prek run --all-files` green including `actionlint`. PR CI 12/12 green.
+
+**Note for the next reader**
+
+As written in the issue, this is a correctness and consistency fix, not a
+performance one. The upgrade step advances the consumer's `nixpkgs` pin
+immediately before the `nix develop`, so that closure is new and no cache holds
+it — the observed 4m39s dev-shell realisation will look much the same. What
+changes is that the substituters a consumer's `flake.nix` declares are now
+honored instead of silently dropped.
 

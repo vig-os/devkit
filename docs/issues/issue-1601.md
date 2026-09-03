@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-02T06:21:48Z
-updated: 2026-09-02T06:21:48Z
+updated: 2026-09-02T08:11:47Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1601
-comments: 0
+comments: 3
 labels: chore, priority:medium, area:ci, effort:small
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-02T07:01:32.808Z
+synced: 2026-09-03T07:05:16.433Z
 ---
 
 # [Issue 1601]: [[CHORE] setup-devkit-toolchain: dev-shell gcroot lands in RUNNER_TEMP, so it never survives an ephemeral self-hosted job](https://github.com/vig-os/devkit/issues/1601)
@@ -106,4 +106,83 @@ not just the one that reported it.
 - [ ] Second and subsequent runs on a warm self-hosted store complete the step
       without re-realising the dev-shell closure
 - [ ] Documented in the action's input table with the self-hosted rationale
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 2, 2026 at 07:26 AM_
+
+Recommendation on the wiring shape: make the knob a **`.vig-os` key** (e.g.
+`DEVKIT_DEV_PROFILE_PATH`), routed through `resolve-toolchain` into the
+proposed `dev-profile-path` input — rather than an input a consumer would have
+to plumb via an Actions variable.
+
+`DEVKIT_CI_RUNNER` is the exact precedent: same class of self-hosted-runner
+infrastructure detail, declared in the consumer repo's committed manifest,
+resolved by `resolve-toolchain`, and injected into the managed workflow
+without any hand-edit of a scaffold-drift-protected file. It also needs no
+repo variable / org-config declaration, round-trips across `--force`
+upgrades by the persisted-values mechanism, and keeps the empty default
+(= today's `${RUNNER_TEMP}` behaviour) byte-identical for every existing
+consumer — hosted and self-hosted alike.
+
+Two implementation notes for the issue's invariants:
+
+- **Multiple ephemeral runner slots on one host will share the configured
+  path.** That is fine — `nix develop --profile` goes through the normal
+  profile-update lock, and concurrent identical realisations converge on the
+  same generation — but the action's docs should say the path is expected to
+  be shared and must sit on the same filesystem as the store's gcroot
+  indirection expects (a local persistent dir, not a per-job tmpfs).
+- The fail-loudly constraint composes naturally here: `resolve-toolchain` can
+  refuse a relative path or one under `RUNNER_TEMP`/`GITHUB_WORKSPACE` at
+  resolve time, before any lane pays the realisation cost.
+
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on September 2, 2026 at 07:58 AM_
+
+Shipped to `dev` in #1603 (merged 2026-09-02), wired as the comment recommended — a `.vig-os` key routed through `resolve-toolchain`, not an Actions variable.
+
+**What landed**
+
+- `DEVKIT_DEV_PROFILE_PATH` in `.vig-os`, shipped empty and persisted across `--force` upgrades by the installer's read-before-overwrite/write-back path — the same shape as `DEVKIT_CI_RUNNER`.
+- `resolve-toolchain` reads the key and emits a `dev-profile-path` output, refusing at resolve time anything that could never persist: a relative path, a path inside the runner's `_work`/`_temp` tree, or the filesystem root. Trailing slashes are trimmed.
+- `setup-devkit-toolchain` gains the optional `dev-profile-path` input, routed through `env:` (never inline `${{ }}` in `run:`). All four `nix develop` calls use the resolved value; the parent directory is created if possible and the step fails loudly if it cannot be created or written — the half only the target host can answer.
+- `ci.yml` passes it in `lint`, `test` and `commit-checks`: exactly the lanes `DEVKIT_CI_RUNNER` can move onto a self-hosted host, and the three the report measured. Every other scaffolded job stays on the hosted default, where `RUNNER_TEMP` is the correct place for the root.
+- `docs/MIGRATION.md` gains a *Keep the dev-shell gcroot across ephemeral self-hosted jobs* section plus the manifest-table row, carrying both implementation notes: runner slots on one host are expected to **share** the path (concurrent `nix develop --profile` realisations take the profile lock and converge), and it must be a local persistent directory, not a per-job tmpfs.
+
+**Acceptance criteria**
+
+- [x] Input unset => the realised profile path is byte-identical to today — pinned by an executed-bash test against the step's real `run:`.
+- [ ] Profile survives a job boundary and a `nix-collect-garbage` on an ephemeral self-hosted runner — **not verifiable in this repo's CI**; needs a live run on a consumer with such a runner.
+- [ ] Second and subsequent runs on a warm self-hosted store skip the re-realisation — same, wants the live measurement (the 26 s vs 180–237 s comparison) after adoption.
+- [x] Documented in the action's input table with the self-hosted rationale, plus `.vig-os`, `ci.yml`'s header and `MIGRATION.md`.
+
+The two open boxes are the reason to keep this in view at adoption: set `DEVKIT_DEV_PROFILE_PATH` on the reporting consumer once it takes the release carrying #1603, and compare the `Set up devkit toolchain` step duration across a `nix-gc` on the runner host. If it still re-realises, that is a new issue, not a reopen of this one.
+
+Coverage: 27 tests — resolve-time emission and refusals executed against the action's real bash, six executed-bash cases on the step itself (default, override moving *every* realisation, relative/uncreatable/unwritable refusals), the manifest declaration and the upgrade round-trip.
+
+One honest limit worth recording: the `_work`/`_temp` guard catches the mistake the knob exists to prevent — rooting inside the tree the runner clears — but it cannot prove an arbitrary path is persistent, and does not try to.
+
+---
+
+# [Comment #3]() by [c-vigo]()
+
+_Posted on September 2, 2026 at 08:11 AM_
+
+Field evidence from a direnv-mode consumer on a self-hosted ephemeral runner, after the runner VM was restarted (store intact, page cache cold):
+
+| `Set up devkit toolchain` | duration |
+|---|---|
+| warm steady state (p50, n=16) | 26 s |
+| first runs after the VM restart | **3 m 18 s**, **2 m 48 s**, **2 m 18 s** |
+
+Three toolchain lanes run per CI run, so that is ~8 minutes of a single run spent re-realising a dev-shell whose closure never left the machine.
+
+This is the cost the issue describes, in its most visible form: the store still had every path, but with the gcroot gone from `RUNNER_TEMP` the profile had to be re-realised from scratch rather than re-linked. A persistent profile path would have made these runs no different from the warm case.
 
