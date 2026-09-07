@@ -326,6 +326,8 @@ def _ci_full_config() -> dict:
             "neovim = c.programs.neovim.enable; "
             'seshToml = c.home.file ? ".config/sesh/sesh.toml"; '
             "seshSessions = c.vigos.sesh.sessions; "
+            "tmuxTerminal = c.programs.tmux.terminal; "
+            "tmuxExtraConfig = c.programs.tmux.extraConfig; "
             "}"
         ),
     )
@@ -378,6 +380,75 @@ def test_wave3_full_profile_config() -> None:
     assert cfg["neovim"] is True
     assert cfg["seshToml"] is True, "sesh.toml must be generated"
     assert cfg["seshSessions"] == [], "sesh sessions must default empty"
+
+
+# tmux settings and bindings vigos.multiplexer owes a bare host (#1605), each
+# one either unbound in stock tmux or a default the module contradicts.
+MULTIPLEXER_TMUX_CONFIG = (
+    # End a project: `X` is unbound upstream, and vigos.sesh makes the session
+    # the unit of work, so the module binds ending one.
+    "bind-key X confirm-before -p \"kill session '#S'? (y/n)\" kill-session",
+    # Truecolor on top of the tmux-256color terminal.
+    'set -ga terminal-overrides ",*256col*:Tc"',
+    # Splits and windows inherit the pane's cwd; window numbers stay
+    # contiguous; focus events reach the editor.
+    'bind \'"\' split-window -v -c "#{pane_current_path}"',
+    'bind % split-window -h -c "#{pane_current_path}"',
+    'bind c new-window -c "#{pane_current_path}"',
+    "set -g renumber-windows on",
+    "set -g focus-events on",
+    # OSC 52 (a yank on a remote host reaches the local clipboard) plus the
+    # copy-mode bindings the module's own vi keyMode does not imply.
+    "set -g set-clipboard on",
+    "bind-key -T copy-mode-vi v send-keys -X begin-selection",
+    "bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel",
+    # Killing one project switches to another live session; terminal windows
+    # are distinguishable by project.
+    "set -g detach-on-destroy off",
+    "set -g set-titles on",
+    'set -g set-titles-string "#S"',
+    # Pane navigation coherent with vi keyMode.
+    "bind h select-pane -L",
+    "bind j select-pane -D",
+    "bind k select-pane -U",
+    "bind l select-pane -R",
+)
+
+
+def test_multiplexer_terminal_default() -> None:
+    """The org tmux must advertise 256 colors, not `screen` (#1605).
+
+    home-manager's default leaves every colored tool the org ships — starship,
+    neovim, delta, lazygit, gh-dash — rendering at 8 colors and no italics the
+    moment it runs inside tmux.
+    """
+    cfg = _ci_full_config()
+    assert cfg["tmuxTerminal"] == "tmux-256color"
+
+
+def test_multiplexer_ships_keybindings() -> None:
+    """Every module binding must reach a host that only enables the module (#1605).
+
+    The trigger: `prefix + X` lived in a consumer's personal extraConfig, so a
+    habit built on one machine silently did nothing on a shared host or a
+    devcontainer running the module bare.
+    """
+    rendered = _ci_full_config()["tmuxExtraConfig"]
+    missing = [line for line in MULTIPLEXER_TMUX_CONFIG if line not in rendered]
+    assert not missing, f"vigos.multiplexer must ship: {missing}"
+
+
+def test_multiplexer_bindings_precede_consumer_overrides() -> None:
+    """The module's bindings must stay overridable in place (#1605).
+
+    tmux takes the *last* binding of a key, so the module's block has to land
+    before `lib.mkAfter` definitions — the seam vigos.sesh already uses for
+    `bind o` and a consumer uses to take a key back.
+    """
+    rendered = _ci_full_config()["tmuxExtraConfig"]
+    assert rendered.index("bind o display-popup") > max(
+        rendered.index(line) for line in MULTIPLEXER_TMUX_CONFIG
+    )
 
 
 def _home_module_eval(
