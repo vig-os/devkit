@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.14.0] - TBD
+
+### Added
+
 - **`DEVKIT_DEV_PROFILE_PATH`: keep the CI dev-shell gcroot across ephemeral
   self-hosted jobs** ([#1601](https://github.com/vig-os/devkit/issues/1601))
   - In `direnv` mode, `setup-devkit-toolchain` realises the repo's dev-shell
@@ -84,9 +98,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     release-PR CI gate evaluates only the latest run per check name, so a
     superseded run cannot refuse a branch that is green
 
-### Deprecated
+#### Dependencies
 
-### Removed
+- Update `cachix/cachix-action` from `5f2d7c5` to `38b0826` ([#1607](https://github.com/vig-os/devkit/pull/1607))
+- Update `vig-os/commit-action` from `v0.3.2` to `v0.3.3` ([#1608](https://github.com/vig-os/devkit/pull/1608))
 
 ### Fixed
 
