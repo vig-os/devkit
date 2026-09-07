@@ -112,6 +112,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Exception register reconciled against the 2026-09-07 pin advance — the
+  rsync block deleted, nothing renewed**
+  ([#1592](https://github.com/vig-os/devkit/issues/1592),
+  [#1593](https://github.com/vig-os/devkit/issues/1593))
+  - The weekly pin advance `c5c4a43b` → `c25784012c`
+    ([#1609](https://github.com/vig-os/devkit/pull/1609)) ships rsync 3.5.0, so
+    every one of the 17 advisories from the 2026-09-01 batch — the 8 excepted
+    in `.vulnixignore` and the 9 below the gate's CVSS 7.0 threshold — is gone
+    from the image closure. The block is deleted (tombstoned) 16 days before
+    its 2026-09-23 expiry: the "dies on remediation" exit its own note asked
+    for, and the reason it was placed earliest on the staggered grid
+  - Verified against the first scan on the new closure (run 34108767776, dev
+    lane): 17 findings removed, 0 added, no other package touched. The
+    remaining 14 entries each still match a live finding and stand unchanged on
+    their staggered Wednesdays — none renewed, none re-dated
+
 ## [1.13.0](https://github.com/vig-os/devkit/releases/tag/1.13.0) - 2026-09-01
 
 ### Added
