@@ -112,6 +112,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Exception register reconciled against the 2026-09-07 pin advance — the
+  rsync block deleted, nothing renewed**
+  ([#1592](https://github.com/vig-os/devkit/issues/1592),
+  [#1593](https://github.com/vig-os/devkit/issues/1593))
+  - The weekly pin advance `c5c4a43b` → `c25784012c`
+    ([#1609](https://github.com/vig-os/devkit/pull/1609)) ships rsync 3.5.0, so
+    every one of the 17 advisories from the 2026-09-01 batch — the 8 excepted
+    in `.vulnixignore` and the 9 below the gate's CVSS 7.0 threshold — is gone
+    from the image closure. The block is deleted (tombstoned) 16 days before
+    its 2026-09-23 expiry: the "dies on remediation" exit its own note asked
+    for, and the reason it was placed earliest on the staggered grid
+  - Verified against the first scan on the new closure (run 34108767776, dev
+    lane): 17 findings removed, 0 added, no other package touched. The
+    remaining 14 entries each still match a live finding and stand unchanged on
+    their staggered Wednesdays — none renewed, none re-dated
+
+- **`.trivyignore` retired to an empty register — the last three Debian-era
+  exceptions removed** ([#512](https://github.com/vig-os/devkit/issues/512),
+  [#564](https://github.com/vig-os/devkit/issues/564),
+  [#805](https://github.com/vig-os/devkit/issues/805))
+  - All three surviving blocks — the `gh` Go-stdlib `CVE-2026-42504`, the
+    `jwt-token` secret-scan false positive and the Debian jq pair
+    `CVE-2026-32316`/`CVE-2026-40164` — were written against the Debian
+    `:latest` image, whose Trivy job left with the Debian path
+    ([#642](https://github.com/vig-os/devkit/issues/642)). The Nix image
+    inherited the file but none of the findings
+  - Confirmed by scanning the current image with **no ignore file** (trivy
+    0.72.0, `vuln,secret`, HIGH/CRITICAL/MEDIUM, closure built from the
+    `c25784012c` pin): 63 unique vulnerabilities, zero secret findings, none of
+    the three excepted IDs among them. The Nix image's Go binaries are built on
+    stdlib 1.26.7 (past the 1.26.4 the block awaited), it ships jq 1.8.2 with
+    no dpkg DB to match Debian's 1.6, and it has no `/opt/pre-commit-cache`
+  - The file itself stays as the seam for genuine Nix-image Trivy findings and
+    secret false positives; with no entries there is nothing left to expire
+
 ## [1.13.0](https://github.com/vig-os/devkit/releases/tag/1.13.0) - 2026-09-01
 
 ### Added

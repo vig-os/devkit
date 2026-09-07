@@ -23,41 +23,35 @@
 # 2026-10-21, jq 2026-10-28, jwt-token 2026-11-04. Scheduling only — no risk
 # assessment below was re-opened or changed.
 
-# CVE-2026-42504: Go stdlib MIME header DoS in gh binary
-# Risk Assessment: LOW (devcontainer context)
-# - HIGH severity in Go stdlib embedded in gh (GitHub CLI) binary
-# - Requires maliciously-crafted MIME headers; gh validates GitHub API responses only
-# - Latest gh v2.93.0 (2026-05-27) still embeds Go 1.26.3; fix requires Go 1.26.4 rebuild
-# - Fresh image build (gh 2.93.0, uv 0.11.19) cleared all other bundled-tool HIGH findings
-# - Tracking: https://github.com/vig-os/devkit/issues/512, #564
-# - Re-dated 2026-08-20 (#1553): 2026-09-02 -> 2026-10-21, off the shared cliff
-#   date. The lever is a gh release rebuilt on Go 1.26.4, which no weekly bump
-#   can bring forward, so the extension costs no review signal; scheduling only.
-Expiration: 2026-10-21
-CVE-2026-42504
-
-# jwt-token: Trivy secret scan false positive
-# Risk Assessment: N/A (not a vulnerability)
-# - JWT-like string in typos crate test fixtures under /opt/pre-commit-cache
-# - Not a live credential; embedded test data only
-# - Tracking: https://github.com/vig-os/devkit/issues/512
-# - Re-dated 2026-08-20 (#1553): 2026-09-02 -> 2026-11-04. Not a vulnerability
-#   at all, so it takes one of the latest slots on the staggered grid;
-#   scheduling only.
-Expiration: 2026-11-04
-jwt-token
-
-# CVE-2026-32316, CVE-2026-40164: jq DoS / potential arbitrary code execution
-# Risk Assessment: LOW (devcontainer context)
-# - HIGH severity in Debian jq/libjq1 1.6-2.1+deb12u1; fixed in 1.6-2.1+deb12u2
-# - :latest is frozen pending the Nix publish-cutover (#639); the Debian rebuild
-#   path was decommissioned (#642), so :latest cannot be rebuilt to pull deb12u2.
-#   Time-box the ignore until the Nix image ships.
-# - jq processes trusted local JSON in devcontainer workflows, not untrusted input
-# - Tracking: https://github.com/vig-os/devkit/issues/805, #512
-# - Re-dated 2026-08-20 (#1553): 2026-09-02 -> 2026-10-28. :latest still cannot
-#   be rebuilt until the Nix publish-cutover (#639), so an earlier re-review has
-#   no new evidence to act on; scheduling only.
-Expiration: 2026-10-28
-CVE-2026-32316
-CVE-2026-40164
+# ============================================================================
+# RETIRED 2026-09-07 — the register is empty by remediation, not by deletion.
+#
+# The three blocks this register carried were all written against the Debian
+# `:latest` image, whose Trivy job was removed with the Debian path (#642). The
+# Nix image inherited the file but none of the findings: scanned with NO ignore
+# file (trivy 0.72.0, `image --input <devkitImage tar> --scanners vuln,secret
+# --severity HIGH,CRITICAL,MEDIUM`, closure built from the c25784012c pin), it
+# reports 63 unique HIGH/CRITICAL/MEDIUM vulnerabilities and ZERO secret
+# findings, and none of the three excepted IDs is among them. Each entry is
+# tombstoned rather than renewed:
+#
+# - CVE-2026-42504 (#512, #564) — Go stdlib MIME header DoS, matched via the
+#   `gh` binary Debian shipped on Go 1.26.3. Every gobinary in the Nix image
+#   reports stdlib v1.26.7, past the 1.26.4 rebuild the block was waiting for,
+#   so the finding cannot match. The lever the note said no weekly bump could
+#   move has moved on its own, in nixpkgs.
+# - jwt-token (#512) — Trivy secret-scan false positive on a JWT-like string in
+#   typos crate test fixtures under `/opt/pre-commit-cache`. The Nix image has
+#   no such path (prek caches at `/opt/prek-cache`) and ships typos as a
+#   prebuilt binary, not its source fixtures; the secret scanner runs over the
+#   image and finds nothing at all.
+# - CVE-2026-32316, CVE-2026-40164 (#805, #512) — jq DoS/RCE scoped to Debian
+#   `jq`/`libjq1` 1.6-2.1+deb12u1. The Nix image has no dpkg DB for Trivy's OS
+#   scanner to match against and ships jq 1.8.2; the block's own escape
+#   condition was "time-box the ignore until the Nix image ships", and it has.
+#
+# The file stays as the seam for genuine Nix-image Trivy findings and secret
+# false positives (docs/CONTAINER_SECURITY.md). Adding an entry re-arms
+# `check-expirations`; until then there is nothing to expire and nothing to
+# review, which is the honest state of the register.
+# ============================================================================
