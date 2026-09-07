@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-09-02T03:26:24Z
+updated: 2026-09-07T02:45:21Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,20 +13,24 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-02T07:01:34.097Z
+synced: 2026-09-07T07:14:28.670Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.<br>[View this repository on the Mend.io Web Portal](https://developer.mend.io/github/vig-os/devkit).
 
-## Awaiting Schedule
+## Other Branches
 
-The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
+The following updates are pending. To force the creation of a PR, click on a checkbox below.
 
- - [ ] <!-- unschedule-branch=renovate/cachix-cachix-action-digest -->chore(deps): update cachix/cachix-action digest to 38b0826
- - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
- - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
+ - [ ] <!-- other-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
+
+## Open
+
+The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
+
+ - [ ] <!-- rebase-branch=renovate/cachix-cachix-action-digest -->[chore(deps): update cachix/cachix-action digest to 38b0826](../pull/1607)
 
 ## Detected Dependencies
 
