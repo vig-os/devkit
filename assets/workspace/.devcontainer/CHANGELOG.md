@@ -19,6 +19,149 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [1.14.0](https://github.com/vig-os/devkit/releases/tag/1.14.0) - 2026-09-07
+
+### Added
+
+- **`DEVKIT_DEV_PROFILE_PATH`: keep the CI dev-shell gcroot across ephemeral
+  self-hosted jobs** ([#1601](https://github.com/vig-os/devkit/issues/1601))
+  - In `direnv` mode, `setup-devkit-toolchain` realises the repo's dev-shell
+    into a Nix profile under `$RUNNER_TEMP` — a gcroot that dies with the job.
+    Correct on a hosted runner, wrong on an ephemeral self-hosted one, whose
+    `/nix/store` persists: nothing roots the closure between jobs, so the host's
+    `nix.gc` collects it and every run re-realises the dev-shell. Measured on a
+    heavy dev-shell: a 26 s toolchain step becoming 180–237 s, in each of the
+    three lanes that run per CI run
+  - The new optional `.vig-os` key names an absolute, persistent, runner-writable
+    path for that profile. `resolve-toolchain` reads and vets it and emits a
+    `dev-profile-path` output; the `lint`, `test` and `commit-checks` lanes —
+    the ones `DEVKIT_CI_RUNNER` can move onto your runner — plumb it into the
+    toolchain action's new `dev-profile-path` input
+  - A value that could never persist (relative, or inside the runner's
+    `_work`/`_temp` tree) is refused at resolve time, before any lane realises a
+    dev-shell; a path the host cannot create or write fails the toolchain step
+    itself. Neither falls back silently — a job-scoped gcroot is
+    indistinguishable from the bug
+  - Absent or empty (the shipped default) keeps `$RUNNER_TEMP/devkit-dev-profile`
+    byte for byte, so hosted and self-hosted consumers alike are unchanged. The
+    key round-trips a `--force` upgrade like the other manifest knobs. See
+    [Keep the dev-shell gcroot across ephemeral self-hosted jobs](docs/MIGRATION.md#keep-the-dev-shell-gcroot-across-ephemeral-self-hosted-jobs)
+
+- **`vigos.multiplexer`: org tmux keybindings and terminal defaults**
+  ([#1605](https://github.com/vig-os/devkit/issues/1605))
+  - The module set five options and no keybindings, so every consumer
+    re-derived the same `extraConfig` — and a host running it bare (a shared
+    remote development guest, a devcontainer) got none of it. `prefix + X`,
+    kill the current session, is the concrete case: unbound in stock tmux, so
+    a habit built on one machine silently did nothing on the next
+  - `programs.tmux.terminal` now defaults to `tmux-256color`; home-manager's
+    default is `screen`, which advertises 8 colors and no italics. Everything
+    the org ships that draws color — starship, neovim, delta, lazygit,
+    `gh-dash` — was rendering degraded the moment it ran inside tmux, on every
+    host. A `terminal-overrides` line adds truecolor on top
+  - New bindings: `prefix + X` kills the session behind a confirm prompt;
+    splits and new windows inherit the pane's cwd; `v`/`y` in copy mode match
+    the module's own vi `keyMode`; `h`/`j`/`k`/`l` select panes. New settings:
+    `renumber-windows`, `focus-events`, `set-clipboard` (OSC 52 — a yank on a
+    remote host reaches the local clipboard with no X forwarding),
+    `detach-on-destroy off`, and per-session terminal titles
+  - Two behaviour changes for a host already enabling the module: `prefix + l`
+    is now `select-pane -R` rather than `last-window`, and a client whose
+    session is destroyed switches to another live session instead of dropping
+    to a shell (it still detaches if that was the last session). Everything
+    else is additive or a `mkDefault` a bare assignment overrides
+  - The block lands before any `lib.mkAfter` definition and tmux takes the
+    *last* binding of a key, so a consumer takes a key back through
+    `programs.tmux.extraConfig = lib.mkAfter …` — the same seam `vigos.sesh`
+    already uses for `bind o`
+
+### Changed
+
+- **CI cancels superseded runs instead of letting them burn runner slots**
+  ([#1602](https://github.com/vig-os/devkit/issues/1602))
+  - `ci.yml` carried no `concurrency` block, so a force-push or a rapid
+    follow-up push left the previous run's every lane — lint, test,
+    commit-checks, scaffold-drift, summary — running to completion for a commit
+    that no longer matters. Wasted billed minutes on a hosted runner; worse on a
+    self-hosted consumer with a small fixed slot pool, where the stale run holds
+    the slots and the replacement run queues behind its own predecessor
+  - Runs are now grouped per workflow and per ref, so a superseded
+    `pull_request` or `workflow_dispatch` run is cancelled while distinct refs
+    (other PRs, dispatches on other branches) stay independent. Consumers pick
+    this up through the normal adoption PR; a hand-added block was never an
+    option, since `ci.yml` is a managed file and the edit failed `scaffold-drift`
+  - The cancel is conditioned on the event not being `push`: neither trigger is
+    `push` today, but a deploy gating on the exact-commit CI run stays
+    satisfiable if one is ever added
+  - Existing gate semantics are unchanged: a cancelled run cannot green the
+    required check (the summary job already trips on `cancelled`), and the
+    release-PR CI gate evaluates only the latest run per check name, so a
+    superseded run cannot refuse a branch that is green
+
+#### Dependencies
+
+- Update `cachix/cachix-action` from `5f2d7c5` to `38b0826` ([#1607](https://github.com/vig-os/devkit/pull/1607))
+- Update `vig-os/commit-action` from `v0.3.2` to `v0.3.3` ([#1608](https://github.com/vig-os/devkit/pull/1608))
+
+### Fixed
+
+- **The scaffolded upgrade workflow now trusts your flake's own `nixConfig`**
+  ([#1599](https://github.com/vig-os/devkit/issues/1599))
+  - `devkit-upgrade.yml` installed Nix with only `experimental-features`, so a
+    repo whose `flake.nix` declares `nixConfig.extra-substituters` had them
+    ignored on both Nix legs of the job — `install.sh`'s `nix flake update` and
+    the `nix develop` commit — each printing a `warning: ignoring untrusted
+    flake configuration setting` pair and resolving the dev-shell against
+    `cache.nixos.org` alone
+  - The installer step now carries the same four settings
+    `setup-devkit-toolchain` has always passed (`accept-flake-config` plus the
+    vig-os Cachix substituter and its public key), so the two Nix entry points
+    a consumer repo has behave identically
+  - Unchanged: the image's baked `nix.conf` still does not set
+    `accept-flake-config`. That
+    ([#773](https://github.com/vig-os/devkit/issues/773)) was about trusting a
+    *foreign* flake run inside the container; this is a per-runner setting in a
+    job that evaluates the consumer's own repo flake and nothing else
+  - Consumers pick this up on their next adoption PR; no repo-side edit is
+    needed
+
+### Security
+
+- **Exception register reconciled against the 2026-09-07 pin advance — the
+  rsync block deleted, nothing renewed**
+  ([#1592](https://github.com/vig-os/devkit/issues/1592),
+  [#1593](https://github.com/vig-os/devkit/issues/1593))
+  - The weekly pin advance `c5c4a43b` → `c25784012c`
+    ([#1609](https://github.com/vig-os/devkit/pull/1609)) ships rsync 3.5.0, so
+    every one of the 17 advisories from the 2026-09-01 batch — the 8 excepted
+    in `.vulnixignore` and the 9 below the gate's CVSS 7.0 threshold — is gone
+    from the image closure. The block is deleted (tombstoned) 16 days before
+    its 2026-09-23 expiry: the "dies on remediation" exit its own note asked
+    for, and the reason it was placed earliest on the staggered grid
+  - Verified against the first scan on the new closure (run 34108767776, dev
+    lane): 17 findings removed, 0 added, no other package touched. The
+    remaining 14 entries each still match a live finding and stand unchanged on
+    their staggered Wednesdays — none renewed, none re-dated
+
+- **`.trivyignore` retired to an empty register — the last three Debian-era
+  exceptions removed** ([#512](https://github.com/vig-os/devkit/issues/512),
+  [#564](https://github.com/vig-os/devkit/issues/564),
+  [#805](https://github.com/vig-os/devkit/issues/805))
+  - All three surviving blocks — the `gh` Go-stdlib `CVE-2026-42504`, the
+    `jwt-token` secret-scan false positive and the Debian jq pair
+    `CVE-2026-32316`/`CVE-2026-40164` — were written against the Debian
+    `:latest` image, whose Trivy job left with the Debian path
+    ([#642](https://github.com/vig-os/devkit/issues/642)). The Nix image
+    inherited the file but none of the findings
+  - Confirmed by scanning the current image with **no ignore file** (trivy
+    0.72.0, `vuln,secret`, HIGH/CRITICAL/MEDIUM, closure built from the
+    `c25784012c` pin): 63 unique vulnerabilities, zero secret findings, none of
+    the three excepted IDs among them. The Nix image's Go binaries are built on
+    stdlib 1.26.7 (past the 1.26.4 the block awaited), it ships jq 1.8.2 with
+    no dpkg DB to match Debian's 1.6, and it has no `/opt/pre-commit-cache`
+  - The file itself stays as the seam for genuine Nix-image Trivy findings and
+    secret false positives; with no entries there is nothing left to expire
+
 ## [1.13.0](https://github.com/vig-os/devkit/releases/tag/1.13.0) - 2026-09-01
 
 ### Added

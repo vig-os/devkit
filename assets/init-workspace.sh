@@ -339,6 +339,7 @@ MANIFEST_MODULES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_MODULES || tru
 MANIFEST_TAG_PREFIX="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TAG_PREFIX || true)"
 MANIFEST_FLOATING_TAGS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FLOATING_TAGS || true)"
 MANIFEST_CI_RUNNER="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_CI_RUNNER || true)"
+MANIFEST_DEV_PROFILE_PATH="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_DEV_PROFILE_PATH || true)"
 MANIFEST_WORKFLOW="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_WORKFLOW || true)"
 MANIFEST_SYNC_TARGET="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_TARGET || true)"
 MANIFEST_SYNC_SCHEDULE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_SCHEDULE || true)"
@@ -2811,9 +2812,10 @@ render_branch_types
 # needs no mode/identity flags at all. A consumer's DEVKIT_MODULES
 # declaration (#884, read before the template overwrite) is restored too, as
 # are the DEVKIT_TAG_PREFIX / DEVKIT_FLOATING_TAGS release tag-scheme keys
-# (#1116, read before the overwrite) and the DEVKIT_CI_RUNNER runner override
-# (#1173) — the template ships them empty, so without a write-back an upgrade
-# would silently reset a consumer's tag scheme or self-hosted runner selection.
+# (#1116, read before the overwrite), the DEVKIT_CI_RUNNER runner override
+# (#1173) and the DEVKIT_DEV_PROFILE_PATH dev-shell gcroot path (#1601) — the
+# template ships them empty, so without a write-back an upgrade would silently
+# reset a consumer's tag scheme, self-hosted runner selection or gcroot path.
 if [[ -f "$VIG_OS_MANIFEST" ]]; then
     echo "Persisting resolved manifest values in .vig-os..."
     write_manifest_value DEVKIT_MODE "$MODE"
@@ -2836,6 +2838,13 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     # back — else an upgrade silently resets ci.yml onto the hosted default.
     if [[ -n "$MANIFEST_CI_RUNNER" ]]; then
         write_manifest_value DEVKIT_CI_RUNNER "$MANIFEST_CI_RUNNER"
+    fi
+    # Dev-shell gcroot path (#1601): same shape as the runner override above —
+    # bare in the template, and a runner-host fact the consumer set once. Losing
+    # it on upgrade silently re-roots the dev-shell in RUNNER_TEMP, where an
+    # ephemeral self-hosted runner's next job cannot find it.
+    if [[ -n "$MANIFEST_DEV_PROFILE_PATH" ]]; then
+        write_manifest_value DEVKIT_DEV_PROFILE_PATH "$MANIFEST_DEV_PROFILE_PATH"
     fi
     # Workflow model (#1205): the template ships DEVKIT_WORKFLOW= (empty =
     # gitflow default), so only a trunk consumer needs a written-back value — a

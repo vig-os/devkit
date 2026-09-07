@@ -45,6 +45,30 @@ RESOLVE_ACTION = WORKSPACE / ".github" / "actions" / "resolve-toolchain" / "acti
 # pins (instead of hardcoding the SHA) keeps tests green across Renovate bumps.
 ACTION_PIN_RE = re.compile(r"^[\w.-]+/[\w.-]+@[0-9a-f]{40}$")
 
+# The Nix settings every scaffolded runner-side Nix must carry (#1599). Three
+# places ship them: setup-devkit-toolchain's fresh-install and preinstalled-host
+# paths, and devkit-upgrade.yml's own installer step. `accept-flake-config` lets
+# the consumer's OWN repo flake contribute the substituters it declares — this
+# is not the baked-image trapdoor #773 removed, which trusted any FOREIGN flake.
+NIX_SETTINGS = {
+    "experimental-features": "nix-command flakes",
+    "accept-flake-config": "true",
+    "extra-substituters": "https://vig-os.cachix.org",
+    "extra-trusted-public-keys": (
+        "vig-os.cachix.org-1:yoOYRi3bvnM6ThxO0joLt7vtzhTfkq3r6jykeUMg7Bk="
+    ),
+}
+
+
+def parse_nix_settings(text: str) -> dict[str, str]:
+    """Parse an ``extra_nix_config``/``NIX_CONFIG`` block into a settings dict."""
+    settings: dict[str, str] = {}
+    for line in text.strip().splitlines():
+        assert " = " in line, f"malformed Nix settings line: {line!r}"
+        key, _, value = line.partition(" = ")
+        settings[key.strip()] = value.strip()
+    return settings
+
 
 def load_workflow(path: Path) -> dict:
     """Parse a workflow/action YAML file."""
@@ -107,6 +131,22 @@ def run_resolve_toolchain(
     before mode/tag resolution, so callers exercising an error path (e.g. no
     manifest => default ``both`` mode with no tag) pass ``check=False``.
     """
+    proc, outputs = exec_resolve_toolchain(tmp_path, manifest)
+    if check:
+        assert proc.returncode == 0, (
+            f"resolve-toolchain failed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}"
+        )
+    return outputs
+
+
+def exec_resolve_toolchain(
+    tmp_path: Path, manifest: str | None
+) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
+    """Same execution, returning the process too — for the loud-refusal paths.
+
+    A manifest value the action must reject fails the step with an ``::error::``
+    annotation, so a test needs the exit code and the log, not just the outputs.
+    """
     action = load_workflow(RESOLVE_ACTION)
     script = action["runs"]["steps"][0]["run"]
 
@@ -121,15 +161,15 @@ def run_resolve_toolchain(
         "INPUT_IMAGE_TAG": "",
         "GITHUB_OUTPUT": str(github_output),
     }
-    subprocess.run(
+    proc = subprocess.run(
         ["bash", "-c", script],
         cwd=tmp_path,
         env=env,
-        check=check,
+        check=False,
         capture_output=True,
         text=True,
     )
-    return parse_github_output(github_output)
+    return proc, parse_github_output(github_output)
 
 
 _GATE_START_RE = re.compile(r"^\s*STATUS_ROLLUP=")

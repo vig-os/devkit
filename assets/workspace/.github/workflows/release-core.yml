@@ -521,7 +521,7 @@ jobs:
       - name: Commit and push finalization changes via API
         if: ${{ inputs.release_kind == 'final' }}
         id: finalize_commit
-        uses: vig-os/commit-action@0361e9aa65b64711a18286ac5dfdcba7cc7a2ac7  # v0.3.2
+        uses: vig-os/commit-action@7ba7e1ae17547813e708d4cc6a771a09f978f724  # v0.3.3
         env:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}

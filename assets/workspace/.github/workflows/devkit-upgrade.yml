@@ -210,12 +210,27 @@ jobs:
           git switch -c "$BRANCH" 2>/dev/null || git switch "$BRANCH"
           echo "name=${BRANCH}" >> "$GITHUB_OUTPUT"
 
+      # Same Nix settings as setup-devkit-toolchain's installer step (kept in
+      # lockstep by test): accept-flake-config lets THIS repo's own flake.nix
+      # contribute the substituters it declares, and the vig-os Cachix pull
+      # (no token) warms the dev-shell the commit step below realizes. Without
+      # them both Nix legs of this job — install.sh's `nix flake update` and
+      # the `nix develop` commit — warn "ignoring untrusted flake configuration
+      # setting" and fall back to cache.nixos.org alone (#1599).
+      #
+      # This is not the #773 trapdoor: that was `accept-flake-config` baked
+      # into the IMAGE's nix.conf, where any container-run foreign flake could
+      # redirect the substituters. Here it is per-runner, in a job that
+      # evaluates this repo's flake and nothing else.
       - name: Install Nix
         if: steps.resolve.outputs.proceed == 'true'
         uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31.11.1
         with:
           extra_nix_config: |
             experimental-features = nix-command flakes
+            accept-flake-config = true
+            extra-substituters = https://vig-os.cachix.org
+            extra-trusted-public-keys = vig-os.cachix.org-1:yoOYRi3bvnM6ThxO0joLt7vtzhTfkq3r6jykeUMg7Bk=
 
       - name: Run the devkit upgrade (install.sh --force)
         id: upgrade

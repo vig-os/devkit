@@ -2354,8 +2354,10 @@ _upgrade_no_flags() {
 # #1295, feature opt-outs #1284). One scaffold+upgrade with ALL knobs set: the
 # write-backs are per-key independent, and a combined manifest matches real
 # consumer state. Sibling loops below cover ships-empty and invalid values.
+# The dev-shell gcroot path (#1601) rides along: same shape, same failure mode —
+# an upgrade that drops it silently re-roots CI's dev-shell in RUNNER_TEMP.
 
-@test "upgrade writes back every persisted .vig-os knob (#885, #1116, #1173, #1295, #1284)" {
+@test "upgrade writes back every persisted .vig-os knob (#885, #1116, #1173, #1295, #1284, #1601)" {
     ws="$BATS_TEST_TMPDIR/e2e-knob-writeback"
     mkdir -p "$ws"
     run _scaffold both "$ws"
@@ -2365,6 +2367,7 @@ _upgrade_no_flags() {
         'DEVKIT_TAG_PREFIX=v'
         'DEVKIT_FLOATING_TAGS=major,minor'
         'DEVKIT_CI_RUNNER=self-hosted,linux,x64,meatgrinder'
+        'DEVKIT_DEV_PROFILE_PATH=/var/lib/devkit/gcroots/dev-profile'
         'DEVKIT_DRIFT_CHECK=false'
         'DEVKIT_FEATURES_DISABLED=renovate,scanning'
     )
@@ -2381,10 +2384,10 @@ _upgrade_no_flags() {
     done
 }
 
-@test "template .vig-os ships every optional knob key empty (#1173, #1228, #1282, #1295, #1284, #1431, #1432)" {
-    local keys=(DEVKIT_CI_RUNNER DEVKIT_SYNC_TARGET DEVKIT_SYNC_SCHEDULE
-        DEVKIT_REFS_POLICY DEVKIT_DRIFT_CHECK DEVKIT_FEATURES_DISABLED
-        DEVKIT_COMMIT_TYPES DEVKIT_BRANCH_TYPES)
+@test "template .vig-os ships every optional knob key empty (#1173, #1228, #1282, #1295, #1284, #1431, #1432, #1601)" {
+    local keys=(DEVKIT_CI_RUNNER DEVKIT_DEV_PROFILE_PATH DEVKIT_SYNC_TARGET
+        DEVKIT_SYNC_SCHEDULE DEVKIT_REFS_POLICY DEVKIT_DRIFT_CHECK
+        DEVKIT_FEATURES_DISABLED DEVKIT_COMMIT_TYPES DEVKIT_BRANCH_TYPES)
     for key in "${keys[@]}"; do
         echo "key: $key"
         run grep -x "${key}=" "$TEMPLATE_DIR/.vig-os"

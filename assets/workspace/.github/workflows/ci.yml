@@ -29,6 +29,13 @@
 # produces the output — chicken-and-egg); `dependency-review` stays hosted too
 # (public-repo-only, toolchain-free, and reads GitHub's dependency-graph API).
 #
+# Dev-shell gcroot (#1601): those same three lanes pass the resolved
+# `dev-profile-path` (from the optional `.vig-os` key DEVKIT_DEV_PROFILE_PATH)
+# into the toolchain action. An EPHEMERAL self-hosted runner wipes RUNNER_TEMP —
+# and with it the dev-shell's gcroot — between jobs while its /nix/store
+# persists, so the closure every run needs is left collectable by the host's
+# nix.gc. Absent => the RUNNER_TEMP default, unchanged for hosted consumers.
+#
 # Jobs:
 #   1. resolve-toolchain — Resolve delivery mode + image from .vig-os
 #   2. lint              — Pre-commit hooks
@@ -67,6 +74,21 @@ on:  # yamllint disable-line rule:truthy
         required: false
         type: string
 
+# Cancel a superseded run instead of letting it burn runner slots (#1602): a
+# force-push or rapid follow-up leaves the previous run's every lane finishing
+# for a commit that no longer matters — wasted minutes on a hosted runner, and
+# on a self-hosted consumer with a small fixed slot pool the replacement run
+# queues behind its own predecessor. Grouping per workflow AND per ref keeps
+# distinct refs (other PRs, dispatches on other branches) independent.
+# `!= 'push'` rather than a bare `true`: neither trigger is `push` today, so the
+# guard is inert, but a deploy gating on the exact-commit CI run must stay
+# satisfiable if one is ever added. Not `== 'pull_request'` either — a
+# dispatched re-test superseding the previous one is wanted. A cancelled run
+# cannot green the required check: the summary job trips on `cancelled` (#1371).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
+
 permissions:
   contents: read
   packages: read
@@ -81,6 +103,11 @@ jobs:
       image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
       runner-json: ${{ steps.resolve.outputs.runner-json }}
+      # Dev-shell gcroot (#1601): re-export the vetted DEVKIT_DEV_PROFILE_PATH
+      # so the toolchain lanes — the ones runner-json can move onto a
+      # self-hosted host — root the dev-shell where an ephemeral job cannot
+      # wipe it.
+      dev-profile-path: ${{ steps.resolve.outputs.dev-profile-path }}
       # Refs policy (#1282): re-export the composite action's mapped
       # --refs-optional-types list so commit-checks can consume it via needs.
       refs-optional-types: ${{ steps.resolve.outputs.refs-optional-types }}
@@ -210,6 +237,7 @@ jobs:
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          dev-profile-path: ${{ needs.resolve-toolchain.outputs.dev-profile-path }}
 
       - name: Sync project dependencies
         run: just sync
@@ -245,6 +273,7 @@ jobs:
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          dev-profile-path: ${{ needs.resolve-toolchain.outputs.dev-profile-path }}
 
       - name: Sync project dependencies
         run: just sync
@@ -285,6 +314,7 @@ jobs:
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          dev-profile-path: ${{ needs.resolve-toolchain.outputs.dev-profile-path }}
 
       # Branch-name gate (#1432 / #1430): validate the PR head ref against the
       # same branch-type set the local no-commit-to-branch guard renders from.

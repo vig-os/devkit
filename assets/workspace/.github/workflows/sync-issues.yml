@@ -186,7 +186,7 @@ jobs:
       - name: Commit and push changes via API
         id: commit
         if: steps.sync.outputs.modified-files != ''
-        uses: vig-os/commit-action@0361e9aa65b64711a18286ac5dfdcba7cc7a2ac7  # v0.3.2
+        uses: vig-os/commit-action@7ba7e1ae17547813e708d4cc6a771a09f978f724  # v0.3.3
         env:
           # Use App token so push can bypass branch protection when App is in bypass list
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}

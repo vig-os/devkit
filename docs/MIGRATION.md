@@ -298,6 +298,52 @@ whose org **cannot run any hosted job at all** therefore still needs those two
 lanes handled separately (e.g. a repo-specific static render); this v1 keeps the
 managed workflow minimal and does not cover that case.
 
+### Keep the dev-shell gcroot across ephemeral self-hosted jobs
+
+In `direnv` mode, `setup-devkit-toolchain` realises the repo's own flake
+dev-shell into a Nix **profile** — a gcroot, which is what stops the store from
+collecting the closure mid-job. That profile lands under `$RUNNER_TEMP`, and on
+a hosted runner that is exactly right: the whole machine is discarded when the
+job ends.
+
+An **ephemeral self-hosted** runner inverts the trade-off. `RUNNER_TEMP` is
+wiped between jobs while the `/nix/store` — the reason to run a self-hosted
+runner at all — persists. Nothing roots the dev-shell between jobs, so a routine
+`nix.gc` on the host discards the closure every CI run needs, and the next run
+re-realises it from scratch. Measured on a consumer with a heavy dev-shell: a
+26 s `Set up devkit toolchain` step becoming 180–237 s, in each of the three
+toolchain lanes (`lint`, `test`, `commit-checks`) that run per CI run.
+
+Set the optional `.vig-os` key `DEVKIT_DEV_PROFILE_PATH` to an absolute,
+runner-writable path outside the runner's work tree:
+
+```ini
+# .vig-os
+DEVKIT_DEV_PROFILE_PATH=/var/lib/devkit/gcroots/dev-profile
+```
+
+`resolve-toolchain` reads the key, vets it, and emits a `dev-profile-path`
+output that the three toolchain lanes plumb into `setup-devkit-toolchain`. Absent
+or empty => the `$RUNNER_TEMP` default, so every existing consumer — hosted and
+self-hosted alike — is unchanged. The key is persisted across re-scaffolds like
+the other manifest keys ([#1601](https://github.com/vig-os/devkit/issues/1601)).
+
+Notes for the runner host:
+
+- **Runner slots on one host share the path**, by design. Concurrent
+  `nix develop --profile` realisations take the profile lock and converge on the
+  same generation.
+- It must be a **local persistent directory**, not a per-job tmpfs, and the
+  runner user must be able to write it. The action creates the parent directory
+  if it can and **fails the step loudly** if it cannot — a silently job-scoped
+  gcroot is indistinguishable from the bug.
+- A value that could never persist — relative, or inside the runner's `_work` /
+  `_temp` tree — is refused by `resolve-toolchain` itself, before any lane pays
+  a realisation.
+- Only the lanes `DEVKIT_CI_RUNNER` can move onto your runner consume it.
+  Everything else in the scaffold stays on the hosted default, where
+  `RUNNER_TEMP` is the correct place for the root.
+
 ### Point sync-issues at an unprotected mirror branch (protected `main`)
 
 The scaffolded `sync-issues.yml` commits its regenerated issue/PR archive with a
@@ -387,6 +433,7 @@ unknown keys:
 | `DEVKIT_REPO` | Persisted GitHub `owner/repo` (Renovate preset) |
 | `DEVKIT_MODULES` | Reserved: space-separated capability modules mirroring `mkProjectShell`'s `modules = [ … ]` ([#884](https://github.com/vig-os/devkit/issues/884)) |
 | `DEVKIT_CI_RUNNER` | Comma-separated runner label list for the scaffolded `ci.yml` toolchain jobs; empty (default) => the hosted `ubuntu-24.04` runner ([#1173](https://github.com/vig-os/devkit/issues/1173)) |
+| `DEVKIT_DEV_PROFILE_PATH` | Absolute path for the direnv-mode dev-shell gcroot profile on the runner host; empty (default) => `$RUNNER_TEMP/devkit-dev-profile`. An ephemeral self-hosted runner sets a persistent path outside its work tree so the closure survives the job (see [Keep the dev-shell gcroot across ephemeral self-hosted jobs](#keep-the-dev-shell-gcroot-across-ephemeral-self-hosted-jobs), [#1601](https://github.com/vig-os/devkit/issues/1601)) |
 | `DEVKIT_SYNC_TARGET` | Branch the scaffolded sync-issues job commits to; empty (default) => the workflow-model default (`dev`/`main`). A protected-`main` consumer sets an unprotected mirror branch, e.g. `sync/issue-mirror` (see [Point sync-issues at an unprotected mirror branch](#point-sync-issues-at-an-unprotected-mirror-branch-protected-main), [#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_SYNC_SCHEDULE` | Cron override (5-field) for the sync-issues schedule trigger; empty (default) => the daily `0 2 * * *` ([#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_FEATURES_DISABLED` | Comma-separated scaffold feature groups this repo opts OUT of; empty (default) => every group is scaffolded. A disabled group is never shipped and a prior scaffold's copy is pruned on upgrade (see [Scaffold feature opt-outs](#scaffold-feature-opt-outs), [#1284](https://github.com/vig-os/devkit/issues/1284)) |

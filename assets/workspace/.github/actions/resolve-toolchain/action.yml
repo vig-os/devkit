@@ -71,6 +71,14 @@ outputs:
       use with fromJSON() in `runs-on`. Defaults to ["ubuntu-24.04"] when the
       key is absent.
     value: ${{ steps.resolve.outputs.runner-json }}
+  dev-profile-path:
+    description: >-
+      Absolute dev-shell gcroot profile path from DEVKIT_DEV_PROFILE_PATH,
+      plumbed into setup-devkit-toolchain's `dev-profile-path`. Empty (default)
+      => the action's own `$RUNNER_TEMP/devkit-dev-profile`. A value that cannot
+      persist (relative, or inside the runner's `_work` tree) fails here, before
+      any lane realises the dev-shell (#1601).
+    value: ${{ steps.resolve.outputs.dev-profile-path }}
   refs-optional-types:
     description: >-
       Comma-separated commit types whose Refs line is optional, mapped from
@@ -123,6 +131,7 @@ runs:
         TAG_PREFIX=""
         FLOATING_TAGS=""
         CI_RUNNER=""
+        DEV_PROFILE_PATH=""
         REFS_POLICY=""
         COMMIT_TYPES=""
         BRANCH_TYPES=""
@@ -139,7 +148,7 @@ runs:
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
 
             case "$line" in
-              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_REFS_POLICY=*|DEVKIT_COMMIT_TYPES=*|DEVKIT_BRANCH_TYPES=*|DEVKIT_DRIFT_CHECK=*|DEVKIT_LANGUAGES=*)
+              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_DEV_PROFILE_PATH=*|DEVKIT_REFS_POLICY=*|DEVKIT_COMMIT_TYPES=*|DEVKIT_BRANCH_TYPES=*|DEVKIT_DRIFT_CHECK=*|DEVKIT_LANGUAGES=*)
                 key="${line%%=*}"
                 value="${line#*=}"
                 value="${value#"${value%%[![:space:]]*}"}"
@@ -158,6 +167,7 @@ runs:
                   DEVKIT_TAG_PREFIX) TAG_PREFIX="$value" ;;
                   DEVKIT_FLOATING_TAGS) FLOATING_TAGS="$value" ;;
                   DEVKIT_CI_RUNNER) CI_RUNNER="$value" ;;
+                  DEVKIT_DEV_PROFILE_PATH) DEV_PROFILE_PATH="$value" ;;
                   DEVKIT_REFS_POLICY) REFS_POLICY="$value" ;;
                   DEVKIT_COMMIT_TYPES) COMMIT_TYPES="$value" ;;
                   DEVKIT_BRANCH_TYPES) BRANCH_TYPES="$value" ;;
@@ -216,6 +226,48 @@ runs:
         [[ "$runner_first" -eq 1 ]] && RUNNER_JSON+="\"ubuntu-24.04\""
         RUNNER_JSON+="]"
         echo "runner-json=$RUNNER_JSON" >> "$GITHUB_OUTPUT"
+
+        # Dev-shell gcroot profile path (#1601): DEVKIT_DEV_PROFILE_PATH moves
+        # the direnv dev-shell's gcroot out of RUNNER_TEMP, which an ephemeral
+        # self-hosted runner wipes between jobs while its /nix/store persists —
+        # leaving the closure every CI run needs unrooted and collectable by the
+        # host's nix.gc. Absent/empty => the toolchain action's own RUNNER_TEMP
+        # default, so every existing consumer is unchanged.
+        #
+        # Vetted HERE, once, on the hosted producer job: a value no host could
+        # make persistent is a manifest typo, and catching it after three
+        # toolchain lanes have each realised a dev-shell helps nobody. What only
+        # the target host can answer — is the directory there, is it writable —
+        # stays in the action's step. Neither may fall back silently: a
+        # job-scoped gcroot is indistinguishable from the bug.
+        DEV_PROFILE_PATH_RAW="$DEV_PROFILE_PATH"
+        # Trim trailing slashes: `--profile /a/b/` and `/a/b` name the same
+        # gcroot, and the step takes `dirname` of the value.
+        DEV_PROFILE_PATH="${DEV_PROFILE_PATH%"${DEV_PROFILE_PATH##*[!/]}"}"
+        if [[ -n "$DEV_PROFILE_PATH" ]]; then
+          if [[ "$DEV_PROFILE_PATH" != /* ]]; then
+            echo "::error::Invalid DEVKIT_DEV_PROFILE_PATH in .vig-os: $DEV_PROFILE_PATH (must be an ABSOLUTE path — a relative one resolves against the checkout, which the runner wipes between jobs)"
+            exit 1
+          fi
+          # `_work` is the runner's work-tree root and `_temp` its RUNNER_TEMP
+          # leaf — both runner-internal names, and both wiped between ephemeral
+          # jobs. GITHUB_WORKSPACE lives under `_work` too. This catches the
+          # mistake the knob exists to prevent (rooting inside the very tree the
+          # runner clears); it cannot prove an arbitrary path is persistent, and
+          # does not try to.
+          case "$DEV_PROFILE_PATH" in
+            */_work/*|*/_work|*/_temp/*|*/_temp)
+              echo "::error::Invalid DEVKIT_DEV_PROFILE_PATH in .vig-os: $DEV_PROFILE_PATH (inside the runner's own work tree — RUNNER_TEMP and GITHUB_WORKSPACE both live there and are wiped between jobs). Point it at a persistent directory outside the runner workspace, e.g. /var/lib/devkit/gcroots/dev-profile"
+              exit 1
+              ;;
+          esac
+        elif [[ -n "${DEV_PROFILE_PATH_RAW:-}" ]]; then
+          # Only reachable for a value that was nothing but slashes ("/"), which
+          # the trim above empties: a gcroot cannot be the filesystem root.
+          echo "::error::Invalid DEVKIT_DEV_PROFILE_PATH in .vig-os: $DEV_PROFILE_PATH_RAW (must name a profile path, not the filesystem root)"
+          exit 1
+        fi
+        echo "dev-profile-path=$DEV_PROFILE_PATH" >> "$GITHUB_OUTPUT"
 
         # Commit types (#1431): resolve DEVKIT_COMMIT_TYPES into the --types
         # list validate-commit-range consumes in the commit-checks job. This is
