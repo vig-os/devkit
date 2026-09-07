@@ -128,6 +128,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     remaining 14 entries each still match a live finding and stand unchanged on
     their staggered Wednesdays — none renewed, none re-dated
 
+- **`.trivyignore` retired to an empty register — the last three Debian-era
+  exceptions removed** ([#512](https://github.com/vig-os/devkit/issues/512),
+  [#564](https://github.com/vig-os/devkit/issues/564),
+  [#805](https://github.com/vig-os/devkit/issues/805))
+  - All three surviving blocks — the `gh` Go-stdlib `CVE-2026-42504`, the
+    `jwt-token` secret-scan false positive and the Debian jq pair
+    `CVE-2026-32316`/`CVE-2026-40164` — were written against the Debian
+    `:latest` image, whose Trivy job left with the Debian path
+    ([#642](https://github.com/vig-os/devkit/issues/642)). The Nix image
+    inherited the file but none of the findings
+  - Confirmed by scanning the current image with **no ignore file** (trivy
+    0.72.0, `vuln,secret`, HIGH/CRITICAL/MEDIUM, closure built from the
+    `c25784012c` pin): 63 unique vulnerabilities, zero secret findings, none of
+    the three excepted IDs among them. The Nix image's Go binaries are built on
+    stdlib 1.26.7 (past the 1.26.4 the block awaited), it ships jq 1.8.2 with
+    no dpkg DB to match Debian's 1.6, and it has no `/opt/pre-commit-cache`
+  - The file itself stays as the seam for genuine Nix-image Trivy findings and
+    secret false positives; with no entries there is nothing left to expire
+
 ## [1.13.0](https://github.com/vig-os/devkit/releases/tag/1.13.0) - 2026-09-01
 
 ### Added
