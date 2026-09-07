@@ -127,7 +127,7 @@ jobs:
 
       - name: Commit synced manifest to release branch via API
         id: release-commit
-        uses: vig-os/commit-action@0361e9aa65b64711a18286ac5dfdcba7cc7a2ac7  # v0.3.2
+        uses: vig-os/commit-action@7ba7e1ae17547813e708d4cc6a771a09f978f724  # v0.3.3
         env:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
@@ -209,7 +209,7 @@ jobs:
 
       - name: Commit reconciled mirror to dev via API
         if: ${{ steps.dev-ff.outputs.ff_done != 'true' && steps.dev-sync.outputs.mirror_dirty == 'true' }}
-        uses: vig-os/commit-action@0361e9aa65b64711a18286ac5dfdcba7cc7a2ac7  # v0.3.2
+        uses: vig-os/commit-action@7ba7e1ae17547813e708d4cc6a771a09f978f724  # v0.3.3
         env:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
