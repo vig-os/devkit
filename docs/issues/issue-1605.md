@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-03T09:25:57Z
-updated: 2026-09-03T09:25:57Z
+updated: 2026-09-08T08:59:10Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1605
-comments: 0
+comments: 1
 labels: feature, area:workspace, effort:small, semver:minor
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-04T07:09:27.155Z
+synced: 2026-09-09T07:17:30.379Z
 ---
 
 # [Issue 1605]: [[FEATURE] vigos.multiplexer: keybindings and terminal defaults for the org tmux config](https://github.com/vig-os/devkit/issues/1605)
@@ -166,4 +166,16 @@ mode, but drop it or rebind `last-window` elsewhere if the trade isn't wanted.
 ## Changelog Category
 
 Added
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 8, 2026 at 08:59 AM_
+
+Shipped in [1.14.0](https://github.com/vig-os/devkit/releases/tag/1.14.0) via #1606 (`8529ebc7`).
+
+All six groups landed in `nix/home/multiplexer.nix`, including group 6 (vim pane navigation) with the `prefix + l` trade accepted and documented. `programs.tmux.terminal` now defaults to `tmux-256color`; the keybinding block is a plain (non-`mkAfter`) `extraConfig` so a consumer's `lib.mkAfter` still wins, matching the `vigos.sesh` seam.
+
+Covered by assertions in `tests/test_flake_checks.py` off the existing cached `ci-full-x86_64-linux` eval, and recorded under Added in the 1.14.0 changelog.
 
