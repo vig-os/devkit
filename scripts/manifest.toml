@@ -113,6 +113,10 @@ transforms = [
   # Downstream release.yml declares create-release; upstream root justfile.gh does not pass it.
   { type = "Sed", pattern = '(?m)^publish-candidate version ref="" \*flags:', replace = 'publish-candidate version ref="" create-release="false" *flags:' },
   { type = "Sed", pattern = '-f "release-kind=candidate" \{\{ flags \}\}', replace = '-f "release-kind=candidate" -f "create-release={{ create-release }}" {{ flags }}' },
+  # Phase 1 of the hotfix lane (#1621) ships prepare-hotfix.yml in devkit only;
+  # consumers have no workflow to dispatch until the scaffold port lands.
+  # The block ends on the blank line after the recipe so no double blank remains.
+  { type = "RemoveBlock", start_pattern = "^# Prepare a hotfix release branch", end_pattern = "^$" },
   { type = "RemoveBlock", start_pattern = "^# Pull image from registry", end_pattern = "^\\s+podman pull" },
   { type = "StripTrailingBlankLines" },
 ]
