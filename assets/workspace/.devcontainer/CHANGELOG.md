@@ -31,6 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     runbook rules live in `docs/RELEASE_CYCLE.md` (Hotfix lane). Devkit-only
     for now: the `assets/workspace/` port is a follow-up, and the recipe is
     stripped from the scaffolded `justfile.gh` until it lands
+- **prepare-release refuses while another release branch is in flight**
+  ([#1627](https://github.com/vig-os/devkit/issues/1627))
+  - The `validate` job of `prepare-release.yml` (devkit and scaffold copies,
+    trunk render included) now fails, listing the offenders, when any other
+    `release/*` branch exists on the remote: the symmetric counterpart of the
+    hotfix lane's refusal, so a regular train can no longer be cut over a
+    hotfix and later reintroduce the regression or walk `:latest` backwards.
+    Promote or abandon the other train first
 
 ### Changed
 
