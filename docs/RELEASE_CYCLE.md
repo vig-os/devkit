@@ -206,6 +206,7 @@ This section applies to **`vig-os/devcontainer`** (this repo) and, for matching 
 - All planned features merged to `dev`
 - All tests passing on `dev`
 - CHANGELOG Unreleased section has content
+- No other `release/*` branch exists — the `validate` job refuses to cut a second train (single-train policy, [#1627](https://github.com/vig-os/devkit/issues/1627)); promote or abandon the other one first
 
 **Execute:**
 
@@ -333,7 +334,7 @@ just prepare-hotfix X.Y.Z "" -f dry-run=true
 
 **Runbook rules:**
 
-- **`:latest` moves unconditionally on promote.** `prepare-release` does not (yet) refuse while a hotfix branch exists, so a regular train cut *after* the hotfix can still promote first; promoting the hotfix afterwards walks `:latest` backwards. Promote the hotfix first, or abandon and re-cut it as the next patch of the new line.
+- **One train at a time, in both directions.** `prepare-hotfix` refuses while any other `release/*` branch exists, and `prepare-release` refuses while a hotfix branch is in flight ([#1627](https://github.com/vig-os/devkit/issues/1627)), so the two trains cannot be cut alongside each other. `:latest` still moves unconditionally on promote (guard tracked in [#1626](https://github.com/vig-os/devkit/issues/1626)): should two trains ever coexist (a release branch created by hand), promote the hotfix first, or abandon and re-cut it as the next patch of the new line.
 - **Expect the promote BEHIND gate** if anything lands on `main` mid-hotfix; recovery is merging `main` into the release branch (which re-dismisses approval, [#1474](https://github.com/vig-os/devkit/issues/1474)).
 - **`release.yml` runs from the release branch's copy — `main`'s copy for a hotfix.** Any release-workflow or `vig-utils` change the lane depends on must ship through a normal train before the first hotfix that needs it.
 - **Rehearsing the lane** (no train in flight): `prepare-hotfix`, a trivial fix PR, one `publish-candidate`, then `abandon-release`. Never finalize or promote a rehearsal. Leftovers: the `X.Y.Z-rcN` git tag in this repo (numbering continuity) and one permanent published pre-release on `devkit-smoke-test` (immutable org-wide).
@@ -772,6 +773,7 @@ Additional requirement:
 1. **validate** - Checks all prerequisites before creating branch
    - Validates semantic version format
    - Verifies release branch does not exist (local or remote)
+   - Verifies no other `release/*` branch is in flight (single-train policy, [#1627](https://github.com/vig-os/devkit/issues/1627))
    - Confirms tag doesn't already exist
    - Verifies CHANGELOG has `## Unreleased` section with content
    - Confirms dev branch is checked out

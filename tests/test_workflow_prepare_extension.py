@@ -46,6 +46,9 @@ from tests.workflow_scaffold import (
 from tests.workflow_scaffold import (
     run_text_of_job as _job_steps_text,
 )
+from tests.workflow_scaffold import (
+    steps_of_job as _steps,
+)
 
 # Repository root (tests/ -> repo root) and the consumer scaffold tree.
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -583,4 +586,61 @@ def test_devkit_extension_dev_reconcile_is_last_step() -> None:
         "the dev reconciliation commit must be the job's last step — anything "
         "after it would create a failure window in which the reconcile landed "
         "but the extension still fails, defeating the rollback analysis"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Single-train policy (#1627): prepare-release refuses while any other
+# release/* branch exists — the symmetric counterpart of the refusal the hotfix
+# lane enforces (#1621). A regular train cut while a hotfix is in flight
+# predates the fix, so promoting it afterwards silently reintroduces the
+# regression, and promoting it first walks :latest backwards.
+# --------------------------------------------------------------------------- #
+
+SINGLE_TRAIN_CALLERS = [SCAFFOLD_PREPARE, DEVKIT_PREPARE]
+
+IN_FLIGHT_STEP = "no other release train is in flight"
+IN_FLIGHT_MESSAGE = "Another release train is in flight"
+IN_FLIGHT_REMEDY = "Promote or abandon it first"
+
+
+def _assert_single_train_refusal(doc: dict) -> None:
+    steps = _steps(doc, "validate")
+    names = [str(s.get("name", "")).lower() for s in steps]
+    exists_idx = next(
+        i for i, n in enumerate(names) if "release branch does not exist" in n
+    )
+    guard_idx = next((i for i, n in enumerate(names) if IN_FLIGHT_STEP in n), None)
+    assert guard_idx is not None, "validate has no single-train refusal step"
+    assert guard_idx == exists_idx + 1, (
+        "the single-train refusal must directly follow the branch-exists check"
+    )
+
+    run = str(steps[guard_idx].get("run", ""))
+    # The check enumerates every release/* branch on the remote, not just the
+    # one this train would create, and prints the offenders with the remedy.
+    assert "release/" in run
+    assert "for-each-ref" in run or "ls-remote" in run, (
+        "the refusal must enumerate remote release/* branches"
+    )
+    assert IN_FLIGHT_MESSAGE in run
+    assert IN_FLIGHT_REMEDY in run
+    assert "exit 1" in run
+
+
+@pytest.mark.parametrize(
+    "path", SINGLE_TRAIN_CALLERS, ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
+def test_prepare_release_refuses_while_another_train_is_in_flight(
+    path: Path,
+) -> None:
+    """Both copies refuse to cut a train while any other release/* exists."""
+    _assert_single_train_refusal(_load(path))
+
+
+def test_trunk_prepare_keeps_the_single_train_refusal() -> None:
+    """The check is branch-name based, so the trunk render carries it intact."""
+    rendered = cached_tree("trunk")
+    _assert_single_train_refusal(
+        _load(rendered / ".github" / "workflows" / "prepare-release.yml")
     )

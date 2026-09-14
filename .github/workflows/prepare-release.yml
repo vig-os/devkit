@@ -92,6 +92,26 @@ jobs:
 
           echo "✓ Release branch does not exist: $RELEASE_BRANCH"
 
+      - name: Verify no other release train is in flight
+        run: |
+          set -euo pipefail
+
+          # Single-train policy (#1627), symmetric with prepare-hotfix.yml: a
+          # regular train cut while a hotfix release/* is in flight predates
+          # the fix, so promoting it afterwards silently reintroduces the
+          # regression, and promoting it first walks :latest backwards.
+          # Refuse instead of relying on a cherry-pick obligation; promote or
+          # abandon the other train first.
+          IN_FLIGHT=$(git for-each-ref --format='%(refname:lstrip=3)' 'refs/remotes/origin/release/' || true)
+          if [ -n "$IN_FLIGHT" ]; then
+            echo "ERROR: Another release train is in flight; a second train cannot be cut alongside it:"
+            while IFS= read -r branch; do echo "  $branch"; done <<< "$IN_FLIGHT"
+            echo "Promote or abandon it first (just promote-release / just abandon-release), then retry"
+            exit 1
+          fi
+
+          echo "✓ No other release train in flight"
+
       - name: Verify tag does not exist
         env:
           VERSION: ${{ steps.vars.outputs.version }}
