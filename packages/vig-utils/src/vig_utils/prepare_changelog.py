@@ -341,6 +341,56 @@ def cmd_prepare(args):
     print("✓ Created fresh Unreleased section")
 
 
+def seed_changelog(version, filepath="CHANGELOG.md"):
+    """
+    Seed an EMPTY ``## [version] - TBD`` section under an EMPTY Unreleased (#1621).
+
+    The hotfix lane cuts ``release/X.Y.Z`` from ``main``, whose ``## Unreleased``
+    is empty by construction (#590): there is nothing to freeze, so the release
+    branch only needs the version heading the fix PR will fill. Unlike
+    ``prepare``, content in Unreleased is a hard error — it means the file is not
+    a hotfix base — and an existing ``[version]`` section (TBD or dated) is
+    refused instead of folded in.
+
+    Args:
+        version: Semantic version (e.g., "1.0.1")
+        filepath: Path to CHANGELOG.md
+    """
+    if not re.match(r"^\d+\.\d+\.\d+$", version):
+        raise ValueError(f"Invalid semantic version: {version}")
+
+    path = Path(filepath)
+    if not path.exists():
+        raise FileNotFoundError(f"CHANGELOG not found: {filepath}")
+
+    content = path.read_text()
+
+    # Raises when no Unreleased heading exists.
+    unreleased_sections = extract_unreleased_content(content)
+    if unreleased_sections:
+        raise ValueError(
+            "Unreleased section is not empty; seed expects main's changelog "
+            "(empty Unreleased) — use 'prepare' to freeze pending content instead."
+        )
+
+    if re.search(rf"^## \[{re.escape(version)}\]", content, re.MULTILINE):
+        raise ValueError(f"Version section [{version}] already exists in CHANGELOG")
+
+    # Everything from the first dated heading down is preserved byte-for-byte.
+    next_version_start = content.find("\n## [")
+    rest_of_changelog = (
+        content[next_version_start + 1 :] if next_version_start != -1 else ""
+    )
+
+    path.write_text(create_new_changelog(version, {}, rest_of_changelog))
+
+
+def cmd_seed(args):
+    """Handle seed command."""
+    seed_changelog(args.version, args.file)
+    print(f"✓ Seeded empty [{args.version}] - TBD section under Unreleased")
+
+
 def cmd_validate(args):
     """Handle validate command."""
     has_section, has_content = validate_changelog(args.file)
@@ -584,6 +634,9 @@ Examples:
   # Reset Unreleased section after release merge
   %(prog)s reset
 
+  # Seed an empty [1.0.1] - TBD section on a hotfix branch cut from main
+  %(prog)s seed 1.0.1
+
   # Revert a dated version heading back to TBD (idempotent candidate→final)
   %(prog)s reset-version 1.0.0
 
@@ -615,6 +668,23 @@ Examples:
         help="Path to CHANGELOG file (default: CHANGELOG.md)",
     )
     prepare_parser.set_defaults(func=cmd_prepare)
+
+    # seed command
+    seed_parser = subparsers.add_parser(
+        "seed",
+        help="Seed an empty [version] - TBD section under an empty Unreleased (hotfix)",
+    )
+    seed_parser.add_argument(
+        "version",
+        help="Semantic version (e.g., 1.0.1)",
+    )
+    seed_parser.add_argument(
+        "file",
+        nargs="?",
+        default="CHANGELOG.md",
+        help="Path to CHANGELOG file (default: CHANGELOG.md)",
+    )
+    seed_parser.set_defaults(func=cmd_seed)
 
     # validate command
     validate_parser = subparsers.add_parser(

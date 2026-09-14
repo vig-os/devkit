@@ -876,7 +876,7 @@ class TestSeedChangelog:
         content = f.read_text()
         block = content[content.find("## [0.2.1] - TBD") : content.find("## [0.2.0]")]
         assert "###" not in block
-        assert "- " not in block
+        assert not re.search(r"^\s*-", block, re.MULTILINE)
 
     def test_unreleased_keeps_all_standard_sections(self, tmp_path):
         """Unreleased is normalized to the six empty standard headings."""
