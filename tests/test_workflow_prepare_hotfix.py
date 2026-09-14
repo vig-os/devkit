@@ -188,16 +188,21 @@ def test_dry_run_gates_every_job_but_validate() -> None:
 def test_prepare_seeds_changelog_on_the_release_branch() -> None:
     """The seed commit targets release/X.Y.Z (never main) via commit-action."""
     doc = _doc()
-    name, job = _job_with_run(doc, "prepare-changelog seed")
     commits = [
-        s
+        (name, s)
+        for name, job in jobs(doc).items()
+        if isinstance(job, dict)
         for s in job.get("steps") or []
         if isinstance(s, dict) and "vig-os/commit-action" in str(s.get("uses", ""))
     ]
-    assert len(commits) == 1, f"{name}: expected exactly one commit-action step"
-    target = (commits[0].get("env") or {}).get("TARGET_BRANCH", "")
+    assert len(commits) == 1, "expected exactly one commit-action step in the lane"
+    name, commit = commits[0]
+    assert "prepare-changelog seed" in run_text_of_job(jobs(doc)[name]), (
+        f"{name}: the committing job must be the one that seeds the changelog"
+    )
+    target = (commit.get("env") or {}).get("TARGET_BRANCH", "")
     assert target.startswith("refs/heads/release/"), target
-    assert (commits[0].get("env") or {}).get("FILE_PATHS") == "CHANGELOG.md"
+    assert (commit.get("env") or {}).get("FILE_PATHS") == "CHANGELOG.md"
 
 
 def test_extension_receives_the_seeded_commit_sha() -> None:
