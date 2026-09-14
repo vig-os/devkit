@@ -28,9 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     normal train, since `release.yml` runs from `main`'s copy for a hotfix
   - Accepted cost: the post-promote `sync-main-to-dev` PR conflicts on
     `CHANGELOG.md` whenever `dev` is ahead; the resolution recipe and the
-    runbook rules live in `docs/RELEASE_CYCLE.md` (Hotfix lane). Devkit-only
-    for now: the `assets/workspace/` port is a follow-up, and the recipe is
-    stripped from the scaffolded `justfile.gh` until it lands
+    runbook rules live in `docs/RELEASE_CYCLE.md` (Hotfix lane). The
+    `assets/workspace/` port ships in the same release
+    ([#1625](https://github.com/vig-os/devkit/issues/1625))
 - **prepare-release refuses while another release branch is in flight**
   ([#1627](https://github.com/vig-os/devkit/issues/1627))
   - The `validate` job of `prepare-release.yml` (devkit and scaffold copies,
