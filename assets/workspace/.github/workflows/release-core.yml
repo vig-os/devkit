@@ -207,14 +207,15 @@ jobs:
           echo "pre_finalize_sha=$PRE_FINALIZE_SHA" >> "$GITHUB_OUTPUT"
           echo "Pre-finalization SHA: $PRE_FINALIZE_SHA"
 
+      # Content, not just the heading: a hotfix branch (prepare-hotfix.yml)
+      # is seeded with an EMPTY `## [X.Y.Z] - TBD` section that the fix PR
+      # fills, so a bare grep would let an unfilled section ship (#1625).
       - name: Verify CHANGELOG has TBD entry
         env:
           VERSION: ${{ steps.vars.outputs.version }}
         run: |
-          if ! grep -Fq "## [$VERSION] - TBD" CHANGELOG.md; then
-            echo "ERROR: CHANGELOG.md does not contain '## [$VERSION] - TBD'"
-            exit 1
-          fi
+          set -euo pipefail
+          prepare-changelog validate --version "$VERSION" CHANGELOG.md
 
       - name: Compute publish version
         id: publish_meta
