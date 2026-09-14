@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Hotfix release lane: cut `release/X.Y.Z` from `main` without going through
+  `dev`** ([#1621](https://github.com/vig-os/devkit/issues/1621))
+  - New `prepare-hotfix.yml` workflow (`just prepare-hotfix X.Y.Z`): validates
+    that the version is the next patch of the latest stable tag on `main` and
+    that no other `release/*` train is in flight, forks the release branch at
+    `main`'s head, seeds an empty `## [X.Y.Z] - TBD` section on the branch
+    (never `main`, never `dev`), re-syncs the workspace mirror through the
+    existing `prepare-release-extension.yml` hook and opens the draft PR to
+    `main`. Rollback deletes the partial branch and nothing else. The fix
+    lands via a `bugfix/N-*` PR into the release branch; candidate, final,
+    promote and abandon run unchanged
+  - `prepare-changelog seed X.Y.Z` inserts the empty section under an empty
+    Unreleased and refuses anything else; `prepare-changelog validate
+    --version X.Y.Z` checks the pending section carries content, and
+    `release.yml` now gates on it so a seeded-but-unfilled section cannot
+    ship. That gate reaches hotfix trains only once it has shipped through a
+    normal train, since `release.yml` runs from `main`'s copy for a hotfix
+  - Accepted cost: the post-promote `sync-main-to-dev` PR conflicts on
+    `CHANGELOG.md` whenever `dev` is ahead; the resolution recipe and the
+    runbook rules live in `docs/RELEASE_CYCLE.md` (Hotfix lane). Devkit-only
+    for now: the `assets/workspace/` port is a follow-up, and the recipe is
+    stripped from the scaffolded `justfile.gh` until it lands
+
 ### Changed
 
 ### Deprecated
