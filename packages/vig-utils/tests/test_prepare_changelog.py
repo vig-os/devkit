@@ -27,6 +27,7 @@ from vig_utils.prepare_changelog import (
     prepare_changelog,
     reset_unreleased,
     reset_version_to_tbd,
+    seed_changelog,
     unprepare_changelog,
     validate_changelog,
 )
@@ -841,6 +842,121 @@ class TestResetUnreleased:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# seed_changelog
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+class TestSeedChangelog:
+    """Unit tests for seed_changelog() (#1621 hotfix lane).
+
+    ``seed`` inserts an EMPTY ``## [version] - TBD`` section directly under an
+    EMPTY ``## Unreleased`` — the shape of ``main``'s changelog, whose Unreleased
+    is empty by construction (#590). A non-empty Unreleased means the file is not
+    a hotfix base and must be refused rather than silently frozen.
+    """
+
+    def test_inserts_empty_version_section(self, tmp_path):
+        """An empty [version] - TBD heading appears under Unreleased."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(EMPTY_UNRELEASED_CHANGELOG)
+        seed_changelog("0.2.1", str(f))
+        content = f.read_text()
+        headings = re.findall(r"^## .+$", content, re.MULTILINE)
+        assert headings == [
+            "## Unreleased",
+            "## [0.2.1] - TBD",
+            "## [0.2.0] - 2026-01-01",
+        ]
+
+    def test_version_section_has_no_content(self, tmp_path):
+        """The seeded section carries no subsections and no bullets."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(EMPTY_UNRELEASED_CHANGELOG)
+        seed_changelog("0.2.1", str(f))
+        content = f.read_text()
+        block = content[content.find("## [0.2.1] - TBD") : content.find("## [0.2.0]")]
+        assert "###" not in block
+        assert "- " not in block
+
+    def test_unreleased_keeps_all_standard_sections(self, tmp_path):
+        """Unreleased is normalized to the six empty standard headings."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(EMPTY_UNRELEASED_CHANGELOG)
+        seed_changelog("0.2.1", str(f))
+        content = f.read_text()
+        block = content[content.find("## Unreleased") : content.find("## [0.2.1]")]
+        for section in STANDARD_SECTIONS:
+            assert f"### {section}" in block
+        assert "- " not in block
+
+    def test_preserves_rest_of_changelog(self, tmp_path):
+        """Everything from the first dated heading down is byte-identical."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(EMPTY_UNRELEASED_CHANGELOG)
+        before = EMPTY_UNRELEASED_CHANGELOG[
+            EMPTY_UNRELEASED_CHANGELOG.find("## [0.2.0]") :
+        ]
+        seed_changelog("0.2.1", str(f))
+        content = f.read_text()
+        assert content[content.find("## [0.2.0]") :] == before
+
+    def test_refuses_non_empty_unreleased(self, tmp_path):
+        """Content in Unreleased is not a hotfix base: refuse, do not freeze."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(BASIC_CHANGELOG)
+        with pytest.raises(ValueError, match="Unreleased section is not empty"):
+            seed_changelog("0.2.1", str(f))
+        assert f.read_text() == BASIC_CHANGELOG
+
+    def test_refuses_missing_unreleased(self, tmp_path):
+        """No Unreleased heading at all is refused."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(NO_UNRELEASED_CHANGELOG)
+        with pytest.raises(ValueError, match="No '## Unreleased' section"):
+            seed_changelog("0.2.1", str(f))
+
+    def test_refuses_existing_tbd_section(self, tmp_path):
+        """A [version] - TBD section already present is refused (no stacking)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(CHANGELOG_WITH_TBD)
+        with pytest.raises(ValueError, match=r"\[1\.0\.0\] already exists"):
+            seed_changelog("1.0.0", str(f))
+        assert f.read_text() == CHANGELOG_WITH_TBD
+
+    def test_refuses_existing_dated_section(self, tmp_path):
+        """A dated [version] section already present is refused."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(EMPTY_UNRELEASED_CHANGELOG)
+        with pytest.raises(ValueError, match=r"\[0\.2\.0\] already exists"):
+            seed_changelog("0.2.0", str(f))
+
+    def test_rejects_invalid_version(self, tmp_path):
+        """Non-semver input is rejected before touching the file."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(EMPTY_UNRELEASED_CHANGELOG)
+        with pytest.raises(ValueError, match="Invalid semantic version"):
+            seed_changelog("v0.2.1", str(f))
+        assert f.read_text() == EMPTY_UNRELEASED_CHANGELOG
+
+    def test_raises_for_missing_file(self, tmp_path):
+        """Nonexistent file raises FileNotFoundError."""
+        with pytest.raises(FileNotFoundError, match="CHANGELOG not found"):
+            seed_changelog("0.2.1", str(tmp_path / "nope.md"))
+
+    def test_seed_then_prepare_is_a_noop_shape(self, tmp_path):
+        """A seeded file is valid input for the existing tools (dedupe path, #612)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(EMPTY_UNRELEASED_CHANGELOG)
+        seed_changelog("0.2.1", str(f))
+        seeded = f.read_text()
+        prepare_changelog("0.2.1", str(f))
+        assert f.read_text().count("## [0.2.1] - TBD") == 1
+        assert re.findall(r"^## .+$", f.read_text(), re.MULTILINE) == re.findall(
+            r"^## .+$", seeded, re.MULTILINE
+        )
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # reset_version_to_tbd
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -1593,6 +1709,26 @@ class TestCLISubprocess:
         f.write_text(BASIC_CHANGELOG)
         result = self._run("reset", str(f))
         assert result.returncode != 0
+
+    # ── seed ──────────────────────────────────────────────────────────────
+
+    def test_seed_e2e(self, tmp_path):
+        """seed inserts an empty [version] - TBD under an empty Unreleased."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(EMPTY_UNRELEASED_CHANGELOG)
+        result = self._run("seed", "0.2.1", str(f))
+        assert result.returncode == 0, result.stderr
+        assert "## [0.2.1] - TBD" in f.read_text()
+        assert "0.2.1" in result.stdout
+
+    def test_seed_refuses_non_empty_unreleased_e2e(self, tmp_path):
+        """seed exits non-zero and leaves the file untouched on content."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(BASIC_CHANGELOG)
+        result = self._run("seed", "0.2.1", str(f))
+        assert result.returncode != 0
+        assert "not empty" in result.stderr
+        assert f.read_text() == BASIC_CHANGELOG
 
     # ── finalize ──────────────────────────────────────────────────────────
 
