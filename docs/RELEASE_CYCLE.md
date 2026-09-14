@@ -179,7 +179,7 @@ graph TB
 3. **Candidate Publish** (`publish-candidate`): Build/test/publish `X.Y.Z-rcN` and dispatch cross-repo validation workflow
 4. **Cross-Repo Validation**: Smoke-test runs asynchronously after candidate and final publish; see `docs/CROSS_REPO_RELEASE_GATE.md`. Before promotion, **`promote-release.yml`** requires a published **final** (non-draft, non-prerelease) GitHub Release for the version tag on `devkit-smoke-test` so human acceptance downstream is reflected before `:latest` and the draft release are published.
 5. **Finalization & Post-Release**: Publish final image/tag, open a **draft** GitHub Release for human review, then merge PR to `main` and let sync automation update `dev`
-6. **Promote & cleanup**: `promote-release.yml` updates `:latest`, publishes the draft release, merges the release PR, then runs a **best-effort** cleanup job (Refs [#463](https://github.com/vig-os/devkit/issues/463), [#583](https://github.com/vig-os/devkit/issues/583)): deletes GHCR RC image versions for `${VERSION}-rc*` (per-arch tags included) and matching RC cosign signatures, and deletes remote git RC tags for that base version when **no** GitHub Release is linked. GHCR deletes use **`GITHUB_TOKEN`** with **repo Admin** on the `devcontainer` package (see [Registry and cleanup tokens](#registry-and-cleanup-tokens-upstream)); the cleanup step fails loudly when RC tags remain. The cleanup job uses `continue-on-error`, so promote still completes. **Before this cleanup runs, migrate any consumers still pinned to an RC tag** (via `DEVCONTAINER_VERSION` in their `.vig-os` file) **to the final tag** — see [Phase 5](#phase-5-post-release-cleanup) ([#880](https://github.com/vig-os/devkit/issues/880)).
+6. **Promote & cleanup**: `promote-release.yml` refuses a version below the highest published final release (`:latest` never moves backwards, [#1626](https://github.com/vig-os/devkit/issues/1626)), then updates `:latest`, publishes the draft release, merges the release PR, then runs a **best-effort** cleanup job (Refs [#463](https://github.com/vig-os/devkit/issues/463), [#583](https://github.com/vig-os/devkit/issues/583)): deletes GHCR RC image versions for `${VERSION}-rc*` (per-arch tags included) and matching RC cosign signatures, and deletes remote git RC tags for that base version when **no** GitHub Release is linked. GHCR deletes use **`GITHUB_TOKEN`** with **repo Admin** on the `devcontainer` package (see [Registry and cleanup tokens](#registry-and-cleanup-tokens-upstream)); the cleanup step fails loudly when RC tags remain. The cleanup job uses `continue-on-error`, so promote still completes. **Before this cleanup runs, migrate any consumers still pinned to an RC tag** (via `DEVCONTAINER_VERSION` in their `.vig-os` file) **to the final tag** — see [Phase 5](#phase-5-post-release-cleanup) ([#880](https://github.com/vig-os/devkit/issues/880)).
 
 ## Immutable releases, tag rulesets, and forward-fix policy
 
@@ -334,7 +334,7 @@ just prepare-hotfix X.Y.Z "" -f dry-run=true
 
 **Runbook rules:**
 
-- **One train at a time, in both directions.** `prepare-hotfix` refuses while any other `release/*` branch exists, and `prepare-release` refuses while a hotfix branch is in flight ([#1627](https://github.com/vig-os/devkit/issues/1627)), so the two trains cannot be cut alongside each other. `:latest` still moves unconditionally on promote (guard tracked in [#1626](https://github.com/vig-os/devkit/issues/1626)): should two trains ever coexist (a release branch created by hand), promote the hotfix first, or abandon and re-cut it as the next patch of the new line.
+- **One train at a time, in both directions.** `prepare-hotfix` refuses while any other `release/*` branch exists, and `prepare-release` refuses while a hotfix branch is in flight ([#1627](https://github.com/vig-os/devkit/issues/1627)), so the two trains cannot be cut alongside each other. As a last line of defence, `promote-release`'s `validate` job refuses a version below the highest published final release ([#1626](https://github.com/vig-os/devkit/issues/1626)), so even a hand-made second train cannot walk `:latest` backwards: abandon the stale train and re-cut the fix as the next patch of the new line.
 - **Expect the promote BEHIND gate** if anything lands on `main` mid-hotfix; recovery is merging `main` into the release branch (which re-dismisses approval, [#1474](https://github.com/vig-os/devkit/issues/1474)).
 - **`release.yml` runs from the release branch's copy — `main`'s copy for a hotfix.** Any release-workflow or `vig-utils` change the lane depends on must ship through a normal train before the first hotfix that needs it.
 - **Rehearsing the lane** (no train in flight): `prepare-hotfix`, a trivial fix PR, one `publish-candidate`, then `abandon-release`. Never finalize or promote a rehearsal. Leftovers: the `X.Y.Z-rcN` git tag in this repo (numbering continuity) and one permanent published pre-release on `devkit-smoke-test` (immutable org-wide).
@@ -1054,6 +1054,12 @@ gh pr ready <PR_NUMBER>
 # then re-dispatch promote
 gh -R vig-os/devkit pr review <PR_NUMBER> --approve
 ```
+
+#### "would move :latest backwards" (promote-release)
+
+**Cause:** the `validate` job compares the version against the highest published final GitHub Release — the version `:latest` currently follows — and refuses a lower one before anything is published ([#1626](https://github.com/vig-os/devkit/issues/1626)). This only happens when two trains coexisted (a `release/*` branch created by hand around the single-train refusals) and the higher one promoted first; the lower train predates that release.
+
+**Solution:** abandon the stale train (`just abandon-release X.Y.Z`) and re-cut the fix as the next patch of the published line (`just prepare-hotfix`). Do not delete the published release to make room — releases are immutable org-wide.
 
 #### "CI checks have failed"
 

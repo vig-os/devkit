@@ -39,6 +39,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     hotfix lane's refusal, so a regular train can no longer be cut over a
     hotfix and later reintroduce the regression or walk `:latest` backwards.
     Promote or abandon the other train first
+- **promote-release refuses to move `:latest` backwards**
+  ([#1626](https://github.com/vig-os/devkit/issues/1626))
+  - Devkit's `promote-release.yml` `validate` job now compares the version
+    against the highest published final GitHub Release (the version `:latest`
+    follows) and fails before the irreversible publish when it is lower.
+    No override: abandon the stale train and re-cut the fix as the next
+    patch of the published line
+  - The scaffold copy carries the same guard for the opt-in git floating
+    tags, active only when `DEVKIT_FLOATING_TAGS` is set; release tags are
+    compared after the tag prefix is stripped, and consumers without
+    floating tags keep the freedom to publish a patch for an older line
 
 ### Changed
 

@@ -11,7 +11,7 @@ The downstream template uses a split release architecture:
   - `release-core.yml` (`workflow_call`)
   - `release-extension.yml` (`workflow_call`, project-owned)
   - `release-publish.yml` (`workflow_call`)
-- `promote-release.yml` (`workflow_dispatch`) runs **after** a successful final `release.yml`: validates draft GitHub Release and release PR state, publishes the release, merges `release/X.Y.Z` to `main`, and best-effort cleans up remote git RC tags without a GitHub Release (no GHCR/cosign; see [Promote release (final)](#promote-release-final))
+- `promote-release.yml` (`workflow_dispatch`) runs **after** a successful final `release.yml`: validates draft GitHub Release and release PR state, publishes the release, merges `release/X.Y.Z` to `main`, and best-effort cleans up remote git RC tags without a GitHub Release (no GHCR/cosign; see [Promote release (final)](#promote-release-final)). With floating tags enabled (`DEVKIT_FLOATING_TAGS`), `validate` also refuses a version below the highest published final release of the tag-prefix line, so `<prefix>X` / `<prefix>X.Y` never move backwards ([#1626](https://github.com/vig-os/devkit/issues/1626))
 
 All files are deployed from `assets/workspace/` by `init-workspace.sh`.
 
