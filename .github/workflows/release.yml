@@ -224,14 +224,15 @@ jobs:
           echo "latest_rc=$LATEST_RC" >> "$GITHUB_OUTPUT"
           echo "Latest RC: $LATEST_RC"
 
+      # The heading alone is not enough: a hotfix branch (prepare-hotfix.yml,
+      # #1621) is seeded with an EMPTY ## [X.Y.Z] - TBD section that the fix PR
+      # must fill, so require content, not just the marker.
       - name: Verify CHANGELOG has TBD entry
         env:
           VERSION: ${{ steps.vars.outputs.version }}
         run: |
-          if ! grep -q "## \[$VERSION\] - TBD" CHANGELOG.md; then
-            echo "ERROR: CHANGELOG.md does not contain '## [$VERSION] - TBD'"
-            exit 1
-          fi
+          set -euo pipefail
+          prepare-changelog validate --version "$VERSION" CHANGELOG.md
 
       - name: Verify GitHub Release does not block publish
         env:

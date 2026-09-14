@@ -57,9 +57,11 @@ SCAFFOLD_EXTENSION = (
 )
 DEVKIT_PREPARE = REPO_ROOT / ".github" / "workflows" / "prepare-release.yml"
 DEVKIT_EXTENSION = REPO_ROOT / ".github" / "workflows" / "prepare-release-extension.yml"
+DEVKIT_HOTFIX = REPO_ROOT / ".github" / "workflows" / "prepare-hotfix.yml"
 
-# Both copies of the caller share the same job DAG contract.
-CALLER_WORKFLOWS = [SCAFFOLD_PREPARE, DEVKIT_PREPARE]
+# Both copies of the caller share the same job DAG contract, and so does the
+# hotfix lane (#1621), which reuses the hook from a main-cut branch.
+CALLER_WORKFLOWS = [SCAFFOLD_PREPARE, DEVKIT_PREPARE, DEVKIT_HOTFIX]
 
 # Inputs the hook contract carries (issue #1059). Underscore convention, per
 # DOWNSTREAM_RELEASE.md's "Input Naming Convention". The git identity pair the

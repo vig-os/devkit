@@ -30,6 +30,7 @@ graph LR
     bugfix_dev -->|"merge"| dev
     release -->|"fork"| bugfix_rel["bugfix/N-desc"]
     bugfix_rel -->|"merge"| release
+    main -->|"fork (hotfix)"| release
 ```
 
 ### Branch Types
@@ -38,7 +39,7 @@ graph LR
 |-------------|-------------------|---------|-------------|--------------|
 | **main** | `main` | Production releases only | N/A | N/A |
 | **dev** | `dev` | Integration branch for development | N/A | `main` (via release) |
-| **release** | `release/X.Y.Z` | Release preparation and testing (write-protected) | `dev` | `main` |
+| **release** | `release/X.Y.Z` | Release preparation and testing (write-protected) | `dev` (regular train) or `main` ([hotfix lane](#hotfix-lane-patch-release-cut-from-main)) | `main` |
 | **feature** | `feature/N-description` | New features, enhancements | `dev` | `dev`  |
 | **bugfix** | `bugfix/N-description` | Bug fixes | `dev` or `release/X.Y.Z` | `dev` or `release/X.Y.Z` |
 
@@ -173,7 +174,7 @@ graph TB
 
 ### Release Phases
 
-1. **Preparation** (`prepare-release`): Freeze CHANGELOG on dev, create release branch, reset Unreleased on dev, open draft PR
+1. **Preparation** (`prepare-release`): Freeze CHANGELOG on dev, create release branch, reset Unreleased on dev, open draft PR. An urgent patch that must not carry `dev`'s pending work enters here through the [hotfix lane](#hotfix-lane-patch-release-cut-from-main) (`prepare-hotfix`) instead; every later phase is identical
 2. **Review & Testing**: CI validation, fix issues, publish candidates to verify; mark the PR ready last (the draft gate is the final-release gate, not the candidate gate). No approval is collected here — the cycle's single human approval happens at promote time ([Phase 5](#phase-5-post-release-cleanup), [#1504](https://github.com/vig-os/devkit/issues/1504))
 3. **Candidate Publish** (`publish-candidate`): Build/test/publish `X.Y.Z-rcN` and dispatch cross-repo validation workflow
 4. **Cross-Repo Validation**: Smoke-test runs asynchronously after candidate and final publish; see `docs/CROSS_REPO_RELEASE_GATE.md`. Before promotion, **`promote-release.yml`** requires a published **final** (non-draft, non-prerelease) GitHub Release for the version tag on `devkit-smoke-test` so human acceptance downstream is reflected before `:latest` and the draft release are published.
@@ -272,6 +273,72 @@ Next steps:
 - **No interactive prompts**: Workflow fails if CHANGELOG Unreleased section is missing or empty (no user prompts)
 - **Reproducible**: Same behavior regardless of developer's local setup
 - **Atomic CHANGELOG**: Dev never enters a state without `## Unreleased`
+
+### Hotfix lane: patch release cut from main
+
+**When to use it:** `main` needs an urgent fix — typically a security-register incident ([#1592](https://github.com/vig-os/devkit/issues/1592), [#1614](https://github.com/vig-os/devkit/issues/1614)) — and `dev` carries work that is not ready to ship. When `dev` ≈ `main`, an expedited regular train is simpler and conflict-free; use the hotfix lane only when the regular train would drag unreleased content along. Rationale and design evaluation: [#1621](https://github.com/vig-os/devkit/issues/1621).
+
+**Preconditions (enforced by the workflow's `validate` job):**
+
+- `version` is exactly `MAJOR.MINOR.(PATCH+1)` of the highest stable `X.Y.Z` tag reachable from `main` — no "hotfix minors", no patches of an older line, no skipped numbers.
+- **No other `release/*` branch exists.** A hotfix promoted while a regular train is in flight would be silently reintroduced by that train's merge (its branch predates the fix) and the two trains would race for `:latest`, so the lane refuses instead of relying on a cherry-pick obligation. Promote or abandon the other train first.
+- No `release/X.Y.Z` branch and no `X.Y.Z` tag exist.
+- `main`'s `## Unreleased` is empty (always true by construction, [#590](https://github.com/vig-os/devkit/issues/590)).
+
+**Execute:**
+
+```bash
+# Dispatches prepare-hotfix.yml; the workflow checks out main itself.
+# The ref only selects which copy of the workflow file runs (dev by default).
+just prepare-hotfix X.Y.Z
+
+# Dry run: validate only, no branch, no commit, no PR
+just prepare-hotfix X.Y.Z "" -f dry-run=true
+```
+
+**What `prepare-hotfix.yml` does (automatically):**
+
+1. ✅ **Validate** — the preconditions above, on a `main` checkout; records `main`'s SHA.
+2. ✅ **Prepare** (skipped on dry-run) — re-checks `main` has not moved, creates `release/X.Y.Z` at that SHA via the Git Data API, runs `prepare-changelog seed X.Y.Z` and commits the **empty** `## [X.Y.Z] - TBD` section **to the release branch** (never `main`, never `dev`).
+3. ✅ **Extension** — the same `prepare-release-extension.yml` hook as the regular train, with the seed commit as `branch_sha`, so the workspace changelog mirror is re-synced on the branch. Its `dev` fast-forward path is unreachable for a main-cut branch and its fallback finds `dev`'s mirror clean, so `dev` is untouched.
+4. ✅ **Open** the draft PR `release/X.Y.Z` → `main`.
+5. ✅ **Rollback** on failure or cancellation — deletes the partial branch. Nothing else: there is no `dev` mutation to undo.
+
+**CHANGELOG state after prepare-hotfix:**
+
+- `main`: `## Unreleased` (empty) — untouched
+- `release/X.Y.Z`: `## Unreleased` (empty) + `## [X.Y.Z] - TBD` (**empty**)
+- `dev`: untouched
+
+**Then, in order:**
+
+1. **Land the fix** via a `bugfix/<issue>-<summary>` PR into `release/X.Y.Z` (the standard release-branch bugfix path). The PR **must fill `## [X.Y.Z] - TBD`** — `release.yml` refuses to publish a version whose section is still empty (`prepare-changelog validate --version`), for candidates and finals alike.
+2. Run the regular train **unchanged**: `just publish-candidate X.Y.Z`, wait for the smoke-test gate, `gh pr ready`, `just finalize-release X.Y.Z`, approve, `just promote-release X.Y.Z` ([Phase 2](#phase-2-review--testing) onward). Hotfixes ride the full RC → smoke → promote gate; there is no expedite path.
+3. **Resolve the sync-back conflict.** The post-promote `sync-main-to-dev` PR **will conflict on `CHANGELOG.md`** (and the workspace mirror) whenever `dev` is ahead — the regular cycle's conflict-free merge is bought by the shared freeze commit, which cannot exist for content authored off `main`. The sync workflow's manual-conflict lane handles it (`merge-conflict` label, instructions in the PR body). Resolution recipe:
+
+   ```bash
+   git fetch origin chore/sync-main-to-dev-<id>:chore/sync-main-to-dev-<id>
+   git checkout chore/sync-main-to-dev-<id>
+   git merge origin/dev
+   # CHANGELOG.md: keep dev's "## Unreleased" and its bullets at the top,
+   # insert main's dated "## [X.Y.Z](...) - YYYY-MM-DD" section directly
+   # beneath it (above the previous release), keep everything else from dev.
+   uv run python scripts/sync_manifest.py sync assets/workspace/   # regenerate the mirror
+   git add CHANGELOG.md assets/workspace/.devcontainer/CHANGELOG.md
+   git commit -S
+   git push origin chore/sync-main-to-dev-<id>
+   ```
+
+   Do **not** extend the sync auto-resolver to hand-written changelog content; the conflict is expected and small.
+
+**Runbook rules:**
+
+- **`:latest` moves unconditionally on promote.** `prepare-release` does not (yet) refuse while a hotfix branch exists, so a regular train cut *after* the hotfix can still promote first; promoting the hotfix afterwards walks `:latest` backwards. Promote the hotfix first, or abandon and re-cut it as the next patch of the new line.
+- **Expect the promote BEHIND gate** if anything lands on `main` mid-hotfix; recovery is merging `main` into the release branch (which re-dismisses approval, [#1474](https://github.com/vig-os/devkit/issues/1474)).
+- **`release.yml` runs from the release branch's copy — `main`'s copy for a hotfix.** Any release-workflow or `vig-utils` change the lane depends on must ship through a normal train before the first hotfix that needs it.
+- **Rehearsing the lane** (no train in flight): `prepare-hotfix`, a trivial fix PR, one `publish-candidate`, then `abandon-release`. Never finalize or promote a rehearsal. Leftovers: the `X.Y.Z-rcN` git tag in this repo (numbering continuity) and one permanent published pre-release on `devkit-smoke-test` (immutable org-wide).
+
+**Consumer scaffold:** the lane ships in devkit's own workflows first; the `assets/workspace/` port (copy-excluded under `DEVKIT_WORKFLOW=trunk`, where releases already cut from `main`) is a follow-up to [#1621](https://github.com/vig-os/devkit/issues/1621). Until it lands, `just prepare-hotfix` is stripped from the scaffolded `justfile.gh`.
 
 ### Phase 2: Review & Testing
 
@@ -587,11 +654,19 @@ Move Unreleased content to `[VERSION] - TBD` section and create fresh empty Unre
 uv run prepare-changelog prepare 1.0.0 [CHANGELOG.md]
 ```
 
-#### `validate [FILE]`
-Validate CHANGELOG has Unreleased section with content. Used by `prepare-release.yml` to ensure there are changes to release.
+#### `validate [FILE] [--version X.Y.Z]`
+Validate CHANGELOG has Unreleased section with content. Used by `prepare-release.yml` to ensure there are changes to release. With `--version`, validate instead that `## [X.Y.Z] - TBD` exists and carries content — the release-time guard in `release.yml` that keeps a seeded-but-unfilled hotfix section from shipping ([#1621](https://github.com/vig-os/devkit/issues/1621)).
 
 ```bash
 uv run prepare-changelog validate [CHANGELOG.md]
+uv run prepare-changelog validate --version 1.0.1 [CHANGELOG.md]
+```
+
+#### `seed VERSION [FILE]`
+Insert an **empty** `## [VERSION] - TBD` section directly under an **empty** `## Unreleased` — `main`'s shape. Used by `prepare-hotfix.yml` on the release branch cut from `main` ([hotfix lane](#hotfix-lane-patch-release-cut-from-main)). **Safety:** refuses a non-empty Unreleased (not a hotfix base — use `prepare`) and an existing `[VERSION]` section.
+
+```bash
+uv run prepare-changelog seed 1.0.1 [CHANGELOG.md]
 ```
 
 #### `reset [FILE]`
@@ -639,6 +714,9 @@ just changelog-preview   # read-only preview of the pending block
 ```bash
 # Prepare release branch
 just prepare-release X.Y.Z
+
+# Prepare a hotfix release branch cut from main (patch of the latest tag on main)
+just prepare-hotfix X.Y.Z
 
 # Publish next release candidate (X.Y.Z-rcN)
 just publish-candidate X.Y.Z
@@ -919,6 +997,18 @@ vim CHANGELOG.md
 # Verify locally
 uv run python scripts/prepare-changelog.py validate CHANGELOG.md
 ```
+
+#### "[X.Y.Z] - TBD section is empty (nothing to release)" (in release.yml validate)
+
+**Cause:** The release branch was cut by the [hotfix lane](#hotfix-lane-patch-release-cut-from-main), whose seeded `## [X.Y.Z] - TBD` section is empty until the fix PR fills it.
+
+**Solution:** Add the changelog entry for the fix to `## [X.Y.Z] - TBD` on `release/X.Y.Z` (in the bugfix PR, or a follow-up PR to the release branch), then re-dispatch.
+
+#### sync-main-to-dev PR conflicts on CHANGELOG.md after a hotfix
+
+**Cause:** Expected. The hotfix section was authored off `main`, so `dev` (when ahead) has no shared freeze commit to merge through.
+
+**Solution:** Follow the resolution recipe in the [hotfix lane](#hotfix-lane-patch-release-cut-from-main) section: keep `dev`'s `## Unreleased`, insert `main`'s dated section beneath it, regenerate the mirror, push to the sync branch.
 
 #### "Release branch not found"
 
