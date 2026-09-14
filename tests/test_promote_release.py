@@ -293,3 +293,72 @@ def test_devkit_gate_stays_unconditional(job: str) -> None:
     run = _pr_gate_run("devkit", job)
     assert "rules/branches" not in run
     assert "approval gate skipped" not in run
+
+
+# ── validate refuses to move the floating refs backwards (#1626) ──────────────
+#
+# Promote moves GHCR ``:latest`` (devkit) / the git floating tags (scaffold,
+# opt-in) unconditionally. With the hotfix lane (#1621) a patch can be cut
+# from ``main`` while a regular train is cut from ``dev``; whichever promotes
+# second would then walk the floating ref backwards. The validate job compares
+# the version against the highest *published final* release — the version the
+# floating refs follow — and refuses before the irreversible publish.
+
+BACKWARDS_STEP = "backwards"
+
+
+def _backwards_guard(copy: str) -> tuple[int, dict, list[dict]]:
+    steps = steps_of_job(load_workflow(PROMOTE_COPIES[copy]), "validate")
+    idx = next(
+        (
+            i
+            for i, s in enumerate(steps)
+            if BACKWARDS_STEP in str(s.get("name", "")).lower()
+        ),
+        None,
+    )
+    assert idx is not None, f"{copy}: validate has no floating-ref backwards guard"
+    return idx, steps[idx], steps
+
+
+@pytest.mark.parametrize("copy", COPIES)
+def test_validate_refuses_to_move_floating_refs_backwards(copy: str) -> None:
+    """The guard reads the published finals, orders with sort -V and fails loudly."""
+    idx, step, steps = _backwards_guard(copy)
+    run = str(step["run"])
+    assert "releases" in run, (
+        "the current floating-ref version comes from the release list"
+    )
+    assert ".draft == false" in run
+    assert ".prerelease == false" in run
+    assert "sort -V" in run
+    assert "backwards" in run
+    assert "exit 1" in run
+    # The guard sits after the draft-release check (same data source) and is a
+    # validate step, i.e. it runs before the promote job publishes anything.
+    draft_idx = next(
+        i
+        for i, s in enumerate(steps)
+        if "draft github release" in str(s.get("name", "")).lower()
+    )
+    assert idx > draft_idx
+
+
+def test_devkit_backwards_guard_is_unconditional() -> None:
+    """Devkit always moves ``:latest`` on promote, so the guard always runs."""
+    _, step, _ = _backwards_guard("devkit")
+    assert "if" not in step
+
+
+def test_scaffold_backwards_guard_gated_on_floating_tags() -> None:
+    """The scaffold moves nothing floating unless floating tags are enabled.
+
+    Consumers without floating tags keep the freedom to publish a patch for an
+    older line; the guard only fires where a floating ref would actually move.
+    """
+    _, step, _ = _backwards_guard("scaffold")
+    cond = str(step.get("if", ""))
+    assert "needs.resolve-toolchain.outputs.floating-tags" in cond
+    assert "!= ''" in cond
+    # Prefixed release tags (#1044) are compared after the prefix is stripped.
+    assert "TAG_PREFIX" in str(step.get("env", {}))

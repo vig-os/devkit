@@ -10,11 +10,12 @@ This document is the **only** place that describes the release process for **con
 The downstream template uses a split release architecture:
 
 - `prepare-release.yml` (`workflow_dispatch`) prepares `release/X.Y.Z`
+- `prepare-hotfix.yml` (`workflow_dispatch`, gitflow only) prepares `release/X.Y.Z` **from `main`** for a patch that must not carry `dev` — see [Hotfix lane](#hotfix-lane-gitflow-only)
 - `release.yml` (`workflow_dispatch`) orchestrates:
   - `release-core.yml` (`workflow_call`)
   - `release-extension.yml` (`workflow_call`, project-owned)
   - `release-publish.yml` (`workflow_call`)
-- `promote-release.yml` (`workflow_dispatch`) runs **after** a successful final `release.yml`: validates draft GitHub Release and release PR state, publishes the release, merges `release/X.Y.Z` to `main`, and best-effort cleans up remote git RC tags without a GitHub Release (no GHCR/cosign; see [Promote release (final)](#promote-release-final))
+- `promote-release.yml` (`workflow_dispatch`) runs **after** a successful final `release.yml`: validates draft GitHub Release and release PR state, publishes the release, merges `release/X.Y.Z` to `main`, and best-effort cleans up remote git RC tags without a GitHub Release (no GHCR/cosign; see [Promote release (final)](#promote-release-final)). With floating tags enabled (`DEVKIT_FLOATING_TAGS`), `validate` also refuses a version below the highest published final release of the tag-prefix line, so `<prefix>X` / `<prefix>X.Y` never move backwards ([#1626](https://github.com/vig-os/devkit/issues/1626))
 
 All files are deployed from `assets/workspace/` by `init-workspace.sh`.
 
@@ -81,6 +82,44 @@ To **reject** a finalized-but-unpublished release instead of promoting it, run *
 
 This is the explicit, guarded exception to the no-tag-deletion rollback policy above: it is safe **only while the Release is a draft**, and the workflow hard-refuses a published release ([#1511](https://github.com/vig-os/devkit/issues/1511)). Publishing tombstones the tag name permanently — after promote, the only path is fixing forward with the next version.
 
+## Hotfix lane (gitflow only)
+
+An urgent fix (typically security) that must ship as a patch **without carrying whatever `dev` has accumulated** goes through **`prepare-hotfix.yml`** (`just prepare-hotfix X.Y.Z`; dispatches on `dev` by default — the ref only picks which copy of the workflow file runs, the workflow itself checks out `main`) instead of `prepare-release.yml` ([#1621](https://github.com/vig-os/devkit/issues/1621), scaffold port [#1625](https://github.com/vig-os/devkit/issues/1625)). Everything after prepare — candidate, final, promote, abandon, the sync back to `dev` — is the regular train, unchanged.
+
+**Preconditions (enforced by `validate`; `dry-run: true` runs only that job):**
+
+- `version` is exactly `MAJOR.MINOR.(PATCH+1)` of the highest stable `<DEVKIT_TAG_PREFIX>X.Y.Z` tag reachable from `main` — no hotfix minors, no patches of an older line, no skipped numbers.
+- **No other `release/*` branch exists** (single-train policy; `prepare-release.yml` refuses symmetrically while a hotfix branch is in flight, [#1627](https://github.com/vig-os/devkit/issues/1627)). Promote or abandon the other train first.
+- No `release/X.Y.Z` branch and no `<DEVKIT_TAG_PREFIX>X.Y.Z` tag exist.
+- `main`'s `## Unreleased` is empty (always true by construction: every release freezes it on `dev`, and `main` only ever receives release branches).
+
+**What the workflow does:** forks `release/X.Y.Z` at `main`'s head (re-checked against the validated SHA), seeds an **empty** `## [X.Y.Z] - TBD` section **on the release branch** (never `main`, never `dev`), runs the [`prepare-release-extension.yml` hook](#prepare-release-extension-hook) with the seed commit as `branch_sha`, and opens the draft PR `release/X.Y.Z` → `main`. Rollback on failure or cancellation deletes the partial branch and nothing else. Every job runs on the mode-aware devkit toolchain; no checkout keeps git credentials.
+
+**Then, in order:**
+
+1. **Land the fix** via a `bugfix/<issue>-<summary>` PR into `release/X.Y.Z`. The PR **must fill `## [X.Y.Z] - TBD`**: `release-core.yml` refuses to publish a version whose section is still empty (`prepare-changelog validate --version`), candidates and finals alike.
+2. Run the regular train unchanged: `just publish-candidate X.Y.Z`, `gh pr ready`, `just finalize-release X.Y.Z`, approve, `just promote-release X.Y.Z` ([Promote release (final)](#promote-release-final)).
+3. **Resolve the sync-back conflict.** The post-promote `sync-main-to-dev` PR **will conflict on `CHANGELOG.md`** whenever `dev` is ahead: the regular cycle's conflict-free merge is bought by the shared freeze commit, which cannot exist for content authored off `main`. The sync workflow's manual-conflict lane hands it over (`merge-conflict` label, instructions in the PR body):
+
+   ```bash
+   git fetch origin chore/sync-main-to-dev-<id>:chore/sync-main-to-dev-<id>
+   git checkout chore/sync-main-to-dev-<id>
+   git merge origin/dev
+   # CHANGELOG.md: keep dev's "## Unreleased" and its bullets at the top,
+   # insert main's dated "## [X.Y.Z] - YYYY-MM-DD" section (link included) directly
+   # beneath it (above the previous release), keep everything else from dev.
+   git add CHANGELOG.md
+   git commit
+   git push origin chore/sync-main-to-dev-<id>
+   ```
+
+**Runbook rules:**
+
+- **One train at a time, in both directions.** `prepare-hotfix` refuses while any other `release/*` branch exists and `prepare-release` refuses while a hotfix branch is in flight ([#1627](https://github.com/vig-os/devkit/issues/1627)). With floating tags enabled, `promote-release` additionally refuses a version below the highest published final release, so a hand-made second train cannot move `<prefix>X` / `<prefix>X.Y` backwards ([#1626](https://github.com/vig-os/devkit/issues/1626)): abandon the stale train and re-cut the fix as the next patch of the published line.
+- **Expect the promote BEHIND gate** if anything lands on `main` mid-hotfix; recovery is merging `main` into the release branch (which dismisses the approval — approve again afterwards).
+- **`release.yml` runs from the release branch's copy — `main`'s copy for a hotfix.** A release-workflow change the lane depends on (a devkit adoption PR merged to `dev`) reaches hotfix trains only once it has shipped to `main` through a regular train.
+- **Rehearsing the lane** (no train in flight): `prepare-hotfix`, a trivial fix PR, one `publish-candidate`, then `abandon-release`. Never finalize or promote a rehearsal. The `X.Y.Z-rcN` git tag stays (numbering continuity), and a candidate created with `create-release=true` leaves a pre-release that is immutable once published.
+
 ## Workflow models
 
 The whole release flow above is the same under either **workflow model** a
@@ -110,6 +149,12 @@ Two release steps are model-dependent:
   `release/X.Y.Z` merges back into `main` — so `sync-main-to-dev.yml` is never
   scaffolded (copy-excluded, and pruned on a gitflow → trunk upgrade). The
   promote-time back-merge referenced above is therefore a no-op under `trunk`.
+- **`prepare-hotfix.yml` runs only under `gitflow`.** The [hotfix lane](#hotfix-lane-gitflow-only)
+  exists to cut a patch from `main` *instead of* `dev`; under `trunk` every
+  release already cuts from `main`, so the lane is redundant there and is
+  never scaffolded — copy-excluded and pruned on a gitflow → trunk upgrade
+  exactly like `sync-main-to-dev.yml`, with the `just prepare-hotfix` recipe
+  dropped from the scaffolded `justfile.gh` ([#1625](https://github.com/vig-os/devkit/issues/1625)).
 
 Consumer-facing opt-in, the destructive-switch preflight, and the orphan `dev`
 cleanup caveat are documented in
@@ -126,7 +171,7 @@ The orchestrator `release.yml` passes release context directly to the called reu
 
 There is no separate contract-version handshake; compatibility is defined by the `workflow_call` input schema in each workflow file.
 
-`promote-release.yml` is a standalone `workflow_dispatch` workflow (input: `version`); it does not call the reusable workflows above.
+`promote-release.yml` is a standalone `workflow_dispatch` workflow (input: `version`); it does not call the reusable workflows above. `prepare-hotfix.yml` (gitflow only) is likewise standalone (inputs: `version`, `dry-run`) and calls only the [prepare-release extension hook](#prepare-release-extension-hook).
 
 ## Toolchain provisioning is mode-aware
 

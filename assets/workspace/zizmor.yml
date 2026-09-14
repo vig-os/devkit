@@ -41,8 +41,9 @@
 #                         broadly-scoped installation token for release
 #                         orchestration; per-permission scoping would break the
 #                         multi-repo release/sync flows.
-#   - secrets-inherit   → release.yml / prepare-release.yml fan out to reusable
-#                         workflows with `secrets: inherit` by design.
+#   - secrets-inherit   → release.yml / prepare-release.yml / prepare-hotfix.yml
+#                         fan out to reusable workflows with `secrets: inherit`
+#                         by design.
 #   - unpinned-images   → `image:` is the devkit toolchain image resolved at
 #                         runtime (needs.*.outputs.image / inputs.toolchain_image);
 #                         it cannot be SHA-pinned in source.
@@ -60,6 +61,7 @@ rules:
   github-app:
     ignore:
       - abandon-release.yml
+      - prepare-hotfix.yml
       - prepare-release.yml
       - promote-release.yml
       - release-core.yml
@@ -69,11 +71,13 @@ rules:
       - sync-main-to-dev.yml
   secrets-inherit:
     ignore:
+      - prepare-hotfix.yml
       - prepare-release.yml
       - release.yml
   unpinned-images:
     ignore:
       - ci.yml
+      - prepare-hotfix.yml
       - prepare-release.yml
       - promote-release.yml
       - release-core.yml

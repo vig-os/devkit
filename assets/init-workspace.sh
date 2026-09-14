@@ -492,6 +492,27 @@ feature_disabled() {
     return 1
 }
 
+# Workflows that exist only under the gitflow workflow model (#1205): the
+# long-lived dev branch's sync bridge, and the hotfix lane that cuts a release
+# from main *instead of* dev (#1625) — redundant where every release already
+# cuts from main. A trunk workspace never receives them (rsync exclude), the
+# --preview ADDED classifier skips them, and an upgrade from gitflow prunes a
+# leftover copy (DELETIONS report + post-copy prune).
+TRUNK_EXCLUDED_WORKFLOWS=(
+    ".github/workflows/sync-main-to-dev.yml"
+    ".github/workflows/prepare-hotfix.yml"
+)
+
+# True when scaffold path $1 is copy-excluded by the trunk workflow model.
+trunk_excluded() {
+    local path="$1" x
+    [[ "$WORKFLOW_MODEL" == "trunk" ]] || return 1
+    for x in "${TRUNK_EXCLUDED_WORKFLOWS[@]}"; do
+        [[ "$x" == "$path" ]] && return 0
+    done
+    return 1
+}
+
 # Contradiction notice (#1284): a disabled sync-issues feature removes
 # sync-issues.yml, so DEVKIT_SYNC_TARGET / DEVKIT_SYNC_SCHEDULE have nothing to
 # steer. Warn (never abort — the keys are inert, not invalid) so the combination
@@ -1378,6 +1399,7 @@ feature_paths() {
                 ".github/workflows/release-publish.yml" \
                 ".github/workflows/prepare-release.yml" \
                 ".github/workflows/prepare-release-extension.yml" \
+                ".github/workflows/prepare-hotfix.yml" \
                 ".github/workflows/promote-release.yml" \
                 ".github/workflows/abandon-release.yml" \
                 ".github/workflows/sync-main-to-dev.yml" \
@@ -1595,6 +1617,15 @@ render_workflow_model() {
     if [[ -f "$prom" ]]; then
         sed -i 's| (triggers sync-main-to-dev)||' "$prom"
         sed -i 's| (sync-main-to-dev may run next)||' "$prom"
+    fi
+
+    # .devcontainer/justfile.gh — the `prepare-hotfix` recipe dispatches a
+    # workflow a trunk repo does not have (copy-excluded above); drop the recipe
+    # block, comment through the blank line that ends it, so no double blank
+    # remains (#1625; same no-dead-prose rule as the promote comments, #1233).
+    local jg="$WORKSPACE_DIR/.devcontainer/justfile.gh"
+    if [[ -f "$jg" ]]; then
+        sed -i '/^# Prepare a hotfix release branch/,/^$/d' "$jg"
     fi
 
     # ci.yml — drop `- dev` from the PR branch filter; retarget the commit-gate
@@ -2067,11 +2098,11 @@ if [[ "$FORCE" == "true" ]]; then
         if [[ "$skip_excluded" == "true" ]]; then
             continue
         fi
-        # trunk workflow model (#1205): sync-main-to-dev.yml is copy-excluded, so
-        # it never lands in a trunk workspace — keep the report truthful (a
-        # leftover copy on a gitflow->trunk upgrade is listed under DELETIONS).
-        if [[ "$WORKFLOW_MODEL" == "trunk" \
-            && "$rel_path" == ".github/workflows/sync-main-to-dev.yml" ]]; then
+        # trunk workflow model (#1205): the gitflow-only workflows are
+        # copy-excluded, so they never land in a trunk workspace — keep the
+        # report truthful (a leftover copy on a gitflow->trunk upgrade is
+        # listed under DELETIONS).
+        if trunk_excluded "$rel_path"; then
             continue
         fi
         # Devcontainer and bare modes prune the flake.nix/.envrc stubs they would
@@ -2129,12 +2160,13 @@ if [[ "$FORCE" == "true" ]]; then
     fi
 
     # trunk workflow model (#1205): a gitflow->trunk upgrade removes the
-    # now-excluded sync-main-to-dev.yml (mirrors the .devcontainer/ deletion).
+    # now-excluded gitflow-only workflows (mirrors the .devcontainer/ deletion).
     # Mode-independent, so it sits outside the mode if/else above.
-    if [[ "$WORKFLOW_MODEL" == "trunk" \
-        && -f "$WORKSPACE_DIR/.github/workflows/sync-main-to-dev.yml" ]]; then
-        DELETIONS+=(".github/workflows/sync-main-to-dev.yml")
-    fi
+    for _p in "${TRUNK_EXCLUDED_WORKFLOWS[@]}"; do
+        if trunk_excluded "$_p" && [[ -f "$WORKSPACE_DIR/$_p" ]]; then
+            DELETIONS+=("$_p")
+        fi
+    done
 
     # Feature opt-outs (#1284): a disabled feature's pre-existing paths are
     # pruned on upgrade — list them under DELETIONS (mirrors the trunk
@@ -2442,12 +2474,14 @@ else
         fi
     done
 
-    # trunk workflow model (#1205): the long-lived dev branch and its sync
-    # workflow disappear, so a trunk workspace never receives
-    # sync-main-to-dev.yml (a leftover copy is pruned after the copy below).
-    if [[ "$WORKFLOW_MODEL" == "trunk" ]]; then
-        EXCLUDE_ARGS+=("--exclude=/.github/workflows/sync-main-to-dev.yml")
-    fi
+    # trunk workflow model (#1205): the long-lived dev branch, its sync
+    # workflow and the main-cut hotfix lane disappear, so a trunk workspace
+    # never receives them (a leftover copy is pruned after the copy below).
+    for _p in "${TRUNK_EXCLUDED_WORKFLOWS[@]}"; do
+        if trunk_excluded "$_p"; then
+            EXCLUDE_ARGS+=("--exclude=/$_p")
+        fi
+    done
 
     rsync -avL --checksum --exclude='.git' --exclude='.venv' "${EXCLUDE_ARGS[@]}" "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
 
@@ -2577,28 +2611,28 @@ if [[ ("$MODE" == "direnv" || "$MODE" == "bare") \
     rm -f "$WORKSPACE_DIR/docs/container-ci-quirks.md"
 fi
 
-# trunk workflow model (#1205): prune a sync-main-to-dev.yml left by a prior
+# trunk workflow model (#1205): prune a gitflow-only workflow left by a prior
 # gitflow scaffold on a gitflow->trunk upgrade. The rsync above already excludes
-# the template copy; this removes the upgrade leftover. Devkit-managed (never in
-# PRESERVE_FILES), so no pre-existence guard — mirrors the container-docs prune.
-if [[ "$WORKFLOW_MODEL" == "trunk" \
-    && -f "$WORKSPACE_DIR/.github/workflows/sync-main-to-dev.yml" ]]; then
-    echo "Pruning sync-main-to-dev.yml for the trunk workflow model (#1205)..."
-    rm -f "$WORKSPACE_DIR/.github/workflows/sync-main-to-dev.yml"
-fi
+# the template copies; this removes the upgrade leftovers. Devkit-managed (never
+# in PRESERVE_FILES), so no pre-existence guard — mirrors the container-docs prune.
+for _p in "${TRUNK_EXCLUDED_WORKFLOWS[@]}"; do
+    if trunk_excluded "$_p" && [[ -f "$WORKSPACE_DIR/$_p" ]]; then
+        echo "Pruning ${_p##*/} for the trunk workflow model (#1205)..."
+        rm -f "$WORKSPACE_DIR/$_p"
+    fi
+done
 
 # Feature opt-outs (#1284): prune a disabled feature's pre-existing paths left
 # by an earlier scaffold (the rsync copy already excludes them via
 # MODE_CONFIG_EXCLUDES; this removes the upgrade leftover). Preserved-class files
 # (release-extension.yml, prepare-release-extension.yml, renovate.json) carry
 # consumer implementation and are never pruned — print a left-in-place notice
-# instead. Composes with the trunk sync-main-to-dev prune above: that one path
-# is skipped under trunk so it is pruned + echoed exactly once.
+# instead. Composes with the trunk gitflow-only prune above: those paths are
+# skipped under trunk so each is pruned + echoed exactly once.
 for _feat in "${DISABLED_FEATURES[@]}"; do
     while IFS= read -r _p; do
         [[ -n "$_p" && -e "$WORKSPACE_DIR/$_p" ]] || continue
-        if [[ "$WORKFLOW_MODEL" == "trunk" \
-            && "$_p" == ".github/workflows/sync-main-to-dev.yml" ]]; then
+        if trunk_excluded "$_p"; then
             continue
         fi
         if is_preserved_file "$_p"; then

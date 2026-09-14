@@ -107,8 +107,8 @@ are **no longer devcontainer-mode-only** — a host-mode consumer keeps them as-
 with no per-mode deletion or disabling:
 
 - `release.yml` (orchestrator) and its reusable `release-core.yml` /
-  `release-publish.yml`, plus `prepare-release.yml`, `promote-release.yml`,
-  `sync-issues.yml`, `sync-main-to-dev.yml`
+  `release-publish.yml`, plus `prepare-release.yml`, `prepare-hotfix.yml`,
+  `promote-release.yml`, `sync-issues.yml`, `sync-main-to-dev.yml`
   — mode-aware via `resolve-toolchain` + `setup-devkit-toolchain`. The release
   choreography (step logic, ordering, inputs/outputs, rollback semantics) is
   unchanged; only toolchain provisioning became mode-aware.
@@ -189,8 +189,10 @@ the delivery mode above. Empty/absent resolves to the `gitflow` default:
 
 The model is realized entirely at scaffold time — an anchored `dev -> main` render
 of the scaffolded workflows (`prepare-release`, `ci`, `codeql`, `sync-issues`),
-the branch-naming skill, and the pre-commit branch guard, plus a
-`sync-main-to-dev.yml` copy-exclude — mirroring how `DEVKIT_MODE` is applied and
+the branch-naming skill, and the pre-commit branch guard, plus a copy-exclude of
+the gitflow-only workflows (`sync-main-to-dev.yml`, `prepare-hotfix.yml` — with
+the `just prepare-hotfix` recipe dropped from `.devcontainer/justfile.gh`) —
+mirroring how `DEVKIT_MODE` is applied and
 with no runtime workflow logic (see
 [`docs/rfcs/ADR-workflow-model.md`](rfcs/ADR-workflow-model.md) for the design and
 [`docs/RELEASE_CYCLE.md`](RELEASE_CYCLE.md#workflow-models) for the topology). On a
@@ -491,8 +493,8 @@ scaffold **shape** only — it does not touch the flake or the dev-shell modules
 The eight groups:
 
 - `release` — the release/prepare/promote workflows (`release*.yml`,
-  `prepare-release*.yml`, `promote-release.yml`, `sync-main-to-dev.yml`) and
-  `docs/DOWNSTREAM_RELEASE.md`.
+  `prepare-release*.yml`, `prepare-hotfix.yml`, `promote-release.yml`,
+  `sync-main-to-dev.yml`) and `docs/DOWNSTREAM_RELEASE.md`.
 - `renovate` — `renovate.json` and `.github/renovate-default.json`.
 - `sync-issues` — `sync-issues.yml` and `.github/label-taxonomy.toml`. With this
   group disabled, `DEVKIT_SYNC_TARGET`/`DEVKIT_SYNC_SCHEDULE` become inert (a
