@@ -187,6 +187,39 @@ def validate_changelog(filepath="CHANGELOG.md"):
     return has_section, has_content
 
 
+def validate_version_section(version, filepath="CHANGELOG.md"):
+    """
+    Validate that ``## [version] - TBD`` exists and carries content (#1621).
+
+    The finalize-time twin of ``validate_changelog``: a hotfix branch is seeded
+    with an empty ``[version] - TBD`` section that the fix PR must fill, so
+    ``release.yml`` refuses to ship a version whose section is still empty.
+    Only the TBD heading counts — an already-dated heading is not pending.
+
+    Returns: (has_section, has_content)
+    """
+    if not re.match(r"^\d+\.\d+\.\d+$", version):
+        raise ValueError(f"Invalid semantic version: {version}")
+
+    path = Path(filepath)
+    if not path.exists():
+        raise FileNotFoundError(f"CHANGELOG not found: {filepath}")
+
+    content = path.read_text()
+
+    heading = re.search(
+        rf"^## \[{re.escape(version)}\] - TBD[ \t]*$", content, re.MULTILINE
+    )
+    if not heading:
+        return False, False
+
+    next_heading = re.search(r"^## ", content[heading.end() :], re.MULTILINE)
+    block_end = heading.end() + next_heading.start() if next_heading else len(content)
+    body = content[heading.end() : block_end]
+    has_content = bool(re.search(r"^\s*-", body, re.MULTILINE))
+    return True, has_content
+
+
 def reset_unreleased(filepath="CHANGELOG.md"):
     """
     Create fresh Unreleased section after merging a release back to dev.
@@ -393,6 +426,25 @@ def cmd_seed(args):
 
 def cmd_validate(args):
     """Handle validate command."""
+    version = getattr(args, "version", None)
+    if version:
+        has_section, has_content = validate_version_section(version, args.file)
+        if not has_section:
+            print(
+                f"Error: No '## [{version}] - TBD' section found in CHANGELOG",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if not has_content:
+            print(
+                f"Error: [{version}] - TBD section is empty (nothing to release)",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        print("✓ CHANGELOG validation passed")
+        print(f"✓ [{version}] - TBD section exists with content")
+        return
+
     has_section, has_content = validate_changelog(args.file)
 
     if not has_section:
@@ -627,6 +679,9 @@ Examples:
   # Validate CHANGELOG has unreleased changes
   %(prog)s validate
 
+  # Validate the pending [1.0.1] - TBD section carries content (release gate)
+  %(prog)s validate --version 1.0.1
+
   # Set release date for version 1.0.0 (uses GITHUB_REPOSITORY if set)
   %(prog)s finalize 1.0.0 2026-02-11
   %(prog)s finalize 1.0.0 2026-02-11 CHANGELOG.md --github-repository my-org/my-repo
@@ -696,6 +751,16 @@ Examples:
         nargs="?",
         default="CHANGELOG.md",
         help="Path to CHANGELOG file (default: CHANGELOG.md)",
+    )
+    validate_parser.add_argument(
+        "--version",
+        dest="version",
+        default=None,
+        metavar="X.Y.Z",
+        help=(
+            "Validate the '## [X.Y.Z] - TBD' section instead of Unreleased "
+            "(release-time guard: the section must carry content)"
+        ),
     )
     validate_parser.set_defaults(func=cmd_validate)
 
