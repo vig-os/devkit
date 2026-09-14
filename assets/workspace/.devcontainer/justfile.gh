@@ -63,6 +63,25 @@ prepare-release version ref="" *flags:
     echo "✓ Release preparation workflow triggered for version {{ version }}"
     echo "Monitor progress: gh run list --workflow prepare-release.yml"
 
+# Prepare a hotfix release branch cut from main (patch of the latest tag on main; #1621)
+[group('release')]
+prepare-hotfix version ref="" *flags:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # Trigger the prepare-hotfix workflow via GitHub Actions. The workflow
+    # checks out main itself; REF only selects which copy of the workflow file
+    # runs (dev by default: the file reaches main only through a normal train).
+    # The workflow handles: validate version/train state, cut release/X.Y.Z from
+    # main, seed an empty CHANGELOG section, create draft PR
+    REF="{{ ref }}"
+    if [ -z "$REF" ]; then
+        REF="dev"
+    fi
+    gh workflow run prepare-hotfix.yml --ref "$REF" -f "version={{ version }}" {{ flags }}
+    echo ""
+    echo "✓ Hotfix preparation workflow triggered for version {{ version }}"
+    echo "Monitor progress: gh run list --workflow prepare-hotfix.yml"
+
 # Finalize and publish release via GitHub Actions workflow (step 3, after testing)
 [group('release')]
 finalize-release version ref="" *flags:

@@ -28,9 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     normal train, since `release.yml` runs from `main`'s copy for a hotfix
   - Accepted cost: the post-promote `sync-main-to-dev` PR conflicts on
     `CHANGELOG.md` whenever `dev` is ahead; the resolution recipe and the
-    runbook rules live in `docs/RELEASE_CYCLE.md` (Hotfix lane). Devkit-only
-    for now: the `assets/workspace/` port is a follow-up, and the recipe is
-    stripped from the scaffolded `justfile.gh` until it lands
+    runbook rules live in `docs/RELEASE_CYCLE.md` (Hotfix lane). The
+    `assets/workspace/` port ships in the same release
+    ([#1625](https://github.com/vig-os/devkit/issues/1625))
 - **prepare-release refuses while another release branch is in flight**
   ([#1627](https://github.com/vig-os/devkit/issues/1627))
   - The `validate` job of `prepare-release.yml` (devkit and scaffold copies,
@@ -50,6 +50,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     tags, active only when `DEVKIT_FLOATING_TAGS` is set; release tags are
     compared after the tag prefix is stripped, and consumers without
     floating tags keep the freedom to publish a patch for an older line
+- **Hotfix release lane in the consumer scaffold**
+  ([#1625](https://github.com/vig-os/devkit/issues/1625))
+  - `assets/workspace/.github/workflows/prepare-hotfix.yml` (Phase 2 of
+    [#1621](https://github.com/vig-os/devkit/issues/1621)): the same lane in the scaffold dialect — every job runs
+    on the mode-aware devkit toolchain (`resolve-toolchain` +
+    `setup-devkit-toolchain`, no `uv run`), the latest-tag lookup and the
+    collision check honour `DEVKIT_TAG_PREFIX`, and every checkout drops its
+    git credential. `just prepare-hotfix X.Y.Z` now reaches consumers too
+  - Gitflow only: copy-excluded under `DEVKIT_WORKFLOW=trunk` and pruned on a
+    gitflow → trunk upgrade exactly like `sync-main-to-dev.yml` (the two now
+    share one `TRUNK_EXCLUDED_WORKFLOWS` list in `init-workspace.sh`), with
+    the recipe dropped from the trunk `justfile.gh`; part of the `release`
+    feature group
+  - The scaffold `release-core.yml` now gates on `prepare-changelog validate
+    --version` (content, not just the `## [X.Y.Z] - TBD` heading), so a
+    seeded-but-unfilled hotfix section cannot ship downstream
+  - `zizmor.yml` baselines the managed basename for `github-app`,
+    `secrets-inherit` and `unpinned-images` only; consumer runbook in
+    `docs/DOWNSTREAM_RELEASE.md` (Hotfix lane)
 
 ### Changed
 

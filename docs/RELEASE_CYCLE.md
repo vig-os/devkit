@@ -339,7 +339,7 @@ just prepare-hotfix X.Y.Z "" -f dry-run=true
 - **`release.yml` runs from the release branch's copy — `main`'s copy for a hotfix.** Any release-workflow or `vig-utils` change the lane depends on must ship through a normal train before the first hotfix that needs it.
 - **Rehearsing the lane** (no train in flight): `prepare-hotfix`, a trivial fix PR, one `publish-candidate`, then `abandon-release`. Never finalize or promote a rehearsal. Leftovers: the `X.Y.Z-rcN` git tag in this repo (numbering continuity) and one permanent published pre-release on `devkit-smoke-test` (immutable org-wide).
 
-**Consumer scaffold:** the lane ships in devkit's own workflows first; the `assets/workspace/` port (copy-excluded under `DEVKIT_WORKFLOW=trunk`, where releases already cut from `main`) is a follow-up to [#1621](https://github.com/vig-os/devkit/issues/1621). Until it lands, `just prepare-hotfix` is stripped from the scaffolded `justfile.gh`.
+**Consumer scaffold:** the lane also ships in `assets/workspace/` ([#1625](https://github.com/vig-os/devkit/issues/1625)): `prepare-hotfix.yml` in the scaffold dialect (mode-aware devkit toolchain, tag-prefix-aware tag checks) plus the `just prepare-hotfix` recipe, copy-excluded under `DEVKIT_WORKFLOW=trunk` where releases already cut from `main`; the scaffold's `release-core.yml` carries the same `prepare-changelog validate --version` content guard. The consumer-facing runbook is [`docs/DOWNSTREAM_RELEASE.md`](DOWNSTREAM_RELEASE.md#hotfix-lane-gitflow-only).
 
 ### Phase 2: Review & Testing
 
