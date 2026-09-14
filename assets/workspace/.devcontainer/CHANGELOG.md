@@ -19,6 +19,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [1.14.1] - TBD
+
+### Changed
+
+#### Dependencies
+
+- Update `github/codeql-action` from `cdf488f` to `b96794f` ([#1616](https://github.com/vig-os/devkit/pull/1616))
+- Update `astral-sh/setup-uv` from `v10.0.1` to `v10.1.0` ([#1617](https://github.com/vig-os/devkit/pull/1617))
+- Lock file maintenance (pip) ([#1618](https://github.com/vig-os/devkit/pull/1618))
+
+### Security
+
 - **Except the curl 8.21.0 and openssl 3.6.3 advisory batches in the vulnix
   register** ([#1614](https://github.com/vig-os/devkit/issues/1614),
   [#1615](https://github.com/vig-os/devkit/issues/1615))
