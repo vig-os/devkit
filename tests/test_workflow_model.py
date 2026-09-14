@@ -90,6 +90,14 @@ def test_gitflow_keeps_sync_main_to_dev() -> None:
     assert (rendered / ".github" / "workflows" / "sync-main-to-dev.yml").exists()
 
 
+def test_gitflow_keeps_prepare_hotfix() -> None:
+    """gitflow ships the hotfix lane and its recipe (#1625; trunk excludes both)."""
+    rendered = cached_tree("gitflow")
+    assert (rendered / ".github" / "workflows" / "prepare-hotfix.yml").exists()
+    justfile = rendered / ".devcontainer" / "justfile.gh"
+    assert "gh workflow run prepare-hotfix.yml" in justfile.read_text(encoding="utf-8")
+
+
 def test_gitflow_vig_os_workflow_line_stays_empty() -> None:
     """Conditional writeback: a gitflow .vig-os keeps the bare DEVKIT_WORKFLOW=.
 
@@ -115,6 +123,27 @@ def test_trunk_upgrade_prunes_leftover_sync_main_to_dev(tmp_path: Path) -> None:
     proc = scaffold(tmp_path, workflow="trunk", seed=None, name="upgrade")
     assert proc.returncode == 0, proc.stderr
     assert not (gitflow / ".github" / "workflows" / "sync-main-to-dev.yml").exists()
+
+
+def test_trunk_excludes_prepare_hotfix() -> None:
+    """trunk releases already cut from main, so the hotfix lane is redundant
+    there (#1625): the workflow is copy-excluded like sync-main-to-dev.yml and
+    the scaffolded justfile.gh carries no recipe dispatching a workflow the
+    repo does not have (#1233)."""
+    rendered = cached_tree("trunk")
+    assert not (rendered / ".github" / "workflows" / "prepare-hotfix.yml").exists()
+    justfile = rendered / ".devcontainer" / "justfile.gh"
+    assert "prepare-hotfix" not in justfile.read_text(encoding="utf-8")
+
+
+def test_trunk_upgrade_prunes_leftover_prepare_hotfix(tmp_path: Path) -> None:
+    """A gitflow->trunk upgrade prunes a prepare-hotfix.yml left by the prior
+    gitflow scaffold, exactly like sync-main-to-dev.yml (#1625)."""
+    gitflow = scaffold_tree(tmp_path, "gitflow", name="upgrade-hotfix")
+    assert (gitflow / ".github" / "workflows" / "prepare-hotfix.yml").exists()
+    proc = scaffold(tmp_path, workflow="trunk", seed=None, name="upgrade-hotfix")
+    assert proc.returncode == 0, proc.stderr
+    assert not (gitflow / ".github" / "workflows" / "prepare-hotfix.yml").exists()
 
 
 def test_trunk_persists_workflow_in_manifest() -> None:
