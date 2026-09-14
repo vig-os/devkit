@@ -63,6 +63,11 @@
 # renewed or re-dated. Remaining grid unchanged: lower-reachability 09-30,
 # fzf 10-07, glibc 10-14, Class-1 (shellcheck only) 2027-06-23.
 #
+# 2026-09-14 (#1614/#1615): the curl + openssl advisory batch takes the freed
+# 09-23 slot — again the shortest-lever block on the grid (see its section
+# below). Grid: curl+openssl 09-23, lower-reachability 09-30, fzf 10-07,
+# glibc 10-14, Class-1 (shellcheck only) 2027-06-23.
+#
 # Tracking: https://github.com/vig-os/devkit/issues/637
 
 # ============================================================================
@@ -305,3 +310,98 @@ CVE-2026-53433
 #  17 removed / 0 added. `main` still ships 3.4.4 and keeps this block until
 #  the next release train carries the pin and the register over together.)
 # ============================================================================
+
+# ============================================================================
+# Triage 2026-09-14 — the curl 8.21.0 + openssl 3.6.3 advisory batches
+# (#1614 main / #1615 dev). A feed event, not a closure change: the 2026-09-11
+# nightly (run 34583730623) was green on the SAME pin (c25784012c) that the
+# 2026-09-12 run (34684718095) went red on, and the findings delta is 16 new
+# blocking CVEs across exactly two packages, nothing removed, no expiry fired.
+# Both advisory sets were published by the projects on their fix-release day
+# (openssl advisories dated 2026-08-25, shipped with 3.6.4; curl's with
+# 8.22.0) and reached the NVD feed in the 09-11 -> 09-12 window.
+#
+# Every entry is a real product+version match verified ONLINE against the
+# upstream security pages (curl.se vuln-8.21.0, openssl-library.org
+# vulnerabilities index): all nine curl CVEs affect <= 8.21.0 and are fixed in
+# 8.22.0; all seven blocking openssl CVEs affect 3.6.0 before 3.6.4. (A 17th
+# finding, openssl CVE-2026-63074 at 5.9, is below the gate's 7.0 threshold
+# and needs no entry.) NVD-vs-upstream severity is wildly apart on this batch:
+# NVD scores 7.4–9.8 where curl rates eight of nine Low (one Medium) and
+# openssl rates all seven Low/Moderate.
+#
+# Provenance: curl is a direct member of the image env (flake.nix), built the
+# nixpkgs default way — OpenSSL backend, ldapSupport=false, no wolfSSL,
+# HTTP/3 on. openssl is in-closure via curl/openssh/python/nix and appears as
+# two same-version store paths (bootstrap + final stage), which is why the
+# gate prints the seven openssl CVEs twice.
+#
+# Remediation lever: exists, but has nowhere to land today — the exact rsync
+# situation this slot previously held. curl 8.22.0 (nixpkgs #561666) and
+# openssl 3.6.4 (nixpkgs #557618) are both merged to staging-26.05 and are
+# riding the OPEN staging-next-26.05 iteration-7 PR (nixpkgs #563094) toward
+# release-26.05; neither is in release-26.05 or the pinned nixos-26.05 yet,
+# so advancing the pin changes nothing. One branch hop + one weekly
+# update-nixpkgs.yml advance (Mondays) should clear the whole block; expiring
+# 2026-09-23 puts the review the Wednesday after the 2026-09-21 advance, so
+# this block should die on remediation rather than be renewed.
+# ============================================================================
+
+Expiration: 2026-09-23
+# --- curl 8.21.0 (fixed in 8.22.0). All nine are CLIENT-side: each needs the
+#     user to point curl at a hostile or compromised server from an
+#     interactive dev container. curl's own severity in parens after NVD's.
+# CVE-2026-19931 (9.8, curl: Medium) — Negotiate ambient-user connection
+#   reuse. Needs SPNEGO/Kerberos auth in use; no Kerberos deployment here.
+CVE-2026-19931
+# CVE-2026-18924 (9.1, curl: Low) — HTTP/2 server-push use-after-free. Server
+#   push needs CURLMOPT_PUSHFUNCTION, which the curl CLI never enables.
+CVE-2026-18924
+# CVE-2026-82209 (8.2, curl: Low) — PSL domain-scoped cookie accepted from a
+#   hostile server. Cookie engine only active with -b/-c.
+CVE-2026-82209
+# CVE-2026-80229 (7.5, curl: Low) — OpenSSL provider use-after-free in the
+#   TLS backend teardown path.
+CVE-2026-80229
+# CVE-2026-80230 (7.5, curl: Low) — OpenSSL --pinnedpubkey pinning bypass.
+#   Needs pinning in use; defense-in-depth downgrade, not a break-in.
+CVE-2026-80230
+# CVE-2026-80231 (7.5, curl: Low) — native CA store connection reuse. Needs
+#   CURLSSLOPT_NATIVE_CA, not the default on Linux (cacert bundle is used).
+CVE-2026-80231
+# CVE-2026-80255 (7.5, curl: Low) — Secure-cookie attribute bypass via an
+#   embedded tab; cookie engine, as CVE-2026-82209.
+CVE-2026-80255
+# CVE-2026-82208 (7.5, curl: Low) — wolfSSL CA-cache hit overrides the verify
+#   callback. NOT COMPILED IN: nixpkgs curl is built against OpenSSL only.
+CVE-2026-82208
+# CVE-2026-13608 (7.4, curl: Low) — OpenLDAP SASL authentication bypass.
+#   NOT COMPILED IN: nixpkgs builds curl with ldapSupport = false.
+CVE-2026-13608
+# --- openssl 3.6.3 (fixed in 3.6.4). Upstream severity in parens after
+#     NVD's. The image runs no TLS/DTLS/QUIC servers and no CMP/CMS
+#     processing of untrusted messages.
+# CVE-2026-63073 (9.8, upstream: Low) — untrusted sender DN used as a format
+#   string in CMP response validation. Needs a CMP client run against a
+#   hostile CA; nothing in the image speaks CMP.
+CVE-2026-63073
+# CVE-2026-75803 (9.1, upstream: Low) — AEAD forgery with empty ciphertext,
+#   only via direct EVP_Cipher() misuse; not the EVP_Encrypt/DecryptUpdate
+#   path normal callers (curl, openssh, python) use.
+CVE-2026-75803
+# CVE-2026-14457 (7.5, upstream: Low) — RPK SERVER-side signature-algorithm
+#   selection dereferences a missing certificate; no TLS servers here.
+CVE-2026-14457
+# CVE-2026-54874 (7.5, upstream: Low) — memory exhaustion buffering DTLS
+#   records for a future epoch; no DTLS use in the image.
+CVE-2026-54874
+# CVE-2026-63072 (7.5, upstream: Moderate) — heap buffer overflow in CMS key
+#   unwrapping; needs processing of attacker-supplied CMS messages.
+CVE-2026-63072
+# CVE-2026-63075 (7.5, upstream: Low) — QUIC ACK-only packet retention memory
+#   exhaustion. Client-side HTTP/3 is compiled into curl but availability-only
+#   and needs a hostile QUIC peer.
+CVE-2026-63075
+# CVE-2026-63076 (7.5, upstream: Moderate) — invalid pointer dereference in a
+#   CMP SERVER via crafted protectionAlg; nothing runs a CMP server.
+CVE-2026-63076

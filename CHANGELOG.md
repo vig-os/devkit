@@ -19,6 +19,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [1.14.1](https://github.com/vig-os/devkit/releases/tag/1.14.1) - 2026-09-14
+
+### Changed
+
+#### Dependencies
+
+- Update `github/codeql-action` from `cdf488f` to `b96794f` ([#1616](https://github.com/vig-os/devkit/pull/1616))
+- Update `astral-sh/setup-uv` from `v10.0.1` to `v10.1.0` ([#1617](https://github.com/vig-os/devkit/pull/1617))
+- Lock file maintenance (pip) ([#1618](https://github.com/vig-os/devkit/pull/1618))
+
+### Security
+
+- **Except the curl 8.21.0 and openssl 3.6.3 advisory batches in the vulnix
+  register** ([#1614](https://github.com/vig-os/devkit/issues/1614),
+  [#1615](https://github.com/vig-os/devkit/issues/1615))
+  - The NVD feed picked up both projects' fix-release advisory batches in the
+    2026-09-11 → 2026-09-12 window, taking both nightly scan lanes and the
+    release train's `vulnix-gate` red: 16 findings score >= 7.0 and are now
+    excepted (9 curl, 7 openssl), one falls below the gate's threshold
+  - A feed event, not a closure change: the previous night's scan was green on
+    the same pin, and the findings diff is 16 added across exactly two
+    packages / 0 removed, with no expired exception involved
+  - Advancing the pin cannot clear them today — all 16 are fixed in curl
+    8.22.0 / openssl 3.6.4, both merged to `staging-26.05` and riding the open
+    `staging-next-26.05` iteration-7 PR toward `release-26.05`, not yet in the
+    pinned `nixos-26.05`
+  - Every entry was verified online against the upstream security pages: all
+    are real product+version matches, rated Low/Moderate by curl and openssl
+    themselves against NVD's 7.4–9.8; all nine curl defects are client-side
+    (two not even compiled into the nixpkgs build), and the openssl set is
+    CMP/CMS/DTLS/QUIC surface the image never exercises
+  - Expires `2026-09-23`, taking the early-slot Wednesday the rsync block
+    freed on the staggered grid, because this block's lever moves soonest: the
+    review lands the Wednesday after the 2026-09-21 weekly pin advance, so the
+    block should die on remediation rather than be renewed
+
 ## [1.14.0](https://github.com/vig-os/devkit/releases/tag/1.14.0) - 2026-09-07
 
 ### Added
