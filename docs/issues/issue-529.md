@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-09-14T06:37:18Z
+updated: 2026-09-14T14:38:01Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,22 +13,22 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-14T07:48:39.080Z
+synced: 2026-09-15T07:34:15.847Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.<br>[View this repository on the Mend.io Web Portal](https://developer.mend.io/github/vig-os/devkit).
 
-## Other Branches
+## Awaiting Schedule
 
-The following updates are pending. To force the creation of a PR, click on a checkbox below.
+The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
- - [ ] <!-- other-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
+ - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
 
 ## Detected Dependencies
 
-<details><summary>github-actions (39)</summary>
+<details><summary>github-actions (41)</summary>
 <blockquote>
 
 <details><summary>.github/actions/setup-env/action.yml (3)</summary>
@@ -145,6 +145,23 @@ The following updates are pending. To force the creation of a PR, click on a che
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
  - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
  - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
+ - `ubuntu 24.04`
+
+</details>
+
+<details><summary>.github/workflows/prepare-hotfix.yml (12)</summary>
+
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `ubuntu 24.04`
+ - `ubuntu 24.04`
+ - `ubuntu 24.04`
  - `ubuntu 24.04`
 
 </details>
@@ -399,6 +416,25 @@ The following updates are pending. To force the creation of a PR, click on a che
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+
+</details>
+
+<details><summary>assets/workspace/.github/workflows/prepare-hotfix.yml (14)</summary>
+
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `ubuntu 24.04`
+ - `ubuntu 24.04`
+ - `ubuntu 24.04`
+ - `ubuntu 24.04`
+ - `ubuntu 24.04`
 
 </details>
 

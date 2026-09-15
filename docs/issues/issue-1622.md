@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-14T08:29:33Z
-updated: 2026-09-14T08:29:33Z
+updated: 2026-09-14T09:50:21Z
 author: github-actions[bot]
 author_url: https://github.com/github-actions[bot]
 url: https://github.com/vig-os/devkit/issues/1622
-comments: 0
+comments: 1
 labels: bug, area:ci
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-14T08:32:52.978Z
+synced: 2026-09-15T07:34:14.053Z
 ---
 
 # [Issue 1622]: [Release 1.14.1 failed -- automatic rollback](https://github.com/vig-os/devkit/issues/1622)
@@ -51,4 +51,12 @@ Release 1.14.1 encountered an error during the automated release workflow.
 4. Publish a new release candidate to validate the fix; re-run the final workflow when ready
 
 For details, check the workflow run linked above.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 14, 2026 at 09:50 AM_
+
+Root cause: the final dispatch ran while PR #1620 was still a **draft** — `validate` failed on the draft gate before any mutation (no finalize commit, no tag, no GHCR push came from run 34822833899; the downstream jobs in the list failed only as dependents). Remedied by `gh pr ready 1620` and re-dispatching: run [34823019353](https://github.com/vig-os/devkit/actions/runs/34823019353) succeeded, and 1.14.1 was promoted the same morning (#1620 merged, release published). Rollback was a clean no-op; no manual cleanup needed — the live `1.14.1` tag/images are the successful retry's.
 
