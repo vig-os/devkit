@@ -361,8 +361,13 @@ runs:
         # nix/hooks.nix (three renderers, one resolution). Same guard
         # philosophy as commit-types/branch-types: the loud guard (charset AND
         # subset-of-approved-types) lives at the write path, and here a bad
-        # value falls back to the policy mapping with a warning — fail-safe,
-        # since the fallback is never wider than the list it replaces.
+        # value falls back with a warning rather than failing the job. But
+        # fail-safe for an EXEMPTION list means the SMALLEST set, not the stock
+        # mapping: falling back to `optional` would switch the Refs gate off
+        # for every type because the narrower key had a typo. So the fallback
+        # clamps to `chore` unless the policy is already narrower (`none`).
+        # This is the one place the #1431 commit-types analogy inverts — there
+        # the stock list is a subset of any sane custom one, here it is not.
         if [[ -n "$REFS_OPTIONAL_TYPES_RAW" ]]; then
           resolved_refs_optional=""
           refs_optional_valid=1
@@ -379,7 +384,8 @@ runs:
             resolved_refs_optional+="${resolved_refs_optional:+,}$entry"
           done
           if [[ "$refs_optional_valid" -ne 1 ]]; then
-            echo "::warning::Invalid DEVKIT_REFS_OPTIONAL_TYPES in .vig-os ('$REFS_OPTIONAL_TYPES_RAW'); falling back to the DEVKIT_REFS_POLICY mapping."
+            [[ "$REFS_OPTIONAL_TYPES" != "none" ]] && REFS_OPTIONAL_TYPES="chore"
+            echo "::warning::Invalid DEVKIT_REFS_OPTIONAL_TYPES in .vig-os ('$REFS_OPTIONAL_TYPES_RAW'); falling back to '$REFS_OPTIONAL_TYPES' (an invalid exemption list never relaxes the gate)."
           elif [[ -n "$resolved_refs_optional" ]]; then
             REFS_OPTIONAL_TYPES="$resolved_refs_optional"
           fi

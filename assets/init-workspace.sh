@@ -2049,13 +2049,20 @@ YAML
 # resolution drives CI's validate-commit-range from the same keys in
 # .github/actions/resolve-toolchain/action.yml and the flake-generated consumer
 # hook in nix/hooks.nix (three renderers, one resolution) — keep them in
-# lockstep. A resolved value equal to the template's `chore` is a pure no-op, so
-# a default scaffold's .pre-commit-config.yaml stays byte-identical. The
-# anchored sed targets only the quoted arg value, distinct from
+# lockstep. Both keys absent (or a bare `chore-optional` policy) is a pure
+# no-op, so a default scaffold's .pre-commit-config.yaml stays byte-identical.
+# The gate is on the KEYS, never on the resolved value: .pre-commit-config.yaml
+# is PRESERVED across upgrades (never template-overwritten), so its current arg
+# is whatever the previous render left — skipping the sed because the resolved
+# value happens to equal the `chore` default would strand a consumer narrowing
+# its exempt set with the previous, WIDER arg locally while CI resolves the
+# narrow one. The anchored sed targets only the quoted arg value, distinct from
 # render_workflow_model's `(?!dev$)` sed and render_commit_types' `--types` sed
 # on the same file, so the three compose.
 render_refs_policy() {
-    [[ "$RESOLVED_REFS_OPTIONAL_TYPES" == "$DEFAULT_REFS_OPTIONAL_TYPES" ]] && return 0
+    [[ -z "$MANIFEST_REFS_OPTIONAL_TYPES" ]] \
+        && [[ -z "$MANIFEST_REFS_POLICY" || "$MANIFEST_REFS_POLICY" == "chore-optional" ]] \
+        && return 0
 
     local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
     [[ -f "$pc" ]] || return 0
@@ -2867,10 +2874,11 @@ if feature_disabled sync-issues; then
 else
     render_sync_settings
 fi
-# Refs policy (#1282) + commit types (#1431): render the validate-commit-msg
-# hook's --refs-optional-types / --types from DEVKIT_REFS_POLICY /
-# DEVKIT_COMMIT_TYPES (each paired with its CI mapping in resolve-toolchain).
-# No-ops for the defaults, so a default scaffold is unchanged. Both run after
+# Refs exemption (#1282, #1633) + commit types (#1431): render the
+# validate-commit-msg hook's --refs-optional-types / --types from
+# DEVKIT_REFS_OPTIONAL_TYPES / DEVKIT_REFS_POLICY / DEVKIT_COMMIT_TYPES (each
+# paired with its CI mapping in resolve-toolchain). No-ops when the keys are
+# unset, so a default scaffold is unchanged. Both run after
 # render_workflow_model (all three sed .pre-commit-config.yaml on distinct
 # anchors) so the renders compose.
 render_refs_policy

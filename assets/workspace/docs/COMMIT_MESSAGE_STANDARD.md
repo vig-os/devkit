@@ -88,6 +88,13 @@ The following commit types have a relaxed `Refs:` requirement:
 
 - **`chore`** — The `Refs:` line is **optional**. Maintenance commits (e.g. dependency bumps, sync operations, tooling updates) may not relate to a specific issue. When a related issue or PR exists, including `Refs:` is still recommended.
 
+Consumer repos may name a different exempt set via the
+`DEVKIT_REFS_OPTIONAL_TYPES` key in `.vig-os` (comma-separated; drives the hook
+and CI's `validate-commit-range` from one key — see the manifest-key table in
+[MIGRATION.md](https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md),
+[#1633](https://github.com/vig-os/devkit/issues/1633)). This section documents
+the stock default, which applies whenever the key is empty.
+
 Additionally, the CI validator skips two classes of commit outright:
 
 - **Bot-authored commits** — Any commit whose author is a GitHub bot account (a name ending in `[bot]`: Renovate, Dependabot, `commit-action-bot`, …). These bots emit `build(pip): lock file maintenance` or `ci(actions): bump actions/checkout` and cannot know an issue number, so the `Refs:` requirement is waived for them regardless of type. The exemption is keyed on the author, so the same message from a human is still rejected.

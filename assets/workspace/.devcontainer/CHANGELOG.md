@@ -24,9 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `refs-optional-types` output — so local and CI cannot disagree
   - Entries must be lowercase alphanumerics AND a subset of the resolved
     `DEVKIT_COMMIT_TYPES`; the scaffold and `mkProjectShell` refuse loudly,
-    CI falls back to the policy mapping with a warning. The narrower key
-    WINS over `DEVKIT_REFS_POLICY` (the scaffold prints a notice when both
-    are set); `DEVKIT_REFS_POLICY=required` still means "exempt nothing"
+    and CI warns and clamps to the NARROWEST exemption rather than failing
+    the job — an invalid exemption list must never relax the Refs gate. The
+    narrower key WINS over `DEVKIT_REFS_POLICY` (the scaffold prints a
+    notice when both are set); `DEVKIT_REFS_POLICY=required` still means
+    "exempt nothing"
   - Backward compatible: an absent or blank key resolves to `chore`, a
     byte-identical render for devkit and every existing consumer
 

@@ -74,9 +74,10 @@ let
   # The gitflow default, used by the committed runner/scaffold YAML renders.
   branchNamePattern = branchNamePatternFor "gitflow" defaultBranchTypes;
 
-  # ── validate-commit-msg argv (knob-driven; #1431 + #1282) ──────────────
+  # ── validate-commit-msg argv (knob-driven; #1431 + #1282 + #1633) ──────
   # The approved commit types (DEVKIT_COMMIT_TYPES, #1431) and the Refs
-  # enforcement policy (DEVKIT_REFS_POLICY, #1282) are ONE key each with two
+  # exemption — DEVKIT_REFS_OPTIONAL_TYPES (#1633), or the DEVKIT_REFS_POLICY
+  # enum it subsumes (#1282) — have two
   # scaffold-path renderers already in lockstep — `render_commit_types` /
   # `render_refs_policy` (assets/init-workspace.sh) for the scaffolded YAML,
   # and resolve-toolchain's `commit-types` / `refs-optional-types` outputs for
@@ -107,7 +108,7 @@ let
   # anything else = `chore`.
   refsOptionalTypesFor =
     refsOptionalTypes: refsPolicy: commitTypes:
-    if refsOptionalTypes != null then
+    if refsOptionalTypes != null && refsOptionalTypes != [ ] then
       lib.concatStringsSep "," refsOptionalTypes
     else if refsPolicy == "optional" then
       lib.concatStringsSep "," commitTypes
