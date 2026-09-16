@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`DEVKIT_REFS_OPTIONAL_TYPES`: exempt a named set of commit types from the
+  `Refs:` requirement** ([#1633](https://github.com/vig-os/devkit/issues/1633))
+  - New `.vig-os` key — a comma-separated (whitespace-tolerant) FULL
+    REPLACEMENT list of the commit types whose `Refs:` line is optional. It
+    generalizes `DEVKIT_REFS_POLICY`, whose "some types exempt" case was
+    hardcoded to the literal `chore`, so a repo that adds a custom type via
+    `DEVKIT_COMMIT_TYPES` can now exempt exactly that type instead of
+    exempting every type or none
+  - Resolved identically by all three renderers — the scaffolded
+    `.pre-commit-config.yaml`, the flake-generated consumer hook
+    (`mkProjectShell`'s new `refsOptionalTypes` argument, read from the
+    manifest by the scaffolded `flake.nix`), and CI's `resolve-toolchain`
+    `refs-optional-types` output — so local and CI cannot disagree
+  - Entries must be lowercase alphanumerics AND a subset of the resolved
+    `DEVKIT_COMMIT_TYPES`; the scaffold and `mkProjectShell` refuse loudly,
+    CI falls back to the policy mapping with a warning. The narrower key
+    WINS over `DEVKIT_REFS_POLICY` (the scaffold prints a notice when both
+    are set); `DEVKIT_REFS_POLICY=required` still means "exempt nothing"
+  - Backward compatible: an absent or blank key resolves to `chore`, a
+    byte-identical render for devkit and every existing consumer
+
 - **Hotfix release lane: cut `release/X.Y.Z` from `main` without going through
   `dev`** ([#1621](https://github.com/vig-os/devkit/issues/1621))
   - New `prepare-hotfix.yml` workflow (`just prepare-hotfix X.Y.Z`): validates

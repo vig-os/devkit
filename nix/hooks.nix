@@ -100,25 +100,32 @@ let
     "revert"
     "style"
   ];
+  # The exempt set names itself (DEVKIT_REFS_OPTIONAL_TYPES, #1633) and WINS
+  # over the policy enum it subsumes — the documented precedence, mirrored in
+  # init-workspace.sh's resolution and resolve-toolchain's. The enum stays
+  # sugar: `optional` = the resolved types, `required` = the `none` sentinel,
+  # anything else = `chore`.
   refsOptionalTypesFor =
-    refsPolicy: commitTypes:
-    if refsPolicy == "optional" then
+    refsOptionalTypes: refsPolicy: commitTypes:
+    if refsOptionalTypes != null then
+      lib.concatStringsSep "," refsOptionalTypes
+    else if refsPolicy == "optional" then
       lib.concatStringsSep "," commitTypes
     else if refsPolicy == "required" then
       "none"
     else
       "chore";
-  validateCommitMsgArgs = refsPolicy: commitTypes: [
+  validateCommitMsgArgs = refsOptionalTypes: refsPolicy: commitTypes: [
     "--types"
     (lib.concatStringsSep "," commitTypes)
     "--refs-optional-types"
-    (refsOptionalTypesFor refsPolicy commitTypes)
+    (refsOptionalTypesFor refsOptionalTypes refsPolicy commitTypes)
     "--blocked-patterns"
     ".github/agent-blocklist.toml"
   ];
   # The unset-knob default, used by the committed runner/scaffold YAML renders
   # and as the parity baseline of the consumer render.
-  defaultValidateCommitMsgArgs = validateCommitMsgArgs null defaultCommitTypes;
+  defaultValidateCommitMsgArgs = validateCommitMsgArgs null null defaultCommitTypes;
 
   # Top-level exclude — one regex string in the committed YAML, a list for
   # git-hooks.nix (which joins with `|`). Same paths, two spellings.
@@ -1012,6 +1019,10 @@ let
     );
 in
 {
+  # The stock approved commit types, exported so mkProjectShell's eval-time
+  # guards validate against ONE list (the #1633 subset rule needs it).
+  inherit defaultCommitTypes;
+
   # Data for `nix eval .#lib.hooksPortable` — the drift gate's SSoT side.
   portable = {
     runner = portableFor true;
@@ -1035,6 +1046,9 @@ in
   #   branchTypes — DEVKIT_BRANCH_TYPES, branch guard alternation     (#1432)
   #   commitTypes — DEVKIT_COMMIT_TYPES, validate-commit-msg --types  (#1431)
   #   refsPolicy  — DEVKIT_REFS_POLICY,  --refs-optional-types        (#1282)
+  #   refsOptionalTypes
+  #               — DEVKIT_REFS_OPTIONAL_TYPES, the same arg, named
+  #                 directly and winning over refsPolicy             (#1633)
   #
   # An attrset (not positional args): every knob is an optional nullable value
   # and the list keeps growing. Each override is applied ONLY when the resolved
@@ -1048,6 +1062,7 @@ in
       branchTypes ? null,
       commitTypes ? null,
       refsPolicy ? null,
+      refsOptionalTypes ? null,
     }:
     let
       base = collectFor "consumer" "consumerName" pkgs;
@@ -1059,7 +1074,7 @@ in
       # (#1282) feed one computation, because `optional` mirrors the resolved
       # types list.
       effectiveCommitTypes = if commitTypes == null then defaultCommitTypes else commitTypes;
-      effectiveValidateArgs = validateCommitMsgArgs refsPolicy effectiveCommitTypes;
+      effectiveValidateArgs = validateCommitMsgArgs refsOptionalTypes refsPolicy effectiveCommitTypes;
     in
     {
       excludes = baseExcludes;

@@ -2823,9 +2823,10 @@ _upgrade_no_flags() {
     sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=chore,build/' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
     assert_success
+    # Asserted before any other `run` — it would clobber $output.
+    assert_output --partial "Notice: DEVKIT_REFS_OPTIONAL_TYPES overrides DEVKIT_REFS_POLICY"
     run grep -qF '"--refs-optional-types", "chore,build",' "$ws/.pre-commit-config.yaml"
     assert_success
-    assert_output --partial "Notice: DEVKIT_REFS_OPTIONAL_TYPES overrides DEVKIT_REFS_POLICY"
 }
 
 @test "dropping the bot commit types prints a notice, never aborts (#1431)" {
