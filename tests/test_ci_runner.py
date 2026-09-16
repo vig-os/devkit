@@ -269,6 +269,85 @@ def test_commit_checks_step_passes_types_flag() -> None:
     assert '--types "${COMMIT_TYPES}"' in step["run"]
 
 
+# ── Refs-optional types knob (#1633) ──────────────────────────────────────────
+# DEVKIT_REFS_OPTIONAL_TYPES names the exempt set directly, generalizing the
+# three-value DEVKIT_REFS_POLICY enum (whose "some types exempt" case is the
+# literal `chore`). The narrower key WINS over the policy. Resolution mirrors
+# the scaffold render in init-workspace.sh and mkProjectShell — one key, three
+# renderers. Guard philosophy matches commit-types/branch-types: the loud guard
+# lives at the write path, CI falls back (never weakens) on a bad value.
+
+
+@pytest.mark.parametrize(
+    ("manifest_extra", "expected"),
+    [
+        pytest.param(
+            "DEVKIT_REFS_OPTIONAL_TYPES=chore\n", "chore", id="explicit-default"
+        ),
+        pytest.param(
+            "DEVKIT_COMMIT_TYPES=feat,fix,chore,record\n"
+            "DEVKIT_REFS_OPTIONAL_TYPES=chore,record\n",
+            "chore,record",
+            id="custom-subset",
+        ),
+        pytest.param(
+            "DEVKIT_COMMIT_TYPES=feat,fix,chore,record\n"
+            "DEVKIT_REFS_OPTIONAL_TYPES= chore , record \n",
+            "chore,record",
+            id="whitespace-trimmed",
+        ),
+        pytest.param(
+            "DEVKIT_REFS_OPTIONAL_TYPES= ,\n", "chore", id="all-blank-falls-back"
+        ),
+        # Fail-safe, mirroring commit-types: a bad value must never break — or
+        # weaken — the gate, so CI falls back to the policy mapping.
+        pytest.param(
+            "DEVKIT_REFS_OPTIONAL_TYPES=chore,Bad-Type\n",
+            "chore",
+            id="charset-falls-back",
+        ),
+        # `record` is not an approved commit type here, so the subset rule
+        # rejects the list and CI falls back.
+        pytest.param(
+            "DEVKIT_REFS_OPTIONAL_TYPES=chore,record\n",
+            "chore",
+            id="non-subset-falls-back",
+        ),
+    ],
+)
+def test_refs_optional_types_key_mapping(
+    tmp_path: Path, manifest_extra: str, expected: str
+) -> None:
+    """DEVKIT_REFS_OPTIONAL_TYPES resolves to the refs-optional-types output."""
+    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\n" + manifest_extra)
+    assert outputs["refs-optional-types"] == expected
+
+
+@pytest.mark.parametrize("policy", ["optional", "required", "chore-optional"])
+def test_refs_optional_types_key_beats_the_policy_enum(
+    tmp_path: Path, policy: str
+) -> None:
+    """The narrower key wins over DEVKIT_REFS_POLICY, whatever the policy says."""
+    manifest = (
+        "DEVKIT_MODE=direnv\n"
+        "DEVKIT_COMMIT_TYPES=feat,fix,chore,record\n"
+        f"DEVKIT_REFS_POLICY={policy}\n"
+        "DEVKIT_REFS_OPTIONAL_TYPES=record\n"
+    )
+    outputs = _run_resolve(tmp_path, manifest)
+    assert outputs["refs-optional-types"] == "record"
+
+
+def test_refs_policy_still_applies_when_the_list_key_is_absent(
+    tmp_path: Path,
+) -> None:
+    """The enum stays sugar over the list — absent list => today's mapping."""
+    outputs = _run_resolve(
+        tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_REFS_POLICY=required\n"
+    )
+    assert outputs["refs-optional-types"] == "none"
+
+
 # ── Branch types knob + CI branch-name gate (#1432 / #1430) ───────────────────
 # DEVKIT_BRANCH_TYPES replaces the issue-numbered branch-type set that the
 # local no-commit-to-branch guard renders from, and — because the local hook

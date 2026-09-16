@@ -9,7 +9,7 @@ the near-identical ``test_vig_os_declares_X_key`` /
 feature file (#1413).
 
 Refs: #1044, #1045, #1173, #1207, #1228, #1282, #1284, #1295, #1296, #1431,
-#1478, #1601
+#1478, #1601, #1633
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ MANIFEST_KEYS = [
     ("DEVKIT_SYNC_SCHEDULE", "#1228"),
     ("DEVKIT_FEATURES_DISABLED", "#1284"),
     ("DEVKIT_REFS_POLICY", "#1282"),
+    ("DEVKIT_REFS_OPTIONAL_TYPES", "#1633"),
     ("DEVKIT_COMMIT_TYPES", "#1431"),
     ("DEVKIT_BRANCH_TYPES", "#1432"),
     ("DEVKIT_AUTO_UPGRADE", "#1296"),

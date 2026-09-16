@@ -2370,6 +2370,7 @@ _upgrade_no_flags() {
         'DEVKIT_DEV_PROFILE_PATH=/var/lib/devkit/gcroots/dev-profile'
         'DEVKIT_DRIFT_CHECK=false'
         'DEVKIT_FEATURES_DISABLED=renovate,scanning'
+        'DEVKIT_REFS_OPTIONAL_TYPES=chore,build'
     )
     for row in "${rows[@]}"; do
         key="${row%%=*}"
@@ -2384,10 +2385,11 @@ _upgrade_no_flags() {
     done
 }
 
-@test "template .vig-os ships every optional knob key empty (#1173, #1228, #1282, #1295, #1284, #1431, #1432, #1601)" {
+@test "template .vig-os ships every optional knob key empty (#1173, #1228, #1282, #1295, #1284, #1431, #1432, #1601, #1633)" {
     local keys=(DEVKIT_CI_RUNNER DEVKIT_DEV_PROFILE_PATH DEVKIT_SYNC_TARGET
         DEVKIT_SYNC_SCHEDULE DEVKIT_REFS_POLICY DEVKIT_DRIFT_CHECK
-        DEVKIT_FEATURES_DISABLED DEVKIT_COMMIT_TYPES DEVKIT_BRANCH_TYPES)
+        DEVKIT_FEATURES_DISABLED DEVKIT_COMMIT_TYPES DEVKIT_BRANCH_TYPES
+        DEVKIT_REFS_OPTIONAL_TYPES)
     for key in "${keys[@]}"; do
         echo "key: $key"
         run grep -x "${key}=" "$TEMPLATE_DIR/.vig-os"
@@ -2494,6 +2496,11 @@ _upgrade_no_flags() {
         # the same allowlist guards render_branch_types (#1432).
         'DEVKIT_BRANCH_TYPES|feature,Bad-Type'
         'DEVKIT_BRANCH_TYPES|feature|record'
+        # Refs-optional types are spliced into the same sed replacement text,
+        # so the same charset allowlist applies; and an entry outside the
+        # resolved DEVKIT_COMMIT_TYPES is a manifest bug (#1633).
+        'DEVKIT_REFS_OPTIONAL_TYPES|chore,Bad-Type'
+        'DEVKIT_REFS_OPTIONAL_TYPES|chore,record'
     )
     local i=0
     for row in "${rows[@]}"; do
@@ -2768,6 +2775,57 @@ _upgrade_no_flags() {
     assert_success
     run grep -qF '"--refs-optional-types", "feat,fix,record",' "$ws/.pre-commit-config.yaml"
     assert_success
+}
+
+# ── Refs-optional types knob (#1633) ──────────────────────────────────────────
+# DEVKIT_REFS_OPTIONAL_TYPES names the exempt set directly, generalizing the
+# DEVKIT_REFS_POLICY enum whose "some types exempt" case is the literal `chore`.
+# The narrower key wins over the policy; entries must be a subset of the
+# resolved DEVKIT_COMMIT_TYPES (guarded loudly in the knob loop above). Empty
+# (default) leaves the policy mapping — and so the default scaffold — untouched.
+
+@test "default scaffold is unchanged by the absent refs-optional-types key (#1633)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1633-default"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run grep -qF '"--refs-optional-types", "chore",' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "DEVKIT_REFS_OPTIONAL_TYPES renders the named set + writes back (#1633)" {
+    # The motivating case: a custom `record` type whose commits are
+    # legitimately issue-less, exempted WITHOUT exempting every type.
+    ws="$BATS_TEST_TMPDIR/e2e-1633-named-set"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_COMMIT_TYPES=.*/DEVKIT_COMMIT_TYPES=feat,fix,chore,build,record/' "$ws/.vig-os"
+    sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=chore,record/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '"--refs-optional-types", "chore,record",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    # feat/fix keep the Refs requirement — the thing the policy exists to protect.
+    run grep -qF '"--types", "feat,fix,chore,build,record",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -x 'DEVKIT_REFS_OPTIONAL_TYPES=chore,record' "$ws/.vig-os"
+    assert_success
+}
+
+@test "DEVKIT_REFS_OPTIONAL_TYPES wins over DEVKIT_REFS_POLICY (#1633)" {
+    # Documented precedence: the narrower key wins. The enum stays sugar.
+    ws="$BATS_TEST_TMPDIR/e2e-1633-precedence"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=required/' "$ws/.vig-os"
+    sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=chore,build/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '"--refs-optional-types", "chore,build",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    assert_output --partial "Notice: DEVKIT_REFS_OPTIONAL_TYPES overrides DEVKIT_REFS_POLICY"
 }
 
 @test "dropping the bot commit types prints a notice, never aborts (#1431)" {
