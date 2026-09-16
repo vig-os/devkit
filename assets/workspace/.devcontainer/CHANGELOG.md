@@ -101,6 +101,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Clearing a scaffold knob now restores the default render**
+  ([#1640](https://github.com/vig-os/devkit/issues/1640))
+  - `.pre-commit-config.yaml` is preserved across upgrades, so it accumulates
+    past renders. `render_commit_types`, `render_branch_types` and
+    `render_refs_policy` early-returned on an empty manifest key, which meant
+    "don't touch it" rather than "restore the default": a consumer who set
+    `DEVKIT_COMMIT_TYPES`, `DEVKIT_BRANCH_TYPES`, `DEVKIT_REFS_OPTIONAL_TYPES`
+    or `DEVKIT_REFS_POLICY` and later CLEARED it kept the previous render
+    locally while CI, which re-derives from `.vig-os` on every run, resolved
+    the default — the local hook and `validate-commit-range` then disagreed.
+    The scaffold-drift gate could not catch it either: it re-runs the scaffold
+    and hits the same early return, so the stale file reproduces identically
+  - All three renders are now unconditional and idempotent, writing the
+    resolved value every run. An unset knob rewrites exactly what the template
+    already ships, so a default scaffold stays byte-identical
+  - `render_branch_types` gained a generic anchor. It was anchored on the
+    literal stock alternation, which by construction stops matching once a
+    custom set has been rendered, so the stock set could never be restored
+  - New `precommit_render_target` helper refuses a **symlinked**
+    `.pre-commit-config.yaml` for every in-place render, `render_workflow_model`
+    included. A flake-hooks consumer's config is a `/nix/store` symlink that
+    `[[ -f ]]` accepts and `sed -i` would replace with a regular file, shadowing
+    the generated config with a frozen copy. Skipping costs that consumer
+    nothing: their knobs reach the hook through `mkProjectShell`, which reads
+    the same keys at eval time
+
 ### Security
 
 - **Except the libxml2 2.15.4 advisory batch in the vulnix register**

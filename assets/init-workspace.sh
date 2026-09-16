@@ -1619,6 +1619,28 @@ done
 # release branch under trunk (#1479). That is still an anchored substitution
 # rather than a structural rewrite, because the shipped asset already creates
 # release/X.Y.Z before it freezes.
+# Resolve .pre-commit-config.yaml as an in-place `sed -i` target, or return
+# non-zero when it must not be touched (#1640). Two refusals, one place:
+#
+#   absent  — a flake-hooks consumer in a fresh checkout has no config yet (it
+#             materializes on shell entry, #1255); nothing to render.
+#   symlink — a flake-hooks consumer's config IS a /nix/store symlink
+#             (#883/#1167). `-f` is TRUE for it and GNU `sed -i` writes a
+#             temp file and RENAMES it over the path, replacing the symlink
+#             with a regular file — which shadows the generated config with a
+#             frozen copy and silently drops the consumer's hooks/hooksExcludes
+#             customizations. Skipping loses nothing: that consumer's knobs
+#             reach the hook through mkProjectShell, which reads the same
+#             `.vig-os` keys at eval time (#1434).
+#
+# Every in-place render of this file must go through here rather than its own
+# `[[ -f ]]` test.
+precommit_render_target() {
+    local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
+    [[ -f "$pc" && ! -L "$pc" ]] || return 1
+    printf '%s' "$pc"
+}
+
 render_workflow_model() {
     local model="$1"
     [[ "$model" == "trunk" ]] || return 0
@@ -1733,8 +1755,8 @@ render_workflow_model() {
 
     # .pre-commit-config.yaml — drop the `(?!dev$)` protect-clause + its comments
     # (main stays protected; trunk has no long-lived dev branch to protect).
-    local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
-    if [[ -f "$pc" ]]; then
+    local pc
+    if pc="$(precommit_render_target)"; then
         sed -i 's|# Allows main, dev, and|# Allows main and|' "$pc"
         sed -i 's|main/dev are not protected|main is not protected|' "$pc"
         sed -i 's|(?!dev$)||' "$pc"
@@ -2049,23 +2071,17 @@ YAML
 # resolution drives CI's validate-commit-range from the same keys in
 # .github/actions/resolve-toolchain/action.yml and the flake-generated consumer
 # hook in nix/hooks.nix (three renderers, one resolution) — keep them in
-# lockstep. Both keys absent (or a bare `chore-optional` policy) is a pure
-# no-op, so a default scaffold's .pre-commit-config.yaml stays byte-identical.
-# The gate is on the KEYS, never on the resolved value: .pre-commit-config.yaml
-# is PRESERVED across upgrades (never template-overwritten), so its current arg
-# is whatever the previous render left — skipping the sed because the resolved
-# value happens to equal the `chore` default would strand a consumer narrowing
-# its exempt set with the previous, WIDER arg locally while CI resolves the
-# narrow one. The anchored sed targets only the quoted arg value, distinct from
+# lockstep. UNCONDITIONAL and idempotent (#1640): the resolved value is written
+# on every run, so an unset knob writes the same `chore` the template already
+# ships (byte-identical default scaffold) AND a consumer who CLEARS the key gets
+# the default back. A key-shaped early return would leave the previous render in
+# this PRESERVED file while CI, which re-derives from .vig-os every run, resolved
+# the default. The anchored sed targets only the quoted arg value, distinct from
 # render_workflow_model's `(?!dev$)` sed and render_commit_types' `--types` sed
 # on the same file, so the three compose.
 render_refs_policy() {
-    [[ -z "$MANIFEST_REFS_OPTIONAL_TYPES" ]] \
-        && [[ -z "$MANIFEST_REFS_POLICY" || "$MANIFEST_REFS_POLICY" == "chore-optional" ]] \
-        && return 0
-
-    local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
-    [[ -f "$pc" ]] || return 0
+    local pc
+    pc="$(precommit_render_target)" || return 0
 
     sed -i -E "s|^([[:space:]]*\"--refs-optional-types\", \")[^\"]*(\",)\$|\1${RESOLVED_REFS_OPTIONAL_TYPES}\2|" "$pc"
     echo "Rendered Refs policy: refs-optional-types=${RESOLVED_REFS_OPTIONAL_TYPES}"
@@ -2075,17 +2091,17 @@ render_refs_policy() {
 # validate-commit-msg hook's `--types` arg in the scaffolded
 # .pre-commit-config.yaml with the resolved list (guarded + resolved above; the
 # IDENTICAL list drives CI's validate-commit-range via resolve-toolchain's
-# `commit-types` output — two renderers, one key, keep in lockstep). Empty/
-# absent is a pure no-op, so a default scaffold stays byte-identical. The
-# anchored sed targets only the quoted `--types` value — distinct from
-# render_refs_policy's `--refs-optional-types` anchor and
-# render_workflow_model's `(?!dev$)` sed on the same file — so the three
-# compose.
+# `commit-types` output — two renderers, one key, keep in lockstep).
+# UNCONDITIONAL and idempotent (#1640), like render_refs_policy: an unset key
+# rewrites the stock 11 the template already ships, so a default scaffold stays
+# byte-identical, and CLEARING the key restores them instead of stranding the
+# previous render in this PRESERVED file. The anchored sed targets only the
+# quoted `--types` value — distinct from render_refs_policy's
+# `--refs-optional-types` anchor and render_workflow_model's `(?!dev$)` sed on
+# the same file — so the three compose.
 render_commit_types() {
-    [[ -z "$MANIFEST_COMMIT_TYPES" ]] && return 0
-
-    local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
-    [[ -f "$pc" ]] || return 0
+    local pc
+    pc="$(precommit_render_target)" || return 0
 
     sed -i -E "s|^([[:space:]]*\"--types\", \")[^\"]*(\",)\$|\1${RESOLVED_COMMIT_TYPES}\2|" "$pc"
     echo "Rendered commit types: ${RESOLVED_COMMIT_TYPES}"
@@ -2096,21 +2112,23 @@ render_commit_types() {
 # scaffolded .pre-commit-config.yaml (guarded + resolved above; the IDENTICAL
 # set drives the flake consumer surface via the template flake.nix reader and
 # CI's branch-name gate via resolve-toolchain's `branch-types` output — keep in
-# lockstep). Empty/absent is a pure no-op, so a default scaffold stays
-# byte-identical. Plain (basic-regex) sed with a `#` delimiter (the
-# replacement contains `|`, literal in basic syntax), anchored on the literal
-# stock alternation + its `/[0-9]` suffix — the
-# single occurrence in the file, distinct from the other renders' anchors, so
-# all four compose. The anchor is the STOCK list, so this must run before any
-# future render that could rewrite it (it is the only one that does).
+# lockstep). UNCONDITIONAL and idempotent (#1640), like the two renders above.
+# That REQUIRES a generic anchor: the previous one was the literal STOCK
+# alternation, which by construction stops matching the moment a custom set has
+# been rendered — so clearing the key could never restore the stock set. The
+# anchor is now the `(?!^(` prefix plus the `)/[0-9]` suffix, which together
+# pin this one alternation: `(chore)/[a-z0-9]` has the wrong suffix, and the
+# renovate/worktree clauses have no inner group. Extended regex (the `|` in the
+# REPLACEMENT is literal either way) with a `#` delimiter, since the value
+# contains `/`. Distinct from the other renders' anchors, so all compose — and
+# with the stock literal gone, the ordering constraint against a future render
+# that rewrites this line goes with it.
 render_branch_types() {
-    [[ -z "$MANIFEST_BRANCH_TYPES" ]] && return 0
-
-    local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
-    [[ -f "$pc" ]] || return 0
+    local pc
+    pc="$(precommit_render_target)" || return 0
 
     local alternation="${RESOLVED_BRANCH_TYPES//,/|}"
-    sed -i "s#(feature|bugfix|hotfix|release|docs|test|refactor)/\[0-9\]#(${alternation})/[0-9]#" "$pc"
+    sed -i -E "s#\\(\\?!\\^\\([a-z0-9|]+\\)/\\[0-9\\]#(?!^(${alternation})/[0-9]#" "$pc"
     echo "Rendered branch types: ${RESOLVED_BRANCH_TYPES}"
 }
 
