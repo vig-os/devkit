@@ -68,6 +68,14 @@
 # below). Grid: curl+openssl 09-23, lower-reachability 09-30, fzf 10-07,
 # glibc 10-14, Class-1 (shellcheck only) 2027-06-23.
 #
+# 2026-09-16 (#1636/#1637): the libxml2 advisory batch adds a block on its own
+# Wednesday, 10-28. It is NOT parked next to curl+openssl on 09-23 even though
+# it shares that block's remediation lever exactly (see its section below):
+# co-dating them would put 17 of the register's entries on one date and
+# re-create the single-Wednesday cliff the #1553 stagger broke up. Grid:
+# curl+openssl 09-23, lower-reachability 09-30, fzf 10-07, glibc 10-14,
+# libxml2 10-28, Class-1 (shellcheck only) 2027-06-23.
+#
 # Tracking: https://github.com/vig-os/devkit/issues/637
 
 # ============================================================================
@@ -405,3 +413,48 @@ CVE-2026-63075
 # CVE-2026-63076 (7.5, upstream: Moderate) — invalid pointer dereference in a
 #   CMP SERVER via crafted protectionAlg; nothing runs a CMP server.
 CVE-2026-63076
+
+# ============================================================================
+# Triage 2026-09-16 — the libxml2 2.15.3 advisory batch (#1636 dev /
+# #1637 main). A feed event, not a closure change, and the clearest one yet:
+# the 2026-09-15 nightly (run 34954313210) was green on the same pin that the
+# 2026-09-16 run (35080687787) went red on, and the delta is 8 added /
+# 0 removed against exactly ONE package, with no expiry fired. The whole
+# CVE-2026-8613x/-8614x batch was published together on 2026-09-05 and
+# reached the NVD feed in the 09-15 -> 09-16 window.
+#
+# Only ONE of the eight clears the gate's 7.0 threshold and needs an entry.
+# The other seven — CVE-2026-86137 (2.9), -86138 (6.9), -86139 (6.9),
+# -86141 (2.9), -86142 (6.9), -86143 (6.9), -86144 (5.6) — are deliberately
+# absent from this register, as the glibc block records for its own
+# sub-threshold pair.
+#
+# Provenance: libxml2 is not a direct member of the image env; it is pulled in
+# transitively (verified with `nix why-depends`). The pinned nixos-26.05 ships
+# libxml2 2.15.3 carrying only CVE-2026-11979.patch — none of this batch is
+# patched in place, so vulnix is not over-reporting here (cf. the NOTE at the
+# top of this file): the finding is a true version match.
+#
+# Remediation lever: exists, and is the SAME one the curl + openssl block
+# below is waiting on. libxml2 2.15.4 is in staging-26.05 and
+# staging-next-26.05 but not in release-26.05 or the pinned nixos-26.05, so
+# advancing the pin today changes nothing. curl 8.22.0, openssl 3.6.4 and
+# libxml2 2.15.4 all ride the SAME open staging-next-26.05 iteration-7 PR
+# (NixOS/nixpkgs#563094): one branch hop plus one weekly update-nixpkgs.yml
+# advance should clear all three blocks at once, and all three should then be
+# DELETED here rather than renewed.
+# ============================================================================
+
+Expiration: 2026-10-28
+# --- libxml2 2.15.3 (fixed in 2.15.4). NVD scores this 8.0
+#     (CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:L, cve@mitre.org); NIST's own
+#     analyst scores the same defect 7.8 with PR:L. Both are LOCAL-vector: no
+#     remote attack surface, which is the mitigating context for an otherwise
+#     high score.
+# CVE-2026-86140 (8.0) — stack-based buffer overflow via strcat in
+#   xmlSnprintfElements (valid.c). The affected function only runs while
+#   FORMATTING A VALIDITY ERROR MESSAGE for a DTD-validated document, so it
+#   needs both DTD validation enabled and an attacker-controlled document that
+#   fails validation. Nothing in this image validates untrusted XML against a
+#   DTD; libxml2 is here as a transitive dependency, not as a service.
+CVE-2026-86140
