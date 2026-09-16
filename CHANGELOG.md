@@ -80,6 +80,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Except the libxml2 2.15.4 advisory batch in the vulnix register**
+  ([#1636](https://github.com/vig-os/devkit/issues/1636))
+  - The 2026-09-16 nightly went red on both refs from a feed event, not a
+    closure change: 8 CVEs added against libxml2 2.15.3 and nothing removed,
+    on the same pin the previous night's green scan ran on. Only
+    `CVE-2026-86140` crosses the gate's 7.0 threshold and takes an entry; the
+    other seven score 2.9-6.9 and are deliberately left out
+  - The defect is a `strcat` stack overflow in `xmlSnprintfElements`, reachable
+    only while formatting a validity error for a DTD-validated document, and
+    scored local-vector by both NVD (8.0) and the NIST analyst (7.8). libxml2
+    is a transitive dependency here and nothing validates untrusted XML
+    against a DTD
+- **Re-date the curl + openssl exception block off the 2026-09-23 cliff**
+  ([#1634](https://github.com/vig-os/devkit/issues/1634))
+  - All 16 entries were re-verified against the 2026-09-16 scan and remain
+    live findings, so none was deletable. The block moves to 2026-10-21
+    because its remediation lever did not arrive on the schedule the original
+    note assumed: curl 8.22.0, openssl 3.6.4 and libxml2 2.15.4 all ride the
+    same still-open `staging-next-26.05` iteration, whose merge cadence
+    projects past the 2026-09-21 pin advance
+  - Holding the original date would most likely have lapsed the block on
+    09-24, and `check-expirations` runs in `ci.yml` as well as the nightly
+    lanes, so a lapse takes every open PR red. All three blocks now share one
+    exit condition and should be deleted together on the advance that ships
+    the fixed versions
+
 ## [1.14.1](https://github.com/vig-os/devkit/releases/tag/1.14.1) - 2026-09-14
 
 ### Changed
