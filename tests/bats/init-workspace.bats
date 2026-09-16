@@ -2866,6 +2866,90 @@ _upgrade_no_flags() {
     assert_output --partial "Notice: DEVKIT_COMMIT_TYPES omits"
 }
 
+# ── Clearing a knob restores the default render (#1640) ───────────────────────
+# .pre-commit-config.yaml is PRESERVED across upgrades, so it accumulates past
+# renders. A render that early-returns on an empty key means "don't touch it",
+# not "restore the default" — so a consumer who sets a knob and later CLEARS it
+# keeps the previous render locally while CI, which re-derives from .vig-os on
+# every run, resolves the default. The renders must be unconditional and
+# idempotent: always write the resolved value (a no-op write of identical bytes
+# for an unset knob, so a default scaffold stays byte-identical).
+
+# Scaffold, render a custom value for KEY, then clear KEY and re-upgrade.
+# Leaves the workspace at $ws for the caller's assertions.
+_render_then_clear() {
+    local ws="$1" key="$2" value="$3"
+    mkdir -p "$ws"
+    _scaffold both "$ws" || return 1
+    sed -i "s#^${key}=.*#${key}=${value}#" "$ws/.vig-os" || return 1
+    _upgrade_no_flags "$ws" || return 1
+    sed -i "s#^${key}=.*#${key}=#" "$ws/.vig-os" || return 1
+    _upgrade_no_flags "$ws" || return 1
+}
+
+@test "clearing DEVKIT_COMMIT_TYPES restores the stock --types list (#1640)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1640-commit-types"
+    run _render_then_clear "$ws" DEVKIT_COMMIT_TYPES feat,fix,chore,build,record
+    assert_success
+    run grep -qF '"--types", "feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style",' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "clearing DEVKIT_BRANCH_TYPES restores the stock branch alternation (#1640)" {
+    # This render is anchored on the literal STOCK alternation, so restoring it
+    # needs a GENERIC anchor as well as an unconditional call — once a custom
+    # set is in the file the stock-literal anchor can never match again.
+    ws="$BATS_TEST_TMPDIR/e2e-1640-branch-types"
+    run _render_then_clear "$ws" DEVKIT_BRANCH_TYPES feature,bugfix,record
+    assert_success
+    run grep -qF '(feature|bugfix|hotfix|release|docs|test|refactor)/[0-9]' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "clearing DEVKIT_REFS_OPTIONAL_TYPES restores the chore default (#1640)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1640-refs-optional"
+    run _render_then_clear "$ws" DEVKIT_REFS_OPTIONAL_TYPES chore,build
+    assert_success
+    run grep -qF '"--refs-optional-types", "chore",' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "clearing DEVKIT_REFS_POLICY restores the chore default (#1640)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1640-refs-policy"
+    run _render_then_clear "$ws" DEVKIT_REFS_POLICY required
+    assert_success
+    run grep -qF '"--refs-optional-types", "chore",' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "a symlinked .pre-commit-config.yaml is never rewritten in place (#1640)" {
+    # A flake-hooks consumer's config is a gitignored /nix/store symlink
+    # (#883/#1167) that only materializes on shell entry. `[[ -f ]]` is true for
+    # a symlink and GNU `sed -i` REPLACES it with a regular file — which would
+    # shadow the generated config with a frozen copy. Making the renders
+    # unconditional multiplies the chances of hitting that, so every render must
+    # refuse a symlink outright.
+    ws="$BATS_TEST_TMPDIR/e2e-1640-symlink"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    # Stand in for the store path: an out-of-tree target the render must not touch.
+    local store="$BATS_TEST_TMPDIR/e2e-1640-store-config.yaml"
+    mv "$ws/.pre-commit-config.yaml" "$store"
+    ln -s "$store" "$ws/.pre-commit-config.yaml"
+    local before
+    before="$(sha256sum "$store" | cut -d" " -f1)"
+    sed -i 's/^DEVKIT_COMMIT_TYPES=.*/DEVKIT_COMMIT_TYPES=feat,fix,chore,build,record/' "$ws/.vig-os"
+    sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=chore,record/' "$ws/.vig-os"
+    sed -i 's/^DEVKIT_BRANCH_TYPES=.*/DEVKIT_BRANCH_TYPES=feature,bugfix,record/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    # Still a symlink, and the target is byte-identical.
+    run test -L "$ws/.pre-commit-config.yaml"
+    assert_success
+    assert_equal "$(sha256sum "$store" | cut -d" " -f1)" "$before"
+}
+
 # ── Branch types knob (#1432) ─────────────────────────────────────────────────
 # DEVKIT_BRANCH_TYPES replaces the issue-numbered branch-type set in the
 # no-commit-to-branch pattern at scaffold time (the CI branch-name gate is
