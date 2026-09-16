@@ -347,6 +347,7 @@ MANIFEST_FEATURES_DISABLED="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FEAT
 
 MANIFEST_REFS_POLICY="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REFS_POLICY || true)"
 MANIFEST_COMMIT_TYPES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_COMMIT_TYPES || true)"
+MANIFEST_REFS_OPTIONAL_TYPES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REFS_OPTIONAL_TYPES || true)"
 MANIFEST_BRANCH_TYPES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_BRANCH_TYPES || true)"
 
 # devkit-upgrade knobs (#1296): runtime-only keys consumed by the scaffolded
@@ -571,6 +572,55 @@ if [[ -n "$MANIFEST_COMMIT_TYPES" ]]; then
 fi
 # An all-blank value (e.g. `DEVKIT_COMMIT_TYPES= ,`) falls back to the default.
 RESOLVED_COMMIT_TYPES="${RESOLVED_COMMIT_TYPES:-$DEFAULT_COMMIT_TYPES}"
+
+# Refs-optional types (#1633): DEVKIT_REFS_OPTIONAL_TYPES is a comma-separated
+# (whitespace-tolerant) FULL REPLACEMENT list of the commit types that may omit
+# the `Refs:` line — the generalization of DEVKIT_REFS_POLICY, whose "some types
+# exempt" case is hardcoded to the literal `chore` and so cannot exempt a custom
+# DEVKIT_COMMIT_TYPES entry without exempting every type. The value is spliced
+# into sed replacement text and YAML like DEVKIT_COMMIT_TYPES, so the same
+# LOAD-BEARING per-entry charset allowlist applies; entries must additionally be
+# a SUBSET of the resolved approved types (exempting a type the validator would
+# reject anyway is a manifest bug, not a policy). Resolves — together with the
+# policy enum, which stays sugar over this list — into
+# RESOLVED_REFS_OPTIONAL_TYPES, the single value render_refs_policy renders and
+# resolve-toolchain mirrors for CI.
+DEFAULT_REFS_OPTIONAL_TYPES="chore"
+RESOLVED_REFS_OPTIONAL_TYPES=""
+if [[ -n "$MANIFEST_REFS_OPTIONAL_TYPES" ]]; then
+    IFS=',' read -ra _raw_rtypes <<< "$MANIFEST_REFS_OPTIONAL_TYPES"
+    for _rtype in "${_raw_rtypes[@]}"; do
+        # Trim surrounding whitespace (leading + trailing).
+        _rtype="${_rtype#"${_rtype%%[![:space:]]*}"}"
+        _rtype="${_rtype%"${_rtype##*[![:space:]]}"}"
+        [[ -z "$_rtype" ]] && continue
+        if [[ ! "$_rtype" =~ ^[a-z][a-z0-9]*$ ]]; then
+            echo "Error: Invalid DEVKIT_REFS_OPTIONAL_TYPES in $VIG_OS_MANIFEST: $_rtype (expected a comma-separated list of lowercase alphanumeric commit types, e.g. 'chore,record')" >&2
+            exit 1
+        fi
+        if [[ ",$RESOLVED_COMMIT_TYPES," != *",$_rtype,"* ]]; then
+            echo "Error: Invalid DEVKIT_REFS_OPTIONAL_TYPES in $VIG_OS_MANIFEST: $_rtype is not one of the approved commit types ($RESOLVED_COMMIT_TYPES) — add it to DEVKIT_COMMIT_TYPES first (#1633)" >&2
+            exit 1
+        fi
+        RESOLVED_REFS_OPTIONAL_TYPES+="${RESOLVED_REFS_OPTIONAL_TYPES:+,}$_rtype"
+    done
+fi
+if [[ -z "$RESOLVED_REFS_OPTIONAL_TYPES" ]]; then
+    # Absent (or all-blank) => the policy enum decides, exactly as before:
+    # `optional` mirrors the RESOLVED approved-types list (#1431) so the hook
+    # never requires Refs for a type it just accepted; `required` uses a `none`
+    # sentinel type (no real commit is type `none`, and the CLI treats an empty
+    # --refs-optional-types as falsy => the {chore} default).
+    case "$MANIFEST_REFS_POLICY" in
+        optional) RESOLVED_REFS_OPTIONAL_TYPES="$RESOLVED_COMMIT_TYPES" ;;
+        required) RESOLVED_REFS_OPTIONAL_TYPES="none" ;;
+        *) RESOLVED_REFS_OPTIONAL_TYPES="$DEFAULT_REFS_OPTIONAL_TYPES" ;;
+    esac
+elif [[ -n "$MANIFEST_REFS_POLICY" && "$MANIFEST_REFS_POLICY" != "chore-optional" ]]; then
+    # Documented precedence: the narrower key wins. Never silent (mirrors the
+    # #1284 contradiction notice and the #1431 bot-type notice).
+    echo "Notice: DEVKIT_REFS_OPTIONAL_TYPES overrides DEVKIT_REFS_POLICY=$MANIFEST_REFS_POLICY — the narrower key wins (#1633)." >&2
+fi
 
 # Branch types (#1432): DEVKIT_BRANCH_TYPES is a comma-separated (whitespace-
 # tolerant) FULL REPLACEMENT of the issue-numbered branch-type set in the
@@ -1992,36 +2042,33 @@ YAML
     echo "Rendered sync-issues settings (target=${MANIFEST_SYNC_TARGET:-default}, schedule=${MANIFEST_SYNC_SCHEDULE:-default})"
 }
 
-# Render the Refs policy knob (#1282): DEVKIT_REFS_POLICY steers the
-# validate-commit-msg hook's `--refs-optional-types` arg in the scaffolded
-# .pre-commit-config.yaml. The IDENTICAL policy->types mapping drives CI's
-# validate-commit-range from the same key in
-# .github/actions/resolve-toolchain/action.yml (two renderers, one key) — keep
-# them in lockstep. Empty/absent or `chore-optional` is a pure no-op, so a
-# default scaffold's .pre-commit-config.yaml stays byte-identical. The anchored
-# sed targets only the quoted arg value, distinct from render_workflow_model's
-# `(?!dev$)` sed and render_commit_types' `--types` sed on the same file, so
-# the three compose.
+# Render the Refs policy knob (#1282, #1633): DEVKIT_REFS_OPTIONAL_TYPES — or
+# DEVKIT_REFS_POLICY, the sugar it subsumes — steers the validate-commit-msg
+# hook's `--refs-optional-types` arg in the scaffolded .pre-commit-config.yaml.
+# Both keys resolve ABOVE into RESOLVED_REFS_OPTIONAL_TYPES; the IDENTICAL
+# resolution drives CI's validate-commit-range from the same keys in
+# .github/actions/resolve-toolchain/action.yml and the flake-generated consumer
+# hook in nix/hooks.nix (three renderers, one resolution) — keep them in
+# lockstep. Both keys absent (or a bare `chore-optional` policy) is a pure
+# no-op, so a default scaffold's .pre-commit-config.yaml stays byte-identical.
+# The gate is on the KEYS, never on the resolved value: .pre-commit-config.yaml
+# is PRESERVED across upgrades (never template-overwritten), so its current arg
+# is whatever the previous render left — skipping the sed because the resolved
+# value happens to equal the `chore` default would strand a consumer narrowing
+# its exempt set with the previous, WIDER arg locally while CI resolves the
+# narrow one. The anchored sed targets only the quoted arg value, distinct from
+# render_workflow_model's `(?!dev$)` sed and render_commit_types' `--types` sed
+# on the same file, so the three compose.
 render_refs_policy() {
-    [[ -z "$MANIFEST_REFS_POLICY" || "$MANIFEST_REFS_POLICY" == "chore-optional" ]] && return 0
+    [[ -z "$MANIFEST_REFS_OPTIONAL_TYPES" ]] \
+        && [[ -z "$MANIFEST_REFS_POLICY" || "$MANIFEST_REFS_POLICY" == "chore-optional" ]] \
+        && return 0
 
     local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
     [[ -f "$pc" ]] || return 0
 
-    # `optional` mirrors the RESOLVED approved-types list — the custom
-    # DEVKIT_COMMIT_TYPES when set (#1431), else the stock 11 — so the hook
-    # never requires Refs for a type it just accepted; `required` uses a
-    # `none` sentinel type (no real commit is type `none`, and the CLI treats
-    # an empty --refs-optional-types as falsy => the {chore} default), so
-    # every real type requires Refs.
-    local types
-    case "$MANIFEST_REFS_POLICY" in
-        optional) types="$RESOLVED_COMMIT_TYPES" ;;
-        required) types="none" ;;
-    esac
-
-    sed -i -E "s|^([[:space:]]*\"--refs-optional-types\", \")[^\"]*(\",)\$|\1${types}\2|" "$pc"
-    echo "Rendered Refs policy: ${MANIFEST_REFS_POLICY} (refs-optional-types=${types})"
+    sed -i -E "s|^([[:space:]]*\"--refs-optional-types\", \")[^\"]*(\",)\$|\1${RESOLVED_REFS_OPTIONAL_TYPES}\2|" "$pc"
+    echo "Rendered Refs policy: refs-optional-types=${RESOLVED_REFS_OPTIONAL_TYPES}"
 }
 
 # Render the commit-types knob (#1431): DEVKIT_COMMIT_TYPES replaces the
@@ -2827,10 +2874,11 @@ if feature_disabled sync-issues; then
 else
     render_sync_settings
 fi
-# Refs policy (#1282) + commit types (#1431): render the validate-commit-msg
-# hook's --refs-optional-types / --types from DEVKIT_REFS_POLICY /
-# DEVKIT_COMMIT_TYPES (each paired with its CI mapping in resolve-toolchain).
-# No-ops for the defaults, so a default scaffold is unchanged. Both run after
+# Refs exemption (#1282, #1633) + commit types (#1431): render the
+# validate-commit-msg hook's --refs-optional-types / --types from
+# DEVKIT_REFS_OPTIONAL_TYPES / DEVKIT_REFS_POLICY / DEVKIT_COMMIT_TYPES (each
+# paired with its CI mapping in resolve-toolchain). No-ops when the keys are
+# unset, so a default scaffold is unchanged. Both run after
 # render_workflow_model (all three sed .pre-commit-config.yaml on distinct
 # anchors) so the renders compose.
 render_refs_policy
@@ -2916,6 +2964,14 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     # round-trips (like DEVKIT_FEATURES_DISABLED).
     if [[ -n "$MANIFEST_COMMIT_TYPES" ]]; then
         write_manifest_value DEVKIT_COMMIT_TYPES "$MANIFEST_COMMIT_TYPES"
+    fi
+    # Refs-optional types (#1633): bare in the template
+    # (DEVKIT_REFS_OPTIONAL_TYPES=), so a consumer's named exempt set is written
+    # back — else an upgrade silently resets the exemption to `chore` and the
+    # repo's deliberately issue-less commit type starts failing commit-checks.
+    # The raw value round-trips (like DEVKIT_COMMIT_TYPES).
+    if [[ -n "$MANIFEST_REFS_OPTIONAL_TYPES" ]]; then
+        write_manifest_value DEVKIT_REFS_OPTIONAL_TYPES "$MANIFEST_REFS_OPTIONAL_TYPES"
     fi
     # Branch types (#1432): bare in the template (DEVKIT_BRANCH_TYPES=), so a
     # consumer's replacement set is written back — else an upgrade silently

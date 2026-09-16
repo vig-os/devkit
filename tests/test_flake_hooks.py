@@ -20,7 +20,7 @@ excludes) and the zero-hooks-arg parity guarantee (no generation side effects
 unless a consumer opts in), including the stage-gated commit-message /
 agent-identity hooks and the commit-policy knobs that steer them (#1434).
 
-Refs: #883, #1434
+Refs: #883, #1434, #1633
 """
 
 from __future__ import annotations
@@ -509,6 +509,16 @@ def _consumer_config_set() -> dict[str, dict[str, Any]]:
         hooks = {{ }};
         refsPolicy = "required";
       }};
+      refsoptionaltypes = flake.lib.mkProjectShell {{
+        inherit pkgs;
+        hooks = {{ }};
+        commitTypes = [
+          "feat" "fix" "docs" "chore" "refactor" "perf" "test" "ci" "build"
+          "revert" "style" "record"
+        ];
+        refsPolicy = "required";
+        refsOptionalTypes = [ "chore" "record" ];
+      }};
     in
     pkgs.linkFarm "consumer-hook-configs" [
       {{ name = "customized"; path = customized.hooksConfigFile; }}
@@ -518,6 +528,7 @@ def _consumer_config_set() -> dict[str, dict[str, Any]]:
       {{ name = "branchtypes-trunk"; path = branchtypes-trunk.hooksConfigFile; }}
       {{ name = "commitpolicy"; path = commitpolicy.hooksConfigFile; }}
       {{ name = "refsrequired"; path = refsrequired.hooksConfigFile; }}
+      {{ name = "refsoptionaltypes"; path = refsoptionaltypes.hooksConfigFile; }}
     ]
     """
     result = _run_nix(
@@ -540,6 +551,7 @@ def _consumer_config_set() -> dict[str, dict[str, Any]]:
             "branchtypes-trunk",
             "commitpolicy",
             "refsrequired",
+            "refsoptionaltypes",
         )
     }
 
@@ -1016,6 +1028,12 @@ def refs_required_config() -> dict[str, Any]:
     return _consumer_config_set()["refsrequired"]
 
 
+@pytest.fixture(scope="module")
+def refs_optional_types_config() -> dict[str, Any]:
+    """Generated config for an explicit ``refsOptionalTypes`` list (#1633)."""
+    return _consumer_config_set()["refsoptionaltypes"]
+
+
 class TestCommitPolicyKnobsOnTheFlakeSurface:
     """``commitTypes`` / ``refsPolicy`` on mkProjectShell (#1434).
 
@@ -1056,6 +1074,19 @@ class TestCommitPolicyKnobsOnTheFlakeSurface:
         assert _arg_value(hook, "--refs-optional-types") == "none"
         assert _arg_value(hook, "--types") == STOCK_COMMIT_TYPES
 
+    def test_refs_optional_types_names_the_exempt_set(
+        self, refs_optional_types_config: dict[str, Any]
+    ) -> None:
+        """#1633: the exempt set is a list, not the literal ``chore``.
+
+        A consumer that added a custom type via ``commitTypes`` can exempt
+        exactly that type without exempting every type.
+        """
+        hook = _normalize(refs_optional_types_config)["hooks"]["validate-commit-msg"]
+        # The fixture also sets ``refsPolicy = "required"``, which alone would
+        # render the ``none`` sentinel — so this pins the precedence too.
+        assert _arg_value(hook, "--refs-optional-types") == "chore,record"
+
     def test_unset_knobs_keep_the_stock_argv(
         self, consumer_config: dict[str, Any]
     ) -> None:
@@ -1075,6 +1106,26 @@ class TestCommitPolicyKnobsOnTheFlakeSurface:
             pytest.param("commitTypes", "[ ]", "commitTypes", id="types-empty"),
             pytest.param(
                 "refsPolicy", '"garbage"', "refsPolicy", id="refs-policy-enum"
+            ),
+            pytest.param(
+                "refsOptionalTypes",
+                '[ "chore" "Bad-Type" ]',
+                "refsOptionalTypes",
+                id="refs-optional-types-charset",
+            ),
+            pytest.param(
+                "refsOptionalTypes",
+                "[ ]",
+                "refsOptionalTypes",
+                id="refs-optional-types-empty",
+            ),
+            # Not an approved commit type: exempting a type the validator
+            # would reject anyway is a manifest bug, refused loudly (#1633).
+            pytest.param(
+                "refsOptionalTypes",
+                '[ "record" ]',
+                "refsOptionalTypes",
+                id="refs-optional-types-not-a-subset",
             ),
         ],
     )
@@ -1110,6 +1161,7 @@ class TestCommitPolicyKnobsOnTheFlakeSurface:
         for key, arg in (
             ("DEVKIT_COMMIT_TYPES", "commitTypes"),
             ("DEVKIT_REFS_POLICY", "refsPolicy"),
+            ("DEVKIT_REFS_OPTIONAL_TYPES", "refsOptionalTypes"),
         ):
             assert f'"{key}"' in flake, f"flake.nix does not read {key} from .vig-os"
             assert f"inherit {arg};" in flake, f"flake.nix does not forward `{arg}`"

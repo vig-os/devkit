@@ -50,7 +50,7 @@
           # add project tools here
         ];
 
-        # Devkit knobs read from .vig-os (#1224, #1432, #1431, #1282): the
+        # Devkit knobs read from .vig-os (#1224, #1432, #1431, #1282, #1633): the
         # flake-generated pre-commit hooks — the branch guard and the
         # commit-message validator — follow the workspace manifest, mirroring
         # the scaffolded .pre-commit-config.yaml renders (#1434). Managed
@@ -105,6 +105,12 @@
             raw = nixpkgs.lib.trim (vigOsValue "DEVKIT_REFS_POLICY");
           in
           if raw == "" then null else raw;
+
+        # Refs-optional types (#1633): DEVKIT_REFS_OPTIONAL_TYPES names the
+        # commit types that may omit `Refs:` and WINS over DEVKIT_REFS_POLICY.
+        # Absent/blank forwards null (= the policy decides); a value outside
+        # the approved types fails eval loudly in mkProjectShell.
+        refsOptionalTypes = vigOsList "DEVKIT_REFS_OPTIONAL_TYPES";
       in
       {
         # The dev shell = the shared vigOS toolchain + your extras.
@@ -157,6 +163,10 @@
           // nixpkgs.lib.optionalAttrs (builtins.functionArgs vigos.lib.mkProjectShell ? refsPolicy) {
             # validate-commit-msg follows the workspace Refs policy (#1282).
             inherit refsPolicy;
+          }
+          // nixpkgs.lib.optionalAttrs (builtins.functionArgs vigos.lib.mkProjectShell ? refsOptionalTypes) {
+            # validate-commit-msg follows the workspace exempt set (#1633).
+            inherit refsOptionalTypes;
           }
         );
 

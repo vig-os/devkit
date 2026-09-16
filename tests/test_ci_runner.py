@@ -26,6 +26,9 @@ from tests.workflow_scaffold import (
     WORKFLOWS,
 )
 from tests.workflow_scaffold import (
+    exec_resolve_toolchain as _exec_resolve,
+)
+from tests.workflow_scaffold import (
     load_workflow as _load,
 )
 from tests.workflow_scaffold import (
@@ -267,6 +270,121 @@ def test_commit_checks_step_passes_types_flag() -> None:
     workflow = _load(WORKFLOWS / "ci.yml")
     step = _commit_checks_step(workflow)
     assert '--types "${COMMIT_TYPES}"' in step["run"]
+
+
+# ── Refs-optional types knob (#1633) ──────────────────────────────────────────
+# DEVKIT_REFS_OPTIONAL_TYPES names the exempt set directly, generalizing the
+# three-value DEVKIT_REFS_POLICY enum (whose "some types exempt" case is the
+# literal `chore`). The narrower key WINS over the policy. Resolution mirrors
+# the scaffold render in init-workspace.sh and mkProjectShell — one key, three
+# renderers. Guard philosophy matches commit-types/branch-types: the loud guard
+# lives at the write path, CI falls back (never weakens) on a bad value.
+
+
+@pytest.mark.parametrize(
+    ("manifest_extra", "expected"),
+    [
+        pytest.param(
+            "DEVKIT_REFS_OPTIONAL_TYPES=chore\n", "chore", id="explicit-default"
+        ),
+        pytest.param(
+            "DEVKIT_COMMIT_TYPES=feat,fix,chore,record\n"
+            "DEVKIT_REFS_OPTIONAL_TYPES=chore,record\n",
+            "chore,record",
+            id="custom-subset",
+        ),
+        pytest.param(
+            "DEVKIT_COMMIT_TYPES=feat,fix,chore,record\n"
+            "DEVKIT_REFS_OPTIONAL_TYPES= chore , record \n",
+            "chore,record",
+            id="whitespace-trimmed",
+        ),
+        pytest.param(
+            "DEVKIT_REFS_OPTIONAL_TYPES= ,\n", "chore", id="all-blank-falls-back"
+        ),
+        # Fail-safe, mirroring commit-types: a bad value must never break — or
+        # weaken — the gate, so CI falls back to the policy mapping.
+        pytest.param(
+            "DEVKIT_REFS_OPTIONAL_TYPES=chore,Bad-Type\n",
+            "chore",
+            id="charset-falls-back",
+        ),
+        # `record` is not an approved commit type here, so the subset rule
+        # rejects the list and CI falls back.
+        pytest.param(
+            "DEVKIT_REFS_OPTIONAL_TYPES=chore,record\n",
+            "chore",
+            id="non-subset-falls-back",
+        ),
+    ],
+)
+def test_refs_optional_types_key_mapping(
+    tmp_path: Path, manifest_extra: str, expected: str
+) -> None:
+    """DEVKIT_REFS_OPTIONAL_TYPES resolves to the refs-optional-types output."""
+    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\n" + manifest_extra)
+    assert outputs["refs-optional-types"] == expected
+
+
+@pytest.mark.parametrize("policy", ["optional", "required", "chore-optional"])
+def test_refs_optional_types_key_beats_the_policy_enum(
+    tmp_path: Path, policy: str
+) -> None:
+    """The narrower key wins over DEVKIT_REFS_POLICY, whatever the policy says."""
+    manifest = (
+        "DEVKIT_MODE=direnv\n"
+        "DEVKIT_COMMIT_TYPES=feat,fix,chore,record\n"
+        f"DEVKIT_REFS_POLICY={policy}\n"
+        "DEVKIT_REFS_OPTIONAL_TYPES=record\n"
+    )
+    outputs = _run_resolve(tmp_path, manifest)
+    assert outputs["refs-optional-types"] == "record"
+
+
+def test_refs_policy_still_applies_when_the_list_key_is_absent(
+    tmp_path: Path,
+) -> None:
+    """The enum stays sugar over the list — absent list => today's mapping."""
+    outputs = _run_resolve(
+        tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_REFS_POLICY=required\n"
+    )
+    assert outputs["refs-optional-types"] == "none"
+
+
+@pytest.mark.parametrize("bad_value", ["chore,Bad-Type", "record"])
+@pytest.mark.parametrize(
+    ("policy", "expected"),
+    [
+        # `optional` is the trap: falling back to the POLICY mapping would
+        # expand the exemption to every type, i.e. switch the Refs gate off
+        # because the narrower key had a typo. Fail-safe for an EXEMPTION list
+        # means the smallest set, not the stock mapping (unlike #1431, where
+        # the stock types are a subset of any sane custom list).
+        pytest.param("optional", "chore", id="optional-clamped-to-chore"),
+        pytest.param("required", "none", id="required-stays-none"),
+        pytest.param("chore-optional", "chore", id="chore-optional"),
+        pytest.param(None, "chore", id="no-policy"),
+    ],
+)
+def test_invalid_refs_optional_types_never_widens_the_exemption(
+    tmp_path: Path, policy: str | None, expected: str, bad_value: str
+) -> None:
+    """A rejected DEVKIT_REFS_OPTIONAL_TYPES must never relax the gate (#1633)."""
+    manifest = "DEVKIT_MODE=direnv\n"
+    if policy is not None:
+        manifest += f"DEVKIT_REFS_POLICY={policy}\n"
+    manifest += f"DEVKIT_REFS_OPTIONAL_TYPES={bad_value}\n"
+    outputs = _run_resolve(tmp_path, manifest)
+    assert outputs["refs-optional-types"] == expected
+
+
+def test_invalid_refs_optional_types_warns_loudly(tmp_path: Path) -> None:
+    """The fail-safe fallback is never silent — the write path aborts, CI warns."""
+    proc, _ = _exec_resolve(
+        tmp_path,
+        "DEVKIT_MODE=direnv\nDEVKIT_REFS_OPTIONAL_TYPES=chore,Bad-Type\n",
+    )
+    assert "::warning::Invalid DEVKIT_REFS_OPTIONAL_TYPES" in proc.stdout
 
 
 # ── Branch types knob + CI branch-name gate (#1432 / #1430) ───────────────────
