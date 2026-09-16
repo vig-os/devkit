@@ -2467,7 +2467,7 @@ _upgrade_no_flags() {
     assert_failure
 }
 
-@test "invalid or hostile .vig-os knob values fail the scaffold loudly (#1228, #1282, #1295, #1284, #1431, #1432)" {
+@test "invalid or hostile .vig-os knob values fail the scaffold loudly (#1228, #1282, #1295, #1284, #1431, #1432, #1633)" {
     # KEY|VALUE table of rejected values, each asserted against the clean
     # "Invalid <KEY>" message. The hostile SYNC_TARGET row: git
     # check-ref-format alone accepts quotes/$/backticks/;/|/# — values that
@@ -2810,6 +2810,28 @@ _upgrade_no_flags() {
     run grep -qF '"--types", "feat,fix,chore,build,record",' "$ws/.pre-commit-config.yaml"
     assert_success
     run grep -x 'DEVKIT_REFS_OPTIONAL_TYPES=chore,record' "$ws/.vig-os"
+    assert_success
+}
+
+@test "narrowing DEVKIT_REFS_OPTIONAL_TYPES re-renders the hook arg (#1633)" {
+    # .pre-commit-config.yaml is PRESERVED across upgrades (never template-
+    # overwritten), so the render must gate on the KEYS, not on the resolved
+    # value: a consumer narrowing its exempt set back to the `chore` default
+    # would otherwise keep the previous, wider arg locally while CI resolves
+    # the narrow one — the local/CI divergence #1633 exists to prevent.
+    ws="$BATS_TEST_TMPDIR/e2e-1633-narrowing"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=chore,build/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '"--refs-optional-types", "chore,build",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=chore/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '"--refs-optional-types", "chore",' "$ws/.pre-commit-config.yaml"
     assert_success
 }
 

@@ -26,6 +26,9 @@ from tests.workflow_scaffold import (
     WORKFLOWS,
 )
 from tests.workflow_scaffold import (
+    exec_resolve_toolchain as _exec_resolve,
+)
+from tests.workflow_scaffold import (
     load_workflow as _load,
 )
 from tests.workflow_scaffold import (
@@ -346,6 +349,42 @@ def test_refs_policy_still_applies_when_the_list_key_is_absent(
         tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_REFS_POLICY=required\n"
     )
     assert outputs["refs-optional-types"] == "none"
+
+
+@pytest.mark.parametrize("bad_value", ["chore,Bad-Type", "record"])
+@pytest.mark.parametrize(
+    ("policy", "expected"),
+    [
+        # `optional` is the trap: falling back to the POLICY mapping would
+        # expand the exemption to every type, i.e. switch the Refs gate off
+        # because the narrower key had a typo. Fail-safe for an EXEMPTION list
+        # means the smallest set, not the stock mapping (unlike #1431, where
+        # the stock types are a subset of any sane custom list).
+        pytest.param("optional", "chore", id="optional-clamped-to-chore"),
+        pytest.param("required", "none", id="required-stays-none"),
+        pytest.param("chore-optional", "chore", id="chore-optional"),
+        pytest.param(None, "chore", id="no-policy"),
+    ],
+)
+def test_invalid_refs_optional_types_never_widens_the_exemption(
+    tmp_path: Path, policy: str | None, expected: str, bad_value: str
+) -> None:
+    """A rejected DEVKIT_REFS_OPTIONAL_TYPES must never relax the gate (#1633)."""
+    manifest = "DEVKIT_MODE=direnv\n"
+    if policy is not None:
+        manifest += f"DEVKIT_REFS_POLICY={policy}\n"
+    manifest += f"DEVKIT_REFS_OPTIONAL_TYPES={bad_value}\n"
+    outputs = _run_resolve(tmp_path, manifest)
+    assert outputs["refs-optional-types"] == expected
+
+
+def test_invalid_refs_optional_types_warns_loudly(tmp_path: Path) -> None:
+    """The fail-safe fallback is never silent — the write path aborts, CI warns."""
+    proc, _ = _exec_resolve(
+        tmp_path,
+        "DEVKIT_MODE=direnv\nDEVKIT_REFS_OPTIONAL_TYPES=chore,Bad-Type\n",
+    )
+    assert "::warning::Invalid DEVKIT_REFS_OPTIONAL_TYPES" in proc.stdout
 
 
 # ── Branch types knob + CI branch-name gate (#1432 / #1430) ───────────────────

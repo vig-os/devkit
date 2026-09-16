@@ -1083,14 +1083,9 @@ class TestCommitPolicyKnobsOnTheFlakeSurface:
         exactly that type without exempting every type.
         """
         hook = _normalize(refs_optional_types_config)["hooks"]["validate-commit-msg"]
+        # The fixture also sets ``refsPolicy = "required"``, which alone would
+        # render the ``none`` sentinel — so this pins the precedence too.
         assert _arg_value(hook, "--refs-optional-types") == "chore,record"
-
-    def test_refs_optional_types_beats_the_policy_enum(
-        self, refs_optional_types_config: dict[str, Any]
-    ) -> None:
-        """The narrower key wins — the fixture also sets ``refsPolicy`` (#1633)."""
-        hook = _normalize(refs_optional_types_config)["hooks"]["validate-commit-msg"]
-        assert _arg_value(hook, "--refs-optional-types") != "none"
 
     def test_unset_knobs_keep_the_stock_argv(
         self, consumer_config: dict[str, Any]
