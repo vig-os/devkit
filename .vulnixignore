@@ -490,3 +490,54 @@ Expiration: 2026-10-28
 #   fails validation. Nothing in this image validates untrusted XML against a
 #   DTD; libxml2 is here as a transitive dependency, not as a service.
 CVE-2026-86140
+
+# ============================================================================
+# Triage 2026-09-17 — the pcre2 10.46 advisory batch (#1645 dev / #1637 main).
+# The second feed event in two days, and the same shape as the libxml2 batch
+# above: the 2026-09-16 nightly (run 35080687787) reported NO advisory at all
+# against pcre2, and the 2026-09-17 run (35207126776) went red with 6 added /
+# 0 removed against exactly ONE package — no expiry fired, no closure change.
+# CVE-2026-89161 was published 2026-09-11 and reached the NVD feed in the
+# 09-16 -> 09-17 window.
+#
+# Only ONE of the six clears the gate's 7.0 threshold and needs an entry. The
+# other five — CVE-2026-89156 (2.9), -89157 (5.7), -89158 (6.5), -89160 (3.7),
+# -89162 (2.9) — are deliberately absent from this register, as the glibc and
+# libxml2 blocks record for their own sub-threshold siblings.
+#
+# Provenance: pcre2 is not a direct member of the image env. `nix why-depends`
+# gives exactly one path, one hop — devcontainer-image-env -> ripgrep 15.1.0
+# -> pcre2 10.46 — so the only way to execute pcre2 code in this image is
+# `rg -P` / `rg --pcre2` on a local search. main's closure additionally
+# carries pcre2 10.47; both are below the 10.48 fix, and one entry keyed by
+# CVE id covers both derivations. The pinned nixos-26.05 ships pcre2 with NO
+# patches applied (`pcre2.patches` evaluates empty), so vulnix is not
+# over-reporting here (cf. the NOTE at the top of this file): the finding is a
+# true version match.
+#
+# Remediation lever: the SAME one the curl + openssl and libxml2 blocks above
+# are waiting on. pcre2 10.48 landed on staging-next-26.05 on 2026-09-05
+# (nixpkgs 6c02c72fd); release-26.05 is still on 10.46 — unchanged since
+# 2025-08-29, it has not even taken the by-name move — so advancing the pin
+# today changes nothing. FOUR packages now ride ONE branch hop: curl 8.22.0,
+# openssl 3.6.4, libxml2 2.15.4 and pcre2 10.48 should clear together, and all
+# four blocks should then be DELETED here rather than renewed.
+#
+# The date sits one Wednesday past the libxml2 block (10-28) rather than on
+# it: same exit condition, but a stalled review of one must not carry the
+# other with it.
+# ============================================================================
+
+Expiration: 2026-11-04
+# --- pcre2 10.46 + 10.47 (fixed in 10.48). vulnix gates on MITRE's 7.4
+#     (CVSS:3.1/AV:L/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H); NIST's own analyst
+#     scores the same defect 7.8 with AC:L/PR:L. Both are LOCAL-vector: no
+#     remote attack surface, which is the mitigating context here.
+# CVE-2026-89161 (7.4) — CWE-590 incorrect free in pcre2_jit_match when a
+#   previously copied subject is passed in as a match context. Whether
+#   ripgrep's grep-pcre2 binding can produce that calling pattern was NOT
+#   verified, so this entry accepts an exposure CEILING rather than claiming
+#   unreachability: a local `rg -P` run inside an interactive container, over
+#   patterns and files the developer chose. No daemon, no service, no
+#   untrusted input path — and the fix arrives with the pin advance above.
+CVE-2026-89161
