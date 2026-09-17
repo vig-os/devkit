@@ -81,10 +81,11 @@ outputs:
     value: ${{ steps.resolve.outputs.dev-profile-path }}
   refs-optional-types:
     description: >-
-      Comma-separated commit types whose Refs line is optional, mapped from
-      DEVKIT_REFS_POLICY for validate-commit-range. `chore` (default/absent),
-      the resolved commit-types list (`optional`), or the `none` sentinel
-      (`required`).
+      Comma-separated commit types whose Refs line is optional, for
+      validate-commit-range. DEVKIT_REFS_OPTIONAL_TYPES names the set
+      directly and wins; otherwise DEVKIT_REFS_POLICY maps to `chore`
+      (default/absent), the resolved commit-types list (`optional`), or the
+      `none` sentinel (`required`).
     value: ${{ steps.resolve.outputs.refs-optional-types }}
   commit-types:
     description: >-
@@ -133,6 +134,7 @@ runs:
         CI_RUNNER=""
         DEV_PROFILE_PATH=""
         REFS_POLICY=""
+        REFS_OPTIONAL_TYPES_RAW=""
         COMMIT_TYPES=""
         BRANCH_TYPES=""
         DRIFT_CHECK=""
@@ -148,7 +150,7 @@ runs:
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
 
             case "$line" in
-              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_DEV_PROFILE_PATH=*|DEVKIT_REFS_POLICY=*|DEVKIT_COMMIT_TYPES=*|DEVKIT_BRANCH_TYPES=*|DEVKIT_DRIFT_CHECK=*|DEVKIT_LANGUAGES=*)
+              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_DEV_PROFILE_PATH=*|DEVKIT_REFS_POLICY=*|DEVKIT_REFS_OPTIONAL_TYPES=*|DEVKIT_COMMIT_TYPES=*|DEVKIT_BRANCH_TYPES=*|DEVKIT_DRIFT_CHECK=*|DEVKIT_LANGUAGES=*)
                 key="${line%%=*}"
                 value="${line#*=}"
                 value="${value#"${value%%[![:space:]]*}"}"
@@ -169,6 +171,7 @@ runs:
                   DEVKIT_CI_RUNNER) CI_RUNNER="$value" ;;
                   DEVKIT_DEV_PROFILE_PATH) DEV_PROFILE_PATH="$value" ;;
                   DEVKIT_REFS_POLICY) REFS_POLICY="$value" ;;
+                  DEVKIT_REFS_OPTIONAL_TYPES) REFS_OPTIONAL_TYPES_RAW="$value" ;;
                   DEVKIT_COMMIT_TYPES) COMMIT_TYPES="$value" ;;
                   DEVKIT_BRANCH_TYPES) BRANCH_TYPES="$value" ;;
                   DEVKIT_DRIFT_CHECK) DRIFT_CHECK="$value" ;;
@@ -351,6 +354,42 @@ runs:
           required) REFS_OPTIONAL_TYPES="none" ;;
           *)        REFS_OPTIONAL_TYPES="chore" ;;
         esac
+
+        # Refs-optional types (#1633): DEVKIT_REFS_OPTIONAL_TYPES names the
+        # exempt set directly and WINS over the policy enum above — the
+        # documented precedence, mirrored in init-workspace.sh and
+        # nix/hooks.nix (three renderers, one resolution). Same guard
+        # philosophy as commit-types/branch-types: the loud guard (charset AND
+        # subset-of-approved-types) lives at the write path, and here a bad
+        # value falls back with a warning rather than failing the job. But
+        # fail-safe for an EXEMPTION list means the SMALLEST set, not the stock
+        # mapping: falling back to `optional` would switch the Refs gate off
+        # for every type because the narrower key had a typo. So the fallback
+        # clamps to `chore` unless the policy is already narrower (`none`).
+        # This is the one place the #1431 commit-types analogy inverts — there
+        # the stock list is a subset of any sane custom one, here it is not.
+        if [[ -n "$REFS_OPTIONAL_TYPES_RAW" ]]; then
+          resolved_refs_optional=""
+          refs_optional_valid=1
+          IFS=',' read -ra refs_optional_entries <<< "$REFS_OPTIONAL_TYPES_RAW"
+          for entry in "${refs_optional_entries[@]}"; do
+            entry="${entry#"${entry%%[![:space:]]*}"}"
+            entry="${entry%"${entry##*[![:space:]]}"}"
+            [[ -z "$entry" ]] && continue
+            if [[ ! "$entry" =~ ^[a-z][a-z0-9]*$ ]] \
+              || [[ ",$RESOLVED_COMMIT_TYPES," != *",$entry,"* ]]; then
+              refs_optional_valid=0
+              break
+            fi
+            resolved_refs_optional+="${resolved_refs_optional:+,}$entry"
+          done
+          if [[ "$refs_optional_valid" -ne 1 ]]; then
+            [[ "$REFS_OPTIONAL_TYPES" != "none" ]] && REFS_OPTIONAL_TYPES="chore"
+            echo "::warning::Invalid DEVKIT_REFS_OPTIONAL_TYPES in .vig-os ('$REFS_OPTIONAL_TYPES_RAW'); falling back to '$REFS_OPTIONAL_TYPES' (an invalid exemption list never relaxes the gate)."
+          elif [[ -n "$resolved_refs_optional" ]]; then
+            REFS_OPTIONAL_TYPES="$resolved_refs_optional"
+          fi
+        fi
         echo "refs-optional-types=$REFS_OPTIONAL_TYPES" >> "$GITHUB_OUTPUT"
 
         # Scaffold-drift gate (#1295): DEVKIT_DRIFT_CHECK toggles ci.yml's

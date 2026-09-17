@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-09-10T23:32:19Z
+updated: 2026-09-17T08:14:17Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-11T07:12:51.579Z
+synced: 2026-09-17T11:46:25.735Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -24,14 +24,22 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
- - [ ] <!-- unschedule-branch=renovate/github-codeql-action-digest -->chore(deps): update github/codeql-action digest to b96794f
- - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update astral-sh/setup-uv action to v10.1.0
  - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
- - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
+
+
+---
+
+> [!WARNING]
+> Renovate failed to look up the following dependencies: `Failed to look up github-releases package aquasecurity/trivy: no-result`.
+> 
+> Files affected: `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/workflows/security-scan.yml`
+
+---
+
 
 ## Detected Dependencies
 
-<details><summary>github-actions (39)</summary>
+<details><summary>github-actions (41)</summary>
 <blockquote>
 
 <details><summary>.github/actions/setup-env/action.yml (3)</summary>
@@ -107,8 +115,8 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>.github/workflows/codeql.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `github/codeql-action v4@cdf488f595d80d6e07e03d4674febd5ab45fa938` → [Updates: `v4`]
- - `github/codeql-action v4@cdf488f595d80d6e07e03d4674febd5ab45fa938` → [Updates: `v4`]
+ - `github/codeql-action v4@b96794f015dfd88f77b49b1c93e0fa7110f94c63`
+ - `github/codeql-action v4@b96794f015dfd88f77b49b1c93e0fa7110f94c63`
  - `ubuntu 24.04`
 
 </details>
@@ -148,6 +156,23 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
  - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
  - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
+ - `ubuntu 24.04`
+
+</details>
+
+<details><summary>.github/workflows/prepare-hotfix.yml (12)</summary>
+
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `ubuntu 24.04`
+ - `ubuntu 24.04`
+ - `ubuntu 24.04`
  - `ubuntu 24.04`
 
 </details>
@@ -254,7 +279,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
- - `github/codeql-action v4@cdf488f595d80d6e07e03d4674febd5ab45fa938` → [Updates: `v4`]
+ - `github/codeql-action v4@b96794f015dfd88f77b49b1c93e0fa7110f94c63`
  - `ubuntu 24.04`
 
 </details>
@@ -359,7 +384,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
- - `astral-sh/setup-uv v10.0.1@20cfd1bf945f4377ade1205e4dbc17946fc9a30d` → [Updates: `v10.1.0`]
+ - `astral-sh/setup-uv v10.1.0@bec219d24cd3e171d82865faccec33120bb574f4`
 
 </details>
 
@@ -390,8 +415,8 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>assets/workspace/.github/workflows/codeql.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `github/codeql-action v4@cdf488f595d80d6e07e03d4674febd5ab45fa938` → [Updates: `v4`]
- - `github/codeql-action v4@cdf488f595d80d6e07e03d4674febd5ab45fa938` → [Updates: `v4`]
+ - `github/codeql-action v4@b96794f015dfd88f77b49b1c93e0fa7110f94c63`
+ - `github/codeql-action v4@b96794f015dfd88f77b49b1c93e0fa7110f94c63`
  - `ubuntu 24.04`
 
 </details>
@@ -402,6 +427,25 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+
+</details>
+
+<details><summary>assets/workspace/.github/workflows/prepare-hotfix.yml (14)</summary>
+
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `ubuntu 24.04`
+ - `ubuntu 24.04`
+ - `ubuntu 24.04`
+ - `ubuntu 24.04`
+ - `ubuntu 24.04`
 
 </details>
 
@@ -496,7 +540,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
- - `github/codeql-action v4@cdf488f595d80d6e07e03d4674febd5ab45fa938` → [Updates: `v4`]
+ - `github/codeql-action v4@b96794f015dfd88f77b49b1c93e0fa7110f94c63`
  - `ubuntu 24.04`
 
 </details>

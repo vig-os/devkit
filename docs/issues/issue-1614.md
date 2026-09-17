@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-12T09:05:12Z
-updated: 2026-09-12T09:05:12Z
+updated: 2026-09-14T09:30:26Z
 author: github-actions[bot]
 author_url: https://github.com/github-actions[bot]
 url: https://github.com/vig-os/devkit/issues/1614
-comments: 0
+comments: 2
 labels: security, security-scan
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-13T07:23:46.054Z
+synced: 2026-09-15T07:34:15.392Z
 ---
 
 # [Issue 1614]: [Nightly security scan (main): unexcepted HIGH/CRITICAL vulnix findings](https://github.com/vig-os/devkit/issues/1614)
@@ -28,3 +28,23 @@ The nightly vulnix gate found **unexcepted HIGH/CRITICAL** CVEs in the `main` Ni
 - **Security tab:** https://github.com/vig-os/devkit/security
 
 **To remediate:** advance the pinned nixpkgs rev if a fix has landed, or add a time-boxed `.vulnixignore` exception with a rationale (see `docs/CONTAINER_SECURITY.md`). Close this issue once a later scheduled run passes the gate.
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 14, 2026 at 07:07 AM_
+
+Same incident as #1615; diagnosis and fix in #1619 (register block expiring **2026-09-23**, per-CVE triage in the block and the PR body).
+
+This issue stays open, deliberately: as with the rsync batch (#1592), #1619 excepts the batch on `dev` only and the register reaches `main` with the next release train. The nightly `main` lane will keep re-filing under this title (dedup) until then — intended behaviour, not a new finding.
+
+Ordering note for whoever runs that train: the block expires **2026-09-23**. If the weekly pin advance (next: 2026-09-21) has shipped curl 8.22.0 / openssl 3.6.4 by then — both are already merged to `staging-26.05` and riding [NixOS/nixpkgs#563094](https://github.com/NixOS/nixpkgs/pull/563094) — drop the block instead of carrying it to `main`.
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on September 14, 2026 at 09:30 AM_
+
+Closing: the register reached `main` with release 1.14.1 (#1620, promoted 2026-09-14), and dispatch run [34827726038](https://github.com/vig-os/devkit/actions/runs/34827726038) passes the vulnix gate on the `main` lane. Reminder from the triage (#1619): the block expires **2026-09-23** — if the 2026-09-21 weekly pin advance ships curl 8.22.0 / openssl 3.6.4, drop the block on reconciliation instead of renewing.
+

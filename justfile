@@ -298,6 +298,7 @@ test version="dev":
 #
 # Process:
 #   1. just prepare-release X.Y.Z    - Create release/X.Y.Z branch, draft PR
+#      (just prepare-hotfix X.Y.Z   - same, but cut from main for an urgent patch; #1621)
 #   2. Test release branch, fix bugs as needed via PRs to release branch
 #   3. just publish-candidate X.Y.Z  - Build/test/publish X.Y.Z-rcN to verify
 #                                       (gates on CI only; PR may stay draft); repeat as needed

@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-14T08:03:12Z
-updated: 2026-09-14T08:15:59Z
+updated: 2026-09-14T09:58:46Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1621
-comments: 1
+comments: 3
 labels: feature, area:workflow, effort:large, semver:minor
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-14T08:32:53.377Z
+synced: 2026-09-15T07:34:14.443Z
 ---
 
 # [Issue 1621]: [[FEATURE] Hotfix release lane: cut release/X.Y.Z from main without going through dev](https://github.com/vig-os/devkit/issues/1621)
@@ -165,4 +165,27 @@ Each numbered task is one commit (TDD: test commit, then implementation commit).
 - `promote-release.yml`: semver guard refusing to move `:latest` backwards.
 - `prepare-release.yml`: symmetric refusal when a `release/*` branch already exists (today nothing stops a normal train being cut while a hotfix is in flight, which is the scenario behind runbook rule (i)).
 
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on September 14, 2026 at 09:52 AM_
+
+Phase 1 shipped in #1623 (merged to `dev`, cccc45f3): `prepare-hotfix.yml`, `prepare-changelog seed` / `validate --version`, the `release.yml` content guard, `just prepare-hotfix` (stripped from the consumer scaffold), tests and the RELEASE_CYCLE.md hotfix-lane section.
+
+Decisions taken on the open questions: (1) patch-of-latest-main-tag enforced; (2) hard refusal while any other `release/*` exists; (3) `:latest` ordering runbook-only; (4) manual sync conflict with a documented recipe; (5) scaffold port copy-excluded under trunk — see the [plan](https://github.com/vig-os/devkit/issues/1621#issuecomment-5661033925).
+
+Still pending, outside this issue's code scope:
+- **First dispatch** is possible only once the file is on `main` (the next regular train) — a dispatch-only workflow is not registered from a non-default branch, contrary to the Layer 1 assumption here (evidence in https://github.com/vig-os/devkit/pull/1623#issuecomment-5661819147).
+- **Layer 2 rehearsal** (prepare → trivial fix PR → one candidate → abandon) after that train and after `release/1.14.1` promotes.
+- Follow-up issues to file: Phase 2 scaffold port; `promote-release.yml` guard against moving `:latest` backwards; symmetric refusal in `prepare-release.yml` while a hotfix branch exists.
+
+---
+
+# [Comment #3]() by [c-vigo]()
+
+_Posted on September 14, 2026 at 09:58 AM_
+
+Follow-ups filed: #1625 (Phase 2 scaffold port), #1626 (promote `:latest` guard), #1627 (prepare-release refusal while a hotfix branch is in flight).
 

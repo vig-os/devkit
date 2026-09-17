@@ -178,6 +178,39 @@ jobs:
           fi
           echo "✓ Draft GitHub Release exists for $PROMOTE_TAG"
 
+      - name: Verify version does not move the floating tags backwards
+        # Only where a floating ref would actually move: without floating tags
+        # nothing follows the promoted version, and a patch for an older line
+        # stays a legitimate release.
+        if: ${{ needs.resolve-toolchain.outputs.floating-tags != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.vars.outputs.version }}
+          TAG_PREFIX: ${{ needs.resolve-toolchain.outputs.tag-prefix }}
+        run: |
+          set -euo pipefail
+          # The floating major/minor tags follow whichever version promoted
+          # last (#1626). Two trains can only coexist by hand (prepare-release
+          # refuses a second one), but whichever promotes second would walk
+          # the floating tags back to an older version. The published final
+          # releases of this prefix line are exactly the versions the tags
+          # have followed, so refuse when this one is below the highest of
+          # them. The draft for $VERSION is excluded by construction.
+          RELEASES=$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate)
+          HIGHEST=$(printf '%s' "$RELEASES" \
+            | jq -r -s --arg prefix "$TAG_PREFIX" 'flatten | map(select(.draft == false and .prerelease == false) | .tag_name | select(startswith($prefix)) | ltrimstr($prefix)) | .[]' \
+            | { grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -1)
+          if [ -z "$HIGHEST" ]; then
+            echo "✓ No published final release yet; the floating tags have nothing to protect"
+            exit 0
+          fi
+          if [ "$(printf '%s\n%s\n' "$HIGHEST" "$VERSION" | sort -V | tail -1)" != "$VERSION" ]; then
+            echo "ERROR: Promoting $VERSION would move the floating tags backwards: the highest published release is ${TAG_PREFIX}${HIGHEST}"
+            echo "Promote trains in version order. If this train is stale, abandon it (just abandon-release) and re-cut the fix as the next patch of the $HIGHEST line"
+            exit 1
+          fi
+          echo "✓ $VERSION is above the highest published release ${TAG_PREFIX}${HIGHEST}; the floating tags move forward"
+
       - name: Find and verify release PR
         env:
           VERSION: ${{ steps.vars.outputs.version }}

@@ -347,6 +347,7 @@ MANIFEST_FEATURES_DISABLED="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FEAT
 
 MANIFEST_REFS_POLICY="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REFS_POLICY || true)"
 MANIFEST_COMMIT_TYPES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_COMMIT_TYPES || true)"
+MANIFEST_REFS_OPTIONAL_TYPES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REFS_OPTIONAL_TYPES || true)"
 MANIFEST_BRANCH_TYPES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_BRANCH_TYPES || true)"
 
 # devkit-upgrade knobs (#1296): runtime-only keys consumed by the scaffolded
@@ -492,6 +493,27 @@ feature_disabled() {
     return 1
 }
 
+# Workflows that exist only under the gitflow workflow model (#1205): the
+# long-lived dev branch's sync bridge, and the hotfix lane that cuts a release
+# from main *instead of* dev (#1625) — redundant where every release already
+# cuts from main. A trunk workspace never receives them (rsync exclude), the
+# --preview ADDED classifier skips them, and an upgrade from gitflow prunes a
+# leftover copy (DELETIONS report + post-copy prune).
+TRUNK_EXCLUDED_WORKFLOWS=(
+    ".github/workflows/sync-main-to-dev.yml"
+    ".github/workflows/prepare-hotfix.yml"
+)
+
+# True when scaffold path $1 is copy-excluded by the trunk workflow model.
+trunk_excluded() {
+    local path="$1" x
+    [[ "$WORKFLOW_MODEL" == "trunk" ]] || return 1
+    for x in "${TRUNK_EXCLUDED_WORKFLOWS[@]}"; do
+        [[ "$x" == "$path" ]] && return 0
+    done
+    return 1
+}
+
 # Contradiction notice (#1284): a disabled sync-issues feature removes
 # sync-issues.yml, so DEVKIT_SYNC_TARGET / DEVKIT_SYNC_SCHEDULE have nothing to
 # steer. Warn (never abort — the keys are inert, not invalid) so the combination
@@ -550,6 +572,55 @@ if [[ -n "$MANIFEST_COMMIT_TYPES" ]]; then
 fi
 # An all-blank value (e.g. `DEVKIT_COMMIT_TYPES= ,`) falls back to the default.
 RESOLVED_COMMIT_TYPES="${RESOLVED_COMMIT_TYPES:-$DEFAULT_COMMIT_TYPES}"
+
+# Refs-optional types (#1633): DEVKIT_REFS_OPTIONAL_TYPES is a comma-separated
+# (whitespace-tolerant) FULL REPLACEMENT list of the commit types that may omit
+# the `Refs:` line — the generalization of DEVKIT_REFS_POLICY, whose "some types
+# exempt" case is hardcoded to the literal `chore` and so cannot exempt a custom
+# DEVKIT_COMMIT_TYPES entry without exempting every type. The value is spliced
+# into sed replacement text and YAML like DEVKIT_COMMIT_TYPES, so the same
+# LOAD-BEARING per-entry charset allowlist applies; entries must additionally be
+# a SUBSET of the resolved approved types (exempting a type the validator would
+# reject anyway is a manifest bug, not a policy). Resolves — together with the
+# policy enum, which stays sugar over this list — into
+# RESOLVED_REFS_OPTIONAL_TYPES, the single value render_refs_policy renders and
+# resolve-toolchain mirrors for CI.
+DEFAULT_REFS_OPTIONAL_TYPES="chore"
+RESOLVED_REFS_OPTIONAL_TYPES=""
+if [[ -n "$MANIFEST_REFS_OPTIONAL_TYPES" ]]; then
+    IFS=',' read -ra _raw_rtypes <<< "$MANIFEST_REFS_OPTIONAL_TYPES"
+    for _rtype in "${_raw_rtypes[@]}"; do
+        # Trim surrounding whitespace (leading + trailing).
+        _rtype="${_rtype#"${_rtype%%[![:space:]]*}"}"
+        _rtype="${_rtype%"${_rtype##*[![:space:]]}"}"
+        [[ -z "$_rtype" ]] && continue
+        if [[ ! "$_rtype" =~ ^[a-z][a-z0-9]*$ ]]; then
+            echo "Error: Invalid DEVKIT_REFS_OPTIONAL_TYPES in $VIG_OS_MANIFEST: $_rtype (expected a comma-separated list of lowercase alphanumeric commit types, e.g. 'chore,record')" >&2
+            exit 1
+        fi
+        if [[ ",$RESOLVED_COMMIT_TYPES," != *",$_rtype,"* ]]; then
+            echo "Error: Invalid DEVKIT_REFS_OPTIONAL_TYPES in $VIG_OS_MANIFEST: $_rtype is not one of the approved commit types ($RESOLVED_COMMIT_TYPES) — add it to DEVKIT_COMMIT_TYPES first (#1633)" >&2
+            exit 1
+        fi
+        RESOLVED_REFS_OPTIONAL_TYPES+="${RESOLVED_REFS_OPTIONAL_TYPES:+,}$_rtype"
+    done
+fi
+if [[ -z "$RESOLVED_REFS_OPTIONAL_TYPES" ]]; then
+    # Absent (or all-blank) => the policy enum decides, exactly as before:
+    # `optional` mirrors the RESOLVED approved-types list (#1431) so the hook
+    # never requires Refs for a type it just accepted; `required` uses a `none`
+    # sentinel type (no real commit is type `none`, and the CLI treats an empty
+    # --refs-optional-types as falsy => the {chore} default).
+    case "$MANIFEST_REFS_POLICY" in
+        optional) RESOLVED_REFS_OPTIONAL_TYPES="$RESOLVED_COMMIT_TYPES" ;;
+        required) RESOLVED_REFS_OPTIONAL_TYPES="none" ;;
+        *) RESOLVED_REFS_OPTIONAL_TYPES="$DEFAULT_REFS_OPTIONAL_TYPES" ;;
+    esac
+elif [[ -n "$MANIFEST_REFS_POLICY" && "$MANIFEST_REFS_POLICY" != "chore-optional" ]]; then
+    # Documented precedence: the narrower key wins. Never silent (mirrors the
+    # #1284 contradiction notice and the #1431 bot-type notice).
+    echo "Notice: DEVKIT_REFS_OPTIONAL_TYPES overrides DEVKIT_REFS_POLICY=$MANIFEST_REFS_POLICY — the narrower key wins (#1633)." >&2
+fi
 
 # Branch types (#1432): DEVKIT_BRANCH_TYPES is a comma-separated (whitespace-
 # tolerant) FULL REPLACEMENT of the issue-numbered branch-type set in the
@@ -1378,6 +1449,7 @@ feature_paths() {
                 ".github/workflows/release-publish.yml" \
                 ".github/workflows/prepare-release.yml" \
                 ".github/workflows/prepare-release-extension.yml" \
+                ".github/workflows/prepare-hotfix.yml" \
                 ".github/workflows/promote-release.yml" \
                 ".github/workflows/abandon-release.yml" \
                 ".github/workflows/sync-main-to-dev.yml" \
@@ -1547,6 +1619,28 @@ done
 # release branch under trunk (#1479). That is still an anchored substitution
 # rather than a structural rewrite, because the shipped asset already creates
 # release/X.Y.Z before it freezes.
+# Resolve .pre-commit-config.yaml as an in-place `sed -i` target, or return
+# non-zero when it must not be touched (#1640). Two refusals, one place:
+#
+#   absent  — a flake-hooks consumer in a fresh checkout has no config yet (it
+#             materializes on shell entry, #1255); nothing to render.
+#   symlink — a flake-hooks consumer's config IS a /nix/store symlink
+#             (#883/#1167). `-f` is TRUE for it and GNU `sed -i` writes a
+#             temp file and RENAMES it over the path, replacing the symlink
+#             with a regular file — which shadows the generated config with a
+#             frozen copy and silently drops the consumer's hooks/hooksExcludes
+#             customizations. Skipping loses nothing: that consumer's knobs
+#             reach the hook through mkProjectShell, which reads the same
+#             `.vig-os` keys at eval time (#1434).
+#
+# Every in-place render of this file must go through here rather than its own
+# `[[ -f ]]` test.
+precommit_render_target() {
+    local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
+    [[ -f "$pc" && ! -L "$pc" ]] || return 1
+    printf '%s' "$pc"
+}
+
 render_workflow_model() {
     local model="$1"
     [[ "$model" == "trunk" ]] || return 0
@@ -1595,6 +1689,15 @@ render_workflow_model() {
     if [[ -f "$prom" ]]; then
         sed -i 's| (triggers sync-main-to-dev)||' "$prom"
         sed -i 's| (sync-main-to-dev may run next)||' "$prom"
+    fi
+
+    # .devcontainer/justfile.gh — the `prepare-hotfix` recipe dispatches a
+    # workflow a trunk repo does not have (copy-excluded above); drop the recipe
+    # block, comment through the blank line that ends it, so no double blank
+    # remains (#1625; same no-dead-prose rule as the promote comments, #1233).
+    local jg="$WORKSPACE_DIR/.devcontainer/justfile.gh"
+    if [[ -f "$jg" ]]; then
+        sed -i '/^# Prepare a hotfix release branch/,/^$/d' "$jg"
     fi
 
     # ci.yml — drop `- dev` from the PR branch filter; retarget the commit-gate
@@ -1650,14 +1753,10 @@ render_workflow_model() {
         sed -i 's|use `dev` as|use `main` as|' "$skill"
     fi
 
-    # .pre-commit-config.yaml — drop the `(?!dev$)` protect-clause + its comments
-    # (main stays protected; trunk has no long-lived dev branch to protect).
-    local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
-    if [[ -f "$pc" ]]; then
-        sed -i 's|# Allows main, dev, and|# Allows main and|' "$pc"
-        sed -i 's|main/dev are not protected|main is not protected|' "$pc"
-        sed -i 's|(?!dev$)||' "$pc"
-    fi
+    # .pre-commit-config.yaml is NOT touched here: it is a PRESERVED file, so a
+    # one-way render would strand the trunk shape in it forever. Its dev clause
+    # is rendered from the resolved model, in both directions, by
+    # render_branch_guard_model below (#1642).
 
     # renovate-default.json — retarget baseBranchPatterns dev -> main: Renovate
     # restricted to a base-branch pattern matching no existing branch has
@@ -1961,53 +2060,86 @@ YAML
     echo "Rendered sync-issues settings (target=${MANIFEST_SYNC_TARGET:-default}, schedule=${MANIFEST_SYNC_SCHEDULE:-default})"
 }
 
-# Render the Refs policy knob (#1282): DEVKIT_REFS_POLICY steers the
-# validate-commit-msg hook's `--refs-optional-types` arg in the scaffolded
-# .pre-commit-config.yaml. The IDENTICAL policy->types mapping drives CI's
-# validate-commit-range from the same key in
-# .github/actions/resolve-toolchain/action.yml (two renderers, one key) — keep
-# them in lockstep. Empty/absent or `chore-optional` is a pure no-op, so a
-# default scaffold's .pre-commit-config.yaml stays byte-identical. The anchored
-# sed targets only the quoted arg value, distinct from render_workflow_model's
-# `(?!dev$)` sed and render_commit_types' `--types` sed on the same file, so
-# the three compose.
+# Render the branch guard's dev clause from the workflow model (#1224, #1642).
+#
+# Split out of render_workflow_model, which applies the gitflow -> trunk retarget
+# ONE WAY (it early-returns unless the model is trunk). That is harmless for
+# every other file it touches, because they are MANAGED: the template overwrite
+# restores the gitflow shape and the render simply does not re-run. It is NOT
+# harmless for .pre-commit-config.yaml, which is PRESERVED — a consumer switching
+# back to gitflow kept the trunk edits and lost the dev-branch guard silently,
+# on a repo whose manifest says gitflow.
+#
+# So this runs for BOTH models and renders the clause FROM the resolved model.
+# Each direction's anchors stop matching once applied, which makes a re-run a
+# no-op: `(?!dev$)` inserts only between `(?!main$)` and `(?!^(chore)`, and each
+# comment substitution rewrites the phrase it matched on. A default gitflow
+# scaffold is therefore byte-identical to the template, drift baseline included.
+#
+# Anchors are distinct from render_branch_types' alternation and the two arg-value
+# renders below, so all four compose on the same file.
+#
+# Basic-regex sed, where `(`, `)` and `?` are literal but `$` and `^` are NOT
+# reliably so: GNU sed 4.10 still treats a MID-pattern `$` as an end anchor, so
+# `(?!main$)(?!^(chore)` matches nothing (the existing `(?!dev$)` strip only works
+# because its `$)` sits at the very end of the pattern). Both are escaped in the
+# insert pattern for that reason — an escaped `$`/`^` is literal. The
+# REPLACEMENT side needs no escaping: sed gives `$`/`^` no meaning there.
+render_branch_guard_model() {
+    local model="$1" pc
+    pc="$(precommit_render_target)" || return 0
+
+    if [[ "$model" == "trunk" ]]; then
+        # Trunk has no long-lived dev branch to protect; main stays protected.
+        sed -i 's|# Allows main, dev, and|# Allows main and|' "$pc"
+        sed -i 's|main/dev are not protected|main is not protected|' "$pc"
+        sed -i 's|(?!dev$)||' "$pc"
+    else
+        sed -i 's|# Allows main and|# Allows main, dev, and|' "$pc"
+        sed -i 's|main is not protected|main/dev are not protected|' "$pc"
+        sed -i 's|(?!main\$)(?!\^(chore)|(?!main$)(?!dev$)(?!^(chore)|' "$pc"
+    fi
+    echo "Rendered branch guard: workflow model ${model}"
+}
+
+# Render the Refs policy knob (#1282, #1633): DEVKIT_REFS_OPTIONAL_TYPES — or
+# DEVKIT_REFS_POLICY, the sugar it subsumes — steers the validate-commit-msg
+# hook's `--refs-optional-types` arg in the scaffolded .pre-commit-config.yaml.
+# Both keys resolve ABOVE into RESOLVED_REFS_OPTIONAL_TYPES; the IDENTICAL
+# resolution drives CI's validate-commit-range from the same keys in
+# .github/actions/resolve-toolchain/action.yml and the flake-generated consumer
+# hook in nix/hooks.nix (three renderers, one resolution) — keep them in
+# lockstep. UNCONDITIONAL and idempotent (#1640): the resolved value is written
+# on every run, so an unset knob writes the same `chore` the template already
+# ships (byte-identical default scaffold) AND a consumer who CLEARS the key gets
+# the default back. A key-shaped early return would leave the previous render in
+# this PRESERVED file while CI, which re-derives from .vig-os every run, resolved
+# the default. The anchored sed targets only the quoted arg value, distinct from
+# render_workflow_model's `(?!dev$)` sed and render_commit_types' `--types` sed
+# on the same file, so the three compose.
 render_refs_policy() {
-    [[ -z "$MANIFEST_REFS_POLICY" || "$MANIFEST_REFS_POLICY" == "chore-optional" ]] && return 0
+    local pc
+    pc="$(precommit_render_target)" || return 0
 
-    local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
-    [[ -f "$pc" ]] || return 0
-
-    # `optional` mirrors the RESOLVED approved-types list — the custom
-    # DEVKIT_COMMIT_TYPES when set (#1431), else the stock 11 — so the hook
-    # never requires Refs for a type it just accepted; `required` uses a
-    # `none` sentinel type (no real commit is type `none`, and the CLI treats
-    # an empty --refs-optional-types as falsy => the {chore} default), so
-    # every real type requires Refs.
-    local types
-    case "$MANIFEST_REFS_POLICY" in
-        optional) types="$RESOLVED_COMMIT_TYPES" ;;
-        required) types="none" ;;
-    esac
-
-    sed -i -E "s|^([[:space:]]*\"--refs-optional-types\", \")[^\"]*(\",)\$|\1${types}\2|" "$pc"
-    echo "Rendered Refs policy: ${MANIFEST_REFS_POLICY} (refs-optional-types=${types})"
+    sed -i -E "s|^([[:space:]]*\"--refs-optional-types\", \")[^\"]*(\",)\$|\1${RESOLVED_REFS_OPTIONAL_TYPES}\2|" "$pc"
+    echo "Rendered Refs policy: refs-optional-types=${RESOLVED_REFS_OPTIONAL_TYPES}"
 }
 
 # Render the commit-types knob (#1431): DEVKIT_COMMIT_TYPES replaces the
 # validate-commit-msg hook's `--types` arg in the scaffolded
 # .pre-commit-config.yaml with the resolved list (guarded + resolved above; the
 # IDENTICAL list drives CI's validate-commit-range via resolve-toolchain's
-# `commit-types` output — two renderers, one key, keep in lockstep). Empty/
-# absent is a pure no-op, so a default scaffold stays byte-identical. The
-# anchored sed targets only the quoted `--types` value — distinct from
-# render_refs_policy's `--refs-optional-types` anchor and
-# render_workflow_model's `(?!dev$)` sed on the same file — so the three
-# compose.
+# `commit-types` output — two renderers, one key, keep in lockstep).
+# UNCONDITIONAL and idempotent (#1640), like render_refs_policy: an unset key
+# rewrites the stock 11 the template already ships, so a default scaffold stays
+# byte-identical, and CLEARING the key restores them instead of stranding the
+# previous render in this PRESERVED file. The anchored sed targets only the
+# quoted `--types` value — distinct from render_refs_policy's
+# `--refs-optional-types` anchor and render_workflow_model's `(?!dev$)` sed on
+# the same file — so the three compose.
 render_commit_types() {
-    [[ -z "$MANIFEST_COMMIT_TYPES" ]] && return 0
-
-    local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
-    [[ -f "$pc" ]] || return 0
+    local pc
+    pc="$(precommit_render_target)" || return 0
 
     sed -i -E "s|^([[:space:]]*\"--types\", \")[^\"]*(\",)\$|\1${RESOLVED_COMMIT_TYPES}\2|" "$pc"
     echo "Rendered commit types: ${RESOLVED_COMMIT_TYPES}"
@@ -2018,21 +2150,23 @@ render_commit_types() {
 # scaffolded .pre-commit-config.yaml (guarded + resolved above; the IDENTICAL
 # set drives the flake consumer surface via the template flake.nix reader and
 # CI's branch-name gate via resolve-toolchain's `branch-types` output — keep in
-# lockstep). Empty/absent is a pure no-op, so a default scaffold stays
-# byte-identical. Plain (basic-regex) sed with a `#` delimiter (the
-# replacement contains `|`, literal in basic syntax), anchored on the literal
-# stock alternation + its `/[0-9]` suffix — the
-# single occurrence in the file, distinct from the other renders' anchors, so
-# all four compose. The anchor is the STOCK list, so this must run before any
-# future render that could rewrite it (it is the only one that does).
+# lockstep). UNCONDITIONAL and idempotent (#1640), like the two renders above.
+# That REQUIRES a generic anchor: the previous one was the literal STOCK
+# alternation, which by construction stops matching the moment a custom set has
+# been rendered — so clearing the key could never restore the stock set. The
+# anchor is now the `(?!^(` prefix plus the `)/[0-9]` suffix, which together
+# pin this one alternation: `(chore)/[a-z0-9]` has the wrong suffix, and the
+# renovate/worktree clauses have no inner group. Extended regex (the `|` in the
+# REPLACEMENT is literal either way) with a `#` delimiter, since the value
+# contains `/`. Distinct from the other renders' anchors, so all compose — and
+# with the stock literal gone, the ordering constraint against a future render
+# that rewrites this line goes with it.
 render_branch_types() {
-    [[ -z "$MANIFEST_BRANCH_TYPES" ]] && return 0
-
-    local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
-    [[ -f "$pc" ]] || return 0
+    local pc
+    pc="$(precommit_render_target)" || return 0
 
     local alternation="${RESOLVED_BRANCH_TYPES//,/|}"
-    sed -i "s#(feature|bugfix|hotfix|release|docs|test|refactor)/\[0-9\]#(${alternation})/[0-9]#" "$pc"
+    sed -i -E "s#\\(\\?!\\^\\([a-z0-9|]+\\)/\\[0-9\\]#(?!^(${alternation})/[0-9]#" "$pc"
     echo "Rendered branch types: ${RESOLVED_BRANCH_TYPES}"
 }
 
@@ -2067,11 +2201,11 @@ if [[ "$FORCE" == "true" ]]; then
         if [[ "$skip_excluded" == "true" ]]; then
             continue
         fi
-        # trunk workflow model (#1205): sync-main-to-dev.yml is copy-excluded, so
-        # it never lands in a trunk workspace — keep the report truthful (a
-        # leftover copy on a gitflow->trunk upgrade is listed under DELETIONS).
-        if [[ "$WORKFLOW_MODEL" == "trunk" \
-            && "$rel_path" == ".github/workflows/sync-main-to-dev.yml" ]]; then
+        # trunk workflow model (#1205): the gitflow-only workflows are
+        # copy-excluded, so they never land in a trunk workspace — keep the
+        # report truthful (a leftover copy on a gitflow->trunk upgrade is
+        # listed under DELETIONS).
+        if trunk_excluded "$rel_path"; then
             continue
         fi
         # Devcontainer and bare modes prune the flake.nix/.envrc stubs they would
@@ -2129,12 +2263,13 @@ if [[ "$FORCE" == "true" ]]; then
     fi
 
     # trunk workflow model (#1205): a gitflow->trunk upgrade removes the
-    # now-excluded sync-main-to-dev.yml (mirrors the .devcontainer/ deletion).
+    # now-excluded gitflow-only workflows (mirrors the .devcontainer/ deletion).
     # Mode-independent, so it sits outside the mode if/else above.
-    if [[ "$WORKFLOW_MODEL" == "trunk" \
-        && -f "$WORKSPACE_DIR/.github/workflows/sync-main-to-dev.yml" ]]; then
-        DELETIONS+=(".github/workflows/sync-main-to-dev.yml")
-    fi
+    for _p in "${TRUNK_EXCLUDED_WORKFLOWS[@]}"; do
+        if trunk_excluded "$_p" && [[ -f "$WORKSPACE_DIR/$_p" ]]; then
+            DELETIONS+=("$_p")
+        fi
+    done
 
     # Feature opt-outs (#1284): a disabled feature's pre-existing paths are
     # pruned on upgrade — list them under DELETIONS (mirrors the trunk
@@ -2442,12 +2577,14 @@ else
         fi
     done
 
-    # trunk workflow model (#1205): the long-lived dev branch and its sync
-    # workflow disappear, so a trunk workspace never receives
-    # sync-main-to-dev.yml (a leftover copy is pruned after the copy below).
-    if [[ "$WORKFLOW_MODEL" == "trunk" ]]; then
-        EXCLUDE_ARGS+=("--exclude=/.github/workflows/sync-main-to-dev.yml")
-    fi
+    # trunk workflow model (#1205): the long-lived dev branch, its sync
+    # workflow and the main-cut hotfix lane disappear, so a trunk workspace
+    # never receives them (a leftover copy is pruned after the copy below).
+    for _p in "${TRUNK_EXCLUDED_WORKFLOWS[@]}"; do
+        if trunk_excluded "$_p"; then
+            EXCLUDE_ARGS+=("--exclude=/$_p")
+        fi
+    done
 
     rsync -avL --checksum --exclude='.git' --exclude='.venv' "${EXCLUDE_ARGS[@]}" "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
 
@@ -2577,28 +2714,28 @@ if [[ ("$MODE" == "direnv" || "$MODE" == "bare") \
     rm -f "$WORKSPACE_DIR/docs/container-ci-quirks.md"
 fi
 
-# trunk workflow model (#1205): prune a sync-main-to-dev.yml left by a prior
+# trunk workflow model (#1205): prune a gitflow-only workflow left by a prior
 # gitflow scaffold on a gitflow->trunk upgrade. The rsync above already excludes
-# the template copy; this removes the upgrade leftover. Devkit-managed (never in
-# PRESERVE_FILES), so no pre-existence guard — mirrors the container-docs prune.
-if [[ "$WORKFLOW_MODEL" == "trunk" \
-    && -f "$WORKSPACE_DIR/.github/workflows/sync-main-to-dev.yml" ]]; then
-    echo "Pruning sync-main-to-dev.yml for the trunk workflow model (#1205)..."
-    rm -f "$WORKSPACE_DIR/.github/workflows/sync-main-to-dev.yml"
-fi
+# the template copies; this removes the upgrade leftovers. Devkit-managed (never
+# in PRESERVE_FILES), so no pre-existence guard — mirrors the container-docs prune.
+for _p in "${TRUNK_EXCLUDED_WORKFLOWS[@]}"; do
+    if trunk_excluded "$_p" && [[ -f "$WORKSPACE_DIR/$_p" ]]; then
+        echo "Pruning ${_p##*/} for the trunk workflow model (#1205)..."
+        rm -f "$WORKSPACE_DIR/$_p"
+    fi
+done
 
 # Feature opt-outs (#1284): prune a disabled feature's pre-existing paths left
 # by an earlier scaffold (the rsync copy already excludes them via
 # MODE_CONFIG_EXCLUDES; this removes the upgrade leftover). Preserved-class files
 # (release-extension.yml, prepare-release-extension.yml, renovate.json) carry
 # consumer implementation and are never pruned — print a left-in-place notice
-# instead. Composes with the trunk sync-main-to-dev prune above: that one path
-# is skipped under trunk so it is pruned + echoed exactly once.
+# instead. Composes with the trunk gitflow-only prune above: those paths are
+# skipped under trunk so each is pruned + echoed exactly once.
 for _feat in "${DISABLED_FEATURES[@]}"; do
     while IFS= read -r _p; do
         [[ -n "$_p" && -e "$WORKSPACE_DIR/$_p" ]] || continue
-        if [[ "$WORKFLOW_MODEL" == "trunk" \
-            && "$_p" == ".github/workflows/sync-main-to-dev.yml" ]]; then
+        if trunk_excluded "$_p"; then
             continue
         fi
         if is_preserved_file "$_p"; then
@@ -2784,6 +2921,11 @@ render_codeql_matrix
 # trunk workflow model (#1205): retarget the copied release workflows dev ->
 # main. A no-op for the gitflow default, so a gitflow scaffold is unchanged.
 render_workflow_model "$WORKFLOW_MODEL"
+# Branch guard dev-clause (#1642): rendered from the resolved model in BOTH
+# directions, unlike render_workflow_model's one-way retarget above, because
+# .pre-commit-config.yaml is preserved and would otherwise keep the trunk shape
+# after a switch back to gitflow. A no-op for an unchanged model.
+render_branch_guard_model "$WORKFLOW_MODEL"
 # sync-issues knobs (#1228): override the target branch + schedule cron on top of
 # the workflow-model default. A no-op when both keys are unset. Skipped entirely
 # when the sync-issues feature is disabled (#1284) — the file it seds no longer
@@ -2793,10 +2935,11 @@ if feature_disabled sync-issues; then
 else
     render_sync_settings
 fi
-# Refs policy (#1282) + commit types (#1431): render the validate-commit-msg
-# hook's --refs-optional-types / --types from DEVKIT_REFS_POLICY /
-# DEVKIT_COMMIT_TYPES (each paired with its CI mapping in resolve-toolchain).
-# No-ops for the defaults, so a default scaffold is unchanged. Both run after
+# Refs exemption (#1282, #1633) + commit types (#1431): render the
+# validate-commit-msg hook's --refs-optional-types / --types from
+# DEVKIT_REFS_OPTIONAL_TYPES / DEVKIT_REFS_POLICY / DEVKIT_COMMIT_TYPES (each
+# paired with its CI mapping in resolve-toolchain). No-ops when the keys are
+# unset, so a default scaffold is unchanged. Both run after
 # render_workflow_model (all three sed .pre-commit-config.yaml on distinct
 # anchors) so the renders compose.
 render_refs_policy
@@ -2882,6 +3025,14 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     # round-trips (like DEVKIT_FEATURES_DISABLED).
     if [[ -n "$MANIFEST_COMMIT_TYPES" ]]; then
         write_manifest_value DEVKIT_COMMIT_TYPES "$MANIFEST_COMMIT_TYPES"
+    fi
+    # Refs-optional types (#1633): bare in the template
+    # (DEVKIT_REFS_OPTIONAL_TYPES=), so a consumer's named exempt set is written
+    # back — else an upgrade silently resets the exemption to `chore` and the
+    # repo's deliberately issue-less commit type starts failing commit-checks.
+    # The raw value round-trips (like DEVKIT_COMMIT_TYPES).
+    if [[ -n "$MANIFEST_REFS_OPTIONAL_TYPES" ]]; then
+        write_manifest_value DEVKIT_REFS_OPTIONAL_TYPES "$MANIFEST_REFS_OPTIONAL_TYPES"
     fi
     # Branch types (#1432): bare in the template (DEVKIT_BRANCH_TYPES=), so a
     # consumer's replacement set is written back — else an upgrade silently

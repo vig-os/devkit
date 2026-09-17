@@ -84,3 +84,18 @@ def test_ci_gate_lints_managed_set_against_baseline() -> None:
         and "assets/workspace/.github/workflows" in r
     ]
     assert gate, "project-checks must gate the managed workflow set on zizmor"
+
+
+def test_hotfix_lane_baseline_matches_its_shape() -> None:
+    """prepare-hotfix.yml (#1625) is baselined for exactly what it does.
+
+    It mints App tokens (github-app), fans out to the extension hook with
+    ``secrets: inherit`` (secrets-inherit) and runs on the runtime-resolved
+    toolchain image (unpinned-images) — but every checkout sets
+    ``persist-credentials: false``, so it must NOT be exempted from artipacked.
+    """
+    rules = _rules(ROOT_BASELINE)
+    assert "prepare-hotfix.yml" in rules["github-app"]["ignore"]
+    assert "prepare-hotfix.yml" in rules["secrets-inherit"]["ignore"]
+    assert "prepare-hotfix.yml" in rules["unpinned-images"]["ignore"]
+    assert "prepare-hotfix.yml" not in rules["artipacked"]["ignore"]

@@ -2370,6 +2370,7 @@ _upgrade_no_flags() {
         'DEVKIT_DEV_PROFILE_PATH=/var/lib/devkit/gcroots/dev-profile'
         'DEVKIT_DRIFT_CHECK=false'
         'DEVKIT_FEATURES_DISABLED=renovate,scanning'
+        'DEVKIT_REFS_OPTIONAL_TYPES=chore,build'
     )
     for row in "${rows[@]}"; do
         key="${row%%=*}"
@@ -2384,10 +2385,11 @@ _upgrade_no_flags() {
     done
 }
 
-@test "template .vig-os ships every optional knob key empty (#1173, #1228, #1282, #1295, #1284, #1431, #1432, #1601)" {
+@test "template .vig-os ships every optional knob key empty (#1173, #1228, #1282, #1295, #1284, #1431, #1432, #1601, #1633)" {
     local keys=(DEVKIT_CI_RUNNER DEVKIT_DEV_PROFILE_PATH DEVKIT_SYNC_TARGET
         DEVKIT_SYNC_SCHEDULE DEVKIT_REFS_POLICY DEVKIT_DRIFT_CHECK
-        DEVKIT_FEATURES_DISABLED DEVKIT_COMMIT_TYPES DEVKIT_BRANCH_TYPES)
+        DEVKIT_FEATURES_DISABLED DEVKIT_COMMIT_TYPES DEVKIT_BRANCH_TYPES
+        DEVKIT_REFS_OPTIONAL_TYPES)
     for key in "${keys[@]}"; do
         echo "key: $key"
         run grep -x "${key}=" "$TEMPLATE_DIR/.vig-os"
@@ -2465,7 +2467,7 @@ _upgrade_no_flags() {
     assert_failure
 }
 
-@test "invalid or hostile .vig-os knob values fail the scaffold loudly (#1228, #1282, #1295, #1284, #1431, #1432)" {
+@test "invalid or hostile .vig-os knob values fail the scaffold loudly (#1228, #1282, #1295, #1284, #1431, #1432, #1633)" {
     # KEY|VALUE table of rejected values, each asserted against the clean
     # "Invalid <KEY>" message. The hostile SYNC_TARGET row: git
     # check-ref-format alone accepts quotes/$/backticks/;/|/# — values that
@@ -2494,6 +2496,11 @@ _upgrade_no_flags() {
         # the same allowlist guards render_branch_types (#1432).
         'DEVKIT_BRANCH_TYPES|feature,Bad-Type'
         'DEVKIT_BRANCH_TYPES|feature|record'
+        # Refs-optional types are spliced into the same sed replacement text,
+        # so the same charset allowlist applies; and an entry outside the
+        # resolved DEVKIT_COMMIT_TYPES is a manifest bug (#1633).
+        'DEVKIT_REFS_OPTIONAL_TYPES|chore,Bad-Type'
+        'DEVKIT_REFS_OPTIONAL_TYPES|chore,record'
     )
     local i=0
     for row in "${rows[@]}"; do
@@ -2770,6 +2777,80 @@ _upgrade_no_flags() {
     assert_success
 }
 
+# ── Refs-optional types knob (#1633) ──────────────────────────────────────────
+# DEVKIT_REFS_OPTIONAL_TYPES names the exempt set directly, generalizing the
+# DEVKIT_REFS_POLICY enum whose "some types exempt" case is the literal `chore`.
+# The narrower key wins over the policy; entries must be a subset of the
+# resolved DEVKIT_COMMIT_TYPES (guarded loudly in the knob loop above). Empty
+# (default) leaves the policy mapping — and so the default scaffold — untouched.
+
+@test "default scaffold is unchanged by the absent refs-optional-types key (#1633)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1633-default"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run grep -qF '"--refs-optional-types", "chore",' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "DEVKIT_REFS_OPTIONAL_TYPES renders the named set + writes back (#1633)" {
+    # The motivating case: a custom `record` type whose commits are
+    # legitimately issue-less, exempted WITHOUT exempting every type.
+    ws="$BATS_TEST_TMPDIR/e2e-1633-named-set"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_COMMIT_TYPES=.*/DEVKIT_COMMIT_TYPES=feat,fix,chore,build,record/' "$ws/.vig-os"
+    sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=chore,record/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '"--refs-optional-types", "chore,record",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    # feat/fix keep the Refs requirement — the thing the policy exists to protect.
+    run grep -qF '"--types", "feat,fix,chore,build,record",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -x 'DEVKIT_REFS_OPTIONAL_TYPES=chore,record' "$ws/.vig-os"
+    assert_success
+}
+
+@test "narrowing DEVKIT_REFS_OPTIONAL_TYPES re-renders the hook arg (#1633)" {
+    # .pre-commit-config.yaml is PRESERVED across upgrades (never template-
+    # overwritten), so the render must gate on the KEYS, not on the resolved
+    # value: a consumer narrowing its exempt set back to the `chore` default
+    # would otherwise keep the previous, wider arg locally while CI resolves
+    # the narrow one — the local/CI divergence #1633 exists to prevent.
+    ws="$BATS_TEST_TMPDIR/e2e-1633-narrowing"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=chore,build/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '"--refs-optional-types", "chore,build",' "$ws/.pre-commit-config.yaml"
+    assert_success
+    sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=chore/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '"--refs-optional-types", "chore",' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "DEVKIT_REFS_OPTIONAL_TYPES wins over DEVKIT_REFS_POLICY (#1633)" {
+    # Documented precedence: the narrower key wins. The enum stays sugar.
+    ws="$BATS_TEST_TMPDIR/e2e-1633-precedence"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=required/' "$ws/.vig-os"
+    sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=chore,build/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    # Asserted before any other `run` — it would clobber $output.
+    assert_output --partial "Notice: DEVKIT_REFS_OPTIONAL_TYPES overrides DEVKIT_REFS_POLICY"
+    run grep -qF '"--refs-optional-types", "chore,build",' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
 @test "dropping the bot commit types prints a notice, never aborts (#1431)" {
     # Renovate commits `chore(deps)` and devkit-upgrade commits `build(devkit)`
     # in consumer repos; a replacement list omitting them makes those bot PRs
@@ -2783,6 +2864,177 @@ _upgrade_no_flags() {
     run _upgrade_no_flags "$ws"
     assert_success
     assert_output --partial "Notice: DEVKIT_COMMIT_TYPES omits"
+}
+
+# ── Clearing a knob restores the default render (#1640) ───────────────────────
+# .pre-commit-config.yaml is PRESERVED across upgrades, so it accumulates past
+# renders. A render that early-returns on an empty key means "don't touch it",
+# not "restore the default" — so a consumer who sets a knob and later CLEARS it
+# keeps the previous render locally while CI, which re-derives from .vig-os on
+# every run, resolves the default. The renders must be unconditional and
+# idempotent: always write the resolved value (a no-op write of identical bytes
+# for an unset knob, so a default scaffold stays byte-identical).
+
+# Scaffold, render a custom value for KEY, then clear KEY and re-upgrade.
+# Leaves the workspace at $ws for the caller's assertions.
+_render_then_clear() {
+    local ws="$1" key="$2" value="$3"
+    mkdir -p "$ws"
+    _scaffold both "$ws" || return 1
+    sed -i "s#^${key}=.*#${key}=${value}#" "$ws/.vig-os" || return 1
+    _upgrade_no_flags "$ws" || return 1
+    sed -i "s#^${key}=.*#${key}=#" "$ws/.vig-os" || return 1
+    _upgrade_no_flags "$ws" || return 1
+}
+
+@test "clearing DEVKIT_COMMIT_TYPES restores the stock --types list (#1640)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1640-commit-types"
+    run _render_then_clear "$ws" DEVKIT_COMMIT_TYPES feat,fix,chore,build,record
+    assert_success
+    run grep -qF '"--types", "feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style",' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "clearing DEVKIT_BRANCH_TYPES restores the stock branch alternation (#1640)" {
+    # This render is anchored on the literal STOCK alternation, so restoring it
+    # needs a GENERIC anchor as well as an unconditional call — once a custom
+    # set is in the file the stock-literal anchor can never match again.
+    ws="$BATS_TEST_TMPDIR/e2e-1640-branch-types"
+    run _render_then_clear "$ws" DEVKIT_BRANCH_TYPES feature,bugfix,record
+    assert_success
+    run grep -qF '(feature|bugfix|hotfix|release|docs|test|refactor)/[0-9]' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "clearing DEVKIT_REFS_OPTIONAL_TYPES restores the chore default (#1640)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1640-refs-optional"
+    run _render_then_clear "$ws" DEVKIT_REFS_OPTIONAL_TYPES chore,build
+    assert_success
+    run grep -qF '"--refs-optional-types", "chore",' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "clearing DEVKIT_REFS_POLICY restores the chore default (#1640)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1640-refs-policy"
+    run _render_then_clear "$ws" DEVKIT_REFS_POLICY required
+    assert_success
+    run grep -qF '"--refs-optional-types", "chore",' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "a symlinked .pre-commit-config.yaml is never rewritten in place (#1640)" {
+    # A flake-hooks consumer's config is a gitignored /nix/store symlink
+    # (#883/#1167) that only materializes on shell entry. `[[ -f ]]` is true for
+    # a symlink and GNU `sed -i` REPLACES it with a regular file — which would
+    # shadow the generated config with a frozen copy. Making the renders
+    # unconditional multiplies the chances of hitting that, so every render must
+    # refuse a symlink outright.
+    ws="$BATS_TEST_TMPDIR/e2e-1640-symlink"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    # Stand in for the store path: an out-of-tree target the render must not touch.
+    local store="$BATS_TEST_TMPDIR/e2e-1640-store-config.yaml"
+    mv "$ws/.pre-commit-config.yaml" "$store"
+    ln -s "$store" "$ws/.pre-commit-config.yaml"
+    local before
+    before="$(sha256sum "$store" | cut -d" " -f1)"
+    sed -i 's/^DEVKIT_COMMIT_TYPES=.*/DEVKIT_COMMIT_TYPES=feat,fix,chore,build,record/' "$ws/.vig-os"
+    sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=chore,record/' "$ws/.vig-os"
+    sed -i 's/^DEVKIT_BRANCH_TYPES=.*/DEVKIT_BRANCH_TYPES=feature,bugfix,record/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    # Still a symlink, and the target is byte-identical.
+    run test -L "$ws/.pre-commit-config.yaml"
+    assert_success
+    assert_equal "$(sha256sum "$store" | cut -d" " -f1)" "$before"
+}
+
+# ── The branch-guard model render is bidirectional (#1642) ────────────────────
+# render_workflow_model applies the gitflow -> trunk retarget one-way. Every
+# file it touches but .pre-commit-config.yaml is MANAGED, so the template
+# overwrite restores the gitflow shape and the one-way render is harmless there.
+# .pre-commit-config.yaml is PRESERVED, so switching a consumer back to gitflow
+# left the dev-branch guard silently stripped — no-commit-to-branch stopped
+# blocking direct commits to `dev` on a repo whose manifest says gitflow. The
+# dev clause must be rendered FROM the resolved model in both directions, and
+# idempotently. Last instance of the #1640 class.
+
+# Flip DEVKIT_WORKFLOW in a scaffolded workspace and re-upgrade.
+_switch_workflow() {
+    local ws="$1" model="$2"
+    sed -i "s#^DEVKIT_WORKFLOW=.*#DEVKIT_WORKFLOW=${model}#" "$ws/.vig-os" || return 1
+    _upgrade_no_flags "$ws" || return 1
+}
+
+@test "switching trunk -> gitflow restores the dev-branch guard (#1642)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1642-roundtrip"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run _switch_workflow "$ws" trunk
+    assert_success
+    # Trunk still strips it (the direction that already worked).
+    run grep -qF '(?!dev$)' "$ws/.pre-commit-config.yaml"
+    assert_failure
+    run _switch_workflow "$ws" gitflow
+    assert_success
+    # ... and switching back restores both the clause and its comment.
+    run grep -qF '(?!main$)(?!dev$)(?!^(chore)' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -qF '# Allows main, dev, and branches matching the convention.' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "the restored branch guard matches the template byte for byte (#1642)" {
+    # A managed file self-heals to the template on switch-back; the preserved
+    # config must land on exactly the same two lines, not an approximation.
+    ws="$BATS_TEST_TMPDIR/e2e-1642-template-parity"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run _switch_workflow "$ws" trunk
+    assert_success
+    run _switch_workflow "$ws" gitflow
+    assert_success
+    run diff "$TEMPLATE_DIR/.pre-commit-config.yaml" "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "the gitflow branch-guard render is idempotent (#1642)" {
+    # Re-running gitflow must not double-insert the clause or mangle the comment.
+    ws="$BATS_TEST_TMPDIR/e2e-1642-idempotent"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run _switch_workflow "$ws" gitflow
+    assert_success
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -c 'dev\$' "$ws/.pre-commit-config.yaml"
+    assert_success
+    assert_output "1"
+    run diff "$TEMPLATE_DIR/.pre-commit-config.yaml" "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "the branch-guard model render refuses a symlinked config (#1642)" {
+    # Same store-symlink hazard as #1640: this render must go through
+    # precommit_render_target, not its own `[[ -f ]]` test.
+    ws="$BATS_TEST_TMPDIR/e2e-1642-symlink"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    local store="$BATS_TEST_TMPDIR/e2e-1642-store-config.yaml"
+    mv "$ws/.pre-commit-config.yaml" "$store"
+    ln -s "$store" "$ws/.pre-commit-config.yaml"
+    local before
+    before="$(sha256sum "$store" | cut -d" " -f1)"
+    run _switch_workflow "$ws" trunk
+    assert_success
+    run test -L "$ws/.pre-commit-config.yaml"
+    assert_success
+    assert_equal "$(sha256sum "$store" | cut -d" " -f1)" "$before"
 }
 
 # ── Branch types knob (#1432) ─────────────────────────────────────────────────

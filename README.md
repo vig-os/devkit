@@ -179,6 +179,7 @@ Available recipes:
     abandon-release version ref="" *flags      # Abandon a finalized-but-unpublished release: delete draft Release + tag, close PR, delete branch (draft-only, enforced server-side)
     changelog-preview                          # Preview the bot changelog entries the next release would synthesize (#1423)
     finalize-release version ref="" *flags     # Finalize and publish release via GitHub Actions workflow (step 3, after testing)
+    prepare-hotfix version ref="" *flags       # Prepare a hotfix release branch cut from main (patch of the latest tag on main; #1621)
     prepare-release version ref="" *flags      # Prepare release branch for testing (step 1)
     promote-release version ref="" *flags      # Promote final release: GHCR :latest, publish draft GitHub Release, merge release PR (after downstream smoke-test final release)
     publish-candidate version ref="" *flags    # Publish release candidate via GitHub Actions workflow
@@ -212,7 +213,7 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 - **Registry**: `ghcr.io/vig-os/devcontainer`
 - **Architecture**: Multi-platform support (AMD64, ARM64)
 - **License**: Apache
-- **Latest Version**: [1.14.1](https://github.com/vig-os/devkit/releases/tag/1.14.1) - 2026-09-14
+- **Latest Version**: [1.15.0](https://github.com/vig-os/devkit/releases/tag/1.15.0) - 2026-09-17
 - **Image tags**: bare semver (`0.2.1`, `latest`) — git tags use `v` prefix (`v0.2.1`) but image tags do not
 
 ## Features

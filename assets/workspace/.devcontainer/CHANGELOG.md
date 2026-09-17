@@ -19,6 +19,166 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [1.15.0](https://github.com/vig-os/devkit/releases/tag/1.15.0) - 2026-09-17
+
+### Added
+
+- **`DEVKIT_REFS_OPTIONAL_TYPES`: exempt a named set of commit types from the
+  `Refs:` requirement** ([#1633](https://github.com/vig-os/devkit/issues/1633))
+  - New `.vig-os` key — a comma-separated (whitespace-tolerant) FULL
+    REPLACEMENT list of the commit types whose `Refs:` line is optional. It
+    generalizes `DEVKIT_REFS_POLICY`, whose "some types exempt" case was
+    hardcoded to the literal `chore`, so a repo that adds a custom type via
+    `DEVKIT_COMMIT_TYPES` can now exempt exactly that type instead of
+    exempting every type or none
+  - Resolved identically by all three renderers — the scaffolded
+    `.pre-commit-config.yaml`, the flake-generated consumer hook
+    (`mkProjectShell`'s new `refsOptionalTypes` argument, read from the
+    manifest by the scaffolded `flake.nix`), and CI's `resolve-toolchain`
+    `refs-optional-types` output — so local and CI cannot disagree
+  - Entries must be lowercase alphanumerics AND a subset of the resolved
+    `DEVKIT_COMMIT_TYPES`; the scaffold and `mkProjectShell` refuse loudly,
+    and CI warns and clamps to the NARROWEST exemption rather than failing
+    the job — an invalid exemption list must never relax the Refs gate. The
+    narrower key WINS over `DEVKIT_REFS_POLICY` (the scaffold prints a
+    notice when both are set); `DEVKIT_REFS_POLICY=required` still means
+    "exempt nothing"
+  - Backward compatible: an absent or blank key resolves to `chore`, a
+    byte-identical render for devkit and every existing consumer
+
+- **Hotfix release lane: cut `release/X.Y.Z` from `main` without going through
+  `dev`** ([#1621](https://github.com/vig-os/devkit/issues/1621))
+  - New `prepare-hotfix.yml` workflow (`just prepare-hotfix X.Y.Z`): validates
+    that the version is the next patch of the latest stable tag on `main` and
+    that no other `release/*` train is in flight, forks the release branch at
+    `main`'s head, seeds an empty `## [X.Y.Z] - TBD` section on the branch
+    (never `main`, never `dev`), re-syncs the workspace mirror through the
+    existing `prepare-release-extension.yml` hook and opens the draft PR to
+    `main`. Rollback deletes the partial branch and nothing else. The fix
+    lands via a `bugfix/N-*` PR into the release branch; candidate, final,
+    promote and abandon run unchanged
+  - `prepare-changelog seed X.Y.Z` inserts the empty section under an empty
+    Unreleased and refuses anything else; `prepare-changelog validate
+    --version X.Y.Z` checks the pending section carries content, and
+    `release.yml` now gates on it so a seeded-but-unfilled section cannot
+    ship. That gate reaches hotfix trains only once it has shipped through a
+    normal train, since `release.yml` runs from `main`'s copy for a hotfix
+  - Accepted cost: the post-promote `sync-main-to-dev` PR conflicts on
+    `CHANGELOG.md` whenever `dev` is ahead; the resolution recipe and the
+    runbook rules live in `docs/RELEASE_CYCLE.md` (Hotfix lane). The
+    `assets/workspace/` port ships in the same release
+    ([#1625](https://github.com/vig-os/devkit/issues/1625))
+- **prepare-release refuses while another release branch is in flight**
+  ([#1627](https://github.com/vig-os/devkit/issues/1627))
+  - The `validate` job of `prepare-release.yml` (devkit and scaffold copies,
+    trunk render included) now fails, listing the offenders, when any other
+    `release/*` branch exists on the remote: the symmetric counterpart of the
+    hotfix lane's refusal, so a regular train can no longer be cut over a
+    hotfix and later reintroduce the regression or walk `:latest` backwards.
+    Promote or abandon the other train first
+- **promote-release refuses to move `:latest` backwards**
+  ([#1626](https://github.com/vig-os/devkit/issues/1626))
+  - Devkit's `promote-release.yml` `validate` job now compares the version
+    against the highest published final GitHub Release (the version `:latest`
+    follows) and fails before the irreversible publish when it is lower.
+    No override: abandon the stale train and re-cut the fix as the next
+    patch of the published line
+  - The scaffold copy carries the same guard for the opt-in git floating
+    tags, active only when `DEVKIT_FLOATING_TAGS` is set; release tags are
+    compared after the tag prefix is stripped, and consumers without
+    floating tags keep the freedom to publish a patch for an older line
+- **Hotfix release lane in the consumer scaffold**
+  ([#1625](https://github.com/vig-os/devkit/issues/1625))
+  - `assets/workspace/.github/workflows/prepare-hotfix.yml` (Phase 2 of
+    [#1621](https://github.com/vig-os/devkit/issues/1621)): the same lane in the scaffold dialect — every job runs
+    on the mode-aware devkit toolchain (`resolve-toolchain` +
+    `setup-devkit-toolchain`, no `uv run`), the latest-tag lookup and the
+    collision check honour `DEVKIT_TAG_PREFIX`, and every checkout drops its
+    git credential. `just prepare-hotfix X.Y.Z` now reaches consumers too
+  - Gitflow only: copy-excluded under `DEVKIT_WORKFLOW=trunk` and pruned on a
+    gitflow → trunk upgrade exactly like `sync-main-to-dev.yml` (the two now
+    share one `TRUNK_EXCLUDED_WORKFLOWS` list in `init-workspace.sh`), with
+    the recipe dropped from the trunk `justfile.gh`; part of the `release`
+    feature group
+  - The scaffold `release-core.yml` now gates on `prepare-changelog validate
+    --version` (content, not just the `## [X.Y.Z] - TBD` heading), so a
+    seeded-but-unfilled hotfix section cannot ship downstream
+  - `zizmor.yml` baselines the managed basename for `github-app`,
+    `secrets-inherit` and `unpinned-images` only; consumer runbook in
+    `docs/DOWNSTREAM_RELEASE.md` (Hotfix lane)
+
+### Fixed
+
+- **Switching `trunk` back to `gitflow` restores the dev-branch guard**
+  ([#1642](https://github.com/vig-os/devkit/issues/1642))
+  - `render_workflow_model` applied the `gitflow -> trunk` retarget one way. For
+    every managed file it touches that is harmless — the template overwrite
+    restores the gitflow shape on the next upgrade — but `.pre-commit-config.yaml`
+    is preserved, so a consumer switching back kept the trunk edits and lost the
+    `(?!dev$)` clause: `no-commit-to-branch` silently stopped blocking direct
+    commits to `dev` on a repo whose manifest said `gitflow`
+  - The dev clause now renders from the resolved model in BOTH directions, in a
+    new `render_branch_guard_model` that runs for either model and goes through
+    the `precommit_render_target` resolver. Each direction's anchors stop
+    matching once applied, so a re-run is a no-op and a default gitflow scaffold
+    stays byte-identical to the template
+  - Flake-hooks consumers were never affected: their guard comes from
+    `mkProjectShell`, which reads `DEVKIT_WORKFLOW` at eval time and was already
+    correct in both directions
+- **Clearing a scaffold knob now restores the default render**
+  ([#1640](https://github.com/vig-os/devkit/issues/1640))
+  - `.pre-commit-config.yaml` is preserved across upgrades, so it accumulates
+    past renders. `render_commit_types`, `render_branch_types` and
+    `render_refs_policy` early-returned on an empty manifest key, which meant
+    "don't touch it" rather than "restore the default": a consumer who set
+    `DEVKIT_COMMIT_TYPES`, `DEVKIT_BRANCH_TYPES`, `DEVKIT_REFS_OPTIONAL_TYPES`
+    or `DEVKIT_REFS_POLICY` and later CLEARED it kept the previous render
+    locally while CI, which re-derives from `.vig-os` on every run, resolved
+    the default — the local hook and `validate-commit-range` then disagreed.
+    The scaffold-drift gate could not catch it either: it re-runs the scaffold
+    and hits the same early return, so the stale file reproduces identically
+  - All three renders are now unconditional and idempotent, writing the
+    resolved value every run. An unset knob rewrites exactly what the template
+    already ships, so a default scaffold stays byte-identical
+  - `render_branch_types` gained a generic anchor. It was anchored on the
+    literal stock alternation, which by construction stops matching once a
+    custom set has been rendered, so the stock set could never be restored
+  - New `precommit_render_target` helper refuses a **symlinked**
+    `.pre-commit-config.yaml` for every in-place render, `render_workflow_model`
+    included. A flake-hooks consumer's config is a `/nix/store` symlink that
+    `[[ -f ]]` accepts and `sed -i` would replace with a regular file, shadowing
+    the generated config with a frozen copy. Skipping costs that consumer
+    nothing: their knobs reach the hook through `mkProjectShell`, which reads
+    the same keys at eval time
+
+### Security
+
+- **Except the libxml2 2.15.4 advisory batch in the vulnix register**
+  ([#1636](https://github.com/vig-os/devkit/issues/1636))
+  - The 2026-09-16 nightly went red on both refs from a feed event, not a
+    closure change: 8 CVEs added against libxml2 2.15.3 and nothing removed,
+    on the same pin the previous night's green scan ran on. Only
+    `CVE-2026-86140` crosses the gate's 7.0 threshold and takes an entry; the
+    other seven score 2.9-6.9 and are deliberately left out
+  - The defect is a `strcat` stack overflow in `xmlSnprintfElements`, reachable
+    only while formatting a validity error for a DTD-validated document, and
+    scored local-vector by both NVD (8.0) and the NIST analyst (7.8). libxml2
+    is a transitive dependency here and nothing validates untrusted XML
+    against a DTD
+- **Re-date the curl + openssl exception block off the 2026-09-23 cliff**
+  ([#1634](https://github.com/vig-os/devkit/issues/1634))
+  - All 16 entries were re-verified against the 2026-09-16 scan and remain
+    live findings, so none was deletable. The block moves to 2026-10-21
+    because its remediation lever did not arrive on the schedule the original
+    note assumed: curl 8.22.0, openssl 3.6.4 and libxml2 2.15.4 all ride the
+    same still-open `staging-next-26.05` iteration, whose merge cadence
+    projects past the 2026-09-21 pin advance
+  - Holding the original date would most likely have lapsed the block on
+    09-24, and `check-expirations` runs in `ci.yml` as well as the nightly
+    lanes, so a lapse takes every open PR red. All three blocks now share one
+    exit condition and should be deleted together on the advance that ships
+    the fixed versions
+
 ## [1.14.1](https://github.com/vig-os/devkit/releases/tag/1.14.1) - 2026-09-14
 
 ### Changed

@@ -324,6 +324,16 @@
           # lockstep. Read from `.vig-os` DEVKIT_REFS_POLICY by the scaffold
           # template. Refs #1434.
           refsPolicy ? null,
+          # Refs-optional commit types (#1633): null (default) leaves the
+          # exempt set to refsPolicy above; a list of type strings NAMES it
+          # and wins over the enum — the documented precedence, mirroring
+          # init-workspace.sh and resolve-toolchain's `refs-optional-types`
+          # output. Read from `.vig-os` DEVKIT_REFS_OPTIONAL_TYPES by the
+          # scaffold template. Validated below: entries reach a hook argv, so
+          # the charset guard mirrors the scaffold's, and they must name
+          # APPROVED types — exempting a type validate-commit-msg would reject
+          # anyway is a manifest bug.
+          refsOptionalTypes ? null,
           shellHook ? ''echo "devcontainer dev environment loaded (nix)"'',
           # Overridable CPython (#1038). Defaults to the pinned 3.14 so the
           # zero-argument shell is byte-identical to the pre-#1038 builder
@@ -428,6 +438,7 @@
               branchTypes
               commitTypes
               refsPolicy
+              refsOptionalTypes
               ;
           };
           # Base values at priority 999: they beat git-hooks.nix's own
@@ -717,6 +728,26 @@
             "required"
           ])
           "mkProjectShell: refsPolicy must be null, \"chore-optional\", \"optional\" or \"required\", got ${builtins.toJSON refsPolicy}";
+        # refsOptionalTypes (#1633): same per-entry charset allowlist as
+        # commitTypes, PLUS the subset rule — the exempt set must name types
+        # the validator accepts, checked against the SAME resolved list the
+        # hook argv is built from (hooksModule.defaultCommitTypes when the
+        # knob is unset), so the two knobs cannot silently disagree.
+        assert pkgs.lib.assertMsg
+          (
+            refsOptionalTypes == null
+            || (
+              builtins.isList refsOptionalTypes
+              && refsOptionalTypes != [ ]
+              && builtins.all (
+                t: builtins.isString t && builtins.match "[a-z][a-z0-9]*" t != null
+              ) refsOptionalTypes
+              && builtins.all (
+                t: builtins.elem t (if commitTypes == null then hooksModule.defaultCommitTypes else commitTypes)
+              ) refsOptionalTypes
+            )
+          )
+          "mkProjectShell: refsOptionalTypes must be null or a non-empty list of lowercase alphanumeric type names drawn from commitTypes (e.g. [ \"chore\" \"record\" ]), got ${builtins.toJSON refsOptionalTypes}";
         pkgs.mkShell (
           # Module env first: the builder's attrset below wins any collision,
           # so a capability module can never break the Python bootstrap pins
