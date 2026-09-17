@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.15.0] - TBD
+
+### Added
+
 - **`DEVKIT_REFS_OPTIONAL_TYPES`: exempt a named set of commit types from the
   `Refs:` requirement** ([#1633](https://github.com/vig-os/devkit/issues/1633))
   - New `.vig-os` key — a comma-separated (whitespace-tolerant) FULL
@@ -92,12 +106,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `zizmor.yml` baselines the managed basename for `github-app`,
     `secrets-inherit` and `unpinned-images` only; consumer runbook in
     `docs/DOWNSTREAM_RELEASE.md` (Hotfix lane)
-
-### Changed
-
-### Deprecated
-
-### Removed
 
 ### Fixed
 
