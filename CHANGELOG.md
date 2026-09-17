@@ -19,6 +19,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [1.15.1](https://github.com/vig-os/devkit/releases/tag/1.15.1) - 2026-09-17
+
+### Security
+
+- **Except the pcre2 JIT incorrect-free (CVE-2026-89161) in the vulnix
+  register** ([#1645](https://github.com/vig-os/devkit/issues/1645))
+  - The nightly image gate went red on both refs on 2026-09-17 from an NVD
+    feed event, not a closure change: the pin is unchanged and the 2026-09-16
+    scan reported no advisory at all against pcre2.
+  - Only `CVE-2026-89161` crosses the gate's 7.0 threshold (7.4 MITRE / 7.8
+    NIST analyst, both local-vector); the five sub-threshold siblings in the
+    same batch are deliberately left out of the register.
+  - pcre2 reaches the image transitively through ripgrep alone, and the fix
+    (10.48) sits on `staging-next-26.05` while `release-26.05` still ships
+    10.46 — the same lever the curl, openssl and libxml2 blocks wait on.
+    Time-boxed to 2026-11-04; all four blocks die on that advance.
+
 ## [1.15.0](https://github.com/vig-os/devkit/releases/tag/1.15.0) - 2026-09-17
 
 ### Added
