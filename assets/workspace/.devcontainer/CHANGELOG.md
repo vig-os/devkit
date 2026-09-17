@@ -101,6 +101,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Switching `trunk` back to `gitflow` restores the dev-branch guard**
+  ([#1642](https://github.com/vig-os/devkit/issues/1642))
+  - `render_workflow_model` applied the `gitflow -> trunk` retarget one way. For
+    every managed file it touches that is harmless — the template overwrite
+    restores the gitflow shape on the next upgrade — but `.pre-commit-config.yaml`
+    is preserved, so a consumer switching back kept the trunk edits and lost the
+    `(?!dev$)` clause: `no-commit-to-branch` silently stopped blocking direct
+    commits to `dev` on a repo whose manifest said `gitflow`
+  - The dev clause now renders from the resolved model in BOTH directions, in a
+    new `render_branch_guard_model` that runs for either model and goes through
+    the `precommit_render_target` resolver. Each direction's anchors stop
+    matching once applied, so a re-run is a no-op and a default gitflow scaffold
+    stays byte-identical to the template
+  - Flake-hooks consumers were never affected: their guard comes from
+    `mkProjectShell`, which reads `DEVKIT_WORKFLOW` at eval time and was already
+    correct in both directions
 - **Clearing a scaffold knob now restores the default render**
   ([#1640](https://github.com/vig-os/devkit/issues/1640))
   - `.pre-commit-config.yaml` is preserved across upgrades, so it accumulates
