@@ -1753,14 +1753,10 @@ render_workflow_model() {
         sed -i 's|use `dev` as|use `main` as|' "$skill"
     fi
 
-    # .pre-commit-config.yaml — drop the `(?!dev$)` protect-clause + its comments
-    # (main stays protected; trunk has no long-lived dev branch to protect).
-    local pc
-    if pc="$(precommit_render_target)"; then
-        sed -i 's|# Allows main, dev, and|# Allows main and|' "$pc"
-        sed -i 's|main/dev are not protected|main is not protected|' "$pc"
-        sed -i 's|(?!dev$)||' "$pc"
-    fi
+    # .pre-commit-config.yaml is NOT touched here: it is a PRESERVED file, so a
+    # one-way render would strand the trunk shape in it forever. Its dev clause
+    # is rendered from the resolved model, in both directions, by
+    # render_branch_guard_model below (#1642).
 
     # renovate-default.json — retarget baseBranchPatterns dev -> main: Renovate
     # restricted to a base-branch pattern matching no existing branch has
@@ -2062,6 +2058,48 @@ YAML
     fi
 
     echo "Rendered sync-issues settings (target=${MANIFEST_SYNC_TARGET:-default}, schedule=${MANIFEST_SYNC_SCHEDULE:-default})"
+}
+
+# Render the branch guard's dev clause from the workflow model (#1224, #1642).
+#
+# Split out of render_workflow_model, which applies the gitflow -> trunk retarget
+# ONE WAY (it early-returns unless the model is trunk). That is harmless for
+# every other file it touches, because they are MANAGED: the template overwrite
+# restores the gitflow shape and the render simply does not re-run. It is NOT
+# harmless for .pre-commit-config.yaml, which is PRESERVED — a consumer switching
+# back to gitflow kept the trunk edits and lost the dev-branch guard silently,
+# on a repo whose manifest says gitflow.
+#
+# So this runs for BOTH models and renders the clause FROM the resolved model.
+# Each direction's anchors stop matching once applied, which makes a re-run a
+# no-op: `(?!dev$)` inserts only between `(?!main$)` and `(?!^(chore)`, and each
+# comment substitution rewrites the phrase it matched on. A default gitflow
+# scaffold is therefore byte-identical to the template, drift baseline included.
+#
+# Anchors are distinct from render_branch_types' alternation and the two arg-value
+# renders below, so all four compose on the same file.
+#
+# Basic-regex sed, where `(`, `)` and `?` are literal but `$` and `^` are NOT
+# reliably so: GNU sed 4.10 still treats a MID-pattern `$` as an end anchor, so
+# `(?!main$)(?!^(chore)` matches nothing (the existing `(?!dev$)` strip only works
+# because its `$)` sits at the very end of the pattern). Both are escaped in the
+# insert pattern for that reason — an escaped `$`/`^` is literal. The
+# REPLACEMENT side needs no escaping: sed gives `$`/`^` no meaning there.
+render_branch_guard_model() {
+    local model="$1" pc
+    pc="$(precommit_render_target)" || return 0
+
+    if [[ "$model" == "trunk" ]]; then
+        # Trunk has no long-lived dev branch to protect; main stays protected.
+        sed -i 's|# Allows main, dev, and|# Allows main and|' "$pc"
+        sed -i 's|main/dev are not protected|main is not protected|' "$pc"
+        sed -i 's|(?!dev$)||' "$pc"
+    else
+        sed -i 's|# Allows main and|# Allows main, dev, and|' "$pc"
+        sed -i 's|main is not protected|main/dev are not protected|' "$pc"
+        sed -i 's|(?!main\$)(?!\^(chore)|(?!main$)(?!dev$)(?!^(chore)|' "$pc"
+    fi
+    echo "Rendered branch guard: workflow model ${model}"
 }
 
 # Render the Refs policy knob (#1282, #1633): DEVKIT_REFS_OPTIONAL_TYPES — or
@@ -2883,6 +2921,11 @@ render_codeql_matrix
 # trunk workflow model (#1205): retarget the copied release workflows dev ->
 # main. A no-op for the gitflow default, so a gitflow scaffold is unchanged.
 render_workflow_model "$WORKFLOW_MODEL"
+# Branch guard dev-clause (#1642): rendered from the resolved model in BOTH
+# directions, unlike render_workflow_model's one-way retarget above, because
+# .pre-commit-config.yaml is preserved and would otherwise keep the trunk shape
+# after a switch back to gitflow. A no-op for an unchanged model.
+render_branch_guard_model "$WORKFLOW_MODEL"
 # sync-issues knobs (#1228): override the target branch + schedule cron on top of
 # the workflow-model default. A no-op when both keys are unset. Skipped entirely
 # when the sync-issues feature is disabled (#1284) — the file it seds no longer

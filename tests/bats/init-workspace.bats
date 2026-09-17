@@ -2950,6 +2950,93 @@ _render_then_clear() {
     assert_equal "$(sha256sum "$store" | cut -d" " -f1)" "$before"
 }
 
+# ── The branch-guard model render is bidirectional (#1642) ────────────────────
+# render_workflow_model applies the gitflow -> trunk retarget one-way. Every
+# file it touches but .pre-commit-config.yaml is MANAGED, so the template
+# overwrite restores the gitflow shape and the one-way render is harmless there.
+# .pre-commit-config.yaml is PRESERVED, so switching a consumer back to gitflow
+# left the dev-branch guard silently stripped — no-commit-to-branch stopped
+# blocking direct commits to `dev` on a repo whose manifest says gitflow. The
+# dev clause must be rendered FROM the resolved model in both directions, and
+# idempotently. Last instance of the #1640 class.
+
+# Flip DEVKIT_WORKFLOW in a scaffolded workspace and re-upgrade.
+_switch_workflow() {
+    local ws="$1" model="$2"
+    sed -i "s#^DEVKIT_WORKFLOW=.*#DEVKIT_WORKFLOW=${model}#" "$ws/.vig-os" || return 1
+    _upgrade_no_flags "$ws" || return 1
+}
+
+@test "switching trunk -> gitflow restores the dev-branch guard (#1642)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1642-roundtrip"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run _switch_workflow "$ws" trunk
+    assert_success
+    # Trunk still strips it (the direction that already worked).
+    run grep -qF '(?!dev$)' "$ws/.pre-commit-config.yaml"
+    assert_failure
+    run _switch_workflow "$ws" gitflow
+    assert_success
+    # ... and switching back restores both the clause and its comment.
+    run grep -qF '(?!main$)(?!dev$)(?!^(chore)' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -qF '# Allows main, dev, and branches matching the convention.' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "the restored branch guard matches the template byte for byte (#1642)" {
+    # A managed file self-heals to the template on switch-back; the preserved
+    # config must land on exactly the same two lines, not an approximation.
+    ws="$BATS_TEST_TMPDIR/e2e-1642-template-parity"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run _switch_workflow "$ws" trunk
+    assert_success
+    run _switch_workflow "$ws" gitflow
+    assert_success
+    run diff "$TEMPLATE_DIR/.pre-commit-config.yaml" "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "the gitflow branch-guard render is idempotent (#1642)" {
+    # Re-running gitflow must not double-insert the clause or mangle the comment.
+    ws="$BATS_TEST_TMPDIR/e2e-1642-idempotent"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run _switch_workflow "$ws" gitflow
+    assert_success
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -c 'dev\$' "$ws/.pre-commit-config.yaml"
+    assert_success
+    assert_output "1"
+    run diff "$TEMPLATE_DIR/.pre-commit-config.yaml" "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "the branch-guard model render refuses a symlinked config (#1642)" {
+    # Same store-symlink hazard as #1640: this render must go through
+    # precommit_render_target, not its own `[[ -f ]]` test.
+    ws="$BATS_TEST_TMPDIR/e2e-1642-symlink"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    local store="$BATS_TEST_TMPDIR/e2e-1642-store-config.yaml"
+    mv "$ws/.pre-commit-config.yaml" "$store"
+    ln -s "$store" "$ws/.pre-commit-config.yaml"
+    local before
+    before="$(sha256sum "$store" | cut -d" " -f1)"
+    run _switch_workflow "$ws" trunk
+    assert_success
+    run test -L "$ws/.pre-commit-config.yaml"
+    assert_success
+    assert_equal "$(sha256sum "$store" | cut -d" " -f1)" "$before"
+}
+
 # ── Branch types knob (#1432) ─────────────────────────────────────────────────
 # DEVKIT_BRANCH_TYPES replaces the issue-numbered branch-type set in the
 # no-commit-to-branch pattern at scaffold time (the CI branch-name gate is
