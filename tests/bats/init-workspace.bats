@@ -4704,10 +4704,48 @@ _seed_license() {
     assert_success
     run grep -q 'Apache License' "$ws/LICENSE"
     assert_failure
-    # the org placeholder is resolved by the normal substitution pass
+    # the org placeholder is resolved, and resolved to THIS repo's org
     run grep -q '{{ORG_NAME}}' "$ws/LICENSE"
     assert_failure
-    run grep -q 'test' "$ws/LICENSE"
+    run grep -q '^Copyright test\.' "$ws/LICENSE"
+    assert_success
+}
+
+@test "DEVKIT_LICENSE=proprietary renders on a fresh scaffold (#1651)" {
+    # The absent-LICENSE branch: a brand-new private repo never sees the Apache
+    # notice at all, and the rendered file must be writable — the scaffold
+    # assets are read-only /nix/store files in the image.
+    ws="$BATS_TEST_TMPDIR/e2e-1651-license-proprietary-fresh"
+    mkdir -p "$ws"
+    printf 'DEVKIT_LICENSE=proprietary\n' >"$ws/.vig-os"
+    run _scaffold both "$ws"
+    assert_success
+    run grep -q '^Copyright test\.' "$ws/LICENSE"
+    assert_success
+    run grep -q 'Apache License' "$ws/LICENSE"
+    assert_failure
+    run test -w "$ws/LICENSE"
+    assert_success
+    # and the choice round-trips, so the next upgrade does not re-add Apache
+    run grep -x 'DEVKIT_LICENSE=proprietary' "$ws/.vig-os"
+    assert_success
+}
+
+@test "--preview names what proprietary will do to LICENSE (#1651)" {
+    # The copy-exclude keeps LICENSE out of the ADDED/OVERWRITTEN listings, so
+    # the preview must say the render is coming — a preview that is silent
+    # about a mutation is the one thing it may never be.
+    ws="$BATS_TEST_TMPDIR/e2e-1651-license-preview-proprietary"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_license "$ws" proprietary
+    run _preview "$ws" --mode both
+    assert_success
+    assert_output --partial "License: proprietary"
+    assert_output --partial "will be REPLACED"
+    # side-effect-free: the Apache copy is still there afterwards
+    run grep -q 'Apache License' "$ws/LICENSE"
     assert_success
 }
 

@@ -1429,14 +1429,6 @@ fi
 # collide (the curated allowlist gets silently shadowed). Record which
 # spelling(s) triggered the skip so the copy can name them; (a *preserved*
 # .typos.toml is handled by the preserve list).
-# License template (#1651): `none` means devkit manages no LICENSE at all, and
-# `proprietary` renders its own after the copy — either way the Apache template
-# must not ride in. The exclude is what makes a consumer's delete DURABLE: the
-# file is add-if-absent (PRESERVE_FILES), so without it every `--force` put the
-# Apache notice back on a repo that had deliberately removed it.
-if [[ "$RESOLVED_LICENSE" != "apache-2.0" ]]; then
-    MODE_CONFIG_EXCLUDES+=("LICENSE")
-fi
 TYPOS_ALT_CONFIGS=()
 if [[ ! -f "$WORKSPACE_DIR/.typos.toml" ]]; then
     [[ -f "$WORKSPACE_DIR/typos.toml" ]] && TYPOS_ALT_CONFIGS+=("typos.toml")
@@ -1444,6 +1436,14 @@ if [[ ! -f "$WORKSPACE_DIR/.typos.toml" ]]; then
 fi
 if [[ ${#TYPOS_ALT_CONFIGS[@]} -gt 0 ]]; then
     MODE_CONFIG_EXCLUDES+=(".typos.toml")
+fi
+# License template (#1651): `none` means devkit manages no LICENSE at all, and
+# `proprietary` renders its own after the copy — either way the Apache template
+# must not ride in. The exclude is what makes a consumer's delete DURABLE: the
+# file is add-if-absent (PRESERVE_FILES), so without it every `--force` put the
+# Apache notice back on a repo that had deliberately removed it.
+if [[ "$RESOLVED_LICENSE" != "apache-2.0" ]]; then
+    MODE_CONFIG_EXCLUDES+=("LICENSE")
 fi
 # Flake-hooks consumer with an ABSENT generated config (#1255): the consumer's
 # .pre-commit-config.yaml is flake-GENERATED (#883/#1167) — a gitignored
@@ -1504,23 +1504,30 @@ render_license() {
         echo "Warning: DEVKIT_LICENSE=proprietary but no template at $src — LICENSE unchanged (#1651)." >&2
         return 0
     fi
+    # Resolve {{ORG_NAME}} HERE rather than leaning on the shared substitution
+    # pass below: that pass walks the build-time manifest, which is grepped from
+    # assets/workspace/ alone — this template lives outside it and would only be
+    # reached because the Apache LICENSE happens to carry the same token. A
+    # reworded Apache header would then ship a literal {{ORG_NAME}} to the
+    # consumer AND make the comparison below fail forever. Same escaping idiom
+    # as that pass (ORG_NAME may contain sed-significant characters).
+    local org_escaped rendered
+    org_escaped=$(printf '%s\n' "$ORG_NAME" | sed 's/[&/\]/\\&/g')
+    rendered="$(sed "s/{{ORG_NAME}}/${org_escaped}/g" "$src")"
     if [[ -f "$target" ]]; then
-        # Recognize this function's own output: an already-rendered LICENSE went
-        # through the substitution pass, so compare against the template with
-        # {{ORG_NAME}} resolved the same way (same escaping idiom as that pass).
-        # Without this every later upgrade would re-report the file as
-        # consumer-owned and nag about output devkit itself wrote.
-        local org_escaped
-        org_escaped=$(printf '%s\n' "$ORG_NAME" | sed 's/[&/\]/\\&/g')
-        if [[ "$(cat "$target")" == "$(sed "s/{{ORG_NAME}}/${org_escaped}/g" "$src")" ]]; then
-            return 0
-        fi
+        # Recognize this function's own output, or every later upgrade would
+        # re-report the file as consumer-owned and nag about what devkit wrote.
+        [[ "$(cat "$target")" == "$rendered" ]] && return 0
         if ! license_is_stock_apache "$target"; then
             echo "DEVKIT_LICENSE=proprietary: LICENSE left in place (not the stock Apache scaffold copy); replace it by hand if that is wrong (#1651)."
             return 0
         fi
     fi
-    cp -L "$src" "$target"
+    printf '%s\n' "$rendered" > "$target"
+    # The scaffold assets are read-only /nix/store files in the image, and a
+    # fresh create must not hand the consumer a 0444 LICENSE — the post-copy
+    # writable sweep (#1480) has already run by now.
+    chmod u+w "$target"
     echo "Rendered the proprietary LICENSE (DEVKIT_LICENSE=proprietary, #1651)."
 }
 
@@ -2456,11 +2463,26 @@ if [[ "$FORCE" == "true" ]]; then
             echo ""
             echo "Disabled features (DEVKIT_FEATURES_DISABLED): ${DISABLED_FEATURES[*]}"
         fi
-        # License selection (#1651): LICENSE is absent from ADDED above whenever
-        # the knob is not the Apache default, so name the reason.
+        # License selection (#1651): the copy-exclude keeps LICENSE out of the
+        # classified listings above, so the preview must say what the run will
+        # actually do to it — `proprietary` CREATES or REPLACES a file, and a
+        # preview that showed neither would be the one thing this report may
+        # never be: silent about a mutation. Pure reads, so the preview stays
+        # side-effect-free.
         if [[ "$RESOLVED_LICENSE" != "apache-2.0" ]]; then
             echo ""
             echo "License: $RESOLVED_LICENSE (DEVKIT_LICENSE) — the Apache-2.0 template is not shipped."
+            if [[ "$RESOLVED_LICENSE" == "proprietary" ]]; then
+                if [[ ! -f "$WORKSPACE_DIR/LICENSE" ]]; then
+                    echo "  +  LICENSE (rendered from the proprietary template)"
+                elif license_is_stock_apache "$WORKSPACE_DIR/LICENSE"; then
+                    echo "  !  LICENSE (the stock Apache scaffold copy will be REPLACED by the proprietary notice)"
+                else
+                    echo "  =  LICENSE left in place (not the stock Apache scaffold copy)"
+                fi
+            elif [[ -f "$WORKSPACE_DIR/LICENSE" ]]; then
+                echo "  =  LICENSE left in place (devkit manages no license; delete it yourself if unwanted)"
+            fi
         fi
         # trunk workflow model (#1205): the copied release workflows are
         # rendered dev -> main after the copy, so call it out in the preview.

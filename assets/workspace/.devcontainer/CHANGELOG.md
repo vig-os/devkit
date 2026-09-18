@@ -35,7 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The scaffolded changelog skeleton no longer carries a templated
     `## Unreleased` entry referencing an upstream devkit issue.
 
-### Changed
 
 ### Deprecated
 

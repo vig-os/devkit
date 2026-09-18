@@ -974,7 +974,10 @@ DEVKIT_LICENSE=proprietary
 
 An unknown value aborts the scaffold loudly, and the key round-trips across
 `--force` upgrades like every other `.vig-os` knob. `none` and `proprietary`
-never delete a license file — removing one is always the consumer's own act.
+never delete a license file — removing one is always the consumer's own act. For
+the same reason the switch **back** to `apache-2.0` is a no-op on a repo that
+already has a `LICENSE`: the file is preserved, so delete it by hand and let the
+next `--force` re-add the Apache template.
 
 ### Migrating a `devcontainer`/`both` repo to `direnv` or `bare`
 
