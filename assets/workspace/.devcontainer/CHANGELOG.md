@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`DEVKIT_LICENSE`: choose the license the scaffold ships**
+  ([#1651](https://github.com/vig-os/devkit/issues/1651))
+  - New `.vig-os` key: `apache-2.0` (default/empty, unchanged) | `proprietary`
+    | `none`. A private repo no longer has to carry an Apache-2.0 notice that
+    mislabels confidential material as openly licensed.
+  - `proprietary` renders an all-rights-reserved notice, but only over an
+    absent or still-untouched Apache scaffold copy — a hand-edited `LICENSE` is
+    left in place with a notice, and a re-render is a silent no-op.
+  - `none` manages no `LICENSE` at all, so deleting it finally sticks across
+    `--force` upgrades. Neither value ever deletes an existing license file.
+  - An unknown value aborts the scaffold loudly; the key round-trips like every
+    other manifest knob.
+
+### Changed
+
+- **The `release` feature group now covers the root `CHANGELOG.md`**
+  ([#1651](https://github.com/vig-os/devkit/issues/1651))
+  - Only the release workflows read it, so a repo with
+    `DEVKIT_FEATURES_DISABLED=release` is no longer handed a changelog it never
+    writes — and a deletion is durable instead of undone by the next upgrade.
+  - An existing changelog is preserved-class: left in place with a notice,
+    never pruned. Devkit's own `.devcontainer/CHANGELOG.md` mirror is
+    unaffected (the exclude is root-anchored).
+  - The scaffolded changelog skeleton no longer carries a templated
+    `## Unreleased` entry referencing an upstream devkit issue.
+
 ### Changed
 
 ### Deprecated
