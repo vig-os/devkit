@@ -268,6 +268,22 @@ jobs:
           if [ -n "$FLAKE_BUMP" ]; then
             echo "- ${FLAKE_BUMP}" >> "$GITHUB_STEP_SUMMARY"
           fi
+          # Known-bad blocks in a PRESERVED config (#1652): the scaffold cannot
+          # rewrite a consumer-owned file (#878), so a hook fix never reaches
+          # the repos that carry the broken block — it prints one
+          # `preserved-hook-drift:` line per hit instead. Ride the same channel
+          # as flake-bump: a warning left in the workflow log reaches nobody,
+          # and the PR is where this repo's owner is already looking. Multi-line
+          # (one line per known-bad block), hence the delimited output form.
+          HOOK_DRIFT="$(grep -E '^preserved-hook-drift:' "$RUNNER_TEMP/install.log" || true)"
+          {
+            echo "hook-drift<<DEVKIT_EOF"
+            if [ -n "$HOOK_DRIFT" ]; then printf '%s\n' "$HOOK_DRIFT"; fi
+            echo "DEVKIT_EOF"
+          } >> "$GITHUB_OUTPUT"
+          if [ -n "$HOOK_DRIFT" ]; then
+            printf '%s\n' "$HOOK_DRIFT" | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Reset excluded paths
         if: steps.resolve.outputs.proceed == 'true'
@@ -389,6 +405,7 @@ jobs:
           TARGET: ${{ steps.resolve.outputs.target }}
           BRANCH: ${{ steps.branch.outputs.name }}
           FLAKE_BUMP: ${{ steps.upgrade.outputs.flake-bump }}
+          HOOK_DRIFT: ${{ steps.upgrade.outputs.hook-drift }}
           # PR base per workflow model (retargeted dev -> main at scaffold time).
           BASE: dev
         run: |
@@ -402,6 +419,12 @@ jobs:
           # the consumer makes, not a silent no-op — put it where they review.
           if [ -n "$FLAKE_BUMP" ]; then
             BODY="$(printf '%s\n%s\n' "$BODY" "$FLAKE_BUMP")"
+          fi
+          # Preserved-config drift (#1652): the upgrade could not deliver these
+          # hook fixes — only the consumer can fold them in, so say so where
+          # they review the adoption.
+          if [ -n "$HOOK_DRIFT" ]; then
+            BODY="$(printf '%s\n**Preserved config keeps a retired hook block** — the upgrade cannot rewrite a consumer-owned file; fold these in by hand (see MIGRATION.md):\n\n```\n%s\n```\n' "$BODY" "$HOOK_DRIFT")"
           fi
           if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
             gh pr edit "$BRANCH" --title "$TITLE" --body "$BODY"
