@@ -2371,6 +2371,7 @@ _upgrade_no_flags() {
         'DEVKIT_DRIFT_CHECK=false'
         'DEVKIT_FEATURES_DISABLED=renovate,scanning'
         'DEVKIT_REFS_OPTIONAL_TYPES=chore,build'
+        'DEVKIT_LICENSE=none'
     )
     for row in "${rows[@]}"; do
         key="${row%%=*}"
@@ -2389,7 +2390,7 @@ _upgrade_no_flags() {
     local keys=(DEVKIT_CI_RUNNER DEVKIT_DEV_PROFILE_PATH DEVKIT_SYNC_TARGET
         DEVKIT_SYNC_SCHEDULE DEVKIT_REFS_POLICY DEVKIT_DRIFT_CHECK
         DEVKIT_FEATURES_DISABLED DEVKIT_COMMIT_TYPES DEVKIT_BRANCH_TYPES
-        DEVKIT_REFS_OPTIONAL_TYPES)
+        DEVKIT_REFS_OPTIONAL_TYPES DEVKIT_LICENSE)
     for key in "${keys[@]}"; do
         echo "key: $key"
         run grep -x "${key}=" "$TEMPLATE_DIR/.vig-os"
@@ -2501,6 +2502,10 @@ _upgrade_no_flags() {
         # resolved DEVKIT_COMMIT_TYPES is a manifest bug (#1633).
         'DEVKIT_REFS_OPTIONAL_TYPES|chore,Bad-Type'
         'DEVKIT_REFS_OPTIONAL_TYPES|chore,record'
+        # The license knob selects a template variant, so only the three known
+        # values may pass — a typo must never silently fall back to Apache on a
+        # repo that asked for a proprietary notice (#1651).
+        'DEVKIT_LICENSE|bsd-3-clause'
     )
     local i=0
     for row in "${rows[@]}"; do
@@ -4576,6 +4581,180 @@ _scaffold_seeded() {
 
 # (ships-empty, unknown-name abort and write-back for DEVKIT_FEATURES_DISABLED
 # are covered by the .vig-os knob loops earlier in this file)
+
+# ── LICENSE / CHANGELOG opt-out for private, release-less consumers (#1651) ───
+# Both files are add-if-absent PRESERVE_FILES: never overwritten, but re-added
+# by every `--force` upgrade — so deleting them was not durable and a private
+# repo had to carry an Apache-2.0 notice that actively mislabels confidential
+# material, plus a changelog it never writes. The root CHANGELOG is release
+# machinery (only the release-group workflows read it), so it joins that feature
+# group; the license needs a VALUE, not an on/off, so it gets its own knob.
+
+# Seed DEVKIT_LICENSE into an already-scaffolded workspace .vig-os.
+_seed_license() {
+    local ws="$1" value="$2"
+    sed -i "s#^DEVKIT_LICENSE=.*#DEVKIT_LICENSE=${value}#" "$ws/.vig-os"
+}
+
+@test "the release feature group covers the root CHANGELOG.md (#1651)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1651-changelog-fresh"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "release"
+    assert_success
+    run test -e "$ws/CHANGELOG.md"
+    assert_failure
+    # root-anchored: devkit's own changelog mirror inside .devcontainer/ stays
+    run test -f "$ws/.devcontainer/CHANGELOG.md"
+    assert_success
+}
+
+@test "a deleted CHANGELOG.md stays deleted with release disabled (#1651)" {
+    # The durability property: without the feature-group exclude, the next
+    # --force re-added the file and the consumer had to delete it again.
+    ws="$BATS_TEST_TMPDIR/e2e-1651-changelog-sticky"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run test -f "$ws/CHANGELOG.md"
+    assert_success
+    _seed_features_disabled "$ws" "release"
+    rm -f "$ws/CHANGELOG.md"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run test -e "$ws/CHANGELOG.md"
+    assert_failure
+}
+
+@test "an existing CHANGELOG.md survives the release opt-out (#1651)" {
+    # Preserved-class carve-out: a changelog is the repo's own history, so the
+    # prune never deletes it — it says so and leaves it alone.
+    ws="$BATS_TEST_TMPDIR/e2e-1651-changelog-kept"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    printf '\n<!-- SENTINEL-1651 -->\n' >>"$ws/CHANGELOG.md"
+    _seed_features_disabled "$ws" "release"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "CHANGELOG.md left in place (preserved)"
+    run grep -q 'SENTINEL-1651' "$ws/CHANGELOG.md"
+    assert_success
+}
+
+@test "an absent DEVKIT_LICENSE scaffolds the Apache-2.0 template (#1651)" {
+    # Default is byte-for-byte today's behavior.
+    ws="$(_shared_tree both)"
+    run grep -q 'Apache License' "$ws/LICENSE"
+    assert_success
+    run grep -q '{{ORG_NAME}}' "$ws/LICENSE"
+    assert_failure
+}
+
+@test "DEVKIT_LICENSE=none keeps LICENSE out of a fresh scaffold (#1651)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1651-license-none-fresh"
+    mkdir -p "$ws"
+    printf 'DEVKIT_LICENSE=none\n' >"$ws/.vig-os"
+    run _scaffold both "$ws"
+    assert_success
+    run test -e "$ws/LICENSE"
+    assert_failure
+}
+
+@test "a deleted LICENSE stays deleted under DEVKIT_LICENSE=none (#1651)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1651-license-none-sticky"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_license "$ws" none
+    rm -f "$ws/LICENSE"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run test -e "$ws/LICENSE"
+    assert_failure
+    # and the opt-out round-trips, so the next upgrade does not re-add it
+    run grep -x 'DEVKIT_LICENSE=none' "$ws/.vig-os"
+    assert_success
+}
+
+@test "DEVKIT_LICENSE=none never deletes an existing LICENSE (#1651)" {
+    # `none` means "devkit does not manage this file", not "remove it": a
+    # license file is the consumer's legal record, like their CHANGELOG.
+    ws="$BATS_TEST_TMPDIR/e2e-1651-license-none-keep"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_license "$ws" none
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run test -f "$ws/LICENSE"
+    assert_success
+}
+
+@test "DEVKIT_LICENSE=proprietary replaces the stock Apache copy (#1651)" {
+    # The repair path for the repo in the issue: Apache already landed, and
+    # the file is untouched scaffold output, so the knob can fix it.
+    ws="$BATS_TEST_TMPDIR/e2e-1651-license-proprietary"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_license "$ws" proprietary
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -q 'All rights reserved' "$ws/LICENSE"
+    assert_success
+    run grep -q 'Apache License' "$ws/LICENSE"
+    assert_failure
+    # the org placeholder is resolved by the normal substitution pass
+    run grep -q '{{ORG_NAME}}' "$ws/LICENSE"
+    assert_failure
+    run grep -q 'test' "$ws/LICENSE"
+    assert_success
+}
+
+@test "DEVKIT_LICENSE=proprietary is quiet and stable on re-upgrade (#1651)" {
+    # Once rendered, the file is no longer the stock Apache copy — the guard
+    # must recognize its own output instead of nagging on every upgrade.
+    ws="$BATS_TEST_TMPDIR/e2e-1651-license-proprietary-idempotent"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_license "$ws" proprietary
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run _upgrade_no_flags "$ws"
+    assert_success
+    refute_output --partial "LICENSE left in place"
+    run grep -q 'All rights reserved' "$ws/LICENSE"
+    assert_success
+}
+
+@test "DEVKIT_LICENSE=proprietary leaves a hand-edited LICENSE alone (#1651)" {
+    # Anything but the untouched scaffold copy is the consumer's own legal
+    # text — report it, never overwrite it.
+    ws="$BATS_TEST_TMPDIR/e2e-1651-license-proprietary-custom"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    printf '\nSENTINEL-1651 consumer addendum\n' >>"$ws/LICENSE"
+    _seed_license "$ws" proprietary
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "LICENSE left in place"
+    run grep -q 'SENTINEL-1651' "$ws/LICENSE"
+    assert_success
+    run grep -q 'Apache License' "$ws/LICENSE"
+    assert_success
+}
+
+@test "--preview reports the license selection truthfully (#1651)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1651-license-preview"
+    mkdir -p "$ws"
+    printf 'DEVKIT_LICENSE=none\n' >"$ws/.vig-os"
+    run _preview "$ws" --mode both
+    assert_success
+    assert_output --partial "License: none"
+    refute_output --partial "+  LICENSE"
+}
 
 @test "a whitespace-padded feature list is accepted (#1284)" {
     ws="$BATS_TEST_TMPDIR/e2e-1284-whitespace"
