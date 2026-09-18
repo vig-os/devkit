@@ -1734,6 +1734,40 @@ EOF
     assert_success
 }
 
+@test "the drift marker rides stdout, the warning stderr (#1652)" {
+    # The channel depends on the split: devkit-upgrade.yml captures STDOUT only
+    # (`install.sh … | tee install.log`) and greps the marker out of that log,
+    # while the human warning rides stderr like every other preserved-file
+    # guard. Merged into one stream (bats\' default `run`) the two are
+    # indistinguishable, so pin them apart.
+    ws="$BATS_TEST_TMPDIR/e2e-1652-streams"
+    mkdir -p "$ws"
+    _stale_pymarkdown_config "$ws"
+    run --separate-stderr _upgrade both "$ws"
+    assert_success
+    assert_output --partial 'preserved-hook-drift: pymarkdown-pre-1170'
+    [[ "$stderr" == *"the template retired"* ]]
+    [[ "$stderr" != *"preserved-hook-drift:"* ]]
+}
+
+@test "the known-bad scan sees a quoted repo URL (#1652)" {
+    # Quoting a `repo:` URL is unusual but legal YAML — and a consumer whose
+    # config quotes it is no less broken.
+    ws="$BATS_TEST_TMPDIR/e2e-1652-quoted"
+    mkdir -p "$ws"
+    cat > "$ws/.pre-commit-config.yaml" <<'EOF'
+# SENTINEL-1652 quoted consumer config
+repos:
+  - repo: "https://github.com/jackdewinter/pymarkdown"
+    rev: 8f8c2f2b0a6b4b0d9d3f6a1a0c4e2d7b9e5a1c3d  # v0.9.29
+    hooks:
+      - id: pymarkdown
+EOF
+    run _upgrade both "$ws"
+    assert_success
+    assert_output --partial 'preserved-hook-drift: pymarkdown-pre-1170'
+}
+
 @test "no known-bad hook warning on a stock scaffold (#1652)" {
     # The template ships the fixed hook, so a stock consumer must stay silent —
     # on the first scaffold and on every later upgrade of the preserved copy.

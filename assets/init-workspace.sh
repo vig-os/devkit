@@ -975,6 +975,10 @@ print_preserved_template_diff() {
 #
 #   <id>|<preserved rel-path>|<ERE>|<remedy>
 #
+# `|` is the field separator, so an ERE that needs alternation must express it
+# some other way (a character class, or a second row) — an unescaped `|` inside
+# the pattern would silently truncate it and shift the remedy.
+#
 # First row, the pre-#1170 pymarkdown hook: `language: python` makes prek build
 # its venv on prek's own base interpreter, while the flake toolchain's
 # pymarkdownlnt is built for `default_language_version` — loading a cpython-3xx
@@ -984,12 +988,13 @@ print_preserved_template_diff() {
 # migration.
 known_bad_preserved_patterns() {
     printf '%s\n' \
-        'pymarkdown-pre-1170|.pre-commit-config.yaml|repo:[[:space:]]*https://github\.com/jackdewinter/pymarkdown|Replace that block with the repo: local / entry: pymarkdown / language: system hook the template ships (#1170) — see MIGRATION.md, "Fold the #1170 pymarkdown hook into a preserved config".'
+        'pymarkdown-pre-1170|.pre-commit-config.yaml|repo:[[:space:]]*["'\'']?https://github\.com/jackdewinter/pymarkdown|Replace that block with the repo: local / entry: pymarkdown / language: system hook the template ships (#1170) — see MIGRATION.md, "Fold the #1170 pymarkdown hook into a preserved config".'
 }
 
 # Scan the preserved files named in the table above and report every known-bad
 # block: a file:line warning on STDERR (like the #881 scan) plus one
-# `preserved-hook-drift: <id> in <path>` line on STDOUT per hit. The stdout line
+# `preserved-hook-drift: <id> in <path>` line on STDOUT per matching row (one
+# marker per known-bad block, however many lines it hit). The stdout line
 # is the machine channel — devkit-upgrade.yml lifts it out of the install log
 # into the step summary and the adoption PR body, the same way it carries the
 # `flake-bump:` report (#1497) — because a warning that only reaches a workflow
@@ -1006,7 +1011,7 @@ scan_known_bad_preserved() {
         [[ -n "$kb_id" && -n "$kb_file" && -n "$kb_pattern" ]] || continue
         is_preserved_file "$kb_file" || continue
         [[ -f "$WORKSPACE_DIR/$kb_file" ]] || continue
-        kb_hits="$(grep -nHE "$kb_pattern" "$WORKSPACE_DIR/$kb_file" 2>/dev/null \
+        kb_hits="$(grep -nHE -- "$kb_pattern" "$WORKSPACE_DIR/$kb_file" 2>/dev/null \
             | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#' || true)"
         [[ -n "$kb_hits" ]] || continue
         echo "Warning: preserved $kb_file carries a hook block the template retired (#1652):" >&2
@@ -2430,7 +2435,6 @@ if [[ "$FORCE" == "true" ]]; then
         # consumer looks BEFORE upgrading, and the scan reads a preserved file
         # the copy never touches — so it reports here exactly what the real run
         # would, side-effect-free.
-        echo ""
         scan_known_bad_preserved
         echo ""
         echo "Preview complete — no files were changed."
