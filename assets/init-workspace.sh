@@ -344,6 +344,7 @@ MANIFEST_WORKFLOW="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_WORKFLOW || t
 MANIFEST_SYNC_TARGET="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_TARGET || true)"
 MANIFEST_SYNC_SCHEDULE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_SCHEDULE || true)"
 MANIFEST_FEATURES_DISABLED="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FEATURES_DISABLED || true)"
+MANIFEST_LICENSE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_LICENSE || true)"
 
 MANIFEST_REFS_POLICY="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REFS_POLICY || true)"
 MANIFEST_COMMIT_TYPES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_COMMIT_TYPES || true)"
@@ -533,6 +534,31 @@ case "$MANIFEST_REFS_POLICY" in
         exit 1
         ;;
 esac
+
+# License template (#1651): apache-2.0 (default) | proprietary | none. The
+# scaffold ADDS a LICENSE when the consumer has none (add-if-absent, like
+# CHANGELOG.md), which for a private repo is not a neutral default — it labels
+# confidential material as openly licensed, and deleting the file was never
+# durable because the next `--force` re-added it. This knob is the axis the
+# feature groups cannot express: the file is not on/off but a CHOICE of text.
+#
+#   apache-2.0  the shipped template, byte-for-byte today's behavior;
+#   proprietary an all-rights-reserved notice rendered from assets/licenses/;
+#   none        devkit does not manage LICENSE at all — a one-time delete
+#               sticks, and an existing file is left untouched (never deleted:
+#               a license is the repo's legal record, like its CHANGELOG).
+#
+# Pure `.vig-os` key (no CLI flag), so only a value guard — an unknown value
+# must abort rather than silently fall back to Apache on a repo that asked for
+# a proprietary notice (mirrors the DEVKIT_REFS_POLICY guard).
+case "$MANIFEST_LICENSE" in
+    ""|apache-2.0|proprietary|none) ;;
+    *)
+        echo "Error: Invalid DEVKIT_LICENSE in $VIG_OS_MANIFEST: $MANIFEST_LICENSE (expected: apache-2.0 | proprietary | none)" >&2
+        exit 1
+        ;;
+esac
+RESOLVED_LICENSE="${MANIFEST_LICENSE:-apache-2.0}"
 
 # Commit types (#1431): DEVKIT_COMMIT_TYPES is a comma-separated (whitespace-
 # tolerant, like DEVKIT_FEATURES_DISABLED) FULL REPLACEMENT of the approved
@@ -1411,6 +1437,14 @@ fi
 if [[ ${#TYPOS_ALT_CONFIGS[@]} -gt 0 ]]; then
     MODE_CONFIG_EXCLUDES+=(".typos.toml")
 fi
+# License template (#1651): `none` means devkit manages no LICENSE at all, and
+# `proprietary` renders its own after the copy — either way the Apache template
+# must not ride in. The exclude is what makes a consumer's delete DURABLE: the
+# file is add-if-absent (PRESERVE_FILES), so without it every `--force` put the
+# Apache notice back on a repo that had deliberately removed it.
+if [[ "$RESOLVED_LICENSE" != "apache-2.0" ]]; then
+    MODE_CONFIG_EXCLUDES+=("LICENSE")
+fi
 # Flake-hooks consumer with an ABSENT generated config (#1255): the consumer's
 # .pre-commit-config.yaml is flake-GENERATED (#883/#1167) — a gitignored
 # /nix/store symlink that only materializes on shell entry — so in a fresh
@@ -1430,6 +1464,72 @@ if [[ "$FLAKE_PREEXISTED" == "true" && "$PRECOMMIT_CONFIG_PREEXISTED" == "false"
     FLAKE_HOOKS_CONSUMER=true
     MODE_CONFIG_EXCLUDES+=(".pre-commit-config.yaml")
 fi
+
+# Off-template license variants (#1651) live OUTSIDE the scaffold tree, so the
+# rsync copy can never blind-ship them: derived from TEMPLATE_DIR's parent, which
+# resolves for both the image (/root/assets/workspace -> /root/assets/licenses)
+# and a repo checkout (assets/workspace -> assets/licenses).
+LICENSE_TEMPLATE_DIR="${LICENSE_TEMPLATE_DIR:-$(dirname "$TEMPLATE_DIR")/licenses}"
+
+# True when the workspace LICENSE is the scaffold's own Apache-2.0 output and
+# nothing else (#1651) — the one state `proprietary` may overwrite. The
+# copyright line is normalized away on both sides: it carries the org name (and
+# an older devkit's year), so comparing it would refuse the very repos this
+# knob exists for, while any OTHER edit — an appendix, a different license
+# entirely — still reads as consumer-owned and is left alone.
+license_is_stock_apache() {
+    local current="$1" tmpl="$TEMPLATE_DIR/LICENSE"
+    [[ -f "$current" && -f "$tmpl" ]] || return 1
+    local strip='s/^[[:space:]]*Copyright [0-9]\{4\}.*$/DEVKIT-COPYRIGHT-LINE/'
+    [[ "$(sed "$strip" "$current")" == "$(sed "$strip" "$tmpl")" ]]
+}
+
+# Render the proprietary LICENSE when DEVKIT_LICENSE=proprietary (#1651). Called
+# BEFORE the placeholder substitution pass, exactly like seed_node_justfile_project
+# (#1027): the file lands at a path the build-time manifest already lists as
+# token-bearing, so {{ORG_NAME}} is resolved by the same pass that renders every
+# other managed file — no second substitution site.
+#
+# Three states, and only the middle one writes:
+#   * already the proprietary text  -> silent no-op (an upgrade must not nag
+#     about output it produced itself);
+#   * absent, or the untouched Apache scaffold copy -> render (this is the
+#     repair path: the mislabelled file is devkit's own output);
+#   * anything else -> the consumer's own legal text: notice, left in place.
+render_license() {
+    [[ "$RESOLVED_LICENSE" == "proprietary" ]] || return 0
+    local target="$WORKSPACE_DIR/LICENSE"
+    local src="$LICENSE_TEMPLATE_DIR/PROPRIETARY"
+    if [[ ! -f "$src" ]]; then
+        echo "Warning: DEVKIT_LICENSE=proprietary but no template at $src — LICENSE unchanged (#1651)." >&2
+        return 0
+    fi
+    # Resolve {{ORG_NAME}} HERE rather than leaning on the shared substitution
+    # pass below: that pass walks the build-time manifest, which is grepped from
+    # assets/workspace/ alone — this template lives outside it and would only be
+    # reached because the Apache LICENSE happens to carry the same token. A
+    # reworded Apache header would then ship a literal {{ORG_NAME}} to the
+    # consumer AND make the comparison below fail forever. Same escaping idiom
+    # as that pass (ORG_NAME may contain sed-significant characters).
+    local org_escaped rendered
+    org_escaped=$(printf '%s\n' "$ORG_NAME" | sed 's/[&/\]/\\&/g')
+    rendered="$(sed "s/{{ORG_NAME}}/${org_escaped}/g" "$src")"
+    if [[ -f "$target" ]]; then
+        # Recognize this function's own output, or every later upgrade would
+        # re-report the file as consumer-owned and nag about what devkit wrote.
+        [[ "$(cat "$target")" == "$rendered" ]] && return 0
+        if ! license_is_stock_apache "$target"; then
+            echo "DEVKIT_LICENSE=proprietary: LICENSE left in place (not the stock Apache scaffold copy); replace it by hand if that is wrong (#1651)."
+            return 0
+        fi
+    fi
+    printf '%s\n' "$rendered" > "$target"
+    # The scaffold assets are read-only /nix/store files in the image, and a
+    # fresh create must not hand the consumer a 0444 LICENSE — the post-copy
+    # writable sweep (#1480) has already run by now.
+    chmod u+w "$target"
+    echo "Rendered the proprietary LICENSE (DEVKIT_LICENSE=proprietary, #1651)."
+}
 
 # Feature opt-outs (#1284): expand a disabled feature group into its
 # transfer-root rel-paths — the SSoT feature->path map. The skills/worktree
@@ -1453,7 +1553,8 @@ feature_paths() {
                 ".github/workflows/promote-release.yml" \
                 ".github/workflows/abandon-release.yml" \
                 ".github/workflows/sync-main-to-dev.yml" \
-                "docs/DOWNSTREAM_RELEASE.md"
+                "docs/DOWNSTREAM_RELEASE.md" \
+                "CHANGELOG.md"
             ;;
         renovate)
             printf '%s\n' \
@@ -2362,6 +2463,27 @@ if [[ "$FORCE" == "true" ]]; then
             echo ""
             echo "Disabled features (DEVKIT_FEATURES_DISABLED): ${DISABLED_FEATURES[*]}"
         fi
+        # License selection (#1651): the copy-exclude keeps LICENSE out of the
+        # classified listings above, so the preview must say what the run will
+        # actually do to it — `proprietary` CREATES or REPLACES a file, and a
+        # preview that showed neither would be the one thing this report may
+        # never be: silent about a mutation. Pure reads, so the preview stays
+        # side-effect-free.
+        if [[ "$RESOLVED_LICENSE" != "apache-2.0" ]]; then
+            echo ""
+            echo "License: $RESOLVED_LICENSE (DEVKIT_LICENSE) — the Apache-2.0 template is not shipped."
+            if [[ "$RESOLVED_LICENSE" == "proprietary" ]]; then
+                if [[ ! -f "$WORKSPACE_DIR/LICENSE" ]]; then
+                    echo "  +  LICENSE (rendered from the proprietary template)"
+                elif license_is_stock_apache "$WORKSPACE_DIR/LICENSE"; then
+                    echo "  !  LICENSE (the stock Apache scaffold copy will be REPLACED by the proprietary notice)"
+                else
+                    echo "  =  LICENSE left in place (not the stock Apache scaffold copy)"
+                fi
+            elif [[ -f "$WORKSPACE_DIR/LICENSE" ]]; then
+                echo "  =  LICENSE left in place (devkit manages no license; delete it yourself if unwanted)"
+            fi
+        fi
         # trunk workflow model (#1205): the copied release workflows are
         # rendered dev -> main after the copy, so call it out in the preview.
         if [[ "$WORKFLOW_MODEL" == "trunk" ]]; then
@@ -2861,6 +2983,11 @@ fi
 # consumers and for an existing (preserved) justfile.project. Refs #1027.
 seed_node_justfile_project
 
+# Render the proprietary LICENSE before the same substitution pass (#1651): the
+# file lands at a path the manifest already lists as token-bearing, so its
+# {{ORG_NAME}} resolves exactly like every other managed file.
+render_license
+
 # Replace placeholders in files (using pre-built manifest from image)
 echo "Replacing placeholders in files..."
 
@@ -3012,6 +3139,14 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     # raw value round-trips (like DEVKIT_TAG_PREFIX); clearing it re-enables.
     if [[ -n "$MANIFEST_FEATURES_DISABLED" ]]; then
         write_manifest_value DEVKIT_FEATURES_DISABLED "$MANIFEST_FEATURES_DISABLED"
+    fi
+    # License selection (#1651): bare in the template (DEVKIT_LICENSE=), so a
+    # consumer's `none`/`proprietary` choice is written back — else an upgrade
+    # silently resets it to apache-2.0 and re-adds the Apache notice to a private
+    # repo. Round-trips like DEVKIT_FEATURES_DISABLED; clearing it restores the
+    # default.
+    if [[ -n "$MANIFEST_LICENSE" ]]; then
+        write_manifest_value DEVKIT_LICENSE "$MANIFEST_LICENSE"
     fi
     # Refs policy (#1282): bare in the template (DEVKIT_REFS_POLICY=), so a
     # consumer's non-default policy is written back — else an upgrade silently

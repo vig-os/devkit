@@ -910,6 +910,9 @@ class TestFileStructure:
             "/root/assets/workspace/README.md",
             "/root/assets/workspace/LICENSE",
             "/root/assets/workspace/.vig-os",
+            # Off-template license variant (#1651): outside assets/workspace/ so
+            # it is never blind-copied into a consumer; rendered on demand.
+            "/root/assets/licenses/PROPRIETARY",
             # .devcontainer files
             "/root/assets/workspace/.devcontainer/.gitignore",
             "/root/assets/workspace/.devcontainer/CHANGELOG.md",

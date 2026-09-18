@@ -445,6 +445,7 @@ unknown keys:
 | `DEVKIT_BRANCH_TYPES` | Comma-separated FULL REPLACEMENT of the issue-numbered `<type>/<issue>-<summary>` branch-type set, driving the local `no-commit-to-branch` guard, the flake-generated consumer surface, and CI's branch-name gate; empty (default) => the stock set (`feature,bugfix,hotfix,release,docs,test,refactor`). The `chore/`, `renovate/`, `worktree/` clauses are never knob-driven. Pre-#1432 direnv consumers hand-port the flake reader (see [Commit and branch policy on the flake surface](#commit-and-branch-policy-on-the-flake-surface-direnv-consumers), [#1432](https://github.com/vig-os/devkit/issues/1432)) |
 | `DEVKIT_AUTO_UPGRADE` | Opt-out for the scaffolded `devkit-upgrade.yml` weekly schedule; empty (default) or any value but `false` keeps the auto-adoption poll on. `false` disables only the schedule — manual `workflow_dispatch` always runs ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
 | `DEVKIT_UPGRADE_EXCLUDE` | Comma-separated (whitespace-tolerant) paths the `devkit-upgrade` workflow resets before the adoption commit, so generated-doc churn never rides along in the upgrade diff; empty (default) => no exclusions ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
+| `DEVKIT_LICENSE` | License the scaffold ships: `apache-2.0` (default/empty) \| `proprietary` \| `none`. `proprietary` renders an all-rights-reserved notice over an untouched Apache scaffold copy; `none` manages no `LICENSE` at all, so a delete sticks. Neither ever deletes an existing file (see [A private consumer: license and changelog](#a-private-consumer-license-and-changelog), [#1651](https://github.com/vig-os/devkit/issues/1651)) |
 | `DEVKIT_LANGUAGES` | Comma-separated (whitespace-tolerant) subset of `python,node,rust,nix` the repo DECLARES. A declaration, not a detection cache: the scaffold seeds it from detection, ADDS a newly detected language, and never removes one (see [Declared project languages](#declared-project-languages), [#1478](https://github.com/vig-os/devkit/issues/1478)) |
 
 ### Declared project languages
@@ -495,7 +496,10 @@ The eight groups:
 
 - `release` — the release/prepare/promote workflows (`release*.yml`,
   `prepare-release*.yml`, `prepare-hotfix.yml`, `promote-release.yml`,
-  `sync-main-to-dev.yml`) and `docs/DOWNSTREAM_RELEASE.md`.
+  `sync-main-to-dev.yml`), `docs/DOWNSTREAM_RELEASE.md`, and the root
+  `CHANGELOG.md` — release machinery, read only by those workflows
+  ([#1651](https://github.com/vig-os/devkit/issues/1651)). An existing
+  changelog is preserved-class: left in place, never pruned.
 - `renovate` — `renovate.json` and `.github/renovate-default.json`.
 - `sync-issues` — `sync-issues.yml` and `.github/label-taxonomy.toml`. With this
   group disabled, `DEVKIT_SYNC_TARGET`/`DEVKIT_SYNC_SCHEDULE` become inert (a
@@ -932,6 +936,48 @@ curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh \
 It prints the add/overwrite/preserve/delete file report and exits without
 touching the tree (unlike `--dry-run`, which only prints the container command
 and computes no file report).
+
+### A private consumer: license and changelog
+
+`install.sh --force` **adds** files this repo lacks, and two of them are not
+neutral defaults for a private, release-less repo
+([#1651](https://github.com/vig-os/devkit/issues/1651)):
+
+- **`LICENSE`** — the Apache-2.0 template. On a proprietary repo that actively
+  mislabels confidential material as openly licensed.
+- **`CHANGELOG.md`** — release machinery. Only the release workflows read it, so
+  a repo that cuts no releases never writes one.
+
+Deleting either was not durable: both are add-if-absent, so the next forced
+scaffold put them back and the deletion had to be repeated at every upgrade.
+
+**The changelog follows the `release` feature group.** Disabling `release`
+(see [Scaffold feature opt-outs](#scaffold-feature-opt-outs)) now also stops the
+root `CHANGELOG.md` from being scaffolded or re-added — a delete sticks. An
+existing changelog is **never pruned**: it is the repo's own history, so it is
+left in place with a notice, like the other preserved-class paths. (Devkit's own
+changelog mirror at `.devcontainer/CHANGELOG.md` is unaffected — the exclude is
+root-anchored.)
+
+**The license gets its own key**, because the choice is a *text*, not an on/off:
+
+```ini
+# .vig-os
+DEVKIT_LICENSE=proprietary
+```
+
+| Value | Effect |
+|-------|--------|
+| `apache-2.0` | Default (empty resolves here). The shipped Apache-2.0 template, added when the repo has none — unchanged for existing consumers. |
+| `proprietary` | Renders an all-rights-reserved notice (`assets/licenses/PROPRIETARY`, `{{ORG_NAME}}` resolved like every managed file). Written only when `LICENSE` is absent or is still the untouched Apache scaffold copy; a hand-edited one is left in place with a notice. Re-running the upgrade is a silent no-op. |
+| `none` | Devkit manages no `LICENSE` at all. The file is never added, so a one-time delete sticks; an existing one is left untouched. |
+
+An unknown value aborts the scaffold loudly, and the key round-trips across
+`--force` upgrades like every other `.vig-os` knob. `none` and `proprietary`
+never delete a license file — removing one is always the consumer's own act. For
+the same reason the switch **back** to `apache-2.0` is a no-op on a repo that
+already has a `LICENSE`: the file is preserved, so delete it by hand and let the
+next `--force` re-add the Apache template.
 
 ### Migrating a `devcontainer`/`both` repo to `direnv` or `bare`
 
