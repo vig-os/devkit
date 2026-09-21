@@ -5246,3 +5246,48 @@ _py_ws_uv_exit() {
     run bash -c "cd '$ws' && PATH='$ws/stub-bin:$PATH' '$real_just' test-cov"
     assert_failure 1
 }
+
+# ── actionlint shipped to consumers: hook + label config (#1660) ──────────────
+# actionlint has been in the toolchain since #995 (nix/devtools.nix), but the
+# prek hook that runs it stayed devkit-only — so a consumer's workflows were
+# linted by nothing. The hook ships here in the `shellcheck` idiom (same
+# toolchain SSoT, same language: system form, already a shipped consumer hook).
+#
+# The hook needs a companion: actionlint rejects any LITERAL runs-on label
+# missing from its built-in list, and only an actionlint.yaml declaring
+# self-hosted-runner.labels can teach it one. `ubuntu-26.04` is the live case —
+# a real hosted runner that actionlint 1.7.12 (the latest release, 2026-03-30)
+# predates. Expression forms (`${{ fromJSON(...) }}`, how DEVKIT_CI_RUNNER
+# reaches runs-on) are skipped by actionlint and need no entry.
+#
+# Adoption is new-repos-only: .pre-commit-config.yaml is preserved (#878), so an
+# existing consumer meets the hook through the #878 template diff and folds it
+# in by hand. That is the split #1652's own table documents — it is for blocks
+# the template retired because they BREAK, never for ordinary drift.
+
+@test "the scaffold ships an actionlint hook to consumers (#1660)" {
+    ws="$(_shared_tree both)"
+    run grep -q 'id: actionlint' "$ws/.pre-commit-config.yaml"
+    assert_success
+    # The shellcheck idiom: toolchain binary off PATH, not a prek-built env.
+    run grep -q 'entry: actionlint' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "the scaffold ships a managed .github/actionlint.yaml (#1660)" {
+    ws="$(_shared_tree both)"
+    run test -f "$ws/.github/actionlint.yaml"
+    assert_success
+    run grep -q 'self-hosted-runner:' "$ws/.github/actionlint.yaml"
+    assert_success
+}
+
+@test "the shipped label config carries the ubuntu-26.04 baseline (#1660)" {
+    # The labels that make the #1658 runner bump lintable; actionlint 1.7.12
+    # knows neither. Both are needed: the arm variant is a distinct label.
+    ws="$(_shared_tree both)"
+    run grep -q 'ubuntu-26.04' "$ws/.github/actionlint.yaml"
+    assert_success
+    run grep -q 'ubuntu-26.04-arm' "$ws/.github/actionlint.yaml"
+    assert_success
+}
