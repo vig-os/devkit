@@ -88,11 +88,26 @@ DEVKIT_SYNC_SCHEDULE=
 # gh-templates, skills, worktree, devkit-upgrade. Empty (default) => every group is scaffolded
 # (no change for existing consumers). A disabled group is never shipped, and a
 # copy left by a prior scaffold is pruned on upgrade; clearing the key re-ships
-# it on the next `--force`. Consumer-owned extension seams
+# it on the next `--force`. `release` also covers the root CHANGELOG.md — only
+# the release workflows read it — so a release-less repo stops being handed one
+# (an existing changelog is left in place, never pruned, #1651). Consumer-owned
+# extension seams
 # (release-extension.yml, prepare-release-extension.yml) and renovate.json are
 # left in place if present (never pruned). Governs scaffold SHAPE only, not the
 # flake — an unknown name aborts the scaffold loudly (#1284).
 DEVKIT_FEATURES_DISABLED=
+
+# License the scaffold ships: apache-2.0 (default) | proprietary | none. Empty
+# (= unset) resolves to `apache-2.0` — the shipped Apache-2.0 template, adding
+# it when this repo has none, unchanged for existing consumers. `proprietary`
+# renders an all-rights-reserved notice instead (written only when LICENSE is
+# absent or is still the untouched Apache scaffold copy; a hand-edited one is
+# left in place with a notice). `none` means devkit manages no LICENSE at all:
+# the file is never added, so deleting it STICKS across upgrades, and an
+# existing one is left untouched — the scaffold never deletes a license.
+# Realized at scaffold time (a copy-exclude plus a render); written back only
+# for a non-default value (#1651).
+DEVKIT_LICENSE=
 
 # Refs-line enforcement policy for the commit-message gate, driving the
 # validate-commit-msg pre-commit hook — scaffolded AND flake-generated (read by
