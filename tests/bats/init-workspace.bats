@@ -5313,3 +5313,50 @@ _py_ws_uv_exit() {
     run grep -q 'SENTINEL-1660' "$ws/.github/actionlint.yaml"
     assert_success
 }
+
+# The opt-out has to take BOTH halves or it is incoherent: a repo left with the
+# hook but no label config would lint with actionlint's bare built-in list and
+# fail on any label the scaffold renders that it does not know.
+
+@test "DEVKIT_FEATURES_DISABLED=actionlint ships neither half (#1660)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1660-optout-fresh"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "actionlint"
+    assert_success
+    run test -e "$ws/.github/actionlint.yaml"
+    assert_failure
+    run grep -q 'id: actionlint' "$ws/.pre-commit-config.yaml"
+    assert_failure
+}
+
+@test "the actionlint opt-out leaves the rest of the hook stack intact (#1660)" {
+    # Block removal must take exactly its own block — the neighbouring
+    # hooks (shellcheck above, pymarkdown below) bracket it in the render.
+    ws="$BATS_TEST_TMPDIR/e2e-1660-optout-neighbours"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "actionlint"
+    assert_success
+    run grep -q 'id: shellcheck' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -q 'id: pymarkdown' "$ws/.pre-commit-config.yaml"
+    assert_success
+    # Still valid YAML after the excision.
+    run yamllint -d relaxed "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "an existing label config survives the actionlint opt-out (#1660)" {
+    # Preserved-class carve-out (#1284): the consumer's own declarations are
+    # never deleted by a feature prune, only reported.
+    ws="$BATS_TEST_TMPDIR/e2e-1660-optout-kept"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    printf '\n# SENTINEL-1660-OPTOUT\n' >>"$ws/.github/actionlint.yaml"
+    _seed_features_disabled "$ws" "actionlint"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial ".github/actionlint.yaml left in place (preserved)"
+    run grep -q 'SENTINEL-1660-OPTOUT' "$ws/.github/actionlint.yaml"
+    assert_success
+}
