@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Scan a preserved `.pre-commit-config.yaml` for retired hook blocks**
+  ([#1652](https://github.com/vig-os/devkit/issues/1652))
+  - A preserved file never receives template evolution (#878), so a hook *fix*
+    never reaches the consumers that carry the broken block. The scaffold now
+    scans preserved files against a table of blocks the template retired
+    because they break, and warns with `file:line` plus a remedy.
+  - First entry: the pre-#1170 `jackdewinter/pymarkdown` hook, whose
+    `language: python` venv skews against the flake toolchain's interpreter and
+    breaks `just precommit`, markdown commits and the `devkit-upgrade` commit
+    step alike.
+  - Each hit also prints one machine-readable `preserved-hook-drift:` line,
+    which `devkit-upgrade.yml` lifts into the run summary and the adoption PR
+    body (the `flake-bump:` channel, #1497); `--preview` reports it before
+    anything is touched.
+  - `docs/MIGRATION.md` carries the fold instructions for the #1170 hook.
 - **`DEVKIT_LICENSE`: choose the license the scaffold ships**
   ([#1651](https://github.com/vig-os/devkit/issues/1651))
   - New `.vig-os` key: `apache-2.0` (default/empty, unchanged) | `proprietary`

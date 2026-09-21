@@ -937,6 +937,79 @@ It prints the add/overwrite/preserve/delete file report and exits without
 touching the tree (unlike `--dry-run`, which only prints the container command
 and computes no file report).
 
+### Fold the #1170 pymarkdown hook into a preserved config
+
+A hand-edited `.pre-commit-config.yaml` is **preserved** on upgrade
+([#878](https://github.com/vig-os/devkit/issues/878)) — your repo-specific
+`exclude:` patterns survive, and in exchange no template hook change reaches
+the file automatically. That is right for hook-stack *evolution* and wrong for
+a hook *fix*: the repos carrying the broken block are exactly the ones the fix
+was written for.
+
+The scaffold therefore scans a preserved config for blocks the template retired
+**because they break**, and prints the hit with `file:line`, a remedy, and one
+machine-readable line
+([#1652](https://github.com/vig-os/devkit/issues/1652)):
+
+```text
+preserved-hook-drift: pymarkdown-pre-1170 in .pre-commit-config.yaml
+```
+
+`devkit-upgrade.yml` lifts that line into the run summary and the adoption PR
+body, so the notice lands where the upgrade is reviewed rather than in a
+workflow log. `install.sh --force --preview` reports it too, before anything is
+touched.
+
+**The one entry today.** A config scaffolded before
+[#1170](https://github.com/vig-os/devkit/issues/1170) pulls pymarkdown from its
+upstream pre-commit repo:
+
+```yaml
+  - repo: https://github.com/jackdewinter/pymarkdown
+    rev: ...
+    hooks:
+      - id: pymarkdown
+```
+
+That hook is `language: python`, so prek builds a venv on **its own** base
+interpreter while the flake toolchain's `pymarkdownlnt` is built for the
+`default_language_version` interpreter. Loading a `cpython-3xx` C extension
+under another 3.y then fails:
+
+```text
+prek → pymarkdown → application_properties → import pyjson5
+ModuleNotFoundError: No module named 'pyjson5.pyjson5'
+```
+
+The `.so` is present — this is interpreter/ABI skew, not a broken package. It
+breaks `just precommit`, every local markdown commit, **and** the
+`devkit-upgrade.yml` commit step, so a stale consumer's auto-upgrade can never
+land.
+
+Replace the block with the `language: system` form the template ships, which
+resolves `pymarkdown` from `PATH` like `shellcheck`/`typos` (keep your own
+`exclude:`):
+
+```yaml
+  - repo: local
+    hooks:
+      - id: pymarkdown
+        name: pymarkdown
+        entry: pymarkdown
+        language: system
+        types: [markdown]
+        args: ["-c", ".pymarkdown", "fix"]
+```
+
+Then verify in the project shell:
+
+```bash
+prek run pymarkdown --all-files
+```
+
+The same trap applies to any future `language: python` → `language: system`
+hook migration; each such retirement gets its own row in the scan table
+(`known_bad_preserved_patterns` in `assets/init-workspace.sh`).
 ### A private consumer: license and changelog
 
 `install.sh --force` **adds** files this repo lacks, and two of them are not

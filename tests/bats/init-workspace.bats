@@ -1686,6 +1686,142 @@ EOF
     refute_output --partial "retired 'pre-commit' binary"
 }
 
+# ── known-bad blocks in a preserved .pre-commit-config.yaml (#1652) ───────────
+# A preserved file never receives template evolution (#878) — which is right for
+# a consumer's `exclude:` patterns and wrong for a hook FIX: the repos carrying
+# the broken block are exactly the ones the fix never reaches. The pre-#1170
+# `jackdewinter/pymarkdown` hook is the case in point. Its `language: python`
+# venv builds on prek's own base interpreter while the flake toolchain's
+# pymarkdownlnt targets `default_language_version`, so the C-extension import
+# fails at first use and breaks `just precommit`, markdown commits, and the
+# devkit-upgrade commit step alike — invisibly, until someone enters the new
+# shell. The scaffold therefore scans the preserved file against a table of
+# known-bad blocks and warns with file:line, plus one machine-readable
+# `preserved-hook-drift:` line on stdout that devkit-upgrade.yml lifts into the
+# adoption PR body (the `flake-bump:` channel, #1497).
+
+# A consumer .pre-commit-config.yaml carrying the pre-#1170 pymarkdown hook.
+_stale_pymarkdown_config() {
+    cat > "$1/.pre-commit-config.yaml" <<'EOF'
+# SENTINEL-1652 consumer hook config (pre-#1170 shape)
+exclude: ^docs/generated/
+repos:
+  - repo: https://github.com/jackdewinter/pymarkdown
+    rev: 8f8c2f2b0a6b4b0d9d3f6a1a0c4e2d7b9e5a1c3d  # v0.9.29
+    hooks:
+      - id: pymarkdown
+        args: ["-c", ".pymarkdown", "fix"]
+EOF
+}
+
+@test "upgrade warns file:line for the pre-#1170 pymarkdown hook (#1652)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1652-hit"
+    mkdir -p "$ws"
+    _stale_pymarkdown_config "$ws"
+    run _upgrade both "$ws"
+    assert_success
+    # human warning: what is wrong, where, and what to replace it with
+    assert_output --partial 'the template retired'
+    assert_output --regexp '\.pre-commit-config\.yaml:[0-9]+'
+    assert_output --partial 'language: system'
+    assert_output --partial 'MIGRATION.md'
+    # machine line for devkit-upgrade.yml to lift into the adoption PR body
+    assert_output --partial 'preserved-hook-drift: pymarkdown-pre-1170'
+    # the file stays the consumer's: warned about, never rewritten
+    run grep -q 'SENTINEL-1652' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -q 'jackdewinter/pymarkdown' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "the drift marker rides stdout, the warning stderr (#1652)" {
+    # The channel depends on the split: devkit-upgrade.yml captures STDOUT only
+    # (`install.sh … | tee install.log`) and greps the marker out of that log,
+    # while the human warning rides stderr like every other preserved-file
+    # guard. Merged into one stream (bats\' default `run`) the two are
+    # indistinguishable, so pin them apart.
+    ws="$BATS_TEST_TMPDIR/e2e-1652-streams"
+    mkdir -p "$ws"
+    _stale_pymarkdown_config "$ws"
+    run --separate-stderr _upgrade both "$ws"
+    assert_success
+    assert_output --partial 'preserved-hook-drift: pymarkdown-pre-1170'
+    [[ "$stderr" == *"the template retired"* ]]
+    [[ "$stderr" != *"preserved-hook-drift:"* ]]
+}
+
+@test "the known-bad scan sees a quoted repo URL (#1652)" {
+    # Quoting a `repo:` URL is unusual but legal YAML — and a consumer whose
+    # config quotes it is no less broken.
+    ws="$BATS_TEST_TMPDIR/e2e-1652-quoted"
+    mkdir -p "$ws"
+    cat > "$ws/.pre-commit-config.yaml" <<'EOF'
+# SENTINEL-1652 quoted consumer config
+repos:
+  - repo: "https://github.com/jackdewinter/pymarkdown"
+    rev: 8f8c2f2b0a6b4b0d9d3f6a1a0c4e2d7b9e5a1c3d  # v0.9.29
+    hooks:
+      - id: pymarkdown
+EOF
+    run _upgrade both "$ws"
+    assert_success
+    assert_output --partial 'preserved-hook-drift: pymarkdown-pre-1170'
+}
+
+@test "no known-bad hook warning on a stock scaffold (#1652)" {
+    # The template ships the fixed hook, so a stock consumer must stay silent —
+    # on the first scaffold and on every later upgrade of the preserved copy.
+    ws="$BATS_TEST_TMPDIR/e2e-1652-stock"
+    mkdir -p "$ws"
+    run _upgrade both "$ws"
+    assert_success
+    refute_output --partial 'preserved-hook-drift:'
+    run _upgrade both "$ws"
+    assert_success
+    refute_output --partial 'preserved-hook-drift:'
+}
+
+@test "the known-bad scan skips comments and the migrated hook (#1652)" {
+    # False-positive guard: a consumer who already folded #1170 in keeps a
+    # `language: system` hook, and a comment may still name the retired repo.
+    # Neither is a hit.
+    ws="$BATS_TEST_TMPDIR/e2e-1652-clean"
+    mkdir -p "$ws"
+    cat > "$ws/.pre-commit-config.yaml" <<'EOF'
+# SENTINEL-1652 clean consumer config
+# migrated off repo: https://github.com/jackdewinter/pymarkdown (see #1170)
+default_language_version:
+  python: python3.14
+repos:
+  - repo: local
+    hooks:
+      - id: pymarkdown
+        name: pymarkdown
+        entry: pymarkdown
+        language: system
+        types: [markdown]
+        args: ["-c", ".pymarkdown", "fix"]
+EOF
+    run _upgrade both "$ws"
+    assert_success
+    refute_output --partial 'preserved-hook-drift:'
+}
+
+@test "--preview surfaces the known-bad preserved hook (#1652)" {
+    # The preflight preview is where a consumer looks BEFORE upgrading; the scan
+    # reads the preserved file, which the copy never touches, so the preview can
+    # report it truthfully and side-effect-free.
+    ws="$BATS_TEST_TMPDIR/e2e-1652-preview"
+    mkdir -p "$ws"
+    _stale_pymarkdown_config "$ws"
+    run _preview "$ws" --mode both
+    assert_success
+    assert_output --partial 'preserved-hook-drift: pymarkdown-pre-1170'
+    assert_output --partial 'Preview complete'
+    run grep -q 'jackdewinter/pymarkdown' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
 # ── preserved-file diff preview must use git, not diff(1) (#916) ──────────────
 # The image ships git but no diff(1)/cmp(1); the #878 preview called `diff`,
 # which prints "diff: command not found" and an empty box in-container. Render

@@ -987,6 +987,67 @@ print_preserved_template_diff() {
     return "$rc"
 }
 
+# ── known-bad blocks in a preserved file (#1652) ──────────────────────────────
+# Preservation (#878/#913/#1099) protects the consumer's customizations and, by
+# the same token, blocks template evolution — including the subset that is not
+# evolution but a FIX. A repo whose config predates the fix keeps the broken
+# block forever, and the repos that carry it are exactly the ones the fix was
+# written for. The #878 diff surfaces the whole divergence, which is the right
+# tool for "a new hook was added" and the wrong one for "this specific block is
+# known to break": it is long, advisory, and silent about which hunk matters.
+#
+# This table is that missing signal. A row earns its place only when the
+# template RETIRED a block because it breaks — never for ordinary drift:
+#
+#   <id>|<preserved rel-path>|<ERE>|<remedy>
+#
+# `|` is the field separator, so an ERE that needs alternation must express it
+# some other way (a character class, or a second row) — an unescaped `|` inside
+# the pattern would silently truncate it and shift the remedy.
+#
+# First row, the pre-#1170 pymarkdown hook: `language: python` makes prek build
+# its venv on prek's own base interpreter, while the flake toolchain's
+# pymarkdownlnt is built for `default_language_version` — loading a cpython-3xx
+# C extension under another 3.y then raises ModuleNotFoundError, breaking `just
+# precommit`, markdown commits, and the devkit-upgrade commit step alike. The
+# pattern generalises to any future language:python -> language:system hook
+# migration.
+known_bad_preserved_patterns() {
+    printf '%s\n' \
+        'pymarkdown-pre-1170|.pre-commit-config.yaml|repo:[[:space:]]*["'\'']?https://github\.com/jackdewinter/pymarkdown|Replace that block with the repo: local / entry: pymarkdown / language: system hook the template ships (#1170) — see MIGRATION.md, "Fold the #1170 pymarkdown hook into a preserved config".'
+}
+
+# Scan the preserved files named in the table above and report every known-bad
+# block: a file:line warning on STDERR (like the #881 scan) plus one
+# `preserved-hook-drift: <id> in <path>` line on STDOUT per matching row (one
+# marker per known-bad block, however many lines it hit). The stdout line
+# is the machine channel — devkit-upgrade.yml lifts it out of the install log
+# into the step summary and the adoption PR body, the same way it carries the
+# `flake-bump:` report (#1497) — because a warning that only reaches a workflow
+# log reaches nobody. Non-fatal throughout, like every other preserved-file
+# guard; the consumer owns the file and only they can fold the fix in.
+#
+# Only PRESERVE_FILES rows are scanned: a managed file is rewritten by the copy,
+# so it cannot carry a retired block, and a match there would mean the template
+# itself ships one. Comment lines are filtered (a consumer may well name the
+# retired repo in a "migrated off …" note, #881 precedent).
+scan_known_bad_preserved() {
+    local kb_id kb_file kb_pattern kb_remedy kb_hits
+    while IFS='|' read -r kb_id kb_file kb_pattern kb_remedy; do
+        [[ -n "$kb_id" && -n "$kb_file" && -n "$kb_pattern" ]] || continue
+        is_preserved_file "$kb_file" || continue
+        [[ -f "$WORKSPACE_DIR/$kb_file" ]] || continue
+        kb_hits="$(grep -nHE -- "$kb_pattern" "$WORKSPACE_DIR/$kb_file" 2>/dev/null \
+            | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#' || true)"
+        [[ -n "$kb_hits" ]] || continue
+        echo "Warning: preserved $kb_file carries a hook block the template retired (#1652):" >&2
+        printf '%s\n' "$kb_hits" | sed "s|^$WORKSPACE_DIR/|         |" >&2
+        echo "         $kb_remedy" >&2
+        echo "         Preserved files are never rewritten by the upgrade (#878) — fold it in by hand." >&2
+        echo "preserved-hook-drift: $kb_id in $kb_file"
+    done < <(known_bad_preserved_patterns)
+}
+
 # Record whether the consumer already had a populated .devcontainer/ before the
 # scaffold (#738). In direnv mode we must neither overwrite nor delete it.
 # Recorded before the file report below so the DELETED listing (#886) can
@@ -2492,6 +2553,11 @@ if [[ "$FORCE" == "true" ]]; then
             echo "dev base to main (prepare-release/ci/codeql/sync-issues), along with"
             echo "the branch-naming skill and the pre-commit branch guard."
         fi
+        # Known-bad preserved blocks (#1652): the preflight preview is where a
+        # consumer looks BEFORE upgrading, and the scan reads a preserved file
+        # the copy never touches — so it reports here exactly what the real run
+        # would, side-effect-free.
+        scan_known_bad_preserved
         echo ""
         echo "Preview complete — no files were changed."
         exit 0
@@ -3293,6 +3359,13 @@ if [[ "$PRECOMMIT_CONFIG_PREEXISTED" == "true" ]] \
         fi
     fi
 fi
+
+# The same preservation that keeps the consumer's config also keeps a block the
+# template retired BECAUSE it breaks (#1652). The #878 diff above shows the
+# whole divergence; this scan names the hunk that matters, with file:line and a
+# remedy, and emits the machine line devkit-upgrade.yml carries into the
+# adoption PR. Non-fatal, like every guard in this section.
+scan_known_bad_preserved
 
 # A preserved .typos.toml is the consumer's (#913) — never overwritten, so
 # their spell-check exceptions survive; the cost is that template exception
