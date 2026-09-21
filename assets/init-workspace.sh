@@ -1038,10 +1038,24 @@ known_bad_preserved_patterns() {
 # so it cannot carry a retired block, and a match there would mean the template
 # itself ships one. Comment lines are filtered (a consumer may well name the
 # retired repo in a "migrated off …" note, #881 precedent).
+# Drift ids the reconciliation pass repairs on this run (#1654). Populated in
+# both of its modes; the scan below skips them, so a --preview never tells the
+# consumer to hand-fold a block the real run folds for them (in apply mode the
+# block is already gone by the time the scan runs, so there it is belt-and-braces).
+FOLD_PLANNED_IDS=()
+fold_planned() {
+    local id
+    for id in ${FOLD_PLANNED_IDS[@]+"${FOLD_PLANNED_IDS[@]}"}; do
+        [[ "$id" == "$1" ]] && return 0
+    done
+    return 1
+}
+
 scan_known_bad_preserved() {
     local kb_id kb_file kb_pattern kb_remedy kb_hits
     while IFS='|' read -r kb_id kb_file kb_pattern kb_remedy; do
         [[ -n "$kb_id" && -n "$kb_file" && -n "$kb_pattern" ]] || continue
+        if fold_planned "$kb_id"; then continue; fi
         is_preserved_file "$kb_file" || continue
         [[ -f "$WORKSPACE_DIR/$kb_file" ]] || continue
         kb_hits="$(grep -nHE -- "$kb_pattern" "$WORKSPACE_DIR/$kb_file" 2>/dev/null \
@@ -2320,6 +2334,310 @@ render_actionlint_optout() {
     echo "Excised the actionlint hook (feature disabled via DEVKIT_FEATURES_DISABLED, #1660)."
 }
 
+# ── preserved hook-config reconciliation (#1654) ──────────────────────────────
+# #1652 made two divergences of a PRESERVED .pre-commit-config.yaml visible; this
+# is the half that repairs them. Both write into a file the consumer owns, so
+# each carries its own evidence gate, and neither touches anything else in the
+# file: their global/per-hook `exclude:` patterns, their ordering and their
+# comments all survive. Not a new risk class for this file — five renders already
+# sed it on every upgrade (branch guard #1642, refs policy #1282/#1633, commit
+# types #1431, branch types #1432, actionlint opt-out #1660). What is new is
+# rewriting STRUCTURE rather than a knob value.
+#
+# Case 1 (fold) replaces a block the template retired BECAUSE it breaks, gated on
+# a byte-identical match against the historical template text — the only evidence
+# that the bytes being overwritten are devkit's own output rather than the
+# consumer's. One edited byte (an extended `exclude:`, a Renovate-bumped `rev:`)
+# and the fold declines, leaving #1652's warning to say so. Under-folding is safe
+# and visible; over-folding destroys consumer content.
+#
+# Case 2 (insert) delivers a hook the consumer's file lacks ENTIRELY. Absence is
+# ambiguous — never received, or deliberately deleted — so it mirrors
+# retired_prune_paths' PREVIOUS_PIN gate (#1348) in the other direction: insert
+# only when the tree was generated BEFORE the release that started shipping the
+# hook, i.e. the consumer never had the chance to decline it. The insert then
+# fires at most once per repo (the same run advances the pin past that release),
+# so a later hand-deletion is permanent and #1651's "a deletion sticks" holds.
+# DEVKIT_FEATURES_DISABLED is the declarative opt-out and is honoured first.
+#
+# Both report on the machine channel #1652 opened (`preserved-hook-fold:` /
+# `preserved-hook-insert:` on stdout, which devkit-upgrade.yml lifts into the
+# step summary and the adoption PR body) and land as ordinary reviewable hunks.
+
+# Print "START END" (1-based, inclusive) for the devkit-owned block of hook $2 in
+# file $1, or return 1. Two strategies, in order:
+#
+#   sentinels   `# >>> devkit:<id>` / `# <<< devkit:<id>`, the range #1660
+#               introduced for the actionlint opt-out. Preferred wherever
+#               present: exact rather than a structural guess, it carries the
+#               block's explanatory comment, and — decisively for Case 2 — a
+#               block inserted WITHOUT its sentinels would be invisible to
+#               render_actionlint_optout, silently outliving the opt-out.
+#   structural  the `- repo:` entry holding `- id: <hook>`, ending at the last
+#               line before the next entry that is neither blank nor an
+#               entry-level comment (those introduce the NEXT block, and a
+#               consumer's comment is theirs to keep).
+#
+# Used on the template (to read the block to write) and on the consumer's file
+# (to find the anchor entry to write after), hence the whitespace tolerance.
+hook_block_range() {
+    awk -v id="$2" '
+        { L[NR] = $0 }
+        index($0, "# >>> devkit:" id) { ss = NR }
+        index($0, "# <<< devkit:" id) { se = NR }
+        END {
+            if (ss && se && se >= ss) { print ss, se; exit 0 }
+            for (i = 1; i <= NR; i++) {
+                if (L[i] ~ /^[[:space:]]*-[[:space:]]+repo:/) cur = i
+                if (cur && L[i] ~ ("^[[:space:]]*-[[:space:]]+id:[[:space:]]+" id "[[:space:]]*$")) {
+                    start = cur
+                    break
+                }
+            }
+            if (!start) exit 1
+            e = NR
+            for (i = start + 1; i <= NR; i++)
+                if (L[i] ~ /^[[:space:]]*-[[:space:]]+repo:/) { e = i - 1; break }
+            while (e > start && (L[e] ~ /^[[:space:]]*$/ || L[e] ~ /^[[:space:]]*#/)) e--
+            print start, e
+        }
+    ' "$1"
+}
+
+# The template's current block for hook $1, verbatim. Read from the RENDERED
+# template, never re-derived: the committed scaffold YAML is generated from
+# nix/hooks.nix and gated against it (tests/test_flake_hooks.py), so reading it
+# is the one source that cannot drift from what a new scaffold receives.
+template_hook_block() {
+    local tpl="$TEMPLATE_DIR/.pre-commit-config.yaml"
+    local range
+    [[ -f "$tpl" ]] || return 1
+    range="$(hook_block_range "$tpl" "$1")" || return 1
+    sed -n "${range%% *},${range##* }p" "$tpl"
+}
+
+# The hook id the template places immediately BEFORE hook $1 — the anchor an
+# insert writes after. Derived from the template rather than tabulated, so a
+# template reorder moves the insert position with it.
+template_hook_anchor() {
+    local tpl="$TEMPLATE_DIR/.pre-commit-config.yaml"
+    local range start anchor
+    [[ -f "$tpl" ]] || return 1
+    range="$(hook_block_range "$tpl" "$1")" || return 1
+    start="${range%% *}"
+    [[ "$start" -gt 1 ]] || return 1
+    anchor="$(head -n "$((start - 1))" "$tpl" \
+        | sed -n -E 's/^[[:space:]]*-[[:space:]]+id:[[:space:]]+([^[:space:]]+)[[:space:]]*$/\1/p' \
+        | tail -n1)"
+    [[ -n "$anchor" ]] || return 1
+    printf '%s' "$anchor"
+}
+
+# Print "START END" for the first VERBATIM occurrence of the block in file $2
+# inside file $1, or return 1. Whole-line equality, no normalization: this is
+# Case 1's entire safety property.
+verbatim_block_range() {
+    awk '
+        NR == FNR { n[++nn] = $0; next }
+        { h[++hn] = $0 }
+        END {
+            if (nn == 0 || hn < nn) exit 1
+            for (i = 1; i + nn - 1 <= hn; i++) {
+                ok = 1
+                for (j = 1; j <= nn; j++)
+                    if (h[i + j - 1] != n[j]) { ok = 0; break }
+                if (ok) { print i, i + nn - 1; exit 0 }
+            }
+            exit 1
+        }
+    ' "$2" "$1"
+}
+
+# Rewrite $1 replacing lines $2..$3 (inclusive) with $4. An empty range
+# ($3 = $2 - 1) inserts $4 before line $2 instead.
+#
+# The new content is assembled in a temp file and then COPIED back over the
+# original rather than renamed onto it: a rename would replace the consumer's
+# file with mktemp's 0600 inode, silently de-group-reading a tracked file (and
+# breaking a hardlink). precommit_render_target has already refused a symlink,
+# so the target is a regular file whose mode and inode this preserves.
+splice_lines() {
+    local file="$1" start="$2" end="$3" text="$4"
+    local tmp
+    tmp="$(mktemp)"
+    if [[ "$start" -gt 1 ]]; then
+        head -n "$((start - 1))" "$file" > "$tmp"
+    else
+        : > "$tmp"
+    fi
+    printf '%s\n' "$text" >> "$tmp"
+    tail -n +"$((end + 1))" "$file" >> "$tmp"
+    cat "$tmp" > "$file"
+    rm -f "$tmp"
+}
+
+# Blocks the template retired BECAUSE they break, one row per historical SHAPE:
+#
+#   <drift id>|<current hook id>|<variant key>
+#
+# The drift id is #1652's, so a fold reports the closure of the same finding the
+# scan reports open; the hook id names the CURRENT template block that replaces
+# it (same hook, fixed form).
+#
+# NOT listed: the two pre-0.3.0 pymarkdown shapes (`rev: v0.9.23` with
+# `args: ["scan"]`, and the same rev with `-c .pymarkdown fix` and no exclude).
+# No consumer is pinned that far back, and an unlisted shape falls through to the
+# #1652 warning — the safe direction.
+retired_hook_blocks() {
+    printf '%s\n' 'pymarkdown-pre-1170|pymarkdown|pymarkdown-0.3.0'
+}
+
+# The verbatim historical template text of variant $1. Byte-for-byte what the
+# template shipped, and it must stay that way: re-indenting it or "tidying" the
+# rev would silently stop the fold matching the repos it exists for, with nothing
+# failing. tests/test_scaffold_preserved_hooks.py keeps its own copy to catch it.
+retired_hook_block_text() {
+    case "$1" in
+        # Shipped 0.3.0 -> 1.3.x; #1170 replaced it with the language: system
+        # form in 1.4.0.
+        pymarkdown-0.3.0)
+            cat <<'DEVKIT_RETIRED_BLOCK'
+  - repo: https://github.com/jackdewinter/pymarkdown
+    rev: f93643d339dfee2a1022e7b05e8b5a281bfac553  # v0.9.23
+    hooks:
+      - id: pymarkdown
+        name: pymarkdown
+        args: ["-c", ".pymarkdown", "fix"]
+        exclude: ^(README\.md|CONTRIBUTE\.md|TESTING\.md)
+DEVKIT_RETIRED_BLOCK
+            ;;
+    esac
+}
+
+# Hooks the template ships that an older tree never received — the mirror of
+# retired_paths (#1348), keyed the other way:
+#
+#   <first release shipping it> <hook id> <feature group>
+#
+# The feature group is the durable opt-out (DEVKIT_FEATURES_DISABLED); a hook
+# that belongs to no group leaves it empty. A grouped hook must be
+# sentinel-delimited in the template, or the group's excision render could not
+# reach the copy this pass inserts.
+#
+# Adding a row: the version is the release that FIRST ships the hook. Too high
+# only under-inserts (safe); too low would re-add a hook a consumer deleted, so
+# when in doubt round up.
+inserted_hook_blocks() {
+    # actionlint had been on PATH since #995 with nothing running it; the hook
+    # reached new scaffolds only (#1660).
+    printf '%s\n' '1.16.0 actionlint actionlint'
+}
+
+# Plan-mode heading, printed once and only when there is something to report.
+RECONCILE_PLAN_HEADED=false
+reconcile_plan_header() {
+    if [[ "$RECONCILE_PLAN_HEADED" != "true" ]]; then
+        echo ""
+        echo "Preserved hook config — the upgrade reconciles .pre-commit-config.yaml (#1654):"
+        RECONCILE_PLAN_HEADED=true
+    fi
+}
+
+# Case 1. Only the FIRST occurrence of a shape is folded; a second copy keeps
+# warning, which is the honest report for a file nobody can prove the intent of.
+fold_retired_hook_blocks() {
+    local mode="$1" pc="$2"
+    local drift_id hook_id variant needle range start end replacement
+    while IFS='|' read -r drift_id hook_id variant; do
+        [[ -n "$drift_id" && -n "$hook_id" && -n "$variant" ]] || continue
+        needle="$(mktemp)"
+        retired_hook_block_text "$variant" > "$needle"
+        range=""
+        if [[ -s "$needle" ]]; then
+            range="$(verbatim_block_range "$pc" "$needle" || true)"
+        fi
+        rm -f "$needle"
+        [[ -n "$range" ]] || continue
+        if ! replacement="$(template_hook_block "$hook_id")"; then
+            echo "Warning: the template ships no '$hook_id' block to replace the retired $drift_id one (#1654)." >&2
+            continue
+        fi
+        # Recorded in BOTH modes: the #1652 scan skips a drift id this pass
+        # repairs, so the preview never tells a consumer to hand-fold a block
+        # the run folds for them.
+        FOLD_PLANNED_IDS+=("$drift_id")
+        start="${range%% *}"
+        end="${range##* }"
+        if [[ "$mode" == "plan" ]]; then
+            reconcile_plan_header
+            echo "  !  .pre-commit-config.yaml — the retired $drift_id block will be REPLACED by the template's '$hook_id' hook"
+            continue
+        fi
+        splice_lines "$pc" "$start" "$end" "$replacement"
+        echo "Folded the retired $drift_id block into the template's '$hook_id' hook (#1654)."
+        echo "preserved-hook-fold: $drift_id in .pre-commit-config.yaml"
+    done < <(retired_hook_blocks)
+}
+
+# Case 2. Five gates, each load-bearing — the first two mirror
+# retired_prune_paths' provenance evidence, the rest are this case's own:
+#  - a pin is present and semver-shaped. No pin (fresh install, hand-made tree)
+#    means no evidence about this tree's provenance, so nothing is written;
+#  - the pin PREDATES the release that first shipped the hook. A repo at or past
+#    it has SEEN the hook, so its absence is a decision and must stick (#1651);
+#  - the hook's feature group is not disabled — the declarative opt-out (#1660)
+#    outranks the version evidence;
+#  - the hook id is absent from the file. Also what makes an rc -> final upgrade
+#    (whose pin is lower than the release) a no-op;
+#  - the template ships the block AND the consumer's file carries the anchor it
+#    goes after. No anchor, no defensible position: skip rather than guess, and
+#    leave the #878 template diff as the fallback.
+insert_missing_hook_blocks() {
+    local mode="$1" pc="$2"
+    local ver hook feat block anchor range end
+    [[ -n "$PREVIOUS_PIN" ]] || return 0
+    [[ "$PREVIOUS_PIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || return 0
+    while read -r ver hook feat; do
+        [[ -n "$ver" && -n "$hook" ]] || continue
+        version_lt "$PREVIOUS_PIN" "$ver" || continue
+        if [[ -n "$feat" ]] && feature_disabled "$feat"; then
+            continue
+        fi
+        if grep -qE "^[[:space:]]*-[[:space:]]+id:[[:space:]]+${hook}[[:space:]]*\$" "$pc"; then
+            continue
+        fi
+        block="$(template_hook_block "$hook")" || continue
+        anchor="$(template_hook_anchor "$hook")" || continue
+        if ! range="$(hook_block_range "$pc" "$anchor")"; then
+            echo "Warning: the preserved .pre-commit-config.yaml carries no '$anchor' hook to anchor the new '$hook' block (#1654)." >&2
+            echo "         Skipping the insert — fold the block in from the template diff above by hand." >&2
+            continue
+        fi
+        end="${range##* }"
+        if [[ "$mode" == "plan" ]]; then
+            reconcile_plan_header
+            echo "  +  .pre-commit-config.yaml — the '$hook' hook will be INSERTED after '$anchor' (shipped since $ver; this tree is pinned at $PREVIOUS_PIN)"
+            continue
+        fi
+        splice_lines "$pc" "$((end + 1))" "$end" "$(printf '\n%s' "$block")"
+        echo "Inserted the '$hook' hook after '$anchor' (shipped since $ver, this tree predates it at $PREVIOUS_PIN, #1654)."
+        echo "preserved-hook-insert: $hook in .pre-commit-config.yaml"
+    done < <(inserted_hook_blocks)
+}
+
+# One pass, two gates. `apply` rewrites; `plan` reports what a real run would do
+# and touches nothing (the --preview contract, #886). Both refuse the same two
+# targets through precommit_render_target (#1640): an absent config, and a
+# flake-hooks consumer's /nix/store symlink — that consumer's hooks come from
+# nix/hooks.nix, which already carries both fixes.
+reconcile_preserved_hooks() {
+    local mode="${1:-apply}"
+    local pc
+    pc="$(precommit_render_target)" || return 0
+    fold_retired_hook_blocks "$mode" "$pc"
+    insert_missing_hook_blocks "$mode" "$pc"
+}
+
 render_refs_policy() {
     local pc
     pc="$(precommit_render_target)" || return 0
@@ -2594,6 +2912,12 @@ if [[ "$FORCE" == "true" ]]; then
             echo "dev base to main (prepare-release/ci/codeql/sync-issues), along with"
             echo "the branch-naming skill and the pre-commit branch guard."
         fi
+        # Preserved hook-config reconciliation (#1654): the pass REWRITES a
+        # consumer-owned file, which is the one thing this report may never be
+        # silent about (same rule as the license replacement above). Plan mode
+        # prints what the run would do and touches nothing — and records the
+        # folds, so the scan right below stays consistent with it.
+        reconcile_preserved_hooks plan
         # Known-bad preserved blocks (#1652): the preflight preview is where a
         # consumer looks BEFORE upgrading, and the scan reads a preserved file
         # the copy never touches — so it reports here exactly what the real run
@@ -3155,6 +3479,12 @@ render_codeql_matrix
 # trunk workflow model (#1205): retarget the copied release workflows dev ->
 # main. A no-op for the gitflow default, so a gitflow scaffold is unchanged.
 render_workflow_model "$WORKFLOW_MODEL"
+# Preserved hook-config reconciliation (#1654): fold a retired block that breaks,
+# insert a hook an older tree never received. FIRST of the .pre-commit-config.yaml
+# passes, so the knob renders below apply to whatever it writes exactly as they do
+# to a template copy — and well before the #1652 scan at the end of the run, which
+# must not report a block this pass just repaired.
+reconcile_preserved_hooks apply
 # Branch guard dev-clause (#1642): rendered from the resolved model in BOTH
 # directions, unlike render_workflow_model's one-way retarget above, because
 # .pre-commit-config.yaml is preserved and would otherwise keep the trunk shape
