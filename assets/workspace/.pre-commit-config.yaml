@@ -86,6 +86,26 @@ repos:
         args: ["-x"]
         exclude: (^|/)\.envrc$|^assets/guardrails/
 
+  # >>> devkit:actionlint — excised when the actionlint feature is disabled (#1660)
+  # GitHub Actions workflow linting (actionlint from the flake dev-shell
+  # toolchain, like shellcheck above — both ship in devTools, so both resolve
+  # from PATH in every mode). Lints this repo's own .github/workflows/ via
+  # actionlint's auto-discovery, with its bundled shellcheck pass over `run:`
+  # blocks enabled (#1003) so workflow scripts get the same lint as .sh files.
+  #
+  # Runner labels actionlint's built-in list does not know belong in
+  # .github/actionlint.yaml (shipped alongside this config) — declare the label
+  # there rather than loosening this hook. Refs #1660.
+  - repo: local
+    hooks:
+      - id: actionlint
+        name: actionlint (lint GitHub Actions workflows)
+        entry: actionlint
+        language: system
+        files: ^\.github/workflows/.*\.ya?ml$
+        pass_filenames: false
+  # <<< devkit:actionlint
+
   # Markdown linting (pymarkdown from the flake toolchain; excludes auto-generated
   # docs). Packaged in nix/pymarkdown.nix and promoted to a language: system hook
   # (#1170), so it resolves from PATH like shellcheck/typos instead of its

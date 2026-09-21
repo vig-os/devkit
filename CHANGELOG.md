@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Consumers get the `actionlint` workflow linter, hook and label config**
+  ([#1660](https://github.com/vig-os/devkit/issues/1660))
+  - `actionlint` has shipped in the toolchain since #995, but the hook that runs
+    it was devkit-only — so a consumer's GitHub Actions workflows were linted by
+    nothing. The scaffold now carries the hook, in the same `language: system`
+    form as `shellcheck` (both resolve from the flake toolchain, so both work in
+    every mode).
+  - New `.github/actionlint.yaml` declares the runner labels actionlint's
+    built-in list does not know. It ships with the `ubuntu-26.04` /
+    `ubuntu-26.04-arm` baseline: real hosted runners that actionlint 1.7.12 —
+    the latest release — predates. Labels reaching `runs-on` through an
+    expression (`DEVKIT_CI_RUNNER` via `fromJSON`) are invisible to actionlint
+    and need no entry.
+  - The config is **yours to edit**: it joins the preserve list beside
+    `.yamllint` / `.pymarkdown` / `.typos.toml`, so a repo can declare its own
+    literal self-hosted label and keep it across upgrades.
+  - New `actionlint` group for `DEVKIT_FEATURES_DISABLED` opts out of both
+    halves at once; an existing config is preserved-class and left in place.
+  - Existing repos keep their preserved `.pre-commit-config.yaml` untouched: the
+    new hook surfaces through the #878 template diff on upgrade, to fold in by
+    hand.
 - **Scan a preserved `.pre-commit-config.yaml` for retired hook blocks**
   ([#1652](https://github.com/vig-os/devkit/issues/1652))
   - A preserved file never receives template evolution (#878), so a hook *fix*

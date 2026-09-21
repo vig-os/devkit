@@ -492,7 +492,7 @@ before. An unknown group name aborts the scaffold loudly. The key governs
 scaffold **shape** only — it does not touch the flake or the dev-shell modules
 (`DEVKIT_MODULES`).
 
-The eight groups:
+The nine groups:
 
 - `release` — the release/prepare/promote workflows (`release*.yml`,
   `prepare-release*.yml`, `prepare-hotfix.yml`, `promote-release.yml`,
@@ -514,14 +514,22 @@ The eight groups:
   ([#1296](https://github.com/vig-os/devkit/issues/1296)). Disabling it (rather
   than the runtime `DEVKIT_AUTO_UPGRADE=false` knob) stops the file from shipping
   at all.
+- `actionlint` — the GitHub Actions workflow linter: **both** the `actionlint`
+  prek hook and the `.github/actionlint.yaml` label config it reads
+  ([#1660](https://github.com/vig-os/devkit/issues/1660)). Both halves go
+  together on purpose — a repo left with the hook but no label config would lint
+  against actionlint's bare built-in list and fail on any runner label the
+  scaffold renders that it does not know. The config is preserved-class (see the
+  caveat below); the hook lives inside the preserved `.pre-commit-config.yaml`,
+  so it is excised at render time rather than pruned as a path.
 
 `ci.yml` is intentionally out of scope (v1): it stays a single atomic,
 mode-aware workflow.
 
 **Preserved-class caveat.** The consumer-owned extension seams
-`release-extension.yml` and `prepare-release-extension.yml`, and `renovate.json`
-(all in the upgrade preserve list) are **never pruned** when their feature is
-disabled — an existing one is left in place with a notice, and `--preview`
+`release-extension.yml` and `prepare-release-extension.yml`, `renovate.json`, and
+`.github/actionlint.yaml` (all in the upgrade preserve list) are **never pruned**
+when their feature is disabled — an existing one is left in place with a notice, and `--preview`
 reports it as left-in-place rather than under DELETIONS. Delete it by hand if you
 truly want it gone.
 

@@ -510,15 +510,26 @@ let
         pass_filenames = false;
       };
     };
-    # GitHub Actions workflow linter (#995). Runner-only and devkit-only: it
-    # lints THIS repo's own .github/workflows/ via actionlint's auto-discovery
-    # (pass_filenames = false). Not scaffolded to consumers and not in the
-    # sandbox gate — the per-mode RENDERED consumer templates are validated in
-    # tests/bats instead, because linting them in-place resolves the
-    # reusable-workflow siblings against the wrong root (the devkit itself).
-    # actionlint's bundled shellcheck pass over run-block scripts is enabled
-    # (#1003); the standalone shellcheck hook above still covers .sh scripts.
+    # GitHub Actions workflow linter (#995). Lints a repo's own
+    # .github/workflows/ via actionlint's auto-discovery (pass_filenames =
+    # false). Scaffolded since #1660: actionlint has been on PATH in every
+    # consumer environment since #995 (nix/devtools.nix — dev-shell, image and
+    # the vigos.packages home module), exactly like shellcheck above, but no
+    # hook ran it, so a consumer's workflows were linted by nothing.
+    #
+    # Still NOT in the sandbox gate: inside devkit the per-mode consumer
+    # templates would be linted in-place, resolving the reusable-workflow
+    # siblings against the wrong root (the devkit itself) — tests/bats lints the
+    # RENDERED trees instead. In a real consumer repo the workflows sit at their
+    # proper root, so that objection does not apply there.
+    #
+    # Runner labels actionlint's built-in list does not know are declared in
+    # `.github/actionlint.yaml` (shipped by the scaffold, #1660), never silenced
+    # by widening this hook. actionlint's bundled shellcheck pass over run-block
+    # scripts is enabled (#1003); the standalone shellcheck hook above still
+    # covers .sh scripts.
     actionlint = {
+      scaffold = true;
       yaml = {
         name = "actionlint (lint GitHub Actions workflows)";
         entry = "actionlint";

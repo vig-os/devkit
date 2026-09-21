@@ -5246,3 +5246,125 @@ _py_ws_uv_exit() {
     run bash -c "cd '$ws' && PATH='$ws/stub-bin:$PATH' '$real_just' test-cov"
     assert_failure 1
 }
+
+# ── actionlint shipped to consumers: hook + label config (#1660) ──────────────
+# actionlint has been in the toolchain since #995 (nix/devtools.nix), but the
+# prek hook that runs it stayed devkit-only — so a consumer's workflows were
+# linted by nothing. The hook ships here in the `shellcheck` idiom (same
+# toolchain SSoT, same language: system form, already a shipped consumer hook).
+#
+# The hook needs a companion: actionlint rejects any LITERAL runs-on label
+# missing from its built-in list, and only an actionlint.yaml declaring
+# self-hosted-runner.labels can teach it one. `ubuntu-26.04` is the live case —
+# a real hosted runner that actionlint 1.7.12 (the latest release, 2026-03-30)
+# predates. Expression forms (`${{ fromJSON(...) }}`, how DEVKIT_CI_RUNNER
+# reaches runs-on) are skipped by actionlint and need no entry.
+#
+# Adoption is new-repos-only: .pre-commit-config.yaml is preserved (#878), so an
+# existing consumer meets the hook through the #878 template diff and folds it
+# in by hand. That is the split #1652's own table documents — it is for blocks
+# the template retired because they BREAK, never for ordinary drift.
+
+@test "the scaffold ships an actionlint hook to consumers (#1660)" {
+    ws="$(_shared_tree both)"
+    run grep -q 'id: actionlint' "$ws/.pre-commit-config.yaml"
+    assert_success
+    # The shellcheck idiom: toolchain binary off PATH, not a prek-built env.
+    run grep -q 'entry: actionlint' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "the scaffold ships a .github/actionlint.yaml alongside the hook (#1660)" {
+    ws="$(_shared_tree both)"
+    run test -f "$ws/.github/actionlint.yaml"
+    assert_success
+    run grep -q 'self-hosted-runner:' "$ws/.github/actionlint.yaml"
+    assert_success
+}
+
+@test "the shipped label config carries the ubuntu-26.04 baseline (#1660)" {
+    # The labels that make the #1658 runner bump lintable; actionlint 1.7.12
+    # knows neither. Both are needed: the arm variant is a distinct label.
+    ws="$(_shared_tree both)"
+    run grep -q 'ubuntu-26.04' "$ws/.github/actionlint.yaml"
+    assert_success
+    run grep -q 'ubuntu-26.04-arm' "$ws/.github/actionlint.yaml"
+    assert_success
+}
+
+@test "the label config is seeded, not managed — a consumer edit survives (#1660)" {
+    # Same class as .yamllint / .pymarkdown / .typos.toml (#1099/#913): the
+    # consumer owns their lint exceptions, so the file carries the PRESERVED
+    # banner and an upgrade never overwrites it. The managed banner's
+    # "local edits are lost / customize in justfile.project" is wrong here —
+    # there is no justfile route to an actionlint label.
+    ws="$BATS_TEST_TMPDIR/e2e-1660-preserved"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run grep -q 'upgrades never overwrite this file' "$ws/.github/actionlint.yaml"
+    assert_success
+    run grep -q 'local edits are lost' "$ws/.github/actionlint.yaml"
+    assert_failure
+    # The durability property the banner promises.
+    printf '\n# SENTINEL-1660\n' >>"$ws/.github/actionlint.yaml"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -q 'SENTINEL-1660' "$ws/.github/actionlint.yaml"
+    assert_success
+}
+
+# The opt-out has to take BOTH halves or it is incoherent: a repo left with the
+# hook but no label config would lint with actionlint's bare built-in list and
+# fail on any label the scaffold renders that it does not know.
+
+@test "DEVKIT_FEATURES_DISABLED=actionlint ships neither half (#1660)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1660-optout-fresh"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "actionlint"
+    assert_success
+    run test -e "$ws/.github/actionlint.yaml"
+    assert_failure
+    run grep -q 'id: actionlint' "$ws/.pre-commit-config.yaml"
+    assert_failure
+}
+
+@test "the actionlint opt-out leaves the rest of the hook stack intact (#1660)" {
+    # Block removal must take exactly its own block — the neighbouring
+    # hooks (shellcheck above, pymarkdown below) bracket it in the render.
+    ws="$BATS_TEST_TMPDIR/e2e-1660-optout-neighbours"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "actionlint"
+    assert_success
+    run grep -q 'id: shellcheck' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -q 'id: pymarkdown' "$ws/.pre-commit-config.yaml"
+    assert_success
+    # Still valid YAML after the excision, and no orphaned repo block: the
+    # sentinels bracket a whole `- repo: local` entry, so a sloppy range would
+    # leave a hooks list with no owner and still grep clean above.
+    run python3 -c "
+import sys, yaml
+cfg = yaml.safe_load(open(sys.argv[1]))
+ids = [h['id'] for r in cfg['repos'] for h in r['hooks']]
+assert 'actionlint' not in ids, ids
+assert 'shellcheck' in ids and 'pymarkdown' in ids, ids
+" "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "an existing label config survives the actionlint opt-out (#1660)" {
+    # Preserved-class carve-out (#1284): the consumer's own declarations are
+    # never deleted by a feature prune, only reported.
+    ws="$BATS_TEST_TMPDIR/e2e-1660-optout-kept"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    printf '\n# SENTINEL-1660-OPTOUT\n' >>"$ws/.github/actionlint.yaml"
+    _seed_features_disabled "$ws" "actionlint"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial ".github/actionlint.yaml left in place (preserved)"
+    run grep -q 'SENTINEL-1660-OPTOUT' "$ws/.github/actionlint.yaml"
+    assert_success
+}
