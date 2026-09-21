@@ -2638,6 +2638,39 @@ reconcile_preserved_hooks() {
     insert_missing_hook_blocks "$mode" "$pc"
 }
 
+# Excise the release recipes when the release feature is disabled (#1656). Every
+# recipe in the block dispatches a workflow feature_paths already copy-excludes,
+# and `reset-changelog` additionally reads the root CHANGELOG.md the same group
+# withholds since #1651 — so the whole set is dead in a release-disabled repo,
+# and `just --list` advertising it is the incoherent half-state (the same
+# argument as the actionlint hook above).
+#
+# The `just` surface follows the feature group rather than each recipe learning
+# to fail fast: DISABLED_FEATURES is the SSoT, and teaching eight recipe bodies
+# in a MANAGED file to re-parse `.vig-os` at runtime would copy it into the
+# scaffold output. A whole-file feature_paths entry is not available either —
+# justfile.gh also carries the github/git helpers, which are not release
+# machinery — so the group takes the section, exactly as the trunk model already
+# takes the `prepare-hotfix` recipe from this same file (#1625).
+#
+# Unlike the actionlint case this file is MANAGED: the template copy is rewritten
+# on every upgrade, so the excision is re-applied each run and clearing the key
+# restores the recipes. Idempotent either way: a second run finds no sentinels.
+render_release_optout() {
+    local jg
+    feature_disabled release || return 0
+    jg="$WORKSPACE_DIR/.devcontainer/justfile.gh"
+    [[ -f "$jg" ]] || return 0
+    grep -q '# >>> devkit:release' "$jg" || return 0
+
+    sed -i '/# >>> devkit:release/,/# <<< devkit:release/d' "$jg"
+    # The block is the file's tail, so its removal strands the blank line that
+    # separated it — and a managed file ending on a double newline is rewritten
+    # by the consumer's end-of-file-fixer, then restored by the next upgrade.
+    sed -i '${/^$/d}' "$jg"
+    echo "Dropped the release recipes from .devcontainer/justfile.gh (feature disabled via DEVKIT_FEATURES_DISABLED, #1656)."
+}
+
 render_refs_policy() {
     local pc
     pc="$(precommit_render_target)" || return 0
@@ -3516,6 +3549,12 @@ render_branch_types
 # LAST of the .pre-commit-config.yaml renders — the anchors above no longer need
 # to exist once the block is gone, and any of them landing inside it is moot.
 render_actionlint_optout
+# release opt-out (#1656): the same whole-block excision on .devcontainer/
+# justfile.gh. Runs AFTER render_workflow_model, whose trunk pass removes the
+# `prepare-hotfix` recipe from inside this very block — either order is correct
+# (both are idempotent), but dropping the superset last keeps that sed's
+# anchors intact when the feature is enabled.
+render_release_optout
 
 # Persist the resolved manifest (#885). The scaffolded .vig-os is a managed
 # file (template-overwritten on upgrade), so the resolved delivery mode and

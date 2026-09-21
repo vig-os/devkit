@@ -499,7 +499,15 @@ The nine groups:
   `sync-main-to-dev.yml`), `docs/DOWNSTREAM_RELEASE.md`, and the root
   `CHANGELOG.md` — release machinery, read only by those workflows
   ([#1651](https://github.com/vig-os/devkit/issues/1651)). An existing
-  changelog is preserved-class: left in place, never pruned.
+  changelog is preserved-class: left in place, never pruned. The `just` surface
+  follows the group: the `[group('release')]` recipes of the managed
+  `.devcontainer/justfile.gh` (`changelog-preview`, `prepare-release`,
+  `prepare-hotfix`, `finalize-release`, `promote-release`, `publish-candidate`,
+  `abandon-release`, `reset-changelog`) are excised at render time, so
+  `just --list` stops offering commands that can only fail — a dispatch to a
+  pruned workflow, or a `reset-changelog` against the withheld `CHANGELOG.md`
+  ([#1656](https://github.com/vig-os/devkit/issues/1656)). The file is managed,
+  so clearing the key brings the recipes back on the next `--force`.
 - `renovate` — `renovate.json` and `.github/renovate-default.json`.
 - `sync-issues` — `sync-issues.yml` and `.github/label-taxonomy.toml`. With this
   group disabled, `DEVKIT_SYNC_TARGET`/`DEVKIT_SYNC_SCHEDULE` become inert (a

@@ -32,6 +32,7 @@ gh-branch:
     echo "Recent branches:"
     git branch -a | head -15
 
+# >>> devkit:release — excised from the scaffold when the release feature is disabled (#1656)
 # -------------------------------------------------------------------------------
 # RELEASE WORKFLOW DISPATCH HELPERS
 # -------------------------------------------------------------------------------
@@ -144,6 +145,7 @@ abandon-release version ref="" *flags:
 [group('release')]
 reset-changelog:
     uv run prepare-changelog reset CHANGELOG.md
+# <<< devkit:release
 
 # Pull image from registry (default: latest)
 [group('release')]
