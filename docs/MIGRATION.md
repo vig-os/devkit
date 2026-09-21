@@ -976,6 +976,23 @@ body, so the notice lands where the upgrade is reviewed rather than in a
 workflow log. `install.sh --force --preview` reports it too, before anything is
 touched.
 
+**The upgrade now folds it for you — when it can prove what it is replacing**
+([#1654](https://github.com/vig-os/devkit/issues/1654)). The scan above is the
+fallback, not the first line: a retired block that is **byte-identical** to the
+text devkit itself shipped is replaced by the current template's hook, in place,
+as an ordinary reviewable hunk in the adoption diff. Everything else in the file
+— your global and per-hook `exclude:` patterns, your hook ordering, your
+comments — is untouched, and the fold reports itself on the same channel:
+
+```text
+preserved-hook-fold: pymarkdown-pre-1170 in .pre-commit-config.yaml
+```
+
+Byte-identical means every byte. If you extended the block's `exclude:`, or
+Renovate advanced its `rev:`, the fold **declines** and you get the warning
+above instead — deliberately, because nothing then proves those bytes are
+devkit's and not yours. Fold those by hand, as below.
+
 **The one entry today.** A config scaffolded before
 [#1170](https://github.com/vig-os/devkit/issues/1170) pulls pymarkdown from its
 upstream pre-commit repo:
@@ -1025,7 +1042,43 @@ prek run pymarkdown --all-files
 
 The same trap applies to any future `language: python` → `language: system`
 hook migration; each such retirement gets its own row in the scan table
-(`known_bad_preserved_patterns` in `assets/init-workspace.sh`).
+(`known_bad_preserved_patterns` in `assets/init-workspace.sh`), and its historical
+text a row in the fold table (`retired_hook_blocks`) beside it.
+
+### A hook your preserved config never received
+
+The mirror image of a retired block: a hook the template **adds** reaches new
+scaffolds only, because your config is preserved. `actionlint`
+([#1660](https://github.com/vig-os/devkit/issues/1660)) was the case that forced
+the issue — it had been on `PATH` since #995, so an existing repo's workflows
+were linted by nothing at all.
+
+Absence is ambiguous, though: a missing hook may mean you never received it, or
+that you deleted it on purpose. The upgrade therefore inserts one only when your
+`DEVKIT_VERSION` **predates the release that first shipped it** — your tree was
+generated before the hook existed, so its absence cannot have been a decision
+([#1654](https://github.com/vig-os/devkit/issues/1654), the mirror of the
+retired-path gate in [#1348](https://github.com/vig-os/devkit/issues/1348)). A
+repo pinned at or past that release is left alone. The block lands at its
+template position (after its neighbour, since hook order is observable), and
+says so:
+
+```text
+preserved-hook-insert: actionlint in .pre-commit-config.yaml
+```
+
+Because the insert fires **at most once** — the same upgrade advances your pin
+past the introducing release — deleting the hook afterwards is durable: it is
+never re-added. To decline it up front, or to remove it and its config together,
+use the feature group rather than a hand deletion:
+
+```ini
+# .vig-os
+DEVKIT_FEATURES_DISABLED=actionlint
+```
+
+That is checked before anything is written, and it survives every upgrade (see
+[Scaffold feature opt-outs](#scaffold-feature-opt-outs)).
 ### A private consumer: license and changelog
 
 `install.sh --force` **adds** files this repo lacks, and two of them are not

@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A preserved `.pre-commit-config.yaml` is reconciled on upgrade**
+  ([#1654](https://github.com/vig-os/devkit/issues/1654))
+  - #1652 made two divergences of a preserved hook config visible; this repairs
+    them, with a separate evidence gate per case and nothing else in the file
+    touched — global and per-hook `exclude:` patterns, ordering and comments all
+    survive.
+  - **Fold.** A block the template retired *because it breaks* is replaced by the
+    current template's hook, gated on a **byte-identical** match against the
+    historical template text. That is what proves the bytes being overwritten are
+    devkit's own output: one edited byte — an extended `exclude:`, a
+    Renovate-bumped `rev:` — and the fold declines, leaving the #1652 warning.
+    First entry: the pre-#1170 `jackdewinter/pymarkdown` block, which breaks the
+    `devkit-upgrade` commit step itself, so those repos never reach a PR where
+    the warning could be read.
+  - **Insert.** A hook an older tree never received is added at its template
+    position, gated the way `retired_paths()` gates a prune (#1348): only when
+    `DEVKIT_VERSION` predates the release that first shipped the hook, so the
+    consumer never had the chance to decline it. It fires at most once per repo,
+    which keeps a later hand-deletion durable (#1651), and
+    `DEVKIT_FEATURES_DISABLED` is honoured first. First entry: `actionlint`
+    (#1660), which reached new scaffolds only.
+  - Both print a machine-readable `preserved-hook-fold:` /
+    `preserved-hook-insert:` line that `devkit-upgrade.yml` lifts into the run
+    summary and a dedicated adoption-PR section, and `--preview` reports the
+    planned rewrite before anything is touched.
 - **Consumers get the `actionlint` workflow linter, hook and label config**
   ([#1660](https://github.com/vig-os/devkit/issues/1660))
   - `actionlint` has shipped in the toolchain since #995, but the hook that runs

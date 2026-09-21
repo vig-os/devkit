@@ -284,6 +284,20 @@ jobs:
           if [ -n "$HOOK_DRIFT" ]; then
             printf '%s\n' "$HOOK_DRIFT" | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
           fi
+          # Reconciled blocks (#1654): the opposite statement to the drift
+          # channel above — the upgrade REWROTE the consumer-owned config (folded
+          # a retired block, inserted a hook the tree never received), so the
+          # hunk is in this PR and wants a reviewer's eye. Its own output, not
+          # HOOK_DRIFT's, because the two ask for different actions.
+          HOOK_RECONCILE="$(grep -E '^preserved-hook-(fold|insert):' "$RUNNER_TEMP/install.log" || true)"
+          {
+            echo "hook-reconcile<<DEVKIT_EOF"
+            if [ -n "$HOOK_RECONCILE" ]; then printf '%s\n' "$HOOK_RECONCILE"; fi
+            echo "DEVKIT_EOF"
+          } >> "$GITHUB_OUTPUT"
+          if [ -n "$HOOK_RECONCILE" ]; then
+            printf '%s\n' "$HOOK_RECONCILE" | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Reset excluded paths
         if: steps.resolve.outputs.proceed == 'true'
@@ -406,6 +420,7 @@ jobs:
           BRANCH: ${{ steps.branch.outputs.name }}
           FLAKE_BUMP: ${{ steps.upgrade.outputs.flake-bump }}
           HOOK_DRIFT: ${{ steps.upgrade.outputs.hook-drift }}
+          HOOK_RECONCILE: ${{ steps.upgrade.outputs.hook-reconcile }}
           # PR base per workflow model (retargeted dev -> main at scaffold time).
           BASE: dev
         run: |
@@ -426,6 +441,12 @@ jobs:
           # shellcheck disable=SC2016  # backticks are literal Markdown code spans, not command substitution
           if [ -n "$HOOK_DRIFT" ]; then
             BODY="$(printf '%s\n**Preserved config keeps a retired hook block** — the upgrade cannot rewrite a consumer-owned file; fold these in by hand (see MIGRATION.md):\n\n```\n%s\n```\n' "$BODY" "$HOOK_DRIFT")"
+          fi
+          # Reconciled blocks (#1654): this upgrade DID rewrite the preserved
+          # hook config. Say so where the diff is reviewed, next to the hunk.
+          # shellcheck disable=SC2016  # backticks are literal Markdown code spans, not command substitution
+          if [ -n "$HOOK_RECONCILE" ]; then
+            BODY="$(printf '%s\n**Preserved hook config reconciled** — the upgrade rewrote `.pre-commit-config.yaml`; review the hunk (see MIGRATION.md):\n\n```\n%s\n```\n' "$BODY" "$HOOK_RECONCILE")"
           fi
           if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
             gh pr edit "$BRANCH" --title "$TITLE" --body "$BODY"
