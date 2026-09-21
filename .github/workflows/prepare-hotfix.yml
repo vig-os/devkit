@@ -55,7 +55,7 @@ permissions:
 jobs:
   validate:
     name: Validate Hotfix Preparation
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -194,7 +194,7 @@ jobs:
   prepare:
     name: Prepare Hotfix Branch
     needs: validate
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     if: ${{ github.event.inputs.dry-run != 'true' }}
     permissions:
@@ -344,7 +344,7 @@ jobs:
   open-pr:
     name: Open Draft Hotfix PR
     needs: [validate, prepare, extension]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     if: ${{ github.event.inputs.dry-run != 'true' }}
     permissions:
@@ -436,7 +436,7 @@ jobs:
   rollback:
     name: Roll Back Prepare Hotfix on Failure or Cancellation
     needs: [validate, prepare, extension, open-pr]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     # `always()` keeps the job eligible after the run itself is cancelled, and
     # each phase guard also matches `cancelled` (#1078).

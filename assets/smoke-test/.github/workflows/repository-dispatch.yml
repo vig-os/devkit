@@ -43,7 +43,7 @@ env:
 jobs:
   validate:
     name: Validate dispatch payload
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     outputs:
       tag: ${{ steps.extract.outputs.tag }}
@@ -144,7 +144,7 @@ jobs:
 
   deploy:
     name: Deploy tag and open PR to dev
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     needs: validate
     outputs:
@@ -483,7 +483,7 @@ jobs:
 
   wait-deploy-merge:
     name: Wait for deploy PR merge
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 35
     needs: deploy
     permissions:
@@ -532,7 +532,7 @@ jobs:
 
   cleanup-release:
     name: Cleanup stale release branch and PR
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     env:
       GH_REPO: ${{ github.repository }}
@@ -573,7 +573,7 @@ jobs:
 
   trigger-prepare-release:
     name: Trigger and wait for prepare-release workflow
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 25
     env:
       GH_REPO: ${{ github.repository }}
@@ -705,7 +705,7 @@ jobs:
 
   ready-release-pr:
     name: Prepare release PR
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 35
     permissions:
       contents: read
@@ -778,7 +778,7 @@ jobs:
 
   trigger-release:
     name: Trigger and wait for release workflow
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 35
     env:
       GH_REPO: ${{ github.repository }}
@@ -896,7 +896,7 @@ jobs:
 
   wait-release-pr-ci:
     name: Wait for release PR required checks
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 35
     env:
       GH_REPO: ${{ github.repository }}
@@ -981,7 +981,7 @@ jobs:
 
   trigger-promote-release:
     name: Trigger and wait for promote-release workflow
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 35
     env:
       GH_REPO: ${{ github.repository }}
@@ -1091,7 +1091,7 @@ jobs:
 
   summary:
     name: Dispatch summary
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     needs:
       - validate
@@ -1216,7 +1216,7 @@ jobs:
 
   notify-failure:
     name: Notify upstream on smoke-test dispatch failure
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     if: failure()
     needs:

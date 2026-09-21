@@ -37,7 +37,7 @@ permissions:
 jobs:
   validate:
     name: Validate Release Preparation
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -173,7 +173,7 @@ jobs:
   prepare:
     name: Prepare Release Branch
     needs: validate
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     if: ${{ github.event.inputs.dry-run != 'true' }}
     permissions:
@@ -344,7 +344,7 @@ jobs:
   open-pr:
     name: Open Draft Release PR
     needs: [validate, prepare, extension]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     if: ${{ github.event.inputs.dry-run != 'true' }}
     permissions:
@@ -447,7 +447,7 @@ jobs:
   rollback:
     name: Roll Back Prepare Release on Failure or Cancellation
     needs: [validate, prepare, extension, open-pr]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     # `always()` (not `!cancelled()`) is load-bearing: it is what keeps this job
     # eligible to run after the run itself is cancelled, and each phase guard
