@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-18T13:25:57Z
-updated: 2026-09-18T20:57:15Z
+updated: 2026-09-21T06:53:42Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1651
-comments: 0
+comments: 1
 labels: feature, priority:medium, area:workspace, effort:medium, semver:minor
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-19T07:15:12.113Z
+synced: 2026-09-21T07:52:32.537Z
 ---
 
 # [Issue 1651]: [Scaffold ships Apache-2.0 LICENSE + a CHANGELOG that re-appear on every upgrade — no opt-out for private/release-less consumers](https://github.com/vig-os/devkit/issues/1651)
@@ -38,3 +38,13 @@ Any private or release-less consumer (e.g. a docs/lab-notebook repo on `DEVKIT_W
 3. At minimum, make both **preserve-if-consumer-deleted** (respect an intentional absence recorded in `.vig-os`, e.g. via `DEVKIT_UPGRADE_EXCLUDE`-style suppression) so a one-time removal sticks.
 
 Context: surfaced upgrading a private consumer from 1.3.1 → 1.15.1; both files had to be removed post-upgrade and will re-appear on the next forced scaffold.
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 21, 2026 at 06:53 AM_
+
+Solved on `dev` in #1655 (merge commit 452f3842): the root `CHANGELOG.md` now follows the `release` feature group, and `DEVKIT_LICENSE` (`apache-2.0` | `proprietary` | `none`) governs the license. Both deletions are durable; neither value ever deletes an existing file. Closing manually — `Closes #` only fires on a main-branch merge.
+
+Follow-up split out: #1656 (release-disabled consumers keep release-only `just` recipes referencing a changelog).
+
