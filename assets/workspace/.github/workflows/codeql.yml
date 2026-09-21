@@ -58,7 +58,7 @@ jobs:
     # Skip on private repos: CodeQL needs GHAS (unavailable on Free-plan private
     # repos), so it would fail permanently. See the header note for details.
     if: ${{ !github.event.repository.private }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       security-events: write   # upload SARIF results

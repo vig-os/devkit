@@ -76,7 +76,7 @@ jobs:
       fail-fast: false
       matrix:
         ref: [main, dev]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # Worst case is a cold NVD cache week plus retries against a throttled
     # nvd.nist.gov (~25 min per attempt); warm-cache runs finish in minutes.
     timeout-minutes: 90

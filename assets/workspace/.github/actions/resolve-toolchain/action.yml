@@ -68,7 +68,7 @@ outputs:
   runner-json:
     description: >-
       JSON array of runner labels from DEVKIT_CI_RUNNER (comma-separated), for
-      use with fromJSON() in `runs-on`. Defaults to ["ubuntu-24.04"] when the
+      use with fromJSON() in `runs-on`. Defaults to ["ubuntu-26.04"] when the
       key is absent.
     value: ${{ steps.resolve.outputs.runner-json }}
   dev-profile-path:
@@ -212,9 +212,9 @@ runs:
         # list routed into `runs-on` via fromJSON() by the downstream CI
         # jobs. Absent => the hosted default, so existing consumers are unchanged.
         # Emitted for every mode, ALWAYS a valid JSON array (single label =>
-        # ["ubuntu-24.04"]); whitespace around each label is trimmed and empty
+        # ["ubuntu-26.04"]); whitespace around each label is trimmed and empty
         # entries dropped so a trailing/spaced comma never yields a blank label.
-        CI_RUNNER="${CI_RUNNER:-ubuntu-24.04}"
+        CI_RUNNER="${CI_RUNNER:-ubuntu-26.04}"
         RUNNER_JSON="["
         runner_first=1
         IFS=',' read -ra runner_labels <<< "$CI_RUNNER"
@@ -226,7 +226,7 @@ runs:
           RUNNER_JSON+="\"$label\""
         done
         # An all-blank value (e.g. DEVKIT_CI_RUNNER=" ,") falls back to the default.
-        [[ "$runner_first" -eq 1 ]] && RUNNER_JSON+="\"ubuntu-24.04\""
+        [[ "$runner_first" -eq 1 ]] && RUNNER_JSON+="\"ubuntu-26.04\""
         RUNNER_JSON+="]"
         echo "runner-json=$RUNNER_JSON" >> "$GITHUB_OUTPUT"
 

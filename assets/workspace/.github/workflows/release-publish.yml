@@ -86,7 +86,7 @@ permissions:
 jobs:
   publish:
     name: Publish Release
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # Conditional container (ADR Option A): empty image => host runner; the GHCR
     # credentials block is inert on an empty image.
     container:

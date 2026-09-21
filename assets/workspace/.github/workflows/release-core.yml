@@ -113,7 +113,7 @@ permissions:
 jobs:
   validate:
     name: Validate Release Core
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       pull-requests: read
@@ -373,7 +373,7 @@ jobs:
   finalize:
     name: Finalize Release Core
     needs: validate
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       actions: read
       contents: read
@@ -668,7 +668,7 @@ jobs:
   test:
     name: Test Finalized Release
     needs: [validate, finalize]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ inputs.toolchain_image }}
       credentials:

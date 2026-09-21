@@ -31,7 +31,7 @@ permissions:
 jobs:
   resolve-toolchain:
     name: Resolve toolchain
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 2
     outputs:
       mode: ${{ steps.resolve.outputs.mode }}
@@ -58,7 +58,7 @@ jobs:
   validate:
     name: Validate promote prerequisites
     needs: [resolve-toolchain]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
@@ -352,7 +352,7 @@ jobs:
   promote:
     name: Publish GitHub Release
     needs: [resolve-toolchain, validate]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
@@ -407,7 +407,7 @@ jobs:
   merge:
     name: Merge release PR to main
     needs: [resolve-toolchain, validate, promote]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
@@ -558,7 +558,7 @@ jobs:
   cleanup:
     name: Cleanup git RC tags
     needs: [resolve-toolchain, validate, promote, merge]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
@@ -679,7 +679,7 @@ jobs:
     # update/delete to everyone but the RELEASE_APP, making moves app-exclusive.
     name: Move floating tags
     needs: [resolve-toolchain, validate, promote, merge]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
