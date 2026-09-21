@@ -373,6 +373,22 @@ def test_a_missing_anchor_skips_the_insert_rather_than_guessing(
     assert "anchor" in proc.stderr
 
 
+def test_a_rewrite_keeps_the_file_mode(tmp_path: Path) -> None:
+    """The consumer's file comes back as it went in, bits included.
+
+    Writing through a temp file and renaming it over the target — what
+    ``sed -i`` does — would hand the consumer ``mktemp``'s 0600 and silently
+    de-group-read a tracked file.
+    """
+    seed = _seed(tmp_path)
+    (seed / ".pre-commit-config.yaml").chmod(0o644)
+    _upgrade(tmp_path, seed, name="mode")
+
+    config = tmp_path / "mode" / ".pre-commit-config.yaml"
+    assert "jackdewinter" not in config.read_text(encoding="utf-8")
+    assert config.stat().st_mode & 0o777 == 0o644
+
+
 # ── the preview may never be silent about a mutation ──────────────────────────
 
 
