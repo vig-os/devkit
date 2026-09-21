@@ -124,6 +124,13 @@ PRESERVE_FILES=(
     ".yamllint"
     ".pymarkdown"
     ".pymarkdown.config.md"
+    # The consumer owns its runner-label declarations (#1660): the actionlint
+    # hook shipped alongside this file rejects any LITERAL runs-on label absent
+    # from actionlint's built-in list, and this config is the only way to teach
+    # it one — so a repo naming its own self-hosted label must be able to add it
+    # and keep it. Preserved like .yamllint/.pymarkdown above; the upgrade
+    # prints a diff against the template so a new baseline label stays visible.
+    ".github/actionlint.yaml"
     # The consumer owns its repo-ROOT ignores (#1092): the managed root
     # .gitignore is overwritten on every upgrade, and git honors a repo-root
     # ignore only from that root .gitignore — so there was no durable committed

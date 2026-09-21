@@ -5274,7 +5274,7 @@ _py_ws_uv_exit() {
     assert_success
 }
 
-@test "the scaffold ships a managed .github/actionlint.yaml (#1660)" {
+@test "the scaffold ships a .github/actionlint.yaml alongside the hook (#1660)" {
     ws="$(_shared_tree both)"
     run test -f "$ws/.github/actionlint.yaml"
     assert_success
