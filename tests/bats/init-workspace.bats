@@ -5368,3 +5368,92 @@ assert 'shellcheck' in ids and 'pymarkdown' in ids, ids
     run grep -q 'SENTINEL-1660-OPTOUT' "$ws/.github/actionlint.yaml"
     assert_success
 }
+
+# ── release recipes follow the release feature group (#1656) ──────────────────
+# #1651 put the root CHANGELOG.md in the `release` group, so a release-disabled
+# consumer no longer gets one — but the managed .devcontainer/justfile.gh kept
+# shipping the release-dispatch recipes, and `just reset-changelog` then failed
+# on a missing FILE instead of a missing workflow. The whole set was already
+# dead in such a repo: every other recipe dispatches a workflow the release
+# group copy-excludes.
+#
+# The fix follows the group, like every other half of a disabled feature: the
+# recipes are excised from the managed file (sentinel-bracketed block, the
+# #1660 idiom) so `just --list` stops advertising commands the repo cannot run.
+# justfile.gh is MANAGED — rewritten from the template on every upgrade — so
+# the excision is re-applied each run and re-enabling the feature restores it.
+
+@test "DEVKIT_FEATURES_DISABLED=release drops the release recipes (#1656)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1656-optout-fresh"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "release"
+    assert_success
+    # The recipe the issue reports: it references a CHANGELOG.md the same
+    # feature group now withholds.
+    run grep -q 'reset-changelog' "$ws/.devcontainer/justfile.gh"
+    assert_failure
+    # ...and the rest of the set, each dispatching a copy-excluded workflow.
+    for recipe in changelog-preview prepare-release prepare-hotfix \
+        finalize-release promote-release publish-candidate abandon-release; do
+        run grep -q "$recipe" "$ws/.devcontainer/justfile.gh"
+        assert_failure
+    done
+}
+
+@test "the release opt-out keeps the rest of justfile.gh intact (#1656)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1656-optout-neighbours"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "release"
+    assert_success
+    # The github/git groups are not release machinery and must survive.
+    run grep -qE '^gh-issues:' "$ws/.devcontainer/justfile.gh"
+    assert_success
+    run grep -qE '^gh-log:' "$ws/.devcontainer/justfile.gh"
+    assert_success
+    run grep -qE '^gh-branch:' "$ws/.devcontainer/justfile.gh"
+    assert_success
+    # Still a parseable justfile after the excision — a sloppy range would cut
+    # into the alias or a recipe body and break `just` entirely for the repo.
+    run just -f "$ws/.devcontainer/justfile.gh" -d "$ws" --summary
+    assert_success
+    assert_output --partial "gh-issues"
+    refute_output --partial "reset-changelog"
+    # The block is the file's tail, so its removal must not strand a trailing
+    # blank line: end-of-file-fixer would rewrite the managed file on the
+    # consumer's next commit, and the next upgrade would put it back.
+    run bash -c "test -n \"\$(tail -n 1 '$ws/.devcontainer/justfile.gh')\""
+    assert_success
+}
+
+@test "a default scaffold still ships every release recipe (#1656)" {
+    # The opt-out must cost nothing when the feature is on: the sentinels are
+    # comments, and the block stays.
+    ws="$(_shared_tree both)"
+    run grep -qE '^reset-changelog:' "$ws/.devcontainer/justfile.gh"
+    assert_success
+    run grep -qE '^changelog-preview:' "$ws/.devcontainer/justfile.gh"
+    assert_success
+    run grep -q 'gh workflow run prepare-release.yml' "$ws/.devcontainer/justfile.gh"
+    assert_success
+}
+
+@test "the release-recipe excision is idempotent across upgrades (#1656)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1656-optout-idempotent"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run grep -qE '^reset-changelog:' "$ws/.devcontainer/justfile.gh"
+    assert_success
+    _seed_features_disabled "$ws" "release"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "release recipes"
+    run grep -q 'reset-changelog' "$ws/.devcontainer/justfile.gh"
+    assert_failure
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -q 'reset-changelog' "$ws/.devcontainer/justfile.gh"
+    assert_failure
+    run just -f "$ws/.devcontainer/justfile.gh" -d "$ws" --summary
+    assert_success
+}

@@ -70,6 +70,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     unaffected (the exclude is root-anchored).
   - The scaffolded changelog skeleton no longer carries a templated
     `## Unreleased` entry referencing an upstream devkit issue.
+- **The `release` feature group now covers the release `just` recipes too**
+  ([#1656](https://github.com/vig-os/devkit/issues/1656))
+  - The managed `.devcontainer/justfile.gh` kept shipping its
+    `[group('release')]` recipes to a repo whose release workflows the same
+    group had pruned, so `just prepare-release` (and every sibling) could only
+    fail at dispatch time — and after #1651 `just reset-changelog` failed even
+    earlier, on a `CHANGELOG.md` the group deliberately withholds.
+  - `changelog-preview`, `prepare-release`, `prepare-hotfix`,
+    `finalize-release`, `promote-release`, `publish-candidate`,
+    `abandon-release` and `reset-changelog` are now excised from the scaffolded
+    file when `release` is disabled, so `just --list` offers only what the repo
+    can actually run. The `gh-issues` / `gh-log` / `gh-branch` helpers stay.
+  - The file is managed, so the excision costs nothing when the feature is on
+    and clearing the key restores the recipes on the next `--force`.
 
 
 ### Deprecated
