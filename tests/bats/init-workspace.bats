@@ -5291,3 +5291,25 @@ _py_ws_uv_exit() {
     run grep -q 'ubuntu-26.04-arm' "$ws/.github/actionlint.yaml"
     assert_success
 }
+
+@test "the label config is seeded, not managed — a consumer edit survives (#1660)" {
+    # Same class as .yamllint / .pymarkdown / .typos.toml (#1099/#913): the
+    # consumer owns their lint exceptions, so the file carries the PRESERVED
+    # banner and an upgrade never overwrites it. The managed banner's
+    # "local edits are lost / customize in justfile.project" is wrong here —
+    # there is no justfile route to an actionlint label.
+    ws="$BATS_TEST_TMPDIR/e2e-1660-preserved"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run grep -q 'upgrades never overwrite this file' "$ws/.github/actionlint.yaml"
+    assert_success
+    run grep -q 'local edits are lost' "$ws/.github/actionlint.yaml"
+    assert_failure
+    # The durability property the banner promises.
+    printf '\n# SENTINEL-1660\n' >>"$ws/.github/actionlint.yaml"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -q 'SENTINEL-1660' "$ws/.github/actionlint.yaml"
+    assert_success
+}
