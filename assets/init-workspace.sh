@@ -471,7 +471,7 @@ fi
 # DISABLED_FEATURES[], with a feature_disabled helper the copy/prune/notice
 # mechanisms below all consult. Pure `.vig-os` key (no CLI flag), so only a
 # format guard: no contradiction guard as for --mode / --workflow.
-VALID_FEATURES=(release renovate sync-issues scanning gh-templates skills worktree devkit-upgrade)
+VALID_FEATURES=(release renovate sync-issues scanning gh-templates skills worktree devkit-upgrade actionlint)
 DISABLED_FEATURES=()
 if [[ -n "$MANIFEST_FEATURES_DISABLED" ]]; then
     IFS=',' read -ra _raw_features <<< "$MANIFEST_FEATURES_DISABLED"
@@ -485,7 +485,7 @@ if [[ -n "$MANIFEST_FEATURES_DISABLED" ]]; then
             [[ "$_feat" == "$_v" ]] && { _valid_feat=true; break; }
         done
         if [[ "$_valid_feat" != "true" ]]; then
-            echo "Error: Invalid DEVKIT_FEATURES_DISABLED in $VIG_OS_MANIFEST: $_feat (expected a comma-separated subset of: release, renovate, sync-issues, scanning, gh-templates, skills, worktree, devkit-upgrade)" >&2
+            echo "Error: Invalid DEVKIT_FEATURES_DISABLED in $VIG_OS_MANIFEST: $_feat (expected a comma-separated subset of: release, renovate, sync-issues, scanning, gh-templates, skills, worktree, devkit-upgrade, actionlint)" >&2
             exit 1
         fi
         DISABLED_FEATURES+=("$_feat")
@@ -1663,6 +1663,13 @@ feature_paths() {
             printf '%s\n' \
                 ".github/workflows/devkit-upgrade.yml"
             ;;
+        actionlint)
+            # Only the label config is a PATH; the hook lives inside the
+            # preserved .pre-commit-config.yaml and is excised by
+            # render_actionlint_optout below (a path prune cannot reach it).
+            printf '%s\n' \
+                ".github/actionlint.yaml"
+            ;;
     esac
 }
 
@@ -2286,6 +2293,33 @@ render_branch_guard_model() {
 # the default. The anchored sed targets only the quoted arg value, distinct from
 # render_workflow_model's `(?!dev$)` sed and render_commit_types' `--types` sed
 # on the same file, so the three compose.
+# Excise the actionlint hook when the actionlint feature is disabled (#1660).
+# The feature's other half — .github/actionlint.yaml — is a feature_paths entry
+# the copy-exclude and prune handle, but the hook lives INSIDE the preserved
+# .pre-commit-config.yaml, which no path prune can reach. Leaving it behind
+# would be the incoherent half-state: a repo linting with actionlint's bare
+# built-in list, failing on any scaffold-rendered label it does not know.
+#
+# The template brackets the block with `# >>> devkit:actionlint` / `# <<<`
+# sentinels. Comments are invisible to the data-level drift gate
+# (tests/test_flake_hooks.py parses the YAML), so the markers stay in step with
+# nix/hooks.nix while giving this excision an exact range instead of a
+# structural guess at where the block ends.
+#
+# Guarded, not unconditional (unlike render_refs_policy): this REMOVES rather
+# than substitutes, so there is no value to re-write on every run — and a
+# consumer who clears the key gets the hook back from the template copy on the
+# next --force. Idempotent either way: a second run finds no sentinels.
+render_actionlint_optout() {
+    local pc
+    feature_disabled actionlint || return 0
+    pc="$(precommit_render_target)" || return 0
+    grep -q '# >>> devkit:actionlint' "$pc" || return 0
+
+    sed -i '/# >>> devkit:actionlint/,/# <<< devkit:actionlint/d' "$pc"
+    echo "Excised the actionlint hook (feature disabled via DEVKIT_FEATURES_DISABLED, #1660)."
+}
+
 render_refs_policy() {
     local pc
     pc="$(precommit_render_target)" || return 0
@@ -3148,6 +3182,10 @@ render_commit_types
 # guard pattern — a distinct anchor from the three renders above, so all
 # compose. No-op for the default.
 render_branch_types
+# actionlint opt-out (#1660): a whole-block excision, not a value sed, so it runs
+# LAST of the .pre-commit-config.yaml renders — the anchors above no longer need
+# to exist once the block is gone, and any of them landing inside it is moot.
+render_actionlint_optout
 
 # Persist the resolved manifest (#885). The scaffolded .vig-os is a managed
 # file (template-overwritten on upgrade), so the resolved delivery mode and

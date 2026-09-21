@@ -5340,8 +5340,16 @@ _py_ws_uv_exit() {
     assert_success
     run grep -q 'id: pymarkdown' "$ws/.pre-commit-config.yaml"
     assert_success
-    # Still valid YAML after the excision.
-    run yamllint -d relaxed "$ws/.pre-commit-config.yaml"
+    # Still valid YAML after the excision, and no orphaned repo block: the
+    # sentinels bracket a whole `- repo: local` entry, so a sloppy range would
+    # leave a hooks list with no owner and still grep clean above.
+    run python3 -c "
+import sys, yaml
+cfg = yaml.safe_load(open(sys.argv[1]))
+ids = [h['id'] for r in cfg['repos'] for h in r['hooks']]
+assert 'actionlint' not in ids, ids
+assert 'shellcheck' in ids and 'pymarkdown' in ids, ids
+" "$ws/.pre-commit-config.yaml"
     assert_success
 }
 
