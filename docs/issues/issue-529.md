@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-09-18T21:11:11Z
+updated: 2026-09-21T06:28:38Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,21 +13,20 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-19T07:15:14.389Z
+synced: 2026-09-21T07:52:32.860Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.<br>[View this repository on the Mend.io Web Portal](https://developer.mend.io/github/vig-os/devkit).
 
-## Awaiting Schedule
+## Open
 
-The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
+The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
 
- - [ ] <!-- unschedule-branch=renovate/github-codeql-action-digest -->chore(deps): update github/codeql-action digest to 1c5b675
- - [ ] <!-- unschedule-branch=renovate/ubuntu-26.x -->ci(actions): update dependency ubuntu to v26
- - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
- - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
+ - [ ] <!-- rebase-branch=renovate/ubuntu-26.x -->[ci(actions): update dependency ubuntu to v26](../pull/1658)
+ - [ ] <!-- rebase-branch=renovate/lock-file-maintenance -->[build(pip): lock file maintenance](../pull/1659)
+ - [ ] <!-- rebase-all-open-prs -->**Click on this checkbox to rebase all open PRs at once**
 
 ## Detected Dependencies
 
@@ -107,8 +106,8 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>.github/workflows/codeql.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `github/codeql-action v4@b96794f015dfd88f77b49b1c93e0fa7110f94c63` → [Updates: `v4`]
- - `github/codeql-action v4@b96794f015dfd88f77b49b1c93e0fa7110f94c63` → [Updates: `v4`]
+ - `github/codeql-action v4@1c5b675653bb5c22dbe9b12b556ec555138e09fd`
+ - `github/codeql-action v4@1c5b675653bb5c22dbe9b12b556ec555138e09fd`
  - `ubuntu 24.04` → [Updates: `26.04`]
 
 </details>
@@ -271,7 +270,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
- - `github/codeql-action v4@b96794f015dfd88f77b49b1c93e0fa7110f94c63` → [Updates: `v4`]
+ - `github/codeql-action v4@1c5b675653bb5c22dbe9b12b556ec555138e09fd`
  - `ubuntu 24.04` → [Updates: `26.04`]
 
 </details>
@@ -407,8 +406,8 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>assets/workspace/.github/workflows/codeql.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `github/codeql-action v4@b96794f015dfd88f77b49b1c93e0fa7110f94c63` → [Updates: `v4`]
- - `github/codeql-action v4@b96794f015dfd88f77b49b1c93e0fa7110f94c63` → [Updates: `v4`]
+ - `github/codeql-action v4@1c5b675653bb5c22dbe9b12b556ec555138e09fd`
+ - `github/codeql-action v4@1c5b675653bb5c22dbe9b12b556ec555138e09fd`
  - `ubuntu 24.04` → [Updates: `26.04`]
 
 </details>
@@ -532,7 +531,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
- - `github/codeql-action v4@b96794f015dfd88f77b49b1c93e0fa7110f94c63` → [Updates: `v4`]
+ - `github/codeql-action v4@1c5b675653bb5c22dbe9b12b556ec555138e09fd`
  - `ubuntu 24.04` → [Updates: `26.04`]
 
 </details>

@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-18T14:27:13Z
-updated: 2026-09-18T20:57:13Z
+updated: 2026-09-21T06:53:44Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1652
-comments: 0
+comments: 1
 labels: feature, priority:high, area:workspace, effort:medium, semver:minor
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-19T07:15:11.679Z
+synced: 2026-09-21T07:52:32.182Z
 ---
 
 # [Issue 1652]: [Upgrade can't fold hook fixes into a preserved .pre-commit-config.yaml — warn on the pre-#1170 jackdewinter/pymarkdown block](https://github.com/vig-os/devkit/issues/1652)
@@ -44,3 +44,13 @@ ModuleNotFoundError: No module named 'pyjson5.pyjson5'
 A pattern-scan for known-bad *preserved-hook* blocks generalises beyond pymarkdown — the same trap applies to any future `language: python`→`language: system` hook migration.
 
 Context: fixed in one consumer by folding the #1170 block by hand; this issue is about the other consumers that won't know they need to.
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 21, 2026 at 06:53 AM_
+
+Solved on `dev` in #1653: the scaffold scans preserved files for retired hook blocks, warns with `file:line` + remedy, and prints a `preserved-hook-drift:` line that `devkit-upgrade.yml` lifts into the adoption PR body. `docs/MIGRATION.md` carries the #1170 fold instructions. Closing manually — `Closes #` only fires on a main-branch merge.
+
+Follow-up split out: #1654 (auto-fold a byte-exact retired block — the only thing that unsticks a consumer whose prek is already broken).
+
