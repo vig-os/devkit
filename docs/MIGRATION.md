@@ -269,7 +269,7 @@ and starts working automatically if the repo is later flipped public
 
 ### Run CI on self-hosted runners
 
-`ci.yml` defaults to GitHub-hosted `ubuntu-24.04` runners. A consumer whose org
+`ci.yml` defaults to GitHub-hosted `ubuntu-26.04` runners. A consumer whose org
 runs its CI on self-hosted runners (e.g. GitHub billing blocks hosted runners
 for heavy jobs) sets the optional `.vig-os` key `DEVKIT_CI_RUNNER` to a
 **comma-separated runner label list** instead of hand-editing the
@@ -283,7 +283,7 @@ DEVKIT_CI_RUNNER=self-hosted,linux,x64,meatgrinder
 
 `resolve-toolchain` reads the key and emits a `runner-json` output — a JSON array
 of the labels (`["self-hosted","linux","x64","meatgrinder"]`), or
-`["ubuntu-24.04"]` when the key is absent — and the toolchain jobs (`lint`,
+`["ubuntu-26.04"]` when the key is absent — and the toolchain jobs (`lint`,
 `test`, `commit-checks`) plus the `summary` gate declare
 `runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}`. A single
 label still emits a valid one-element array. The key is persisted across
@@ -434,7 +434,7 @@ unknown keys:
 | `DEVKIT_ORG` | Persisted organization name (`ORG_NAME`) |
 | `DEVKIT_REPO` | Persisted GitHub `owner/repo` (Renovate preset) |
 | `DEVKIT_MODULES` | Reserved: space-separated capability modules mirroring `mkProjectShell`'s `modules = [ … ]` ([#884](https://github.com/vig-os/devkit/issues/884)) |
-| `DEVKIT_CI_RUNNER` | Comma-separated runner label list for the scaffolded `ci.yml` toolchain jobs; empty (default) => the hosted `ubuntu-24.04` runner ([#1173](https://github.com/vig-os/devkit/issues/1173)) |
+| `DEVKIT_CI_RUNNER` | Comma-separated runner label list for the scaffolded `ci.yml` toolchain jobs; empty (default) => the hosted `ubuntu-26.04` runner ([#1173](https://github.com/vig-os/devkit/issues/1173)) |
 | `DEVKIT_DEV_PROFILE_PATH` | Absolute path for the direnv-mode dev-shell gcroot profile on the runner host; empty (default) => `$RUNNER_TEMP/devkit-dev-profile`. An ephemeral self-hosted runner sets a persistent path outside its work tree so the closure survives the job (see [Keep the dev-shell gcroot across ephemeral self-hosted jobs](#keep-the-dev-shell-gcroot-across-ephemeral-self-hosted-jobs), [#1601](https://github.com/vig-os/devkit/issues/1601)) |
 | `DEVKIT_SYNC_TARGET` | Branch the scaffolded sync-issues job commits to; empty (default) => the workflow-model default (`dev`/`main`). A protected-`main` consumer sets an unprotected mirror branch, e.g. `sync/issue-mirror` (see [Point sync-issues at an unprotected mirror branch](#point-sync-issues-at-an-unprotected-mirror-branch-protected-main), [#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_SYNC_SCHEDULE` | Cron override (5-field) for the sync-issues schedule trigger; empty (default) => the daily `0 2 * * *` ([#1228](https://github.com/vig-os/devkit/issues/1228)) |
