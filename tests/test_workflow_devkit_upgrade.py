@@ -373,6 +373,34 @@ def test_pr_body_carries_the_preserved_hook_drift_report_via_env() -> None:
     assert "$HOOK_DRIFT" in str(step["run"])
 
 
+def test_upgrade_step_captures_the_preserved_hook_reconcile_report() -> None:
+    """The fold/insert lines become their own step output (#1654).
+
+    A separate channel from ``preserved-hook-drift:`` because the statement is
+    the opposite one: the upgrade *rewrote* a consumer-owned file, so the hunk
+    needs a reviewer — rather than "the upgrade could not deliver this".
+    """
+    job = _jobs()["upgrade"]
+    step = next(
+        s
+        for s in job["steps"]
+        if str(s.get("name", "")).startswith("Run the devkit upgrade")
+    )
+    run = str(step["run"])
+    assert "preserved-hook-(fold|insert):" in run
+    assert "hook-reconcile<<" in run and "GITHUB_OUTPUT" in run
+
+
+def test_pr_body_carries_the_preserved_hook_reconcile_report_via_env() -> None:
+    """The adoption PR body names the rewrite, env-routed like its siblings."""
+    job = _jobs()["upgrade"]
+    step = next(s for s in job["steps"] if "adoption PR" in str(s.get("name", "")))
+    assert step["env"]["HOOK_RECONCILE"] == (
+        "${{ steps.upgrade.outputs.hook-reconcile }}"
+    )
+    assert "$HOOK_RECONCILE" in str(step["run"])
+
+
 def test_reset_excluded_paths() -> None:
     """DEVKIT_UPGRADE_EXCLUDE paths are reset to the base branch before commit."""
     text = TEMPLATE.read_text(encoding="utf-8")
