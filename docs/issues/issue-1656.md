@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-18T21:49:58Z
-updated: 2026-09-18T21:49:58Z
+updated: 2026-09-21T12:13:19Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1656
-comments: 0
+comments: 1
 labels: feature, area:workspace, effort:small, semver:minor
-assignees: none
+assignees: c-vigo
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-19T07:15:10.915Z
+synced: 2026-09-22T07:36:30.841Z
 ---
 
 # [Issue 1656]: [[FEATURE] Release-disabled consumers keep release-only just recipes that assume a CHANGELOG](https://github.com/vig-os/devkit/issues/1656)
@@ -38,4 +38,16 @@ The same question applies, more weakly, to the changelog references in `.github/
 ## Scope note
 
 Split out of #1651 rather than bundled: that PR is a scaffold-shape change, this is a question about what a feature group owns.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 21, 2026 at 12:13 PM_
+
+Resolved by #1664 (merged to `dev` as e6b4d5c3).
+
+`DEVKIT_FEATURES_DISABLED=release` now takes the eight `[group('release')]` recipes in `.devcontainer/justfile.gh` with it, via a sentinel-bracketed excision in `render_release_optout()` — option (a) from the proposal. This follows the existing `render_actionlint_optout` shape and the `render_workflow_model` precedent, which already prunes `prepare-hotfix` from the same file under `DEVKIT_WORKFLOW=trunk`.
+
+The secondary `gh-templates` question (changelog prose in `pull_request_template.md` and the issue forms) was deliberately left out: those surfaces already degrade gracefully — every issue form carries a `No changelog needed` option and nothing in scaffold CI gates the changelog — whereas the `just` surface exited non-zero. Worth a follow-up issue if it should change.
 

@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-21T06:43:46Z
-updated: 2026-09-21T07:42:56Z
+updated: 2026-09-21T11:10:55Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1660
-comments: 2
+comments: 4
 labels: feature, priority:medium, area:ci, area:workspace, effort:large, semver:minor
 assignees: c-vigo
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-21T07:52:31.809Z
+synced: 2026-09-22T07:36:30.489Z
 ---
 
 # [Issue 1660]: [[FEATURE] Ship actionlint to consumers: the workflow-lint hook plus a managed actionlint.yaml config](https://github.com/vig-os/devkit/issues/1660)
@@ -253,4 +253,37 @@ Scope reduction after the preserved-file decision landed (commits `bc4e9614`, `4
 The alternative that would have justified both — a *managed* file with the #1640 `render_refs_policy` anchored-idempotent-sed pattern, knob as sole override — was rejected: it contradicts consumer overriding by direct edit and adds machinery for no gain.
 
 Still in scope: the `actionlint` group in `DEVKIT_FEATURES_DISABLED` (opt out of shipping it at all), docs, changelog, and the #1658 rebase. The corresponding acceptance-criteria lines are superseded by this comment.
+
+---
+
+# [Comment #3]() by [c-vigo]()
+
+_Posted on September 21, 2026 at 11:06 AM_
+
+Done — merged to `dev` and verified there.
+
+**Shipped** (PR #1661, merged `43cce748`):
+- `actionlint` hook scaffolded to consumers via `scaffold = true` on the hookDef in `nix/hooks.nix` (the one definition both configs render from; the drift gate rejects hand-edits to the template).
+- `.github/actionlint.yaml` with the `ubuntu-26.04` / `ubuntu-26.04-arm` baseline, in the scaffold and in devkit itself (its workflows are not scaffolded).
+- The config is consumer-owned: added to `PRESERVE_FILES`, so the provenance-banner pass stamps the *yours to edit* variant and upgrades never overwrite it.
+- New `actionlint` group for `DEVKIT_FEATURES_DISABLED` taking **both** halves — the config as a `feature_paths()` entry, the hook by sentinel-bracketed excision (`render_actionlint_optout`), since a hook inside a preserved file cannot be path-pruned.
+- `docs/MIGRATION.md`, the `.vig-os` knob comment, `CHANGELOG.md`.
+
+**The blocked bump is unblocked** (PR #1658, merged `d5d99e96`): `actionlint` over `.github/workflows/` went from 43 `[runner-label]` findings to exit 0, and all 7 rendered-template bats tests pass. #1658 also needed a companion commit (`1c58a6ff`) moving the hosted *default* to 26.04 — Renovate rewrites `runs-on:` literals only, and could not see `CI_RUNNER="${CI_RUNNER:-ubuntu-24.04}"`, a shell default inside a `run:` block.
+
+Verified on `dev`: `actionlint` exit 0, 12/12 actionlint bats tests, and on the branch before merge `prek run --all-files` exit 0, pytest 1649 passed, bats 296/296.
+
+**Superseded criteria:** `DEVKIT_ACTIONLINT_LABELS` and the `DEVKIT_CI_RUNNER` label derivation were dropped (see the scope-reduction comment above) — a preserved file is not re-rendered, so such a knob would apply only at first scaffold.
+
+**Known gap, deliberate:** existing consumers do not receive the hook on upgrade, because `.pre-commit-config.yaml` is preserved; it surfaces through the #878 template diff to fold in by hand. If that proves too passive, the closest existing machinery is #1654 (auto-fold a byte-exact block in a preserved hook config) — a sibling problem worth solving there rather than here.
+
+---
+
+# [Comment #4]() by [c-vigo]()
+
+_Posted on September 21, 2026 at 11:10 AM_
+
+Follow-up recorded: #1654 is extended to cover this issue's one deliberate gap — existing consumers never receive the new hook, because their `.pre-commit-config.yaml` is preserved.
+
+#1654 now carries two cases: folding a byte-exact **retired** block (its original scope) and inserting a hook the consumer **never received** (this gap, with `actionlint` as the first instance). The second is strictly weaker on safety — Case 1 can byte-match what it replaces, Case 2 can only infer what it adds, since a missing hook may equally mean a deliberate deletion. The proposal there gates insertion on `PREVIOUS_PIN` predating the release that introduced the hook, mirroring `retired_paths()` (#1348), and requires honouring the `DEVKIT_FEATURES_DISABLED=actionlint` opt-out this issue shipped.
 

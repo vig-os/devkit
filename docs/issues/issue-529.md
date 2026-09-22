@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-09-21T06:28:38Z
+updated: 2026-09-21T23:04:25Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,20 +13,20 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-21T07:52:32.860Z
+synced: 2026-09-22T07:36:31.442Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.<br>[View this repository on the Mend.io Web Portal](https://developer.mend.io/github/vig-os/devkit).
 
-## Open
+## Awaiting Schedule
 
-The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
+The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
- - [ ] <!-- rebase-branch=renovate/ubuntu-26.x -->[ci(actions): update dependency ubuntu to v26](../pull/1658)
- - [ ] <!-- rebase-branch=renovate/lock-file-maintenance -->[build(pip): lock file maintenance](../pull/1659)
- - [ ] <!-- rebase-all-open-prs -->**Click on this checkbox to rebase all open PRs at once**
+ - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update astral-sh/setup-uv action to v10.2.0
+ - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
+ - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
 
 ## Detected Dependencies
 
@@ -64,8 +64,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>.github/workflows/abandon-release.yml (3)</summary>
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
 
 </details>
 
@@ -89,17 +89,17 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/dependency-review-action v5.0.0@a1d282b36b6f3519aa1f3fc636f609c47dddb294`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
  - `aquasecurity/trivy v0.74.0`
  - `aquasecurity/trivy v0.74.0`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
 
 </details>
 
@@ -108,14 +108,14 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `github/codeql-action v4@1c5b675653bb5c22dbe9b12b556ec555138e09fd`
  - `github/codeql-action v4@1c5b675653bb5c22dbe9b12b556ec555138e09fd`
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
 
 </details>
 
 <details><summary>.github/workflows/ghcr-cleanup.yml (2)</summary>
 
  - `dataaxiom/ghcr-cleanup-action v1.2.2@d52806a0dc70b430571a37da1fde39733ffd640f`
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
 
 </details>
 
@@ -127,7 +127,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
- - `ubuntu 24.04-arm` → [Updates: `26.04-arm`]
+ - `ubuntu 26.04-arm`
 
 </details>
 
@@ -136,7 +136,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
 
 </details>
 
@@ -147,7 +147,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
  - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
  - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
 
 </details>
 
@@ -161,10 +161,10 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
 
 </details>
 
@@ -174,7 +174,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
 
 </details>
 
@@ -189,10 +189,10 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
 
 </details>
 
@@ -210,10 +210,10 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
 
 </details>
 
@@ -247,13 +247,13 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/github-script v9.0.0@3a2844b7e9c422d3c10d287c895573f7108da1b3`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
  - `aquasecurity/trivy v0.74.0`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
 
 </details>
 
@@ -261,7 +261,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/setup-node v7.0.0@820762786026740c76f36085b0efc47a31fe5020`
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
  - `node 24`
 
 </details>
@@ -271,7 +271,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
  - `github/codeql-action v4@1c5b675653bb5c22dbe9b12b556ec555138e09fd`
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
 
 </details>
 
@@ -282,7 +282,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `aquasecurity/trivy-action v0.36.0@ed142fd0673e97e23eac54620cfb913e5ce36c25`
  - `aquasecurity/trivy-action v0.36.0@ed142fd0673e97e23eac54620cfb913e5ce36c25`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
  - `aquasecurity/trivy v0.74.0`
  - `aquasecurity/trivy v0.74.0`
 
@@ -296,7 +296,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `vig-os/sync-issues-action v0.5.0@b62c8eca72f4ee7177caee4f689ee080a5997164`
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
 
 </details>
 
@@ -307,8 +307,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
 
 </details>
 
@@ -319,7 +319,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
 
 </details>
 
@@ -330,7 +330,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
 
 </details>
 
@@ -338,9 +338,9 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
 
 </details>
 
@@ -357,17 +357,17 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
 
 </details>
 
@@ -375,7 +375,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
- - `astral-sh/setup-uv v10.1.0@bec219d24cd3e171d82865faccec33120bb574f4`
+ - `astral-sh/setup-uv v10.1.0@bec219d24cd3e171d82865faccec33120bb574f4` → [Updates: `v10.2.0`]
 
 </details>
 
@@ -383,9 +383,9 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
 
 </details>
 
@@ -398,8 +398,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/dependency-review-action v5.0.0@a1d282b36b6f3519aa1f3fc636f609c47dddb294`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
 
 </details>
 
@@ -408,7 +408,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `github/codeql-action v4@1c5b675653bb5c22dbe9b12b556ec555138e09fd`
  - `github/codeql-action v4@1c5b675653bb5c22dbe9b12b556ec555138e09fd`
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
 
 </details>
 
@@ -432,17 +432,17 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
 
 </details>
 
 <details><summary>assets/workspace/.github/workflows/prepare-release-extension.yml (1)</summary>
 
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
 
 </details>
 
@@ -457,10 +457,10 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
 
 </details>
 
@@ -477,12 +477,12 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
 
 </details>
 
@@ -496,15 +496,15 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
 
 </details>
 
 <details><summary>assets/workspace/.github/workflows/release-extension.yml (1)</summary>
 
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
 
 </details>
 
@@ -512,7 +512,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
 
 </details>
 
@@ -522,8 +522,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
 
 </details>
 
@@ -532,7 +532,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
  - `github/codeql-action v4@1c5b675653bb5c22dbe9b12b556ec555138e09fd`
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
 
 </details>
 
@@ -545,8 +545,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `vig-os/sync-issues-action v0.5.0@b62c8eca72f4ee7177caee4f689ee080a5997164`
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
 
 </details>
 
@@ -558,9 +558,9 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
- - `ubuntu 24.04` → [Updates: `26.04`]
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
 
 </details>
 
