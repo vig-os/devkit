@@ -119,6 +119,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Except the unbound DNSSEC-validator advisory in the vulnix register**
+  ([#1668](https://github.com/vig-os/devkit/issues/1668),
+  [#1669](https://github.com/vig-os/devkit/issues/1669))
+  - The NVD feed published `CVE-2026-81642` (9.8 CRITICAL) against
+    `unbound-1.26.0` overnight, taking both nightly scan lanes and the release
+    train's `vulnix-gate` red on a single package
+  - A feed event, not a closure change: the previous night's scan was green on
+    the same closures — the 2026-09-21 pin advance had already merged and been
+    scanned — and the findings delta is 1 added / 0 removed / one package per
+    ref, with no exception expired
+  - Advancing the pin cannot clear it today: `nixos-26.05`, `staging-26.05` and
+    `master` all still ship 1.26.0 with no CVE-named patch. The fix is upstream
+    in 1.26.1 and its `staging-26.05` backport is still open, two branch hops
+    from the pinned channel
+  - Expires `2026-11-04` on its own Wednesday. The closure carries `libunbound`
+    only — verified with `nix why-depends` against the built runtime closure,
+    reached via podman -> gpgme -> gnupg -> gnutls, with `libgnutls-dane.so`
+    its sole consumer — so there is no resolver daemon and no `unbound` binary
+    for the advisory's vector to run against
+
 ## [1.15.1](https://github.com/vig-os/devkit/releases/tag/1.15.1) - 2026-09-17
 
 ### Security

@@ -541,3 +541,54 @@ Expiration: 2026-11-04
 #   patterns and files the developer chose. No daemon, no service, no
 #   untrusted input path — and the fix arrives with the pin advance above.
 CVE-2026-89161
+
+# ============================================================================
+# Triage 2026-09-23 — the unbound 1.26.0 DNSSEC-validator advisory (#1668 dev /
+# #1669 main). A feed event, not a closure change: the 2026-09-22 nightly (run
+# 35711419780) was green on BOTH lanes against the same closures this run
+# scans — the 2026-09-21 pin advance (#1662) had already merged and been
+# scanned green — and the findings delta across the two runs is 1 added,
+# 0 removed, against exactly ONE package on each ref. No exception expired
+# either (the next grid date is 2026-09-30), so nothing in this repo caused it.
+#
+# Real product match, no CPE collision: NLnet Labs unbound, CVE-2026-81642
+# (NVD 9.8 CRITICAL, CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H). A DNSKEY
+# whose owner name is a compression pointer into its own RDATA overflows the
+# digest buffer in the DNSSEC validator — denial of service and possibly RCE
+# through attacker-controlled data. Affects "up to and including 1.26.0";
+# fixed upstream in 1.26.1 (2026-09-16).
+#
+# Provenance RE-VERIFIED 2026-09-23 against the built closure rather than
+# carried over from the 2026-07-26 unbound block's note. `nix why-depends` on
+# the runtime closure of `.#devkitImageEnv`:
+#
+#   devcontainer-image-env -> podman 5.8.6 -> gpgme 2.0.1 -> gnupg 2.4.9
+#     -> gnutls 3.8.13 -> unbound-1.26.0-lib
+#
+# Only the `lib` output is present: `nix path-info -r` reports
+# unbound-1.26.0-lib and nothing else, and the env exposes no unbound
+# executable at all. The sole consumer is libgnutls-dane.so — the only gnutls
+# library that references libunbound — i.e. DANE certificate verification.
+#
+# Reachability: the advisory's vector is an unbound RESOLVER digesting DNSKEYs
+# from a zone the attacker controls. This image ships no resolver — no daemon,
+# no unbound binary, no service — so the vulnerable path is reached only if
+# something calls gnutls' DANE API, which nothing in the closure does by
+# default. Same shape as the 2026-07-26 unbound 1.25.1 block, with the
+# provenance verified this time rather than asserted.
+#
+# Remediation lever: exists, but has nowhere to land today. nixos-26.05,
+# staging-26.05 and master ALL still ship 1.26.0 with no CVE-named patch. The
+# bump (NixOS/nixpkgs#564725) merged to `staging` on 2026-09-22 and the
+# staging-26.05 backport (NixOS/nixpkgs#565869) opened the same day and is
+# still open, so the fix is two branch hops from the pinned channel. 2026-11-04
+# gives it six weeks and keeps this block on its own Wednesday; it dies on the
+# advance that ships unbound 1.26.1 and should be DELETED then, not renewed.
+# ============================================================================
+
+Expiration: 2026-11-04
+# CVE-2026-81642 (9.8) — DNSKEY owner-name compression pointer into its own
+#   RDATA overflows the digest buffer in the DNSSEC validator. Needs a running
+#   unbound resolver querying an attacker-controlled zone; this closure carries
+#   libunbound only (gnutls DANE), with no daemon and no unbound binary.
+CVE-2026-81642
