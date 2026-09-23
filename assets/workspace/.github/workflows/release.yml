@@ -45,7 +45,7 @@ jobs:
   # `image` in the host modes makes the container jobs run on the runner.
   resolve-toolchain:
     name: Resolve toolchain
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 2
     outputs:
       mode: ${{ steps.resolve.outputs.mode }}
@@ -139,7 +139,7 @@ jobs:
   rollback:
     name: Rollback on Failure
     needs: [resolve-toolchain, core, extension, publish]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     container:
       image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:

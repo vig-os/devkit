@@ -268,6 +268,36 @@ jobs:
           if [ -n "$FLAKE_BUMP" ]; then
             echo "- ${FLAKE_BUMP}" >> "$GITHUB_STEP_SUMMARY"
           fi
+          # Known-bad blocks in a PRESERVED config (#1652): the scaffold cannot
+          # rewrite a consumer-owned file (#878), so a hook fix never reaches
+          # the repos that carry the broken block — it prints one
+          # `preserved-hook-drift:` line per known-bad block instead. Ride that
+          # same channel as flake-bump: a warning left in the workflow log reaches
+          # nobody, and the PR is where this repo's owner already looks. Multi-line
+          # (one line per known-bad block), hence the delimited output form.
+          HOOK_DRIFT="$(grep -E '^preserved-hook-drift:' "$RUNNER_TEMP/install.log" || true)"
+          {
+            echo "hook-drift<<DEVKIT_EOF"
+            if [ -n "$HOOK_DRIFT" ]; then printf '%s\n' "$HOOK_DRIFT"; fi
+            echo "DEVKIT_EOF"
+          } >> "$GITHUB_OUTPUT"
+          if [ -n "$HOOK_DRIFT" ]; then
+            printf '%s\n' "$HOOK_DRIFT" | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # Reconciled blocks (#1654): the opposite statement to the drift
+          # channel above — the upgrade REWROTE the consumer-owned config (folded
+          # a retired block, inserted a hook the tree never received), so the
+          # hunk is in this PR and wants a reviewer's eye. Its own output, not
+          # HOOK_DRIFT's, because the two ask for different actions.
+          HOOK_RECONCILE="$(grep -E '^preserved-hook-(fold|insert):' "$RUNNER_TEMP/install.log" || true)"
+          {
+            echo "hook-reconcile<<DEVKIT_EOF"
+            if [ -n "$HOOK_RECONCILE" ]; then printf '%s\n' "$HOOK_RECONCILE"; fi
+            echo "DEVKIT_EOF"
+          } >> "$GITHUB_OUTPUT"
+          if [ -n "$HOOK_RECONCILE" ]; then
+            printf '%s\n' "$HOOK_RECONCILE" | sed 's/^/- /' >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Reset excluded paths
         if: steps.resolve.outputs.proceed == 'true'
@@ -389,6 +419,8 @@ jobs:
           TARGET: ${{ steps.resolve.outputs.target }}
           BRANCH: ${{ steps.branch.outputs.name }}
           FLAKE_BUMP: ${{ steps.upgrade.outputs.flake-bump }}
+          HOOK_DRIFT: ${{ steps.upgrade.outputs.hook-drift }}
+          HOOK_RECONCILE: ${{ steps.upgrade.outputs.hook-reconcile }}
           # PR base per workflow model (retargeted dev -> main at scaffold time).
           BASE: dev
         run: |
@@ -402,6 +434,19 @@ jobs:
           # the consumer makes, not a silent no-op — put it where they review.
           if [ -n "$FLAKE_BUMP" ]; then
             BODY="$(printf '%s\n%s\n' "$BODY" "$FLAKE_BUMP")"
+          fi
+          # Preserved-config drift (#1652): the upgrade could not deliver these
+          # hook fixes — only the consumer can fold them in, so say so where
+          # they review the adoption.
+          # shellcheck disable=SC2016  # backticks are literal Markdown code spans, not command substitution
+          if [ -n "$HOOK_DRIFT" ]; then
+            BODY="$(printf '%s\n**Preserved config keeps a retired hook block** — the upgrade cannot rewrite a consumer-owned file; fold these in by hand (see MIGRATION.md):\n\n```\n%s\n```\n' "$BODY" "$HOOK_DRIFT")"
+          fi
+          # Reconciled blocks (#1654): this upgrade DID rewrite the preserved
+          # hook config. Say so where the diff is reviewed, next to the hunk.
+          # shellcheck disable=SC2016  # backticks are literal Markdown code spans, not command substitution
+          if [ -n "$HOOK_RECONCILE" ]; then
+            BODY="$(printf '%s\n**Preserved hook config reconciled** — the upgrade rewrote `.pre-commit-config.yaml`; review the hunk (see MIGRATION.md):\n\n```\n%s\n```\n' "$BODY" "$HOOK_RECONCILE")"
           fi
           if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
             gh pr edit "$BRANCH" --title "$TITLE" --body "$BODY"

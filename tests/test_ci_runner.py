@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 # The hosted default kept when DEVKIT_CI_RUNNER is absent.
-HOSTED_DEFAULT = "ubuntu-24.04"
+HOSTED_DEFAULT = "ubuntu-26.04"
 
 # The expression the runner-configurable jobs must use for runs-on.
 RUNNER_JSON_EXPR = "${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}"

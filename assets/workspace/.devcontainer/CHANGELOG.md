@@ -19,6 +19,179 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [1.16.0](https://github.com/vig-os/devkit/releases/tag/1.16.0) - 2026-09-23
+
+### Added
+
+- **A preserved `.pre-commit-config.yaml` is reconciled on upgrade**
+  ([#1654](https://github.com/vig-os/devkit/issues/1654))
+  - #1652 made two divergences of a preserved hook config visible; this repairs
+    them, with a separate evidence gate per case and nothing else in the file
+    touched — global and per-hook `exclude:` patterns, ordering and comments all
+    survive.
+  - **Fold.** A block the template retired *because it breaks* is replaced by the
+    current template's hook, gated on a **byte-identical** match against the
+    historical template text. That is what proves the bytes being overwritten are
+    devkit's own output: one edited byte — an extended `exclude:`, a
+    Renovate-bumped `rev:` — and the fold declines, leaving the #1652 warning.
+    First entry: the pre-#1170 `jackdewinter/pymarkdown` block, which breaks the
+    `devkit-upgrade` commit step itself, so those repos never reach a PR where
+    the warning could be read.
+  - **Insert.** A hook an older tree never received is added at its template
+    position, gated the way `retired_paths()` gates a prune (#1348): only when
+    `DEVKIT_VERSION` predates the release that first shipped the hook, so the
+    consumer never had the chance to decline it. It fires at most once per repo,
+    which keeps a later hand-deletion durable (#1651), and
+    `DEVKIT_FEATURES_DISABLED` is honoured first. First entry: `actionlint`
+    (#1660), which reached new scaffolds only.
+  - Both print a machine-readable `preserved-hook-fold:` /
+    `preserved-hook-insert:` line that `devkit-upgrade.yml` lifts into the run
+    summary and a dedicated adoption-PR section, and `--preview` reports the
+    planned rewrite before anything is touched.
+- **Consumers get the `actionlint` workflow linter, hook and label config**
+  ([#1660](https://github.com/vig-os/devkit/issues/1660))
+  - `actionlint` has shipped in the toolchain since #995, but the hook that runs
+    it was devkit-only — so a consumer's GitHub Actions workflows were linted by
+    nothing. The scaffold now carries the hook, in the same `language: system`
+    form as `shellcheck` (both resolve from the flake toolchain, so both work in
+    every mode).
+  - New `.github/actionlint.yaml` declares the runner labels actionlint's
+    built-in list does not know. It ships with the `ubuntu-26.04` /
+    `ubuntu-26.04-arm` baseline: real hosted runners that actionlint 1.7.12 —
+    the latest release — predates. Labels reaching `runs-on` through an
+    expression (`DEVKIT_CI_RUNNER` via `fromJSON`) are invisible to actionlint
+    and need no entry.
+  - The config is **yours to edit**: it joins the preserve list beside
+    `.yamllint` / `.pymarkdown` / `.typos.toml`, so a repo can declare its own
+    literal self-hosted label and keep it across upgrades.
+  - New `actionlint` group for `DEVKIT_FEATURES_DISABLED` opts out of both
+    halves at once; an existing config is preserved-class and left in place.
+  - Existing repos keep their preserved `.pre-commit-config.yaml` untouched: the
+    new hook surfaces through the #878 template diff on upgrade, to fold in by
+    hand.
+- **Scan a preserved `.pre-commit-config.yaml` for retired hook blocks**
+  ([#1652](https://github.com/vig-os/devkit/issues/1652))
+  - A preserved file never receives template evolution (#878), so a hook *fix*
+    never reaches the consumers that carry the broken block. The scaffold now
+    scans preserved files against a table of blocks the template retired
+    because they break, and warns with `file:line` plus a remedy.
+  - First entry: the pre-#1170 `jackdewinter/pymarkdown` hook, whose
+    `language: python` venv skews against the flake toolchain's interpreter and
+    breaks `just precommit`, markdown commits and the `devkit-upgrade` commit
+    step alike.
+  - Each hit also prints one machine-readable `preserved-hook-drift:` line,
+    which `devkit-upgrade.yml` lifts into the run summary and the adoption PR
+    body (the `flake-bump:` channel, #1497); `--preview` reports it before
+    anything is touched.
+  - `docs/MIGRATION.md` carries the fold instructions for the #1170 hook.
+- **`DEVKIT_LICENSE`: choose the license the scaffold ships**
+  ([#1651](https://github.com/vig-os/devkit/issues/1651))
+  - New `.vig-os` key: `apache-2.0` (default/empty, unchanged) | `proprietary`
+    | `none`. A private repo no longer has to carry an Apache-2.0 notice that
+    mislabels confidential material as openly licensed.
+  - `proprietary` renders an all-rights-reserved notice, but only over an
+    absent or still-untouched Apache scaffold copy — a hand-edited `LICENSE` is
+    left in place with a notice, and a re-render is a silent no-op.
+  - `none` manages no `LICENSE` at all, so deleting it finally sticks across
+    `--force` upgrades. Neither value ever deletes an existing license file.
+  - An unknown value aborts the scaffold loudly; the key round-trips like every
+    other manifest knob.
+
+### Changed
+
+- **The `release` feature group now covers the root `CHANGELOG.md`**
+  ([#1651](https://github.com/vig-os/devkit/issues/1651))
+  - Only the release workflows read it, so a repo with
+    `DEVKIT_FEATURES_DISABLED=release` is no longer handed a changelog it never
+    writes — and a deletion is durable instead of undone by the next upgrade.
+  - An existing changelog is preserved-class: left in place with a notice,
+    never pruned. Devkit's own `.devcontainer/CHANGELOG.md` mirror is
+    unaffected (the exclude is root-anchored).
+  - The scaffolded changelog skeleton no longer carries a templated
+    `## Unreleased` entry referencing an upstream devkit issue.
+- **The `release` feature group now covers the release `just` recipes too**
+  ([#1656](https://github.com/vig-os/devkit/issues/1656))
+  - The managed `.devcontainer/justfile.gh` kept shipping its
+    `[group('release')]` recipes to a repo whose release workflows the same
+    group had pruned, so `just prepare-release` (and every sibling) could only
+    fail at dispatch time — and after #1651 `just reset-changelog` failed even
+    earlier, on a `CHANGELOG.md` the group deliberately withholds.
+  - `changelog-preview`, `prepare-release`, `prepare-hotfix`,
+    `finalize-release`, `promote-release`, `publish-candidate`,
+    `abandon-release` and `reset-changelog` are now excised from the scaffolded
+    file when `release` is disabled, so `just --list` offers only what the repo
+    can actually run. The `gh-issues` / `gh-log` / `gh-branch` helpers stay.
+  - The file is managed, so the excision costs nothing when the feature is on
+    and clearing the key restores the recipes on the next `--force`.
+
+#### Dependencies
+
+- Update `github/codeql-action` from `b96794f` to `1c5b675` ([#1657](https://github.com/vig-os/devkit/pull/1657))
+- Update `ubuntu` from `24.04` to `26.04-arm` ([#1658](https://github.com/vig-os/devkit/pull/1658))
+- Update `astral-sh/setup-uv` from `v10.1.0` to `v10.2.0` ([#1671](https://github.com/vig-os/devkit/pull/1671))
+- Lock file maintenance (pip) ([#1659](https://github.com/vig-os/devkit/pull/1659))
+
+### Security
+
+- **Reconcile the 2026-09-30 exception block after online re-verification**
+  ([#1666](https://github.com/vig-os/devkit/issues/1666),
+  [#1667](https://github.com/vig-os/devkit/issues/1667))
+  - The T-7 expiry notice forced the re-verification it is designed to force.
+    All five entries were accepted in the 2026-06-23 baseline triage with
+    "specifics unverified offline"; this time NVD's CPE configurations,
+    per-source CVSS and the nixpkgs branch contents were all checked
+  - `CVE-2026-27820` is **not this product**: it is a buffer overflow in the
+    Ruby `zlib` gem, whose only NVD CPE is `ruby-lang:zlib` with
+    `target_sw=ruby`. vulnix matched the C zlib 1.3.2 only because 1.3.2 sorts
+    below the gem's 3.0.1. It was the 9.8 of the set and is now a definitive
+    false positive in the Class 1 CPE-mismatch block, on the yearly re-check
+  - The remaining four are real matches and stay, but no longer share a date.
+    The libmicrohttpd pair (one defect double-assigned, pure availability
+    impact, and an embedded server this image never starts) expires
+    `2026-10-21` because its 1.0.10 bump is already one branch hop away; the
+    sqlite FTS5 pair (local vector, needs a crafted database opened and
+    MATCH-queried) expires `2026-11-11` because `nixos-26.05` still ships
+    3.51.2 with no 26.05 backport open
+  - Every per-entry note is rewritten to the verified vector, so the register
+    no longer carries a 9.8 justified by a guess
+
+- **Drop the 18 exceptions cleared by the four-package pin advance**
+  ([#1666](https://github.com/vig-os/devkit/issues/1666),
+  [#1667](https://github.com/vig-os/devkit/issues/1667))
+  - The weekly pin advance `21a67dc4` -> `6d663c05` ships curl 8.22.0, openssl
+    3.6.4, libxml2 2.15.4 and pcre2 10.48, so the curl + openssl batch, the
+    libxml2 entry and the pcre2 entry are all gone from the `dev` closure
+  - All three blocks named the same exit condition and rode one lever: the
+    `staging-next-26.05` iteration-7 PR, which reached `release-26.05` on
+    2026-09-19 and the pinned `nixos-26.05` two days later — the one branch hop
+    plus one weekly advance the 2026-09-16 re-date predicted
+  - Deleted rather than renewed, four to six weeks before their `2026-10-21`,
+    `2026-10-28` and `2026-11-04` expiries: the expiry grid exists so entries
+    die on remediation instead of rolling forward
+  - The register drops 18 entries to 15 and `vulnix-gate` stays green on `dev`.
+    `main` keeps the blocks until the next release train carries the pin and
+    the register over together
+
+- **Except the unbound DNSSEC-validator advisory in the vulnix register**
+  ([#1668](https://github.com/vig-os/devkit/issues/1668),
+  [#1669](https://github.com/vig-os/devkit/issues/1669))
+  - The NVD feed published `CVE-2026-81642` (9.8 CRITICAL) against
+    `unbound-1.26.0` overnight, taking both nightly scan lanes and the release
+    train's `vulnix-gate` red on a single package
+  - A feed event, not a closure change: the previous night's scan was green on
+    the same closures — the 2026-09-21 pin advance had already merged and been
+    scanned — and the findings delta is 1 added / 0 removed / one package per
+    ref, with no exception expired
+  - Advancing the pin cannot clear it today: `nixos-26.05`, `staging-26.05` and
+    `master` all still ship 1.26.0 with no CVE-named patch. The fix is upstream
+    in 1.26.1 and its `staging-26.05` backport is still open, two branch hops
+    from the pinned channel
+  - Expires `2026-11-04` on its own Wednesday. The closure carries `libunbound`
+    only — verified with `nix why-depends` against the built runtime closure,
+    reached via podman -> gpgme -> gnupg -> gnutls, with `libgnutls-dane.so`
+    its sole consumer — so there is no resolver daemon and no `unbound` binary
+    for the advisory's vector to run against
+
 ## [1.15.1](https://github.com/vig-os/devkit/releases/tag/1.15.1) - 2026-09-17
 
 ### Security

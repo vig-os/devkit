@@ -52,7 +52,7 @@ permissions:
 jobs:
   resolve-version:
     name: Resolve devkit version
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     outputs:
       version: ${{ steps.resolve.outputs.version }}
@@ -98,7 +98,7 @@ jobs:
   direnv-smoke:
     name: Direnv smoke (${{ matrix.leg }})
     needs: [resolve-version]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -216,7 +216,7 @@ jobs:
 
   summary:
     name: Direnv Smoke Summary
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     needs: [resolve-version, direnv-smoke]
     if: always()

@@ -38,7 +38,7 @@ permissions:
 jobs:
   validate:
     name: Validate promote prerequisites
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       contents: write
@@ -468,7 +468,7 @@ jobs:
   promote:
     name: Promote GHCR latest and publish release
     needs: [validate]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     permissions:
       contents: write
@@ -549,7 +549,7 @@ jobs:
   merge:
     name: Merge release PR to main
     needs: [validate, promote]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: write
@@ -682,7 +682,7 @@ jobs:
   cleanup:
     name: Cleanup RC artifacts
     needs: [validate, promote, merge]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     if: ${{ needs.merge.result == 'success' }}
     continue-on-error: true

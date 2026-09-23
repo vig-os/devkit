@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-16T09:40:52Z
-updated: 2026-09-16T17:49:07Z
+updated: 2026-09-18T08:03:20Z
 author: github-actions[bot]
 author_url: https://github.com/github-actions[bot]
 url: https://github.com/vig-os/devkit/issues/1634
-comments: 1
+comments: 2
 labels: security, security-scan
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-17T07:29:38.628Z
+synced: 2026-09-19T07:15:13.840Z
 ---
 
 # [Issue 1634]: [Security exception register (main): exceptions expire 2026-09-23](https://github.com/vig-os/devkit/issues/1634)
@@ -88,4 +88,25 @@ carries the reconciled register — but the `main` lane will be red until a trai
 lands, on top of the #1637 redness from the same day.
 
 **Closes when** the next release train carries the register to `main`.
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on September 18, 2026 at 08:03 AM_
+
+Reconciled — closing.
+
+The 2026-09-23 block no longer exists on either ref. `.vulnixignore` on `main` and `dev` is byte-identical and carries only these expiries:
+
+- 2026-09-30, 2026-10-07, 2026-10-14, 2026-10-21, 2026-10-28, 2026-11-04, and the yearly 2027-06-23
+
+How the cliff was cleared, per the register's own rule (entries die or are re-verified, never silently rolled forward):
+
+- `7d1ac117` (2026-09-07) — the whole rsync block (8 entries, 2026-09-23) **deleted**, cleared by the pin advance 16 days before expiry.
+- `3f220cc2` / `2bad1f0f` (2026-09-16) — the libxml2 2.15.4 batch excepted on its own date, and the curl + openssl block **re-dated** off the shared 09-23 cliff onto 10-21, each with the rationale re-stated.
+
+`check-expirations` is consequently no longer in the failure path: the 2026-09-17 nightly (run 35207126776) went red on the CVE gate alone, with no expiry error on either ref.
+
+Note for whoever picks up the next re-date: curl 8.22.0, openssl 3.6.4, libxml2 2.15.4 and pcre2 10.48 now all ride the one `staging-next-26.05` -> `release-26.05` hop. When it lands, those four blocks should be **deleted together**, not renewed.
 

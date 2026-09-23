@@ -26,7 +26,7 @@ release time. These tests pin the deliverable without executing the workflow:
   upgrade path it reports on;
 - the ``devkit-upgrade`` feature group (#1284) opts the whole file out.
 
-Refs: #1296
+Refs: #1296, #1652
 """
 
 from __future__ import annotations
@@ -340,6 +340,65 @@ def test_pr_body_carries_the_flake_bump_report_via_env() -> None:
     step = next(s for s in job["steps"] if "adoption PR" in str(s.get("name", "")))
     assert step["env"]["FLAKE_BUMP"] == "${{ steps.upgrade.outputs.flake-bump }}"
     assert "$FLAKE_BUMP" in str(step["run"])
+
+
+def test_upgrade_step_captures_the_preserved_hook_drift_report() -> None:
+    """install.sh's ``preserved-hook-drift:`` lines become a step output (#1652).
+
+    A preserved config (#878) never receives a template hook FIX, so the
+    scaffold scans it for known-bad blocks and prints one machine-readable line
+    per hit. The workflow must capture them — a warning that only reaches the
+    workflow log reaches nobody.
+    """
+    job = _jobs()["upgrade"]
+    step = next(
+        s
+        for s in job["steps"]
+        if str(s.get("name", "")).startswith("Run the devkit upgrade")
+    )
+    run = str(step["run"])
+    assert "preserved-hook-drift:" in run
+    assert "hook-drift<<" in run and "GITHUB_OUTPUT" in run
+
+
+def test_pr_body_carries_the_preserved_hook_drift_report_via_env() -> None:
+    """The adoption PR body carries the preserved-hook drift, env-routed (#1652).
+
+    Same channel as the flake-bump report: routed through ``env:``, never
+    ``${{ }}`` inside ``run:``.
+    """
+    job = _jobs()["upgrade"]
+    step = next(s for s in job["steps"] if "adoption PR" in str(s.get("name", "")))
+    assert step["env"]["HOOK_DRIFT"] == "${{ steps.upgrade.outputs.hook-drift }}"
+    assert "$HOOK_DRIFT" in str(step["run"])
+
+
+def test_upgrade_step_captures_the_preserved_hook_reconcile_report() -> None:
+    """The fold/insert lines become their own step output (#1654).
+
+    A separate channel from ``preserved-hook-drift:`` because the statement is
+    the opposite one: the upgrade *rewrote* a consumer-owned file, so the hunk
+    needs a reviewer — rather than "the upgrade could not deliver this".
+    """
+    job = _jobs()["upgrade"]
+    step = next(
+        s
+        for s in job["steps"]
+        if str(s.get("name", "")).startswith("Run the devkit upgrade")
+    )
+    run = str(step["run"])
+    assert "preserved-hook-(fold|insert):" in run
+    assert "hook-reconcile<<" in run and "GITHUB_OUTPUT" in run
+
+
+def test_pr_body_carries_the_preserved_hook_reconcile_report_via_env() -> None:
+    """The adoption PR body names the rewrite, env-routed like its siblings."""
+    job = _jobs()["upgrade"]
+    step = next(s for s in job["steps"] if "adoption PR" in str(s.get("name", "")))
+    assert step["env"]["HOOK_RECONCILE"] == (
+        "${{ steps.upgrade.outputs.hook-reconcile }}"
+    )
+    assert "$HOOK_RECONCILE" in str(step["run"])
 
 
 def test_reset_excluded_paths() -> None:

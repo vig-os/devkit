@@ -124,6 +124,13 @@ PRESERVE_FILES=(
     ".yamllint"
     ".pymarkdown"
     ".pymarkdown.config.md"
+    # The consumer owns its runner-label declarations (#1660): the actionlint
+    # hook shipped alongside this file rejects any LITERAL runs-on label absent
+    # from actionlint's built-in list, and this config is the only way to teach
+    # it one — so a repo naming its own self-hosted label must be able to add it
+    # and keep it. Preserved like .yamllint/.pymarkdown above; the upgrade
+    # prints a diff against the template so a new baseline label stays visible.
+    ".github/actionlint.yaml"
     # The consumer owns its repo-ROOT ignores (#1092): the managed root
     # .gitignore is overwritten on every upgrade, and git honors a repo-root
     # ignore only from that root .gitignore — so there was no durable committed
@@ -344,6 +351,7 @@ MANIFEST_WORKFLOW="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_WORKFLOW || t
 MANIFEST_SYNC_TARGET="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_TARGET || true)"
 MANIFEST_SYNC_SCHEDULE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_SCHEDULE || true)"
 MANIFEST_FEATURES_DISABLED="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FEATURES_DISABLED || true)"
+MANIFEST_LICENSE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_LICENSE || true)"
 
 MANIFEST_REFS_POLICY="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REFS_POLICY || true)"
 MANIFEST_COMMIT_TYPES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_COMMIT_TYPES || true)"
@@ -463,7 +471,7 @@ fi
 # DISABLED_FEATURES[], with a feature_disabled helper the copy/prune/notice
 # mechanisms below all consult. Pure `.vig-os` key (no CLI flag), so only a
 # format guard: no contradiction guard as for --mode / --workflow.
-VALID_FEATURES=(release renovate sync-issues scanning gh-templates skills worktree devkit-upgrade)
+VALID_FEATURES=(release renovate sync-issues scanning gh-templates skills worktree devkit-upgrade actionlint)
 DISABLED_FEATURES=()
 if [[ -n "$MANIFEST_FEATURES_DISABLED" ]]; then
     IFS=',' read -ra _raw_features <<< "$MANIFEST_FEATURES_DISABLED"
@@ -477,7 +485,7 @@ if [[ -n "$MANIFEST_FEATURES_DISABLED" ]]; then
             [[ "$_feat" == "$_v" ]] && { _valid_feat=true; break; }
         done
         if [[ "$_valid_feat" != "true" ]]; then
-            echo "Error: Invalid DEVKIT_FEATURES_DISABLED in $VIG_OS_MANIFEST: $_feat (expected a comma-separated subset of: release, renovate, sync-issues, scanning, gh-templates, skills, worktree, devkit-upgrade)" >&2
+            echo "Error: Invalid DEVKIT_FEATURES_DISABLED in $VIG_OS_MANIFEST: $_feat (expected a comma-separated subset of: release, renovate, sync-issues, scanning, gh-templates, skills, worktree, devkit-upgrade, actionlint)" >&2
             exit 1
         fi
         DISABLED_FEATURES+=("$_feat")
@@ -533,6 +541,31 @@ case "$MANIFEST_REFS_POLICY" in
         exit 1
         ;;
 esac
+
+# License template (#1651): apache-2.0 (default) | proprietary | none. The
+# scaffold ADDS a LICENSE when the consumer has none (add-if-absent, like
+# CHANGELOG.md), which for a private repo is not a neutral default — it labels
+# confidential material as openly licensed, and deleting the file was never
+# durable because the next `--force` re-added it. This knob is the axis the
+# feature groups cannot express: the file is not on/off but a CHOICE of text.
+#
+#   apache-2.0  the shipped template, byte-for-byte today's behavior;
+#   proprietary an all-rights-reserved notice rendered from assets/licenses/;
+#   none        devkit does not manage LICENSE at all — a one-time delete
+#               sticks, and an existing file is left untouched (never deleted:
+#               a license is the repo's legal record, like its CHANGELOG).
+#
+# Pure `.vig-os` key (no CLI flag), so only a value guard — an unknown value
+# must abort rather than silently fall back to Apache on a repo that asked for
+# a proprietary notice (mirrors the DEVKIT_REFS_POLICY guard).
+case "$MANIFEST_LICENSE" in
+    ""|apache-2.0|proprietary|none) ;;
+    *)
+        echo "Error: Invalid DEVKIT_LICENSE in $VIG_OS_MANIFEST: $MANIFEST_LICENSE (expected: apache-2.0 | proprietary | none)" >&2
+        exit 1
+        ;;
+esac
+RESOLVED_LICENSE="${MANIFEST_LICENSE:-apache-2.0}"
 
 # Commit types (#1431): DEVKIT_COMMIT_TYPES is a comma-separated (whitespace-
 # tolerant, like DEVKIT_FEATURES_DISABLED) FULL REPLACEMENT of the approved
@@ -959,6 +992,81 @@ print_preserved_template_diff() {
         rm -rf "$scratch"
     fi
     return "$rc"
+}
+
+# ── known-bad blocks in a preserved file (#1652) ──────────────────────────────
+# Preservation (#878/#913/#1099) protects the consumer's customizations and, by
+# the same token, blocks template evolution — including the subset that is not
+# evolution but a FIX. A repo whose config predates the fix keeps the broken
+# block forever, and the repos that carry it are exactly the ones the fix was
+# written for. The #878 diff surfaces the whole divergence, which is the right
+# tool for "a new hook was added" and the wrong one for "this specific block is
+# known to break": it is long, advisory, and silent about which hunk matters.
+#
+# This table is that missing signal. A row earns its place only when the
+# template RETIRED a block because it breaks — never for ordinary drift:
+#
+#   <id>|<preserved rel-path>|<ERE>|<remedy>
+#
+# `|` is the field separator, so an ERE that needs alternation must express it
+# some other way (a character class, or a second row) — an unescaped `|` inside
+# the pattern would silently truncate it and shift the remedy.
+#
+# First row, the pre-#1170 pymarkdown hook: `language: python` makes prek build
+# its venv on prek's own base interpreter, while the flake toolchain's
+# pymarkdownlnt is built for `default_language_version` — loading a cpython-3xx
+# C extension under another 3.y then raises ModuleNotFoundError, breaking `just
+# precommit`, markdown commits, and the devkit-upgrade commit step alike. The
+# pattern generalises to any future language:python -> language:system hook
+# migration.
+known_bad_preserved_patterns() {
+    printf '%s\n' \
+        'pymarkdown-pre-1170|.pre-commit-config.yaml|repo:[[:space:]]*["'\'']?https://github\.com/jackdewinter/pymarkdown|Replace that block with the repo: local / entry: pymarkdown / language: system hook the template ships (#1170) — see MIGRATION.md, "Fold the #1170 pymarkdown hook into a preserved config".'
+}
+
+# Scan the preserved files named in the table above and report every known-bad
+# block: a file:line warning on STDERR (like the #881 scan) plus one
+# `preserved-hook-drift: <id> in <path>` line on STDOUT per matching row (one
+# marker per known-bad block, however many lines it hit). The stdout line
+# is the machine channel — devkit-upgrade.yml lifts it out of the install log
+# into the step summary and the adoption PR body, the same way it carries the
+# `flake-bump:` report (#1497) — because a warning that only reaches a workflow
+# log reaches nobody. Non-fatal throughout, like every other preserved-file
+# guard; the consumer owns the file and only they can fold the fix in.
+#
+# Only PRESERVE_FILES rows are scanned: a managed file is rewritten by the copy,
+# so it cannot carry a retired block, and a match there would mean the template
+# itself ships one. Comment lines are filtered (a consumer may well name the
+# retired repo in a "migrated off …" note, #881 precedent).
+# Drift ids the reconciliation pass repairs on this run (#1654). Populated in
+# both of its modes; the scan below skips them, so a --preview never tells the
+# consumer to hand-fold a block the real run folds for them (in apply mode the
+# block is already gone by the time the scan runs, so there it is belt-and-braces).
+FOLD_PLANNED_IDS=()
+fold_planned() {
+    local id
+    for id in ${FOLD_PLANNED_IDS[@]+"${FOLD_PLANNED_IDS[@]}"}; do
+        [[ "$id" == "$1" ]] && return 0
+    done
+    return 1
+}
+
+scan_known_bad_preserved() {
+    local kb_id kb_file kb_pattern kb_remedy kb_hits
+    while IFS='|' read -r kb_id kb_file kb_pattern kb_remedy; do
+        [[ -n "$kb_id" && -n "$kb_file" && -n "$kb_pattern" ]] || continue
+        if fold_planned "$kb_id"; then continue; fi
+        is_preserved_file "$kb_file" || continue
+        [[ -f "$WORKSPACE_DIR/$kb_file" ]] || continue
+        kb_hits="$(grep -nHE -- "$kb_pattern" "$WORKSPACE_DIR/$kb_file" 2>/dev/null \
+            | grep -vE '^[^:]*:[0-9]+:[[:space:]]*#' || true)"
+        [[ -n "$kb_hits" ]] || continue
+        echo "Warning: preserved $kb_file carries a hook block the template retired (#1652):" >&2
+        printf '%s\n' "$kb_hits" | sed "s|^$WORKSPACE_DIR/|         |" >&2
+        echo "         $kb_remedy" >&2
+        echo "         Preserved files are never rewritten by the upgrade (#878) — fold it in by hand." >&2
+        echo "preserved-hook-drift: $kb_id in $kb_file"
+    done < <(known_bad_preserved_patterns)
 }
 
 # Record whether the consumer already had a populated .devcontainer/ before the
@@ -1411,6 +1519,14 @@ fi
 if [[ ${#TYPOS_ALT_CONFIGS[@]} -gt 0 ]]; then
     MODE_CONFIG_EXCLUDES+=(".typos.toml")
 fi
+# License template (#1651): `none` means devkit manages no LICENSE at all, and
+# `proprietary` renders its own after the copy — either way the Apache template
+# must not ride in. The exclude is what makes a consumer's delete DURABLE: the
+# file is add-if-absent (PRESERVE_FILES), so without it every `--force` put the
+# Apache notice back on a repo that had deliberately removed it.
+if [[ "$RESOLVED_LICENSE" != "apache-2.0" ]]; then
+    MODE_CONFIG_EXCLUDES+=("LICENSE")
+fi
 # Flake-hooks consumer with an ABSENT generated config (#1255): the consumer's
 # .pre-commit-config.yaml is flake-GENERATED (#883/#1167) — a gitignored
 # /nix/store symlink that only materializes on shell entry — so in a fresh
@@ -1430,6 +1546,72 @@ if [[ "$FLAKE_PREEXISTED" == "true" && "$PRECOMMIT_CONFIG_PREEXISTED" == "false"
     FLAKE_HOOKS_CONSUMER=true
     MODE_CONFIG_EXCLUDES+=(".pre-commit-config.yaml")
 fi
+
+# Off-template license variants (#1651) live OUTSIDE the scaffold tree, so the
+# rsync copy can never blind-ship them: derived from TEMPLATE_DIR's parent, which
+# resolves for both the image (/root/assets/workspace -> /root/assets/licenses)
+# and a repo checkout (assets/workspace -> assets/licenses).
+LICENSE_TEMPLATE_DIR="${LICENSE_TEMPLATE_DIR:-$(dirname "$TEMPLATE_DIR")/licenses}"
+
+# True when the workspace LICENSE is the scaffold's own Apache-2.0 output and
+# nothing else (#1651) — the one state `proprietary` may overwrite. The
+# copyright line is normalized away on both sides: it carries the org name (and
+# an older devkit's year), so comparing it would refuse the very repos this
+# knob exists for, while any OTHER edit — an appendix, a different license
+# entirely — still reads as consumer-owned and is left alone.
+license_is_stock_apache() {
+    local current="$1" tmpl="$TEMPLATE_DIR/LICENSE"
+    [[ -f "$current" && -f "$tmpl" ]] || return 1
+    local strip='s/^[[:space:]]*Copyright [0-9]\{4\}.*$/DEVKIT-COPYRIGHT-LINE/'
+    [[ "$(sed "$strip" "$current")" == "$(sed "$strip" "$tmpl")" ]]
+}
+
+# Render the proprietary LICENSE when DEVKIT_LICENSE=proprietary (#1651). Called
+# BEFORE the placeholder substitution pass, exactly like seed_node_justfile_project
+# (#1027): the file lands at a path the build-time manifest already lists as
+# token-bearing, so {{ORG_NAME}} is resolved by the same pass that renders every
+# other managed file — no second substitution site.
+#
+# Three states, and only the middle one writes:
+#   * already the proprietary text  -> silent no-op (an upgrade must not nag
+#     about output it produced itself);
+#   * absent, or the untouched Apache scaffold copy -> render (this is the
+#     repair path: the mislabelled file is devkit's own output);
+#   * anything else -> the consumer's own legal text: notice, left in place.
+render_license() {
+    [[ "$RESOLVED_LICENSE" == "proprietary" ]] || return 0
+    local target="$WORKSPACE_DIR/LICENSE"
+    local src="$LICENSE_TEMPLATE_DIR/PROPRIETARY"
+    if [[ ! -f "$src" ]]; then
+        echo "Warning: DEVKIT_LICENSE=proprietary but no template at $src — LICENSE unchanged (#1651)." >&2
+        return 0
+    fi
+    # Resolve {{ORG_NAME}} HERE rather than leaning on the shared substitution
+    # pass below: that pass walks the build-time manifest, which is grepped from
+    # assets/workspace/ alone — this template lives outside it and would only be
+    # reached because the Apache LICENSE happens to carry the same token. A
+    # reworded Apache header would then ship a literal {{ORG_NAME}} to the
+    # consumer AND make the comparison below fail forever. Same escaping idiom
+    # as that pass (ORG_NAME may contain sed-significant characters).
+    local org_escaped rendered
+    org_escaped=$(printf '%s\n' "$ORG_NAME" | sed 's/[&/\]/\\&/g')
+    rendered="$(sed "s/{{ORG_NAME}}/${org_escaped}/g" "$src")"
+    if [[ -f "$target" ]]; then
+        # Recognize this function's own output, or every later upgrade would
+        # re-report the file as consumer-owned and nag about what devkit wrote.
+        [[ "$(cat "$target")" == "$rendered" ]] && return 0
+        if ! license_is_stock_apache "$target"; then
+            echo "DEVKIT_LICENSE=proprietary: LICENSE left in place (not the stock Apache scaffold copy); replace it by hand if that is wrong (#1651)."
+            return 0
+        fi
+    fi
+    printf '%s\n' "$rendered" > "$target"
+    # The scaffold assets are read-only /nix/store files in the image, and a
+    # fresh create must not hand the consumer a 0444 LICENSE — the post-copy
+    # writable sweep (#1480) has already run by now.
+    chmod u+w "$target"
+    echo "Rendered the proprietary LICENSE (DEVKIT_LICENSE=proprietary, #1651)."
+}
 
 # Feature opt-outs (#1284): expand a disabled feature group into its
 # transfer-root rel-paths — the SSoT feature->path map. The skills/worktree
@@ -1453,7 +1635,8 @@ feature_paths() {
                 ".github/workflows/promote-release.yml" \
                 ".github/workflows/abandon-release.yml" \
                 ".github/workflows/sync-main-to-dev.yml" \
-                "docs/DOWNSTREAM_RELEASE.md"
+                "docs/DOWNSTREAM_RELEASE.md" \
+                "CHANGELOG.md"
             ;;
         renovate)
             printf '%s\n' \
@@ -1493,6 +1676,13 @@ feature_paths() {
         devkit-upgrade)
             printf '%s\n' \
                 ".github/workflows/devkit-upgrade.yml"
+            ;;
+        actionlint)
+            # Only the label config is a PATH; the hook lives inside the
+            # preserved .pre-commit-config.yaml and is excised by
+            # render_actionlint_optout below (a path prune cannot reach it).
+            printf '%s\n' \
+                ".github/actionlint.yaml"
             ;;
     esac
 }
@@ -2117,6 +2307,370 @@ render_branch_guard_model() {
 # the default. The anchored sed targets only the quoted arg value, distinct from
 # render_workflow_model's `(?!dev$)` sed and render_commit_types' `--types` sed
 # on the same file, so the three compose.
+# Excise the actionlint hook when the actionlint feature is disabled (#1660).
+# The feature's other half — .github/actionlint.yaml — is a feature_paths entry
+# the copy-exclude and prune handle, but the hook lives INSIDE the preserved
+# .pre-commit-config.yaml, which no path prune can reach. Leaving it behind
+# would be the incoherent half-state: a repo linting with actionlint's bare
+# built-in list, failing on any scaffold-rendered label it does not know.
+#
+# The template brackets the block with `# >>> devkit:actionlint` / `# <<<`
+# sentinels. Comments are invisible to the data-level drift gate
+# (tests/test_flake_hooks.py parses the YAML), so the markers stay in step with
+# nix/hooks.nix while giving this excision an exact range instead of a
+# structural guess at where the block ends.
+#
+# Guarded, not unconditional (unlike render_refs_policy): this REMOVES rather
+# than substitutes, so there is no value to re-write on every run — and a
+# consumer who clears the key gets the hook back from the template copy on the
+# next --force. Idempotent either way: a second run finds no sentinels.
+render_actionlint_optout() {
+    local pc
+    feature_disabled actionlint || return 0
+    pc="$(precommit_render_target)" || return 0
+    grep -q '# >>> devkit:actionlint' "$pc" || return 0
+
+    sed -i '/# >>> devkit:actionlint/,/# <<< devkit:actionlint/d' "$pc"
+    echo "Excised the actionlint hook (feature disabled via DEVKIT_FEATURES_DISABLED, #1660)."
+}
+
+# ── preserved hook-config reconciliation (#1654) ──────────────────────────────
+# #1652 made two divergences of a PRESERVED .pre-commit-config.yaml visible; this
+# is the half that repairs them. Both write into a file the consumer owns, so
+# each carries its own evidence gate, and neither touches anything else in the
+# file: their global/per-hook `exclude:` patterns, their ordering and their
+# comments all survive. Not a new risk class for this file — five renders already
+# sed it on every upgrade (branch guard #1642, refs policy #1282/#1633, commit
+# types #1431, branch types #1432, actionlint opt-out #1660). What is new is
+# rewriting STRUCTURE rather than a knob value.
+#
+# Case 1 (fold) replaces a block the template retired BECAUSE it breaks, gated on
+# a byte-identical match against the historical template text — the only evidence
+# that the bytes being overwritten are devkit's own output rather than the
+# consumer's. One edited byte (an extended `exclude:`, a Renovate-bumped `rev:`)
+# and the fold declines, leaving #1652's warning to say so. Under-folding is safe
+# and visible; over-folding destroys consumer content.
+#
+# Case 2 (insert) delivers a hook the consumer's file lacks ENTIRELY. Absence is
+# ambiguous — never received, or deliberately deleted — so it mirrors
+# retired_prune_paths' PREVIOUS_PIN gate (#1348) in the other direction: insert
+# only when the tree was generated BEFORE the release that started shipping the
+# hook, i.e. the consumer never had the chance to decline it. The insert then
+# fires at most once per repo (the same run advances the pin past that release),
+# so a later hand-deletion is permanent and #1651's "a deletion sticks" holds.
+# DEVKIT_FEATURES_DISABLED is the declarative opt-out and is honoured first.
+#
+# Both report on the machine channel #1652 opened (`preserved-hook-fold:` /
+# `preserved-hook-insert:` on stdout, which devkit-upgrade.yml lifts into the
+# step summary and the adoption PR body) and land as ordinary reviewable hunks.
+
+# Print "START END" (1-based, inclusive) for the devkit-owned block of hook $2 in
+# file $1, or return 1. Two strategies, in order:
+#
+#   sentinels   `# >>> devkit:<id>` / `# <<< devkit:<id>`, the range #1660
+#               introduced for the actionlint opt-out. Preferred wherever
+#               present: exact rather than a structural guess, it carries the
+#               block's explanatory comment, and — decisively for Case 2 — a
+#               block inserted WITHOUT its sentinels would be invisible to
+#               render_actionlint_optout, silently outliving the opt-out.
+#   structural  the `- repo:` entry holding `- id: <hook>`, ending at the last
+#               line before the next entry that is neither blank nor an
+#               entry-level comment (those introduce the NEXT block, and a
+#               consumer's comment is theirs to keep).
+#
+# Used on the template (to read the block to write) and on the consumer's file
+# (to find the anchor entry to write after), hence the whitespace tolerance.
+hook_block_range() {
+    awk -v id="$2" '
+        { L[NR] = $0 }
+        index($0, "# >>> devkit:" id) { ss = NR }
+        index($0, "# <<< devkit:" id) { se = NR }
+        END {
+            if (ss && se && se >= ss) { print ss, se; exit 0 }
+            for (i = 1; i <= NR; i++) {
+                if (L[i] ~ /^[[:space:]]*-[[:space:]]+repo:/) cur = i
+                if (cur && L[i] ~ ("^[[:space:]]*-[[:space:]]+id:[[:space:]]+" id "[[:space:]]*$")) {
+                    start = cur
+                    break
+                }
+            }
+            if (!start) exit 1
+            e = NR
+            for (i = start + 1; i <= NR; i++)
+                if (L[i] ~ /^[[:space:]]*-[[:space:]]+repo:/) { e = i - 1; break }
+            while (e > start && (L[e] ~ /^[[:space:]]*$/ || L[e] ~ /^[[:space:]]*#/)) e--
+            print start, e
+        }
+    ' "$1"
+}
+
+# The template's current block for hook $1, verbatim. Read from the RENDERED
+# template, never re-derived: the committed scaffold YAML is generated from
+# nix/hooks.nix and gated against it (tests/test_flake_hooks.py), so reading it
+# is the one source that cannot drift from what a new scaffold receives.
+template_hook_block() {
+    local tpl="$TEMPLATE_DIR/.pre-commit-config.yaml"
+    local range
+    [[ -f "$tpl" ]] || return 1
+    range="$(hook_block_range "$tpl" "$1")" || return 1
+    sed -n "${range%% *},${range##* }p" "$tpl"
+}
+
+# The hook id the template places immediately BEFORE hook $1 — the anchor an
+# insert writes after. Derived from the template rather than tabulated, so a
+# template reorder moves the insert position with it.
+template_hook_anchor() {
+    local tpl="$TEMPLATE_DIR/.pre-commit-config.yaml"
+    local range start anchor
+    [[ -f "$tpl" ]] || return 1
+    range="$(hook_block_range "$tpl" "$1")" || return 1
+    start="${range%% *}"
+    [[ "$start" -gt 1 ]] || return 1
+    anchor="$(head -n "$((start - 1))" "$tpl" \
+        | sed -n -E 's/^[[:space:]]*-[[:space:]]+id:[[:space:]]+([^[:space:]]+)[[:space:]]*$/\1/p' \
+        | tail -n1)"
+    [[ -n "$anchor" ]] || return 1
+    printf '%s' "$anchor"
+}
+
+# Print "START END" for the first VERBATIM occurrence of the block in file $2
+# inside file $1, or return 1. Whole-line equality, no normalization: this is
+# Case 1's entire safety property.
+verbatim_block_range() {
+    awk '
+        NR == FNR { n[++nn] = $0; next }
+        { h[++hn] = $0 }
+        END {
+            if (nn == 0 || hn < nn) exit 1
+            for (i = 1; i + nn - 1 <= hn; i++) {
+                ok = 1
+                for (j = 1; j <= nn; j++)
+                    if (h[i + j - 1] != n[j]) { ok = 0; break }
+                if (ok) { print i, i + nn - 1; exit 0 }
+            }
+            exit 1
+        }
+    ' "$2" "$1"
+}
+
+# Rewrite $1 replacing lines $2..$3 (inclusive) with $4. An empty range
+# ($3 = $2 - 1) inserts $4 before line $2 instead.
+#
+# The new content is assembled in a temp file and then COPIED back over the
+# original rather than renamed onto it: a rename would replace the consumer's
+# file with mktemp's 0600 inode, silently de-group-reading a tracked file (and
+# breaking a hardlink). precommit_render_target has already refused a symlink,
+# so the target is a regular file whose mode and inode this preserves.
+splice_lines() {
+    local file="$1" start="$2" end="$3" text="$4"
+    local tmp
+    tmp="$(mktemp)"
+    if [[ "$start" -gt 1 ]]; then
+        head -n "$((start - 1))" "$file" > "$tmp"
+    else
+        : > "$tmp"
+    fi
+    printf '%s\n' "$text" >> "$tmp"
+    tail -n +"$((end + 1))" "$file" >> "$tmp"
+    cat "$tmp" > "$file"
+    rm -f "$tmp"
+}
+
+# Blocks the template retired BECAUSE they break, one row per historical SHAPE:
+#
+#   <drift id>|<current hook id>|<variant key>
+#
+# The drift id is #1652's, so a fold reports the closure of the same finding the
+# scan reports open; the hook id names the CURRENT template block that replaces
+# it (same hook, fixed form).
+#
+# NOT listed: the two pre-0.3.0 pymarkdown shapes (`rev: v0.9.23` with
+# `args: ["scan"]`, and the same rev with `-c .pymarkdown fix` and no exclude).
+# No consumer is pinned that far back, and an unlisted shape falls through to the
+# #1652 warning — the safe direction.
+retired_hook_blocks() {
+    printf '%s\n' 'pymarkdown-pre-1170|pymarkdown|pymarkdown-0.3.0'
+}
+
+# The verbatim historical template text of variant $1. Byte-for-byte what the
+# template shipped, and it must stay that way: re-indenting it or "tidying" the
+# rev would silently stop the fold matching the repos it exists for, with nothing
+# failing. tests/test_scaffold_preserved_hooks.py keeps its own copy to catch it.
+retired_hook_block_text() {
+    case "$1" in
+        # Shipped 0.3.0 -> 1.3.x; #1170 replaced it with the language: system
+        # form in 1.4.0.
+        pymarkdown-0.3.0)
+            cat <<'DEVKIT_RETIRED_BLOCK'
+  - repo: https://github.com/jackdewinter/pymarkdown
+    rev: f93643d339dfee2a1022e7b05e8b5a281bfac553  # v0.9.23
+    hooks:
+      - id: pymarkdown
+        name: pymarkdown
+        args: ["-c", ".pymarkdown", "fix"]
+        exclude: ^(README\.md|CONTRIBUTE\.md|TESTING\.md)
+DEVKIT_RETIRED_BLOCK
+            ;;
+    esac
+}
+
+# Hooks the template ships that an older tree never received — the mirror of
+# retired_paths (#1348), keyed the other way:
+#
+#   <first release shipping it> <hook id> <feature group>
+#
+# The feature group is the durable opt-out (DEVKIT_FEATURES_DISABLED); a hook
+# that belongs to no group leaves it empty. A grouped hook must be
+# sentinel-delimited in the template, or the group's excision render could not
+# reach the copy this pass inserts.
+#
+# Adding a row: the version is the release that FIRST ships the hook. Too high
+# only under-inserts (safe); too low would re-add a hook a consumer deleted, so
+# when in doubt round up.
+inserted_hook_blocks() {
+    # actionlint had been on PATH since #995 with nothing running it; the hook
+    # reached new scaffolds only (#1660).
+    printf '%s\n' '1.16.0 actionlint actionlint'
+}
+
+# Plan-mode heading, printed once and only when there is something to report.
+RECONCILE_PLAN_HEADED=false
+reconcile_plan_header() {
+    if [[ "$RECONCILE_PLAN_HEADED" != "true" ]]; then
+        echo ""
+        echo "Preserved hook config — the upgrade reconciles .pre-commit-config.yaml (#1654):"
+        RECONCILE_PLAN_HEADED=true
+    fi
+}
+
+# Case 1. Only the FIRST occurrence of a shape is folded; a second copy keeps
+# warning, which is the honest report for a file nobody can prove the intent of.
+fold_retired_hook_blocks() {
+    local mode="$1" pc="$2"
+    local drift_id hook_id variant needle range start end replacement
+    while IFS='|' read -r drift_id hook_id variant; do
+        [[ -n "$drift_id" && -n "$hook_id" && -n "$variant" ]] || continue
+        needle="$(mktemp)"
+        retired_hook_block_text "$variant" > "$needle"
+        range=""
+        if [[ -s "$needle" ]]; then
+            range="$(verbatim_block_range "$pc" "$needle" || true)"
+        fi
+        rm -f "$needle"
+        [[ -n "$range" ]] || continue
+        if ! replacement="$(template_hook_block "$hook_id")"; then
+            echo "Warning: the template ships no '$hook_id' block to replace the retired $drift_id one (#1654)." >&2
+            continue
+        fi
+        # Recorded in BOTH modes: the #1652 scan skips a drift id this pass
+        # repairs, so the preview never tells a consumer to hand-fold a block
+        # the run folds for them.
+        FOLD_PLANNED_IDS+=("$drift_id")
+        start="${range%% *}"
+        end="${range##* }"
+        if [[ "$mode" == "plan" ]]; then
+            reconcile_plan_header
+            echo "  !  .pre-commit-config.yaml — the retired $drift_id block will be REPLACED by the template's '$hook_id' hook"
+            continue
+        fi
+        splice_lines "$pc" "$start" "$end" "$replacement"
+        echo "Folded the retired $drift_id block into the template's '$hook_id' hook (#1654)."
+        echo "preserved-hook-fold: $drift_id in .pre-commit-config.yaml"
+    done < <(retired_hook_blocks)
+}
+
+# Case 2. Five gates, each load-bearing — the first two mirror
+# retired_prune_paths' provenance evidence, the rest are this case's own:
+#  - a pin is present and semver-shaped. No pin (fresh install, hand-made tree)
+#    means no evidence about this tree's provenance, so nothing is written;
+#  - the pin PREDATES the release that first shipped the hook. A repo at or past
+#    it has SEEN the hook, so its absence is a decision and must stick (#1651);
+#  - the hook's feature group is not disabled — the declarative opt-out (#1660)
+#    outranks the version evidence;
+#  - the hook id is absent from the file. Also what makes an rc -> final upgrade
+#    (whose pin is lower than the release) a no-op;
+#  - the template ships the block AND the consumer's file carries the anchor it
+#    goes after. No anchor, no defensible position: skip rather than guess, and
+#    leave the #878 template diff as the fallback.
+insert_missing_hook_blocks() {
+    local mode="$1" pc="$2"
+    local ver hook feat block anchor range end
+    [[ -n "$PREVIOUS_PIN" ]] || return 0
+    [[ "$PREVIOUS_PIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || return 0
+    while read -r ver hook feat; do
+        [[ -n "$ver" && -n "$hook" ]] || continue
+        version_lt "$PREVIOUS_PIN" "$ver" || continue
+        if [[ -n "$feat" ]] && feature_disabled "$feat"; then
+            continue
+        fi
+        if grep -qE "^[[:space:]]*-[[:space:]]+id:[[:space:]]+${hook}[[:space:]]*\$" "$pc"; then
+            continue
+        fi
+        block="$(template_hook_block "$hook")" || continue
+        anchor="$(template_hook_anchor "$hook")" || continue
+        if ! range="$(hook_block_range "$pc" "$anchor")"; then
+            echo "Warning: the preserved .pre-commit-config.yaml carries no '$anchor' hook to anchor the new '$hook' block (#1654)." >&2
+            echo "         Skipping the insert — fold the block in from the template diff above by hand." >&2
+            continue
+        fi
+        end="${range##* }"
+        if [[ "$mode" == "plan" ]]; then
+            reconcile_plan_header
+            echo "  +  .pre-commit-config.yaml — the '$hook' hook will be INSERTED after '$anchor' (shipped since $ver; this tree is pinned at $PREVIOUS_PIN)"
+            continue
+        fi
+        splice_lines "$pc" "$((end + 1))" "$end" "$(printf '\n%s' "$block")"
+        echo "Inserted the '$hook' hook after '$anchor' (shipped since $ver, this tree predates it at $PREVIOUS_PIN, #1654)."
+        echo "preserved-hook-insert: $hook in .pre-commit-config.yaml"
+    done < <(inserted_hook_blocks)
+}
+
+# One pass, two gates. `apply` rewrites; `plan` reports what a real run would do
+# and touches nothing (the --preview contract, #886). Both refuse the same two
+# targets through precommit_render_target (#1640): an absent config, and a
+# flake-hooks consumer's /nix/store symlink — that consumer's hooks come from
+# nix/hooks.nix, which already carries both fixes.
+reconcile_preserved_hooks() {
+    local mode="${1:-apply}"
+    local pc
+    pc="$(precommit_render_target)" || return 0
+    fold_retired_hook_blocks "$mode" "$pc"
+    insert_missing_hook_blocks "$mode" "$pc"
+}
+
+# Excise the release recipes when the release feature is disabled (#1656). Every
+# recipe in the block dispatches a workflow feature_paths already copy-excludes,
+# and `reset-changelog` additionally reads the root CHANGELOG.md the same group
+# withholds since #1651 — so the whole set is dead in a release-disabled repo,
+# and `just --list` advertising it is the incoherent half-state (the same
+# argument as the actionlint hook above).
+#
+# The `just` surface follows the feature group rather than each recipe learning
+# to fail fast: DISABLED_FEATURES is the SSoT, and teaching eight recipe bodies
+# in a MANAGED file to re-parse `.vig-os` at runtime would copy it into the
+# scaffold output. A whole-file feature_paths entry is not available either —
+# justfile.gh also carries the github/git helpers, which are not release
+# machinery — so the group takes the section, exactly as the trunk model already
+# takes the `prepare-hotfix` recipe from this same file (#1625).
+#
+# Unlike the actionlint case this file is MANAGED: the template copy is rewritten
+# on every upgrade, so the excision is re-applied each run and clearing the key
+# restores the recipes. Idempotent either way: a second run finds no sentinels.
+render_release_optout() {
+    local jg
+    feature_disabled release || return 0
+    jg="$WORKSPACE_DIR/.devcontainer/justfile.gh"
+    [[ -f "$jg" ]] || return 0
+    grep -q '# >>> devkit:release' "$jg" || return 0
+
+    sed -i '/# >>> devkit:release/,/# <<< devkit:release/d' "$jg"
+    # The block is the file's tail, so its removal strands the blank line that
+    # separated it — and a managed file ending on a double newline is rewritten
+    # by the consumer's end-of-file-fixer, then restored by the next upgrade.
+    sed -i '${/^$/d}' "$jg"
+    echo "Dropped the release recipes from .devcontainer/justfile.gh (feature disabled via DEVKIT_FEATURES_DISABLED, #1656)."
+}
+
 render_refs_policy() {
     local pc
     pc="$(precommit_render_target)" || return 0
@@ -2362,6 +2916,27 @@ if [[ "$FORCE" == "true" ]]; then
             echo ""
             echo "Disabled features (DEVKIT_FEATURES_DISABLED): ${DISABLED_FEATURES[*]}"
         fi
+        # License selection (#1651): the copy-exclude keeps LICENSE out of the
+        # classified listings above, so the preview must say what the run will
+        # actually do to it — `proprietary` CREATES or REPLACES a file, and a
+        # preview that showed neither would be the one thing this report may
+        # never be: silent about a mutation. Pure reads, so the preview stays
+        # side-effect-free.
+        if [[ "$RESOLVED_LICENSE" != "apache-2.0" ]]; then
+            echo ""
+            echo "License: $RESOLVED_LICENSE (DEVKIT_LICENSE) — the Apache-2.0 template is not shipped."
+            if [[ "$RESOLVED_LICENSE" == "proprietary" ]]; then
+                if [[ ! -f "$WORKSPACE_DIR/LICENSE" ]]; then
+                    echo "  +  LICENSE (rendered from the proprietary template)"
+                elif license_is_stock_apache "$WORKSPACE_DIR/LICENSE"; then
+                    echo "  !  LICENSE (the stock Apache scaffold copy will be REPLACED by the proprietary notice)"
+                else
+                    echo "  =  LICENSE left in place (not the stock Apache scaffold copy)"
+                fi
+            elif [[ -f "$WORKSPACE_DIR/LICENSE" ]]; then
+                echo "  =  LICENSE left in place (devkit manages no license; delete it yourself if unwanted)"
+            fi
+        fi
         # trunk workflow model (#1205): the copied release workflows are
         # rendered dev -> main after the copy, so call it out in the preview.
         if [[ "$WORKFLOW_MODEL" == "trunk" ]]; then
@@ -2370,6 +2945,17 @@ if [[ "$FORCE" == "true" ]]; then
             echo "dev base to main (prepare-release/ci/codeql/sync-issues), along with"
             echo "the branch-naming skill and the pre-commit branch guard."
         fi
+        # Preserved hook-config reconciliation (#1654): the pass REWRITES a
+        # consumer-owned file, which is the one thing this report may never be
+        # silent about (same rule as the license replacement above). Plan mode
+        # prints what the run would do and touches nothing — and records the
+        # folds, so the scan right below stays consistent with it.
+        reconcile_preserved_hooks plan
+        # Known-bad preserved blocks (#1652): the preflight preview is where a
+        # consumer looks BEFORE upgrading, and the scan reads a preserved file
+        # the copy never touches — so it reports here exactly what the real run
+        # would, side-effect-free.
+        scan_known_bad_preserved
         echo ""
         echo "Preview complete — no files were changed."
         exit 0
@@ -2861,6 +3447,11 @@ fi
 # consumers and for an existing (preserved) justfile.project. Refs #1027.
 seed_node_justfile_project
 
+# Render the proprietary LICENSE before the same substitution pass (#1651): the
+# file lands at a path the manifest already lists as token-bearing, so its
+# {{ORG_NAME}} resolves exactly like every other managed file.
+render_license
+
 # Replace placeholders in files (using pre-built manifest from image)
 echo "Replacing placeholders in files..."
 
@@ -2921,6 +3512,12 @@ render_codeql_matrix
 # trunk workflow model (#1205): retarget the copied release workflows dev ->
 # main. A no-op for the gitflow default, so a gitflow scaffold is unchanged.
 render_workflow_model "$WORKFLOW_MODEL"
+# Preserved hook-config reconciliation (#1654): fold a retired block that breaks,
+# insert a hook an older tree never received. FIRST of the .pre-commit-config.yaml
+# passes, so the knob renders below apply to whatever it writes exactly as they do
+# to a template copy — and well before the #1652 scan at the end of the run, which
+# must not report a block this pass just repaired.
+reconcile_preserved_hooks apply
 # Branch guard dev-clause (#1642): rendered from the resolved model in BOTH
 # directions, unlike render_workflow_model's one-way retarget above, because
 # .pre-commit-config.yaml is preserved and would otherwise keep the trunk shape
@@ -2948,6 +3545,16 @@ render_commit_types
 # guard pattern — a distinct anchor from the three renders above, so all
 # compose. No-op for the default.
 render_branch_types
+# actionlint opt-out (#1660): a whole-block excision, not a value sed, so it runs
+# LAST of the .pre-commit-config.yaml renders — the anchors above no longer need
+# to exist once the block is gone, and any of them landing inside it is moot.
+render_actionlint_optout
+# release opt-out (#1656): the same whole-block excision on .devcontainer/
+# justfile.gh. Runs AFTER render_workflow_model, whose trunk pass removes the
+# `prepare-hotfix` recipe from inside this very block — either order is correct
+# (both are idempotent), but dropping the superset last keeps that sed's
+# anchors intact when the feature is enabled.
+render_release_optout
 
 # Persist the resolved manifest (#885). The scaffolded .vig-os is a managed
 # file (template-overwritten on upgrade), so the resolved delivery mode and
@@ -3012,6 +3619,14 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     # raw value round-trips (like DEVKIT_TAG_PREFIX); clearing it re-enables.
     if [[ -n "$MANIFEST_FEATURES_DISABLED" ]]; then
         write_manifest_value DEVKIT_FEATURES_DISABLED "$MANIFEST_FEATURES_DISABLED"
+    fi
+    # License selection (#1651): bare in the template (DEVKIT_LICENSE=), so a
+    # consumer's `none`/`proprietary` choice is written back — else an upgrade
+    # silently resets it to apache-2.0 and re-adds the Apache notice to a private
+    # repo. Round-trips like DEVKIT_FEATURES_DISABLED; clearing it restores the
+    # default.
+    if [[ -n "$MANIFEST_LICENSE" ]]; then
+        write_manifest_value DEVKIT_LICENSE "$MANIFEST_LICENSE"
     fi
     # Refs policy (#1282): bare in the template (DEVKIT_REFS_POLICY=), so a
     # consumer's non-default policy is written back — else an upgrade silently
@@ -3158,6 +3773,13 @@ if [[ "$PRECOMMIT_CONFIG_PREEXISTED" == "true" ]] \
         fi
     fi
 fi
+
+# The same preservation that keeps the consumer's config also keeps a block the
+# template retired BECAUSE it breaks (#1652). The #878 diff above shows the
+# whole divergence; this scan names the hunk that matters, with file:line and a
+# remedy, and emits the machine line devkit-upgrade.yml carries into the
+# adoption PR. Non-fatal, like every guard in this section.
+scan_known_bad_preserved
 
 # A preserved .typos.toml is the consumer's (#913) — never overwritten, so
 # their spell-check exceptions survive; the cost is that template exception

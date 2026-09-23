@@ -1686,6 +1686,142 @@ EOF
     refute_output --partial "retired 'pre-commit' binary"
 }
 
+# ── known-bad blocks in a preserved .pre-commit-config.yaml (#1652) ───────────
+# A preserved file never receives template evolution (#878) — which is right for
+# a consumer's `exclude:` patterns and wrong for a hook FIX: the repos carrying
+# the broken block are exactly the ones the fix never reaches. The pre-#1170
+# `jackdewinter/pymarkdown` hook is the case in point. Its `language: python`
+# venv builds on prek's own base interpreter while the flake toolchain's
+# pymarkdownlnt targets `default_language_version`, so the C-extension import
+# fails at first use and breaks `just precommit`, markdown commits, and the
+# devkit-upgrade commit step alike — invisibly, until someone enters the new
+# shell. The scaffold therefore scans the preserved file against a table of
+# known-bad blocks and warns with file:line, plus one machine-readable
+# `preserved-hook-drift:` line on stdout that devkit-upgrade.yml lifts into the
+# adoption PR body (the `flake-bump:` channel, #1497).
+
+# A consumer .pre-commit-config.yaml carrying the pre-#1170 pymarkdown hook.
+_stale_pymarkdown_config() {
+    cat > "$1/.pre-commit-config.yaml" <<'EOF'
+# SENTINEL-1652 consumer hook config (pre-#1170 shape)
+exclude: ^docs/generated/
+repos:
+  - repo: https://github.com/jackdewinter/pymarkdown
+    rev: 8f8c2f2b0a6b4b0d9d3f6a1a0c4e2d7b9e5a1c3d  # v0.9.29
+    hooks:
+      - id: pymarkdown
+        args: ["-c", ".pymarkdown", "fix"]
+EOF
+}
+
+@test "upgrade warns file:line for the pre-#1170 pymarkdown hook (#1652)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1652-hit"
+    mkdir -p "$ws"
+    _stale_pymarkdown_config "$ws"
+    run _upgrade both "$ws"
+    assert_success
+    # human warning: what is wrong, where, and what to replace it with
+    assert_output --partial 'the template retired'
+    assert_output --regexp '\.pre-commit-config\.yaml:[0-9]+'
+    assert_output --partial 'language: system'
+    assert_output --partial 'MIGRATION.md'
+    # machine line for devkit-upgrade.yml to lift into the adoption PR body
+    assert_output --partial 'preserved-hook-drift: pymarkdown-pre-1170'
+    # the file stays the consumer's: warned about, never rewritten
+    run grep -q 'SENTINEL-1652' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -q 'jackdewinter/pymarkdown' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "the drift marker rides stdout, the warning stderr (#1652)" {
+    # The channel depends on the split: devkit-upgrade.yml captures STDOUT only
+    # (`install.sh … | tee install.log`) and greps the marker out of that log,
+    # while the human warning rides stderr like every other preserved-file
+    # guard. Merged into one stream (bats\' default `run`) the two are
+    # indistinguishable, so pin them apart.
+    ws="$BATS_TEST_TMPDIR/e2e-1652-streams"
+    mkdir -p "$ws"
+    _stale_pymarkdown_config "$ws"
+    run --separate-stderr _upgrade both "$ws"
+    assert_success
+    assert_output --partial 'preserved-hook-drift: pymarkdown-pre-1170'
+    [[ "$stderr" == *"the template retired"* ]]
+    [[ "$stderr" != *"preserved-hook-drift:"* ]]
+}
+
+@test "the known-bad scan sees a quoted repo URL (#1652)" {
+    # Quoting a `repo:` URL is unusual but legal YAML — and a consumer whose
+    # config quotes it is no less broken.
+    ws="$BATS_TEST_TMPDIR/e2e-1652-quoted"
+    mkdir -p "$ws"
+    cat > "$ws/.pre-commit-config.yaml" <<'EOF'
+# SENTINEL-1652 quoted consumer config
+repos:
+  - repo: "https://github.com/jackdewinter/pymarkdown"
+    rev: 8f8c2f2b0a6b4b0d9d3f6a1a0c4e2d7b9e5a1c3d  # v0.9.29
+    hooks:
+      - id: pymarkdown
+EOF
+    run _upgrade both "$ws"
+    assert_success
+    assert_output --partial 'preserved-hook-drift: pymarkdown-pre-1170'
+}
+
+@test "no known-bad hook warning on a stock scaffold (#1652)" {
+    # The template ships the fixed hook, so a stock consumer must stay silent —
+    # on the first scaffold and on every later upgrade of the preserved copy.
+    ws="$BATS_TEST_TMPDIR/e2e-1652-stock"
+    mkdir -p "$ws"
+    run _upgrade both "$ws"
+    assert_success
+    refute_output --partial 'preserved-hook-drift:'
+    run _upgrade both "$ws"
+    assert_success
+    refute_output --partial 'preserved-hook-drift:'
+}
+
+@test "the known-bad scan skips comments and the migrated hook (#1652)" {
+    # False-positive guard: a consumer who already folded #1170 in keeps a
+    # `language: system` hook, and a comment may still name the retired repo.
+    # Neither is a hit.
+    ws="$BATS_TEST_TMPDIR/e2e-1652-clean"
+    mkdir -p "$ws"
+    cat > "$ws/.pre-commit-config.yaml" <<'EOF'
+# SENTINEL-1652 clean consumer config
+# migrated off repo: https://github.com/jackdewinter/pymarkdown (see #1170)
+default_language_version:
+  python: python3.14
+repos:
+  - repo: local
+    hooks:
+      - id: pymarkdown
+        name: pymarkdown
+        entry: pymarkdown
+        language: system
+        types: [markdown]
+        args: ["-c", ".pymarkdown", "fix"]
+EOF
+    run _upgrade both "$ws"
+    assert_success
+    refute_output --partial 'preserved-hook-drift:'
+}
+
+@test "--preview surfaces the known-bad preserved hook (#1652)" {
+    # The preflight preview is where a consumer looks BEFORE upgrading; the scan
+    # reads the preserved file, which the copy never touches, so the preview can
+    # report it truthfully and side-effect-free.
+    ws="$BATS_TEST_TMPDIR/e2e-1652-preview"
+    mkdir -p "$ws"
+    _stale_pymarkdown_config "$ws"
+    run _preview "$ws" --mode both
+    assert_success
+    assert_output --partial 'preserved-hook-drift: pymarkdown-pre-1170'
+    assert_output --partial 'Preview complete'
+    run grep -q 'jackdewinter/pymarkdown' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
 # ── preserved-file diff preview must use git, not diff(1) (#916) ──────────────
 # The image ships git but no diff(1)/cmp(1); the #878 preview called `diff`,
 # which prints "diff: command not found" and an empty box in-container. Render
@@ -2371,6 +2507,7 @@ _upgrade_no_flags() {
         'DEVKIT_DRIFT_CHECK=false'
         'DEVKIT_FEATURES_DISABLED=renovate,scanning'
         'DEVKIT_REFS_OPTIONAL_TYPES=chore,build'
+        'DEVKIT_LICENSE=none'
     )
     for row in "${rows[@]}"; do
         key="${row%%=*}"
@@ -2389,7 +2526,7 @@ _upgrade_no_flags() {
     local keys=(DEVKIT_CI_RUNNER DEVKIT_DEV_PROFILE_PATH DEVKIT_SYNC_TARGET
         DEVKIT_SYNC_SCHEDULE DEVKIT_REFS_POLICY DEVKIT_DRIFT_CHECK
         DEVKIT_FEATURES_DISABLED DEVKIT_COMMIT_TYPES DEVKIT_BRANCH_TYPES
-        DEVKIT_REFS_OPTIONAL_TYPES)
+        DEVKIT_REFS_OPTIONAL_TYPES DEVKIT_LICENSE)
     for key in "${keys[@]}"; do
         echo "key: $key"
         run grep -x "${key}=" "$TEMPLATE_DIR/.vig-os"
@@ -2501,6 +2638,10 @@ _upgrade_no_flags() {
         # resolved DEVKIT_COMMIT_TYPES is a manifest bug (#1633).
         'DEVKIT_REFS_OPTIONAL_TYPES|chore,Bad-Type'
         'DEVKIT_REFS_OPTIONAL_TYPES|chore,record'
+        # The license knob selects a template variant, so only the three known
+        # values may pass — a typo must never silently fall back to Apache on a
+        # repo that asked for a proprietary notice (#1651).
+        'DEVKIT_LICENSE|bsd-3-clause'
     )
     local i=0
     for row in "${rows[@]}"; do
@@ -4577,6 +4718,218 @@ _scaffold_seeded() {
 # (ships-empty, unknown-name abort and write-back for DEVKIT_FEATURES_DISABLED
 # are covered by the .vig-os knob loops earlier in this file)
 
+# ── LICENSE / CHANGELOG opt-out for private, release-less consumers (#1651) ───
+# Both files are add-if-absent PRESERVE_FILES: never overwritten, but re-added
+# by every `--force` upgrade — so deleting them was not durable and a private
+# repo had to carry an Apache-2.0 notice that actively mislabels confidential
+# material, plus a changelog it never writes. The root CHANGELOG is release
+# machinery (only the release-group workflows read it), so it joins that feature
+# group; the license needs a VALUE, not an on/off, so it gets its own knob.
+
+# Seed DEVKIT_LICENSE into an already-scaffolded workspace .vig-os.
+_seed_license() {
+    local ws="$1" value="$2"
+    sed -i "s#^DEVKIT_LICENSE=.*#DEVKIT_LICENSE=${value}#" "$ws/.vig-os"
+}
+
+@test "the release feature group covers the root CHANGELOG.md (#1651)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1651-changelog-fresh"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "release"
+    assert_success
+    run test -e "$ws/CHANGELOG.md"
+    assert_failure
+    # root-anchored: devkit's own changelog mirror inside .devcontainer/ stays
+    run test -f "$ws/.devcontainer/CHANGELOG.md"
+    assert_success
+}
+
+@test "a deleted CHANGELOG.md stays deleted with release disabled (#1651)" {
+    # The durability property: without the feature-group exclude, the next
+    # --force re-added the file and the consumer had to delete it again.
+    ws="$BATS_TEST_TMPDIR/e2e-1651-changelog-sticky"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run test -f "$ws/CHANGELOG.md"
+    assert_success
+    _seed_features_disabled "$ws" "release"
+    rm -f "$ws/CHANGELOG.md"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run test -e "$ws/CHANGELOG.md"
+    assert_failure
+}
+
+@test "an existing CHANGELOG.md survives the release opt-out (#1651)" {
+    # Preserved-class carve-out: a changelog is the repo's own history, so the
+    # prune never deletes it — it says so and leaves it alone.
+    ws="$BATS_TEST_TMPDIR/e2e-1651-changelog-kept"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    printf '\n<!-- SENTINEL-1651 -->\n' >>"$ws/CHANGELOG.md"
+    _seed_features_disabled "$ws" "release"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "CHANGELOG.md left in place (preserved)"
+    run grep -q 'SENTINEL-1651' "$ws/CHANGELOG.md"
+    assert_success
+}
+
+@test "an absent DEVKIT_LICENSE scaffolds the Apache-2.0 template (#1651)" {
+    # Default is byte-for-byte today's behavior.
+    ws="$(_shared_tree both)"
+    run grep -q 'Apache License' "$ws/LICENSE"
+    assert_success
+    run grep -q '{{ORG_NAME}}' "$ws/LICENSE"
+    assert_failure
+}
+
+@test "DEVKIT_LICENSE=none keeps LICENSE out of a fresh scaffold (#1651)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1651-license-none-fresh"
+    mkdir -p "$ws"
+    printf 'DEVKIT_LICENSE=none\n' >"$ws/.vig-os"
+    run _scaffold both "$ws"
+    assert_success
+    run test -e "$ws/LICENSE"
+    assert_failure
+}
+
+@test "a deleted LICENSE stays deleted under DEVKIT_LICENSE=none (#1651)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1651-license-none-sticky"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_license "$ws" none
+    rm -f "$ws/LICENSE"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run test -e "$ws/LICENSE"
+    assert_failure
+    # and the opt-out round-trips, so the next upgrade does not re-add it
+    run grep -x 'DEVKIT_LICENSE=none' "$ws/.vig-os"
+    assert_success
+}
+
+@test "DEVKIT_LICENSE=none never deletes an existing LICENSE (#1651)" {
+    # `none` means "devkit does not manage this file", not "remove it": a
+    # license file is the consumer's legal record, like their CHANGELOG.
+    ws="$BATS_TEST_TMPDIR/e2e-1651-license-none-keep"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_license "$ws" none
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run test -f "$ws/LICENSE"
+    assert_success
+}
+
+@test "DEVKIT_LICENSE=proprietary replaces the stock Apache copy (#1651)" {
+    # The repair path for the repo in the issue: Apache already landed, and
+    # the file is untouched scaffold output, so the knob can fix it.
+    ws="$BATS_TEST_TMPDIR/e2e-1651-license-proprietary"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_license "$ws" proprietary
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -q 'All rights reserved' "$ws/LICENSE"
+    assert_success
+    run grep -q 'Apache License' "$ws/LICENSE"
+    assert_failure
+    # the org placeholder is resolved, and resolved to THIS repo's org
+    run grep -q '{{ORG_NAME}}' "$ws/LICENSE"
+    assert_failure
+    run grep -q '^Copyright test\.' "$ws/LICENSE"
+    assert_success
+}
+
+@test "DEVKIT_LICENSE=proprietary renders on a fresh scaffold (#1651)" {
+    # The absent-LICENSE branch: a brand-new private repo never sees the Apache
+    # notice at all, and the rendered file must be writable — the scaffold
+    # assets are read-only /nix/store files in the image.
+    ws="$BATS_TEST_TMPDIR/e2e-1651-license-proprietary-fresh"
+    mkdir -p "$ws"
+    printf 'DEVKIT_LICENSE=proprietary\n' >"$ws/.vig-os"
+    run _scaffold both "$ws"
+    assert_success
+    run grep -q '^Copyright test\.' "$ws/LICENSE"
+    assert_success
+    run grep -q 'Apache License' "$ws/LICENSE"
+    assert_failure
+    run test -w "$ws/LICENSE"
+    assert_success
+    # and the choice round-trips, so the next upgrade does not re-add Apache
+    run grep -x 'DEVKIT_LICENSE=proprietary' "$ws/.vig-os"
+    assert_success
+}
+
+@test "--preview names what proprietary will do to LICENSE (#1651)" {
+    # The copy-exclude keeps LICENSE out of the ADDED/OVERWRITTEN listings, so
+    # the preview must say the render is coming — a preview that is silent
+    # about a mutation is the one thing it may never be.
+    ws="$BATS_TEST_TMPDIR/e2e-1651-license-preview-proprietary"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_license "$ws" proprietary
+    run _preview "$ws" --mode both
+    assert_success
+    assert_output --partial "License: proprietary"
+    assert_output --partial "will be REPLACED"
+    # side-effect-free: the Apache copy is still there afterwards
+    run grep -q 'Apache License' "$ws/LICENSE"
+    assert_success
+}
+
+@test "DEVKIT_LICENSE=proprietary is quiet and stable on re-upgrade (#1651)" {
+    # Once rendered, the file is no longer the stock Apache copy — the guard
+    # must recognize its own output instead of nagging on every upgrade.
+    ws="$BATS_TEST_TMPDIR/e2e-1651-license-proprietary-idempotent"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    _seed_license "$ws" proprietary
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run _upgrade_no_flags "$ws"
+    assert_success
+    refute_output --partial "LICENSE left in place"
+    run grep -q 'All rights reserved' "$ws/LICENSE"
+    assert_success
+}
+
+@test "DEVKIT_LICENSE=proprietary leaves a hand-edited LICENSE alone (#1651)" {
+    # Anything but the untouched scaffold copy is the consumer's own legal
+    # text — report it, never overwrite it.
+    ws="$BATS_TEST_TMPDIR/e2e-1651-license-proprietary-custom"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    printf '\nSENTINEL-1651 consumer addendum\n' >>"$ws/LICENSE"
+    _seed_license "$ws" proprietary
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "LICENSE left in place"
+    run grep -q 'SENTINEL-1651' "$ws/LICENSE"
+    assert_success
+    run grep -q 'Apache License' "$ws/LICENSE"
+    assert_success
+}
+
+@test "--preview reports the license selection truthfully (#1651)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1651-license-preview"
+    mkdir -p "$ws"
+    printf 'DEVKIT_LICENSE=none\n' >"$ws/.vig-os"
+    run _preview "$ws" --mode both
+    assert_success
+    assert_output --partial "License: none"
+    refute_output --partial "+  LICENSE"
+}
+
 @test "a whitespace-padded feature list is accepted (#1284)" {
     ws="$BATS_TEST_TMPDIR/e2e-1284-whitespace"
     mkdir -p "$ws"
@@ -4892,4 +5245,215 @@ _py_ws_uv_exit() {
     _py_ws_uv_exit both "$ws" 1
     run bash -c "cd '$ws' && PATH='$ws/stub-bin:$PATH' '$real_just' test-cov"
     assert_failure 1
+}
+
+# ── actionlint shipped to consumers: hook + label config (#1660) ──────────────
+# actionlint has been in the toolchain since #995 (nix/devtools.nix), but the
+# prek hook that runs it stayed devkit-only — so a consumer's workflows were
+# linted by nothing. The hook ships here in the `shellcheck` idiom (same
+# toolchain SSoT, same language: system form, already a shipped consumer hook).
+#
+# The hook needs a companion: actionlint rejects any LITERAL runs-on label
+# missing from its built-in list, and only an actionlint.yaml declaring
+# self-hosted-runner.labels can teach it one. `ubuntu-26.04` is the live case —
+# a real hosted runner that actionlint 1.7.12 (the latest release, 2026-03-30)
+# predates. Expression forms (`${{ fromJSON(...) }}`, how DEVKIT_CI_RUNNER
+# reaches runs-on) are skipped by actionlint and need no entry.
+#
+# Adoption is new-repos-only: .pre-commit-config.yaml is preserved (#878), so an
+# existing consumer meets the hook through the #878 template diff and folds it
+# in by hand. That is the split #1652's own table documents — it is for blocks
+# the template retired because they BREAK, never for ordinary drift.
+
+@test "the scaffold ships an actionlint hook to consumers (#1660)" {
+    ws="$(_shared_tree both)"
+    run grep -q 'id: actionlint' "$ws/.pre-commit-config.yaml"
+    assert_success
+    # The shellcheck idiom: toolchain binary off PATH, not a prek-built env.
+    run grep -q 'entry: actionlint' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "the scaffold ships a .github/actionlint.yaml alongside the hook (#1660)" {
+    ws="$(_shared_tree both)"
+    run test -f "$ws/.github/actionlint.yaml"
+    assert_success
+    run grep -q 'self-hosted-runner:' "$ws/.github/actionlint.yaml"
+    assert_success
+}
+
+@test "the shipped label config carries the ubuntu-26.04 baseline (#1660)" {
+    # The labels that make the #1658 runner bump lintable; actionlint 1.7.12
+    # knows neither. Both are needed: the arm variant is a distinct label.
+    ws="$(_shared_tree both)"
+    run grep -q 'ubuntu-26.04' "$ws/.github/actionlint.yaml"
+    assert_success
+    run grep -q 'ubuntu-26.04-arm' "$ws/.github/actionlint.yaml"
+    assert_success
+}
+
+@test "the label config is seeded, not managed — a consumer edit survives (#1660)" {
+    # Same class as .yamllint / .pymarkdown / .typos.toml (#1099/#913): the
+    # consumer owns their lint exceptions, so the file carries the PRESERVED
+    # banner and an upgrade never overwrites it. The managed banner's
+    # "local edits are lost / customize in justfile.project" is wrong here —
+    # there is no justfile route to an actionlint label.
+    ws="$BATS_TEST_TMPDIR/e2e-1660-preserved"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run grep -q 'upgrades never overwrite this file' "$ws/.github/actionlint.yaml"
+    assert_success
+    run grep -q 'local edits are lost' "$ws/.github/actionlint.yaml"
+    assert_failure
+    # The durability property the banner promises.
+    printf '\n# SENTINEL-1660\n' >>"$ws/.github/actionlint.yaml"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -q 'SENTINEL-1660' "$ws/.github/actionlint.yaml"
+    assert_success
+}
+
+# The opt-out has to take BOTH halves or it is incoherent: a repo left with the
+# hook but no label config would lint with actionlint's bare built-in list and
+# fail on any label the scaffold renders that it does not know.
+
+@test "DEVKIT_FEATURES_DISABLED=actionlint ships neither half (#1660)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1660-optout-fresh"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "actionlint"
+    assert_success
+    run test -e "$ws/.github/actionlint.yaml"
+    assert_failure
+    run grep -q 'id: actionlint' "$ws/.pre-commit-config.yaml"
+    assert_failure
+}
+
+@test "the actionlint opt-out leaves the rest of the hook stack intact (#1660)" {
+    # Block removal must take exactly its own block — the neighbouring
+    # hooks (shellcheck above, pymarkdown below) bracket it in the render.
+    ws="$BATS_TEST_TMPDIR/e2e-1660-optout-neighbours"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "actionlint"
+    assert_success
+    run grep -q 'id: shellcheck' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -q 'id: pymarkdown' "$ws/.pre-commit-config.yaml"
+    assert_success
+    # Still valid YAML after the excision, and no orphaned repo block: the
+    # sentinels bracket a whole `- repo: local` entry, so a sloppy range would
+    # leave a hooks list with no owner and still grep clean above.
+    run python3 -c "
+import sys, yaml
+cfg = yaml.safe_load(open(sys.argv[1]))
+ids = [h['id'] for r in cfg['repos'] for h in r['hooks']]
+assert 'actionlint' not in ids, ids
+assert 'shellcheck' in ids and 'pymarkdown' in ids, ids
+" "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "an existing label config survives the actionlint opt-out (#1660)" {
+    # Preserved-class carve-out (#1284): the consumer's own declarations are
+    # never deleted by a feature prune, only reported.
+    ws="$BATS_TEST_TMPDIR/e2e-1660-optout-kept"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    printf '\n# SENTINEL-1660-OPTOUT\n' >>"$ws/.github/actionlint.yaml"
+    _seed_features_disabled "$ws" "actionlint"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial ".github/actionlint.yaml left in place (preserved)"
+    run grep -q 'SENTINEL-1660-OPTOUT' "$ws/.github/actionlint.yaml"
+    assert_success
+}
+
+# ── release recipes follow the release feature group (#1656) ──────────────────
+# #1651 put the root CHANGELOG.md in the `release` group, so a release-disabled
+# consumer no longer gets one — but the managed .devcontainer/justfile.gh kept
+# shipping the release-dispatch recipes, and `just reset-changelog` then failed
+# on a missing FILE instead of a missing workflow. The whole set was already
+# dead in such a repo: every other recipe dispatches a workflow the release
+# group copy-excludes.
+#
+# The fix follows the group, like every other half of a disabled feature: the
+# recipes are excised from the managed file (sentinel-bracketed block, the
+# #1660 idiom) so `just --list` stops advertising commands the repo cannot run.
+# justfile.gh is MANAGED — rewritten from the template on every upgrade — so
+# the excision is re-applied each run and re-enabling the feature restores it.
+
+@test "DEVKIT_FEATURES_DISABLED=release drops the release recipes (#1656)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1656-optout-fresh"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "release"
+    assert_success
+    # The recipe the issue reports: it references a CHANGELOG.md the same
+    # feature group now withholds.
+    run grep -q 'reset-changelog' "$ws/.devcontainer/justfile.gh"
+    assert_failure
+    # ...and the rest of the set, each dispatching a copy-excluded workflow.
+    for recipe in changelog-preview prepare-release prepare-hotfix \
+        finalize-release promote-release publish-candidate abandon-release; do
+        run grep -q "$recipe" "$ws/.devcontainer/justfile.gh"
+        assert_failure
+    done
+}
+
+@test "the release opt-out keeps the rest of justfile.gh intact (#1656)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1656-optout-neighbours"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "release"
+    assert_success
+    # The github/git groups are not release machinery and must survive.
+    run grep -qE '^gh-issues:' "$ws/.devcontainer/justfile.gh"
+    assert_success
+    run grep -qE '^gh-log:' "$ws/.devcontainer/justfile.gh"
+    assert_success
+    run grep -qE '^gh-branch:' "$ws/.devcontainer/justfile.gh"
+    assert_success
+    # Still a parseable justfile after the excision — a sloppy range would cut
+    # into the alias or a recipe body and break `just` entirely for the repo.
+    run just -f "$ws/.devcontainer/justfile.gh" -d "$ws" --summary
+    assert_success
+    assert_output --partial "gh-issues"
+    refute_output --partial "reset-changelog"
+    # The block is the file's tail, so its removal must not strand a trailing
+    # blank line: end-of-file-fixer would rewrite the managed file on the
+    # consumer's next commit, and the next upgrade would put it back.
+    run bash -c "test -n \"\$(tail -n 1 '$ws/.devcontainer/justfile.gh')\""
+    assert_success
+}
+
+@test "a default scaffold still ships every release recipe (#1656)" {
+    # The opt-out must cost nothing when the feature is on: the sentinels are
+    # comments, and the block stays.
+    ws="$(_shared_tree both)"
+    run grep -qE '^reset-changelog:' "$ws/.devcontainer/justfile.gh"
+    assert_success
+    run grep -qE '^changelog-preview:' "$ws/.devcontainer/justfile.gh"
+    assert_success
+    run grep -q 'gh workflow run prepare-release.yml' "$ws/.devcontainer/justfile.gh"
+    assert_success
+}
+
+@test "the release-recipe excision is idempotent across upgrades (#1656)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1656-optout-idempotent"
+    mkdir -p "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    run grep -qE '^reset-changelog:' "$ws/.devcontainer/justfile.gh"
+    assert_success
+    _seed_features_disabled "$ws" "release"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "release recipes"
+    run grep -q 'reset-changelog' "$ws/.devcontainer/justfile.gh"
+    assert_failure
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -q 'reset-changelog' "$ws/.devcontainer/justfile.gh"
+    assert_failure
+    run just -f "$ws/.devcontainer/justfile.gh" -d "$ws" --summary
+    assert_success
 }

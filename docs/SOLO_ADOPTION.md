@@ -87,7 +87,7 @@ history, and drops everything whose value is coordination between people.
 
 | Kept | Dropped (via the recipe) |
 |------|--------------------------|
-| The full **pre-commit hook stack** (`ruff`, `typos`, `pymarkdown`, `shellcheck`, whitespace/EOF fixers, private-key detection, …) | **`release`** — the release/prepare/promote workflows and `docs/DOWNSTREAM_RELEASE.md` |
+| The full **pre-commit hook stack** (`ruff`, `typos`, `pymarkdown`, `shellcheck`, whitespace/EOF fixers, private-key detection, …) | **`release`** — the release/prepare/promote workflows, `docs/DOWNSTREAM_RELEASE.md`, and the root `CHANGELOG.md` |
 | **Commit-message type/format validation** (`validate-commit-msg` — Conventional Commit type and shape) | **`sync-issues`** — the issue/PR archive workflow and label taxonomy |
 | **Agent-identity enforcement** — no AI author/committer, no `Co-authored-by` | **`scanning`** — `codeql.yml` + `scorecard.yml` (already neutral on private repos) |
 | The **managed upgrade path** — `.vig-os` manifest, `install.sh --force`, pinned flake input | **`gh-templates`** — issue/PR templates |
@@ -98,7 +98,16 @@ history, and drops everything whose value is coordination between people.
 `ci.yml` is intentionally **not** opt-outable — it stays a single atomic,
 mode-aware workflow, and its lint/test/commit-checks gates are exactly the solo
 value. Disabling `sync-issues` also makes `DEVKIT_SYNC_TARGET` /
-`DEVKIT_SYNC_SCHEDULE` inert (a notice is printed).
+`DEVKIT_SYNC_SCHEDULE` inert (a notice is printed). Disabling `release` also stops
+the root `CHANGELOG.md` from being scaffolded or re-added — a repo that cuts no
+releases writes no changelog ([#1651](https://github.com/vig-os/devkit/issues/1651));
+an existing one is left in place, never deleted.
+
+A solo repo is often a **private** one, and the scaffold otherwise adds an
+Apache-2.0 `LICENSE`. Set `DEVKIT_LICENSE=none` (devkit manages no license) or
+`DEVKIT_LICENSE=proprietary` (an all-rights-reserved notice) in the same
+`.vig-os` — both are manifest-only keys applied exactly like the two above (see
+[A private consumer](./MIGRATION.md#a-private-consumer-license-and-changelog)).
 
 > **Forward-drift note.** New scaffold feature groups shipped in future devkit
 > releases arrive **enabled** — `DEVKIT_FEATURES_DISABLED` is an explicit opt-out

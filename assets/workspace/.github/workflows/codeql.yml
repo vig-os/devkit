@@ -58,7 +58,7 @@ jobs:
     # Skip on private repos: CodeQL needs GHAS (unavailable on Free-plan private
     # repos), so it would fail permanently. See the header note for details.
     if: ${{ !github.event.repository.private }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     permissions:
       security-events: write   # upload SARIF results
@@ -77,11 +77,11 @@ jobs:
           persist-credentials: false
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@b96794f015dfd88f77b49b1c93e0fa7110f94c63  # v4
+        uses: github/codeql-action/init@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4
         with:
           languages: ${{ matrix.language }}
 
       - name: Run CodeQL analysis
-        uses: github/codeql-action/analyze@b96794f015dfd88f77b49b1c93e0fa7110f94c63  # v4
+        uses: github/codeql-action/analyze@1c5b675653bb5c22dbe9b12b556ec555138e09fd  # v4
         with:
           category: '/language:${{ matrix.language }}'

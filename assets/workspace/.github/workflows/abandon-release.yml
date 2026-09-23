@@ -43,7 +43,7 @@ permissions:
 jobs:
   resolve-toolchain:
     name: Resolve toolchain
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 2
     outputs:
       tag-prefix: ${{ steps.resolve.outputs.tag-prefix }}
@@ -67,7 +67,7 @@ jobs:
   validate:
     name: Validate abandon preconditions
     needs: [resolve-toolchain]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       # Draft releases are only visible with push access, mirroring
@@ -129,7 +129,7 @@ jobs:
   abandon:
     name: Delete draft release, tag, PR, and branch
     needs: [resolve-toolchain, validate]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     permissions:
       contents: read

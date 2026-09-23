@@ -269,7 +269,7 @@ and starts working automatically if the repo is later flipped public
 
 ### Run CI on self-hosted runners
 
-`ci.yml` defaults to GitHub-hosted `ubuntu-24.04` runners. A consumer whose org
+`ci.yml` defaults to GitHub-hosted `ubuntu-26.04` runners. A consumer whose org
 runs its CI on self-hosted runners (e.g. GitHub billing blocks hosted runners
 for heavy jobs) sets the optional `.vig-os` key `DEVKIT_CI_RUNNER` to a
 **comma-separated runner label list** instead of hand-editing the
@@ -283,7 +283,7 @@ DEVKIT_CI_RUNNER=self-hosted,linux,x64,meatgrinder
 
 `resolve-toolchain` reads the key and emits a `runner-json` output — a JSON array
 of the labels (`["self-hosted","linux","x64","meatgrinder"]`), or
-`["ubuntu-24.04"]` when the key is absent — and the toolchain jobs (`lint`,
+`["ubuntu-26.04"]` when the key is absent — and the toolchain jobs (`lint`,
 `test`, `commit-checks`) plus the `summary` gate declare
 `runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}`. A single
 label still emits a valid one-element array. The key is persisted across
@@ -434,7 +434,7 @@ unknown keys:
 | `DEVKIT_ORG` | Persisted organization name (`ORG_NAME`) |
 | `DEVKIT_REPO` | Persisted GitHub `owner/repo` (Renovate preset) |
 | `DEVKIT_MODULES` | Reserved: space-separated capability modules mirroring `mkProjectShell`'s `modules = [ … ]` ([#884](https://github.com/vig-os/devkit/issues/884)) |
-| `DEVKIT_CI_RUNNER` | Comma-separated runner label list for the scaffolded `ci.yml` toolchain jobs; empty (default) => the hosted `ubuntu-24.04` runner ([#1173](https://github.com/vig-os/devkit/issues/1173)) |
+| `DEVKIT_CI_RUNNER` | Comma-separated runner label list for the scaffolded `ci.yml` toolchain jobs; empty (default) => the hosted `ubuntu-26.04` runner ([#1173](https://github.com/vig-os/devkit/issues/1173)) |
 | `DEVKIT_DEV_PROFILE_PATH` | Absolute path for the direnv-mode dev-shell gcroot profile on the runner host; empty (default) => `$RUNNER_TEMP/devkit-dev-profile`. An ephemeral self-hosted runner sets a persistent path outside its work tree so the closure survives the job (see [Keep the dev-shell gcroot across ephemeral self-hosted jobs](#keep-the-dev-shell-gcroot-across-ephemeral-self-hosted-jobs), [#1601](https://github.com/vig-os/devkit/issues/1601)) |
 | `DEVKIT_SYNC_TARGET` | Branch the scaffolded sync-issues job commits to; empty (default) => the workflow-model default (`dev`/`main`). A protected-`main` consumer sets an unprotected mirror branch, e.g. `sync/issue-mirror` (see [Point sync-issues at an unprotected mirror branch](#point-sync-issues-at-an-unprotected-mirror-branch-protected-main), [#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_SYNC_SCHEDULE` | Cron override (5-field) for the sync-issues schedule trigger; empty (default) => the daily `0 2 * * *` ([#1228](https://github.com/vig-os/devkit/issues/1228)) |
@@ -445,6 +445,7 @@ unknown keys:
 | `DEVKIT_BRANCH_TYPES` | Comma-separated FULL REPLACEMENT of the issue-numbered `<type>/<issue>-<summary>` branch-type set, driving the local `no-commit-to-branch` guard, the flake-generated consumer surface, and CI's branch-name gate; empty (default) => the stock set (`feature,bugfix,hotfix,release,docs,test,refactor`). The `chore/`, `renovate/`, `worktree/` clauses are never knob-driven. Pre-#1432 direnv consumers hand-port the flake reader (see [Commit and branch policy on the flake surface](#commit-and-branch-policy-on-the-flake-surface-direnv-consumers), [#1432](https://github.com/vig-os/devkit/issues/1432)) |
 | `DEVKIT_AUTO_UPGRADE` | Opt-out for the scaffolded `devkit-upgrade.yml` weekly schedule; empty (default) or any value but `false` keeps the auto-adoption poll on. `false` disables only the schedule — manual `workflow_dispatch` always runs ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
 | `DEVKIT_UPGRADE_EXCLUDE` | Comma-separated (whitespace-tolerant) paths the `devkit-upgrade` workflow resets before the adoption commit, so generated-doc churn never rides along in the upgrade diff; empty (default) => no exclusions ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
+| `DEVKIT_LICENSE` | License the scaffold ships: `apache-2.0` (default/empty) \| `proprietary` \| `none`. `proprietary` renders an all-rights-reserved notice over an untouched Apache scaffold copy; `none` manages no `LICENSE` at all, so a delete sticks. Neither ever deletes an existing file (see [A private consumer: license and changelog](#a-private-consumer-license-and-changelog), [#1651](https://github.com/vig-os/devkit/issues/1651)) |
 | `DEVKIT_LANGUAGES` | Comma-separated (whitespace-tolerant) subset of `python,node,rust,nix` the repo DECLARES. A declaration, not a detection cache: the scaffold seeds it from detection, ADDS a newly detected language, and never removes one (see [Declared project languages](#declared-project-languages), [#1478](https://github.com/vig-os/devkit/issues/1478)) |
 
 ### Declared project languages
@@ -491,11 +492,22 @@ before. An unknown group name aborts the scaffold loudly. The key governs
 scaffold **shape** only — it does not touch the flake or the dev-shell modules
 (`DEVKIT_MODULES`).
 
-The eight groups:
+The nine groups:
 
 - `release` — the release/prepare/promote workflows (`release*.yml`,
   `prepare-release*.yml`, `prepare-hotfix.yml`, `promote-release.yml`,
-  `sync-main-to-dev.yml`) and `docs/DOWNSTREAM_RELEASE.md`.
+  `sync-main-to-dev.yml`), `docs/DOWNSTREAM_RELEASE.md`, and the root
+  `CHANGELOG.md` — release machinery, read only by those workflows
+  ([#1651](https://github.com/vig-os/devkit/issues/1651)). An existing
+  changelog is preserved-class: left in place, never pruned. The `just` surface
+  follows the group: the `[group('release')]` recipes of the managed
+  `.devcontainer/justfile.gh` (`changelog-preview`, `prepare-release`,
+  `prepare-hotfix`, `finalize-release`, `promote-release`, `publish-candidate`,
+  `abandon-release`, `reset-changelog`) are excised at render time, so
+  `just --list` stops offering commands that can only fail — a dispatch to a
+  pruned workflow, or a `reset-changelog` against the withheld `CHANGELOG.md`
+  ([#1656](https://github.com/vig-os/devkit/issues/1656)). The file is managed,
+  so clearing the key brings the recipes back on the next `--force`.
 - `renovate` — `renovate.json` and `.github/renovate-default.json`.
 - `sync-issues` — `sync-issues.yml` and `.github/label-taxonomy.toml`. With this
   group disabled, `DEVKIT_SYNC_TARGET`/`DEVKIT_SYNC_SCHEDULE` become inert (a
@@ -510,14 +522,22 @@ The eight groups:
   ([#1296](https://github.com/vig-os/devkit/issues/1296)). Disabling it (rather
   than the runtime `DEVKIT_AUTO_UPGRADE=false` knob) stops the file from shipping
   at all.
+- `actionlint` — the GitHub Actions workflow linter: **both** the `actionlint`
+  prek hook and the `.github/actionlint.yaml` label config it reads
+  ([#1660](https://github.com/vig-os/devkit/issues/1660)). Both halves go
+  together on purpose — a repo left with the hook but no label config would lint
+  against actionlint's bare built-in list and fail on any runner label the
+  scaffold renders that it does not know. The config is preserved-class (see the
+  caveat below); the hook lives inside the preserved `.pre-commit-config.yaml`,
+  so it is excised at render time rather than pruned as a path.
 
 `ci.yml` is intentionally out of scope (v1): it stays a single atomic,
 mode-aware workflow.
 
 **Preserved-class caveat.** The consumer-owned extension seams
-`release-extension.yml` and `prepare-release-extension.yml`, and `renovate.json`
-(all in the upgrade preserve list) are **never pruned** when their feature is
-disabled — an existing one is left in place with a notice, and `--preview`
+`release-extension.yml` and `prepare-release-extension.yml`, `renovate.json`, and
+`.github/actionlint.yaml` (all in the upgrade preserve list) are **never pruned**
+when their feature is disabled — an existing one is left in place with a notice, and `--preview`
 reports it as left-in-place rather than under DELETIONS. Delete it by hand if you
 truly want it gone.
 
@@ -932,6 +952,174 @@ curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh \
 It prints the add/overwrite/preserve/delete file report and exits without
 touching the tree (unlike `--dry-run`, which only prints the container command
 and computes no file report).
+
+### Fold the #1170 pymarkdown hook into a preserved config
+
+A hand-edited `.pre-commit-config.yaml` is **preserved** on upgrade
+([#878](https://github.com/vig-os/devkit/issues/878)) — your repo-specific
+`exclude:` patterns survive, and in exchange no template hook change reaches
+the file automatically. That is right for hook-stack *evolution* and wrong for
+a hook *fix*: the repos carrying the broken block are exactly the ones the fix
+was written for.
+
+The scaffold therefore scans a preserved config for blocks the template retired
+**because they break**, and prints the hit with `file:line`, a remedy, and one
+machine-readable line
+([#1652](https://github.com/vig-os/devkit/issues/1652)):
+
+```text
+preserved-hook-drift: pymarkdown-pre-1170 in .pre-commit-config.yaml
+```
+
+`devkit-upgrade.yml` lifts that line into the run summary and the adoption PR
+body, so the notice lands where the upgrade is reviewed rather than in a
+workflow log. `install.sh --force --preview` reports it too, before anything is
+touched.
+
+**The upgrade now folds it for you — when it can prove what it is replacing**
+([#1654](https://github.com/vig-os/devkit/issues/1654)). The scan above is the
+fallback, not the first line: a retired block that is **byte-identical** to the
+text devkit itself shipped is replaced by the current template's hook, in place,
+as an ordinary reviewable hunk in the adoption diff. Everything else in the file
+— your global and per-hook `exclude:` patterns, your hook ordering, your
+comments — is untouched, and the fold reports itself on the same channel:
+
+```text
+preserved-hook-fold: pymarkdown-pre-1170 in .pre-commit-config.yaml
+```
+
+Byte-identical means every byte. If you extended the block's `exclude:`, or
+Renovate advanced its `rev:`, the fold **declines** and you get the warning
+above instead — deliberately, because nothing then proves those bytes are
+devkit's and not yours. Fold those by hand, as below.
+
+**The one entry today.** A config scaffolded before
+[#1170](https://github.com/vig-os/devkit/issues/1170) pulls pymarkdown from its
+upstream pre-commit repo:
+
+```yaml
+  - repo: https://github.com/jackdewinter/pymarkdown
+    rev: ...
+    hooks:
+      - id: pymarkdown
+```
+
+That hook is `language: python`, so prek builds a venv on **its own** base
+interpreter while the flake toolchain's `pymarkdownlnt` is built for the
+`default_language_version` interpreter. Loading a `cpython-3xx` C extension
+under another 3.y then fails:
+
+```text
+prek → pymarkdown → application_properties → import pyjson5
+ModuleNotFoundError: No module named 'pyjson5.pyjson5'
+```
+
+The `.so` is present — this is interpreter/ABI skew, not a broken package. It
+breaks `just precommit`, every local markdown commit, **and** the
+`devkit-upgrade.yml` commit step, so a stale consumer's auto-upgrade can never
+land.
+
+Replace the block with the `language: system` form the template ships, which
+resolves `pymarkdown` from `PATH` like `shellcheck`/`typos` (keep your own
+`exclude:`):
+
+```yaml
+  - repo: local
+    hooks:
+      - id: pymarkdown
+        name: pymarkdown
+        entry: pymarkdown
+        language: system
+        types: [markdown]
+        args: ["-c", ".pymarkdown", "fix"]
+```
+
+Then verify in the project shell:
+
+```bash
+prek run pymarkdown --all-files
+```
+
+The same trap applies to any future `language: python` → `language: system`
+hook migration; each such retirement gets its own row in the scan table
+(`known_bad_preserved_patterns` in `assets/init-workspace.sh`), and its historical
+text a row in the fold table (`retired_hook_blocks`) beside it.
+
+### A hook your preserved config never received
+
+The mirror image of a retired block: a hook the template **adds** reaches new
+scaffolds only, because your config is preserved. `actionlint`
+([#1660](https://github.com/vig-os/devkit/issues/1660)) was the case that forced
+the issue — it had been on `PATH` since #995, so an existing repo's workflows
+were linted by nothing at all.
+
+Absence is ambiguous, though: a missing hook may mean you never received it, or
+that you deleted it on purpose. The upgrade therefore inserts one only when your
+`DEVKIT_VERSION` **predates the release that first shipped it** — your tree was
+generated before the hook existed, so its absence cannot have been a decision
+([#1654](https://github.com/vig-os/devkit/issues/1654), the mirror of the
+retired-path gate in [#1348](https://github.com/vig-os/devkit/issues/1348)). A
+repo pinned at or past that release is left alone. The block lands at its
+template position (after its neighbour, since hook order is observable), and
+says so:
+
+```text
+preserved-hook-insert: actionlint in .pre-commit-config.yaml
+```
+
+Because the insert fires **at most once** — the same upgrade advances your pin
+past the introducing release — deleting the hook afterwards is durable: it is
+never re-added. To decline it up front, or to remove it and its config together,
+use the feature group rather than a hand deletion:
+
+```ini
+# .vig-os
+DEVKIT_FEATURES_DISABLED=actionlint
+```
+
+That is checked before anything is written, and it survives every upgrade (see
+[Scaffold feature opt-outs](#scaffold-feature-opt-outs)).
+### A private consumer: license and changelog
+
+`install.sh --force` **adds** files this repo lacks, and two of them are not
+neutral defaults for a private, release-less repo
+([#1651](https://github.com/vig-os/devkit/issues/1651)):
+
+- **`LICENSE`** — the Apache-2.0 template. On a proprietary repo that actively
+  mislabels confidential material as openly licensed.
+- **`CHANGELOG.md`** — release machinery. Only the release workflows read it, so
+  a repo that cuts no releases never writes one.
+
+Deleting either was not durable: both are add-if-absent, so the next forced
+scaffold put them back and the deletion had to be repeated at every upgrade.
+
+**The changelog follows the `release` feature group.** Disabling `release`
+(see [Scaffold feature opt-outs](#scaffold-feature-opt-outs)) now also stops the
+root `CHANGELOG.md` from being scaffolded or re-added — a delete sticks. An
+existing changelog is **never pruned**: it is the repo's own history, so it is
+left in place with a notice, like the other preserved-class paths. (Devkit's own
+changelog mirror at `.devcontainer/CHANGELOG.md` is unaffected — the exclude is
+root-anchored.)
+
+**The license gets its own key**, because the choice is a *text*, not an on/off:
+
+```ini
+# .vig-os
+DEVKIT_LICENSE=proprietary
+```
+
+| Value | Effect |
+|-------|--------|
+| `apache-2.0` | Default (empty resolves here). The shipped Apache-2.0 template, added when the repo has none — unchanged for existing consumers. |
+| `proprietary` | Renders an all-rights-reserved notice (`assets/licenses/PROPRIETARY`, `{{ORG_NAME}}` resolved like every managed file). Written only when `LICENSE` is absent or is still the untouched Apache scaffold copy; a hand-edited one is left in place with a notice. Re-running the upgrade is a silent no-op. |
+| `none` | Devkit manages no `LICENSE` at all. The file is never added, so a one-time delete sticks; an existing one is left untouched. |
+
+An unknown value aborts the scaffold loudly, and the key round-trips across
+`--force` upgrades like every other `.vig-os` knob. `none` and `proprietary`
+never delete a license file — removing one is always the consumer's own act. For
+the same reason the switch **back** to `apache-2.0` is a no-op on a repo that
+already has a `LICENSE`: the file is preserved, so delete it by hand and let the
+next `--force` re-add the Apache template.
 
 ### Migrating a `devcontainer`/`both` repo to `direnv` or `bare`
 

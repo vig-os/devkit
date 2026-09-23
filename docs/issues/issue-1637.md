@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-16T09:44:16Z
-updated: 2026-09-16T17:48:54Z
+updated: 2026-09-18T09:29:39Z
 author: github-actions[bot]
 author_url: https://github.com/github-actions[bot]
 url: https://github.com/vig-os/devkit/issues/1637
-comments: 1
+comments: 2
 labels: security, security-scan
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-17T07:29:36.768Z
+synced: 2026-09-19T07:15:13.253Z
 ---
 
 # [Issue 1637]: [Nightly security scan (main): unexcepted HIGH/CRITICAL vulnix findings](https://github.com/vig-os/devkit/issues/1637)
@@ -64,4 +64,26 @@ This is the #1592 precedent exactly.
 **Closes when** the next release train carries the register to `main` and the
 first `main` nightly after it is green. The `main` lane stays red until then;
 that is expected and is not a second defect.
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on September 18, 2026 at 09:29 AM_
+
+The next scheduled run passes the gate on `main` — closing per this issue's own criterion.
+
+- **Run:** https://github.com/vig-os/devkit/actions/runs/35329193958 (schedule, 2026-09-18T09:22:29Z), conclusion `success`
+- **Job:** `Scan Nix image (vulnix + SBOM) [main]` — `success`
+- **Gate:** `No unexcepted HIGH/CRITICAL findings (CVSS >= 7.0); 32 exception(s) applied`
+- **Expiries:** `Validated 32 exception(s) across 1 file(s)` — nothing expired
+
+Both CVEs that failed the 2026-09-17 run (35207126776) are now covered by the register, each with its own triage block and rationale rather than a blanket date:
+
+- `CVE-2026-86140` (libxml2 2.15.3, 8.0) — `3f220cc2`, Expiration 2026-10-28
+- `CVE-2026-89161` (pcre2 10.46 + 10.47, 7.4) — `e917b3e3`, Expiration 2026-11-04
+
+That second commit landed *after* the 09-17 scan started, which is why that run was still red.
+
+These are accepted-and-time-boxed, not fixed: the fix is a single `staging-next-26.05` -> `release-26.05` hop carrying curl 8.22.0, openssl 3.6.4, libxml2 2.15.4 and pcre2 10.48. When it lands, all four blocks get **deleted together**, not renewed — see #1634 and `docs/CONTAINER_SECURITY.md`.
 
