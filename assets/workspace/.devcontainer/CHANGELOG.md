@@ -119,6 +119,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Drop the 18 exceptions cleared by the four-package pin advance**
+  ([#1666](https://github.com/vig-os/devkit/issues/1666),
+  [#1667](https://github.com/vig-os/devkit/issues/1667))
+  - The weekly pin advance `21a67dc4` -> `6d663c05` ships curl 8.22.0, openssl
+    3.6.4, libxml2 2.15.4 and pcre2 10.48, so the curl + openssl batch, the
+    libxml2 entry and the pcre2 entry are all gone from the `dev` closure
+  - All three blocks named the same exit condition and rode one lever: the
+    `staging-next-26.05` iteration-7 PR, which reached `release-26.05` on
+    2026-09-19 and the pinned `nixos-26.05` two days later — the one branch hop
+    plus one weekly advance the 2026-09-16 re-date predicted
+  - Deleted rather than renewed, four to six weeks before their `2026-10-21`,
+    `2026-10-28` and `2026-11-04` expiries: the expiry grid exists so entries
+    die on remediation instead of rolling forward
+  - The register drops 18 entries to 15 and `vulnix-gate` stays green on `dev`.
+    `main` keeps the blocks until the next release train carries the pin and
+    the register over together
+
 - **Except the unbound DNSSEC-validator advisory in the vulnix register**
   ([#1668](https://github.com/vig-os/devkit/issues/1668),
   [#1669](https://github.com/vig-os/devkit/issues/1669))

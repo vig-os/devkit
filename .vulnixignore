@@ -327,220 +327,30 @@ CVE-2026-53433
 # ============================================================================
 
 # ============================================================================
-# Triage 2026-09-14 — the curl 8.21.0 + openssl 3.6.3 advisory batches
-# (#1614 main / #1615 dev). A feed event, not a closure change: the 2026-09-11
-# nightly (run 34583730623) was green on the SAME pin (c25784012c) that the
-# 2026-09-12 run (34684718095) went red on, and the findings delta is 16 new
-# blocking CVEs across exactly two packages, nothing removed, no expiry fired.
-# Both advisory sets were published by the projects on their fix-release day
-# (openssl advisories dated 2026-08-25, shipped with 3.6.4; curl's with
-# 8.22.0) and reached the NVD feed in the 09-11 -> 09-12 window.
+# (The curl 8.21.0 + openssl 3.6.3 batch — CVE-2026-19931, -18924, -82209,
+#  -80229, -80230, -80231, -80255, -82208, -13608 and CVE-2026-63073, -75803,
+#  -14457, -54874, -63072, -63075, -63076 (#1614/#1615) — the libxml2 2.15.3
+#  entry CVE-2026-86140 (#1636/#1637), and the pcre2 10.46 entry
+#  CVE-2026-89161 (#1645/#1637) were all removed on 2026-09-23 (#1666/#1667)
+#  rather than renewed, four to six weeks before their 2026-10-21, 2026-10-28
+#  and 2026-11-04 expiries.
 #
-# Every entry is a real product+version match verified ONLINE against the
-# upstream security pages (curl.se vuln-8.21.0, openssl-library.org
-# vulnerabilities index): all nine curl CVEs affect <= 8.21.0 and are fixed in
-# 8.22.0; all seven blocking openssl CVEs affect 3.6.0 before 3.6.4. (A 17th
-# finding, openssl CVE-2026-63074 at 5.9, is below the gate's 7.0 threshold
-# and needs no entry.) NVD-vs-upstream severity is wildly apart on this batch:
-# NVD scores 7.4–9.8 where curl rates eight of nine Low (one Medium) and
-# openssl rates all seven Low/Moderate.
+#  All three blocks named the SAME exit condition and shared one lever: curl
+#  8.22.0, openssl 3.6.4, libxml2 2.15.4 and pcre2 10.48 all rode the
+#  staging-next-26.05 iteration-7 PR (NixOS/nixpkgs#563094), which merged to
+#  release-26.05 on 2026-09-19. The weekly pin advance 21a67dc4 -> 6d663c05
+#  (#1662, merged 2026-09-21) carried it into the pinned nixos-26.05 — the one
+#  branch hop plus one advance the 2026-09-16 re-date predicted.
 #
-# Provenance: curl is a direct member of the image env (flake.nix), built the
-# nixpkgs default way — OpenSSL backend, ldapSupport=false, no wolfSSL,
-# HTTP/3 on. openssl is in-closure via curl/openssh/python/nix and appears as
-# two same-version store paths (bootstrap + final stage), which is why the
-# gate prints the seven openssl CVEs twice.
-#
-# Remediation lever: exists, but has nowhere to land today — the exact rsync
-# situation this slot previously held. curl 8.22.0 (nixpkgs #561666) and
-# openssl 3.6.4 (nixpkgs #557618) are both merged to staging-26.05 and are
-# riding the OPEN staging-next-26.05 iteration-7 PR (nixpkgs #563094) toward
-# release-26.05; neither is in release-26.05 or the pinned nixos-26.05 yet,
-# so advancing the pin changes nothing. One branch hop + one weekly
-# update-nixpkgs.yml advance (Mondays) should clear the whole block; expiring
-# 2026-09-23 puts the review the Wednesday after the 2026-09-21 advance, so
-# this block should die on remediation rather than be renewed.
-#
-# RE-DATED 2026-09-16 (#1634/#1635), 2026-09-23 -> 2026-10-21. The expiry
-# warning fired at T-7 as the grid intends, and the review it forced was a
-# re-verification, not a date bump: all 16 entries below were checked against
-# the 2026-09-16 scan (run 35080687787, both lanes) and every one is still a
-# live finding — the closure still ships curl 8.21.0 and openssl 3.6.3, so
-# nothing here is dead weight and nothing is deletable yet.
-#
-# What changed is the estimate of WHEN the lever lands, not the assessment.
-# The note above bet on the 2026-09-21 advance, which assumed iteration 7
-# reaching release-26.05 before then. It has not: #563094 opened 2026-09-14
-# and is still open, and the iteration cadence (iteration 5 merged 2026-08-18,
-# iteration 6 merged 2026-09-05) projects the next merge to ~09-23 — AFTER
-# Monday's advance, with the nixos-26.05 channel itself trailing
-# release-26.05 by about a day on top of that. Keeping 09-23 would therefore
-# most likely have lapsed the block on 09-24, and check-expirations runs in
-# ci.yml as well as the nightly lanes, so that takes EVERY OPEN PR red, not
-# just the two scan lanes (the #1547 failure mode).
-#
-# 10-21 clears the projected landing by four weeks and two further weekly
-# advances while keeping this block on its own Wednesday. The re-date is a
-# scheduling adjustment ONLY — no risk assessment below was re-opened,
-# re-verified or changed by it, and the exit condition is unchanged: this
-# block dies on the advance that ships curl 8.22.0 and openssl 3.6.4, which
-# is the same advance that clears the libxml2 block.
+#  Verified against the 2026-09-23 scan (run 35844608653): all four packages
+#  are absent from the dev lane's findings, which no longer reports curl,
+#  openssl, libxml2 or pcre2 at all, and the register-vs-findings diff on that
+#  ref is 18 entries with no live match — exactly these. curl is still a direct
+#  member of the image env (flake.nix), so this is remediation, not a closure
+#  change. `main` still ships curl 8.21.0, openssl 3.6.3, libxml2 2.15.3 and
+#  pcre2 10.46 and keeps these blocks until the next release train carries the
+#  pin and the register over together.)
 # ============================================================================
-
-Expiration: 2026-10-21
-# --- curl 8.21.0 (fixed in 8.22.0). All nine are CLIENT-side: each needs the
-#     user to point curl at a hostile or compromised server from an
-#     interactive dev container. curl's own severity in parens after NVD's.
-# CVE-2026-19931 (9.8, curl: Medium) — Negotiate ambient-user connection
-#   reuse. Needs SPNEGO/Kerberos auth in use; no Kerberos deployment here.
-CVE-2026-19931
-# CVE-2026-18924 (9.1, curl: Low) — HTTP/2 server-push use-after-free. Server
-#   push needs CURLMOPT_PUSHFUNCTION, which the curl CLI never enables.
-CVE-2026-18924
-# CVE-2026-82209 (8.2, curl: Low) — PSL domain-scoped cookie accepted from a
-#   hostile server. Cookie engine only active with -b/-c.
-CVE-2026-82209
-# CVE-2026-80229 (7.5, curl: Low) — OpenSSL provider use-after-free in the
-#   TLS backend teardown path.
-CVE-2026-80229
-# CVE-2026-80230 (7.5, curl: Low) — OpenSSL --pinnedpubkey pinning bypass.
-#   Needs pinning in use; defense-in-depth downgrade, not a break-in.
-CVE-2026-80230
-# CVE-2026-80231 (7.5, curl: Low) — native CA store connection reuse. Needs
-#   CURLSSLOPT_NATIVE_CA, not the default on Linux (cacert bundle is used).
-CVE-2026-80231
-# CVE-2026-80255 (7.5, curl: Low) — Secure-cookie attribute bypass via an
-#   embedded tab; cookie engine, as CVE-2026-82209.
-CVE-2026-80255
-# CVE-2026-82208 (7.5, curl: Low) — wolfSSL CA-cache hit overrides the verify
-#   callback. NOT COMPILED IN: nixpkgs curl is built against OpenSSL only.
-CVE-2026-82208
-# CVE-2026-13608 (7.4, curl: Low) — OpenLDAP SASL authentication bypass.
-#   NOT COMPILED IN: nixpkgs builds curl with ldapSupport = false.
-CVE-2026-13608
-# --- openssl 3.6.3 (fixed in 3.6.4). Upstream severity in parens after
-#     NVD's. The image runs no TLS/DTLS/QUIC servers and no CMP/CMS
-#     processing of untrusted messages.
-# CVE-2026-63073 (9.8, upstream: Low) — untrusted sender DN used as a format
-#   string in CMP response validation. Needs a CMP client run against a
-#   hostile CA; nothing in the image speaks CMP.
-CVE-2026-63073
-# CVE-2026-75803 (9.1, upstream: Low) — AEAD forgery with empty ciphertext,
-#   only via direct EVP_Cipher() misuse; not the EVP_Encrypt/DecryptUpdate
-#   path normal callers (curl, openssh, python) use.
-CVE-2026-75803
-# CVE-2026-14457 (7.5, upstream: Low) — RPK SERVER-side signature-algorithm
-#   selection dereferences a missing certificate; no TLS servers here.
-CVE-2026-14457
-# CVE-2026-54874 (7.5, upstream: Low) — memory exhaustion buffering DTLS
-#   records for a future epoch; no DTLS use in the image.
-CVE-2026-54874
-# CVE-2026-63072 (7.5, upstream: Moderate) — heap buffer overflow in CMS key
-#   unwrapping; needs processing of attacker-supplied CMS messages.
-CVE-2026-63072
-# CVE-2026-63075 (7.5, upstream: Low) — QUIC ACK-only packet retention memory
-#   exhaustion. Client-side HTTP/3 is compiled into curl but availability-only
-#   and needs a hostile QUIC peer.
-CVE-2026-63075
-# CVE-2026-63076 (7.5, upstream: Moderate) — invalid pointer dereference in a
-#   CMP SERVER via crafted protectionAlg; nothing runs a CMP server.
-CVE-2026-63076
-
-# ============================================================================
-# Triage 2026-09-16 — the libxml2 2.15.3 advisory batch (#1636 dev /
-# #1637 main). A feed event, not a closure change, and the clearest one yet:
-# the 2026-09-15 nightly (run 34954313210) was green on the same pin that the
-# 2026-09-16 run (35080687787) went red on, and the delta is 8 added /
-# 0 removed against exactly ONE package, with no expiry fired. The whole
-# CVE-2026-8613x/-8614x batch was published together on 2026-09-05 and
-# reached the NVD feed in the 09-15 -> 09-16 window.
-#
-# Only ONE of the eight clears the gate's 7.0 threshold and needs an entry.
-# The other seven — CVE-2026-86137 (2.9), -86138 (6.9), -86139 (6.9),
-# -86141 (2.9), -86142 (6.9), -86143 (6.9), -86144 (5.6) — are deliberately
-# absent from this register, as the glibc block records for its own
-# sub-threshold pair.
-#
-# Provenance: libxml2 is not a direct member of the image env; it is pulled in
-# transitively (verified with `nix why-depends`). The pinned nixos-26.05 ships
-# libxml2 2.15.3 carrying only CVE-2026-11979.patch — none of this batch is
-# patched in place, so vulnix is not over-reporting here (cf. the NOTE at the
-# top of this file): the finding is a true version match.
-#
-# Remediation lever: exists, and is the SAME one the curl + openssl block
-# below is waiting on. libxml2 2.15.4 is in staging-26.05 and
-# staging-next-26.05 but not in release-26.05 or the pinned nixos-26.05, so
-# advancing the pin today changes nothing. curl 8.22.0, openssl 3.6.4 and
-# libxml2 2.15.4 all ride the SAME open staging-next-26.05 iteration-7 PR
-# (NixOS/nixpkgs#563094): one branch hop plus one weekly update-nixpkgs.yml
-# advance should clear all three blocks at once, and all three should then be
-# DELETED here rather than renewed.
-# ============================================================================
-
-Expiration: 2026-10-28
-# --- libxml2 2.15.3 (fixed in 2.15.4). NVD scores this 8.0
-#     (CVSS:3.1/AV:L/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:L, cve@mitre.org); NIST's own
-#     analyst scores the same defect 7.8 with PR:L. Both are LOCAL-vector: no
-#     remote attack surface, which is the mitigating context for an otherwise
-#     high score.
-# CVE-2026-86140 (8.0) — stack-based buffer overflow via strcat in
-#   xmlSnprintfElements (valid.c). The affected function only runs while
-#   FORMATTING A VALIDITY ERROR MESSAGE for a DTD-validated document, so it
-#   needs both DTD validation enabled and an attacker-controlled document that
-#   fails validation. Nothing in this image validates untrusted XML against a
-#   DTD; libxml2 is here as a transitive dependency, not as a service.
-CVE-2026-86140
-
-# ============================================================================
-# Triage 2026-09-17 — the pcre2 10.46 advisory batch (#1645 dev / #1637 main).
-# The second feed event in two days, and the same shape as the libxml2 batch
-# above: the 2026-09-16 nightly (run 35080687787) reported NO advisory at all
-# against pcre2, and the 2026-09-17 run (35207126776) went red with 6 added /
-# 0 removed against exactly ONE package — no expiry fired, no closure change.
-# CVE-2026-89161 was published 2026-09-11 and reached the NVD feed in the
-# 09-16 -> 09-17 window.
-#
-# Only ONE of the six clears the gate's 7.0 threshold and needs an entry. The
-# other five — CVE-2026-89156 (2.9), -89157 (5.7), -89158 (6.5), -89160 (3.7),
-# -89162 (2.9) — are deliberately absent from this register, as the glibc and
-# libxml2 blocks record for their own sub-threshold siblings.
-#
-# Provenance: pcre2 is not a direct member of the image env. `nix why-depends`
-# gives exactly one path, one hop — devcontainer-image-env -> ripgrep 15.1.0
-# -> pcre2 10.46 — so the only way to execute pcre2 code in this image is
-# `rg -P` / `rg --pcre2` on a local search. main's closure additionally
-# carries pcre2 10.47; both are below the 10.48 fix, and one entry keyed by
-# CVE id covers both derivations. The pinned nixos-26.05 ships pcre2 with NO
-# patches applied (`pcre2.patches` evaluates empty), so vulnix is not
-# over-reporting here (cf. the NOTE at the top of this file): the finding is a
-# true version match.
-#
-# Remediation lever: the SAME one the curl + openssl and libxml2 blocks above
-# are waiting on. pcre2 10.48 landed on staging-next-26.05 on 2026-09-05
-# (nixpkgs 6c02c72fd); release-26.05 is still on 10.46 — unchanged since
-# 2025-08-29, it has not even taken the by-name move — so advancing the pin
-# today changes nothing. FOUR packages now ride ONE branch hop: curl 8.22.0,
-# openssl 3.6.4, libxml2 2.15.4 and pcre2 10.48 should clear together, and all
-# four blocks should then be DELETED here rather than renewed.
-#
-# The date sits one Wednesday past the libxml2 block (10-28) rather than on
-# it: same exit condition, but a stalled review of one must not carry the
-# other with it.
-# ============================================================================
-
-Expiration: 2026-11-04
-# --- pcre2 10.46 + 10.47 (fixed in 10.48). vulnix gates on MITRE's 7.4
-#     (CVSS:3.1/AV:L/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H); NIST's own analyst
-#     scores the same defect 7.8 with AC:L/PR:L. Both are LOCAL-vector: no
-#     remote attack surface, which is the mitigating context here.
-# CVE-2026-89161 (7.4) — CWE-590 incorrect free in pcre2_jit_match when a
-#   previously copied subject is passed in as a match context. Whether
-#   ripgrep's grep-pcre2 binding can produce that calling pattern was NOT
-#   verified, so this entry accepts an exposure CEILING rather than claiming
-#   unreachability: a local `rg -P` run inside an interactive container, over
-#   patterns and files the developer chose. No daemon, no service, no
-#   untrusted input path — and the fix arrives with the pin advance above.
-CVE-2026-89161
 
 # ============================================================================
 # Triage 2026-09-23 — the unbound 1.26.0 DNSSEC-validator advisory (#1668 dev /
