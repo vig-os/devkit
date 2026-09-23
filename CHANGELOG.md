@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.16.0] - TBD
+
+### Added
+
 - **A preserved `.pre-commit-config.yaml` is reconciled on upgrade**
   ([#1654](https://github.com/vig-os/devkit/issues/1654))
   - #1652 made two divergences of a preserved hook config visible; this repairs
@@ -110,12 +124,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The file is managed, so the excision costs nothing when the feature is on
     and clearing the key restores the recipes on the next `--force`.
 
+#### Dependencies
 
-### Deprecated
-
-### Removed
-
-### Fixed
+- Update `github/codeql-action` from `b96794f` to `1c5b675` ([#1657](https://github.com/vig-os/devkit/pull/1657))
+- Update `ubuntu` from `24.04` to `26.04-arm` ([#1658](https://github.com/vig-os/devkit/pull/1658))
+- Update `astral-sh/setup-uv` from `v10.1.0` to `v10.2.0` ([#1671](https://github.com/vig-os/devkit/pull/1671))
+- Lock file maintenance (pip) ([#1659](https://github.com/vig-os/devkit/pull/1659))
 
 ### Security
 
