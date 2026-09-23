@@ -119,6 +119,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Reconcile the 2026-09-30 exception block after online re-verification**
+  ([#1666](https://github.com/vig-os/devkit/issues/1666),
+  [#1667](https://github.com/vig-os/devkit/issues/1667))
+  - The T-7 expiry notice forced the re-verification it is designed to force.
+    All five entries were accepted in the 2026-06-23 baseline triage with
+    "specifics unverified offline"; this time NVD's CPE configurations,
+    per-source CVSS and the nixpkgs branch contents were all checked
+  - `CVE-2026-27820` is **not this product**: it is a buffer overflow in the
+    Ruby `zlib` gem, whose only NVD CPE is `ruby-lang:zlib` with
+    `target_sw=ruby`. vulnix matched the C zlib 1.3.2 only because 1.3.2 sorts
+    below the gem's 3.0.1. It was the 9.8 of the set and is now a definitive
+    false positive in the Class 1 CPE-mismatch block, on the yearly re-check
+  - The remaining four are real matches and stay, but no longer share a date.
+    The libmicrohttpd pair (one defect double-assigned, pure availability
+    impact, and an embedded server this image never starts) expires
+    `2026-10-21` because its 1.0.10 bump is already one branch hop away; the
+    sqlite FTS5 pair (local vector, needs a crafted database opened and
+    MATCH-queried) expires `2026-11-11` because `nixos-26.05` still ships
+    3.51.2 with no 26.05 backport open
+  - Every per-entry note is rewritten to the verified vector, so the register
+    no longer carries a 9.8 justified by a guess
+
+- **Drop the 18 exceptions cleared by the four-package pin advance**
+  ([#1666](https://github.com/vig-os/devkit/issues/1666),
+  [#1667](https://github.com/vig-os/devkit/issues/1667))
+  - The weekly pin advance `21a67dc4` -> `6d663c05` ships curl 8.22.0, openssl
+    3.6.4, libxml2 2.15.4 and pcre2 10.48, so the curl + openssl batch, the
+    libxml2 entry and the pcre2 entry are all gone from the `dev` closure
+  - All three blocks named the same exit condition and rode one lever: the
+    `staging-next-26.05` iteration-7 PR, which reached `release-26.05` on
+    2026-09-19 and the pinned `nixos-26.05` two days later — the one branch hop
+    plus one weekly advance the 2026-09-16 re-date predicted
+  - Deleted rather than renewed, four to six weeks before their `2026-10-21`,
+    `2026-10-28` and `2026-11-04` expiries: the expiry grid exists so entries
+    die on remediation instead of rolling forward
+  - The register drops 18 entries to 15 and `vulnix-gate` stays green on `dev`.
+    `main` keeps the blocks until the next release train carries the pin and
+    the register over together
+
+- **Except the unbound DNSSEC-validator advisory in the vulnix register**
+  ([#1668](https://github.com/vig-os/devkit/issues/1668),
+  [#1669](https://github.com/vig-os/devkit/issues/1669))
+  - The NVD feed published `CVE-2026-81642` (9.8 CRITICAL) against
+    `unbound-1.26.0` overnight, taking both nightly scan lanes and the release
+    train's `vulnix-gate` red on a single package
+  - A feed event, not a closure change: the previous night's scan was green on
+    the same closures — the 2026-09-21 pin advance had already merged and been
+    scanned — and the findings delta is 1 added / 0 removed / one package per
+    ref, with no exception expired
+  - Advancing the pin cannot clear it today: `nixos-26.05`, `staging-26.05` and
+    `master` all still ship 1.26.0 with no CVE-named patch. The fix is upstream
+    in 1.26.1 and its `staging-26.05` backport is still open, two branch hops
+    from the pinned channel
+  - Expires `2026-11-04` on its own Wednesday. The closure carries `libunbound`
+    only — verified with `nix why-depends` against the built runtime closure,
+    reached via podman -> gpgme -> gnupg -> gnutls, with `libgnutls-dane.so`
+    its sole consumer — so there is no resolver daemon and no `unbound` binary
+    for the advisory's vector to run against
+
 ## [1.15.1](https://github.com/vig-os/devkit/releases/tag/1.15.1) - 2026-09-17
 
 ### Security
