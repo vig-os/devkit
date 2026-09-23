@@ -119,6 +119,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Reconcile the 2026-09-30 exception block after online re-verification**
+  ([#1666](https://github.com/vig-os/devkit/issues/1666),
+  [#1667](https://github.com/vig-os/devkit/issues/1667))
+  - The T-7 expiry notice forced the re-verification it is designed to force.
+    All five entries were accepted in the 2026-06-23 baseline triage with
+    "specifics unverified offline"; this time NVD's CPE configurations,
+    per-source CVSS and the nixpkgs branch contents were all checked
+  - `CVE-2026-27820` is **not this product**: it is a buffer overflow in the
+    Ruby `zlib` gem, whose only NVD CPE is `ruby-lang:zlib` with
+    `target_sw=ruby`. vulnix matched the C zlib 1.3.2 only because 1.3.2 sorts
+    below the gem's 3.0.1. It was the 9.8 of the set and is now a definitive
+    false positive in the Class 1 CPE-mismatch block, on the yearly re-check
+  - The remaining four are real matches and stay, but no longer share a date.
+    The libmicrohttpd pair (one defect double-assigned, pure availability
+    impact, and an embedded server this image never starts) expires
+    `2026-10-21` because its 1.0.10 bump is already one branch hop away; the
+    sqlite FTS5 pair (local vector, needs a crafted database opened and
+    MATCH-queried) expires `2026-11-11` because `nixos-26.05` still ships
+    3.51.2 with no 26.05 backport open
+  - Every per-entry note is rewritten to the verified vector, so the register
+    no longer carries a 9.8 justified by a guess
+
 - **Drop the 18 exceptions cleared by the four-package pin advance**
   ([#1666](https://github.com/vig-os/devkit/issues/1666),
   [#1667](https://github.com/vig-os/devkit/issues/1667))
