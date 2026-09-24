@@ -434,6 +434,29 @@ def test_opener_targets_main_and_labels_the_pr() -> None:
     assert LANE_LABEL in body, f"opener must apply the `{LANE_LABEL}` label"
 
 
+def test_opener_sources_the_retry_helper_before_using_it() -> None:
+    """Any step calling `retry` must first source the helper.
+
+    `retry` is a bash FUNCTION exported through `BASH_ENV` by the `setup-env`
+    composite action. The opener deliberately skips `setup-env` (it needs no
+    toolchain — `gh` is preinstalled), so the function is simply absent and the
+    call dies with `retry: command not found`, exit 127. That is precisely how
+    the lane's first live dispatch failed (run 36054453452).
+
+    `prepare-hotfix.yml` already solved this the same way: source the canonical
+    helper straight out of the checkout.
+    """
+    for step in steps_of_job(_opener(), next(iter(jobs(_opener())))):
+        run = str(step.get("run", ""))
+        if "retry " not in run:
+            continue
+        assert ".github/scripts/retry.sh" in run, (
+            f"step {step.get('name')!r} calls `retry` without sourcing "
+            ".github/scripts/retry.sh — the function is only in scope after "
+            "setup-env, which this job does not run"
+        )
+
+
 # ── Repo conventions ─────────────────────────────────────────────────────────
 
 

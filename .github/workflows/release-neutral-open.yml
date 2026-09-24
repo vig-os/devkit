@@ -110,6 +110,15 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          # `retry` is a bash function exported through BASH_ENV by the
+          # setup-env composite action, and this job deliberately skips it
+          # (`gh` is preinstalled; no toolchain is needed to open a PR). So the
+          # function must be sourced straight from the checkout, exactly as
+          # prepare-hotfix.yml's PR job does — otherwise the call below dies
+          # with `retry: command not found`, exit 127.
+          # shellcheck source=/dev/null  # canonical retry() helper from the checkout
+          source .github/scripts/retry.sh
+
           refs_line=""
           [ -n "$ISSUE" ] && refs_line="Refs: #${ISSUE}"
 
