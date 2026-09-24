@@ -226,6 +226,7 @@ The `prepare-release.yml` workflow freezes the CHANGELOG on dev and creates the 
    - Validates semantic version format (X.Y.Z)
    - Verifies release branch `release/X.Y.Z` doesn't exist (local or remote)
    - Verifies tag `X.Y.Z` doesn't already exist
+   - Refuses when `dev` is behind `main` — `main` may carry landed-but-unshipped commits, and the cut freezes *dev's* `## Unreleased`, so cutting ahead of the open `chore/sync-main-to-dev-*` PR would drop their entries from the frozen section. Merge that PR, then re-dispatch ([#1680](https://github.com/vig-os/devkit/issues/1680))
    - Runs `synthesize-bot-changelog` → generates the `#### Dependencies` block for merged bot PRs (Renovate, adoptions) since the last stable tag ([#1423](https://github.com/vig-os/devkit/issues/1423))
    - Verifies CHANGELOG has `## Unreleased` section with content (after synthesis, so a bot-only train passes)
    - Confirms dev branch is checked out
