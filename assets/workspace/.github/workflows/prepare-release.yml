@@ -119,6 +119,39 @@ jobs:
             exit 1
           fi
 
+      # Sync-ordering guard (#1680). The freeze below takes DEV's ## Unreleased,
+      # but main can carry commits dev has not received yet: prepare-hotfix cuts
+      # from main, and promote-release merges the release branch into it.
+      # sync-main-to-dev.yml opens a PR carrying them back on every push to
+      # main, but nothing forces that PR to be merged before the next train is
+      # cut. Cutting ahead of it silently drops those changelog entries from the
+      # frozen section, so the release ships without describing changes it
+      # contains — invisible until someone goes looking. This is the same
+      # comparison sync-main-to-dev.yml uses to decide whether to open the PR,
+      # so the lane that carries the commits and the lane that demands them
+      # agree by construction rather than by coincidence. The trunk workflow
+      # model deletes this whole block at scaffold time: releases cut from main
+      # there and sync-main-to-dev.yml is copy-excluded.
+      - name: Verify dev is not behind main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main dev
+          if ! git show-ref --verify --quiet refs/remotes/origin/main; then
+            echo "ERROR: remote branch 'origin/main' not found after fetch."
+            exit 1
+          fi
+          if ! git show-ref --verify --quiet refs/remotes/origin/dev; then
+            echo "ERROR: remote branch 'origin/dev' not found after fetch."
+            exit 1
+          fi
+          BEHIND=$(git rev-list --count origin/main ^origin/dev)
+          if [ "$BEHIND" != "0" ]; then
+            echo "ERROR: dev is behind main by $BEHIND commit(s)"
+            echo "main carries changes dev has not received, so the frozen section would omit them"
+            echo "Merge the open chore/sync-main-to-dev-* PR (Sync main to dev workflow), then re-dispatch"
+            exit 1
+          fi
+
       # The Unreleased content gate lives in the prepare job (after bot-entry
       # synthesis, which needs the devkit toolchain this host job does not
       # have): a train whose only changes are bot PRs must still pass (#1423).
