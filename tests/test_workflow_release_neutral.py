@@ -343,6 +343,26 @@ def test_no_gate_asserts_main_unreleased_is_empty() -> None:
     )
 
 
+def test_gate_3_excludes_the_changelog_mirror() -> None:
+    """Gate 3 must not refuse the one `assets/` path gates 1 and 2 permit.
+
+    `CHANGELOG.md` is mirrored to `assets/workspace/.devcontainer/CHANGELOG.md`.
+    Gate 1 stopped refusing the changelog and gate 2 normalizes it away before
+    comparing derivations — but a gate 3 that still refuses `assets/` wholesale
+    would reject every changelog-carrying PR anyway, defeating the widening.
+    """
+    gate3 = str(
+        step_by_name(steps_of_job(_guard(), GUARD_JOB), "Gate 3").get("run", "")
+    )
+    assert "exclude" in gate3, (
+        "gate 3 must exclude the changelog mirror from its assets/ check, or it "
+        "refuses exactly what gates 1 and 2 were widened to admit"
+    )
+    assert "assets/workspace/.devcontainer/CHANGELOG.md" in gate3, (
+        "gate 3 must name the changelog mirror as the excluded path"
+    )
+
+
 def test_gate_5_refuses_while_a_release_train_is_in_flight() -> None:
     """Gate 5: moving `main` mid-train dismisses the release PR's approval.
 

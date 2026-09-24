@@ -157,17 +157,26 @@ jobs:
       # Formally subsumed by gate 2 (the scaffold is copied into the image), but
       # kept for diagnostics: naming the offending file beats two unequal store
       # hashes. Runs before gate 2 so the cheap, legible failure comes first.
+      #
+      # ONE EXCLUSION, and it is not cosmetic: `CHANGELOG.md` is mirrored to
+      # `assets/workspace/.devcontainer/CHANGELOG.md`. Gate 1 admits the
+      # changelog and gate 2 normalizes it away before comparing, so a gate 3
+      # that refused `assets/` wholesale would reject every changelog-carrying
+      # PR anyway and quietly undo that. The mirror is regenerated from
+      # CHANGELOG.md by the `sync-manifest` hook, so it is never independently
+      # authored and needs no separate scrutiny here.
       - name: 'Gate 3: consumer scaffold untouched'
         if: env.ACTIVE == 'true'
         run: |
           set -euo pipefail
-          if ! git diff --quiet "origin/${BASE_REF}...HEAD" -- assets/; then
+          scaffold=(assets/ ':(exclude)assets/workspace/.devcontainer/CHANGELOG.md')
+          if ! git diff --quiet "origin/${BASE_REF}...HEAD" -- "${scaffold[@]}"; then
             echo "::error::gate 3: the diff changes the consumer scaffold under assets/ — that is a published asset and needs a release:"
-            git diff --name-only "origin/${BASE_REF}...HEAD" -- assets/ \
+            git diff --name-only "origin/${BASE_REF}...HEAD" -- "${scaffold[@]}" \
               | awk '{print "  " $0}'
             exit 1
           fi
-          echo "✓ gate 3: assets/ byte-identical to ${BASE_REF}"
+          echo "✓ gate 3: assets/ byte-identical to ${BASE_REF} (changelog mirror excluded)"
 
       # ── Gate 5 — release-train interlock ─────────────────────────────────
       # `main`'s required checks are strict (branch must be up to date), so
