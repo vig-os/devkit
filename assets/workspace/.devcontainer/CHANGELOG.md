@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Release-neutral lane: change `main` without cutting a release**
+  ([#1676](https://github.com/vig-os/devkit/issues/1676))
+  - `main` could only be written by a release, so a change that alters nothing a
+    consumer receives — devkit's own `.github/workflows/**`, `tests/**`, most of
+    `docs/**`, the scan-time registers — either waited for the next train or
+    inflated the version for a no-op that handed every consumer an adoption PR
+  - `release-neutral-open.yml` opens the PR **as the release App** (`main`
+    requires one approving review and GitHub forbids authors approving their own
+    PRs, so a human-authored PR there is unapprovable), and
+    `release-neutral-guard.yml` proves the change is release-neutral
+  - The contract is **derivation identity**: `devShells.default`,
+    `devkitImage` and `devkitImageEnv` `.drv` paths must equal `main`'s, which
+    proves the published artifacts cannot differ whatever the diff touched. It
+    covers `direnv`/`bare` consumers too, who never pull the image
+  - Also gated: no release content in the diff, the `assets/` scaffold
+    untouched, `main`'s `## Unreleased` still empty, and no release train in
+    flight. A verdict comment lists the files carried
+  - A changelog entry makes a change **non**-release-neutral (it is mirrored
+    into the scaffold and baked into the image), so keep changelog edits in
+    their own commit to leave the rest cherry-pickable
+  - When a lane PR touches `.vulnixignore` the guard additionally replays
+    `main`'s own nightly gate, since a pin advance on `dev` clears exceptions
+    that `main`'s older closure may still need
+
 ### Changed
 
 ### Deprecated
