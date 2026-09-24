@@ -1,0 +1,24 @@
+# Repo-local label extension for `vig-os/devkit` itself.
+#
+# Same `[[labels]]` schema as `.github/label-taxonomy.toml`, but this file is
+# NEVER devkit-managed and is not synced into `assets/workspace/`, so nothing
+# here reaches a consumer repo. `setup-labels` merges it over the shared
+# taxonomy, and `--prune` spares its entries.
+#
+# Use it for labels that only mean something in this repo. The shared taxonomy
+# is the wrong home for those: it ships to every consumer, which would scatter
+# labels for machinery those repos do not have.
+#
+# Refs: #1676
+
+# ── Process lanes ─────────────────────────────────────────────────────────────
+
+[[labels]]
+name = "release-neutral"
+# Load-bearing, not decorative: this label is the release-neutral lane's
+# discriminator. `release-neutral-guard.yml` runs its gates only on a PR
+# carrying it and stays inactive-but-passing otherwise — which is what keeps the
+# guard from failing release PRs, since those legitimately change the changelog,
+# `.vig-os` and the scaffold. `release-neutral-open.yml` applies it.
+description = "Changes no published artifact; merges to main without a release (gated by Release-Neutral Guard)"
+color = "5319e7"

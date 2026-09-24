@@ -341,6 +341,67 @@ just prepare-hotfix X.Y.Z "" -f dry-run=true
 
 **Consumer scaffold:** the lane also ships in `assets/workspace/` ([#1625](https://github.com/vig-os/devkit/issues/1625)): `prepare-hotfix.yml` in the scaffold dialect (mode-aware devkit toolchain, tag-prefix-aware tag checks) plus the `just prepare-hotfix` recipe, copy-excluded under `DEVKIT_WORKFLOW=trunk` where releases already cut from `main`; the scaffold's `release-core.yml` carries the same `prepare-changelog validate --version` content guard. The consumer-facing runbook is [`docs/DOWNSTREAM_RELEASE.md`](DOWNSTREAM_RELEASE.md#hotfix-lane-gitflow-only).
 
+### Release-neutral lane: changing `main` without a release
+
+**When to use it:** a change belongs on `main` but alters **nothing a consumer receives**. Typical cases: devkit's own `.github/workflows/**` (not the scaffolded copy under `assets/workspace/`), `tests/**`, most of `docs/**`, and the scan-time registers (`.vulnixignore`, `.trivyignore`, `.github/dependency-review-allow.txt`). Design and rationale: [#1676](https://github.com/vig-os/devkit/issues/1676).
+
+Cutting a patch release for these is a no-op that costs everyone: the republished image is functionally identical — only the version string in `/root/assets/VERSION`, the scaffolded `.vig-os` and the changelog differ — while `devkit-upgrade` opens an adoption PR in **every** consumer repo for a pin bump that changes nothing they run.
+
+Two cases motivated the lane. A `workflow_dispatch` workflow must exist on the **default branch** to be dispatchable at all, so a new workflow cannot reach `main` without a release or an admin bypass. And `main`/`dev` each scan their own closure against their own `.vulnixignore`, so a register amendment on `dev` leaves `main`'s nightly lane red until the next train — the register moved 32 times in the 90 days to 2026-09-24 against a roughly weekly release cadence.
+
+**This lane does not replace a release.** It cannot ship anything a consumer consumes; the guard refuses on proof, not on judgement.
+
+**Execute:**
+
+```bash
+# 1. Prepare the branch by hand, off main.
+git fetch origin
+git switch -c chore/<issue>-<summary> origin/main
+git cherry-pick <sha>...          # release-neutral commits only
+git push -u origin HEAD
+
+# 2. Open the PR (the workflow authors it — see below).
+gh workflow run release-neutral-open.yml   -f branch=chore/<issue>-<summary>   -f title='ci(guard): <summary>'   -f issue=<issue>
+
+# 3. Read the guard's verdict comment, approve, merge.
+```
+
+**Why a workflow opens the PR.** `main` requires one approving review, GitHub forbids a PR's author from approving it, and `main`'s only bypass actor is `OrganizationAdmin` — no App holds bypass, and `promote-release.yml` merges with a plain `gh pr merge --merge`. So a human-authored PR to `main` is unapprovable by the only human there is. Every release PR into `main` is App-authored for exactly this reason; the lane borrows that one mechanism and automates nothing else.
+
+**What `release-neutral-guard.yml` proves:**
+
+| Gate | Proves |
+|------|--------|
+| **1** | No release content — `CHANGELOG.md`, its `assets/workspace/.devcontainer/` mirror, `.vig-os` — in the diff |
+| **2** | `devShells.default`, `packages.devkitImage` and `packages.devkitImageEnv` derivation paths are **identical** to `main`'s |
+| **3** | The consumer scaffold under `assets/` is byte-identical |
+| **4** | `main`'s `## Unreleased` is still empty |
+| **5** | No `release/*` train is in flight |
+| **6** | Posts a verdict comment listing the files carried |
+
+**Gate 2 is the contract.** Equal derivation paths mean the published artifacts *cannot* differ, whatever the diff touched — a proof rather than an argument about which files happen to be inputs, and deliberately not a path allowlist (which would encode a guess about what is published and need extending for every new kind of release-neutral change). It covers both consumption modes: `devkitImage` for devcontainer consumers, `devShells.default` for `direnv`/`bare` ones, which never pull the image at all.
+
+The gates discriminate. Measured against `main` at 2026-09-24:
+
+| Change | Verdict | Why |
+|--------|---------|-----|
+| devkit's own `.github/workflows/**`, `tests/**`, `docs/CONTAINER_SECURITY.md` | **admitted** | `devkitImage` `d6ikbz96…` == `main`'s |
+| the same tree **plus a `CHANGELOG.md` entry** | **refused** | `devkitImage` `ffbgni7c…` != `main`'s |
+| `docs/MIGRATION.md` | refused | baked into the image (`flake.nix:1433`) |
+| `.claude/skills/**` | refused | manifest-synced into `assets/workspace/` |
+| `nix/hooks.nix` | refused | changes `devShells.default` |
+
+**Keep changelog edits in their own commit on `dev`.** That second row is not a formality: the changelog is mirrored into the scaffold and baked into the image, so a changelog entry makes an otherwise release-neutral change non-neutral. On `main` it would also leave `## Unreleased` non-empty, which `prepare-release` and `prepare-hotfix` both refuse to start on. Committing it separately is what keeps the rest cherry-pickable.
+
+**Runbook rules:**
+
+- **The guard is label-scoped, not diff-scoped,** and its job carries no job-level `if`. A release PR legitimately changes the changelog, `.vig-os` and the scaffold, so a diff-keyed guard would fail every release; and a job-level condition would yield a *skipped* job, which — were the guard ever made a required check — would leave release PRs waiting on a check that never reports. "Inactive" therefore means *ran and passed*.
+- **Do not push after approving.** `main` sets `dismiss_stale_reviews_on_push`. The guard itself never writes, for the same reason.
+- **`main` will carry commits that are in no release.** That is the deliberate change to the old invariant. Nothing depends on the strict form: the hotfix precondition is "PATCH+1 of the highest stable tag *reachable from* `main`", which extra commits do not disturb.
+- **Reconvergence is free** when the carried commits are cherry-picks of `dev` content: the next train's `dev`→`main` merge sees identical content.
+- **Content-triggered extra.** When the diff touches `.vulnixignore`, the guard also replays `main`'s own nightly gate and requires exit 0. This is not part of the contract — it exists because the register is not append-only: a pin advance on `dev` *clears* exceptions and `dev`'s pin advances first, so there is always a window where `dev` has correctly deleted an exception that `main`'s older, still-vulnerable closure needs. Carrying that deletion would strand a real finding, so the guard runs the real gate rather than reasoning about whether the removal was safe.
+- **Bootstrap.** `workflow_dispatch` registers only from the default branch, so the lane cannot deliver itself: the first deployment of these two workflows to `main` needs one `OrganizationAdmin` bypass merge. After that the lane carries its own future changes.
+
 ### Phase 2: Review & Testing
 
 This is the main quality gate. The release branch and draft PR serve as the coordination point.

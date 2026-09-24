@@ -212,6 +212,36 @@ the blind extension the Wednesday grid is built to prevent. Read the delta
 first, delete every entry the pin advance cleared, and renew only what is still
 genuinely accepted — the tracking issue restates this in its body.
 
+### 6. Getting a register change onto `main`
+
+`main` and `dev` each scan their own closure against their own register
+(`security-scan.yml`, matrix `ref: [main, dev]`), so an amendment on `dev` leaves
+`main`'s lane red until the next release train. The register moved 32 times in
+the 90 days to 2026-09-24 (~one per 3 days) against a roughly weekly release
+cadence, so that lane is stale more often than current — and a permanently-red
+security lane teaches the maintainer to ignore it.
+
+Cutting a release to close the gap is a no-op: `.vulnixignore` is **not an image
+input**, so the republished artifact would be identical but for the version
+string. Note the gap does not block *releasing* either — `release.yml`'s gate
+scans the release branch, cut from `dev` — so this is purely a
+correctness-of-signal problem.
+
+Carry the amendment with the **release-neutral lane**:
+[`docs/RELEASE_CYCLE.md`](RELEASE_CYCLE.md#release-neutral-lane-changing-main-without-a-release)
+is the single source of truth for the procedure and its gates. Two things
+specific to registers:
+
+- **Cherry-pick additions, never mirror the file.** The register is not
+  append-only: a pin advance on `dev` *clears* exceptions (step 3 above) and
+  `dev`'s pin advances first, so there is always a window where `dev` has
+  correctly deleted an exception that `main`'s older, still-vulnerable closure
+  depends on. Copying that deletion strands a real finding.
+- **The guard checks this for you.** When a lane PR's diff touches
+  `.vulnixignore`, the guard replays `main`'s own nightly gate against `main`'s
+  own closure and requires exit 0, so a stranding deletion is unmergeable rather
+  than a review judgement.
+
 ## Why pin `nixpkgs` (and not track an unpinned channel)?
 
 Building from an unpinned/rolling input has the same drawbacks the old
