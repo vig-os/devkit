@@ -284,7 +284,7 @@ Next steps:
 - `version` is exactly `MAJOR.MINOR.(PATCH+1)` of the highest stable `X.Y.Z` tag reachable from `main` — no "hotfix minors", no patches of an older line, no skipped numbers.
 - **No other `release/*` branch exists.** A hotfix promoted while a regular train is in flight would be silently reintroduced by that train's merge (its branch predates the fix) and the two trains would race for `:latest`, so the lane refuses instead of relying on a cherry-pick obligation. Promote or abandon the other train first.
 - No `release/X.Y.Z` branch and no `X.Y.Z` tag exist.
-- `main`'s `## Unreleased` is empty (always true by construction, [#590](https://github.com/vig-os/devkit/issues/590)).
+- `main`'s `## Unreleased` is empty. This was true by construction under [#590](https://github.com/vig-os/devkit/issues/590), but that invariant is superseded: the [release-neutral lane](#main-may-carry-unshipped-changes) may land entries on `main`. The precondition is still enforced as written, so a hotfix cut while `main` carries entries refuses to start — teaching the check to freeze them instead is phase 1 of [#1676](https://github.com/vig-os/devkit/issues/1676).
 
 **Execute:**
 
@@ -351,18 +351,16 @@ Two cases motivated the lane. A `workflow_dispatch` workflow must exist on the *
 
 **This lane does not replace a release.** It cannot ship anything a consumer consumes; the guard refuses on proof, not on judgement.
 
-**Author on `dev` first — always.** The full change, including any `CHANGELOG.md` entry, lands on `dev` through the normal PR route. The lane then carries only the release-neutral part to `main`. This is an ordering rule, not a style preference: `main` cannot hold a changelog entry (gates 1 and 4), so a change authored directly on a `main`-based branch has nowhere to put one and its release note is lost outright rather than deferred.
+**Authoring on `dev` first is a preference, not a rule.** Cherry-picking from `dev` is still the tidiest route — the two refs stay converged commit-for-commit, so the next train's merge is trivially clean. But it is no longer load-bearing. Until 2026-09-24 it was: the lane refused a changelog entry outright, so a change authored on a `main`-based branch had nowhere to put its release note and lost it. Gate 2's [normalized comparison](#the-comparison-is-normalized) removed that constraint — `main` may hold the entry, and `sync-main-to-dev.yml` (which triggers on `push: [main]`, not only post-promote) opens a sync PR whenever `dev` is behind. Whichever ref receives the change first, the other gets it.
 
 **Execute:**
 
 ```bash
-# 0. The change is already merged to dev, changelog entry and all.
-
 # 1. Prepare the branch by hand, off main.
 git fetch origin
 git switch -c chore/<issue>-<summary> origin/main
-git cherry-pick <sha>...          # the release-neutral commits ONLY;
-                                  # never the changelog commit
+git cherry-pick <sha>...          # the release-neutral commits; a changelog
+                                  # commit may ride along (gate 2 normalizes it)
 git push -u origin HEAD
 
 # 2. Open the PR (the workflow authors it — see below).
@@ -377,34 +375,51 @@ gh workflow run release-neutral-open.yml   -f branch=chore/<issue>-<summary>   -
 
 | Gate | Proves |
 |------|--------|
-| **1** | No release content — `CHANGELOG.md`, its `assets/workspace/.devcontainer/` mirror, `.vig-os` — in the diff |
-| **2** | `devShells.default`, `packages.devkitImage` and `packages.devkitImageEnv` derivation paths are **identical** to `main`'s |
+| **1** | No release content — `.vig-os`, which carries `DEVKIT_VERSION` — in the diff |
+| **2** | `devShells.default`, `packages.devkitImage` and `packages.devkitImageEnv` derivation paths are **identical** to `main`'s, compared with the changelog normalized away |
 | **3** | The consumer scaffold under `assets/` is byte-identical |
-| **4** | `main`'s `## Unreleased` is still empty |
 | **5** | No `release/*` train is in flight |
-| **6** | Posts a verdict comment listing the files carried |
+| **6** | Posts a verdict comment listing the files carried, and the changelog drift if there is any |
+
+Gate **4** was `main`'s `## Unreleased` is still empty. It is deleted, not renumbered — see [below](#main-may-carry-unshipped-changes).
 
 **Gate 2 is the contract.** Equal derivation paths mean the published artifacts *cannot* differ, whatever the diff touched — a proof rather than an argument about which files happen to be inputs, and deliberately not a path allowlist (which would encode a guess about what is published and need extending for every new kind of release-neutral change). It covers both consumption modes: `devkitImage` for devcontainer consumers, `devShells.default` for `direnv`/`bare` ones, which never pull the image at all.
 
-The gates discriminate. Measured against `main` at 2026-09-24:
+#### The comparison is normalized
+
+`CHANGELOG.md` is mirrored by a pre-commit hook into `assets/workspace/.devcontainer/CHANGELOG.md`, which is **baked into the image**. A release note therefore moves `devkitImage`'s derivation all by itself. Under a raw comparison that would disqualify *any* change carrying one — which is nearly all of them — and the lane would be bypassed by hand every time it was needed.
+
+So gate 2 reverts both copies to the base's before evaluating the head side, then restores them. Both sides hold identical changelog text and any surviving difference is genuinely non-changelog. (It needs no commit: `nix eval .#…` on a dirty git tree evaluates the **working tree**, not the checked-out revision.)
+
+The gates still discriminate. Measured on the lane's own branch against `main` at 2026-09-24:
 
 | Change | Verdict | Why |
 |--------|---------|-----|
 | devkit's own `.github/workflows/**`, `tests/**`, `docs/CONTAINER_SECURITY.md` | **admitted** | `devkitImage` `d6ikbz96…` == `main`'s |
-| the same tree **plus a `CHANGELOG.md` entry** | **refused** | `devkitImage` `ffbgni7c…` != `main`'s |
+| the same tree **plus a `CHANGELOG.md` entry** | **admitted** | raw `d5gf56y0…` != `main`'s, but normalized `d6ikbz96…` == `main`'s |
 | `docs/MIGRATION.md` | refused | baked into the image (`flake.nix:1433`) |
 | `.claude/skills/**` | refused | manifest-synced into `assets/workspace/` |
 | `nix/hooks.nix` | refused | changes `devShells.default` |
 
-**Keep changelog edits in their own commit on `dev`.** That second row is not a formality: the changelog is mirrored into the scaffold and baked into the image, so a changelog entry makes an otherwise release-neutral change non-neutral. On `main` it would also leave `## Unreleased` non-empty, which `prepare-release` and `prepare-hotfix` both refuse to start on. Committing it separately is what keeps the rest cherry-pickable.
+The changelog is the *only* thing normalized away, and the verdict comment names the drift explicitly when it happens — a release note passing the contract silently is the failure mode, because a reviewer could not otherwise tell a workflows-only carry from one that also rewrites `main`'s `## Unreleased`.
+
+#### `main` may carry unshipped changes
+
+The project decision behind the normalization, and the reason gate 4 is gone: **`main` may carry changes that have landed but are not yet shipped, and its `## Unreleased` section describes them.** That supersedes [#590](https://github.com/vig-os/devkit/issues/590)'s empty-by-construction invariant — which had made `main`'s section empty at all times, and which gate 4 enforced.
+
+Two objections were checked and dropped:
+
+- **"`dev` would lack the content."** `sync-main-to-dev.yml` triggers on `push: [main]`, not only post-promote, and opens a PR whenever `dev` is behind. Self-healing.
+- **"the next release would conflict on `CHANGELOG.md`."** Because that sync reaches `dev` *before* the next freeze, `prepare-release` freezes the carried entries normally and the release→`main` merge applies cleanly.
+
+Note `prepare-release` never inspects `main`'s `## Unreleased` — it runs on `dev` and requires *dev's* section to have content. Only `prepare-hotfix` reads `main`'s, and that precondition is [phase 1 of #1676](https://github.com/vig-os/devkit/issues/1676), a separate change: until it lands, a hotfix cut while `main` carries entries will refuse to start.
 
 **Runbook rules:**
 
-- **`dev` first, `main` second — never the other way round.** The changelog entry lives on `dev` and ships with the next release; the lane carries the release-neutral remainder. Authoring on a `main`-based branch instead loses the release note permanently, because `main` can never accept a changelog entry. The guard cannot check this (it cannot prove a `dev` commit exists), so it only reminds you in its verdict; the discipline is yours.
-- **A changelog entry is deferred, not skipped.** Between the lane merge and the next release, `main`'s changelog says nothing about the change — correctly, since no release happened. For a security exception the substantive record is the `.vulnixignore` block itself (dated triage, provenance, reachability, lever, expiry), and that reaches `main` *immediately* via the lane. The changelog entry is the release note, and it appears in the release that carries it.
+- **A changelog entry may ride the lane.** It lands under `main`'s `## Unreleased`, where it correctly describes a change that has landed but not shipped, and it appears in the release notes of whichever train ships it. The entry is normalized out of gate 2's comparison and reported in the verdict; read it there before approving. Cherry-picking from `dev` remains the tidier route, but it is no longer the only one that preserves the release note.
 - **The guard is label-scoped, not diff-scoped,** and its job carries no job-level `if`. A release PR legitimately changes the changelog, `.vig-os` and the scaffold, so a diff-keyed guard would fail every release; and a job-level condition would yield a *skipped* job, which — were the guard ever made a required check — would leave release PRs waiting on a check that never reports. "Inactive" therefore means *ran and passed*.
 - **Do not push after approving.** `main` sets `dismiss_stale_reviews_on_push`. The guard itself never writes, for the same reason.
-- **`main` will carry commits that are in no release.** That is the deliberate change to the old invariant. Nothing depends on the strict form: the hotfix precondition is "PATCH+1 of the highest stable tag *reachable from* `main`", which extra commits do not disturb.
+- **`main` will carry commits that are in no release,** and `## Unreleased` entries describing them ([#590](https://github.com/vig-os/devkit/issues/590)'s invariant is superseded — see above). Nothing depends on the strict form: the hotfix precondition is "PATCH+1 of the highest stable tag *reachable from* `main`", which extra commits do not disturb. The one live exception is `prepare-hotfix`'s own empty-Unreleased check, phase 1 of [#1676](https://github.com/vig-os/devkit/issues/1676).
 - **Reconvergence is free** when the carried commits are cherry-picks of `dev` content: the next train's `dev`→`main` merge sees identical content.
 - **Content-triggered extra.** When the diff touches `.vulnixignore`, the guard also replays `main`'s own nightly gate and requires exit 0. This is not part of the contract — it exists because the register is not append-only: a pin advance on `dev` *clears* exceptions and `dev`'s pin advances first, so there is always a window where `dev` has correctly deleted an exception that `main`'s older, still-vulnerable closure needs. Carrying that deletion would strand a real finding, so the guard runs the real gate rather than reasoning about whether the removal was safe.
 - **Bootstrap.** `workflow_dispatch` registers only from the default branch, so the lane cannot deliver itself: the first deployment of these two workflows to `main` needs one `OrganizationAdmin` bypass merge. After that the lane carries its own future changes.

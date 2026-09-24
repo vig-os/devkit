@@ -241,12 +241,13 @@ specific to registers:
   `.vulnixignore`, the guard replays `main`'s own nightly gate against `main`'s
   own closure and requires exit 0, so a stranding deletion is unmergeable rather
   than a review judgement.
-- **Triage on `dev` first, then carry the register to `main`.** The exception's
-  substantive record is the register block itself, and the lane puts that on
-  `main` immediately. The `CHANGELOG.md` entry is the release note: it stays on
-  `dev` and ships with the next train, because `main` cannot hold one. Triaging
-  straight onto a `main`-based branch loses that note permanently instead of
-  deferring it.
+- **Carry the changelog entry with it.** The exception's substantive record is
+  the register block itself, and the lane puts that on `main` immediately; the
+  `CHANGELOG.md` entry is its release note, and 10 of the last 12 register
+  commits carried one. The lane admits that entry — gate 2 normalizes the
+  changelog out of its comparison — so it lands under `main`'s `## Unreleased`
+  and ships with whichever train follows. Triaging on `dev` and cherry-picking
+  is still tidier, but it is no longer the only route that keeps the note.
 
 ## Why pin `nixpkgs` (and not track an unpinned channel)?
 
