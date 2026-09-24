@@ -13,12 +13,12 @@
 #
 # 1. Validate: version is MAJOR.MINOR.(PATCH+1) of the highest stable
 #    <prefix>X.Y.Z tag on main; no other release/* train is in flight; no
-#    colliding branch or tag; main's ## Unreleased is empty (it always is by
-#    construction: every release freezes it on dev, and main only ever
-#    receives release branches).
-# 2. Prepare: fork release/X.Y.Z at main's head, then seed an EMPTY
-#    ## [X.Y.Z] - TBD section on the RELEASE BRANCH (never main, never dev).
-#    There is nothing to freeze, so dev is not read, written or fast-forwarded.
+#    colliding branch or tag; main's ## Unreleased is classified as carrying
+#    content or empty.
+# 2. Prepare: fork release/X.Y.Z at main's head, then write the
+#    ## [X.Y.Z] - TBD section on the RELEASE BRANCH (never main, never dev):
+#    freeze main's carried entries into it (prepare) when it has any, else seed
+#    it EMPTY. dev is never read, written or fast-forwarded either way.
 # 3. Extension: the same reusable prepare-release-extension.yml hook as the
 #    regular train, with the seed commit as branch_sha.
 # 4. Open the draft PR release/X.Y.Z -> main.
@@ -26,14 +26,22 @@
 #    exists to undo, which is what makes this lane strictly simpler than
 #    prepare-release.yml.
 #
-# CHANGELOG flow:
-#   main:    ## Unreleased (empty)                          -- untouched
-#   release: ## Unreleased (empty) + ## [X.Y.Z] - TBD (EMPTY, filled by the fix PR)
+# CHANGELOG flow. main's ## Unreleased may carry changes that landed on main
+# but have not shipped; a hotfix cuts from main's head, so it SHIPS them and
+# their entries belong in its own version section:
+#   main:    ## Unreleased (empty OR carrying entries)      -- untouched
+#   release: ## Unreleased (empty) + ## [X.Y.Z] - TBD, holding main's carried
+#            entries (prepare) or EMPTY for the fix PR to fill (seed)
 #   dev:     untouched; the post-promote sync PR WILL conflict on CHANGELOG.md
 #            when dev is ahead (recipe in docs/DOWNSTREAM_RELEASE.md, Hotfix lane).
+# main's ## Unreleased self-clears when the release branch merges back, so the
+# empty shape re-establishes itself after every hotfix.
 #
-# release.yml refuses to publish while the seeded section is still empty
-# (prepare-changelog validate --version, in release-core.yml). release.yml
+# release.yml still refuses to publish while the section is empty
+# (prepare-changelog validate --version, in release-core.yml) — deliberately:
+# an empty section is acceptable at prepare-hotfix time, never at release time.
+# Carried entries therefore satisfy that gate on their own, so describing the
+# fix itself stays the fix PR's job rather than a machine check. release.yml
 # executes from the release branch's copy, i.e. main's copy for a hotfix: a
 # release-workflow change this lane needs must ride a normal train first.
 #
@@ -112,6 +120,7 @@ jobs:
       version: ${{ steps.vars.outputs.version }}
       release_branch: ${{ steps.vars.outputs.release_branch }}
       main_sha: ${{ steps.vars.outputs.main_sha }}
+      changelog_mode: ${{ steps.changelog.outputs.changelog_mode }}
 
     steps:
       # fetch-depth 0 brings every branch and tag along, so the checks below
@@ -216,24 +225,30 @@ jobs:
           fi
           echo "✓ Tag does not exist: $PUBLISH_TAG"
 
-      # main's ## Unreleased is empty by construction: every release freezes
-      # it on dev and main only ever receives release branches. Content here
-      # means main is not a hotfix base — refuse rather than freeze it.
-      - name: Verify main's Unreleased section is empty
+      # main may carry landed-but-unshipped changes, so content here is a mode,
+      # not a refusal: a hotfix ships whatever main's head carries. `prepare`
+      # freezes those entries, `seed` writes an empty section — and `prepare`
+      # must NEVER run on an empty Unreleased, where it would scoop the
+      # previous release's section instead.
+      - name: Classify main's Unreleased section
+        id: changelog
         env:
           VERSION: ${{ steps.vars.outputs.version }}
         run: |
           set -euo pipefail
           if prepare-changelog validate CHANGELOG.md >/dev/null 2>&1; then
-            echo "ERROR: main's ## Unreleased section has content; a hotfix seeds an EMPTY section"
-            echo "Ship pending content through the regular train (just prepare-release) instead"
-            exit 1
+            MODE=prepare
+            echo "main's ## Unreleased carries unshipped entries; $VERSION will freeze them"
+          else
+            MODE=seed
+            echo "main's ## Unreleased is empty; $VERSION will be seeded empty for the fix PR"
           fi
-          # Dry probe of the exact seed the prepare job will commit (refuses a
+          # Dry probe of the exact call the prepare job will commit (refuses a
           # missing Unreleased or an existing [VERSION] section); local only.
-          prepare-changelog seed "$VERSION" CHANGELOG.md
+          prepare-changelog "$MODE" "$VERSION" CHANGELOG.md
           git checkout -- CHANGELOG.md
-          echo "✓ main's Unreleased is empty; [$VERSION] - TBD can be seeded"
+          echo "changelog_mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "✓ [$VERSION] - TBD can be written on the release branch (mode: $MODE)"
 
       - name: Summary
         env:
@@ -339,13 +354,22 @@ jobs:
             gh api "repos/$GH_REPO/git/ref/heads/$RELEASE_BRANCH" --jq '.object.sha'
           echo "✓ Release branch ref verified as resolvable"
 
-      - name: Seed CHANGELOG section for the hotfix
+      # Same verdict validate reached, on the same main content (the SHA check
+      # above guarantees it): freeze main's carried entries or seed an empty
+      # section. Either way the write lands on the release branch below.
+      - name: Write the CHANGELOG section for the hotfix
         env:
           VERSION: ${{ needs.validate.outputs.version }}
+          CHANGELOG_MODE: ${{ needs.validate.outputs.changelog_mode }}
         run: |
           set -euo pipefail
-          prepare-changelog seed "$VERSION" CHANGELOG.md
-          echo "✓ CHANGELOG seeded with an empty [$VERSION] - TBD section (the fix PR fills it)"
+          if [ "$CHANGELOG_MODE" = "prepare" ]; then
+            prepare-changelog prepare "$VERSION" CHANGELOG.md
+            echo "✓ main's carried ## Unreleased entries frozen into [$VERSION] - TBD (the fix PR adds its own)"
+          else
+            prepare-changelog seed "$VERSION" CHANGELOG.md
+            echo "✓ CHANGELOG seeded with an empty [$VERSION] - TBD section (the fix PR fills it)"
+          fi
 
       - name: Commit seeded CHANGELOG to the release branch via API
         id: seed-commit
@@ -356,10 +380,11 @@ jobs:
           TARGET_BRANCH: refs/heads/release/${{ needs.validate.outputs.version }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
-            chore: seed changelog for hotfix ${{ needs.validate.outputs.version }}
+            chore: ${{ needs.validate.outputs.changelog_mode }} changelog for hotfix ${{ needs.validate.outputs.version }}
 
-            Add an empty [${{ needs.validate.outputs.version }}] - TBD section on the
-            release branch cut from main; the hotfix PR fills it.
+            Add the [${{ needs.validate.outputs.version }}] - TBD section on the release
+            branch cut from main: main's carried unshipped entries when it had any,
+            otherwise empty for the hotfix PR to fill.
           FILE_PATHS: CHANGELOG.md
 
       # A REST ref read can briefly return the pre-commit SHA (read-after-write
@@ -456,15 +481,26 @@ jobs:
           VERSION: ${{ needs.validate.outputs.version }}
           RELEASE_BRANCH: ${{ needs.validate.outputs.release_branch }}
           MAIN_SHA: ${{ needs.validate.outputs.main_sha }}
+          CHANGELOG_MODE: ${{ needs.validate.outputs.changelog_mode }}
         run: |
           set -euo pipefail
+          if [ "$CHANGELOG_MODE" = "prepare" ]; then
+            SECTION_NOTE="The \`## [$VERSION] - TBD\` section in \`CHANGELOG.md\` already holds the entries
+          \`main\` had landed but not shipped — this hotfix ships them. Land the fix via a
+          \`bugfix/<issue>-<summary>\` PR into \`$RELEASE_BRANCH\` and **describe it in that section too**:
+          the release gate only checks that the section is non-empty, which the carried entries
+          already satisfy."
+          else
+            SECTION_NOTE="The \`## [$VERSION] - TBD\` section in \`CHANGELOG.md\` is **empty by design**: land the fix
+          via a \`bugfix/<issue>-<summary>\` PR into \`$RELEASE_BRANCH\` and fill the section there.
+          The release workflow refuses to publish while it is empty."
+          fi
+
           PR_BODY="# Hotfix $VERSION
 
           This PR prepares hotfix release $VERSION, cut from \`main\` at \`$MAIN_SHA\` (not from \`dev\`).
 
-          The \`## [$VERSION] - TBD\` section in \`CHANGELOG.md\` is **empty by design**: land the fix
-          via a \`bugfix/<issue>-<summary>\` PR into \`$RELEASE_BRANCH\` and fill the section there.
-          The release workflow refuses to publish while it is empty.
+          $SECTION_NOTE
 
           After promote, expect the automated \`sync-main-to-dev\` PR to conflict on \`CHANGELOG.md\`
           when \`dev\` is ahead; the resolution recipe is in \`docs/DOWNSTREAM_RELEASE.md\` (Hotfix lane).
@@ -488,6 +524,7 @@ jobs:
           VERSION: ${{ needs.validate.outputs.version }}
           RELEASE_BRANCH: ${{ needs.validate.outputs.release_branch }}
           MAIN_SHA: ${{ needs.validate.outputs.main_sha }}
+          CHANGELOG_MODE: ${{ needs.validate.outputs.changelog_mode }}
         run: |
           echo "✓ Hotfix branch prepared successfully!"
           echo ""
@@ -496,8 +533,13 @@ jobs:
           echo "  Branch: $RELEASE_BRANCH (from main @ $MAIN_SHA)"
           echo ""
           echo "CHANGELOG state:"
-          echo "  main:    ## Unreleased (empty)  -- untouched"
-          echo "  release: ## Unreleased (empty) + ## [$VERSION] - TBD (EMPTY)"
+          if [ "$CHANGELOG_MODE" = "prepare" ]; then
+            echo "  main:    ## Unreleased (carried entries)  -- untouched; clears on merge-back"
+            echo "  release: ## Unreleased (empty) + ## [$VERSION] - TBD (main's carried entries)"
+          else
+            echo "  main:    ## Unreleased (empty)  -- untouched"
+            echo "  release: ## Unreleased (empty) + ## [$VERSION] - TBD (EMPTY)"
+          fi
           echo "  dev:     untouched"
           echo ""
           echo "Next steps:"
