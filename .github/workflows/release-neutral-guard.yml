@@ -24,18 +24,30 @@
 # `devShells.default` straight from the flake — so an image-only comparison
 # would wave through a change that alters every such consumer's toolchain.
 #
-# The gates discriminate for real. Measured against `main` at 2026-09-24:
+# GATE 2 COMPARES A NORMALIZED TREE. `CHANGELOG.md` is mirrored by a pre-commit
+# hook into `assets/workspace/.devcontainer/CHANGELOG.md`, which is baked into
+# the image, so a release note ALONE moves the image derivation. Measured on
+# this branch against `main` at 2026-09-24:
 #
-#   devkit's own .github/workflows/**, tests/**, docs/CONTAINER_SECURITY.md
+#   the raw tree (it carries a CHANGELOG.md entry)
+#     -> devkitImage d5gf56y0... != main's d6ikbz96...      REFUSED
+#   the same tree, changelog and mirror reverted to main's copy
 #     -> devkitImage d6ikbz96... == main's d6ikbz96...      ADMITTED
-#   the same tree plus a CHANGELOG.md entry
-#     -> devkitImage ffbgni7c... != main's d6ikbz96...      REFUSED
 #
-# which is why `CHANGELOG.md` counts as release content (gate 1): it is mirrored
-# into `assets/workspace/.devcontainer/CHANGELOG.md` and baked into the image.
-# A changelog edit is also barred for a second, independent reason — reaching
-# `main` it would leave `## Unreleased` non-empty, and both `prepare-release`
-# and `prepare-hotfix` refuse to start on that (gate 4).
+# So gate 2 reverts those two files to the base's copy before evaluating: both
+# sides then hold identical changelog text and any surviving difference is
+# genuinely non-changelog. Without it no change carrying a release note could
+# ever ride the lane — which is nearly all of them — and the lane would be
+# bypassed by hand every time.
+#
+# That rests on a project decision superseding #590's invariant: `main` MAY
+# carry changes that have landed but are not yet shipped, and its
+# `## Unreleased` section describes them. `sync-main-to-dev.yml` triggers on
+# `push: [main]`, so the entry reaches `dev` by itself and the next train
+# freezes it normally. Hence gate 1 refuses only `.vig-os` (it carries
+# DEVKIT_VERSION — editing that IS releasing), and the former gate 4, which
+# asserted main's `## Unreleased` was empty, is deleted rather than relaxed.
+# The drift is reported in the verdict instead, so it stays visible.
 #
 # TWO SHAPE RULES, both load-bearing:
 #
@@ -116,8 +128,11 @@ jobs:
 
       # ── Gate 1 — no release content ──────────────────────────────────────
       # A forbidden set, NOT an allowlist: changing these files *is* releasing.
-      # `.vig-os` carries DEVKIT_VERSION; the changelog and its mirror are baked
-      # into the image and would also leave main's `## Unreleased` non-empty.
+      # `.vig-os` is the whole set — it carries DEVKIT_VERSION, and writing a
+      # version is the one edit no proof can make release-neutral. The changelog
+      # is deliberately absent: `main` may carry an entry for a change it has
+      # landed but not shipped, and gate 2 normalizes the text away before
+      # comparing so the entry proves nothing about neutrality either way.
       - name: 'Gate 1: no release content in the diff'
         if: env.ACTIVE == 'true'
         run: |
@@ -129,8 +144,8 @@ jobs:
           while IFS= read -r f; do
             [ -n "$f" ] || continue
             case "$f" in
-              CHANGELOG.md|assets/workspace/.devcontainer/CHANGELOG.md|.vig-os)
-                echo "::error::gate 1: \`$f\` is release content — changing it is releasing, not a release-neutral change. Keep changelog and version edits on dev, in their own commit, and leave them out of the cherry-pick."
+              .vig-os)
+                echo "::error::gate 1: \`$f\` is release content — it carries DEVKIT_VERSION, so changing it is releasing rather than a release-neutral change. Leave version edits out of the cherry-pick; they belong to a real train."
                 rc=1
                 ;;
             esac
@@ -171,20 +186,6 @@ jobs:
           fi
           echo "✓ gate 5: no release/* branch in flight"
 
-      # ── Gate 4 — main's Unreleased stays empty ───────────────────────────
-      - name: 'Gate 4: main Unreleased section still empty'
-        if: env.ACTIVE == 'true'
-        run: |
-          set -euo pipefail
-          body=$(awk '/^## Unreleased/{flag=1; next} /^## \[/{flag=0} flag' CHANGELOG.md \
-            | grep -vE '^\s*$|^### ' || true)
-          if [ -n "$body" ]; then
-            echo "::error::gate 4: main's ## Unreleased section is not empty, which prepare-release and prepare-hotfix both refuse to start on:"
-            awk '{print "  " $0}' <<< "$body"
-            exit 1
-          fi
-          echo "✓ gate 4: main's Unreleased section is empty"
-
       - name: Set up environment (Nix + flake toolchain)
         if: env.ACTIVE == 'true'
         uses: ./.github/actions/setup-env
@@ -196,17 +197,33 @@ jobs:
       # ── Gate 2 — derivation identity (THE CONTRACT) ──────────────────────
       # Eval-only, so seconds rather than a build. Every published output is
       # compared, covering both consumption modes (see header).
+      #
+      # NORMALIZED: the changelog and its mirror are reverted to the base's copy
+      # before the head side is evaluated, so both sides hold identical
+      # changelog text and any surviving difference is genuinely non-changelog.
+      # This works without a commit because `nix eval .#…` on a DIRTY git tree
+      # evaluates the working tree, not the checked-out revision.
       - name: 'Gate 2: published derivations identical to main'
         if: env.ACTIVE == 'true'
         run: |
           set -euo pipefail
           system=$(nix eval --impure --raw --expr 'builtins.currentSystem')
           attrs="devShells.${system}.default packages.${system}.devkitImage packages.${system}.devkitImageEnv"
+          changelogs=(CHANGELOG.md assets/workspace/.devcontainer/CHANGELOG.md)
 
+          git checkout "origin/${BASE_REF}" -- "${changelogs[@]}"
+          if git diff --quiet HEAD -- "${changelogs[@]}"; then
+            echo "Normalization: no changelog drift to neutralize"
+          else
+            echo "Normalization: changelog reverted to ${BASE_REF}'s copy for the comparison"
+          fi
           declare -A head_drv
           for attr in $attrs; do
             head_drv["$attr"]=$(nix eval --raw ".#${attr}.drvPath")
           done
+          # Restore immediately: every later step (the vulnix extra's diff, the
+          # verdict's file list) must read the real head tree.
+          git checkout HEAD -- "${changelogs[@]}"
 
           git checkout -q "origin/${BASE_REF}"
           declare -A base_drv
@@ -221,16 +238,16 @@ jobs:
               echo "  ✓ ${attr}"
               echo "      ${base_drv[$attr]}"
             else
-              echo "::error::gate 2: ${attr} derivation CHANGED — this is not a release-neutral change and needs a release"
+              echo "::error::gate 2: ${attr} derivation CHANGED — this is not a release-neutral change and needs a release. The changelog is already excluded from this comparison, so the difference is elsewhere in the diff."
               echo "    base: ${base_drv[$attr]}"
               echo "    head: ${head_drv[$attr]}"
               rc=1
             fi
           done
           [ "$rc" -eq 0 ] || exit 1
-          echo "✓ gate 2: every published derivation byte-identical to ${BASE_REF}"
+          echo "✓ gate 2: every published derivation byte-identical to ${BASE_REF} (changelog normalized)"
           {
-            echo "### Gate 2 — published derivations"
+            echo "### Gate 2 — published derivations (changelog normalized)"
             echo
             for attr in $attrs; do
               echo "- \`${attr}\` → \`${base_drv[$attr]}\` (unchanged)"
@@ -304,6 +321,7 @@ jobs:
             echo "::error::main would be RED with this register. The CVEs above are present in main's closure and unexcepted by the proposed register — most likely an exception was deleted that main's older pin still needs."
             exit 1
           fi
+          git checkout -q -
           echo "✓ extra: main's closure is green under the proposed register"
 
       # ── Gate 6 — verdict comment ─────────────────────────────────────────
@@ -315,7 +333,9 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          git checkout -q -
+          # No checkout here: gates 2 and the vulnix extra each restore the head
+          # tree themselves, so `-` would point at the base and the file list
+          # below would come out empty.
           changed=$(git diff --name-only "origin/${BASE_REF}...HEAD")
           {
             echo "### Release-neutral guard — verdict"
@@ -324,24 +344,33 @@ jobs:
             echo
             echo "| Gate | Proved |"
             echo "|------|--------|"
-            echo "| 1 | No release content (\`CHANGELOG.md\`, its mirror, \`.vig-os\`) touched |"
-            echo "| 2 | \`devShells.default\`, \`devkitImage\`, \`devkitImageEnv\` derivations unchanged |"
+            echo "| 1 | No release content (\`.vig-os\`, which carries \`DEVKIT_VERSION\`) touched |"
+            echo "| 2 | \`devShells.default\`, \`devkitImage\`, \`devkitImageEnv\` derivations unchanged, compared with the changelog normalized |"
             echo "| 3 | Consumer scaffold under \`assets/\` byte-identical |"
-            echo "| 4 | \`main\`'s \`## Unreleased\` still empty |"
             echo "| 5 | No release train in flight |"
             echo
             echo "**Files carried to \`main\`:**"
             while IFS= read -r f; do [ -n "$f" ] && echo "- \`$f\`"; done <<< "$changed"
             echo
-            # The one thing the guard cannot prove, so it has to be said at the
-            # moment of approval. `main` can never hold a changelog entry
-            # (gates 1 and 4), so a change authored on a main-based branch
-            # instead of cherry-picked from dev loses its release note outright
-            # rather than deferring it.
-            echo "**Where the changelog entry lives.** This lane carries no changelog: \`main\` cannot hold one. The changelog entry belongs on \`dev\` and ships with the next release — deferred, not dropped. Confirm it is there before approving; the guard cannot check it."
+            # Gate 2 normalizes the changelog away, so a release note passes the
+            # contract SILENTLY. Silence is the failure mode: the reviewer could
+            # not otherwise tell a workflows-only carry from one that also
+            # rewrites main's `## Unreleased`. So say it, conditioned on the
+            # diff, and show what lands.
+            if git diff --quiet "origin/${BASE_REF}...HEAD" -- CHANGELOG.md assets/workspace/.devcontainer/CHANGELOG.md; then
+              echo "**Changelog.** Untouched — nothing for gate 2 to normalize."
+            else
+              echo "**Changelog drift — the one published difference.** This PR edits \`CHANGELOG.md\` (and its \`assets/workspace/.devcontainer/\` mirror), which is baked into the image. Gate 2 therefore **normalized it away**: both sides were evaluated with \`${BASE_REF}\`'s changelog, so the identity proved above covers everything *except* the changelog text."
+              echo
+              echo "That is allowed by design — \`main\` may carry changes it has landed but not shipped, and \`## Unreleased\` is where they are described (superseding [#590](https://github.com/vig-os/devkit/issues/590)). \`sync-main-to-dev.yml\` fires on \`push: [main]\`, so the entry reaches \`dev\` on its own and the next train freezes it normally. Read the entry before approving:"
+              echo
+              echo '```diff'
+              git diff "origin/${BASE_REF}...HEAD" -- CHANGELOG.md
+              echo '```'
+            fi
             if ! git diff --quiet "origin/${BASE_REF}...HEAD" -- .vulnixignore; then
               echo
-              echo "> This PR amends \`.vulnixignore\`. The substantive record of the risk acceptance is the register block itself, which reaches \`main\` with this merge. The changelog entry is the release note — 10 of the last 12 register commits carried one, so do not let this be the exception."
+              echo "> This PR amends \`.vulnixignore\`. The substantive record of the risk acceptance is the register block itself, which reaches \`main\` with this merge; the changelog entry above is its release note — 10 of the last 12 register commits carried one, so do not let this be the exception."
             fi
             echo
             echo "> Do not push to this branch after approving — \`main\` sets \`dismiss_stale_reviews_on_push\`."
