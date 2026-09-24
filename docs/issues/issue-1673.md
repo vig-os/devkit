@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-23T14:02:42Z
-updated: 2026-09-23T14:02:42Z
+updated: 2026-09-23T19:54:31Z
 author: github-actions[bot]
 author_url: https://github.com/github-actions[bot]
 url: https://github.com/vig-os/devkit/issues/1673
-comments: 0
+comments: 1
 labels: bug, area:ci
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-23T14:38:45.223Z
+synced: 2026-09-24T07:30:44.535Z
 ---
 
 # [Issue 1673]: [Release 1.16.0-rc1 failed -- automatic rollback](https://github.com/vig-os/devkit/issues/1673)
@@ -51,4 +51,16 @@ Release 1.16.0-rc1 encountered an error during the automated release workflow.
 4. Publish a new release candidate to validate the fix; re-run the final workflow when ready
 
 For details, check the workflow run linked above.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 23, 2026 at 07:54 PM_
+
+Resolved by the re-dispatch: 1.16.0 released and promoted (tag `1.16.0` at 1d42b88b, PR #1672 merged, GHCR `:latest` moved).
+
+Not a content defect. `Build and Test (arm64)` failed on `test_ssh_github_authentication` — a live `ssh -T git@github.com` from inside the container on a 10-second timeout — with 41 passed / 1 failed; the amd64 lane was cancelled alongside it. The same test passed on PR #1672's CI over the identical tree, and the re-dispatch was green on both arches.
+
+Rollback behaved exactly as designed: no tag was pushed, the release branch and draft PR were untouched, and the RC number was not burned (the retry published `1.16.0-rc1`, since cleaned up by promote).
 
