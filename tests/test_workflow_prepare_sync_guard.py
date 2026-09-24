@@ -15,6 +15,14 @@ spells the comparison exactly as ``sync-main-to-dev.yml`` spells it, so the
 workflow that opens the sync PR and the workflow that demands it agree by
 construction rather than by coincidence.
 
+Both copies carry it. The consumer scaffold's gitflow topology is the same one
+(``prepare-hotfix``/``promote-release`` write ``main``, ``sync-main-to-dev``
+carries it back to ``dev``), so the hazard is the same. Under the trunk workflow
+model it is not: releases cut from ``main`` and ``sync-main-to-dev.yml`` is
+copy-excluded, so the render drops the step rather than ship a comparison
+against an ``origin/dev`` that does not exist — which would fail every validate
+run instead of guarding anything.
+
 Refs: #1680
 """
 
@@ -26,6 +34,8 @@ import pytest
 
 from tests.workflow_scaffold import (
     REPO_ROOT,
+    WORKFLOWS,
+    cached_tree,
     load_workflow,
     step_by_name,
     steps_of_job,
@@ -35,15 +45,17 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 DEVKIT_PREPARE = REPO_ROOT / ".github" / "workflows" / "prepare-release.yml"
+SCAFFOLD_PREPARE = WORKFLOWS / "prepare-release.yml"
 SYNC_MAIN_TO_DEV = REPO_ROOT / ".github" / "workflows" / "sync-main-to-dev.yml"
 
-COPIES = {"devkit": DEVKIT_PREPARE}
+COPIES = {"devkit": DEVKIT_PREPARE, "scaffold": SCAFFOLD_PREPARE}
 
 # The single expression both lanes share: sync-main-to-dev opens its PR when
 # this is non-zero, prepare-release refuses while it is non-zero.
 BEHIND_EXPR = "BEHIND=$(git rev-list --count origin/main ^origin/dev)"
 
-# Step-name fragment the guard is found by.
+# Step-name fragment the guard is found by (also what the trunk render
+# anchors on to delete it).
 GUARD_NAME = "behind main"
 
 
@@ -84,3 +96,24 @@ class TestSyncGuard:
 def test_guard_matches_the_sync_workflows_own_comparison() -> None:
     """Agreement by construction: one expression, spelled identically (#1680)."""
     assert BEHIND_EXPR in SYNC_MAIN_TO_DEV.read_text(encoding="utf-8")
+
+
+def test_scaffold_guard_matches_its_own_sync_workflow() -> None:
+    """The scaffold ships both lanes too; they must agree there as well."""
+    sync = WORKFLOWS / "sync-main-to-dev.yml"
+    assert BEHIND_EXPR in sync.read_text(encoding="utf-8")
+
+
+def test_trunk_render_drops_the_guard() -> None:
+    """Trunk cuts from main and has no sync-main-to-dev.yml (#1205).
+
+    Keeping the step would compare ``main`` against an ``origin/dev`` a trunk
+    repo does not have, failing validate on every dispatch, and would leave
+    prose naming a workflow that repo never receives (#1233).
+    """
+    text = (
+        cached_tree("trunk") / ".github" / "workflows" / "prepare-release.yml"
+    ).read_text(encoding="utf-8")
+    assert GUARD_NAME not in text
+    assert "origin/dev" not in text
+    assert "sync-main-to-dev" not in text
