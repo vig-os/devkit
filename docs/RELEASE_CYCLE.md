@@ -284,7 +284,7 @@ Next steps:
 - `version` is exactly `MAJOR.MINOR.(PATCH+1)` of the highest stable `X.Y.Z` tag reachable from `main` — no "hotfix minors", no patches of an older line, no skipped numbers.
 - **No other `release/*` branch exists.** A hotfix promoted while a regular train is in flight would be silently reintroduced by that train's merge (its branch predates the fix) and the two trains would race for `:latest`, so the lane refuses instead of relying on a cherry-pick obligation. Promote or abandon the other train first.
 - No `release/X.Y.Z` branch and no `X.Y.Z` tag exist.
-- `main`'s `## Unreleased` is empty (always true by construction, [#590](https://github.com/vig-os/devkit/issues/590)).
+- `main`'s `## Unreleased` is **classified, not required to be empty** ([#1679](https://github.com/vig-os/devkit/issues/1679)). It may carry changes that landed on `main` but have not shipped — [#1676](https://github.com/vig-os/devkit/issues/1676) supersedes [#590](https://github.com/vig-os/devkit/issues/590)'s empty-by-construction invariant. A hotfix cuts from `main`'s head and therefore *ships* those changes, so `validate` records which section shape it found and `prepare` freezes it (`prepare-changelog prepare`) or seeds an empty one (`prepare-changelog seed`) accordingly. The only hard refusal left here is a missing `## Unreleased` or a pre-existing `[X.Y.Z]` section.
 
 **Execute:**
 
@@ -300,20 +300,20 @@ just prepare-hotfix X.Y.Z "" -f dry-run=true
 **What `prepare-hotfix.yml` does (automatically):**
 
 1. ✅ **Validate** — the preconditions above, on a `main` checkout; records `main`'s SHA.
-2. ✅ **Prepare** (skipped on dry-run) — re-checks `main` has not moved, creates `release/X.Y.Z` at that SHA via the Git Data API, runs `prepare-changelog seed X.Y.Z` and commits the **empty** `## [X.Y.Z] - TBD` section **to the release branch** (never `main`, never `dev`).
+2. ✅ **Prepare** (skipped on dry-run) — re-checks `main` has not moved, creates `release/X.Y.Z` at that SHA via the Git Data API, runs `prepare-changelog prepare X.Y.Z` or `prepare-changelog seed X.Y.Z` per `validate`'s verdict, and commits the resulting `## [X.Y.Z] - TBD` section **to the release branch** (never `main`, never `dev` — which is what makes rollback just "delete the branch").
 3. ✅ **Extension** — the same `prepare-release-extension.yml` hook as the regular train, with the seed commit as `branch_sha`, so the workspace changelog mirror is re-synced on the branch. Its `dev` fast-forward path is unreachable for a main-cut branch and its fallback finds `dev`'s mirror clean, so `dev` is untouched.
 4. ✅ **Open** the draft PR `release/X.Y.Z` → `main`.
 5. ✅ **Rollback** on failure or cancellation — deletes the partial branch. Nothing else: there is no `dev` mutation to undo.
 
 **CHANGELOG state after prepare-hotfix:**
 
-- `main`: `## Unreleased` (empty) — untouched
-- `release/X.Y.Z`: `## Unreleased` (empty) + `## [X.Y.Z] - TBD` (**empty**)
+- `main`: `## Unreleased` (empty **or** carrying unshipped entries) — untouched either way; it self-clears when the release branch merges back, so the empty shape re-establishes itself after every hotfix
+- `release/X.Y.Z`: `## Unreleased` (empty) + `## [X.Y.Z] - TBD`, holding `main`'s carried entries (`prepare`) or **empty** for the fix PR to fill (`seed`)
 - `dev`: untouched
 
 **Then, in order:**
 
-1. **Land the fix** via a `bugfix/<issue>-<summary>` PR into `release/X.Y.Z` (the standard release-branch bugfix path). The PR **must fill `## [X.Y.Z] - TBD`** — `release.yml` refuses to publish a version whose section is still empty (`prepare-changelog validate --version`), for candidates and finals alike.
+1. **Land the fix** via a `bugfix/<issue>-<summary>` PR into `release/X.Y.Z` (the standard release-branch bugfix path). The PR **must describe the fix in `## [X.Y.Z] - TBD`** — `release.yml` refuses to publish a version whose section is still empty (`prepare-changelog validate --version`), for candidates and finals alike. That gate is deliberately unchanged by [#1679](https://github.com/vig-os/devkit/issues/1679): **no empty sections at release time, an empty section is acceptable at `prepare-hotfix` time.** Note the consequence — when the section was frozen from `main`'s carried entries it is already non-empty, so the gate passes even if the fix itself goes undescribed. Describing it stays the author's job; no compensating check was added.
 2. Run the regular train **unchanged**: `just publish-candidate X.Y.Z`, wait for the smoke-test gate, `gh pr ready`, `just finalize-release X.Y.Z`, approve, `just promote-release X.Y.Z` ([Phase 2](#phase-2-review--testing) onward). Hotfixes ride the full RC → smoke → promote gate; there is no expedite path.
 3. **Resolve the sync-back conflict.** The post-promote `sync-main-to-dev` PR **will conflict on `CHANGELOG.md`** (and the workspace mirror) whenever `dev` is ahead — the regular cycle's conflict-free merge is bought by the shared freeze commit, which cannot exist for content authored off `main`. The sync workflow's manual-conflict lane handles it (`merge-conflict` label, instructions in the PR body). Resolution recipe:
 
@@ -649,7 +649,7 @@ docker buildx imagetools inspect ghcr.io/vig-os/devcontainer:1.0.0
 **Actions:**
 
 #### `prepare VERSION [FILE]`
-Move Unreleased content to `[VERSION] - TBD` section and create fresh empty Unreleased section. Used by `prepare-release.yml` to freeze the CHANGELOG on dev.
+Move Unreleased content to `[VERSION] - TBD` section and create fresh empty Unreleased section. Used by `prepare-release.yml` to freeze the CHANGELOG on dev, and by `prepare-hotfix.yml` on the release branch when `main` carries unshipped entries ([#1679](https://github.com/vig-os/devkit/issues/1679)). **Never call it on an empty `## Unreleased`** — with nothing to move it scoops the previous release's section instead, which is why the hotfix lane classifies before it writes.
 
 ```bash
 uv run prepare-changelog prepare 1.0.0 [CHANGELOG.md]
@@ -664,7 +664,7 @@ uv run prepare-changelog validate --version 1.0.1 [CHANGELOG.md]
 ```
 
 #### `seed VERSION [FILE]`
-Insert an **empty** `## [VERSION] - TBD` section directly under an **empty** `## Unreleased` — `main`'s shape. Used by `prepare-hotfix.yml` on the release branch cut from `main` ([hotfix lane](#hotfix-lane-patch-release-cut-from-main)). **Safety:** refuses a non-empty Unreleased (not a hotfix base — use `prepare`) and an existing `[VERSION]` section.
+Insert an **empty** `## [VERSION] - TBD` section directly under an **empty** `## Unreleased`. Used by `prepare-hotfix.yml` on the release branch cut from `main` when `main`'s `## Unreleased` is empty ([hotfix lane](#hotfix-lane-patch-release-cut-from-main)); when it carries entries the lane calls `prepare` instead ([#1679](https://github.com/vig-os/devkit/issues/1679)). **Safety:** refuses a non-empty Unreleased (use `prepare`) and an existing `[VERSION]` section.
 
 ```bash
 uv run prepare-changelog seed 1.0.1 [CHANGELOG.md]
