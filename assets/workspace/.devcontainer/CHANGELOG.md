@@ -23,12 +23,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `devkitImage` and `devkitImageEnv` `.drv` paths must equal `main`'s, which
     proves the published artifacts cannot differ whatever the diff touched. It
     covers `direnv`/`bare` consumers too, who never pull the image
-  - Also gated: no release content in the diff, the `assets/` scaffold
-    untouched, `main`'s `## Unreleased` still empty, and no release train in
+  - The comparison is **normalized**: `CHANGELOG.md` and its scaffold mirror are
+    reverted to the base's copy before evaluating, so a release note — which is
+    baked into the image and would move the derivation on its own — no longer
+    disqualifies a change from the lane. The verdict comment reports that drift
+    explicitly rather than tolerating it silently
+  - Also gated: no release content in the diff (`.vig-os`, which carries
+    `DEVKIT_VERSION`), the `assets/` scaffold untouched, and no release train in
     flight. A verdict comment lists the files carried
-  - A changelog entry makes a change **non**-release-neutral (it is mirrored
-    into the scaffold and baked into the image), so keep changelog edits in
-    their own commit to leave the rest cherry-pickable
+  - Supersedes [#590](https://github.com/vig-os/devkit/issues/590)'s invariant:
+    `main` may now carry changes that have landed but are not yet shipped, and
+    its `## Unreleased` section describes them. `sync-main-to-dev.yml` triggers
+    on `push: [main]`, so those entries reach `dev` before the next freeze
   - When a lane PR touches `.vulnixignore` the guard additionally replays
     `main`'s own nightly gate, since a pin advance on `dev` clears exceptions
     that `main`'s older closure may still need
