@@ -21,18 +21,28 @@ than an argument about which files happen to be inputs. It is deliberately not a
 path allowlist: an allowlist encodes a guess about what is published and would
 need extending for every new kind of release-neutral change.
 
-The gates genuinely discriminate. Measured against `main` at 2026-09-24:
+The comparison is NORMALIZED, and that is not a softening of the contract.
+`CHANGELOG.md` is mirrored into `assets/workspace/.devcontainer/CHANGELOG.md`,
+which is baked into the image, so a changelog entry *alone* moves
+`devkitImage`'s derivation. Measured on this branch against `main` at
+2026-09-24:
 
-    devkit's own .github/workflows/**, tests/**, docs/CONTAINER_SECURITY.md
+    the raw tree (it carries a CHANGELOG.md entry)
+        -> devkitImage d5gf56y0... != main's d6ikbz96...      REFUSED
+    the same tree, changelog and mirror reverted to main's copy
         -> devkitImage d6ikbz96... == main's d6ikbz96...      ADMITTED
-    the same tree plus a CHANGELOG.md entry
-        -> devkitImage ffbgni7c... != main's d6ikbz96...      REFUSED
 
-That second line is why `CHANGELOG.md` counts as release content: the changelog
-is mirrored into `assets/workspace/.devcontainer/CHANGELOG.md`, which is baked
-into the image. It is also why a lane PR must never carry a changelog edit —
-beyond neutrality, a changelog entry on `main` would leave `## Unreleased`
-non-empty, which `prepare-release` and `prepare-hotfix` both refuse to start on.
+So gate 2 reverts those two files to the base's copy *before* evaluating: both
+sides then share identical changelog content and any difference that survives is
+genuinely non-changelog. Without that step no change carrying a release note
+could ever ride the lane, which would defeat it.
+
+This rests on a project decision that supersedes #590's invariant: `main` MAY
+carry changes that have landed but are not yet shipped, and its `## Unreleased`
+section describes them. `sync-main-to-dev.yml` triggers on `push: [main]`, so
+the entry reaches `dev` automatically and the next train freezes it normally.
+Two consequences pinned below: gate 1 refuses only `.vig-os`, and the old
+"`main`'s `## Unreleased` is empty" gate is gone rather than merely relaxed.
 
 The other invariants pinned here are the ones whose failure modes are silent or
 catastrophic rather than merely wrong:
@@ -80,9 +90,17 @@ LANE_LABEL = "release-neutral"
 # Files that ARE release content: changing them is releasing, not a
 # release-neutral change. Note this is a *forbidden* set, not an allowlist —
 # everything else is admitted unless a published derivation moves (gate 2).
-RELEASE_CONTENT = (
+#
+# `.vig-os` is the whole set: it carries DEVKIT_VERSION, and editing that IS
+# cutting a release. `CHANGELOG.md` deliberately is NOT here — see
+# `test_gate_1_admits_changelog_edits`.
+RELEASE_CONTENT = (".vig-os",)
+
+# The two copies of the changelog, kept in step by a pre-commit hook. Gate 2
+# normalizes both before comparing derivations.
+CHANGELOG_PATHS = (
     "CHANGELOG.md",
-    ".vig-os",
+    "assets/workspace/.devcontainer/CHANGELOG.md",
 )
 
 # Everything a consumer can receive: the image for devcontainer consumers, the
@@ -211,6 +229,28 @@ def test_gate_1_refuses_release_content(path: str) -> None:
     assert path in _guard_body(), f"gate 1 must refuse changes to {path}"
 
 
+@pytest.mark.parametrize("path", CHANGELOG_PATHS)
+def test_gate_1_admits_changelog_edits(path: str) -> None:
+    """Gate 1 must NOT refuse the changelog.
+
+    `main` may now carry landed-but-unshipped changes and describe them under
+    `## Unreleased`, so a release note no longer disqualifies a change from the
+    lane. Gate 2's normalization is what keeps that safe: the changelog text is
+    equalized before the derivations are compared, so a changelog entry proves
+    nothing about neutrality either way.
+
+    Asserted against the gate-1 step alone, not the job body — gate 2 and the
+    verdict both name the changelog for legitimate reasons.
+    """
+    gate_1 = str(
+        step_by_name(steps_of_job(_guard(), GUARD_JOB), "gate 1").get("run", "")
+    )
+    assert path not in gate_1, (
+        f"gate 1 must no longer treat {path} as release content — `main` may "
+        "carry a changelog entry for a change it has landed but not shipped"
+    )
+
+
 @pytest.mark.parametrize("attr", PUBLISHED_ATTRS)
 def test_gate_2_compares_every_published_derivation(attr: str) -> None:
     """Gate 2 covers both consumption modes, not just the image.
@@ -227,6 +267,51 @@ def test_gate_2_compares_derivation_paths() -> None:
     assert "drvPath" in _guard_body(), "gate 2 must compare derivation paths"
 
 
+def test_gate_2_normalizes_the_changelog_before_comparing() -> None:
+    """Gate 2 equalizes the changelog on both sides, then compares.
+
+    The changelog is baked into the image, so without this an entry alone moves
+    `devkitImage`'s derivation (measured: `d5gf56y0…` vs `main`'s `d6ikbz96…`)
+    and NO change carrying a release note could ever ride the lane. Reverting
+    both copies to the base's makes the surviving difference — if any —
+    genuinely non-changelog.
+
+    The ordering is the whole point: the revert must precede the head-side
+    evaluation, or it normalizes nothing.
+    """
+    gate_2 = str(
+        step_by_name(steps_of_job(_guard(), GUARD_JOB), "gate 2").get("run", "")
+    )
+    revert = gate_2.find("git checkout")
+    assert revert != -1, "gate 2 must revert the changelog before evaluating"
+    for path in CHANGELOG_PATHS:
+        assert path in gate_2[:revert] or path in gate_2[revert : revert + 400], (
+            f"gate 2 must normalize {path} — both copies, or the mirror still "
+            "moves the image derivation"
+        )
+    first_eval = gate_2.find("drvPath")
+    assert first_eval != -1
+    assert revert < first_eval, (
+        "the changelog revert must come BEFORE the first drvPath evaluation; "
+        "normalizing afterwards normalizes nothing"
+    )
+
+
+def test_gate_2_restores_the_head_tree_after_normalizing() -> None:
+    """The normalization is scoped to the comparison, not left behind.
+
+    Everything after gate 2 — the vulnix extra's diff, the verdict's file
+    list — reads the real head tree. A gate that left `main`'s changelog in the
+    worktree would make the verdict under-report what is being carried.
+    """
+    gate_2 = str(
+        step_by_name(steps_of_job(_guard(), GUARD_JOB), "gate 2").get("run", "")
+    )
+    assert "git checkout HEAD --" in gate_2 or "git restore" in gate_2, (
+        "gate 2 must restore the head tree's changelog after normalizing"
+    )
+
+
 def test_gate_3_refuses_scaffold_changes() -> None:
     """Gate 3: `assets/` is what consumers scaffold.
 
@@ -236,9 +321,26 @@ def test_gate_3_refuses_scaffold_changes() -> None:
     assert "assets/" in _guard_body(), "gate 3 must check the scaffold tree"
 
 
-def test_gate_4_asserts_unreleased_stays_empty() -> None:
-    """Gate 4: `prepare-release` and `prepare-hotfix` both require it."""
-    assert "Unreleased" in _guard_body(), "gate 4 must assert Unreleased is empty"
+def test_no_gate_asserts_main_unreleased_is_empty() -> None:
+    """The old gate 4 is GONE, not relaxed.
+
+    It asserted `main`'s `## Unreleased` was empty, which #590 made true by
+    construction. That invariant is superseded: `main` may now carry landed but
+    unshipped changes, and `## Unreleased` is exactly where they are described.
+    A guard still enforcing emptiness would refuse the model it is meant to
+    serve, so the check is deleted rather than softened.
+
+    (`prepare-hotfix` still refuses a non-empty section — phase 1 of #1676, a
+    separate change. That is the hotfix lane's business, not this guard's.)
+    """
+    steps = steps_of_job(_guard(), GUARD_JOB)
+    assert not [s for s in steps if "gate 4" in str(s.get("name", "")).lower()], (
+        "gate 4 must be removed, not renumbered"
+    )
+    assert "/^## Unreleased/" not in _guard_body(), (
+        "the guard must not extract main's Unreleased section — the emptiness "
+        "invariant is superseded"
+    )
 
 
 def test_gate_5_refuses_while_a_release_train_is_in_flight() -> None:
@@ -250,32 +352,28 @@ def test_gate_5_refuses_while_a_release_train_is_in_flight() -> None:
     assert "release/" in _guard_body(), "gate 5 must detect an in-flight train"
 
 
-def test_gate_6_reminds_that_the_changelog_entry_lives_on_dev() -> None:
-    """The verdict must remind the reviewer where the release note belongs.
+def test_gate_6_reports_changelog_drift_explicitly() -> None:
+    """The verdict must name the changelog difference it tolerated.
 
-    `main` can never hold a changelog entry (gates 1 and 4), so a change
-    authored directly on a `main`-based branch has nowhere to put one and its
-    release note is lost outright rather than deferred. The guard cannot prove a
-    `dev` commit exists, so this is a reminder rather than a gate — but it has
-    to be *said*, at the moment someone is about to approve.
-
-    Register amendments are the case that makes it bite: 10 of the last 12
-    `.vulnixignore` commits carried a changelog entry, so the convention is real
-    and silently dropping it would be a regression.
+    Gate 2 normalizes the changelog away before comparing, so a release note
+    passes the contract silently. Silently is the failure mode: the reviewer
+    would have no way to tell a workflow-only carry from one that also writes
+    `main`'s `## Unreleased`. The verdict therefore says so explicitly,
+    conditioned on the diff actually touching the changelog.
     """
     verdict = str(
         step_by_name(steps_of_job(_guard(), GUARD_JOB), "verdict").get("run", "")
-    ).lower()
-    # Distinctive phrases: bare "changelog" already matches the gate table's
-    # `CHANGELOG.md`, and bare "dev" matches `devShells`, so neither would
-    # discriminate. These two only appear if the reminder is actually written.
-    assert "changelog entry" in verdict, (
-        "the verdict step must speak of the changelog *entry* — a reminder "
-        "buried in another gate's error message is only seen on failure"
     )
-    assert "next release" in verdict, (
-        "the verdict must say the entry ships with the next release, so the "
-        "reviewer knows it is deferred rather than dropped"
+    assert "-- CHANGELOG.md" in verdict, (
+        "the verdict must test whether the diff touches the changelog, rather "
+        "than reporting neutrality unconditionally"
+    )
+    lowered = verdict.lower()
+    assert "changelog" in lowered, "the verdict must speak of the changelog"
+    assert "normaliz" in lowered or "equaliz" in lowered, (
+        "the verdict must say the comparison was normalized, so the reader "
+        "knows the changelog was excluded from the proof rather than proved "
+        "identical"
     )
 
 
