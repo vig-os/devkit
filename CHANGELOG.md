@@ -19,6 +19,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Except the second unbound 1.26.1 CVE batch in the vulnix register**
+  ([#1668](https://github.com/vig-os/devkit/issues/1668),
+  [#1669](https://github.com/vig-os/devkit/issues/1669))
+  - The 2026-09-24 nightly went red on both lanes on the same package as the
+    day before, with two CVEs the 2026-09-23 exception did not carry:
+    `CVE-2026-82717` (9.8) and `CVE-2026-81634` (7.5)
+  - Not new upstream work and not a closure change: all three unbound CVEs
+    were published 2026-09-16 and are fixed by the same 1.26.1 release. They
+    arrived a day apart because vulnix matches on CPE and NVD analysed the
+    two additions at `2026-09-23T19:50Z`/`19:51Z` — after that day's scan ran
+  - Both are resolver paths (RRSet canonicalisation; CNAME synthesis on an
+    upstream response), so the existing reachability finding covers them
+    unchanged: the closure carries `libunbound` only, with no daemon and no
+    `unbound` binary
+  - Added to the existing `2026-11-04` block rather than a new one — all three
+    share one death condition, the pin advance that ships unbound 1.26.1, and
+    must be deleted together. The date is deliberately unchanged
+  - The remediation lever shortened in the meantime: the `staging-26.05`
+    backport has merged, leaving the fix one `staging` -> `nixos-26.05` cycle
+    from the pinned channel rather than two branch hops
+
 ## [1.16.0](https://github.com/vig-os/devkit/releases/tag/1.16.0) - 2026-09-23
 
 ### Added

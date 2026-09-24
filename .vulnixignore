@@ -460,6 +460,53 @@ CVE-2026-53433
 # still open, so the fix is two branch hops from the pinned channel. 2026-11-04
 # gives it six weeks and keeps this block on its own Wednesday; it dies on the
 # advance that ships unbound 1.26.1 and should be DELETED then, not renewed.
+#
+# ---------------------------------------------------------------------------
+# AMENDED 2026-09-24 (#1668 dev / #1669 main) — the SAME upstream release, one
+# NVD analysis cycle later. The 2026-09-24 nightly (run 35982816399) went red
+# on both lanes again, on the same package, with two CVEs this block did not
+# yet carry: CVE-2026-82717 and CVE-2026-81634.
+#
+# They are not new upstream work and not a closure change. All THREE CVEs —
+# -81642 above plus the two added below — were published 2026-09-16 and are
+# fixed by the same unbound 1.26.1 release. The reason they arrived a day
+# apart is NVD CPE analysis lag, and vulnix matches on CPE: -81642 was
+# analysed in time for the 09-23 scan, while -82717 and -81634 were still
+# unanalysed then and were given `cpe:2.3:a:nlnetlabs:unbound` with
+# versionEndExcluding 1.26.1 at lastModified 2026-09-23T19:50Z / 19:51Z —
+# after the 09-23 09:43Z scan ran and before the 09-24 09:42Z one. So the
+# 2026-09-23 triage was not incomplete: it excepted every member of the batch
+# that existed as a CPE match at the time.
+#
+# Re-confirmed as a feed event on the same evidence shape as above: flake.lock
+# is unchanged since the 2026-09-21 pin advance (#1662) and byte-identical on
+# both refs, this register is byte-identical on both refs, the 09-21 and 09-22
+# scans were green against these same closures, and the nearest grid date is
+# 2026-10-07 so nothing expired.
+#
+# Real product match for both, no CPE collision: the descriptions name "NLnet
+# Labs Unbound up to and including 1.26.0" and the CPE is nlnetlabs:unbound.
+#
+# Reachability is UNCHANGED from the block above and covers both additions:
+# each is a RESOLVER path — -81634 in RRSet canonicalisation of a response,
+# -82717 in CNAME synthesis during an upstream response — and this closure
+# still carries libunbound only (gnutls DANE), with no daemon and no unbound
+# binary. The `nix why-depends` provenance verified 2026-09-23 holds: the pin
+# has not moved since.
+#
+# The lever MOVED in our favour since 2026-09-23 and the paragraph above is
+# now out of date on one point: the staging-26.05 backport
+# (NixOS/nixpkgs#565869) has MERGED, so staging-26.05 and staging both carry
+# 1.26.1. nixos-26.05 (the pinned channel) and master still ship 1.26.0, which
+# leaves the fix ONE staging->nixos-26.05 cycle away rather than two branch
+# hops. nixpkgs tracking issue NixOS/nixpkgs#564154 ("unbound: security issues
+# < 1.26.1") covers the whole batch and is still open.
+#
+# The 2026-11-04 date is DELIBERATELY UNCHANGED. The shorter lever path is a
+# reason to expect this block dies early, not a reason to re-date it: the date
+# holds this block's own Wednesday in the stagger grid, and all three CVEs
+# share one death condition — the pin advance that ships unbound 1.26.1 —
+# so they must be DELETED together, not renewed.
 # ============================================================================
 
 Expiration: 2026-11-04
@@ -468,3 +515,17 @@ Expiration: 2026-11-04
 #   unbound resolver querying an attacker-controlled zone; this closure carries
 #   libunbound only (gnutls DANE), with no daemon and no unbound binary.
 CVE-2026-81642
+# CVE-2026-82717 (9.8) — CNAME synthesis rewriting a max TTL in the packet
+#   buffer, coupled with a compression pointer into the overwritten value,
+#   takes an error path that fails to advance the buffer position and
+#   progressively corrupts the heap; crash, and RCE under some systems and
+#   compilation options. Needs a resolver processing an upstream response;
+#   this closure carries libunbound only (gnutls DANE), no daemon, no binary.
+CVE-2026-82717
+# CVE-2026-81634 (7.5) — a 255-length query name with a large TCP response
+#   overflows the heap during RRSet canonicalisation, the first owner name
+#   being missing from the buffer length check. Canonicalisation happens
+#   BEFORE DNSSEC validation, so a malicious or tampered-with nameserver
+#   response reaches it — but only for a running resolver, which this closure
+#   does not ship.
+CVE-2026-81634
