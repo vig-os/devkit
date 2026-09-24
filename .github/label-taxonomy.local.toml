@@ -1,0 +1,24 @@
+# Repo-local label extension for `vig-os/devkit` itself.
+#
+# Same `[[labels]]` schema as `.github/label-taxonomy.toml`, but this file is
+# NEVER devkit-managed and is not synced into `assets/workspace/`, so nothing
+# here reaches a consumer repo. `setup-labels` merges it over the shared
+# taxonomy, and `--prune` spares its entries.
+#
+# Use it for labels that only mean something in this repo. The shared taxonomy
+# is the wrong home for those: it ships to every consumer, which would scatter
+# labels for machinery those repos do not have.
+#
+# Refs: #1676
+
+# ── Process lanes ─────────────────────────────────────────────────────────────
+
+[[labels]]
+name = "scan-config-sync"
+# Load-bearing, not decorative: this label is the scan-config sync lane's
+# discriminator. `scan-config-guard.yml` runs its gates only on a PR carrying
+# it, and stays inactive-but-passing otherwise — which is what keeps the guard
+# from failing release PRs, since those legitimately touch `.vulnixignore` via
+# the dev merge. `scan-config-sync.yml` applies it when opening the PR.
+description = "Carries scan-time registers to main without a release (gated by Scan-Config Guard)"
+color = "5319e7"

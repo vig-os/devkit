@@ -1,0 +1,167 @@
+---
+# Scan-config sync opener (#1676).
+#
+# The proposing half of the lane that carries register-only changes to `main`
+# without cutting a release; `scan-config-guard.yml` is the proving half and
+# carries the full rationale.
+#
+# WHY A WORKFLOW OPENS THE PR AND NOT A HUMAN. This is the whole reason this
+# file exists, and it is not ceremony:
+#
+#   - `main` requires one approving review (ruleset 13444364).
+#   - GitHub forbids a PR's author from approving it.
+#   - `main`'s ONLY bypass actor is `OrganizationAdmin`; no App holds bypass,
+#     and `promote-release.yml` merges with a plain `gh pr merge --merge` — the
+#     App merges an already-compliant PR, it never bypasses.
+#
+# So a human-authored PR to `main` is unapprovable by the only human there is,
+# and therefore unmergeable. Every release PR to `main` is authored by
+# `app/vig-os-release-app` and approved by the maintainer for exactly this
+# reason (#1672, #1648, #1620). This workflow borrows that one mechanism: the
+# App authors the PR so the maintainer's approval is legal.
+#
+# Everything else stays manual and in the maintainer's hands — which commits are
+# cherry-picked, when the lane runs, and the final merge click. The maintainer
+# prepares the branch off `main` by hand (cherry-picking the exception-ADDING
+# register commits; see the guard's deletion-hazard note), pushes it, and
+# dispatches this workflow with its name.
+#
+# Pushing further commits to the App's PR is fine — approval is blocked only for
+# the PR author, not for commit authors — but never AFTER approving, because
+# `main` sets `dismiss_stale_reviews_on_push`.
+#
+# Refs: #1676
+name: Scan-Config Sync
+
+on:  # yamllint disable-line rule:truthy
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch (already pushed, forked from main) carrying the register cherry-picks'
+        required: true
+        type: string
+      issue:
+        description: 'Tracking issue number for the Refs: line (e.g. 1668)'
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  open:
+    name: Open sync PR
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      # The App token is the point of this workflow — see the header. Using
+      # `github.token` here would author the PR as `github-actions[bot]`, which
+      # works for the ruleset but muddies the audit trail; the release App is
+      # already the established author of every PR into `main`.
+      - name: Generate Release App Token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Fail here rather than opening a PR the guard would only reject. These
+      # are the cheap preconditions; the guard still re-checks every one of them
+      # on the PR itself, because this dispatch is not the thing `main` trusts.
+      - name: Validate the proposed branch
+        env:
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          set -euo pipefail
+          if ! git ls-remote --exit-code --heads origin "refs/heads/${BRANCH}" > /dev/null; then
+            echo "::error::branch \`${BRANCH}\` does not exist on origin — push it first"
+            exit 1
+          fi
+          git fetch -q origin "${BRANCH}"
+          if [ -z "$(git rev-list "origin/main..origin/${BRANCH}")" ]; then
+            echo "::error::branch \`${BRANCH}\` has no commits beyond main — nothing to sync"
+            exit 1
+          fi
+          changed=$(git diff --name-only "origin/main...origin/${BRANCH}")
+          echo "Changed files:"
+          awk '{print "  " $0}' <<< "$changed"
+          rc=0
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            case "$f" in
+              .vulnixignore|.trivyignore|.github/dependency-review-allow.txt) ;;
+              *)
+                echo "::error::\`$f\` is not a scan-config register — this lane carries only .vulnixignore, .trivyignore and .github/dependency-review-allow.txt"
+                rc=1
+                ;;
+            esac
+          done <<< "$changed"
+          [ "$rc" -eq 0 ] || exit 1
+          echo "✓ branch carries only scan-config registers"
+
+      - name: Create the sync PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BRANCH: ${{ inputs.branch }}
+          ISSUE: ${{ inputs.issue }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          refs_line=""
+          [ -n "$ISSUE" ] && refs_line="Refs: #${ISSUE}"
+
+          body=$(printf '%s\n' \
+            "## Scan-config sync" \
+            "" \
+            "Carries scan-time register changes to \`main\` **without cutting a release**." \
+            "" \
+            "\`.vulnixignore\` is not an image input, so a release here would republish a functionally identical image and open a no-op adoption PR in every consumer repo. This lane skips that while keeping \`main\`'s nightly scan lane honest." \
+            "" \
+            "### What must hold before this merges" \
+            "" \
+            "The \`Scan-Config Guard\` check proves it, and its verdict comment lists the register delta:" \
+            "" \
+            "- **A** — the diff touches only the scan-config registers" \
+            "- **B** — the image derivation is byte-identical to \`main\`" \
+            "- **C** — \`main\`'s closure is **green** under this register (the gate that makes a stranding deletion unmergeable)" \
+            "- **D** — no exception is already expired" \
+            "- **F** — no release train is in flight" \
+            "- **G** — \`main\`'s \`## Unreleased\` is still empty" \
+            "" \
+            "### Review note" \
+            "" \
+            "Opened by the release App so the maintainer's approval is permitted — GitHub forbids authors approving their own PRs, and \`main\` requires one review with no App bypass." \
+            "" \
+            "Do not push to this branch after approving: \`main\` sets \`dismiss_stale_reviews_on_push\`." \
+            "" \
+            "Dispatched from ${RUN_URL}" \
+            "" \
+            "$refs_line")
+
+          pr_url=$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
+            gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "fix(security): sync scan-config registers to main" \
+              --body "$body" \
+              --label scan-config-sync)
+
+          echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
+          echo "✓ sync PR opened: $pr_url"
+          {
+            echo "### Scan-config sync PR opened"
+            echo
+            echo "$pr_url"
+            echo
+            echo "The \`Scan-Config Guard\` check runs next. Read its verdict comment, then approve and merge."
+          } >> "$GITHUB_STEP_SUMMARY"

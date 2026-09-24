@@ -1,0 +1,320 @@
+---
+# Scan-config sync guard (#1676).
+#
+# `main` and `dev` each run their own nightly vulnix leg against their own
+# closure and their own `.vulnixignore`. A register amendment lands on `dev` and
+# only reaches `main` with the next release train, so `main`'s lane stays red in
+# between — structurally, not occasionally: the register moved 32 times in 90
+# days against a roughly weekly release cadence, and a permanently-red security
+# lane is the one failure mode a security gate cannot afford.
+#
+# The sync lane carries register-only changes to `main` without cutting a
+# release, because a release would be a no-op: `.vulnixignore` is not an image
+# input (the image bakes `./docs/MIGRATION.md`, `./.vig-os` and
+# `assets/workspace/`; the register is in none of them and is not a scaffold
+# asset), so the published artifact would be identical but for the version
+# string — while `devkit-upgrade` opened an adoption PR in every consumer repo.
+#
+# This workflow is the proof half of the lane. `scan-config-sync.yml` opens the
+# PR; this one decides whether it is safe to merge.
+#
+# THE HAZARD IT EXISTS FOR. The register is not append-only: a pin advance on
+# `dev` CLEARS exceptions (6 of the last 32 register commits), and `dev`'s pin
+# advances first. So there is always a window where `dev` has correctly deleted
+# an exception that `main`'s older, still-vulnerable closure depends on. Copying
+# that deletion to `main` strands a real finding and turns `main` red. Gate C
+# therefore does not reason about whether a removal is safe — it runs the actual
+# gate against `main`'s actual closure and reads the exit code.
+#
+# TWO SHAPE RULES, both load-bearing:
+#
+#   1. The `guard` job carries NO job-level `if`. A job-level condition yields a
+#      SKIPPED job, and were this guard ever promoted to a required status check
+#      a skipped job on a release PR would leave that PR waiting forever on a
+#      check that never reports. The inactive path must be a real, successful
+#      run, so the label scoping lives on the steps.
+#   2. The gates are LABEL-scoped, never diff-scoped. A release PR legitimately
+#      changes `CHANGELOG.md`, `.vig-os` AND `.vulnixignore` (via the dev merge),
+#      so a guard keyed on the diff shape would fail every release.
+#
+# It also never writes: `main` sets `dismiss_stale_reviews_on_push`, so a guard
+# that pushed to the PR branch would discard the very approval the lane depends
+# on (GitHub forbids authors approving their own PRs, and no App holds bypass on
+# `main`, so that approval is the only way a sync PR ever merges).
+#
+# Refs: #1676
+name: Scan-Config Guard
+
+on:  # yamllint disable-line rule:truthy
+  pull_request:
+    branches:
+      - main
+    # `labeled`/`unlabeled` matter: the label is what activates the gates, so a
+    # guard that only ran on `opened`/`synchronize` would report a stale pass on
+    # a PR labelled after it was opened.
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+
+permissions: {}
+
+concurrency:
+  group: scan-config-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: Scan-Config Guard
+    runs-on: ubuntu-26.04
+    # Gate C's slow path rebuilds `main`'s closure and runs vulnix against a
+    # possibly cold NVD cache; the nightly leg budgets 90 minutes for the same
+    # work, so this matches rather than inventing a tighter bound.
+    timeout-minutes: 90
+    permissions:
+      contents: read        # verify only — never author (see header)
+      pull-requests: write  # gate E posts the verdict comment
+      actions: read         # gate C's fast path reads the nightly scan artifact
+    env:
+      # Single evaluation of the lane's discriminator. Steps test `env.ACTIVE`
+      # rather than repeating the expression; the job itself stays unconditional
+      # so it always reports a conclusion.
+      ACTIVE: ${{ contains(github.event.pull_request.labels.*.name, 'scan-config-sync') }}
+      BASE_REF: ${{ github.event.pull_request.base.ref }}
+
+    steps:
+      # Unconditional by design: this is what makes "inactive" a SUCCESS rather
+      # than a skip. See shape rule 1 in the header.
+      - name: Report scope
+        run: |
+          set -euo pipefail
+          if [ "${ACTIVE}" = "true" ]; then
+            echo "Lane ACTIVE — this PR carries the \`scan-config-sync\` label; running gates A-G." \
+              >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Lane inactive — no \`scan-config-sync\` label, so this is an ordinary PR to \`main\` (a release PR, say) and the gates do not apply." \
+              >> "$GITHUB_STEP_SUMMARY"
+            echo "Add the \`scan-config-sync\` label to activate the guard." \
+              >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Checkout the merge result
+        if: env.ACTIVE == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          # Gates A and B diff against `main`, and gate C checks `main` out, so
+          # the full history is required rather than the default shallow clone.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # ── Gate A — path allowlist ──────────────────────────────────────────
+      # Exactly the scan-time registers. None is an image input, which is what
+      # makes skipping the release honest; anything else in the diff means this
+      # is not a scan-config sync and the lane must refuse it.
+      - name: 'Gate A: only scan-config registers changed'
+        if: env.ACTIVE == 'true'
+        run: |
+          set -euo pipefail
+          changed=$(git diff --name-only "origin/${BASE_REF}...HEAD")
+          echo "Changed files:"
+          awk '{print "  " $0}' <<< "$changed"
+          rc=0
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            case "$f" in
+              .vulnixignore|.trivyignore|.github/dependency-review-allow.txt) ;;
+              *)
+                echo "::error::gate A: \`$f\` is not a scan-config register. This lane may only carry .vulnixignore, .trivyignore and .github/dependency-review-allow.txt."
+                rc=1
+                ;;
+            esac
+          done <<< "$changed"
+          [ "$rc" -eq 0 ] || exit 1
+          echo "✓ gate A: diff confined to the scan-config registers"
+
+      # ── Gate F — release-train interlock ─────────────────────────────────
+      # `main`'s required checks are strict (branch must be up to date), so
+      # moving `main` while a train is in flight forces the release PR to
+      # re-satisfy up-to-date-ness, which dismisses its human approval.
+      - name: 'Gate F: no release train in flight'
+        if: env.ACTIVE == 'true'
+        run: |
+          set -euo pipefail
+          trains=$(git ls-remote --heads origin 'refs/heads/release/*' | awk '{print $2}')
+          if [ -n "$trains" ]; then
+            echo "::error::gate F: a release train is in flight:"
+            awk '{print "  " $0}' <<< "$trains"
+            echo "::error::Moving main now would dismiss that train's approval. Promote or abandon it first."
+            exit 1
+          fi
+          echo "✓ gate F: no release/* branch in flight"
+
+      # ── Gate G — main's Unreleased stays empty ───────────────────────────
+      # Both `prepare-release` and `prepare-hotfix` require it. Implied by gate
+      # A, asserted anyway: it is cheap, and its failure mode is a release lane
+      # that refuses to start for a reason nobody would connect to this PR.
+      - name: 'Gate G: main Unreleased section still empty'
+        if: env.ACTIVE == 'true'
+        run: |
+          set -euo pipefail
+          body=$(awk '/^## Unreleased/{flag=1; next} /^## \[/{flag=0} flag' CHANGELOG.md \
+            | grep -vE '^\s*$|^### ' || true)
+          if [ -n "$body" ]; then
+            echo "::error::gate G: main's ## Unreleased section is not empty:"
+            awk '{print "  " $0}' <<< "$body"
+            exit 1
+          fi
+          echo "✓ gate G: main's Unreleased section is empty"
+
+      - name: Set up environment (Nix + flake toolchain for the gate utilities)
+        if: env.ACTIVE == 'true'
+        uses: ./.github/actions/setup-env
+        with:
+          sync-dependencies: 'true'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      # ── Gate D — expiry hygiene ──────────────────────────────────────────
+      - name: 'Gate D: no expired exceptions'
+        if: env.ACTIVE == 'true'
+        run: |
+          set -euo pipefail
+          uv run check-expirations .vulnixignore .trivyignore
+          echo "✓ gate D: no expired entries in the proposed registers"
+
+      # ── Gate B — derivation identity ─────────────────────────────────────
+      # A proof rather than an argument about which files are image inputs: if
+      # the .drv paths match, the published artifact CANNOT differ, whatever the
+      # diff touched. That is what lets gate A stay a cheap fast-fail instead of
+      # carrying the whole safety case.
+      - name: 'Gate B: image derivation unchanged'
+        if: env.ACTIVE == 'true'
+        run: |
+          set -euo pipefail
+          head_img=$(nix eval --raw '.#devkitImage.drvPath')
+          head_env=$(nix eval --raw '.#devkitImageEnv.drvPath')
+          git checkout -q "origin/${BASE_REF}"
+          base_img=$(nix eval --raw '.#devkitImage.drvPath')
+          base_env=$(nix eval --raw '.#devkitImageEnv.drvPath')
+          git checkout -q -
+          rc=0
+          if [ "$head_img" != "$base_img" ]; then
+            echo "::error::gate B: devkitImage derivation changed"
+            echo "  base: $base_img"
+            echo "  head: $head_img"
+            rc=1
+          fi
+          if [ "$head_env" != "$base_env" ]; then
+            echo "::error::gate B: devkitImageEnv derivation changed"
+            echo "  base: $base_env"
+            echo "  head: $head_env"
+            rc=1
+          fi
+          [ "$rc" -eq 0 ] || exit 1
+          echo "✓ gate B: image and scan-target derivations byte-identical to main"
+
+      # ── Gate C — main goes green ─────────────────────────────────────────
+      # The decisive gate, and the answer to the deletion hazard. Runs main's
+      # own nightly leg — main's closure, the PR's register — and requires
+      # exit 0. A removal that would strand a finding on main fails here, naming
+      # the CVE, instead of being argued about in review.
+      #
+      # Fast path: main's closure changes only when main changes, and main moves
+      # only on releases. So if the newest nightly scanned main's CURRENT head,
+      # its findings artifact is still valid and can be replayed in seconds
+      # rather than rebuilding the closure for ~7 minutes.
+      - name: 'Gate C: main goes green with the proposed register'
+        if: env.ACTIVE == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Preserve the PROPOSED registers before switching to main's tree.
+          reg_dir="${RUNNER_TEMP}/proposed-registers"
+          mkdir -p "$reg_dir"
+          cp .vulnixignore "$reg_dir/"
+
+          git checkout -q "origin/${BASE_REF}"
+          main_sha=$(git rev-parse HEAD)
+          echo "main is at $main_sha"
+
+          findings=""
+          run_id=$(gh run list --workflow=security-scan.yml -L 20 \
+            --json databaseId,headSha \
+            --jq "[.[] | select(.headSha == \"$main_sha\")] | .[0].databaseId // empty")
+
+          if [ -n "$run_id" ]; then
+            echo "Fast path: nightly run $run_id scanned this exact main SHA"
+            if gh run download "$run_id" -n nix-image-cve-scan-main \
+                 -D "${RUNNER_TEMP}/nightly" 2>/dev/null; then
+              findings="${RUNNER_TEMP}/nightly/vulnix-findings.json"
+            else
+              echo "::warning::artifact unavailable (likely expired); falling back to a full rebuild"
+            fi
+          fi
+
+          if [ -z "$findings" ]; then
+            echo "Slow path: rebuilding main's closure and rescanning"
+            nix build .#devkitImageEnv --print-build-logs
+            NVD_MIRROR="https://vig-os.github.io/nvd-mirror/"
+            rc=0
+            for attempt in 1 2 3; do
+              rc=0
+              nix run .#vulnix -- --mirror "$NVD_MIRROR" --closure ./result --json \
+                > "${RUNNER_TEMP}/vulnix-findings.json" || rc=$?
+              [ "$rc" -le 2 ] && jq -e . "${RUNNER_TEMP}/vulnix-findings.json" > /dev/null 2>&1 && break
+              if [ "$attempt" -lt 3 ]; then
+                echo "::warning::vulnix attempt ${attempt} failed (exit ${rc}); retrying"
+                sleep $((60 * attempt))
+              fi
+            done
+            # shellcheck disable=SC2015  # the error branch must fire whenever the scan-ok check fails
+            [ "$rc" -le 2 ] && jq -e . "${RUNNER_TEMP}/vulnix-findings.json" > /dev/null 2>&1 \
+              || { echo "::error::gate C: vulnix scan failed after 3 attempts (exit $rc)"; exit 1; }
+            findings="${RUNNER_TEMP}/vulnix-findings.json"
+          fi
+
+          echo "Evaluating main's findings against the PROPOSED register:"
+          if ! uv run vulnix-gate "$findings" --register "$reg_dir/.vulnixignore"; then
+            echo "::error::gate C: main would be RED with this register. The CVEs above are present in main's closure and unexcepted by the proposed register — most likely an exception was deleted that main's older pin still needs."
+            exit 1
+          fi
+          echo "✓ gate C: main's closure is green under the proposed register"
+
+      # ── Gate E — widening audit (report, never block) ────────────────────
+      # Gate C already blocks the harmful direction; this exists so the human
+      # review is about something concrete rather than a wall of green ticks.
+      - name: 'Gate E: report the register delta'
+        if: env.ACTIVE == 'true'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git checkout -q -
+          ids() { grep -oE '^CVE-[0-9]{4}-[0-9]+$' "$1" 2>/dev/null | sort -u || true; }
+          git show "origin/${BASE_REF}:.vulnixignore" > "${RUNNER_TEMP}/base-register" 2>/dev/null || true
+          added=$(comm -13 <(ids "${RUNNER_TEMP}/base-register") <(ids .vulnixignore) || true)
+          removed=$(comm -23 <(ids "${RUNNER_TEMP}/base-register") <(ids .vulnixignore) || true)
+          {
+            echo "### Scan-config guard — register delta"
+            echo
+            echo "All gates passed: the diff is confined to the scan registers (A), the image derivation is byte-identical to \`main\` (B), \`main\`'s closure is green under the proposed register (C), no entry is expired (D), no release train is in flight (F), and \`main\`'s \`## Unreleased\` is still empty (G)."
+            echo
+            echo "**Exceptions added:**"
+            if [ -n "$added" ]; then
+              while IFS= read -r c; do [ -n "$c" ] && echo "- \`$c\`"; done <<< "$added"
+            else
+              echo "_none_"
+            fi
+            echo
+            echo "**Exceptions removed:**"
+            if [ -n "$removed" ]; then
+              while IFS= read -r c; do [ -n "$c" ] && echo "- \`$c\`"; done <<< "$removed"
+              echo
+              echo "> Removals are the dangerous direction — gate C proved \`main\`'s closure stays green without them, so each is genuinely cleared on \`main\` too."
+            else
+              echo "_none_"
+            fi
+          } > "${RUNNER_TEMP}/verdict.md"
+          cat "${RUNNER_TEMP}/verdict.md" >> "$GITHUB_STEP_SUMMARY"
+          gh pr comment "$PR_NUMBER" --body-file "${RUNNER_TEMP}/verdict.md"

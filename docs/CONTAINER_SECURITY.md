@@ -212,6 +212,83 @@ the blind extension the Wednesday grid is built to prevent. Read the delta
 first, delete every entry the pin advance cleared, and renew only what is still
 genuinely accepted — the tracking issue restates this in its body.
 
+### 6. Scan-config sync lane (keeping `main`'s lane honest)
+
+`main` and `dev` each scan their own closure against their own register
+(`security-scan.yml`, matrix `ref: [main, dev]`). A register amendment lands on
+`dev` and normally reaches `main` only with the next release train, so **`main`'s
+lane stays red in between**. That gap is structural, not occasional: the register
+moved 32 times in the 90 days to 2026-09-24 (~one per 3 days) against a roughly
+weekly release cadence, so it is lagging more often than it is current — and a
+permanently-red security lane is the one failure mode a gate cannot afford,
+because it teaches the maintainer to ignore it.
+
+Cutting a patch release to close the gap is the wrong tool. `.vulnixignore` is
+**not an image input** — the image bakes `./docs/MIGRATION.md`, `./.vig-os` and
+`assets/workspace/`, and the register is in none of them, nor is it a scaffold
+asset — so the published artifact would be identical but for the version string,
+while `devkit-upgrade` opened a no-op adoption PR in every consumer repo. Note
+the gap does **not** block releasing: `release.yml`'s gate scans the release
+branch (cut from `dev`), so a `dev`-only fix already unblocks the train.
+
+The **sync lane** carries register-only changes to `main` without a release:
+
+| Step | Who | What |
+|------|-----|------|
+| 1 | maintainer | Branch off `main`, cherry-pick the exception-**adding** register commits, push |
+| 2 | `scan-config-sync.yml` (dispatch) | Opens the PR **as the release App**, labelled `scan-config-sync` |
+| 3 | `scan-config-guard.yml` | Runs gates A–G, posts a verdict comment with the register delta |
+| 4 | maintainer | Reads the verdict, approves, merges |
+
+**Why a workflow opens the PR.** `main` requires one approving review, GitHub
+forbids authors approving their own PRs, and `main`'s only bypass actor is
+`OrganizationAdmin` — no App holds bypass, and `promote-release.yml` merges with
+a plain `gh pr merge --merge`. So a human-authored PR to `main` is unapprovable
+by the only human there is. Every release PR into `main` is App-authored for
+exactly this reason; the lane borrows that one mechanism and nothing else.
+
+**Why the lane is additive-only.** The register is not append-only: a pin advance
+on `dev` *clears* exceptions (6 of those 32 commits), and `dev`'s pin advances
+first. So there is always a window where `dev` has correctly deleted an exception
+that `main`'s older, still-vulnerable closure depends on. Mirroring the file
+would strand that finding and turn `main` red — which is why the lane
+cherry-picks additions rather than syncing, and why **gate C** does not reason
+about whether a removal is safe: it runs the real gate against `main`'s real
+closure and reads the exit code.
+
+The gates:
+
+| Gate | Proves |
+|------|--------|
+| **A** | The diff touches only `.vulnixignore`, `.trivyignore`, `.github/dependency-review-allow.txt` |
+| **B** | `devkitImage`/`devkitImageEnv` `.drv` paths are **identical** to `main`'s — the published artifact cannot differ |
+| **C** | `main`'s closure is **green** under the proposed register (the decisive gate) |
+| **D** | No proposed exception is already expired |
+| **E** | Reports added/removed CVE IDs (report only, never blocks) |
+| **F** | No `release/*` train is in flight — moving `main` mid-train dismisses its approval |
+| **G** | `main`'s `## Unreleased` is still empty, which `prepare-release` and `prepare-hotfix` both require |
+
+Gate C has a fast path: `main`'s closure changes only when `main` changes, and
+`main` moves only on releases, so if the newest nightly scanned `main`'s current
+head its findings artifact is replayed in seconds instead of rebuilding.
+
+Two constraints worth knowing before using the lane:
+
+- The guard is **label-scoped, not diff-scoped**, and its job carries no
+  job-level `if`. A release PR legitimately changes `CHANGELOG.md`, `.vig-os`
+  *and* `.vulnixignore`, so a diff-keyed guard would fail every release; and a
+  job-level condition would yield a *skipped* job, which — if the guard were ever
+  made a required check — would leave release PRs waiting forever on a check that
+  never reports. "Inactive" therefore means *ran and passed*.
+- **Do not push to the branch after approving.** `main` sets
+  `dismiss_stale_reviews_on_push`, so a late push discards the approval. The
+  guard itself never writes, for the same reason.
+
+Divergence is self-healing: the next release merges `dev`'s new `flake.lock` and
+`dev`'s deletions together, collapsing `main`'s temporarily-larger register back
+onto `dev`'s. The changelog entry stays on `dev` and ships with that release —
+the sync PR carries none, by construction (gates A and G).
+
 ## Why pin `nixpkgs` (and not track an unpinned channel)?
 
 Building from an unpinned/rolling input has the same drawbacks the old

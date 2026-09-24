@@ -146,8 +146,14 @@ def test_guard_scopes_gates_to_the_label() -> None:
 
 
 def test_guard_never_requests_write_access_to_contents() -> None:
-    """`contents` stays read-only: the guard verifies, it does not author."""
-    perms = _guard()["permissions"]
+    """`contents` stays read-only: the guard verifies, it does not author.
+
+    Checked at the job level, which is where the effective grant is made — the
+    workflow-level block is `{}` (deny by default) and would pass this vacuously.
+    """
+    doc = _guard()
+    assert doc["permissions"] == {}, "workflow-level permissions must default-deny"
+    perms = jobs(doc)[GUARD_JOB]["permissions"]
     assert perms.get("contents") == "read", (
         f"guard must not hold contents:write; got {perms.get('contents')!r}"
     )

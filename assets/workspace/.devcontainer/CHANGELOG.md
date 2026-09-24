@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Scan-config sync lane: carry register changes to `main` without a release**
+  ([#1676](https://github.com/vig-os/devkit/issues/1676))
+  - `main` and `dev` each scan their own closure against their own
+    `.vulnixignore`, so a register amendment on `dev` left `main`'s nightly lane
+    red until the next release train. The register moved 32 times in 90 days
+    against a roughly weekly release cadence, so the lag was structural
+  - Two workflows: `scan-config-sync.yml` opens the PR **as the release App**
+    (`main` requires one approving review and GitHub forbids authors approving
+    their own PRs, so a human-authored PR there is unapprovable), and
+    `scan-config-guard.yml` proves it is safe to merge
+  - Gates: the diff is confined to the scan registers, the image derivation is
+    byte-identical to `main`, **`main`'s closure is green under the proposed
+    register**, nothing is expired, no release train is in flight, and `main`'s
+    `## Unreleased` is still empty. The register delta is posted as a comment
+  - The green-closure gate is what makes the lane safe to use additively: a pin
+    advance on `dev` *clears* exceptions that `main`'s older closure still needs,
+    so the lane runs the real gate against `main`'s real closure rather than
+    reasoning about whether a removal is safe
+  - Cutting a patch release for this would have been a no-op — `.vulnixignore`
+    is not an image input — while opening an adoption PR in every consumer repo
+
 ### Changed
 
 ### Deprecated
