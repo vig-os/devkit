@@ -391,12 +391,14 @@ Gate **4** was `main`'s `## Unreleased` is still empty. It is deleted, not renum
 
 So gate 2 reverts both copies to the base's before evaluating the head side, then restores them. Both sides hold identical changelog text and any surviving difference is genuinely non-changelog. (It needs no commit: `nix eval .#…` on a dirty git tree evaluates the **working tree**, not the checked-out revision.)
 
+The raw hash below is illustrative, not a fixture: it is a function of the changelog text, so it moves with every edit to the entry. The stable claim is the pair — raw differs from `main`'s, normalized equals it.
+
 The gates still discriminate. Measured on the lane's own branch against `main` at 2026-09-24:
 
 | Change | Verdict | Why |
 |--------|---------|-----|
 | devkit's own `.github/workflows/**`, `tests/**`, `docs/CONTAINER_SECURITY.md` | **admitted** | `devkitImage` `d6ikbz96…` == `main`'s |
-| the same tree **plus a `CHANGELOG.md` entry** | **admitted** | raw `d5gf56y0…` != `main`'s, but normalized `d6ikbz96…` == `main`'s |
+| the same tree **plus a `CHANGELOG.md` entry** | **admitted** | raw `dlsp5xm6…` != `main`'s, but normalized `d6ikbz96…` == `main`'s |
 | `docs/MIGRATION.md` | refused | baked into the image (`flake.nix:1433`) |
 | `.claude/skills/**` | refused | manifest-synced into `assets/workspace/` |
 | `nix/hooks.nix` | refused | changes `devShells.default` |
