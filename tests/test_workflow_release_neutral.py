@@ -63,6 +63,7 @@ from tests.workflow_scaffold import (
     load_workflow,
     on_block,
     run_text_of_job,
+    step_by_name,
     steps_of_job,
 )
 
@@ -247,6 +248,35 @@ def test_gate_5_refuses_while_a_release_train_is_in_flight() -> None:
     up-to-date-ness after this merge, discarding its review.
     """
     assert "release/" in _guard_body(), "gate 5 must detect an in-flight train"
+
+
+def test_gate_6_reminds_that_the_changelog_entry_lives_on_dev() -> None:
+    """The verdict must remind the reviewer where the release note belongs.
+
+    `main` can never hold a changelog entry (gates 1 and 4), so a change
+    authored directly on a `main`-based branch has nowhere to put one and its
+    release note is lost outright rather than deferred. The guard cannot prove a
+    `dev` commit exists, so this is a reminder rather than a gate — but it has
+    to be *said*, at the moment someone is about to approve.
+
+    Register amendments are the case that makes it bite: 10 of the last 12
+    `.vulnixignore` commits carried a changelog entry, so the convention is real
+    and silently dropping it would be a regression.
+    """
+    verdict = str(
+        step_by_name(steps_of_job(_guard(), GUARD_JOB), "verdict").get("run", "")
+    ).lower()
+    # Distinctive phrases: bare "changelog" already matches the gate table's
+    # `CHANGELOG.md`, and bare "dev" matches `devShells`, so neither would
+    # discriminate. These two only appear if the reminder is actually written.
+    assert "changelog entry" in verdict, (
+        "the verdict step must speak of the changelog *entry* — a reminder "
+        "buried in another gate's error message is only seen on failure"
+    )
+    assert "next release" in verdict, (
+        "the verdict must say the entry ships with the next release, so the "
+        "reviewer knows it is deferred rather than dropped"
+    )
 
 
 # ── Opener: App authorship (the unapprovable-PR hazard) ──────────────────────

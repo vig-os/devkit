@@ -351,13 +351,18 @@ Two cases motivated the lane. A `workflow_dispatch` workflow must exist on the *
 
 **This lane does not replace a release.** It cannot ship anything a consumer consumes; the guard refuses on proof, not on judgement.
 
+**Author on `dev` first — always.** The full change, including any `CHANGELOG.md` entry, lands on `dev` through the normal PR route. The lane then carries only the release-neutral part to `main`. This is an ordering rule, not a style preference: `main` cannot hold a changelog entry (gates 1 and 4), so a change authored directly on a `main`-based branch has nowhere to put one and its release note is lost outright rather than deferred.
+
 **Execute:**
 
 ```bash
+# 0. The change is already merged to dev, changelog entry and all.
+
 # 1. Prepare the branch by hand, off main.
 git fetch origin
 git switch -c chore/<issue>-<summary> origin/main
-git cherry-pick <sha>...          # release-neutral commits only
+git cherry-pick <sha>...          # the release-neutral commits ONLY;
+                                  # never the changelog commit
 git push -u origin HEAD
 
 # 2. Open the PR (the workflow authors it — see below).
@@ -395,6 +400,8 @@ The gates discriminate. Measured against `main` at 2026-09-24:
 
 **Runbook rules:**
 
+- **`dev` first, `main` second — never the other way round.** The changelog entry lives on `dev` and ships with the next release; the lane carries the release-neutral remainder. Authoring on a `main`-based branch instead loses the release note permanently, because `main` can never accept a changelog entry. The guard cannot check this (it cannot prove a `dev` commit exists), so it only reminds you in its verdict; the discipline is yours.
+- **A changelog entry is deferred, not skipped.** Between the lane merge and the next release, `main`'s changelog says nothing about the change — correctly, since no release happened. For a security exception the substantive record is the `.vulnixignore` block itself (dated triage, provenance, reachability, lever, expiry), and that reaches `main` *immediately* via the lane. The changelog entry is the release note, and it appears in the release that carries it.
 - **The guard is label-scoped, not diff-scoped,** and its job carries no job-level `if`. A release PR legitimately changes the changelog, `.vig-os` and the scaffold, so a diff-keyed guard would fail every release; and a job-level condition would yield a *skipped* job, which — were the guard ever made a required check — would leave release PRs waiting on a check that never reports. "Inactive" therefore means *ran and passed*.
 - **Do not push after approving.** `main` sets `dismiss_stale_reviews_on_push`. The guard itself never writes, for the same reason.
 - **`main` will carry commits that are in no release.** That is the deliberate change to the old invariant. Nothing depends on the strict form: the hotfix precondition is "PATCH+1 of the highest stable tag *reachable from* `main`", which extra commits do not disturb.

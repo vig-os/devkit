@@ -333,6 +333,17 @@ jobs:
             echo "**Files carried to \`main\`:**"
             while IFS= read -r f; do [ -n "$f" ] && echo "- \`$f\`"; done <<< "$changed"
             echo
+            # The one thing the guard cannot prove, so it has to be said at the
+            # moment of approval. `main` can never hold a changelog entry
+            # (gates 1 and 4), so a change authored on a main-based branch
+            # instead of cherry-picked from dev loses its release note outright
+            # rather than deferring it.
+            echo "**Where the changelog entry lives.** This lane carries no changelog: \`main\` cannot hold one. The changelog entry belongs on \`dev\` and ships with the next release — deferred, not dropped. Confirm it is there before approving; the guard cannot check it."
+            if ! git diff --quiet "origin/${BASE_REF}...HEAD" -- .vulnixignore; then
+              echo
+              echo "> This PR amends \`.vulnixignore\`. The substantive record of the risk acceptance is the register block itself, which reaches \`main\` with this merge. The changelog entry is the release note — 10 of the last 12 register commits carried one, so do not let this be the exception."
+            fi
+            echo
             echo "> Do not push to this branch after approving — \`main\` sets \`dismiss_stale_reviews_on_push\`."
           } > "${RUNNER_TEMP}/verdict.md"
           cat "${RUNNER_TEMP}/verdict.md" >> "$GITHUB_STEP_SUMMARY"

@@ -241,6 +241,12 @@ specific to registers:
   `.vulnixignore`, the guard replays `main`'s own nightly gate against `main`'s
   own closure and requires exit 0, so a stranding deletion is unmergeable rather
   than a review judgement.
+- **Triage on `dev` first, then carry the register to `main`.** The exception's
+  substantive record is the register block itself, and the lane puts that on
+  `main` immediately. The `CHANGELOG.md` entry is the release note: it stays on
+  `dev` and ships with the next train, because `main` cannot hold one. Triaging
+  straight onto a `main`-based branch loses that note permanently instead of
+  deferring it.
 
 ## Why pin `nixpkgs` (and not track an unpinned channel)?
 
