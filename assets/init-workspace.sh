@@ -1854,6 +1854,13 @@ render_workflow_model() {
         # the blanket heads/dev retarget below, which must not claim these lines.
         sed -i -E 's|^([[:space:]]*TARGET_BRANCH:) refs/heads/dev$|\1 refs/heads/${{ needs.validate.outputs.release_branch }}|' "$pr"
         sed -i -E 's|^([[:space:]]*FREEZE_REF:) heads/dev$|\1 heads/${{ needs.validate.outputs.release_branch }}|' "$pr"
+        # Sync-ordering guard (#1680) — delete it outright, comment block
+        # through the trailing blank line. Under trunk the release base IS
+        # main, so the guard has nothing to compare (there is no `dev`, and
+        # sync-main-to-dev.yml is copy-excluded); left in place it would fail
+        # every validate run on a missing origin/dev, and its remedy prose
+        # would name a workflow a trunk repo never receives (#1233).
+        sed -i '/^      # Sync-ordering guard (#1680)/,/^$/d' "$pr"
         # Behavioral branch literals: checkout refs + REST ref reads + targets.
         sed -i -E 's|^([[:space:]]*ref:) dev$|\1 main|' "$pr"
         sed -i -E 's|heads/dev\b|heads/main|g' "$pr"

@@ -7,8 +7,9 @@ prepare-release-extension hook, sync-main-to-dev) is base-agnostic and runs
 unchanged; only prepare needs a counterpart. These assertions pin what makes
 that counterpart safe:
 
-- it never reads, checks out or writes ``dev`` (no freeze, no reset, no
-  fast-forward — ``main``'s ``## Unreleased`` is empty by construction, #590);
+- it never reads, checks out or writes ``dev`` (no freeze on ``dev``, no reset,
+  no fast-forward): whatever ``main``'s ``## Unreleased`` carries is frozen on
+  the RELEASE BRANCH, never on ``main`` and never on ``dev``;
 - ``dry-run`` gates every mutating job;
 - the version is a patch increment of the highest stable tag on ``main`` and no
   other ``release/*`` train is in flight;
@@ -19,6 +20,12 @@ that counterpart safe:
 - rollback deletes the partial branch and nothing else;
 - ``release.yml`` refuses to ship a version whose seeded section is still empty.
 
+#1679: ``main`` may now carry changes that have landed but are not yet shipped
+(#1676 supersedes #590's empty-by-construction invariant), so ``validate`` no
+longer refuses a non-empty ``## Unreleased`` on ``main`` — it classifies it and
+``prepare`` freezes (``prepare-changelog prepare``) or seeds
+(``prepare-changelog seed``) accordingly.
+
 Phase 1 (#1621) shipped the lane in devkit's root workflows; Phase 2 (#1625)
 ports it to the consumer scaffold in the scaffold dialect (mode-aware devkit
 toolchain instead of ``uv run`` + ``setup-env``, tag-prefix-aware tag checks),
@@ -26,7 +33,7 @@ copy-excluded under the trunk workflow model where releases already cut from
 ``main``. The invariants above hold for both copies; the scaffold's
 ``release-core.yml`` gains the same finalize-time content guard.
 
-Refs: #1621, #1625
+Refs: #1621, #1625, #1679
 """
 
 from __future__ import annotations
@@ -188,11 +195,23 @@ def test_validate_refuses_when_another_release_branch_exists(copy: str) -> None:
 
 
 @pytest.mark.parametrize("copy", COPIES)
-def test_validate_requires_empty_unreleased_on_main(copy: str) -> None:
-    """Sanity: main's Unreleased is empty by construction (#590); refuse otherwise."""
-    run = run_text_of_job(jobs(_doc(copy))["validate"])
+def test_validate_classifies_mains_unreleased_instead_of_refusing(copy: str) -> None:
+    """#1679: content on main's ## Unreleased is a mode, not a refusal.
+
+    Under #1676's model main may carry unshipped changes; a hotfix cuts from
+    main's head and therefore ships them. validate probes the section and hands
+    prepare the verdict as an output instead of failing the lane.
+    """
+    validate = jobs(_doc(copy))["validate"]
+    run = run_text_of_job(validate)
     assert "prepare-changelog validate" in run, (
         "validate must probe main's Unreleased with prepare-changelog validate"
+    )
+    assert "a hotfix seeds an EMPTY section" not in run, (
+        "validate must no longer refuse a non-empty ## Unreleased on main (#1679)"
+    )
+    assert "changelog_mode" in (validate.get("outputs") or {}), (
+        "validate must publish the prepare/seed verdict as a job output"
     )
 
 
@@ -237,6 +256,42 @@ def test_prepare_seeds_changelog_on_the_release_branch(copy: str) -> None:
     target = (commit.get("env") or {}).get("TARGET_BRANCH", "")
     assert target.startswith("refs/heads/release/"), target
     assert (commit.get("env") or {}).get("FILE_PATHS") == "CHANGELOG.md"
+
+
+@pytest.mark.parametrize("copy", COPIES)
+def test_prepare_freezes_carried_entries_or_seeds_an_empty_section(copy: str) -> None:
+    """#1679: the committing job branches on validate's changelog_mode.
+
+    Content on main -> ``prepare-changelog prepare`` freezes it into
+    ``## [X.Y.Z] - TBD``; empty -> ``prepare-changelog seed`` as before. Either
+    way the write lands on the release branch (asserted above), never on main.
+    """
+    doc = _doc(copy)
+    name = next(
+        n
+        for n, j in jobs(doc).items()
+        if isinstance(j, dict)
+        and any(
+            isinstance(s, dict) and "vig-os/commit-action" in str(s.get("uses", ""))
+            for s in j.get("steps") or []
+        )
+    )
+    job = jobs(doc)[name]
+    run = run_text_of_job(job)
+    assert 'prepare-changelog prepare "$VERSION" CHANGELOG.md' in run, (
+        f"{name}: must freeze main's carried Unreleased entries when present"
+    )
+    assert 'prepare-changelog seed "$VERSION" CHANGELOG.md' in run, (
+        f"{name}: must still seed an empty section when main's Unreleased is empty"
+    )
+    envs = "\n".join(
+        str((s.get("env") or {}).values())
+        for s in job.get("steps") or []
+        if isinstance(s, dict)
+    )
+    assert "needs.validate.outputs.changelog_mode" in envs, (
+        f"{name}: the branch must read validate's changelog_mode verdict"
+    )
 
 
 @pytest.mark.parametrize("copy", COPIES)
