@@ -2525,13 +2525,26 @@ render_actionlint_optout() {
 #               block's explanatory comment, and — decisively for Case 2 — a
 #               block inserted WITHOUT its sentinels would be invisible to
 #               render_actionlint_optout, silently outliving the opt-out.
-#   structural  the `- repo:` entry holding `- id: <hook>`, ending at the last
-#               line before the next entry that is neither blank nor an
-#               entry-level comment (those introduce the NEXT block, and a
-#               consumer's comment is theirs to keep).
+#   structural  the `- repo:` entry holding `- id: <hook>`, PLUS the run of
+#               full-line comments directly above it, ending at the last line
+#               before the next entry that is neither blank nor an entry-level
+#               comment (those introduce the NEXT block, and a consumer's comment
+#               is theirs to keep).
+#
+# The comment run is part of the block, not decoration around it (#1725): the
+# template's prose says why a hook exists and what it deliberately does NOT cover,
+# and a consumer copy extracted from `- repo:` down arrives as an unexplained
+# `entry:`. actionlint kept its comment only because the opt-out sentinels happen
+# to bracket it — a property of that hook being feature-gated, not of the
+# extraction. Three things stop the sweep, so it can only ever take lines that
+# introduce THIS entry: a blank line, a line that is not a whole-line comment,
+# and a `# >>> devkit:` / `# <<< devkit:` sentinel (the latter closes the
+# PREVIOUS block; taking either would hand a copy half a sentinel pair, which
+# a feature excision's `sed` range would then read as running to EOF).
 #
 # Used on the template (to read the block to write) and on the consumer's file
-# (to find the anchor entry to write after), hence the whitespace tolerance.
+# (to find the anchor entry to write after), hence the whitespace tolerance. Only
+# the START moves: the anchor path reads the END, which is unchanged.
 hook_block_range() {
     awk -v id="$2" '
         { L[NR] = $0 }
@@ -2542,15 +2555,20 @@ hook_block_range() {
             for (i = 1; i <= NR; i++) {
                 if (L[i] ~ /^[[:space:]]*-[[:space:]]+repo:/) cur = i
                 if (cur && L[i] ~ ("^[[:space:]]*-[[:space:]]+id:[[:space:]]+" id "[[:space:]]*$")) {
-                    start = cur
+                    entry = cur
                     break
                 }
             }
-            if (!start) exit 1
+            if (!entry) exit 1
             e = NR
-            for (i = start + 1; i <= NR; i++)
+            for (i = entry + 1; i <= NR; i++)
                 if (L[i] ~ /^[[:space:]]*-[[:space:]]+repo:/) { e = i - 1; break }
-            while (e > start && (L[e] ~ /^[[:space:]]*$/ || L[e] ~ /^[[:space:]]*#/)) e--
+            while (e > entry && (L[e] ~ /^[[:space:]]*$/ || L[e] ~ /^[[:space:]]*#/)) e--
+            start = entry
+            while (start > 1 && L[start - 1] ~ /^[[:space:]]*#/ &&
+                   !index(L[start - 1], "# >>> devkit:") &&
+                   !index(L[start - 1], "# <<< devkit:"))
+                start--
             print start, e
         }
     ' "$1"
