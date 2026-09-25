@@ -700,12 +700,11 @@ def test_every_gated_step_is_readable_by_the_verdict() -> None:
     consulting only the gates would report neutrality on a run that proved
     nothing.
     """
-    verdict = _verdict_step()
+    steps = steps_of_job(_guard(), GUARD_JOB)
+    verdict = step_by_name(steps, "verdict")
     read = str(verdict.get("env", {})) + str(verdict.get("run", ""))
     gated = [
-        s
-        for s in steps_of_job(_guard(), GUARD_JOB)
-        if s is not verdict and "env.ACTIVE" in str(s.get("if", ""))
+        s for s in steps if s is not verdict and "env.ACTIVE" in str(s.get("if", ""))
     ]
     assert gated, "the guard must still gate its steps on the lane"
     for step in gated:

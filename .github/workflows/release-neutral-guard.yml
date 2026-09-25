@@ -157,6 +157,16 @@ jobs:
       # into one boolean, which loses the state the scope report has to name:
       # labelled, but this run was not started by that label.
       LABELLED: ${{ contains(github.event.pull_request.labels.*.name, 'release-neutral') }}
+      # The lane being switched OFF by this very event (#1705). Neither of the
+      # two above can express it: on an `unlabeled` payload the label is already
+      # gone from `github.event.pull_request.labels`, so the label set reads
+      # empty and `ACTIVE` and `LABELLED` are BOTH false — on precisely the
+      # event whose job is to retract the verdict the lane left behind. Read
+      # from `github.event.label` instead, and scoped to this lane's own label
+      # so removing `area:ci` retracts nothing.
+      DEACTIVATED: >-
+        ${{ github.event.action == 'unlabeled'
+        && github.event.label.name == 'release-neutral' }}
       BASE_REF: ${{ github.event.pull_request.base.ref }}
 
     steps:
@@ -184,6 +194,7 @@ jobs:
           fi
 
       - name: Checkout the merge result
+        id: checkout
         if: env.ACTIVE == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -200,6 +211,7 @@ jobs:
       # landed but not shipped, and gate 2 normalizes the text away before
       # comparing so the entry proves nothing about neutrality either way.
       - name: 'Gate 1: no release content in the diff'
+        id: gate1
         if: env.ACTIVE == 'true'
         run: |
           set -euo pipefail
@@ -232,6 +244,7 @@ jobs:
       # CHANGELOG.md by the `sync-manifest` hook, so it is never independently
       # authored and needs no separate scrutiny here.
       - name: 'Gate 3: consumer scaffold untouched'
+        id: gate3
         if: env.ACTIVE == 'true'
         run: |
           set -euo pipefail
@@ -249,6 +262,7 @@ jobs:
       # moving `main` while a train is in flight forces the release PR to
       # re-satisfy up-to-date-ness, which dismisses its human approval.
       - name: 'Gate 5: no release train in flight'
+        id: gate5
         if: env.ACTIVE == 'true'
         run: |
           set -euo pipefail
@@ -262,6 +276,7 @@ jobs:
           echo "✓ gate 5: no release/* branch in flight"
 
       - name: Set up environment (Nix + flake toolchain)
+        id: setup
         if: env.ACTIVE == 'true'
         uses: ./.github/actions/setup-env
         with:
@@ -279,6 +294,7 @@ jobs:
       # This works without a commit because `nix eval .#…` on a DIRTY git tree
       # evaluates the working tree, not the checked-out revision.
       - name: 'Gate 2: published derivations identical to main'
+        id: gate2
         if: env.ACTIVE == 'true'
         run: |
           set -euo pipefail
@@ -341,6 +357,7 @@ jobs:
       # `.vulnixignore`, replay `main`'s own gate and read the exit code rather
       # than reasoning about whether the removal was safe.
       - name: 'Extra: main stays green under the proposed register'
+        id: vulnix
         if: env.ACTIVE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -400,74 +417,57 @@ jobs:
           echo "✓ extra: main's closure is green under the proposed register"
 
       # ── Gate 6 — verdict comment ─────────────────────────────────────────
+      # THREE verdicts, not one (#1705). Under the bare `if: env.ACTIVE == 'true'`
+      # this step carried an implicit `success()`: a failing gate, or the
+      # `unlabeled` event, skipped it — and since the verdict became sticky
+      # (#1698) the last POSITIVE verdict was then the PR's single, permanent
+      # verdict text. The guard is not a required check, so nothing else stopped
+      # a reviewer reading it as a pass. It now also writes a refusal naming the
+      # first failing step, and an inactive stub when the lane is switched off.
+      #
+      # `!cancelled()`, NOT `always()`: code events still supersede each other,
+      # and a run cancelled by a newer head reached no conclusion — overwriting
+      # the sticky comment with a refusal it never actually reached would be a
+      # lie. The `${{ }}` form is required; a bare `!` is a YAML tag.
       - name: 'Gate 6: post the verdict'
-        if: env.ACTIVE == 'true'
+        if: ${{ !cancelled() && (env.ACTIVE == 'true' || env.DEACTIVATED == 'true') }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
+          # `gh api` is given an explicit repo path, but the `gh pr comment`
+          # fallback resolves the repo from the checkout — which neither the
+          # deactivated path (no checkout: `ACTIVE` is false) nor a failed
+          # checkout has.
+          GH_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          # The head, not `GITHUB_SHA`: on a `pull_request` event that is the
+          # merge commit, which is not a revision anyone can look up.
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           MARKER: '<!-- release-neutral-guard:verdict -->'
+          # Every gated step's outcome, in RUN ORDER, so the first `failure` here
+          # is the first thing that went wrong. The checkout and the toolchain
+          # set-up are in the list deliberately: when either fails, every gate
+          # after it is `skipped` — which is not `failure` — so a verdict reading
+          # only the gates would call that run release-neutral.
+          OUTCOMES: >-
+            checkout=${{ steps.checkout.outcome }}
+            gate1=${{ steps.gate1.outcome }}
+            gate3=${{ steps.gate3.outcome }}
+            gate5=${{ steps.gate5.outcome }}
+            setup=${{ steps.setup.outcome }}
+            gate2=${{ steps.gate2.outcome }}
+            vulnix=${{ steps.vulnix.outcome }}
         run: |
           set -euo pipefail
-          # No checkout here: gates 2 and the vulnix extra each restore the head
-          # tree themselves, so `-` would point at the base and the file list
-          # below would come out empty.
-          changed=$(git diff --name-only "origin/${BASE_REF}...HEAD")
-          {
-            echo "### Release-neutral guard — verdict"
-            echo
-            echo "**This change is release-neutral.** Every published derivation is byte-identical to \`${BASE_REF}\`, so merging it changes nothing any consumer receives and no release is required."
-            echo
-            echo "| Gate | Proved |"
-            echo "|------|--------|"
-            echo "| 1 | No release content (\`.vig-os\`, which carries \`DEVKIT_VERSION\`) touched |"
-            echo "| 2 | \`devShells.default\`, \`devkitImage\`, \`devkitImageEnv\` derivations unchanged, compared with the changelog normalized |"
-            echo "| 3 | Consumer scaffold under \`assets/\` byte-identical |"
-            echo "| 5 | No release train in flight |"
-            echo
-            echo "**Files carried to \`main\`:**"
-            while IFS= read -r f; do [ -n "$f" ] && echo "- \`$f\`"; done <<< "$changed"
-            echo
-            # Gate 2 normalizes the changelog away, so a release note passes the
-            # contract SILENTLY. Silence is the failure mode: the reviewer could
-            # not otherwise tell a workflows-only carry from one that also
-            # rewrites main's `## Unreleased`. So say it, conditioned on the
-            # diff, and show what lands.
-            if git diff --quiet "origin/${BASE_REF}...HEAD" -- CHANGELOG.md assets/workspace/.devcontainer/CHANGELOG.md; then
-              echo "**Changelog.** Untouched — nothing for gate 2 to normalize."
-            else
-              echo "**Changelog drift — the one published difference.** This PR edits \`CHANGELOG.md\` (and its \`assets/workspace/.devcontainer/\` mirror), which is baked into the image. Gate 2 therefore **normalized it away**: both sides were evaluated with \`${BASE_REF}\`'s changelog, so the identity proved above covers everything *except* the changelog text."
-              echo
-              echo "That is allowed by design — \`main\` may carry changes it has landed but not shipped, and \`## Unreleased\` is where they are described (superseding [#590](https://github.com/vig-os/devkit/issues/590)). \`sync-main-to-dev.yml\` fires on \`push: [main]\`, so the entry reaches \`dev\` on its own and the next train freezes it normally. Read the entry before approving:"
-              echo
-              echo '```diff'
-              git diff "origin/${BASE_REF}...HEAD" -- CHANGELOG.md
-              echo '```'
-            fi
-            if ! git diff --quiet "origin/${BASE_REF}...HEAD" -- .vulnixignore; then
-              echo
-              echo "> This PR amends \`.vulnixignore\`. The substantive record of the risk acceptance is the register block itself, which reaches \`main\` with this merge; the changelog entry above is its release note — 10 of the last 12 register commits carried one, so do not let this be the exception."
-            fi
-            echo
-            echo "> Do not push to this branch after approving — \`main\` sets \`dismiss_stale_reviews_on_push\`."
-          } > "${RUNNER_TEMP}/verdict.md"
-          cat "${RUNNER_TEMP}/verdict.md" >> "$GITHUB_STEP_SUMMARY"
+          verdict="${RUNNER_TEMP}/verdict.md"
 
-          # Sticky by marker, not append (#1698). The guard reruns on every
-          # `synchronize` and on its own label event, and a thread of stale
-          # verdicts is worse than one current verdict: a reviewer reading the
-          # first would be reading a file list and a changelog diff that no
-          # longer exist. The marker goes on AFTER the step summary, so the
-          # summary stays free of it.
-          #
-          # Matched by marker rather than `gh pr comment --edit-last`, which
-          # edits the acting identity's last comment — for `github-actions[bot]`
-          # that may belong to an entirely different workflow. The marker reaches
-          # jq through `env.MARKER`, so no quoting of it is ever the shell's job.
-          # The API returns comments oldest-first and `--paginate` applies the
-          # filter per page, so the LAST id printed is always the newest.
-          printf '\n%s\n' "$MARKER" >> "${RUNNER_TEMP}/verdict.md"
-
+          # Shared by all three paths, so it is defined before any of them. The
+          # API returns comments oldest-first and `--paginate` applies the filter
+          # per page, so the LAST id printed is always the newest. The marker
+          # reaches jq through `env.MARKER`, so no quoting of it is ever the
+          # shell's job. Matched by marker rather than `gh pr comment
+          # --edit-last`, which edits the acting identity's last comment — for
+          # `github-actions[bot]` that may belong to another workflow entirely.
           marked_ids() {
             gh api --method GET --paginate \
               "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
@@ -475,15 +475,122 @@ jobs:
               --jq 'map(select((.body // "") | contains(env.MARKER))) | .[].id'
           }
 
+          failed=''
+          for entry in $OUTCOMES; do
+            [ "${entry#*=}" = failure ] || continue
+            failed="${entry%%=*}"
+            break
+          done
+
+          # Only a verdict and a refusal may CREATE a comment. Deactivation is
+          # PATCH-or-nothing: a PR that carried the label briefly and was never
+          # judged must get no comment at all, since an "inactive" stub for a
+          # verdict that never existed is pure noise.
+          may_create=true
+
+          if [ "${DEACTIVATED}" = "true" ]; then
+            may_create=false
+            {
+              echo "### Release-neutral guard — lane inactive"
+              echo
+              echo "The \`release-neutral\` label was removed at \`${HEAD_SHA}\`, so this PR is no longer on the lane and the guard proves nothing about it. **Any verdict that stood here is withdrawn.**"
+              echo
+              echo "Re-add the label to run the gates again."
+            } > "$verdict"
+          elif [ -n "$failed" ]; then
+            # TREE-FREE BY DESIGN, both non-green branches. The deactivated run
+            # never checked anything out (`ACTIVE` is false), and a gate 2 or
+            # vulnix-extra failure leaves the worktree parked on the BASE ref,
+            # because each restores with `git checkout -q -` only AFTER the
+            # command that failed. A file list read here would be empty or
+            # describe the wrong tree, so these verdicts are stated from the
+            # event alone.
+            case "$failed" in
+              checkout) what='the checkout'; infra=true ;;
+              setup) what='the Nix toolchain set-up'; infra=true ;;
+              gate1) what='**gate 1** (no release content in the diff)'; infra=false ;;
+              gate3) what='**gate 3** (consumer scaffold untouched)'; infra=false ;;
+              gate5) what='**gate 5** (no release train in flight)'; infra=false ;;
+              gate2) what="**gate 2** (published derivations identical to \`${BASE_REF}\`)"; infra=false ;;
+              *) what="the **scan-register extra** (\`main\` stays green under the proposed register)"; infra=false ;;
+            esac
+            {
+              echo "### Release-neutral guard — no verdict"
+              echo
+              if [ "$infra" = true ]; then
+                echo "**Nothing is proved:** ${what} failed at \`${HEAD_SHA}\` — an infrastructure failure, not a refusal, so the gates never ran to completion. Rerun the job; until it is green this PR carries no release-neutrality verdict."
+              else
+                echo "**This change is NOT release-neutral**, or not provably so: ${what} refused it at \`${HEAD_SHA}\`. Fix the change, or drop the \`release-neutral\` label and let it ride a real release train."
+              fi
+              echo
+              echo "See [the run log](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}) for the step's own diagnosis."
+            } > "$verdict"
+          else
+            # The green path DOES read the tree, and needs no checkout of its
+            # own: gate 2 and the vulnix extra each restored the head tree after
+            # succeeding, so this is the real diff.
+            changed=$(git diff --name-only "origin/${BASE_REF}...HEAD")
+            {
+              echo "### Release-neutral guard — verdict"
+              echo
+              echo "**This change is release-neutral.** Every published derivation is byte-identical to \`${BASE_REF}\`, so merging it changes nothing any consumer receives and no release is required."
+              echo
+              echo "| Gate | Proved |"
+              echo "|------|--------|"
+              echo "| 1 | No release content (\`.vig-os\`, which carries \`DEVKIT_VERSION\`) touched |"
+              echo "| 2 | \`devShells.default\`, \`devkitImage\`, \`devkitImageEnv\` derivations unchanged, compared with the changelog normalized |"
+              echo "| 3 | Consumer scaffold under \`assets/\` byte-identical |"
+              echo "| 5 | No release train in flight |"
+              echo
+              echo "**Files carried to \`main\`:**"
+              while IFS= read -r f; do [ -n "$f" ] && echo "- \`$f\`"; done <<< "$changed"
+              echo
+              # Gate 2 normalizes the changelog away, so a release note passes the
+              # contract SILENTLY. Silence is the failure mode: the reviewer could
+              # not otherwise tell a workflows-only carry from one that also
+              # rewrites main's `## Unreleased`. So say it, conditioned on the
+              # diff, and show what lands.
+              if git diff --quiet "origin/${BASE_REF}...HEAD" -- CHANGELOG.md assets/workspace/.devcontainer/CHANGELOG.md; then
+                echo "**Changelog.** Untouched — nothing for gate 2 to normalize."
+              else
+                echo "**Changelog drift — the one published difference.** This PR edits \`CHANGELOG.md\` (and its \`assets/workspace/.devcontainer/\` mirror), which is baked into the image. Gate 2 therefore **normalized it away**: both sides were evaluated with \`${BASE_REF}\`'s changelog, so the identity proved above covers everything *except* the changelog text."
+                echo
+                echo "That is allowed by design — \`main\` may carry changes it has landed but not shipped, and \`## Unreleased\` is where they are described (superseding [#590](https://github.com/vig-os/devkit/issues/590)). \`sync-main-to-dev.yml\` fires on \`push: [main]\`, so the entry reaches \`dev\` on its own and the next train freezes it normally. Read the entry before approving:"
+                echo
+                echo '```diff'
+                git diff "origin/${BASE_REF}...HEAD" -- CHANGELOG.md
+                echo '```'
+              fi
+              if ! git diff --quiet "origin/${BASE_REF}...HEAD" -- .vulnixignore; then
+                echo
+                echo "> This PR amends \`.vulnixignore\`. The substantive record of the risk acceptance is the register block itself, which reaches \`main\` with this merge; the changelog entry above is its release note — 10 of the last 12 register commits carried one, so do not let this be the exception."
+              fi
+              echo
+              echo "> Do not push to this branch after approving — \`main\` sets \`dismiss_stale_reviews_on_push\`."
+            } > "$verdict"
+          fi
+          cat "$verdict" >> "$GITHUB_STEP_SUMMARY"
+
+          # Sticky by marker, not append (#1698). The guard reruns on every
+          # `synchronize` and on its own label events, and a thread of stale
+          # verdicts is worse than one current verdict: a reviewer reading the
+          # first would be reading a file list and a changelog diff that no
+          # longer exist. The marker goes on AFTER the step summary, so the
+          # summary stays free of it.
+          printf '\n%s\n' "$MARKER" >> "$verdict"
+
           existing=$(marked_ids | tail -n1)
           if [ -n "$existing" ]; then
             gh api --method PATCH \
               "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" \
-              -F "body=@${RUNNER_TEMP}/verdict.md" > /dev/null
+              -F "body=@${verdict}" > /dev/null
             echo "Verdict comment ${existing} updated in place"
-          else
-            gh pr comment "$PR_NUMBER" --body-file "${RUNNER_TEMP}/verdict.md"
+          elif [ "$may_create" = "true" ]; then
+            gh pr comment "$PR_NUMBER" --body-file "$verdict"
             echo "Verdict comment posted"
+          else
+            echo "Lane deactivated and no verdict comment exists — nothing to withdraw"
+            exit 0
           fi
 
           # CONVERGE on one verdict. Label events run in per-run lanes (see
