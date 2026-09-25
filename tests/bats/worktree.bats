@@ -19,6 +19,15 @@ setup() {
     WT_TEMPLATE="${PROJECT_ROOT}/assets/workspace/.devcontainer/justfile.worktree"
 }
 
+# #1694 guard: every recipe invocation in this file must be pointed at a
+# throwaway base. `worktree-clean` force-removes every entry in WT_BASE and
+# `git branch -D`s its branch, so a base outside the test's own tmpdir deletes
+# a developer's or an agent's live worktrees.
+_wt_assert_throwaway() {
+    assert [ -n "${WT_BASE:-}" ]
+    assert [ "${WT_BASE#"$BATS_TEST_TMPDIR"}" != "$WT_BASE" ]
+}
+
 # ── worktree-attach restart logic (#132) ───────────────────────────────────────
 # Tests that worktree-attach restarts a stopped tmux session when the worktree
 # directory exists. Uses WORKTREE_ATTACH_RESTART_CMD to avoid agent dependency.
@@ -33,6 +42,8 @@ setup() {
     WT_BASE="$(dirname "$PROJECT_ROOT")/${REPO}-worktrees"
     WT_DIR="${WT_BASE}/${ISSUE}"
     SESSION="wt-${ISSUE}"
+
+    _wt_assert_throwaway
 
     mkdir -p "$WT_DIR"
     tmux new-session -d -s "$SESSION" -c "$WT_DIR" "true"
@@ -92,6 +103,8 @@ setup() {
     command -v tmux >/dev/null 2>&1 || skip "tmux not installed"
     command -v just >/dev/null 2>&1 || skip "just not installed"
 
+    _wt_assert_throwaway
+
     run just worktree-attach 999998 2>&1
     assert_failure
     assert_output --partial "[ERROR]"
@@ -114,6 +127,8 @@ setup() {
     DIR_SKIP="${WT_BASE}/${ISSUE_SKIP}"
     DIR_CLEAN="${WT_BASE}/${ISSUE_CLEAN}"
     SESSION_SKIP="wt-${ISSUE_SKIP}"
+
+    _wt_assert_throwaway
 
     mkdir -p "$DIR_SKIP" "$DIR_CLEAN"
     tmux new-session -d -s "$SESSION_SKIP" -c "$DIR_SKIP" "sleep 60"
@@ -145,6 +160,8 @@ setup() {
     DIR="${WT_BASE}/${ISSUE}"
     SESSION="wt-${ISSUE}"
 
+    _wt_assert_throwaway
+
     mkdir -p "$DIR"
     tmux new-session -d -s "$SESSION" -c "$DIR" "sleep 60"
     sleep 1
@@ -165,6 +182,8 @@ setup() {
 @test "wt-clean alias works for stopped-only and all" {
     command -v just >/dev/null 2>&1 || skip "just not installed"
 
+    _wt_assert_throwaway
+
     run just wt-clean 2>&1
     assert_success
 
@@ -174,6 +193,8 @@ setup() {
 
 @test "worktree-clean rejects invalid mode" {
     command -v just >/dev/null 2>&1 || skip "just not installed"
+
+    _wt_assert_throwaway
 
     run just worktree-clean invalid 2>&1
     assert_failure
