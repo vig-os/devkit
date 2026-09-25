@@ -55,21 +55,55 @@ def _find_loose_bullets(body_text):
     return loose
 
 
-def _reject_loose_bullets(body_text):
+def _find_duplicate_sections(body_text):
     """
-    Raise when ``body_text`` carries bullets no ``### `` subsection owns (#1689).
+    Return standard section names used by more than one ``### `` heading.
 
-    ``validate`` and ``prepare``/``seed`` share this one notion of content, so
+    :func:`_parse_subsections` searches once per section name, so only the first
+    block of a repeated heading is ever read — and :func:`_find_loose_bullets`
+    sees a recognised heading, so the rest looks like content while being
+    invisible. A duplicated heading is the normal result of a hand-resolved
+    CHANGELOG merge conflict (#1689).
+    """
+    counts = {}
+    for line in body_text.split("\n"):
+        heading = re.match(r"^### (.*)$", line)
+        if heading:
+            name = heading.group(1).strip()
+            if name in STANDARD_SECTIONS:
+                counts[name] = counts.get(name, 0) + 1
+    return [name for name in STANDARD_SECTIONS if counts.get(name, 0) > 1]
+
+
+def _reject_unparsable_body(body_text, where="Unreleased section"):
+    """
+    Raise when ``body_text`` holds content :func:`_parse_subsections` cannot see.
+
+    ``validate``, ``prepare`` and ``seed`` share this one notion of content, so
     the commands can no longer disagree about whether a section is freezable:
-    what validate accepts is exactly what prepare can move.
+    what validate accepts is exactly what prepare can move. Both failure shapes
+    refuse rather than repair — the file is a record, and silently rewriting
+    what an author wrote would hide the botched edit that produced it (#1689).
+
+    ``where`` names the offending section in the message, since the same guard
+    runs over ``## Unreleased`` and over a ``## [X.Y.Z]`` block.
     """
     loose = _find_loose_bullets(body_text)
     if loose:
         listed = "\n".join(f"  {line}" for line in loose)
         raise ValueError(
-            "Unreleased section has bullets outside a recognised '### ' "
+            f"{where} has bullets outside a recognised '### ' "
             "subsection; they would be dropped. Move them under one of "
             f"{', '.join(STANDARD_SECTIONS)}:\n{listed}"
+        )
+
+    duplicated = _find_duplicate_sections(body_text)
+    if duplicated:
+        raise ValueError(
+            f"{where} repeats the heading(s) {', '.join(duplicated)}; only the "
+            "first block of each is read, so the rest would be dropped. Merge "
+            "each repeated heading into a single block (a hand-resolved merge "
+            "conflict is the usual cause)."
         )
 
 
@@ -141,6 +175,10 @@ def _pop_version_section(content, version):
     next_heading = re.search(r"^## ", content[heading.end() :], re.MULTILINE)
     block_end = heading.end() + next_heading.start() if next_heading else len(content)
     block_body = content[heading.end() : block_end]
+    # Same guard as ``## Unreleased`` (#1689): this block is folded back into the
+    # new version section through _parse_subsections, so content it cannot see
+    # would be dropped just as silently here.
+    _reject_unparsable_body(block_body, where=f"[{version}] section")
     sections = _parse_subsections(block_body)
     new_content = content[: heading.start()] + content[block_end:]
     return new_content, sections
@@ -157,7 +195,7 @@ def extract_unreleased_content(content):
     if body is None:
         raise ValueError("No '## Unreleased' section found in CHANGELOG")
 
-    _reject_loose_bullets(body)
+    _reject_unparsable_body(body)
 
     return _parse_subsections(body)
 
@@ -223,7 +261,7 @@ def validate_changelog(filepath="CHANGELOG.md"):
 
     Raises:
         ValueError: If the Unreleased section carries bullets outside a
-                    recognised ``### `` subsection (#1689)
+                    recognised ``### `` subsection, or repeats one (#1689)
         FileNotFoundError: If the CHANGELOG file doesn't exist
     """
     path = Path(filepath)
@@ -242,7 +280,7 @@ def validate_changelog(filepath="CHANGELOG.md"):
     if has_section:
         body = _unreleased_body(content)
         if body is not None:
-            _reject_loose_bullets(body)
+            _reject_unparsable_body(body)
             has_content = bool(_parse_subsections(body))
 
     return has_section, has_content
@@ -257,7 +295,20 @@ def validate_version_section(version, filepath="CHANGELOG.md"):
     ``release.yml`` refuses to ship a version whose section is still empty.
     Only the TBD heading counts — an already-dated heading is not pending.
 
+    "Content" is what ``prepare`` could freeze — bullets under a recognised
+    ``### `` heading — so the release-time gate agrees with the tool that
+    rewrites the section (#1689). A pending section whose bullets are loose, or
+    that repeats a heading, is refused rather than shipped: a reused release
+    branch's ``reset-version`` → ``prepare`` cycle would delete exactly those
+    bullets.
+
     Returns: (has_section, has_content)
+
+    Raises:
+        ValueError: If the version format is invalid, or the pending section
+                    carries bullets outside a recognised ``### `` subsection or
+                    repeats one (#1689)
+        FileNotFoundError: If the CHANGELOG file doesn't exist
     """
     if not re.match(r"^\d+\.\d+\.\d+$", version):
         raise ValueError(f"Invalid semantic version: {version}")
@@ -277,7 +328,8 @@ def validate_version_section(version, filepath="CHANGELOG.md"):
     next_heading = re.search(r"^## ", content[heading.end() :], re.MULTILINE)
     block_end = heading.end() + next_heading.start() if next_heading else len(content)
     body = content[heading.end() : block_end]
-    has_content = bool(re.search(r"^\s*-", body, re.MULTILINE))
+    _reject_unparsable_body(body, where=f"[{version}] - TBD section")
+    has_content = bool(_parse_subsections(body))
     return True, has_content
 
 
@@ -372,9 +424,15 @@ def prepare_changelog(version, filepath="CHANGELOG.md"):
     """
     Prepare CHANGELOG for release.
 
-    Refuses, leaving the file untouched, when the Unreleased section carries
-    bullets outside a recognised ``### `` subsection or has nothing to freeze at
-    all (#1689) — ``prepare`` never exits 0 having lost an entry.
+    Refuses, leaving the file untouched, when ``## Unreleased`` or the folded
+    ``## [version]`` block carries bullets outside a recognised ``### ``
+    subsection, repeats a standard heading, or has nothing to freeze at all
+    (#1689): no bullet inside either section is lost at exit 0.
+
+    This is a guarantee about those two sections only. Anything above
+    ``## Unreleased`` that is not the file header is still discarded, as it
+    always was — ``create_new_changelog`` rebuilds the file from a fixed header,
+    the frozen sections and everything from the first later ``## [`` heading on.
 
     Args:
         version: Semantic version (e.g., "1.0.0")
