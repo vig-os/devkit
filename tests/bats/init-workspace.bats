@@ -5499,3 +5499,139 @@ assert 'shellcheck' in ids and 'pymarkdown' in ids, ids
     run just -f "$ws/.devcontainer/justfile.gh" -d "$ws" --summary
     assert_success
 }
+
+# ── Placeholder substitution scope (#1693) ────────────────────────────────────
+# The substitution pass resolves {{SHORT_NAME}}/{{ORG_NAME}}/{{GITHUB_REPOSITORY}}
+# in the files devkit ships. A file carrying one of those literal tokens that
+# devkit did NOT ship is the consumer's, and rewriting it is data loss: the
+# whole-workspace `grep -r` walk this scopes reached the consumer's entire repo —
+# in the image that is the mounted repo, `.venv`/`node_modules` included.
+
+# Seed two consumer-owned files the template never ships, each carrying all
+# three tokens: one under a directory the template does ship (docs/), one under
+# .venv/ (excluded from the copy, but baked in the image and mounted in CI).
+_seed_consumer_tokens_1693() {
+    local ws="$1"
+    mkdir -p "$ws/docs" "$ws/.venv/lib"
+    printf 'name: {{SHORT_NAME}}\norg: {{ORG_NAME}}\nrepo: {{GITHUB_REPOSITORY}}\n' \
+        >"$ws/docs/my-template.tmpl"
+    printf 'cached: {{SHORT_NAME}} {{ORG_NAME}} {{GITHUB_REPOSITORY}}\n' \
+        >"$ws/.venv/lib/consumer-tokens.txt"
+}
+
+# Both seeded files must come back byte-identical: tokens still literal, and no
+# trace of the run's SHORT_NAME/GITHUB_REPOSITORY values.
+_assert_consumer_tokens_intact_1693() {
+    local ws="$1"
+    run cat "$ws/docs/my-template.tmpl"
+    assert_success
+    assert_output --partial '{{SHORT_NAME}}'
+    assert_output --partial '{{ORG_NAME}}'
+    assert_output --partial '{{GITHUB_REPOSITORY}}'
+    refute_output --partial 'testproj'
+    refute_output --partial 'test/repo'
+    run cat "$ws/.venv/lib/consumer-tokens.txt"
+    assert_success
+    assert_output --partial '{{SHORT_NAME}}'
+    assert_output --partial '{{ORG_NAME}}'
+    assert_output --partial '{{GITHUB_REPOSITORY}}'
+    refute_output --partial 'testproj'
+    refute_output --partial 'test/repo'
+}
+
+@test "a first scaffold leaves consumer-owned placeholder tokens alone (#1693)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1693-scaffold"
+    mkdir -p "$ws"
+    _seed_consumer_tokens_1693 "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    # The managed files still resolve — this is a scope fix, not an opt-out.
+    run grep -q 'testproj' "$ws/justfile.project"
+    assert_success
+    _assert_consumer_tokens_intact_1693 "$ws"
+}
+
+@test "an upgrade leaves consumer-owned placeholder tokens alone (#1693)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1693-upgrade"
+    mkdir -p "$ws"
+    run _clone_shared both "$ws"
+    assert_success
+    _seed_consumer_tokens_1693 "$ws"
+    run _upgrade both "$ws"
+    assert_success
+    run grep -q 'testproj' "$ws/justfile.project"
+    assert_success
+    _assert_consumer_tokens_intact_1693 "$ws"
+}
+
+@test "a TEMPLATE_DIR with a trailing slash still substitutes placeholders (#1693)" {
+    # The candidate walk maps template paths to workspace paths by stripping the
+    # source prefix, so a trailing slash in TEMPLATE_DIR turns `$src_dir/` into
+    # `…/workspace//`, which `find` output never starts with. Every relative path
+    # then stays absolute, no destination resolves, and the pass exits 0 having
+    # substituted NOTHING — a silent, total failure that ships 13 files with live
+    # tokens. install.sh does not pass a trailing slash today; nothing stops a
+    # consumer, a wrapper or a future caller from doing so.
+    ws="$BATS_TEST_TMPDIR/e2e-1693-trailing-slash"
+    mkdir -p "$ws"
+    stub="$BATS_TEST_TMPDIR/stub-bin-trailing"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+    run env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace/" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode both
+    assert_success
+    run cat "$ws/justfile.project"
+    assert_success
+    assert_output --partial 'testproj'
+    refute_output --partial '{{SHORT_NAME}}'
+}
+
+@test "the candidate walk prunes .git/.venv at any depth, like the copy rsync (#1693)" {
+    # The copy rsync excludes `.git` and `.venv` by BASENAME, so it skips them at
+    # any depth; the candidate walk must agree, or the pass reaches destinations
+    # the copy never wrote. A path-prefix exclusion only covers the top level, so
+    # a NESTED `.venv` leaked through and its workspace counterpart — a real
+    # virtualenv's own files, which the consumer owns — was substituted.
+    tmpl="$BATS_TEST_TMPDIR/tmpl-1693-venv"
+    cp -r "$PROJECT_ROOT/assets/workspace" "$tmpl"
+    mkdir -p "$tmpl/.venv/lib" "$tmpl/pkg/.venv"
+    printf 'prompt = {{SHORT_NAME}}\n' >"$tmpl/.venv/lib/pyvenv.cfg"
+    printf 'prompt = {{SHORT_NAME}}\n' >"$tmpl/pkg/.venv/pyvenv.cfg"
+
+    # The workspace carries the same two paths (as a consumer's real venvs do).
+    ws="$BATS_TEST_TMPDIR/e2e-1693-venv"
+    mkdir -p "$ws/.venv/lib" "$ws/pkg/.venv"
+    printf 'prompt = {{SHORT_NAME}} {{ORG_NAME}} {{GITHUB_REPOSITORY}}\n' \
+        >"$ws/.venv/lib/pyvenv.cfg"
+    printf 'prompt = {{SHORT_NAME}} {{ORG_NAME}} {{GITHUB_REPOSITORY}}\n' \
+        >"$ws/pkg/.venv/pyvenv.cfg"
+
+    stub="$BATS_TEST_TMPDIR/stub-bin-venv"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+    run env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$tmpl" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode both
+    assert_success
+    # Managed files still resolve...
+    run grep -q 'testproj' "$ws/justfile.project"
+    assert_success
+    # ...and neither venv file was touched, at either depth.
+    for venv_file in "$ws/.venv/lib/pyvenv.cfg" "$ws/pkg/.venv/pyvenv.cfg"; do
+        run cat "$venv_file"
+        assert_success
+        assert_output --partial '{{SHORT_NAME}}'
+        assert_output --partial '{{ORG_NAME}}'
+        assert_output --partial '{{GITHUB_REPOSITORY}}'
+        refute_output --partial 'testproj'
+    done
+}

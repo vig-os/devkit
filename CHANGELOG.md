@@ -71,12 +71,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     repo's sibling worktrees directory
   - `init-workspace.sh` batches its two per-file fork loops — the `chmod u+w`
     scaffold sweep, which is on the production path, and the host-side
-    placeholder-substitution fallback — into one `xargs` each. Rendered trees
+    placeholder-substitution pass — into one `xargs` each. Rendered trees
     are byte- and permission-identical; a scaffold drops from ~680 ms to
     ~270 ms
   - `init-workspace.bats` clones `setup_file`-rendered fixtures
     (`_clone_shared`) instead of re-rendering a stock scaffold per test: 343 →
     250 script invocations per run, 300 tests unchanged
+
+- **Placeholder substitution is scoped to the paths devkit ships**
+  ([#1693](https://github.com/vig-os/devkit/issues/1693))
+  - `init-workspace.sh` had two substitution paths: an image-only fast path
+    reading a manifest baked into the image, and a runtime fallback that greped
+    the workspace. There is now one routine, and its candidate set is the
+    template-shipped paths mapped into the workspace — built the same way as the
+    `chmod u+w` scaffold sweep builds its own — plus the smoke overlay's when one
+    was applied
+  - **A file at a path devkit does not ship is no longer rewritten.** The
+    retired fallback walked the whole workspace, which in the container is the
+    mounted repo — `.venv` and `node_modules` included — so any file holding a
+    literal `{{ SHORT_NAME }}`, `{{ ORG_NAME }}` or `{{ GITHUB_REPOSITORY }}`
+    token was substituted in place on a scaffold and again on every upgrade.
+    Only paths devkit ships are reachable now. (Those three tokens are spelled
+    with inner spaces throughout this entry so that the scaffolded copy of this
+    changelog is not itself rewritten by the pass it describes.)
+  - Reach is **unchanged** for the paths devkit does ship. A consumer file
+    living at one of them that an upgrade preserves rather than overwrites —
+    `README.md`, `.typos.toml`, `.pre-commit-config.yaml`, `renovate.json`, a
+    consumer `flake.nix`, `.devcontainer/*` under `direnv`/`bare` — still has
+    those tokens resolved, exactly as the retired manifest path resolved them
+    and exactly as the `chmod u+w` sweep still reaches them. This is not a
+    regression and not a change; it is the boundary being stated
+  - The image no longer ships `/root/assets/.placeholder-manifest.txt` and the
+    flake step that generated it is gone, together with the
+    `Using build-time manifest (N files)` and
+    `Warning: Manifest not found, searching at runtime (slower)` lines a
+    scaffold used to print
+  - Rendered output is byte- and permission-identical in all four delivery
+    modes, under `--smoke-test`, and for a Node scaffold with
+    `DEVKIT_LICENSE=proprietary`. A template file the consumer deleted, or one a
+    mode prunes, is skipped silently
 
 ### Deprecated
 
