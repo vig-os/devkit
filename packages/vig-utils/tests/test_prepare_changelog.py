@@ -311,6 +311,103 @@ UNKNOWN_HEADING_CHANGELOG = """\
 - Old fix
 """
 
+LOOSE_IN_VERSION_CHANGELOG = """\
+# Changelog
+
+## Unreleased
+
+### Added
+
+- fresh
+
+## [1.0.1] - TBD
+
+- loose in TBD
+
+### Fixed
+
+- kept
+
+## [1.0.0] - 2026-01-01
+
+### Added
+
+- shipped
+"""
+
+DUPLICATE_HEADING_CHANGELOG = """\
+# Changelog
+
+## Unreleased
+
+### Added
+
+- entry one
+
+### Fixed
+
+- a fix
+
+### Added
+
+- entry two
+
+## [1.0.0] - 2026-01-01
+
+### Added
+
+- shipped
+"""
+
+DUPLICATE_HEADING_VERSION_CHANGELOG = """\
+# Changelog
+
+## Unreleased
+
+### Added
+
+- fresh
+
+## [1.0.1] - TBD
+
+### Fixed
+
+- first block
+
+### Added
+
+- unrelated
+
+### Fixed
+
+- second block
+
+## [1.0.0] - 2026-01-01
+
+### Added
+
+- shipped
+"""
+
+DEPENDENCIES_BLOCK_CHANGELOG = """\
+# Changelog
+
+## Unreleased
+
+### Changed
+
+#### Dependencies
+
+- Bump `actions/checkout` to v5
+- Bump `actions/setup-node` to v6
+
+## [1.0.0] - 2026-01-01
+
+### Added
+
+- shipped
+"""
+
 ALL_SECTIONS_CHANGELOG = """\
 # Changelog
 
@@ -426,6 +523,33 @@ class TestExtractUnreleasedContent:
         """The refusal must quote the lines that would otherwise be dropped."""
         with pytest.raises(ValueError, match="Loose bullet with no subsection header"):
             extract_unreleased_content(LOOSE_BULLET_CHANGELOG)
+
+    def test_refuses_duplicate_standard_heading(self):
+        """Only the first ### Added block is read, so a second one is lost (#1689).
+
+        A repeated standard heading is the normal result of a hand-resolved
+        CHANGELOG merge conflict: ``_parse_subsections`` searches once per
+        section name, and ``_find_loose_bullets`` sees a recognised heading, so
+        the second block was silently dropped at rc 0.
+        """
+        with pytest.raises(ValueError, match="repeats the heading"):
+            extract_unreleased_content(DUPLICATE_HEADING_CHANGELOG)
+
+    def test_duplicate_heading_error_names_the_heading(self):
+        """The refusal must say which heading is repeated."""
+        with pytest.raises(ValueError, match="Added"):
+            extract_unreleased_content(DUPLICATE_HEADING_CHANGELOG)
+
+    def test_fourth_level_heading_inside_a_section_is_not_loose(self):
+        """synthesize-bot-changelog's #### Dependencies block stays content (#1689).
+
+        Its bullets sit under ``### Changed`` behind a ``####`` heading; the
+        guard must not mistake them for loose bullets, or the release lane's
+        own generated block would be refused.
+        """
+        sections = extract_unreleased_content(DEPENDENCIES_BLOCK_CHANGELOG)
+        assert "Changed" in sections
+        assert "actions/checkout" in sections["Changed"]
 
     def test_whitespace_only_lines_are_not_content(self):
         """Sections with only whitespace lines should be treated as empty."""
@@ -614,6 +738,13 @@ class TestValidateChangelog:
         with pytest.raises(ValueError, match="outside a recognised"):
             validate_changelog(str(f))
 
+    def test_rejects_duplicate_standard_heading(self, tmp_path):
+        """validate must refuse what prepare would silently halve (#1689)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(DUPLICATE_HEADING_CHANGELOG)
+        with pytest.raises(ValueError, match="repeats the heading"):
+            validate_changelog(str(f))
+
     def test_raises_for_missing_file(self, tmp_path):
         """Should raise FileNotFoundError for nonexistent file."""
         with pytest.raises(FileNotFoundError, match="CHANGELOG not found"):
@@ -676,6 +807,34 @@ class TestValidateVersionSection:
         )
         f.write_text(seed_changelog_input)
         assert validate_version_section("0.3.0", str(f)) == (True, False)
+
+    def test_rejects_loose_bullets_in_the_pending_section(self, tmp_path):
+        """The release gate must refuse what prepare would drop (#1689).
+
+        docs/DOWNSTREAM_RELEASE.md tells hotfix authors to hand-write into the
+        seeded ``## [X.Y.Z] - TBD`` section, so a bullet with no ``### `` header
+        above it is a realistic input — and a reused release branch's
+        reset-version -> prepare cycle would delete it.
+        """
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(LOOSE_IN_VERSION_CHANGELOG)
+        with pytest.raises(ValueError, match="outside a recognised"):
+            validate_version_section("1.0.1", str(f))
+
+    def test_rejects_duplicate_heading_in_the_pending_section(self, tmp_path):
+        """A repeated heading in the pending section is refused too (#1689)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(DUPLICATE_HEADING_VERSION_CHANGELOG)
+        with pytest.raises(ValueError, match="repeats the heading"):
+            validate_version_section("1.0.1", str(f))
+
+    def test_accepts_a_dependencies_block_in_the_pending_section(self, tmp_path):
+        """The generated #### Dependencies block still satisfies the gate (#1689)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(
+            DEPENDENCIES_BLOCK_CHANGELOG.replace("## Unreleased", "## [1.0.1] - TBD", 1)
+        )
+        assert validate_version_section("1.0.1", str(f)) == (True, True)
 
     def test_rejects_invalid_version(self, tmp_path):
         """Non-semver input is rejected."""
@@ -800,6 +959,35 @@ class TestPrepareChangelog:
         with pytest.raises(ValueError, match="outside a recognised"):
             prepare_changelog("1.0.1", str(f))
         assert f.read_text() == LOOSE_BULLET_CHANGELOG
+
+    def test_refuses_loose_bullets_in_the_version_section(self, tmp_path):
+        """The twin path: bullets loose inside ## [X.Y.Z] - TBD (#1689).
+
+        ``_pop_version_section`` folds an existing version block back in through
+        ``_parse_subsections``, so a bullet with no ``### `` header above it was
+        dropped at rc 0 while the command reported "Moved 2 section(s)".
+        """
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(LOOSE_IN_VERSION_CHANGELOG)
+        with pytest.raises(ValueError, match="outside a recognised"):
+            prepare_changelog("1.0.1", str(f))
+        assert f.read_text() == LOOSE_IN_VERSION_CHANGELOG
+
+    def test_refuses_duplicate_heading_in_unreleased(self, tmp_path):
+        """A repeated ### Added in Unreleased is refused, not halved (#1689)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(DUPLICATE_HEADING_CHANGELOG)
+        with pytest.raises(ValueError, match="repeats the heading"):
+            prepare_changelog("2.0.0", str(f))
+        assert f.read_text() == DUPLICATE_HEADING_CHANGELOG
+
+    def test_refuses_duplicate_heading_in_the_version_section(self, tmp_path):
+        """The same refusal applies to the folded ## [X.Y.Z] block (#1689)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(DUPLICATE_HEADING_VERSION_CHANGELOG)
+        with pytest.raises(ValueError, match="repeats the heading"):
+            prepare_changelog("1.0.1", str(f))
+        assert f.read_text() == DUPLICATE_HEADING_VERSION_CHANGELOG
 
     def test_refuses_bare_unreleased_without_duplicating_previous_release(
         self, tmp_path
@@ -1935,6 +2123,24 @@ class TestCLISubprocess:
         assert "No content to freeze" in result.stderr
         assert f.read_text() == BARE_UNRELEASED_CHANGELOG
 
+    def test_prepare_refuses_loose_bullets_in_version_section_e2e(self, tmp_path):
+        """prepare exits non-zero on a loose bullet inside [X.Y.Z] - TBD (#1689)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(LOOSE_IN_VERSION_CHANGELOG)
+        result = self._run("prepare", "1.0.1", str(f))
+        assert result.returncode != 0
+        assert "outside a recognised" in result.stderr
+        assert f.read_text() == LOOSE_IN_VERSION_CHANGELOG
+
+    def test_prepare_refuses_duplicate_heading_e2e(self, tmp_path):
+        """prepare exits non-zero on a repeated standard heading (#1689)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(DUPLICATE_HEADING_CHANGELOG)
+        result = self._run("prepare", "2.0.0", str(f))
+        assert result.returncode != 0
+        assert "repeats the heading" in result.stderr
+        assert f.read_text() == DUPLICATE_HEADING_CHANGELOG
+
     # ── validate ──────────────────────────────────────────────────────────
 
     def test_validate_passes_e2e(self, tmp_path):
@@ -1975,6 +2181,14 @@ class TestCLISubprocess:
         f.write_text(CHANGELOG_WITH_TBD)
         result = self._run("validate", "--version", "1.0.0", str(f))
         assert result.returncode == 0, result.stderr
+
+    def test_validate_version_rejects_loose_bullets_e2e(self, tmp_path):
+        """The release-time gate exits 1 on a loose bullet (#1689)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(LOOSE_IN_VERSION_CHANGELOG)
+        result = self._run("validate", "--version", "1.0.1", str(f))
+        assert result.returncode == 1
+        assert "outside a recognised" in result.stderr
 
     def test_validate_version_fails_empty_e2e(self, tmp_path):
         """validate --version fails on a seeded, unfilled section."""
