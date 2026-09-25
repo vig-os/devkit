@@ -39,6 +39,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `main`'s own nightly gate, since a pin advance on `dev` clears exceptions
     that `main`'s older closure may still need
 
+- **`prepare-release` refuses to cut a train while `dev` is behind `main`**
+  ([#1680](https://github.com/vig-os/devkit/issues/1680))
+  - The cut freezes `dev`'s `## Unreleased`, but `main` can carry commits `dev`
+    has not received yet. Cutting while the open `chore/sync-main-to-dev-*` PR
+    is still unmerged silently left those entries out of the frozen section, so
+    the release shipped without describing changes it contained — invisible
+    until someone went looking. Validation now refuses and names the remedy:
+    merge the sync PR, then re-dispatch.
+  - The guard uses the same `git rev-list --count origin/main ^origin/dev`
+    comparison `sync-main-to-dev.yml` uses to decide whether to open that PR, so
+    the lane that carries the commits and the lane that demands them agree by
+    construction rather than by coincidence.
+  - Trunk consumers are unaffected: releases cut from `main` there and
+    `sync-main-to-dev.yml` is copy-excluded, so the scaffold render drops the
+    step instead of shipping a comparison against a branch that does not exist.
+
 ### Changed
 
 ### Deprecated
