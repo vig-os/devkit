@@ -226,6 +226,34 @@ def test_the_fold_touches_nothing_but_the_retired_block(tmp_path: Path) -> None:
     assert _hook_order(text) == ["shellcheck", "pymarkdown", "typos"]
 
 
+def test_the_folded_block_carries_the_template_comment(tmp_path: Path) -> None:
+    """The fold reads the same block the insert writes, comment included (#1725).
+
+    ``template_hook_block`` is shared, so teaching the structural extraction to
+    carry the prose above an entry reaches Case 1 too: the replacement arrives with
+    the template's rationale, which is the point — the consumer is being handed a
+    hook whose form changed under them. Their OWN comment above the retired block
+    is theirs and survives, so the two comment blocks stack. Pinned rather than
+    tolerated: this shape is what a consumer reviews in their adoption PR, and a
+    later change to either half should have to say so here.
+    """
+    _upgrade(tmp_path, _seed(tmp_path), name="fold-rationale")
+    text = _config(tmp_path, "fold-rationale")
+
+    # The template's prose-plus-entry, byte-exact and contiguous.
+    assert (
+        _template_span(
+            "# Markdown linting (pymarkdown from the flake", "exclude: ^(README"
+        )
+        in text
+    )
+    # Directly under the consumer's own comment, which the fold never touched.
+    assert (
+        "  # Markdown Linting (excludes auto-generated docs)\n"
+        "  # Markdown linting (pymarkdown from the flake toolchain"
+    ) in text
+
+
 def test_a_customized_retired_block_is_never_rewritten(tmp_path: Path) -> None:
     """One edited byte and the fold declines — the #1652 warning stands.
 
