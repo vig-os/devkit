@@ -2683,6 +2683,19 @@ inserted_hook_blocks() {
     # actionlint had been on PATH since #995 with nothing running it; the hook
     # reached new scaffolds only (#1660).
     printf '%s\n' '1.16.0 actionlint actionlint'
+    # actionlint refuses a composite action outright, so #1704's hook is the only
+    # thing linting .github/actions/*/action.yml run bodies; the template gained
+    # it in #1718, new scaffolds only (#1717). Two fields: no feature group.
+    #
+    # 1.17.0 by construction — dev holds feat commits since 1.16.0 (#1718, #1724)
+    # and no breaking change. A train renamed UPWARD leaves this row harmless (no
+    # consumer can be pinned at 1.17.0); a DOWNWARD rename would re-add a hook a
+    # consumer deleted (#1651) and must edit this row on the release branch,
+    # which #1723's Phase 1 prerequisite makes a checked step.
+    #
+    # Ordering is load-bearing: the insert anchors on the hook the template puts
+    # BEFORE this one, so a pre-1.16.0 tree must meet the actionlint row first.
+    printf '%s\n' '1.17.0 shellcheck-composite-actions'
 }
 
 # Plan-mode heading, printed once and only when there is something to report.

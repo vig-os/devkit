@@ -29,9 +29,10 @@ Refs: #1654
 
 from __future__ import annotations
 
+import difflib
 from typing import TYPE_CHECKING
 
-from tests.workflow_scaffold import INIT_WORKSPACE, scaffold
+from tests.workflow_scaffold import INIT_WORKSPACE, WORKSPACE, scaffold
 
 if TYPE_CHECKING:
     import subprocess
@@ -51,6 +52,16 @@ RETIRED_PYMARKDOWN_BLOCK = r"""  - repo: https://github.com/jackdewinter/pymarkd
 
 # The release that first ships the `actionlint` hook to consumers (#1660).
 ACTIONLINT_SINCE = "1.16.0"
+
+# The release that first ships the composite-action shellcheck hook (#1704,
+# scaffolded by #1718) to consumers. `dev` carries two `feat` commits since
+# 1.16.0 and no breaking change, so the next train is 1.17.0 by construction.
+COMPOSITE_SINCE = "1.17.0"
+
+# That hook belongs to no feature group, so its row in `inserted_hook_blocks()`
+# is two fields wide — `read -r ver hook feat` leaves `feat` empty and the
+# opt-out gate never fires.
+COMPOSITE_HOOK = "shellcheck-composite-actions"
 
 # A consumer config with the consumer's own global exclude, their own
 # `shellcheck` exception, a hand-written comment, and the retired block.
@@ -115,6 +126,18 @@ def _config(tmp_path: Path, name: str) -> str:
     return (tmp_path / name / ".pre-commit-config.yaml").read_text(encoding="utf-8")
 
 
+def _line_diff(before: str, after: str) -> tuple[list[str], list[str]]:
+    """The non-blank lines added and removed between two revisions of a file."""
+    diff = list(difflib.ndiff(before.splitlines(), after.splitlines()))
+    added = [line[2:] for line in diff if line.startswith("+ ") and line[2:].strip()]
+    removed = [line[2:] for line in diff if line.startswith("- ") and line[2:].strip()]
+    return added, removed
+
+
+def _template_config() -> str:
+    return (WORKSPACE / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+
+
 def _hook_order(text: str) -> list[str]:
     """The hook ids of a config, in file order."""
     return [
@@ -142,7 +165,16 @@ def test_the_insert_table_declares_the_release_that_first_ships_each_hook() -> N
     """Case 2's version gate reads a ``<version> <hook> <feature>`` manifest."""
     init = INIT_WORKSPACE.read_text(encoding="utf-8")
     assert "inserted_hook_blocks()" in init
-    assert f"{ACTIONLINT_SINCE} actionlint actionlint" in init
+    actionlint_row = f"{ACTIONLINT_SINCE} actionlint actionlint"
+    assert actionlint_row in init
+    # The quotes pin the composite row at TWO fields: no feature group, so the
+    # third field is absent rather than empty-and-present.
+    composite_row = f"'{COMPOSITE_SINCE} {COMPOSITE_HOOK}'"
+    assert composite_row in init
+    # Row order is behaviour, not tidiness. The insert anchors on the hook the
+    # template places BEFORE this one (`actionlint`), so a tree missing both must
+    # meet the actionlint row first and anchor on what that row just inserted.
+    assert init.index(actionlint_row) < init.index(composite_row)
 
 
 # ── Case 1: fold a retired block ──────────────────────────────────────────────
@@ -237,7 +269,7 @@ def test_the_fold_marker_rides_stdout_and_the_prose_is_reviewable(
 
 
 def _insert_seed(tmp_path: Path, manifest: str, name: str = "seed") -> Path:
-    """A consumer tree with no ``actionlint`` hook and no retired block."""
+    """A consumer tree with neither inserted hook and no retired block."""
     seed = tmp_path / name
     seed.mkdir()
     (seed / ".pre-commit-config.yaml").write_text(
@@ -263,13 +295,20 @@ def test_a_pin_predating_the_release_receives_the_hook(tmp_path: Path) -> None:
 
 
 def test_the_hook_lands_at_its_template_position(tmp_path: Path) -> None:
-    """After its template neighbour, never appended — hook order is observable."""
+    """After its template neighbour, never appended — hook order is observable.
+
+    A pre-1.16.0 tree lacks BOTH inserted hooks and receives them in one pass,
+    in template order: the composite block anchors on ``actionlint``, which this
+    same pass inserts a row earlier. That is the ordering the table's row
+    sequence protects.
+    """
     seed = _insert_seed(tmp_path, "DEVKIT_VERSION=1.15.1\n")
     _upgrade(tmp_path, seed, name="position")
 
     assert _hook_order(_config(tmp_path, "position")) == [
         "shellcheck",
         "actionlint",
+        COMPOSITE_HOOK,
         "typos",
     ]
 
@@ -352,7 +391,7 @@ def test_an_existing_hook_is_never_duplicated(tmp_path: Path) -> None:
 
     assert text.count("- id: actionlint") == 1
     assert "name: my own actionlint" in text
-    assert "preserved-hook-insert:" not in proc.stdout
+    assert "preserved-hook-insert: actionlint" not in proc.stdout
 
 
 def test_a_missing_anchor_skips_the_insert_rather_than_guessing(
@@ -371,6 +410,107 @@ def test_a_missing_anchor_skips_the_insert_rather_than_guessing(
     assert "- id: actionlint" not in _config(tmp_path, "anchorless-ws")
     assert "preserved-hook-insert:" not in proc.stdout
     assert "anchor" in proc.stderr
+
+
+# ── Case 2, second row: the composite-action shellcheck hook (#1717) ──────────
+# The 1.16.0 shape: the consumer took #1660's actionlint block and never saw the
+# composite one, which #1718 added to the template afterwards.
+
+
+def _composite_seed(tmp_path: Path, manifest: str, name: str = "seed") -> Path:
+    """A 1.16.0-shape consumer: ``actionlint`` landed, the composite hook never did."""
+    lines = _template_config().splitlines(keepends=True)
+    start = next(i for i, ln in enumerate(lines) if "# >>> devkit:actionlint" in ln)
+    end = next(i for i, ln in enumerate(lines) if "# <<< devkit:actionlint" in ln)
+
+    seed = tmp_path / name
+    seed.mkdir()
+    (seed / ".pre-commit-config.yaml").write_text(
+        _CONSUMER_HEAD.replace(
+            "  # Markdown Linting (excludes auto-generated docs)\n", ""
+        )
+        + "".join(lines[start : end + 1])
+        + "\n"
+        + _CONSUMER_TAIL.lstrip("\n"),
+        encoding="utf-8",
+    )
+    (seed / ".vig-os").write_text(manifest, encoding="utf-8")
+    return seed
+
+
+def test_a_pin_predating_the_composite_release_receives_the_hook(
+    tmp_path: Path,
+) -> None:
+    """A 1.16.0 tree lints workflows and leaves composite actions unlinted."""
+    seed = _composite_seed(tmp_path, f"DEVKIT_VERSION={ACTIONLINT_SINCE}\n")
+    proc = _upgrade(tmp_path, seed, name="composite")
+    text = _config(tmp_path, "composite")
+
+    assert f"- id: {COMPOSITE_HOOK}" in text
+    assert f"entry: uv run {COMPOSITE_HOOK}" in text
+    assert (
+        f"preserved-hook-insert: {COMPOSITE_HOOK} in .pre-commit-config.yaml"
+        in proc.stdout
+    )
+    # Its template position is right after the actionlint block the tree already
+    # carries — never appended.
+    assert _hook_order(text) == ["shellcheck", "actionlint", COMPOSITE_HOOK, "typos"]
+    # The actionlint hook they already have is seen, so that row stays quiet.
+    assert "preserved-hook-insert: actionlint" not in proc.stdout
+
+
+def test_the_composite_insert_touches_nothing_else(tmp_path: Path) -> None:
+    """Nothing of theirs is removed, and every added line is the template's own."""
+    seed = _composite_seed(tmp_path, f"DEVKIT_VERSION={ACTIONLINT_SINCE}\n")
+    before = (seed / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    _upgrade(tmp_path, seed, name="composite-surgical")
+
+    added, removed = _line_diff(before, _config(tmp_path, "composite-surgical"))
+    assert removed == []
+    assert f"      - id: {COMPOSITE_HOOK}" in added
+    template = _template_config()
+    assert all(line in template for line in added)
+
+
+def test_a_pin_at_the_composite_release_is_left_alone(tmp_path: Path) -> None:
+    """The repo has seen the hook, so its absence is a decision — durable (#1651)."""
+    seed = _composite_seed(tmp_path, f"DEVKIT_VERSION={COMPOSITE_SINCE}\n")
+    before = (seed / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    proc = _upgrade(tmp_path, seed, name="composite-seen")
+
+    assert _config(tmp_path, "composite-seen") == before
+    assert "preserved-hook-insert:" not in proc.stdout
+
+
+def test_a_pin_past_the_composite_release_is_left_alone(tmp_path: Path) -> None:
+    """A patch release on top of it has seen the hook too."""
+    seed = _composite_seed(tmp_path, "DEVKIT_VERSION=1.17.1\n")
+    before = (seed / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    proc = _upgrade(tmp_path, seed, name="composite-past")
+
+    assert _config(tmp_path, "composite-past") == before
+    assert "preserved-hook-insert:" not in proc.stdout
+
+
+def test_an_existing_composite_hook_is_never_duplicated(tmp_path: Path) -> None:
+    """A consumer's own copy of the hook is theirs; the insert stands down."""
+    seed = _composite_seed(
+        tmp_path, f"DEVKIT_VERSION={ACTIONLINT_SINCE}\n", name="dup-composite-seed"
+    )
+    config = seed / ".pre-commit-config.yaml"
+    config.write_text(
+        config.read_text(encoding="utf-8")
+        + f"\n  - repo: local\n    hooks:\n      - id: {COMPOSITE_HOOK}\n"
+        + f"        name: my own {COMPOSITE_HOOK}\n        entry: my-composite-lint\n"
+        + "        language: system\n        pass_filenames: true\n",
+        encoding="utf-8",
+    )
+    proc = _upgrade(tmp_path, seed, name="dup-composite")
+    text = _config(tmp_path, "dup-composite")
+
+    assert text.count(f"- id: {COMPOSITE_HOOK}") == 1
+    assert f"name: my own {COMPOSITE_HOOK}" in text
+    assert "preserved-hook-insert:" not in proc.stdout
 
 
 def test_a_rewrite_keeps_the_file_mode(tmp_path: Path) -> None:
@@ -415,6 +555,18 @@ def test_preview_reports_the_planned_insert(tmp_path: Path) -> None:
     assert "actionlint" in proc.stdout
     assert "INSERTED" in proc.stdout
     assert "- id: actionlint" not in _config(tmp_path, "preview-insert")
+
+
+def test_preview_reports_the_planned_composite_insert(tmp_path: Path) -> None:
+    """The plan line names the release the row claims, so a stale row is visible."""
+    seed = _composite_seed(tmp_path, f"DEVKIT_VERSION={ACTIONLINT_SINCE}\n")
+    before = (seed / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    proc = _upgrade(tmp_path, seed, name="preview-composite", preview=True)
+
+    assert COMPOSITE_HOOK in proc.stdout
+    assert "INSERTED" in proc.stdout
+    assert f"shipped since {COMPOSITE_SINCE}" in proc.stdout
+    assert _config(tmp_path, "preview-composite") == before
 
 
 # ── the stock scaffold stays byte-identical ───────────────────────────────────
