@@ -75,6 +75,11 @@ SHELL_PRELUDES = {
 # Every prelude above is exactly one line; findings shift back by that much.
 PRELUDE_LINES = 1
 
+# `shell:` values that are legitimately not this gate's business. Anything
+# else outside SHELL_PRELUDES (a typo, a custom `bash {0}` template) is skipped
+# WITH a note, so a misspelling cannot quietly unlint a body.
+NON_SHELL_SHELLS = frozenset({"python", "pwsh", "powershell", "cmd", "node"})
+
 SEVERITIES = ("error", "warning", "info", "style")
 
 
@@ -148,6 +153,20 @@ def _body_origin(node: yaml.ScalarNode, lines: list[str]) -> tuple[int, int]:
     return node.start_mark.line + 1, node.start_mark.column + 1
 
 
+def _note_skipped_shell(path: Path, name: object, shell: object) -> None:
+    """Say on stderr when a `run:` step is skipped for a shell this gate does not know."""
+    shell_value = shell.value if isinstance(shell, yaml.ScalarNode) else None
+    if shell_value in NON_SHELL_SHELLS:
+        return
+    step = name.value if isinstance(name, yaml.ScalarNode) else "<unnamed>"
+    what = f"shell {shell_value!r}" if shell_value is not None else "no shell:"
+    print(
+        f"note: {path}: step {step!r} skipped ({what} is not one of "
+        f"{sorted(SHELL_PRELUDES)}; not shellchecked)",
+        file=sys.stderr,
+    )
+
+
 def extract_steps(path: Path) -> list[Step]:
     """The shell bodies of *path*, empty unless it is a composite action."""
     text = path.read_text(encoding="utf-8")
@@ -167,9 +186,10 @@ def extract_steps(path: Path) -> list[Step]:
         if not isinstance(run, yaml.ScalarNode):
             continue
         shell = _mapping_get(step_node, "shell")
-        if not isinstance(shell, yaml.ScalarNode) or shell.value not in SHELL_PRELUDES:
-            continue
         name = _mapping_get(step_node, "name")
+        if not isinstance(shell, yaml.ScalarNode) or shell.value not in SHELL_PRELUDES:
+            _note_skipped_shell(path, name, shell)
+            continue
         line, column = _body_origin(run, lines)
         steps.append(
             Step(
