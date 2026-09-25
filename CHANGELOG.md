@@ -182,6 +182,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     whole-line comments directly above the entry too, stopping at a blank line, a
     non-comment line or a `# >>> devkit:` / `# <<< devkit:` sentinel, so no copy
     can swallow the previous block's text or half a sentinel pair
+  - The retired-block **fold** reads the same extraction, so a replacement block
+    now arrives with the template's rationale as well — which is what you want when
+    a hook's form changed under you. Your own comment above the retired block is
+    yours and is untouched, so an adoption PR shows the two comment blocks stacked
 
 - **A hung release-neutral guard no longer leaves its last positive verdict
   standing** ([#1712](https://github.com/vig-os/devkit/issues/1712))
