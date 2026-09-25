@@ -57,6 +57,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BATS suite runs under `bats --jobs`, and a scaffold forks 65% less**
+  ([#1687](https://github.com/vig-os/devkit/issues/1687))
+  - `bats tests/bats/` was 6m14s of the 11m28s `Project Checks` job — the only
+    job on CI's critical path — and ran serially. `init-workspace.bats` alone
+    was 80% of it, so the per-file GNU-parallel branch in `just test-bats`
+    (dead anyway: `parallel` was never on PATH) was the wrong axis
+  - GNU parallel now rides with the bats wrapper in `nix/bats.nix` — bats is
+    its only consumer, it lands on nobody's PATH, and the incremental closure
+    is under 1 MiB — and both entry points, `just test-bats` and the
+    `test-project` composite action, run `bats -j "$(nproc)"`. `worktree.bats`
+    opts out of within-file jobs: its tests drive real tmux sessions and the
+    repo's sibling worktrees directory
+  - `init-workspace.sh` batches its two per-file fork loops — the `chmod u+w`
+    scaffold sweep, which is on the production path, and the host-side
+    placeholder-substitution fallback — into one `xargs` each. Rendered trees
+    are byte- and permission-identical; a scaffold drops from ~680 ms to
+    ~270 ms
+  - `init-workspace.bats` clones `setup_file`-rendered fixtures
+    (`_clone_shared`) instead of re-rendering a stock scaffold per test: 343 →
+    250 script invocations per run, 300 tests unchanged
+
 ### Deprecated
 
 ### Removed

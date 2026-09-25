@@ -3200,13 +3200,21 @@ fi
 # not own (a preserved store symlink target is read-only by design, #1117).
 sweep_scaffold_writable() {
     local src_dir="$1" src_path rel dest
+    local -a targets=()
     while IFS= read -r -d '' src_path; do
         rel="${src_path#"$src_dir"/}"
         dest="$WORKSPACE_DIR/$rel"
         if [[ -e "$dest" && ! -L "$dest" ]]; then
-            chmod u+w "$dest"
+            targets+=("$dest")
         fi
     done < <(find -L "$src_dir" -mindepth 1 -print0)
+    # One batched chmod instead of one fork per file (#1687): the per-file loop
+    # was 23% of a scaffold's ~4.3k forks. The filter above is unchanged, so the
+    # set of chmod'ed paths is identical; xargs chunks it under ARG_MAX, and the
+    # emptiness guard keeps `printf '%s\0'` from emitting one empty filename.
+    if ((${#targets[@]} > 0)); then
+        printf '%s\0' "${targets[@]}" | xargs -0 -r chmod u+w --
+    fi
 }
 chmod u+w "$WORKSPACE_DIR"
 sweep_scaffold_writable "$TEMPLATE_DIR"
@@ -3480,13 +3488,20 @@ if [[ -f "$MANIFEST_FILE" ]]; then
         fi
     done < "$MANIFEST_FILE"
 else
-    # Fallback: search at runtime (slower, but works if manifest is missing)
+    # Fallback: search at runtime (slower, but works if manifest is missing).
+    # One batched grep + one batched sed instead of a fork pair per file
+    # (#1687): the per-file `grep -q` was 42% of a scaffold's ~4.3k forks.
+    # `grep -rl` selects the same files as the old `find -type f ! -path
+    # "*/.git/*"` walk -- regular files only, symlinks inside the tree not
+    # followed, anything under a `.git/` directory skipped -- and, like the old
+    # `grep -q`, it matches binary files too (no -I). Failures are swallowed
+    # exactly as the old `2>/dev/null` + `if` did, so neither exit 1 (nothing
+    # matched) nor exit 2 (unreadable file) trips `set -o pipefail`.
     echo "Warning: Manifest not found, searching at runtime (slower)"
-    find "$WORKSPACE_DIR" -type f ! -path "*/.git/*" -print0 | while IFS= read -r -d '' file; do
-        if grep -q '{{SHORT_NAME}}\|{{ORG_NAME}}\|{{GITHUB_REPOSITORY}}' "$file" 2>/dev/null; then
-            sed -i "s/{{SHORT_NAME}}/${SHORT_NAME_ESCAPED}/g; s/{{ORG_NAME}}/${ORG_NAME_ESCAPED}/g; s/{{GITHUB_REPOSITORY}}/${GITHUB_REPOSITORY_ESCAPED}/g" "$file"
-        fi
-    done
+    { grep -rl --null --exclude-dir=.git \
+        -e '{{SHORT_NAME}}' -e '{{ORG_NAME}}' -e '{{GITHUB_REPOSITORY}}' \
+        "$WORKSPACE_DIR" 2>/dev/null || true; } |
+        xargs -0 -r sed -i "s/{{SHORT_NAME}}/${SHORT_NAME_ESCAPED}/g; s/{{ORG_NAME}}/${ORG_NAME_ESCAPED}/g; s/{{GITHUB_REPOSITORY}}/${GITHUB_REPOSITORY_ESCAPED}/g" --
 fi
 
 # Host-runner hooks default (#1167): a FRESH direnv scaffold defaults to

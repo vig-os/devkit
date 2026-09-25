@@ -16,14 +16,21 @@ setup() {
 # reused by every test that only reads a rendered tree — tests that mutate a
 # workspace (upgrades, seeds, previews, prunes) keep their per-test scaffolds.
 setup_file() {
-    local root stub mode ws
+    local root stub mode
     root="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     stub="$BATS_FILE_TMPDIR/shared-stub-bin"
     mkdir -p "$stub"
     printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
     chmod +x "$stub/just"
-    for mode in devcontainer direnv both bare; do
-        ws="$BATS_FILE_TMPDIR/shared-$mode"
+
+    # Render $BATS_FILE_TMPDIR/shared-<fixture> exactly as _scaffold /
+    # _scaffold_ex would: same stubbed `just`, same TEMPLATE_DIR/SHORT_NAME/
+    # GITHUB_REPOSITORY, same --force --no-prompts --mode, plus any extra args.
+    # Seed marker files into the fixture directory before calling.
+    _render_shared() {
+        local fixture="$1" mode="$2" ws
+        shift 2
+        ws="$BATS_FILE_TMPDIR/shared-$fixture"
         mkdir -p "$ws"
         env PATH="$stub:$PATH" \
             TEMPLATE_DIR="$root/assets/workspace" \
@@ -31,16 +38,64 @@ setup_file() {
             SHORT_NAME=testproj \
             GITHUB_REPOSITORY=test/repo \
             bash "$root/assets/init-workspace.sh" --force --no-prompts \
-            --mode "$mode" >"$ws.log" 2>&1 || {
-            echo "shared $mode scaffold failed:" >&2
+            --mode "$mode" "$@" >"$ws.log" 2>&1 || {
+            echo "shared $fixture scaffold failed:" >&2
             cat "$ws.log" >&2
             return 1
         }
+    }
+
+    for mode in devcontainer direnv both bare; do
+        _render_shared "$mode" "$mode" || return 1
     done
+
+    # Language-marker variants of the both-mode scaffold (#1687): the marker
+    # file is seeded before the render, so the fixture carries it exactly as the
+    # per-test scaffolds it replaces did.
+    mkdir -p "$BATS_FILE_TMPDIR/shared-node-both"
+    printf '{ "name": "probe" }\n' >"$BATS_FILE_TMPDIR/shared-node-both/package.json"
+    _render_shared node-both both || return 1
+    mkdir -p "$BATS_FILE_TMPDIR/shared-python-both"
+    printf '[project]\nname = "probe"\n' >"$BATS_FILE_TMPDIR/shared-python-both/pyproject.toml"
+    _render_shared python-both both || return 1
+
+    # Trunk workflow model on an otherwise stock both-mode tree (#1205).
+    _render_shared trunk-both both --workflow trunk || return 1
 }
 
-# Path of the shared read-only scaffold for delivery mode $1 (#1417).
+# Path of the shared read-only scaffold fixture $1 (#1417). Fixture names are
+# the four delivery modes plus the node-both/python-both/trunk-both variants
+# rendered by setup_file above.
 _shared_tree() { printf '%s/shared-%s' "$BATS_FILE_TMPDIR" "$1"; }
+
+# Copy the setup_file-rendered fixture $1 into the absent-or-empty workspace $2
+# instead of re-rendering it (#1687). `cp -a` is ~36ms against ~1770ms for a
+# render.
+#
+# CONTRACT: the clone is byte- and permission-identical to what the fixture's
+# own invocation (`_scaffold <mode>`, or the seed + flags recorded next to it in
+# setup_file) would have produced in an empty directory. This holds because the
+# render is path-independent — .vig-os carries no absolute path, and two renders
+# into different directories are `diff -r` clean with identical modes.
+#
+# So this is valid ONLY as a pure-setup replacement. A test whose subject is the
+# scaffold run itself — it asserts on that run's $output/$stderr, or on a
+# failure — or which seeds files the shared render did not, or passes flags it
+# did not, must keep its real invocation.
+_clone_shared() {
+    local fixture="$1" ws="$2" src
+    src="$(_shared_tree "$fixture")"
+    if [[ ! -d "$src" ]]; then
+        echo "_clone_shared: no shared fixture '$fixture'" >&2
+        return 1
+    fi
+    if [[ -d "$ws" ]] && [[ -n "$(ls -A "$ws")" ]]; then
+        echo "_clone_shared: refusing to clobber non-empty '$ws'" >&2
+        return 1
+    fi
+    mkdir -p "$ws" || return 1
+    cp -a "$src/." "$ws/"
+}
 
 # ── Claude-native template scaffold (#629) ────────────────────────────────────
 # init-workspace.sh rsyncs assets/workspace/ verbatim into a new workspace, so
@@ -284,7 +339,7 @@ _scaffold() {
     real_just="$(command -v just)"
     ws="$BATS_TEST_TMPDIR/e2e-direnv-just"
     mkdir -p "$ws"
-    run _scaffold direnv "$ws"
+    run _clone_shared direnv "$ws"
     assert_success
     run bash -c "cd '$ws' && '$real_just' --list"
     assert_success
@@ -344,7 +399,7 @@ _scaffold() {
 @test "direnv scaffold drops the hand-managed .pre-commit-config.yaml (#1167)" {
     ws="$BATS_TEST_TMPDIR/e2e-direnv-hooks-drop"
     mkdir -p "$ws"
-    run _scaffold direnv "$ws"
+    run _clone_shared direnv "$ws"
     assert_success
     run test -e "$ws/.pre-commit-config.yaml"
     assert_failure
@@ -353,7 +408,7 @@ _scaffold() {
 @test "direnv scaffold activates flake-generated hooks in flake.nix (#1167)" {
     ws="$BATS_TEST_TMPDIR/e2e-direnv-hooks-flake"
     mkdir -p "$ws"
-    run _scaffold direnv "$ws"
+    run _clone_shared direnv "$ws"
     assert_success
     run grep -Eq '^[[:space:]]*hooks = \{ \};' "$ws/flake.nix"
     assert_success
@@ -362,7 +417,7 @@ _scaffold() {
 @test "direnv scaffold gitignores the generated .pre-commit-config.yaml (#1167)" {
     ws="$BATS_TEST_TMPDIR/e2e-direnv-hooks-gitignore"
     mkdir -p "$ws"
-    run _scaffold direnv "$ws"
+    run _clone_shared direnv "$ws"
     assert_success
     run grep -qxF '.pre-commit-config.yaml' "$ws/.gitignore"
     assert_success
@@ -371,7 +426,7 @@ _scaffold() {
 @test "devcontainer scaffold keeps the hand-managed .pre-commit-config.yaml (#1167)" {
     ws="$BATS_TEST_TMPDIR/e2e-devc-hooks-keep"
     mkdir -p "$ws"
-    run _scaffold devcontainer "$ws"
+    run _clone_shared devcontainer "$ws"
     assert_success
     run test -f "$ws/.pre-commit-config.yaml"
     assert_success
@@ -380,7 +435,7 @@ _scaffold() {
 @test "both scaffold keeps the YAML and leaves flake hooks opt-in (#1167)" {
     ws="$BATS_TEST_TMPDIR/e2e-both-hooks-opt-in"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run test -f "$ws/.pre-commit-config.yaml"
     assert_success
@@ -2329,7 +2384,7 @@ _upgrade_no_flags() {
 @test "fresh scaffold persists resolved mode and identity in .vig-os (#885)" {
     ws="$BATS_TEST_TMPDIR/e2e-885-writeback"
     mkdir -p "$ws"
-    run _scaffold direnv "$ws"
+    run _clone_shared direnv "$ws"
     assert_success
     run grep -x 'DEVKIT_MODE=direnv' "$ws/.vig-os"
     assert_success
@@ -2439,7 +2494,7 @@ _upgrade_no_flags() {
     # contradicts the persisted DEVKIT_MODE refuses instead of reshaping.
     ws="$BATS_TEST_TMPDIR/e2e-885-mismatch"
     mkdir -p "$ws"
-    run _scaffold direnv "$ws"
+    run _clone_shared direnv "$ws"
     assert_success
     stub="$BATS_TEST_TMPDIR/stub-bin-885"
     mkdir -p "$stub"
@@ -2462,7 +2517,7 @@ _upgrade_no_flags() {
     # mode switch before deciding.
     ws="$BATS_TEST_TMPDIR/e2e-885-mismatch-preview"
     mkdir -p "$ws"
-    run _scaffold direnv "$ws"
+    run _clone_shared direnv "$ws"
     assert_success
     run _preview "$ws" --mode both
     assert_success
@@ -2474,7 +2529,7 @@ _upgrade_no_flags() {
 @test "matching --mode proceeds against a persisted DEVKIT_MODE (#885)" {
     ws="$BATS_TEST_TMPDIR/e2e-885-match"
     mkdir -p "$ws"
-    run _scaffold direnv "$ws"
+    run _clone_shared direnv "$ws"
     assert_success
     run _scaffold direnv "$ws"
     assert_success
@@ -2496,7 +2551,7 @@ _upgrade_no_flags() {
 @test "upgrade writes back every persisted .vig-os knob (#885, #1116, #1173, #1295, #1284, #1601)" {
     ws="$BATS_TEST_TMPDIR/e2e-knob-writeback"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     local rows=(
         'DEVKIT_MODULES="native rust"'
@@ -2550,7 +2605,7 @@ _upgrade_no_flags() {
 @test "a custom DEVKIT_SYNC_TARGET renders the mirror branch + bootstrap step (#1228)" {
     ws="$BATS_TEST_TMPDIR/e2e-1228-target"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
@@ -2571,7 +2626,7 @@ _upgrade_no_flags() {
     # parameter expansion, matching the template's existing TARGET_BRANCH pattern.
     ws="$BATS_TEST_TMPDIR/e2e-1279-env-indirection"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
@@ -2593,7 +2648,7 @@ _upgrade_no_flags() {
 @test "a custom DEVKIT_SYNC_SCHEDULE overrides the sync cron (#1228)" {
     ws="$BATS_TEST_TMPDIR/e2e-1228-schedule"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's#^DEVKIT_SYNC_SCHEDULE=.*#DEVKIT_SYNC_SCHEDULE=0 5 * * 0#' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
@@ -2614,7 +2669,7 @@ _upgrade_no_flags() {
     # row (a refused upgrade must not dirty the base fixture).
     base="$BATS_TEST_TMPDIR/e2e-knob-invalid-base"
     mkdir -p "$base"
-    run _scaffold both "$base"
+    run _clone_shared both "$base"
     assert_success
     # shellcheck disable=SC2016  # literal $(id) is the hostile payload, not an expansion
     local rows=(
@@ -2668,7 +2723,7 @@ _upgrade_no_flags() {
 @test "DEVKIT_SYNC_TARGET retargets the release-time sync dispatch to the mirror (#1424)" {
     ws="$BATS_TEST_TMPDIR/e2e-1424-retarget"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
@@ -2685,7 +2740,7 @@ _upgrade_no_flags() {
 @test "DEVKIT_SYNC_TARGET renders the fold steps between pull and finalize SHA (#1424)" {
     ws="$BATS_TEST_TMPDIR/e2e-1424-fold"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
@@ -2717,7 +2772,7 @@ _upgrade_no_flags() {
 @test "DEVKIT_SYNC_TARGET renders the promote-time mirror reset job (#1424)" {
     ws="$BATS_TEST_TMPDIR/e2e-1424-reset"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
@@ -2735,7 +2790,7 @@ _upgrade_no_flags() {
 @test "DEVKIT_SYNC_TARGET checks the mirror reset job out as the Commit App (#1503)" {
     ws="$BATS_TEST_TMPDIR/e2e-1503-token"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
@@ -2764,7 +2819,7 @@ _upgrade_no_flags() {
 @test "unset DEVKIT_SYNC_TARGET leaves release-core + promote-release byte-identical (#1424)" {
     ws="$BATS_TEST_TMPDIR/e2e-1424-noop"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run _upgrade_no_flags "$ws"
     assert_success
@@ -2782,7 +2837,7 @@ _upgrade_no_flags() {
     # knob-set render explicitly.
     ws="$BATS_TEST_TMPDIR/al-1424-mirror"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
@@ -2807,7 +2862,7 @@ _upgrade_no_flags() {
     # validate-commit-msg hook keeps its byte-identical `chore` arg.
     ws="$BATS_TEST_TMPDIR/e2e-1282-default"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run grep -qF '"--refs-optional-types", "chore",' "$ws/.pre-commit-config.yaml"
     assert_success
@@ -2816,7 +2871,7 @@ _upgrade_no_flags() {
 @test "DEVKIT_REFS_POLICY=optional renders the full types list + writes back (#1282)" {
     ws="$BATS_TEST_TMPDIR/e2e-1282-optional"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=optional/' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
@@ -2833,7 +2888,7 @@ _upgrade_no_flags() {
     # renderer emits a `none` sentinel type (no real commit is type `none`).
     ws="$BATS_TEST_TMPDIR/e2e-1282-required"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=required/' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
@@ -2849,7 +2904,7 @@ _upgrade_no_flags() {
     # .pre-commit-config.yaml on distinct anchors — they must compose.
     ws="$BATS_TEST_TMPDIR/e2e-1282-compose-trunk"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's/^DEVKIT_WORKFLOW=.*/DEVKIT_WORKFLOW=trunk/' "$ws/.vig-os"
     sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=optional/' "$ws/.vig-os"
@@ -2877,7 +2932,7 @@ _upgrade_no_flags() {
     # validate-commit-msg hook keeps its byte-identical types list.
     ws="$BATS_TEST_TMPDIR/e2e-1431-default"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run grep -qF '"--types", "feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style",' "$ws/.pre-commit-config.yaml"
     assert_success
@@ -2886,7 +2941,7 @@ _upgrade_no_flags() {
 @test "DEVKIT_COMMIT_TYPES renders the custom list + writes back (#1431)" {
     ws="$BATS_TEST_TMPDIR/e2e-1431-custom"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's/^DEVKIT_COMMIT_TYPES=.*/DEVKIT_COMMIT_TYPES=feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style,record/' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
@@ -2906,7 +2961,7 @@ _upgrade_no_flags() {
     # Refs for a type it just accepted (#1282 composition).
     ws="$BATS_TEST_TMPDIR/e2e-1431-compose-refs"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's/^DEVKIT_COMMIT_TYPES=.*/DEVKIT_COMMIT_TYPES=feat,fix,record/' "$ws/.vig-os"
     sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=optional/' "$ws/.vig-os"
@@ -2928,7 +2983,7 @@ _upgrade_no_flags() {
 @test "default scaffold is unchanged by the absent refs-optional-types key (#1633)" {
     ws="$BATS_TEST_TMPDIR/e2e-1633-default"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run grep -qF '"--refs-optional-types", "chore",' "$ws/.pre-commit-config.yaml"
     assert_success
@@ -2939,7 +2994,7 @@ _upgrade_no_flags() {
     # legitimately issue-less, exempted WITHOUT exempting every type.
     ws="$BATS_TEST_TMPDIR/e2e-1633-named-set"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's/^DEVKIT_COMMIT_TYPES=.*/DEVKIT_COMMIT_TYPES=feat,fix,chore,build,record/' "$ws/.vig-os"
     sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=chore,record/' "$ws/.vig-os"
@@ -2962,7 +3017,7 @@ _upgrade_no_flags() {
     # the narrow one — the local/CI divergence #1633 exists to prevent.
     ws="$BATS_TEST_TMPDIR/e2e-1633-narrowing"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=chore,build/' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
@@ -2980,7 +3035,7 @@ _upgrade_no_flags() {
     # Documented precedence: the narrower key wins. The enum stays sugar.
     ws="$BATS_TEST_TMPDIR/e2e-1633-precedence"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=required/' "$ws/.vig-os"
     sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=chore,build/' "$ws/.vig-os"
@@ -2999,7 +3054,7 @@ _upgrade_no_flags() {
     # #1284 contradiction notice).
     ws="$BATS_TEST_TMPDIR/e2e-1431-bot-notice"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's/^DEVKIT_COMMIT_TYPES=.*/DEVKIT_COMMIT_TYPES=feat,fix,record/' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
@@ -3072,7 +3127,7 @@ _render_then_clear() {
     # refuse a symlink outright.
     ws="$BATS_TEST_TMPDIR/e2e-1640-symlink"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     # Stand in for the store path: an out-of-tree target the render must not touch.
     local store="$BATS_TEST_TMPDIR/e2e-1640-store-config.yaml"
@@ -3111,7 +3166,7 @@ _switch_workflow() {
 @test "switching trunk -> gitflow restores the dev-branch guard (#1642)" {
     ws="$BATS_TEST_TMPDIR/e2e-1642-roundtrip"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run _switch_workflow "$ws" trunk
     assert_success
@@ -3132,7 +3187,7 @@ _switch_workflow() {
     # config must land on exactly the same two lines, not an approximation.
     ws="$BATS_TEST_TMPDIR/e2e-1642-template-parity"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run _switch_workflow "$ws" trunk
     assert_success
@@ -3146,7 +3201,7 @@ _switch_workflow() {
     # Re-running gitflow must not double-insert the clause or mangle the comment.
     ws="$BATS_TEST_TMPDIR/e2e-1642-idempotent"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run _switch_workflow "$ws" gitflow
     assert_success
@@ -3164,7 +3219,7 @@ _switch_workflow() {
     # precommit_render_target, not its own `[[ -f ]]` test.
     ws="$BATS_TEST_TMPDIR/e2e-1642-symlink"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     local store="$BATS_TEST_TMPDIR/e2e-1642-store-config.yaml"
     mv "$ws/.pre-commit-config.yaml" "$store"
@@ -3193,7 +3248,7 @@ STOCK_BRANCH_ALTERNATION='(feature|bugfix|hotfix|release|docs|test|refactor)'
 @test "default scaffold keeps the stock branch-type alternation (#1432)" {
     ws="$BATS_TEST_TMPDIR/e2e-1432-default"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run grep -qF "${STOCK_BRANCH_ALTERNATION}/[0-9]" "$ws/.pre-commit-config.yaml"
     assert_success
@@ -3202,7 +3257,7 @@ STOCK_BRANCH_ALTERNATION='(feature|bugfix|hotfix|release|docs|test|refactor)'
 @test "DEVKIT_BRANCH_TYPES renders the custom alternation + writes back (#1432)" {
     ws="$BATS_TEST_TMPDIR/e2e-1432-custom"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's/^DEVKIT_BRANCH_TYPES=.*/DEVKIT_BRANCH_TYPES=feature,bugfix,hotfix,release,docs,test,refactor,record/' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
@@ -3222,7 +3277,7 @@ STOCK_BRANCH_ALTERNATION='(feature|bugfix|hotfix|release|docs|test|refactor)'
     # must apply.
     ws="$BATS_TEST_TMPDIR/e2e-1432-trunk"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's/^DEVKIT_WORKFLOW=.*/DEVKIT_WORKFLOW=trunk/' "$ws/.vig-os"
     sed -i 's/^DEVKIT_BRANCH_TYPES=.*/DEVKIT_BRANCH_TYPES=feature,bugfix,record/' "$ws/.vig-os"
@@ -3240,7 +3295,7 @@ STOCK_BRANCH_ALTERNATION='(feature|bugfix|hotfix|release|docs|test|refactor)'
     # is allowed — but never silent (mirrors the #1431 bot-type notice).
     ws="$BATS_TEST_TMPDIR/e2e-1432-release-notice"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's/^DEVKIT_BRANCH_TYPES=.*/DEVKIT_BRANCH_TYPES=feature,bugfix,record/' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
@@ -3264,7 +3319,7 @@ STOCK_BRANCH_ALTERNATION='(feature|bugfix|hotfix|release|docs|test|refactor)'
 @test "sync-issues cleanup step guards against a missing retry shim (#1278)" {
     ws="$BATS_TEST_TMPDIR/e2e-1278-retry-fallback"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run grep -qF 'command -v retry >/dev/null 2>&1 || retry()' "$ws/.github/workflows/sync-issues.yml"
     assert_success
@@ -3306,7 +3361,7 @@ _upgrade_legacy() {
         echo "mode: $mode"
         ws="$BATS_TEST_TMPDIR/e2e-885-infer-$mode"
         mkdir -p "$ws"
-        run _scaffold "$mode" "$ws"
+        run _clone_shared "$mode" "$ws"
         assert_success
         _make_legacy_manifest "$ws"
         run _upgrade_legacy "$ws"
@@ -3343,7 +3398,7 @@ _upgrade_legacy() {
     # and keep the consumer files bit-identical (they are PRESERVE_FILES).
     ws="$BATS_TEST_TMPDIR/e2e-885-infer-ambiguous"
     mkdir -p "$ws"
-    run _scaffold devcontainer "$ws"
+    run _clone_shared devcontainer "$ws"
     assert_success
     _make_legacy_manifest "$ws"
     printf '# SENTINEL-885 my own flake\n' > "$ws/flake.nix"
@@ -3370,7 +3425,7 @@ _upgrade_legacy() {
     # silently re-adds .devcontainer/ to a direnv-shaped repo.
     ws="$BATS_TEST_TMPDIR/e2e-885-torn"
     mkdir -p "$ws"
-    run _scaffold direnv "$ws"
+    run _clone_shared direnv "$ws"
     assert_success
     _make_legacy_manifest "$ws"
     git init -q "$ws"
@@ -3421,7 +3476,7 @@ _upgrade_legacy() {
 @test "init-workspace --mode=bare scaffolds the standards layer only (#885)" {
     ws="$BATS_TEST_TMPDIR/e2e-bare"
     mkdir -p "$ws"
-    run _scaffold bare "$ws"
+    run _clone_shared bare "$ws"
     assert_success
     # pruned: container and flake machinery
     run test -e "$ws/.devcontainer"
@@ -3448,7 +3503,7 @@ _upgrade_legacy() {
     real_just="$(command -v just)"
     ws="$BATS_TEST_TMPDIR/e2e-bare-just"
     mkdir -p "$ws"
-    run _scaffold bare "$ws"
+    run _clone_shared bare "$ws"
     assert_success
     run bash -c "cd '$ws' && '$real_just' --list"
     assert_success
@@ -3643,7 +3698,7 @@ _referenced_secrets() {
     # consumer's release train unlinted.
     local ws="$BATS_TEST_TMPDIR/al-trunk"
     mkdir -p "$ws"
-    run _scaffold_ex both "$ws" --workflow trunk
+    run _clone_shared trunk-both "$ws"
     assert_success
     run bash -c "cd '$ws' && git init -q && actionlint"
     assert_success
@@ -3994,8 +4049,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold .gitignore for a Node consumer ignores node_modules et al, never dist/ (#1024)" {
     ws="$BATS_TEST_TMPDIR/e2e-1024-node-gi"
     mkdir -p "$ws"
-    printf '{ "name": "probe" }\n' >"$ws/package.json"
-    run _scaffold both "$ws"
+    run _clone_shared node-both "$ws"
     assert_success
     run cat "$ws/.gitignore"
     assert_success
@@ -4010,8 +4064,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold .gitignore for a Python consumer keeps the Python ignores incl. dist/ (#1024)" {
     ws="$BATS_TEST_TMPDIR/e2e-1024-py-gi"
     mkdir -p "$ws"
-    printf '[project]\nname = "probe"\n' >"$ws/pyproject.toml"
-    run _scaffold both "$ws"
+    run _clone_shared python-both "$ws"
     assert_success
     run cat "$ws/.gitignore"
     assert_success
@@ -4024,7 +4077,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold .gitignore for a language-neutral consumer is base-only (#1024)" {
     ws="$BATS_TEST_TMPDIR/e2e-1024-neutral-gi"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run cat "$ws/.gitignore"
     assert_success
@@ -4048,8 +4101,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold codeql matrix for a Node consumer is javascript-typescript + actions (#1025)" {
     ws="$BATS_TEST_TMPDIR/e2e-1025-node-cq"
     mkdir -p "$ws"
-    printf '{ "name": "probe" }\n' >"$ws/package.json"
-    run _scaffold both "$ws"
+    run _clone_shared node-both "$ws"
     assert_success
     run grep -E '^[[:space:]]*language:' "$ws/.github/workflows/codeql.yml"
     assert_success
@@ -4061,8 +4113,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold codeql matrix for a Python consumer is python + actions (#1025)" {
     ws="$BATS_TEST_TMPDIR/e2e-1025-py-cq"
     mkdir -p "$ws"
-    printf '[project]\nname = "probe"\n' >"$ws/pyproject.toml"
-    run _scaffold both "$ws"
+    run _clone_shared python-both "$ws"
     assert_success
     run grep -E '^[[:space:]]*language:' "$ws/.github/workflows/codeql.yml"
     assert_success
@@ -4087,8 +4138,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold codeql.yml documents the GitHub default code-scanning conflict (#1025)" {
     ws="$BATS_TEST_TMPDIR/e2e-1025-doc"
     mkdir -p "$ws"
-    printf '{ "name": "probe" }\n' >"$ws/package.json"
-    run _scaffold both "$ws"
+    run _clone_shared node-both "$ws"
     assert_success
     run cat "$ws/.github/workflows/codeql.yml"
     assert_success
@@ -4108,8 +4158,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold codeql push paths for a Node consumer are TS/JS globs + workflows (#1142)" {
     ws="$BATS_TEST_TMPDIR/e2e-1142-node-paths"
     mkdir -p "$ws"
-    printf '{ "name": "probe" }\n' >"$ws/package.json"
-    run _scaffold both "$ws"
+    run _clone_shared node-both "$ws"
     assert_success
     run cat "$ws/.github/workflows/codeql.yml"
     assert_success
@@ -4124,8 +4173,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold codeql push paths for a Python consumer are '**.py' + workflows (#1142)" {
     ws="$BATS_TEST_TMPDIR/e2e-1142-py-paths"
     mkdir -p "$ws"
-    printf '[project]\nname = "probe"\n' >"$ws/pyproject.toml"
-    run _scaffold both "$ws"
+    run _clone_shared python-both "$ws"
     assert_success
     run cat "$ws/.github/workflows/codeql.yml"
     assert_success
@@ -4150,7 +4198,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold codeql push paths for a marker-less consumer are workflows-only (#1142)" {
     ws="$BATS_TEST_TMPDIR/e2e-1142-bare-paths"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run cat "$ws/.github/workflows/codeql.yml"
     assert_success
@@ -4220,8 +4268,7 @@ _RELEASE_RESOLVERS_991=(
 @test "first scaffold of a Node consumer seeds npm justfile.project recipes (#1027)" {
     ws="$BATS_TEST_TMPDIR/e2e-1027-node-seed"
     mkdir -p "$ws"
-    printf '{ "name": "probe" }\n' >"$ws/package.json"
-    run _scaffold both "$ws"
+    run _clone_shared node-both "$ws"
     assert_success
     run cat "$ws/justfile.project"
     assert_success
@@ -4241,8 +4288,7 @@ _RELEASE_RESOLVERS_991=(
 @test "first scaffold of a Node consumer substitutes the project placeholder (#1027)" {
     ws="$BATS_TEST_TMPDIR/e2e-1027-node-subst"
     mkdir -p "$ws"
-    printf '{ "name": "probe" }\n' >"$ws/package.json"
-    run _scaffold both "$ws"
+    run _clone_shared node-both "$ws"
     assert_success
     run cat "$ws/justfile.project"
     assert_success
@@ -4270,8 +4316,7 @@ _RELEASE_RESOLVERS_991=(
 @test "first scaffold of a Python consumer keeps the uv template, not npm (#1027)" {
     ws="$BATS_TEST_TMPDIR/e2e-1027-py-notseeded"
     mkdir -p "$ws"
-    printf '[project]\nname = "probe"\n' >"$ws/pyproject.toml"
-    run _scaffold both "$ws"
+    run _clone_shared python-both "$ws"
     assert_success
     run cat "$ws/justfile.project"
     assert_success
@@ -4283,7 +4328,7 @@ _RELEASE_RESOLVERS_991=(
 @test "first scaffold of a language-neutral consumer keeps the default template (#1027)" {
     ws="$BATS_TEST_TMPDIR/e2e-1027-neutral-notseeded"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run cat "$ws/justfile.project"
     assert_success
@@ -4301,8 +4346,7 @@ _RELEASE_RESOLVERS_991=(
 @test "a first-scaffolded Node justfile.project carries the preserved banner (#1055)" {
     ws="$BATS_TEST_TMPDIR/e2e-1055-node-banner"
     mkdir -p "$ws"
-    printf '{ "name": "probe" }\n' >"$ws/package.json"
-    run _scaffold both "$ws"
+    run _clone_shared node-both "$ws"
     assert_success
     run head -1 "$ws/justfile.project"
     assert_success
@@ -4341,8 +4385,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold .gitignore ignores dist/src/ byproducts but keeps dist/index.js tracked (#1092)" {
     ws="$BATS_TEST_TMPDIR/e2e-1092-node-dist"
     mkdir -p "$ws"
-    printf '{ "name": "probe" }\n' >"$ws/package.json"
-    run _scaffold both "$ws"
+    run _clone_shared node-both "$ws"
     assert_success
     run cat "$ws/.gitignore"
     assert_success
@@ -4409,7 +4452,7 @@ _RELEASE_RESOLVERS_991=(
 @test "upgrade migrates consumer-added root .gitignore lines into .gitignore.project (#1111)" {
     ws="$BATS_TEST_TMPDIR/e2e-1111-migrate"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     # Consumer hand-adds root ignores to the managed root .gitignore, as they had
     # to before .gitignore.project existed (#1092).
@@ -4433,7 +4476,7 @@ _RELEASE_RESOLVERS_991=(
 @test "a second upgrade does not re-migrate already-migrated root ignores (#1111)" {
     ws="$BATS_TEST_TMPDIR/e2e-1111-idempotent"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     printf '.DS_Store\nmy-secret-dir/\n' >>"$ws/.gitignore"
     run _upgrade both "$ws"
@@ -4450,7 +4493,7 @@ _RELEASE_RESOLVERS_991=(
 @test "managed template/fragment ignore lines are never migrated into .gitignore.project (#1111)" {
     ws="$BATS_TEST_TMPDIR/e2e-1111-managed"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     # Add one genuinely consumer-owned line to the managed root .gitignore.
     printf 'consumer-only-dir/\n' >>"$ws/.gitignore"
@@ -4476,7 +4519,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold-committed .envrc is never migrated into .gitignore.project (#1145)" {
     ws="$BATS_TEST_TMPDIR/e2e-1145-envrc"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     # The old Python-template root .gitignore shipped an `.envrc` entry; in
     # direnv mode .envrc is a scaffold-committed file, so migrating the entry
@@ -4500,8 +4543,7 @@ _RELEASE_RESOLVERS_991=(
     ws="$BATS_TEST_TMPDIR/e2e-1145-crosslang"
     mkdir -p "$ws"
     # Node-only marker: python is NOT among the detected languages.
-    printf '{ "name": "probe" }\n' >"$ws/package.json"
-    run _scaffold both "$ws"
+    run _clone_shared node-both "$ws"
     assert_success
     # The repo once used the Python-flavored managed template; its old root
     # .gitignore still carries Python fragment lines. Those are devkit template
@@ -4602,7 +4644,7 @@ _RELEASE_RESOLVERS_991=(
 @test "trunk scaffold omits sync-main-to-dev.yml (#1205)" {
     ws="$BATS_TEST_TMPDIR/e2e-1205-trunk-no-sync"
     mkdir -p "$ws"
-    run _scaffold_ex both "$ws" --workflow trunk
+    run _clone_shared trunk-both "$ws"
     assert_success
     run test -f "$ws/.github/workflows/sync-main-to-dev.yml"
     assert_failure
@@ -4617,7 +4659,7 @@ _RELEASE_RESOLVERS_991=(
     # resolve-image action, and the setup-devkit-toolchain composite is present.
     ws="$BATS_TEST_TMPDIR/e2e-1205-trunk-991"
     mkdir -p "$ws"
-    run _scaffold_ex both "$ws" --workflow trunk
+    run _clone_shared trunk-both "$ws"
     assert_success
     wf="$ws/.github/workflows/prepare-release.yml"
     run grep -q 'ghcr.io/vig-os/devcontainer:' "$wf"
@@ -4639,7 +4681,7 @@ _RELEASE_RESOLVERS_991=(
     # preview is side-effect-free (the file stays in place).
     ws="$BATS_TEST_TMPDIR/e2e-1205-preview-delete"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run test -f "$ws/.github/workflows/sync-main-to-dev.yml"
     assert_success
@@ -4658,7 +4700,7 @@ _RELEASE_RESOLVERS_991=(
     # refused outside --preview / --smoke-test (the topology switch is deliberate).
     ws="$BATS_TEST_TMPDIR/e2e-1205-contradict-gitflow"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's/^DEVKIT_WORKFLOW=$/DEVKIT_WORKFLOW=gitflow/' "$ws/.vig-os"
     run _scaffold_ex both "$ws" --workflow trunk
@@ -4671,7 +4713,7 @@ _RELEASE_RESOLVERS_991=(
     # a later --workflow gitflow contradicts it and is refused.
     ws="$BATS_TEST_TMPDIR/e2e-1205-contradict-trunk"
     mkdir -p "$ws"
-    run _scaffold_ex both "$ws" --workflow trunk
+    run _clone_shared trunk-both "$ws"
     assert_success
     run grep -q '^DEVKIT_WORKFLOW=trunk$' "$ws/.vig-os"
     assert_success
@@ -4685,7 +4727,7 @@ _RELEASE_RESOLVERS_991=(
     # it must not trip the contradiction guard even against a persisted value.
     ws="$BATS_TEST_TMPDIR/e2e-1205-preview-bypass"
     mkdir -p "$ws"
-    run _scaffold_ex both "$ws" --workflow trunk
+    run _clone_shared trunk-both "$ws"
     assert_success
     run _preview "$ws" --mode both --workflow gitflow
     assert_success
@@ -4749,7 +4791,7 @@ _seed_license() {
     # --force re-added the file and the consumer had to delete it again.
     ws="$BATS_TEST_TMPDIR/e2e-1651-changelog-sticky"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run test -f "$ws/CHANGELOG.md"
     assert_success
@@ -4766,7 +4808,7 @@ _seed_license() {
     # prune never deletes it — it says so and leaves it alone.
     ws="$BATS_TEST_TMPDIR/e2e-1651-changelog-kept"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     printf '\n<!-- SENTINEL-1651 -->\n' >>"$ws/CHANGELOG.md"
     _seed_features_disabled "$ws" "release"
@@ -4799,7 +4841,7 @@ _seed_license() {
 @test "a deleted LICENSE stays deleted under DEVKIT_LICENSE=none (#1651)" {
     ws="$BATS_TEST_TMPDIR/e2e-1651-license-none-sticky"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     _seed_license "$ws" none
     rm -f "$ws/LICENSE"
@@ -4817,7 +4859,7 @@ _seed_license() {
     # license file is the consumer's legal record, like their CHANGELOG.
     ws="$BATS_TEST_TMPDIR/e2e-1651-license-none-keep"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     _seed_license "$ws" none
     run _upgrade_no_flags "$ws"
@@ -4831,7 +4873,7 @@ _seed_license() {
     # the file is untouched scaffold output, so the knob can fix it.
     ws="$BATS_TEST_TMPDIR/e2e-1651-license-proprietary"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     _seed_license "$ws" proprietary
     run _upgrade_no_flags "$ws"
@@ -4873,7 +4915,7 @@ _seed_license() {
     # about a mutation is the one thing it may never be.
     ws="$BATS_TEST_TMPDIR/e2e-1651-license-preview-proprietary"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     _seed_license "$ws" proprietary
     run _preview "$ws" --mode both
@@ -4890,7 +4932,7 @@ _seed_license() {
     # must recognize its own output instead of nagging on every upgrade.
     ws="$BATS_TEST_TMPDIR/e2e-1651-license-proprietary-idempotent"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     _seed_license "$ws" proprietary
     run _upgrade_no_flags "$ws"
@@ -4907,7 +4949,7 @@ _seed_license() {
     # text — report it, never overwrite it.
     ws="$BATS_TEST_TMPDIR/e2e-1651-license-proprietary-custom"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     printf '\nSENTINEL-1651 consumer addendum\n' >>"$ws/LICENSE"
     _seed_license "$ws" proprietary
@@ -4933,7 +4975,7 @@ _seed_license() {
 @test "a whitespace-padded feature list is accepted (#1284)" {
     ws="$BATS_TEST_TMPDIR/e2e-1284-whitespace"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     _seed_features_disabled "$ws" " renovate ,  scanning "
     run _upgrade_no_flags "$ws"
@@ -5049,7 +5091,7 @@ _seed_license() {
 @test "--preview never lists a disabled feature's files as ADDED and names the disabled set (#1284)" {
     ws="$BATS_TEST_TMPDIR/e2e-1284-preview-added"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     _seed_features_disabled "$ws" "scanning"
     # Remove the group's files so they WOULD be re-added by an ordinary upgrade.
@@ -5066,7 +5108,7 @@ _seed_license() {
 @test "adding the key on an upgrade prunes a previously scaffolded feature (#1284)" {
     ws="$BATS_TEST_TMPDIR/e2e-1284-upgrade-prune"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run test -f "$ws/.github/workflows/release.yml"
     assert_success
@@ -5092,7 +5134,7 @@ _seed_license() {
 @test "--preview lists a pre-existing disabled feature's files under DELETIONS (#1284)" {
     ws="$BATS_TEST_TMPDIR/e2e-1284-preview-delete"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     _seed_features_disabled "$ws" "scanning"
     run _preview "$ws" --mode both
@@ -5107,7 +5149,7 @@ _seed_license() {
 @test "a preserved-class extension seam survives a disabled feature with a notice (#1284)" {
     ws="$BATS_TEST_TMPDIR/e2e-1284-preserved"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     # Consumer customization sentinel in the extension seam + renovate.json.
     printf '# SENTINEL-EXT\n' >>"$ws/.github/workflows/release-extension.yml"
@@ -5135,7 +5177,7 @@ _seed_license() {
 @test "clearing the key re-ships a previously disabled feature (#1284)" {
     ws="$BATS_TEST_TMPDIR/e2e-1284-reenable"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     _seed_features_disabled "$ws" "scanning"
     run _upgrade_no_flags "$ws"
@@ -5155,7 +5197,7 @@ _seed_license() {
 @test "disabling sync-issues with a sync target set warns but does not abort (#1284)" {
     ws="$BATS_TEST_TMPDIR/e2e-1284-contradiction"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
     _seed_features_disabled "$ws" "sync-issues"
@@ -5172,7 +5214,7 @@ _seed_license() {
 @test "trunk workflow plus a disabled release feature compose without double-reporting (#1284)" {
     ws="$BATS_TEST_TMPDIR/e2e-1284-compose"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run test -f "$ws/.github/workflows/sync-main-to-dev.yml"
     assert_success
@@ -5300,7 +5342,7 @@ _py_ws_uv_exit() {
     # there is no justfile route to an actionlint label.
     ws="$BATS_TEST_TMPDIR/e2e-1660-preserved"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run grep -q 'upgrades never overwrite this file' "$ws/.github/actionlint.yaml"
     assert_success
@@ -5358,7 +5400,7 @@ assert 'shellcheck' in ids and 'pymarkdown' in ids, ids
     # never deleted by a feature prune, only reported.
     ws="$BATS_TEST_TMPDIR/e2e-1660-optout-kept"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     printf '\n# SENTINEL-1660-OPTOUT\n' >>"$ws/.github/actionlint.yaml"
     _seed_features_disabled "$ws" "actionlint"
@@ -5440,7 +5482,7 @@ assert 'shellcheck' in ids and 'pymarkdown' in ids, ids
 @test "the release-recipe excision is idempotent across upgrades (#1656)" {
     ws="$BATS_TEST_TMPDIR/e2e-1656-optout-idempotent"
     mkdir -p "$ws"
-    run _scaffold both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run grep -qE '^reset-changelog:' "$ws/.devcontainer/justfile.gh"
     assert_success
