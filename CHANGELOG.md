@@ -137,6 +137,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A hung release-neutral guard no longer leaves its last positive verdict
+  standing** ([#1712](https://github.com/vig-os/devkit/issues/1712))
+  - The job's `timeout-minutes` expiry *cancels* the job, so the step that hung
+    reported `cancelled` and gate 6 — which runs on `!cancelled()` — was skipped:
+    a run that proved nothing left the previous "This change is release-neutral"
+    comment as the pull request's only verdict, and a label-event run cannot even
+    be superseded, so nothing else would rewrite it. The toolchain set-up, gate 2
+    and the `.vulnixignore` extra now carry their own step budgets (10, 10 and 60
+    minutes, summing to less than the job's 90), so a hang fails the *step* while
+    the job survives to post a refusal.
+  - Gate 6's outcome scan also selected on the literal `failure`, which read a
+    `cancelled` step as green and fell through to the positive verdict. It now
+    takes the first outcome that is neither `success` nor `skipped`, and words a
+    cancelled step as infrastructure — "timed out or was cancelled before
+    completing" — whichever step it was, since a step that never finished refused
+    nothing. The remaining cancellations are a manual cancel and a lost runner,
+    where skipping the verdict stays correct.
+
 - **The release-neutral guard rewrites its verdict comment when the proof fails**
   ([#1705](https://github.com/vig-os/devkit/issues/1705))
   - Gate 6 posted the verdict under a bare `if: env.ACTIVE == 'true'`, whose
