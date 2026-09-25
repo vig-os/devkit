@@ -16,14 +16,21 @@ setup() {
 # reused by every test that only reads a rendered tree — tests that mutate a
 # workspace (upgrades, seeds, previews, prunes) keep their per-test scaffolds.
 setup_file() {
-    local root stub mode ws
+    local root stub mode
     root="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     stub="$BATS_FILE_TMPDIR/shared-stub-bin"
     mkdir -p "$stub"
     printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
     chmod +x "$stub/just"
-    for mode in devcontainer direnv both bare; do
-        ws="$BATS_FILE_TMPDIR/shared-$mode"
+
+    # Render $BATS_FILE_TMPDIR/shared-<fixture> exactly as _scaffold /
+    # _scaffold_ex would: same stubbed `just`, same TEMPLATE_DIR/SHORT_NAME/
+    # GITHUB_REPOSITORY, same --force --no-prompts --mode, plus any extra args.
+    # Seed marker files into the fixture directory before calling.
+    _render_shared() {
+        local fixture="$1" mode="$2" ws
+        shift 2
+        ws="$BATS_FILE_TMPDIR/shared-$fixture"
         mkdir -p "$ws"
         env PATH="$stub:$PATH" \
             TEMPLATE_DIR="$root/assets/workspace" \
@@ -31,16 +38,64 @@ setup_file() {
             SHORT_NAME=testproj \
             GITHUB_REPOSITORY=test/repo \
             bash "$root/assets/init-workspace.sh" --force --no-prompts \
-            --mode "$mode" >"$ws.log" 2>&1 || {
-            echo "shared $mode scaffold failed:" >&2
+            --mode "$mode" "$@" >"$ws.log" 2>&1 || {
+            echo "shared $fixture scaffold failed:" >&2
             cat "$ws.log" >&2
             return 1
         }
+    }
+
+    for mode in devcontainer direnv both bare; do
+        _render_shared "$mode" "$mode" || return 1
     done
+
+    # Language-marker variants of the both-mode scaffold (#1687): the marker
+    # file is seeded before the render, so the fixture carries it exactly as the
+    # per-test scaffolds it replaces did.
+    mkdir -p "$BATS_FILE_TMPDIR/shared-node-both"
+    printf '{ "name": "probe" }\n' >"$BATS_FILE_TMPDIR/shared-node-both/package.json"
+    _render_shared node-both both || return 1
+    mkdir -p "$BATS_FILE_TMPDIR/shared-python-both"
+    printf '[project]\nname = "probe"\n' >"$BATS_FILE_TMPDIR/shared-python-both/pyproject.toml"
+    _render_shared python-both both || return 1
+
+    # Trunk workflow model on an otherwise stock both-mode tree (#1205).
+    _render_shared trunk-both both --workflow trunk || return 1
 }
 
-# Path of the shared read-only scaffold for delivery mode $1 (#1417).
+# Path of the shared read-only scaffold fixture $1 (#1417). Fixture names are
+# the four delivery modes plus the node-both/python-both/trunk-both variants
+# rendered by setup_file above.
 _shared_tree() { printf '%s/shared-%s' "$BATS_FILE_TMPDIR" "$1"; }
+
+# Copy the setup_file-rendered fixture $1 into the absent-or-empty workspace $2
+# instead of re-rendering it (#1687). `cp -a` is ~36ms against ~1770ms for a
+# render.
+#
+# CONTRACT: the clone is byte- and permission-identical to what the fixture's
+# own invocation (`_scaffold <mode>`, or the seed + flags recorded next to it in
+# setup_file) would have produced in an empty directory. This holds because the
+# render is path-independent — .vig-os carries no absolute path, and two renders
+# into different directories are `diff -r` clean with identical modes.
+#
+# So this is valid ONLY as a pure-setup replacement. A test whose subject is the
+# scaffold run itself — it asserts on that run's $output/$stderr, or on a
+# failure — or which seeds files the shared render did not, or passes flags it
+# did not, must keep its real invocation.
+_clone_shared() {
+    local fixture="$1" ws="$2" src
+    src="$(_shared_tree "$fixture")"
+    if [[ ! -d "$src" ]]; then
+        echo "_clone_shared: no shared fixture '$fixture'" >&2
+        return 1
+    fi
+    if [[ -d "$ws" ]] && [[ -n "$(ls -A "$ws")" ]]; then
+        echo "_clone_shared: refusing to clobber non-empty '$ws'" >&2
+        return 1
+    fi
+    mkdir -p "$ws" || return 1
+    cp -a "$src/." "$ws/"
+}
 
 # ── Claude-native template scaffold (#629) ────────────────────────────────────
 # init-workspace.sh rsyncs assets/workspace/ verbatim into a new workspace, so
