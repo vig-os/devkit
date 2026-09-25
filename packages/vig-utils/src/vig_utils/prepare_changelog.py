@@ -21,9 +21,10 @@ def _unreleased_body(content):
 
     Bounded by any ``## `` heading rather than by ``## [``: on a bare
     ``## Unreleased`` the separating newline is consumed by the heading match
-    itself, so a ``\n## [`` lookahead never fires and the capture used to run to
-    end of file — handing the PREVIOUS release's subsections back as unreleased
-    content (#1689). Returns ``None`` when there is no ``## Unreleased`` heading.
+    itself, so a lookahead for a newline before ``## [`` never fires and the
+    capture used to run to end of file — handing the PREVIOUS release's
+    subsections back as unreleased content (#1689). Returns ``None`` when there
+    is no ``## Unreleased`` heading.
     """
     match = re.search(
         r"^## Unreleased[ \t]*\n(.*?)(?=^## |\Z)",
