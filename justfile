@@ -246,9 +246,9 @@ test-bats:
     #!/usr/bin/env bash
     # bats and its helper libraries come from the flake (the toolchain SSoT);
     # the wrapper exports BATS_LIB_PATH so test_helper.bash resolves them. #695.
-    # Jobs are spread WITHIN files by bats' own --jobs (GNU parallel rides with
-    # the wrapper): ~80% of the suite's runtime sits in one file, so a job per
-    # file is the wrong axis. Refs #1687.
+    # Jobs are spread WITHIN files by bats' own --jobs (the rush parallel runner
+    # rides with the wrapper): ~80% of the suite's runtime sits in one file, so a
+    # job per file is the wrong axis. Refs #1687, #1708.
     echo "Running BATS tests with $(nproc) jobs..."
     bats -j "$(nproc)" tests/bats/
 

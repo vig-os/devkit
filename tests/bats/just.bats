@@ -503,15 +503,16 @@ STUB
 
 # ── BATS runs under --jobs (#1687) ────────────────────────────────────────────
 # The suite is the long pole of CI, and ~80% of its time sits inside a single
-# file, so the jobs have to be spread WITHIN files: `bats -j`, not one GNU
-# parallel job per file. Both entry points (the local recipe and the composite
-# action CI runs) must use it; `parallel` rides with bats in nix/bats.nix.
+# file, so the jobs have to be spread WITHIN files: `bats -j`, not one parallel
+# job per file. Both entry points (the local recipe and the composite action CI
+# runs) must use it; the parallel runner (rush, not GNU parallel — #1708) rides
+# with bats in nix/bats.nix.
 
 @test "test-bats recipe runs the suite with bats --jobs (#1687)" {
     run bash -lc "grep -Fq -- 'bats -j \"\$(nproc)\" tests/bats/' '$PROJECT_ROOT/justfile'"
     assert_success
-    # The dead per-file GNU-parallel branch is gone (file-level jobs are the
-    # wrong axis, and `parallel` was never on PATH for the check to hit).
+    # The dead per-file `parallel` branch is gone (file-level jobs are the wrong
+    # axis, and no `parallel` was ever on PATH for the check to hit).
     run bash -lc "grep -Fq -- 'command -v parallel' '$PROJECT_ROOT/justfile'"
     assert_failure
 }
