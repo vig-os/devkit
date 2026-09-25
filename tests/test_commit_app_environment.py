@@ -17,6 +17,11 @@ Two shapes are load-bearing and only a render test can pin them:
 
 - the binding lands on the jobs that MINT the token and on no other job in the
   tree (a stray binding gates an unrelated job on a deployment policy);
+- the name is rendered as a **quoted** YAML scalar. The allowed charset admits
+  YAML 1.1 bool/number shapes (``true``, ``no``, ``0755``, ``1e3``), which an
+  unquoted scalar parses as ``True`` / ``False`` / ``493`` / ``1000.0`` — and
+  ``actionlint`` does not flag it, so the first failure would be GitHub rejecting
+  the dispatch in a consumer's repo;
 - ``release-core.yml`` is a ``workflow_call`` CALLEE, so the key goes on its
   ``finalize`` job (``on.workflow_call`` takes no ``environment``) and its two
   ``COMMIT_APP_*`` declarations must flip to ``required: false`` — with the pair
@@ -127,6 +132,17 @@ def _environment_of(tree: Path, workflow: str, job: str) -> object:
     ]
 
 
+def _environment_line(tree: Path, workflow: str, job: str) -> str:
+    """The raw line the render inserted under ``  <job>:`` (as bytes on disk)."""
+    lines = (
+        (tree / ".github" / "workflows" / workflow)
+        .read_text(encoding="utf-8")
+        .splitlines()
+    )
+    idx = lines.index(f"  {job}:")
+    return lines[idx + 1]
+
+
 def _call_secrets(tree_or_template: Path) -> dict:
     """``on.workflow_call.secrets`` of a release-core.yml copy."""
     doc = load_workflow(tree_or_template)
@@ -185,9 +201,10 @@ def test_set_binds_exactly_the_token_minting_jobs(tmp_path: Path) -> None:
 def test_set_binds_the_named_environment(
     workflow: str, job: str, tmp_path: Path
 ) -> None:
-    """Each bound job names the configured environment verbatim."""
+    """Each bound job names the configured environment verbatim, quoted."""
     tree = _render(tmp_path, name=f"named-{workflow}-{job}")
     assert _environment_of(tree, workflow, job) == ENV_NAME
+    assert _environment_line(tree, workflow, job) == f"    environment: '{ENV_NAME}'"
 
 
 def test_set_leaves_the_caller_uses_job_unbound(tmp_path: Path) -> None:
@@ -246,6 +263,43 @@ def test_release_opt_out_binds_only_the_workflows_it_ships(tmp_path: Path) -> No
         tmp_path, name="no-release", extra="DEVKIT_FEATURES_DISABLED=release\n"
     )
     assert _bound_jobs(tree) == {("sync-issues.yml", "sync")}
+
+
+# ── the name is a quoted scalar, never a YAML 1.1 bool/number ────────────────
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "true",  # YAML 1.1 bool -> True
+        "no",  # YAML 1.1 bool -> False
+        "0755",  # octal int -> 493
+        "1e3",  # float -> 1000.0
+    ],
+)
+def test_yaml_typed_name_stays_a_string(tmp_path: Path, name: str) -> None:
+    """A name shaped like a YAML bool/number is rendered quoted, so it stays text.
+
+    ``[A-Za-z0-9._-]`` admits these, and an unquoted scalar makes the job's
+    ``environment`` a bool/int — a shape GitHub rejects at dispatch and
+    ``actionlint`` does not flag, so it would first surface in a consumer's repo.
+    """
+    tree = _render(tmp_path, name=f"typed-{name}", environment=name)
+    value = _environment_of(tree, "sync-issues.yml", "sync")
+    assert isinstance(value, str), f"{name!r} rendered as {type(value).__name__}"
+    assert value == name
+    assert _environment_line(tree, "sync-issues.yml", "sync") == (
+        f"    environment: '{name}'"
+    )
+
+
+def test_every_bound_job_carries_a_quoted_name(tmp_path: Path) -> None:
+    """The quoting is the render's shape, not a per-file accident."""
+    tree = _render(tmp_path, name="quoted-all")
+    for workflow, job in TOKEN_MINTING_JOBS:
+        assert _environment_line(tree, workflow, job) == (
+            f"    environment: '{ENV_NAME}'"
+        )
 
 
 # ── sync-mirror composition (#1424) ──────────────────────────────────────────
