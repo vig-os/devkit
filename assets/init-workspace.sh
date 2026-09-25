@@ -397,6 +397,7 @@ MANIFEST_DEV_PROFILE_PATH="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_DEV_P
 MANIFEST_WORKFLOW="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_WORKFLOW || true)"
 MANIFEST_SYNC_TARGET="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_TARGET || true)"
 MANIFEST_SYNC_SCHEDULE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_SCHEDULE || true)"
+MANIFEST_COMMIT_APP_ENVIRONMENT="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_COMMIT_APP_ENVIRONMENT || true)"
 MANIFEST_FEATURES_DISABLED="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FEATURES_DISABLED || true)"
 MANIFEST_LICENSE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_LICENSE || true)"
 
@@ -509,6 +510,22 @@ fi
 if [[ -n "$MANIFEST_SYNC_SCHEDULE" ]] && ! is_valid_cron "$MANIFEST_SYNC_SCHEDULE"; then
     echo "Error: Invalid DEVKIT_SYNC_SCHEDULE in $VIG_OS_MANIFEST: $MANIFEST_SYNC_SCHEDULE (expected a 5-field cron expression, e.g. '0 2 * * *')" >&2
     exit 1
+fi
+
+# Commit-App environment binding (#1710): the value is spliced verbatim into the
+# rendered workflows as an UNQUOTED YAML scalar through a sed replacement, so —
+# exactly as for DEVKIT_SYNC_TARGET above — the LOAD-BEARING guard is a strict
+# charset allowlist. GitHub itself constrains an environment name only to "<= 255
+# characters, case-insensitive, unique within the repository", and therefore
+# accepts names (quotes, `$`, backticks, `&`, `#`, `|`, `/`, inner spaces) that
+# would render invalid YAML or crash/mis-splice the render sed. Pure `.vig-os`
+# key (no CLI flag), so only a format guard.
+if [[ -n "$MANIFEST_COMMIT_APP_ENVIRONMENT" ]]; then
+    if [[ ! "$MANIFEST_COMMIT_APP_ENVIRONMENT" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
+        || ((${#MANIFEST_COMMIT_APP_ENVIRONMENT} > 255)); then
+        echo "Error: Invalid DEVKIT_COMMIT_APP_ENVIRONMENT in $VIG_OS_MANIFEST: $MANIFEST_COMMIT_APP_ENVIRONMENT (expected a GitHub environment name of at most 255 characters using only [A-Za-z0-9._-] and starting with a letter or digit)" >&2
+        exit 1
+    fi
 fi
 
 # Scaffold feature opt-outs (#1284): DEVKIT_FEATURES_DISABLED is a
@@ -2305,6 +2322,86 @@ YAML
     echo "Rendered sync-issues settings (target=${MANIFEST_SYNC_TARGET:-default}, schedule=${MANIFEST_SYNC_SCHEDULE:-default})"
 }
 
+# Render the commit-App environment binding (#1710): bind every scaffolded job
+# that MINTS the commit App token to a GitHub deployment environment, so
+# COMMIT_APP_CLIENT_ID / COMMIT_APP_PRIVATE_KEY can live as ENVIRONMENT secrets
+# behind a deployment branch policy instead of as org/repo secrets that a job on
+# ANY branch can read — the commit App usually carries a branch-protection
+# bypass, so that surface let any write-access account push a branch, mint the
+# token and write straight past the default branch's protection. A no-op when
+# DEVKIT_COMMIT_APP_ENVIRONMENT is unset, so an unconfigured workspace stays
+# byte-for-byte unchanged (the knob's whole contract for existing consumers).
+#
+# The pair list is `grep COMMIT_APP .github/workflows/` reduced to the job that
+# owns each create-github-app-token step, PLUS the `reset-sync-mirror` job that
+# render_sync_settings appends to promote-release.yml in mirror mode (#1424) —
+# which mints the same token and no template grep can see. Hence the position
+# AFTER that render. Every entry is `-f`-guarded AND skipped when its job key is
+# absent, so one list covers the trunk model (which copy-excludes
+# sync-main-to-dev.yml and prepare-hotfix.yml), the feature opt-outs (a
+# release-less or sync-less consumer) and the mirror-mode job with no branching.
+# Job keys are unique per file at two-space indent, and a mapping key's position
+# carries no meaning, so `environment: '<name>'` is appended as the job's first
+# key; a job already carrying one is skipped (the prefix test tolerates the quote),
+# so a re-render over an un-recopied tree cannot stack a second key.
+# prepare-release-extension.yml is PRESERVED (the consumer's own) and its template
+# mints nothing — a consumer whose extension does adds the key there itself, which
+# is a documented note, not a render.
+#
+# The name is rendered SINGLE-QUOTED, unconditionally. The allowed charset admits
+# YAML 1.1 bool and number shapes — `true`/`no` parse as booleans, `0755` as the
+# integer 493, `1e3` as a float — and an unquoted scalar hands GitHub a non-string
+# `environment`, which it rejects at dispatch. actionlint does not flag it, so the
+# first failure would be in a consumer's repo. Quoting is always safe here because
+# the guard already refuses `'` (and everything else that would need escaping).
+#
+# release-core.yml is the odd one out: it is a `workflow_call` CALLEE, where
+# `on.workflow_call` takes no `environment` and the `github` context is the
+# CALLER's — so the key goes on its `finalize` job, never on release.yml's
+# `core:` (`uses:`) job, which GitHub does not allow to carry `environment`. And
+# with the pair held ONLY as environment secrets, the caller's `secrets: inherit`
+# resolves nothing, which a `required: true` declaration refuses before the
+# callee's job (and its environment) ever starts — hence the `required: false`
+# flip, after which the job-level environment is what supplies them.
+render_commit_app_environment() {
+    [[ -n "$MANIFEST_COMMIT_APP_ENVIRONMENT" ]] || return 0
+
+    local env_name="$MANIFEST_COMMIT_APP_ENVIRONMENT"
+    local pair wf job f bound=0
+    for pair in \
+        "sync-issues.yml:sync" \
+        "sync-main-to-dev.yml:sync" \
+        "prepare-release.yml:prepare" \
+        "prepare-release.yml:rollback" \
+        "prepare-hotfix.yml:prepare" \
+        "prepare-hotfix.yml:rollback" \
+        "release.yml:rollback" \
+        "release-core.yml:finalize" \
+        "promote-release.yml:reset-sync-mirror"; do
+        wf="${pair%%:*}"
+        job="${pair##*:}"
+        f="$WORKSPACE_DIR/.github/workflows/$wf"
+        [[ -f "$f" ]] || continue
+        grep -q "^  ${job}:\$" "$f" || continue
+        # Idempotence: `sed -n '/job/{n;p;}'` prints the line AFTER the job key.
+        if [[ "$(sed -n "/^  ${job}:\$/{n;p;}" "$f")" == "    environment: "* ]]; then
+            continue
+        fi
+        sed -i "/^  ${job}:\$/a\\    environment: '${env_name}'" "$f"
+        bound=$((bound + 1))
+    done
+
+    # The two workflow_call declarations the caller can no longer satisfy (above).
+    # `{n;n;s/…/}` walks the declaration's own `description:` then `required:`
+    # line, so it can only ever rewrite those two entries' own flag.
+    local rc="$WORKSPACE_DIR/.github/workflows/release-core.yml"
+    if [[ -f "$rc" ]]; then
+        sed -i -E '/^      COMMIT_APP_(CLIENT_ID|PRIVATE_KEY):$/{n;n;s/^(        required: )true$/\1false/}' "$rc"
+    fi
+
+    echo "Rendered commit-App environment binding: ${env_name} (${bound} token-minting job(s))"
+}
+
 # Render the branch guard's dev clause from the workflow model (#1224, #1642).
 #
 # Split out of render_workflow_model, which applies the gitflow -> trunk retarget
@@ -3626,6 +3723,14 @@ if feature_disabled sync-issues; then
 else
     render_sync_settings
 fi
+# Commit-App environment binding (#1710): bind the token-minting jobs to the
+# deployment environment named by DEVKIT_COMMIT_APP_ENVIRONMENT. A no-op when the
+# key is unset. Runs AFTER render_sync_settings, and must: mirror mode RENDERS a
+# ninth token-minting job (promote-release.yml's reset-sync-mirror, #1424) that
+# this render then binds like the rest. The two otherwise compose cleanly — the
+# fold steps that render lands in release-core.yml sit inside the already-bound
+# finalize job, and it never touches a job key this one anchors on.
+render_commit_app_environment
 # Refs exemption (#1282, #1633) + commit types (#1431): render the
 # validate-commit-msg hook's --refs-optional-types / --types from
 # DEVKIT_REFS_OPTIONAL_TYPES / DEVKIT_REFS_POLICY / DEVKIT_COMMIT_TYPES (each
@@ -3706,6 +3811,14 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     fi
     if [[ -n "$MANIFEST_SYNC_SCHEDULE" ]]; then
         write_manifest_value DEVKIT_SYNC_SCHEDULE "$MANIFEST_SYNC_SCHEDULE"
+    fi
+    # Commit-App environment binding (#1710): bare in the template
+    # (DEVKIT_COMMIT_APP_ENVIRONMENT=), so a consumer's environment name is
+    # written back — else an upgrade would silently UNBIND the token-minting jobs
+    # and hand the release train back an org/repo-secret mint. Clearing the key
+    # removes the binding on the next `--force`.
+    if [[ -n "$MANIFEST_COMMIT_APP_ENVIRONMENT" ]]; then
+        write_manifest_value DEVKIT_COMMIT_APP_ENVIRONMENT "$MANIFEST_COMMIT_APP_ENVIRONMENT"
     fi
     # Feature opt-outs (#1284): bare in the template (DEVKIT_FEATURES_DISABLED=),
     # so a consumer's disabled-feature list is read before the overwrite and

@@ -5784,3 +5784,50 @@ _assert_consumer_tokens_intact_1693() {
         refute_output --partial 'testproj'
     done
 }
+
+# ── commit-App environment binding (#1710) ─────────────────────────────────────
+# DEVKIT_COMMIT_APP_ENVIRONMENT renders `environment: <name>` onto the jobs that
+# mint the commit App token, so the COMMIT_APP_* pair can live as environment
+# secrets behind a deployment branch policy. tests/test_commit_app_environment.py
+# pins WHICH jobs are bound (and that no other job is) and the `required: false`
+# flip on release-core.yml's workflow_call declarations; these two cases add what
+# only actionlint can judge — that the inserted key and the flipped secrets block
+# are still valid, semantically consistent workflow YAML. The per-mode fixtures
+# (#995) all render the knob unset, so they never see either shape.
+
+@test "actionlint passes over the commit-App-environment-rendered workflows (#1710, #995)" {
+    ws="$BATS_TEST_TMPDIR/al-1710-env"
+    mkdir -p "$ws"
+    run _clone_shared both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_COMMIT_APP_ENVIRONMENT=.*#DEVKIT_COMMIT_APP_ENVIRONMENT=commit-app#' \
+        "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial 'Rendered commit-App environment binding: commit-app'
+    (
+        cd "$ws" &&
+            git init -q &&
+            actionlint
+    )
+}
+
+@test "actionlint passes over the mirror + commit-App-environment render (#1710, #1424)" {
+    # Mirror mode RENDERS a ninth token-minting job into promote-release.yml, so
+    # the two knobs together produce a job shape neither knob's own fixture has.
+    ws="$BATS_TEST_TMPDIR/al-1710-mirror"
+    mkdir -p "$ws"
+    run _clone_shared both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
+    sed -i 's#^DEVKIT_COMMIT_APP_ENVIRONMENT=.*#DEVKIT_COMMIT_APP_ENVIRONMENT=commit-app#' \
+        "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial 'Rendered commit-App environment binding: commit-app (9 token-minting job(s))'
+    (
+        cd "$ws" &&
+            git init -q &&
+            actionlint
+    )
+}

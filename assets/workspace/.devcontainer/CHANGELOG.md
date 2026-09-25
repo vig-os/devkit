@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Opt-in environment binding for the commit-App token-minting jobs**
+  ([#1710](https://github.com/vig-os/devkit/issues/1710))
+  - The scaffolded workflows mint the commit App token from
+    `COMMIT_APP_CLIENT_ID` / `COMMIT_APP_PRIVATE_KEY`, which as organization or
+    repository secrets are readable by a workflow job on **any** branch. The
+    commit App normally holds a branch-protection bypass, so that surface let any
+    account with write access push a branch, mint the token there and write
+    straight past the default branch's protection — no PR, no required checks
+  - The new `.vig-os` knob `DEVKIT_COMMIT_APP_ENVIRONMENT` renders
+    `environment: '<name>'` onto exactly those jobs — `sync-issues.yml` (`sync`),
+    `prepare-release.yml` and `prepare-hotfix.yml` (`prepare`, `rollback`),
+    `release.yml` (`rollback`), `sync-main-to-dev.yml` (`sync`), mirror mode's
+    rendered `reset-sync-mirror` job — and on the reusable **callee**
+    `release-core.yml`'s `finalize` job, whose two `COMMIT_APP_*`
+    `workflow_call` declarations are flipped to `required: false` because an
+    environment secret cannot arrive through the caller's `secrets: inherit`.
+    Empty (the default) renders today's bytes exactly; the value round-trips
+    across upgrades
+  - Consumer prerequisites: create the environment **before** upgrading (a bound
+    job auto-creates an unprotected one), give it a deployment branch policy
+    admitting `main`, `release/*` and — under gitflow — `dev`, add **no required
+    reviewers** (a second approval would stall the single-approval train), then
+    move the secrets. `prepare-release-extension.yml` is yours: if your extension
+    mints the token, add the key there yourself
+
 - **Release-neutral lane: change `main` without cutting a release**
   ([#1676](https://github.com/vig-os/devkit/issues/1676))
   - `main` could only be written by a release, so a change that alters nothing a

@@ -851,6 +851,7 @@ Release automation relies on two GitHub Apps with different scopes:
 
 Additional requirement:
 - `COMMIT_APP` must be allowed in branch protection bypass rules for `dev` so sync commits can be pushed by automation.
+- **Optional hardening:** with `DEVKIT_COMMIT_APP_ENVIRONMENT` set, the `COMMIT_APP` pair lives as **environment** secrets and the token-minting jobs (including `release-core.yml`'s `finalize`, whose two `COMMIT_APP_*` `workflow_call` declarations the render flips to `required: false`) carry `environment:`. The environment's deployment branch policy must then admit `main`, `release/*` and — under gitflow — `dev`, and must have **no required reviewers**, which would add a second approval to the single-approval train. The callee's job-level environment secret taking precedence over the inherited one is documented by GitHub but was **not yet exercised by a devkit train** at the time of writing: verify it on first adoption by dispatching a candidate release and watching the `finalize` job's `Generate commit app token` step succeed. See [`MIGRATION.md`](MIGRATION.md#bind-the-commit-app-token-minting-jobs-to-a-deployment-environment) ([#1710](https://github.com/vig-os/devkit/issues/1710)).
 - `RELEASE_APP` must be installed on the validation repository (`vig-os/devkit-smoke-test`) with Contents read and Actions read/write permissions so `release.yml` can send `repository_dispatch` and `repository-dispatch.yml` can trigger workflow runs there for candidate and final release validation.
 
 #### prepare-release.yml (Release Preparation Workflow)
