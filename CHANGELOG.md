@@ -120,6 +120,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The release-neutral guard rewrites its verdict comment when the proof fails**
+  ([#1705](https://github.com/vig-os/devkit/issues/1705))
+  - Gate 6 posted the verdict under a bare `if: env.ACTIVE == 'true'`, whose
+    implicit `success()` skipped it after any gate failure and on the `unlabeled`
+    event. Since the verdict became a single sticky comment, the last *positive*
+    verdict then stood as the pull request's only — and permanent — verdict: a
+    reviewer read "This change is release-neutral" after a gate-2 refusal, or
+    after the label had been pulled. The guard is not a required check, so
+    nothing else contradicted it.
+  - The step now runs on `!cancelled()` — never `always()`, since a run cancelled
+    by a superseding head reached no conclusion — and writes one of three bodies:
+    the unchanged verdict, a refusal naming the first failing step and saying
+    whether that was a gate refusal or an infrastructure failure, or an
+    "inactive" stub when the lane label is removed. Every gated step carries an
+    `id` so gate 6 can read its outcome, the checkout and the toolchain set-up
+    included: a failure there skips the gates, and `skipped` is not `failure`.
+  - Deactivation is expressed by a third discriminator read from
+    `github.event.label`, because the `unlabeled` payload has already dropped the
+    label from the pull request's label set. It only ever *edits* an existing
+    verdict, so a pull request labelled and unlabelled without being judged gets
+    no comment at all; and neither non-green body reads the worktree, which after
+    a failed gate 2 is still parked on the base ref.
+
 - **The release-neutral guard no longer cancels its own in-flight run on a label
   event** ([#1698](https://github.com/vig-os/devkit/issues/1698))
   - `release-neutral-guard.yml` triggers on `labeled`/`unlabeled` as well as the

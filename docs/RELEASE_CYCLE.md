@@ -380,9 +380,11 @@ gh workflow run release-neutral-open.yml   -f branch=chore/<issue>-<summary>   -
 | **2** | `devShells.default`, `packages.devkitImage` and `packages.devkitImageEnv` derivation paths are **identical** to `main`'s, compared with the changelog normalized away |
 | **3** | The consumer scaffold under `assets/` is byte-identical |
 | **5** | No `release/*` train is in flight |
-| **6** | Upserts one sticky verdict comment (matched by an HTML marker, so a rerun updates it rather than appending) listing the files carried, and the changelog drift if there is any |
+| **6** | Upserts one sticky verdict comment (matched by an HTML marker, so a rerun updates it rather than appending): the verdict plus the files carried and the changelog drift when every gate passed, a refusal naming the first failing step when one did not, or an “inactive” stub once the `release-neutral` label is removed |
 
 Gate **4** was `main`'s `## Unreleased` is still empty. It is deleted, not renumbered — see [below](#main-may-carry-unshipped-changes).
+
+Gate 6 runs on `!cancelled()` rather than on success, so a failing gate or a removed label **rewrites** the verdict instead of leaving the last positive one standing ([#1705](https://github.com/vig-os/devkit/issues/1705)). It reads each gated step's `outcome` — the checkout and the toolchain set-up included, since a failure there only *skips* the gates — and distinguishes a gate refusal from an infrastructure failure, which proves nothing either way. The deactivation stub is edit-only: a pull request labelled and unlabelled without ever being judged gets no comment at all. Not `always()`: a run cancelled by a superseding head reached no conclusion and must not overwrite the comment.
 
 **Gate 2 is the contract.** Equal derivation paths mean the published artifacts *cannot* differ, whatever the diff touched — a proof rather than an argument about which files happen to be inputs, and deliberately not a path allowlist (which would encode a guess about what is published and need extending for every new kind of release-neutral change). It covers both consumption modes: `devkitImage` for devcontainer consumers, `devShells.default` for `direnv`/`bare` ones, which never pull the image at all.
 
