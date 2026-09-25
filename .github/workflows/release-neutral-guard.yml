@@ -104,6 +104,17 @@ permissions: {}
 # single lane: `false` means QUEUE behind the in-flight run rather than run
 # beside it, so a label event would wait out an in-flight 90-minute vulnix
 # extra — and the label event is exactly the one whose verdict must not be stale.
+#
+# THE COST, stated plainly: label runs neither cancel nor are cancelled, so a
+# burst of ACTIVATING label events runs the gates more than once, concurrently,
+# instead of superseding. The opener's own flow does exactly that — `opened` plus
+# the two `labeled` events GitHub emits for one `gh pr create --label` — so three
+# concurrent ACTIVE runs is the normal case, not an edge one. That is affordable
+# because the gates are eval-only seconds; the one exception is a PR touching
+# `.vulnixignore`, which pays the vulnix extra once per run. The visible
+# duplication is gate 6's, and gate 6 converges: it prunes every marked verdict
+# comment but the newest, so whichever run finishes last leaves exactly one.
+# Accepting duplicate work is the trade for never leaving a `cancelled` run.
 concurrency:
   group: >-
     release-neutral-guard-${{ github.event.pull_request.number }}-${{
@@ -142,6 +153,10 @@ jobs:
         ${{ contains(github.event.pull_request.labels.*.name, 'release-neutral')
         && (github.event.action != 'labeled' && github.event.action != 'unlabeled'
         || github.event.label.name == 'release-neutral') }}
+      # The label SET alone, without the event clause. `ACTIVE` collapses both
+      # into one boolean, which loses the state the scope report has to name:
+      # labelled, but this run was not started by that label.
+      LABELLED: ${{ contains(github.event.pull_request.labels.*.name, 'release-neutral') }}
       BASE_REF: ${{ github.event.pull_request.base.ref }}
 
     steps:
@@ -152,6 +167,14 @@ jobs:
           set -euo pipefail
           if [ "${ACTIVE}" = "true" ]; then
             echo "Lane ACTIVE — this PR carries the \`release-neutral\` label; proving release-neutrality." \
+              >> "$GITHUB_STEP_SUMMARY"
+          elif [ "${LABELLED}" = "true" ]; then
+            # Inactive WITH the label: an unrelated label event. Saying "no
+            # \`release-neutral\` label" here would state the opposite of the
+            # truth and invite a reviewer to add a label already present.
+            echo "Lane inactive for this event — the PR carries the \`release-neutral\` label, but this run was started by an unrelated label change, so the gates do not re-run." \
+              >> "$GITHUB_STEP_SUMMARY"
+            echo "The verdict from the run that *was* about this lane still stands." \
               >> "$GITHUB_STEP_SUMMARY"
           else
             echo "Lane inactive — no \`release-neutral\` label, so this is an ordinary PR to \`main\` (a release PR, say) and the gates do not apply." \
@@ -439,14 +462,20 @@ jobs:
           #
           # Matched by marker rather than `gh pr comment --edit-last`, which
           # edits the acting identity's last comment — for `github-actions[bot]`
-          # that may belong to an entirely different workflow. `--paginate`
-          # applies the filter per page, so `tail -n1` picks the newest match
-          # across pages.
+          # that may belong to an entirely different workflow. The marker reaches
+          # jq through `env.MARKER`, so no quoting of it is ever the shell's job.
+          # The API returns comments oldest-first and `--paginate` applies the
+          # filter per page, so the LAST id printed is always the newest.
           printf '\n%s\n' "$MARKER" >> "${RUNNER_TEMP}/verdict.md"
-          existing=$(gh api --paginate \
-            "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
-            --jq "map(select(.body | contains(\"${MARKER}\"))) | .[-1].id // empty" \
-            | tail -n1)
+
+          marked_ids() {
+            gh api --method GET --paginate \
+              "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+              -f per_page=100 \
+              --jq 'map(select((.body // "") | contains(env.MARKER))) | .[].id'
+          }
+
+          existing=$(marked_ids | tail -n1)
           if [ -n "$existing" ]; then
             gh api --method PATCH \
               "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" \
@@ -456,3 +485,25 @@ jobs:
             gh pr comment "$PR_NUMBER" --body-file "${RUNNER_TEMP}/verdict.md"
             echo "Verdict comment posted"
           fi
+
+          # CONVERGE on one verdict. Label events run in per-run lanes (see
+          # `concurrency:`), so several ACTIVE runs can reach this step at once,
+          # each finding no marker and each creating its own comment — the
+          # upsert alone would leave two or three and only ever patch the
+          # newest. Re-listing AFTER the upsert and deleting all but the newest
+          # makes the last run to finish the one that decides, whatever order
+          # they raced in. Deleting a comment needs no permission beyond the
+          # `pull-requests: write` gate 6 already holds.
+          marked=$(marked_ids)
+          newest=$(printf '%s\n' "$marked" | tail -n1)
+          for id in $marked; do
+            if [ "$id" = "$newest" ]; then
+              continue
+            fi
+            if gh api --method DELETE \
+                 "repos/${GITHUB_REPOSITORY}/issues/comments/${id}"; then
+              echo "Pruned superseded verdict comment ${id}"
+            else
+              echo "::warning::could not prune superseded verdict comment ${id}"
+            fi
+          done
