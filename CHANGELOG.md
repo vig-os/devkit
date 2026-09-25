@@ -113,6 +113,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     writing an empty section. The hotfix lane needs no change — `validate`
     exits 1, the classifier picks `seed`, and `seed` refuses the same input, so
     the lane fails closed instead of losing the entry.
+  - The same guard now runs over the `## [X.Y.Z]` block `prepare` folds back in
+    on a reused release branch, closing the twin of the bug: a bullet written
+    straight under the version heading — the shape the hotfix runbook asks
+    authors to fill in — was dropped just as silently. `validate --version`,
+    the release-time gate in `release.yml` and the scaffold's
+    `release-core.yml`, reads content the same way, so it no longer blesses a
+    section `prepare` would empty on the next cycle.
+  - A **repeated** standard heading (`### Added` twice, the normal result of a
+    hand-resolved merge conflict) is refused as well. Only the first block of
+    each heading was ever read, so the rest was deleted at exit 0. It refuses
+    rather than merging the blocks: a repeated heading means an edit went
+    wrong, and quietly stitching it back together would hide that.
 
 ### Security
 

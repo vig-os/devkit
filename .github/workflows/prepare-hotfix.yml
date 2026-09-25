@@ -171,8 +171,9 @@ jobs:
       # main may carry landed-but-unshipped changes (#1676), so content here is
       # a mode, not a refusal (#1679): a hotfix ships whatever main's head
       # carries. `prepare` freezes those entries, `seed` writes an empty
-      # section — and `prepare` must NEVER run on an empty Unreleased, where it
-      # would scoop the previous release's section instead.
+      # section. Both commands refuse an Unreleased section they cannot parse
+      # — loose bullets, a repeated `###` heading, nothing to freeze — so a
+      # shape neither can handle fails this step instead of losing an entry (#1689).
       - name: Classify main's Unreleased section
         id: changelog
         env:
@@ -184,10 +185,11 @@ jobs:
             echo "main's ## Unreleased carries unshipped entries; $VERSION will freeze them"
           else
             MODE=seed
-            echo "main's ## Unreleased is empty; $VERSION will be seeded empty for the fix PR"
+            echo "nothing to freeze from main's ## Unreleased; $VERSION will be seeded empty for the fix PR"
           fi
           # Dry probe of the exact call the prepare job will commit (refuses a
-          # missing Unreleased or an existing [VERSION] section); local only.
+          # missing Unreleased, an existing [VERSION] section, or content
+          # neither command can parse); local only.
           uv run prepare-changelog "$MODE" "$VERSION" CHANGELOG.md
           git checkout -- CHANGELOG.md
           echo "changelog_mode=$MODE" >> "$GITHUB_OUTPUT"
