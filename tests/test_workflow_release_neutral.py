@@ -730,19 +730,25 @@ def test_gate_6_refuses_instead_of_repeating_the_positive_verdict() -> None:
     sentence is reachable only when no gate failed.
     """
     code = _verdict_code()
-    assert "failure" in code, (
-        "gate 6 must test the gates' outcomes for `failure`, or it writes the "
-        "same verdict whatever happened"
-    )
+    scan = code.find("for entry in $OUTCOMES")
     positive = code.find("This change is release-neutral")
+    refusal = code.find("This change is NOT release-neutral")
+    assert scan != -1, (
+        "gate 6 must scan the gated steps' outcomes, or it writes the same "
+        "verdict whatever happened"
+    )
     assert positive != -1, "the green verdict's wording must survive unchanged"
-    assert code.find("failure") < positive, (
-        "the outcome test must precede the positive verdict, or the refusal is "
+    assert scan < positive, (
+        "the outcome scan must precede the positive verdict, or the refusal is "
         "written after the pass it is supposed to replace"
     )
-    assert "not release-neutral" in code.lower(), (
+    assert refusal != -1, (
         "the refusal must say so in words — a reviewer reads the comment, not "
         "the job's conclusion"
+    )
+    assert '"$refused" = true' in code[:refusal], (
+        "the refusal wording must sit behind the refused-flag test, or a step "
+        "the runner killed is reported as the gate refusing the change"
     )
 
 
@@ -864,14 +870,14 @@ def _verdict_scan() -> str:
 
 
 def test_verdict_scan_treats_any_non_green_outcome_as_non_green() -> None:
-    """Selecting on `failure` alone reads a timeout as a pass.
+    """Anything that is not green must be reported, not just `failure`.
 
-    A step whose own `timeout-minutes` expires reports `cancelled`, not
-    `failure`; so would a step GitHub cancels for any other reason. A scan that
-    matches the literal `failure` skips such an entry and falls through to the
-    green body, which says "This change is release-neutral" about a run that
-    proved nothing. The scan therefore selects the first entry whose outcome is
-    neither of the two green ones — `success` and `skipped`.
+    Enumerating the BAD outcomes is the fragile direction: a `cancelled` entry
+    (the job was cancelled while this step was in flight) or an outcome nobody
+    anticipated would fall through to the green body, which says "This change is
+    release-neutral" about a run that proved nothing. There are exactly two green
+    outcomes — `success` and `skipped` — so the scan enumerates those and treats
+    every other value, the empty string included, as non-green.
     """
     scan = _verdict_scan()
     assert "success" in scan, (
@@ -883,47 +889,122 @@ def test_verdict_scan_treats_any_non_green_outcome_as_non_green() -> None:
         "one is skipped, and a skip is not something to report"
     )
     assert not re.search(r"=\s*failure", scan), (
-        "the scan must not select on the literal `failure`: a step cancelled by "
-        "its own timeout reports `cancelled` and would be read as green"
+        "the scan must not select on the literal `failure`: a `cancelled` or "
+        "unrecognised outcome would then be read as green"
     )
 
 
-def test_verdict_words_a_cancelled_gate_as_infrastructure() -> None:
-    """A `cancelled` gate refused nothing — whichever gate it was.
+# The five steps that can DECLARE a refusal. `checkout` and `setup` are not among
+# them: they can only break, never refuse, so a failure there is infrastructure
+# by construction.
+REFUSING_STEP_IDS = ("gate1", "gate3", "gate5", "gate2", "vulnix")
 
-    The per-step wording distinguishes a gate's refusal ("this change is NOT
-    release-neutral") from an infrastructure failure ("nothing is proved"). A
-    step that ran out of time never reached a judgement, so it takes the
-    infrastructure wording even when it is gate 2 itself, whose *failure* is the
-    lane's central refusal.
+# What a gate writes on the path where it states its refusal.
+REFUSAL_DECLARATION = 'refused=true" >> "$GITHUB_OUTPUT"'
+
+
+def test_every_gate_declares_its_refusal() -> None:
+    """A refusal is what a gate SAYS, never what the runner reports.
+
+    A step killed by its own `timeout-minutes` exits `failure` — the runner
+    writes "The action … has timed out after N minutes." and fails the step;
+    `cancelled` is the JOB-cancellation branch, and such a run never reaches gate
+    6 at all (`!cancelled()`). So a `failure` outcome covers both "gate 2 refused
+    this change" and "gate 2 never finished", and reading it as the former libels
+    a change nothing examined — the mirror image of the defect #1705 fixed.
+
+    Each gate therefore DECLARES its refusal on the way out, and gate 6 words a
+    refusal only where one was declared.
+    """
+    steps = steps_of_job(_guard(), GUARD_JOB)
+    for step_id in REFUSING_STEP_IDS:
+        run = str(step_by_id(steps, step_id).get("run", ""))
+        assert REFUSAL_DECLARATION in run, (
+            f"step `{step_id}` must write `refused=true` to `$GITHUB_OUTPUT` "
+            "where it states its refusal — without it gate 6 cannot tell that "
+            "refusal from the same step timing out, and must call both "
+            "infrastructure"
+        )
+
+
+def test_the_vulnix_extra_declares_only_its_own_refusal() -> None:
+    """The scan falling over is infrastructure; only a RED `main` is a refusal.
+
+    The extra has two failure exits: `vulnix` itself failing three attempts (a
+    mirror outage, a build failure — nothing about the proposed register), and
+    `vulnix-gate` reporting that `main`'s closure is vulnerable under it, which is
+    the refusal. Only the second may declare one, or a flaky scan is reported as
+    "this change is not release-neutral".
+    """
+    run = str(step_by_id(steps_of_job(_guard(), GUARD_JOB), "vulnix").get("run", ""))
+    assert run.count(REFUSAL_DECLARATION) == 1, (
+        "the vulnix extra must declare a refusal exactly once: its scan-failure "
+        "exit is infrastructure and must NOT declare one"
+    )
+    gate_call = run.find("vulnix-gate")
+    assert gate_call != -1, "the extra must still replay main's own gate"
+    assert run.find(REFUSAL_DECLARATION) > gate_call, (
+        "the declaration must sit in the `vulnix-gate` refusal branch, after the "
+        "call — declared before it, a scan that never ran would read as a refusal"
+    )
+
+
+def test_verdict_reads_every_gate_s_refusal_flag() -> None:
+    """Gate 6 must read the declarations, not infer from the outcome."""
+    env = _verdict_step().get("env", {})
+    refused = " ".join(str(env.get("REFUSED", "")).split())
+    assert refused, (
+        "gate 6 needs a `REFUSED` env carrying each gate's `refused` output: the "
+        "outcome alone cannot distinguish a refusal from a step that died"
+    )
+    for step_id in REFUSING_STEP_IDS:
+        assert f"{step_id}=" in refused, (
+            f"`REFUSED` must carry an entry for `{step_id}`, keyed the same way "
+            "as `OUTCOMES` so the two can be read together"
+        )
+        assert f"steps.{step_id}.outputs.refused" in refused, (
+            f"`REFUSED` must read `steps.{step_id}.outputs.refused` — anything "
+            "else is an inference from the exit code again"
+        )
+    for step_id in ("checkout", "setup"):
+        assert f"steps.{step_id}.outputs.refused" not in refused, (
+            f"`{step_id}` cannot refuse anything, so it must not be given a "
+            "refusal flag to be wrong about"
+        )
+
+
+def test_verdict_words_an_undeclared_failure_as_infrastructure() -> None:
+    """`failure` without a declared refusal is the runner, not the gates.
+
+    That one rule covers every case the outcome cannot describe: a step whose own
+    budget expired, a crash in the gate's bash before it judged anything, a `gh`
+    outage — and an outcome nobody anticipated, which must not read as a refusal
+    either.
     """
     code = _verdict_code()
-    # From the START of the line that tests it: the test reads `$outcome`, which
-    # sits before the word `cancelled` on that same line.
-    hit = re.search(r"^.*cancelled.*$", code, re.MULTILINE)
-    cancelled = hit.start() if hit else -1
-    per_step = code.find('case "$failed" in')
-    assert cancelled != -1, (
-        "gate 6 must recognise a `cancelled` outcome — a step whose timeout "
-        "expired reports it, and it is not a refusal"
+    flag = code.find("REFUSED")
+    per_step = code.find("gate1)")
+    refusal = code.find("This change is NOT release-neutral")
+    assert flag != -1, "gate 6 must consult the `REFUSED` declarations"
+    assert per_step != -1, "the per-gate refusal wording must survive"
+    assert refusal != -1, "the refusal must still say so in words"
+    assert flag < per_step, (
+        "the declarations must be read before the per-gate wording is chosen, "
+        "or a step that timed out is named as the gate that refused the change"
     )
-    assert per_step != -1, "the per-step wording must survive for real failures"
-    assert cancelled < per_step, (
-        "the `cancelled` test must come before the per-step `case`, or a "
-        "cancelled gate 2 is worded as a refusal it never made"
+    assert flag < refusal, "the refusal wording must sit behind the flag"
+    assert '"$refused" = true' in code[flag:per_step], (
+        "the per-gate refusal wording must be gated on the declared flag — "
+        "`failure` alone means only that the step did not finish green"
     )
-    branch = code[cancelled:per_step]
-    assert "$outcome" in branch, (
-        "the test must read the recorded OUTCOME, not the step id: which step "
-        "was cancelled says nothing about whether it refused anything"
+    assert "failed or timed out" in code, (
+        "an undeclared non-green step must be reported as having failed or timed "
+        "out before reaching a verdict, so the comment asks for a rerun instead "
+        "of blaming the change"
     )
-    assert "infra=true" in branch, (
-        "a cancelled step must take the infrastructure wording — nothing was "
-        "proved either way, so the comment must ask for a rerun"
-    )
-    assert "timed out" in branch.lower(), (
-        "the wording must say the step timed out or was cancelled, so a "
-        "reviewer knows why no gate is named"
+    assert "cancelled" not in code, (
+        "no branch may key on the single outcome name `cancelled`: a step "
+        "timeout reports `failure`, and a cancelled JOB never reaches gate 6"
     )
 
 
