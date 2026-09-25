@@ -42,10 +42,17 @@ def _first_statement(path: Path) -> str | None:
 
 def test_bats_suite_is_discovered() -> None:
     """The glob finds the suite — a silent zero-file parametrization passes."""
-    assert len(BATS_FILES) >= 20
+    assert len(BATS_FILES) >= 20, (
+        f"expected at least 20 .bats files under {BATS_DIR}, found "
+        f"{len(BATS_FILES)} — has the suite moved?"
+    )
 
 
 @pytest.mark.parametrize("path", BATS_FILES, ids=lambda p: str(p.relative_to(BATS_DIR)))
 def test_bats_file_declares_minimum_version(path: Path) -> None:
     """Every .bats file declares the minimum version as its first statement."""
-    assert _first_statement(path) == REQUIRED_DECLARATION
+    assert _first_statement(path) == REQUIRED_DECLARATION, (
+        f"{path.relative_to(REPO_ROOT)} must declare `{REQUIRED_DECLARATION}` as "
+        f"its first statement (after the header comment, before setup); found "
+        f"{_first_statement(path)!r}"
+    )
