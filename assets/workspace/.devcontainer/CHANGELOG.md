@@ -110,6 +110,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Both copies of the lane are updated: devkit's own workflow and the consumer
     scaffold's.
 
+- **`prepare-changelog prepare` no longer deletes entries it cannot freeze**
+  ([#1689](https://github.com/vig-os/devkit/issues/1689))
+  - `validate` counted any line starting with `-` under `## Unreleased` as
+    content, while `prepare` only moved bullets sitting under a recognised
+    `### <section>` heading. A bullet written straight under `## Unreleased`
+    therefore passed `validate`, and `prepare` then wrote an **empty**
+    `## [X.Y.Z] - TBD`, reset `## Unreleased`, dropped the bullet and exited
+    **0** with a warning. #1682's classifier picks its mode by calling
+    `validate`, so it selected `prepare` on exactly the input `prepare` could
+    not freeze.
+  - A bare `## Unreleased` (no `###` headings at all) was worse: the body
+    capture was bounded by `\n## [`, a lookahead that cannot fire when the
+    separating newline is already consumed by the heading match, so the capture
+    ran to end of file and **the previous release's entries were read as
+    unreleased content** — `validate` reported content and `prepare`
+    duplicated that release into the new version section.
+  - Both commands now read one body bounded at the next `##` heading and share
+    one notion of content: "has content" means "`prepare` can freeze this".
+    Bullets outside a recognised `###` subsection are refused by `validate`,
+    `prepare` and `seed` alike, naming every offending line and leaving the file
+    untouched; `prepare` refuses when there is nothing to freeze instead of
+    writing an empty section. The hotfix lane needs no change — `validate`
+    exits 1, the classifier picks `seed`, and `seed` refuses the same input, so
+    the lane fails closed instead of losing the entry.
+  - The same guard now runs over the `## [X.Y.Z]` block `prepare` folds back in
+    on a reused release branch, closing the twin of the bug: a bullet written
+    straight under the version heading — the shape the hotfix runbook asks
+    authors to fill in — was dropped just as silently. `validate --version`,
+    the release-time gate in `release.yml` and the scaffold's
+    `release-core.yml`, reads content the same way, so it no longer blesses a
+    section `prepare` would empty on the next cycle.
+  - A **repeated** standard heading (`### Added` twice, the normal result of a
+    hand-resolved merge conflict) is refused as well. Only the first block of
+    each heading was ever read, so the rest was deleted at exit 0. It refuses
+    rather than merging the blocks: a repeated heading means an edit went
+    wrong, and quietly stitching it back together would hide that.
+
 ### Security
 
 - **Except the second unbound 1.26.1 CVE batch in the vulnix register**

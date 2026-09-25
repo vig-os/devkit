@@ -314,7 +314,7 @@ just prepare-hotfix X.Y.Z "" -f dry-run=true
 
 **Then, in order:**
 
-1. **Land the fix** via a `bugfix/<issue>-<summary>` PR into `release/X.Y.Z` (the standard release-branch bugfix path). The PR **must describe the fix in `## [X.Y.Z] - TBD`** — `release.yml` refuses to publish a version whose section is still empty (`prepare-changelog validate --version`), for candidates and finals alike. That gate is deliberately unchanged by [#1679](https://github.com/vig-os/devkit/issues/1679): **no empty sections at release time, an empty section is acceptable at `prepare-hotfix` time.** Note the consequence — when the section was frozen from `main`'s carried entries it is already non-empty, so the gate passes even if the fix itself goes undescribed. Describing it stays the author's job; no compensating check was added.
+1. **Land the fix** via a `bugfix/<issue>-<summary>` PR into `release/X.Y.Z` (the standard release-branch bugfix path). The PR **must describe the fix in `## [X.Y.Z] - TBD`** — `release.yml` refuses to publish a version whose section is still empty (`prepare-changelog validate --version`), for candidates and finals alike. That gate is deliberately unchanged by [#1679](https://github.com/vig-os/devkit/issues/1679): **no empty sections at release time, an empty section is acceptable at `prepare-hotfix` time.** It also refuses a section whose bullets sit outside a recognised `###` heading, or that repeats one ([#1689](https://github.com/vig-os/devkit/issues/1689)) — write the fix under `### Fixed`. Note the consequence — when the section was frozen from `main`'s carried entries it is already non-empty, so the gate passes even if the fix itself goes undescribed. Describing it stays the author's job; no compensating check was added.
 2. Run the regular train **unchanged**: `just publish-candidate X.Y.Z`, wait for the smoke-test gate, `gh pr ready`, `just finalize-release X.Y.Z`, approve, `just promote-release X.Y.Z` ([Phase 2](#phase-2-review--testing) onward). Hotfixes ride the full RC → smoke → promote gate; there is no expedite path.
 3. **Resolve the sync-back conflict.** The post-promote `sync-main-to-dev` PR **will conflict on `CHANGELOG.md`** (and the workspace mirror) whenever `dev` is ahead — the regular cycle's conflict-free merge is bought by the shared freeze commit, which cannot exist for content authored off `main`. The sync workflow's manual-conflict lane handles it (`merge-conflict` label, instructions in the PR body). Resolution recipe:
 
@@ -735,7 +735,7 @@ docker buildx imagetools inspect ghcr.io/vig-os/devcontainer:1.0.0
 **Actions:**
 
 #### `prepare VERSION [FILE]`
-Move Unreleased content to `[VERSION] - TBD` section and create fresh empty Unreleased section. Used by `prepare-release.yml` to freeze the CHANGELOG on dev, and by `prepare-hotfix.yml` on the release branch when `main` carries unshipped entries ([#1679](https://github.com/vig-os/devkit/issues/1679)). **Never call it on an empty `## Unreleased`** — with nothing to move it scoops the previous release's section instead, which is why the hotfix lane classifies before it writes.
+Move Unreleased content to `[VERSION] - TBD` section and create fresh empty Unreleased section. Used by `prepare-release.yml` to freeze the CHANGELOG on dev, and by `prepare-hotfix.yml` on the release branch when `main` carries unshipped entries ([#1679](https://github.com/vig-os/devkit/issues/1679)). **Safety ([#1689](https://github.com/vig-os/devkit/issues/1689)):** it refuses, leaving the file untouched, when `## Unreleased` or the `## [VERSION]` block it folds in carries bullets outside a recognised `###` heading, repeats a standard heading, or has nothing to freeze at all — use `seed` for the empty case. Earlier versions scooped the previous release's section on an empty `## Unreleased`; that is fixed, and the hotfix lane still classifies before it writes.
 
 ```bash
 uv run prepare-changelog prepare 1.0.0 [CHANGELOG.md]
@@ -743,6 +743,8 @@ uv run prepare-changelog prepare 1.0.0 [CHANGELOG.md]
 
 #### `validate [FILE] [--version X.Y.Z]`
 Validate CHANGELOG has Unreleased section with content. Used by `prepare-release.yml` to ensure there are changes to release. With `--version`, validate instead that `## [X.Y.Z] - TBD` exists and carries content — the release-time guard in `release.yml` that keeps a seeded-but-unfilled hotfix section from shipping ([#1621](https://github.com/vig-os/devkit/issues/1621)).
+
+**"Content" means what `prepare` can freeze** ([#1689](https://github.com/vig-os/devkit/issues/1689)): bullets under a recognised `###` heading. Both forms exit non-zero, naming the offending lines, on bullets written outside such a heading or on a repeated standard heading — shapes `prepare` would silently drop. That is what lets `prepare-hotfix.yml` classify with `validate` and trust the verdict.
 
 ```bash
 uv run prepare-changelog validate [CHANGELOG.md]
