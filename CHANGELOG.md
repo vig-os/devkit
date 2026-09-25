@@ -84,6 +84,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The release-neutral guard no longer cancels its own in-flight run on a label
+  event** ([#1698](https://github.com/vig-os/devkit/issues/1698))
+  - `release-neutral-guard.yml` triggers on `labeled`/`unlabeled` as well as the
+    code events, and carried one `cancel-in-progress` concurrency lane per pull
+    request, undiscriminated by event. Every label event cancelled whatever run
+    was in flight, including the `opened`/`synchronize` run the label had nothing
+    to do with; `gh pr create --label a --label b` emits two `labeled` events
+    within a second, so a pull request opened with two labels left `cancelled`
+    guard runs on its head beside the eventual success.
+  - Label events now get a concurrency lane of their own, keyed on
+    `github.run_id`, while code events keep superseding each other. Not a single
+    lane with a conditional `cancel-in-progress`: `false` queues a label event
+    *behind* the in-flight run — up to a 90-minute vulnix extra — and the label
+    event is precisely the one whose verdict must not be stale.
+  - `env.ACTIVE` additionally scopes the label actions to the lane's own
+    `release-neutral` label, so an unrelated relabel is a cheap
+    all-steps-skipped success rather than a full gate run in a fresh lane. The
+    label *set* is still read from the pull request, so an `unlabeled` event
+    removing the lane label deactivates the gates as before.
+  - The gate-6 verdict is now one sticky comment, found by an HTML marker and
+    patched in place, instead of a fresh comment per run — two label runs may now
+    both reach it, and a stale verdict names files and a changelog diff that no
+    longer exist.
+
 - **The hotfix lane freezes `main`'s unshipped entries instead of refusing to
   start** ([#1679](https://github.com/vig-os/devkit/issues/1679))
   - `prepare-hotfix` refused to run whenever `main`'s `## Unreleased` had
