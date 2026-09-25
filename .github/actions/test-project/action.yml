@@ -13,9 +13,9 @@
 #   stub, and the zizmor audit of the managed workflow set            [flake]
 #
 # `suite` selects ONE of those blocks; 'all' runs every one of them. This action
-# is the single source of truth for each block body: a caller that wants the
-# blocks to run as separate parallel jobs passes a different `suite` per job
-# instead of duplicating a step body. Refs #1692.
+# is the single source of truth for each block body: the four CI lanes that run
+# them in parallel (ci.yml `project-lint` / `project-tests` / `project-bats` /
+# `project-flake`) differ only in the `suite` they pass. Refs #1692.
 #
 # Inputs:
 #   suite: Which block to run (all | lint | bats | pytest | flake). Default: 'all'

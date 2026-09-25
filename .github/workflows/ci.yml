@@ -7,7 +7,8 @@
 #   1. build-image - Build container image
 #   2. test-image - Run image tests
 #   3. test-integration - Run integration tests
-#   4. project-checks - Linters, utils, release cycle tests
+#   4. project-lint / project-tests / project-bats / project-flake - the four
+#      parallel project lanes (linters, project tests, BATS, flake gates)
 #   5. commit-checks - Commit message + PR title validation (PRs only)
 #   6. security-scan - Container image vulnerability scanning (Trivy)
 #   7. dependency-review - Dependency vulnerability check (PRs only)
@@ -183,12 +184,86 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  project-checks:
-    name: Project Checks
+  # Project lanes (#1692). One job per independent block of what used to be the
+  # serial `Project Checks` chain: nothing after `setup-env` consumed another
+  # block's output, so the critical path is setup + the LONGEST block instead of
+  # their sum. Each lane calls the same `test-project` composite with a different
+  # `suite`, which stays the single source of truth for every block body; each
+  # carries the same `workflow_dispatch` gate, so a dispatch of `project` still
+  # runs all four. Timeouts are sized per block, not for the old chain.
+  project-lint:
+    name: Project Lint
     runs-on: ubuntu-26.04
-    # 25 (was 10): the hooks-fidelity + services and widened dev-shell steps
-    # added by #1413 run extra `nix develop`/`nix build` invocations; with a
-    # warm Cachix they are minutes, not tens of minutes, but need headroom.
+    timeout-minutes: 10
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.test-suite == 'all' ||
+      inputs.test-suite == 'project'
+
+    steps:
+      # Needed even though the composite checks out too: a local `uses: ./...`
+      # is resolved from the workspace, so the action file must already be there.
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Run project checks (lint)
+        uses: ./.github/actions/test-project
+        with:
+          suite: 'lint'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+  project-tests:
+    name: Project Tests
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.test-suite == 'all' ||
+      inputs.test-suite == 'project'
+
+    steps:
+      # Needed even though the composite checks out too: a local `uses: ./...`
+      # is resolved from the workspace, so the action file must already be there.
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Run project checks (pytest)
+        uses: ./.github/actions/test-project
+        with:
+          suite: 'pytest'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+  project-bats:
+    name: Project BATS
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.test-suite == 'all' ||
+      inputs.test-suite == 'project'
+
+    steps:
+      # Needed even though the composite checks out too: a local `uses: ./...`
+      # is resolved from the workspace, so the action file must already be there.
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Run project checks (bats)
+        uses: ./.github/actions/test-project
+        with:
+          suite: 'bats'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+  project-flake:
+    name: Project Flake Gates
+    runs-on: ubuntu-26.04
+    # 25 (the old chain's budget): the flake gates run several
+    # `nix develop`/`nix build` invocations, and a Cachix miss after a
+    # dev-shell derivation change rebuilds it — minutes, but needing
+    # headroom. Refs #1413.
     timeout-minutes: 25
     if: |
       github.event_name != 'workflow_dispatch' ||
@@ -196,17 +271,20 @@ jobs:
       inputs.test-suite == 'project'
 
     steps:
+      # Needed even though the composite checks out too: a local `uses: ./...`
+      # is resolved from the workspace, so the action file must already be there.
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - name: Run project checks
+      - name: Run project checks (flake)
         uses: ./.github/actions/test-project
         with:
+          suite: 'flake'
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
   # Commit-message validation (#1019). `validate-commit-msg` is a commit-msg
-  # stage hook, so `prek run --all-files` (the project-checks lane) never runs
+  # stage hook, so `prek run --all-files` (the project-lint lane) never runs
   # it — and the only other enforcement path, the local core.hooksPath shim,
   # was silently inert for hundreds of commits. A guard that only runs on
   # healthy laptops is not a guard, so the standard is re-checked here against
@@ -493,7 +571,10 @@ jobs:
       - build-image
       - test-image
       - test-integration
-      - project-checks
+      - project-lint
+      - project-tests
+      - project-bats
+      - project-flake
       - commit-checks
       - python-security
       - security-scan
@@ -509,7 +590,10 @@ jobs:
           echo "Build Image: ${{ needs.build-image.result }}"
           echo "Image Tests: ${{ needs.test-image.result }}"
           echo "Integration Tests: ${{ needs.test-integration.result }}"
-          echo "Project Checks: ${{ needs.project-checks.result }}"
+          echo "Project Lint: ${{ needs.project-lint.result }}"
+          echo "Project Tests: ${{ needs.project-tests.result }}"
+          echo "Project BATS: ${{ needs.project-bats.result }}"
+          echo "Project Flake Gates: ${{ needs.project-flake.result }}"
           echo "Commit Messages: ${{ needs.commit-checks.result }}"
           echo "Python Security: ${{ needs.python-security.result }}"
           echo "Security Scan: ${{ needs.security-scan.result }}"
@@ -540,8 +624,23 @@ jobs:
             FAILED=true
           fi
 
-          if [ "${{ needs.project-checks.result }}" = "failure" ] || [ "${{ needs.project-checks.result }}" = "cancelled" ]; then
-            echo "ERROR: Project checks failed or were cancelled"
+          if [ "${{ needs.project-lint.result }}" = "failure" ] || [ "${{ needs.project-lint.result }}" = "cancelled" ]; then
+            echo "ERROR: Project lint failed or was cancelled"
+            FAILED=true
+          fi
+
+          if [ "${{ needs.project-tests.result }}" = "failure" ] || [ "${{ needs.project-tests.result }}" = "cancelled" ]; then
+            echo "ERROR: Project tests failed or were cancelled"
+            FAILED=true
+          fi
+
+          if [ "${{ needs.project-bats.result }}" = "failure" ] || [ "${{ needs.project-bats.result }}" = "cancelled" ]; then
+            echo "ERROR: Project BATS tests failed or were cancelled"
+            FAILED=true
+          fi
+
+          if [ "${{ needs.project-flake.result }}" = "failure" ] || [ "${{ needs.project-flake.result }}" = "cancelled" ]; then
+            echo "ERROR: Project flake gates failed or were cancelled"
             FAILED=true
           fi
 
