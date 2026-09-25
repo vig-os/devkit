@@ -22,6 +22,28 @@ setup() {
     WT_TEMPLATE="${PROJECT_ROOT}/assets/workspace/.devcontainer/justfile.worktree"
 }
 
+# The tmux server is process-global and outlives the test, so an assertion that
+# fails before a test reaches its own `kill-session` would leak a session into
+# the runner (and into a `-j` peer). Reap only what this test derived: a name
+# ending in this test's unique WT_TAG, or the claude probe's own PID-tagged
+# name. WT_TAG is never matched when unset — `wt-*` would sweep a developer's
+# real sessions.
+teardown() {
+    command -v tmux >/dev/null 2>&1 || return 0
+    local session
+    while read -r session; do
+        case "$session" in
+            wt-*) ;;
+            *) continue ;;
+        esac
+        if [ -n "${WT_TAG:-}" ] && [ "${session%"$WT_TAG"}" != "$session" ]; then
+            tmux kill-session -t "$session" 2>/dev/null || true
+        elif [ "$session" = "wt-test-claude-$$" ]; then
+            tmux kill-session -t "$session" 2>/dev/null || true
+        fi
+    done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+}
+
 # Pin git config sources so host global/system state never leaks into a fixture.
 _wt_git() {
     GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git "$@"
@@ -37,6 +59,10 @@ _wt_fixture() {
     WT_TAG="$$-${BATS_TEST_NUMBER:-0}"
     FIX="$BATS_TEST_TMPDIR/fixture"
     WT_BASE="$BATS_TEST_TMPDIR/fixture-worktrees"
+    # Before `git init`, not only before the recipes: this helper `git add -A`s
+    # and commits inside FIX, so a FIX pointed at a real checkout would stage
+    # and try to commit that developer's tree.
+    _wt_assert_throwaway
     mkdir -p "$FIX"
     _wt_git -c init.defaultBranch=main init -q "$FIX"
     : >"$FIX/seed"
@@ -46,10 +72,18 @@ _wt_fixture() {
 }
 
 # #1694 guard: every recipe invocation in this file must be pointed at a
-# throwaway base. `worktree-clean` force-removes every entry in WT_BASE and
-# `git branch -D`s its branch, so a base outside the test's own tmpdir deletes
-# a developer's or an agent's live worktrees.
+# throwaway repo. `worktree-clean` force-removes every entry in the derived
+# base and `git branch -D`s its branch, so a base outside the test's own tmpdir
+# deletes a developer's or an agent's live worktrees.
+#
+# FIX is pinned first because FIX is what actually steers the base: no recipe
+# reads WT_BASE — they derive `../<basename $(git rev-parse --show-toplevel)>-
+# worktrees` from just's working directory, which is FIX. WT_BASE is pinned too
+# because the tests build their fixture paths and assertions out of it, so the
+# two must not drift apart.
 _wt_assert_throwaway() {
+    assert [ -n "${FIX:-}" ]
+    assert [ "${FIX#"$BATS_TEST_TMPDIR"}" != "$FIX" ]
     assert [ -n "${WT_BASE:-}" ]
     assert [ "${WT_BASE#"$BATS_TEST_TMPDIR"}" != "$WT_BASE" ]
 }
@@ -87,7 +121,14 @@ _wt_just() {
     env WORKTREE_ATTACH_RESTART_CMD="sleep 5" timeout 3 \
         just --justfile "$WT_MAIN" --working-directory "$FIX" \
         worktree-attach "$ISSUE" 2>/dev/null &
-    sleep 2
+    # Poll rather than sleep a fixed 2 s: the backgrounded `just` has to
+    # evaluate the justfile, shell out to `gh api user` and start the session,
+    # which is more than 2 s on a cold runner — and then the single
+    # `has-session` below would be a false negative, not a slow pass.
+    for _ in $(seq 20); do
+        if tmux has-session -t "$SESSION" 2>/dev/null; then break; fi
+        sleep 0.25
+    done
     run tmux has-session -t "$SESSION" 2>/dev/null
     tmux kill-session -t "$SESSION" 2>/dev/null || true
 
@@ -332,6 +373,12 @@ _wt_sandbox() {
 
 _run_wt_start() {
     local file="$1" main="$2"
+    # Same #1694 guard as `_wt_just`: worktree-start creates
+    # `<main>-worktrees/<issue>` and `git worktree add`s into it, so point the
+    # shared assertion at this helper's own sandbox before running the recipe.
+    FIX="$main"
+    WT_BASE="$main-worktrees"
+    _wt_assert_throwaway
     run env PATH="$STUBS:$PATH" STUB_LOG="$STUB_LOG" \
         GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
         just --justfile "$file" --working-directory "$main" worktree-start 4242
