@@ -3477,21 +3477,26 @@ SHORT_NAME_ESCAPED=$(printf '%s\n' "$SHORT_NAME" | sed 's/[&/\]/\\&/g')
 ORG_NAME_ESCAPED=$(printf '%s\n' "$ORG_NAME" | sed 's/[&/\]/\\&/g')
 GITHUB_REPOSITORY_ESCAPED=$(printf '%s\n' "$GITHUB_REPOSITORY" | sed 's/[&/\]/\\&/g')
 
-# Candidate set for the pass (#1693): the template-shipped files mapped into the
-# workspace, derived exactly as sweep_scaffold_writable derives its chmod set,
-# plus the smoke overlay's when one was applied. Scoping the walk to what devkit
-# shipped is what keeps a CONSUMER file that happens to carry a `{{...}}` token
-# out of reach; the whole-workspace `grep -r` this replaces reached the
-# consumer's entire repo, `.venv`/`node_modules` included, and rewrote it.
+# Candidate set for the pass (#1693): the template-shipped paths mapped into the
+# workspace, the same way sweep_scaffold_writable maps its chmod set (shared
+# idiom, different filters), plus the smoke overlay's when one was applied.
+# Scoping the walk to the paths devkit ships is what keeps a file devkit does NOT
+# ship out of reach; the whole-workspace `grep -r` this replaces reached the
+# consumer's entire repo, `.venv`/`node_modules` included, and rewrote it. A
+# consumer file sitting AT a shipped path is still substituted, exactly as the
+# retired manifest path substituted it — scoping the walk is not a preservation
+# mechanism, and PRESERVE_FILES is a copy-time concept, not a substitution one.
 #
 # Selection semantics, unchanged from the batched walk this replaces (#1687):
 # regular files only, symlinked destinations skipped (the old `grep -rl` did not
 # follow symlinks found inside the tree), anything under `.git/` skipped, and
-# binaries matched (no -I). `.venv` is dropped from the TEMPLATE walk to mirror
-# the copy rsync's `--exclude='.venv'`, because the image bakes a venv inside
-# /root/assets/workspace that no scaffold ever receives. Failures are swallowed
-# exactly as the old `2>/dev/null` + `|| true` did, so neither exit 1 (nothing
-# matched) nor exit 2 (unreadable file) trips `set -o pipefail`.
+# binaries matched (no -I). `.git` and `.venv` are pruned by NAME at any depth,
+# matching the copy rsync's `--exclude='.git' --exclude='.venv'` — which are
+# basename patterns — so the walk cannot reach a destination the copy never
+# wrote; the image's baked venv inside /root/assets/workspace (#735) is the case
+# that matters in production. Failures are swallowed exactly as the old
+# `2>/dev/null` + `|| true` did, so neither exit 1 (nothing matched) nor exit 2
+# (unreadable file) trips `set -o pipefail`.
 emit_substitution_candidates() {
     # Strip a trailing slash: `find` never emits one, so a `$src_dir/` prefix of
     # `…/workspace//` would match nothing, leave every `rel` absolute and quietly
@@ -3503,8 +3508,8 @@ emit_substitution_candidates() {
         if [[ -f "$dest" && ! -L "$dest" ]]; then
             printf '%s\0' "$dest"
         fi
-    done < <(find -L "$src_dir" -mindepth 1 -type f \
-        -not -path "$src_dir/.git/*" -not -path "$src_dir/.venv/*" -print0)
+    done < <(find -L "$src_dir" -mindepth 1 \
+        \( -name .git -o -name .venv \) -prune -o -type f -print0)
 }
 
 {
