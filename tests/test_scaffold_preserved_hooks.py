@@ -344,7 +344,7 @@ def test_a_pin_at_the_release_is_left_alone(tmp_path: Path) -> None:
     proc = _upgrade(tmp_path, seed, name="seen")
 
     assert "- id: actionlint" not in _config(tmp_path, "seen")
-    assert "preserved-hook-insert: actionlint" not in proc.stdout
+    assert "preserved-hook-insert:" not in proc.stdout
 
 
 def test_no_pin_means_no_evidence_and_no_insert(tmp_path: Path) -> None:
