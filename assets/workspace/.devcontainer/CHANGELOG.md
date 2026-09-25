@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Release-neutral lane: change `main` without cutting a release**
+  ([#1676](https://github.com/vig-os/devkit/issues/1676))
+  - `main` could only be written by a release, so a change that alters nothing a
+    consumer receives — devkit's own `.github/workflows/**`, `tests/**`, most of
+    `docs/**`, the scan-time registers — either waited for the next train or
+    inflated the version for a no-op that handed every consumer an adoption PR
+  - `release-neutral-open.yml` opens the PR **as the release App** (`main`
+    requires one approving review and GitHub forbids authors approving their own
+    PRs, so a human-authored PR there is unapprovable), and
+    `release-neutral-guard.yml` proves the change is release-neutral
+  - The contract is **derivation identity**: `devShells.default`,
+    `devkitImage` and `devkitImageEnv` `.drv` paths must equal `main`'s, which
+    proves the published artifacts cannot differ whatever the diff touched. It
+    covers `direnv`/`bare` consumers too, who never pull the image
+  - The comparison is **normalized**: `CHANGELOG.md` and its scaffold mirror are
+    reverted to the base's copy before evaluating, so a release note — which is
+    baked into the image and would move the derivation on its own — no longer
+    disqualifies a change from the lane. The verdict comment reports that drift
+    explicitly rather than tolerating it silently
+  - Also gated: no release content in the diff (`.vig-os`, which carries
+    `DEVKIT_VERSION`), the `assets/` scaffold untouched, and no release train in
+    flight. A verdict comment lists the files carried
+  - Supersedes [#590](https://github.com/vig-os/devkit/issues/590)'s invariant:
+    `main` may now carry changes that have landed but are not yet shipped, and
+    its `## Unreleased` section describes them. `sync-main-to-dev.yml` triggers
+    on `push: [main]`, so those entries reach `dev` before the next freeze
+  - When a lane PR touches `.vulnixignore` the guard additionally replays
+    `main`'s own nightly gate, since a pin advance on `dev` clears exceptions
+    that `main`'s older closure may still need
+
 - **`prepare-release` refuses to cut a train while `dev` is behind `main`**
   ([#1680](https://github.com/vig-os/devkit/issues/1680))
   - The cut freezes `dev`'s `## Unreleased`, but `main` can carry commits `dev`
@@ -34,6 +64,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 ### Security
+
+- **Except the second unbound 1.26.1 CVE batch in the vulnix register**
+  ([#1668](https://github.com/vig-os/devkit/issues/1668),
+  [#1669](https://github.com/vig-os/devkit/issues/1669))
+  - The 2026-09-24 nightly went red on both lanes on the same package as the
+    day before, with two CVEs the 2026-09-23 exception did not carry:
+    `CVE-2026-82717` (9.8) and `CVE-2026-81634` (7.5)
+  - Not new upstream work and not a closure change: all three unbound CVEs
+    were published 2026-09-16 and are fixed by the same 1.26.1 release. They
+    arrived a day apart because vulnix matches on CPE and NVD analysed the
+    two additions at `2026-09-23T19:50Z`/`19:51Z` — after that day's scan ran
+  - Both are resolver paths (RRSet canonicalisation; CNAME synthesis on an
+    upstream response), so the existing reachability finding covers them
+    unchanged: the closure carries `libunbound` only, with no daemon and no
+    `unbound` binary
+  - Added to the existing `2026-11-04` block rather than a new one — all three
+    share one death condition, the pin advance that ships unbound 1.26.1, and
+    must be deleted together. The date is deliberately unchanged
+  - The remediation lever shortened in the meantime: the `staging-26.05`
+    backport has merged, leaving the fix one `staging` -> `nixos-26.05` cycle
+    from the pinned channel rather than two branch hops
 
 ## [1.16.0](https://github.com/vig-os/devkit/releases/tag/1.16.0) - 2026-09-23
 

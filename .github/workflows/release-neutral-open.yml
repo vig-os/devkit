@@ -1,0 +1,170 @@
+---
+# Release-neutral lane — the proposing half (#1676).
+#
+# `release-neutral-guard.yml` carries the full rationale for the lane; this file
+# only opens the PR.
+#
+# WHY A WORKFLOW OPENS IT AND NOT A HUMAN. This is the entire reason the file
+# exists, and it is not ceremony:
+#
+#   - `main` requires one approving review (ruleset 13444364).
+#   - GitHub forbids a PR's author from approving it.
+#   - `main`'s ONLY bypass actor is `OrganizationAdmin`; no App holds bypass,
+#     and `promote-release.yml` merges with a plain `gh pr merge --merge` — the
+#     App merges an already-compliant PR, it never bypasses.
+#
+# So a human-authored PR to `main` is unapprovable by the only human there is,
+# and therefore unmergeable. Every release PR into `main` is authored by
+# `app/vig-os-release-app` and approved by the maintainer for exactly this
+# reason (#1672, #1648, #1620). This workflow borrows that one mechanism: the
+# App authors the PR so the maintainer's approval is legal. Nothing else here is
+# automated — which commits get carried, when the lane runs, and the final merge
+# all stay with the maintainer.
+#
+# Pushing further commits to the App's PR is fine (approval is blocked only for
+# the PR author, not for commit authors) but never AFTER approving, because
+# `main` sets `dismiss_stale_reviews_on_push`.
+#
+# KEEP CHANGELOG EDITS IN A SEPARATE COMMIT on `dev`. A changelog entry is
+# mirrored into `assets/workspace/.devcontainer/CHANGELOG.md` and baked into the
+# image, so it makes an otherwise release-neutral change non-neutral (gate 2),
+# and on `main` it would leave `## Unreleased` non-empty, which
+# `prepare-release` and `prepare-hotfix` both refuse to start on (gate 4).
+# Committing it separately is what keeps the rest cherry-pickable.
+#
+# Refs: #1676
+name: Release-Neutral Open
+
+on:  # yamllint disable-line rule:truthy
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch (already pushed, forked from main) carrying the release-neutral commits'
+        required: true
+        type: string
+      title:
+        description: 'PR title (Conventional Commits, e.g. "ci(guard): deploy the release-neutral lane")'
+        required: true
+        type: string
+      issue:
+        description: 'Tracking issue number for the Refs: line (e.g. 1676)'
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  open:
+    name: Open release-neutral PR
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+
+    steps:
+      # The App token is the point of this workflow — see the header.
+      - name: Generate Release App Token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Cheap preconditions only. The guard re-proves everything on the PR
+      # itself, because this dispatch is not what `main` trusts — deliberately
+      # NO release-neutrality check here: proving it is the guard's job, and
+      # duplicating a weaker version would invite trusting the weaker one.
+      - name: Validate the proposed branch
+        env:
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          set -euo pipefail
+          if ! git ls-remote --exit-code --heads origin "refs/heads/${BRANCH}" > /dev/null; then
+            echo "::error::branch \`${BRANCH}\` does not exist on origin — push it first"
+            exit 1
+          fi
+          git fetch -q origin "${BRANCH}"
+          if [ -z "$(git rev-list "origin/main..origin/${BRANCH}")" ]; then
+            echo "::error::branch \`${BRANCH}\` has no commits beyond main — nothing to carry"
+            exit 1
+          fi
+          echo "Commits to carry:"
+          git log --oneline "origin/main..origin/${BRANCH}" | awk '{print "  " $0}'
+          echo "Files touched:"
+          git diff --name-only "origin/main...origin/${BRANCH}" | awk '{print "  " $0}'
+
+      - name: Create the release-neutral PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          BRANCH: ${{ inputs.branch }}
+          TITLE: ${{ inputs.title }}
+          ISSUE: ${{ inputs.issue }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # `retry` is a bash function exported through BASH_ENV by the
+          # setup-env composite action, and this job deliberately skips it
+          # (`gh` is preinstalled; no toolchain is needed to open a PR). So the
+          # function must be sourced straight from the checkout, exactly as
+          # prepare-hotfix.yml's PR job does — otherwise the call below dies
+          # with `retry: command not found`, exit 127.
+          # shellcheck source=/dev/null  # canonical retry() helper from the checkout
+          source .github/scripts/retry.sh
+
+          refs_line=""
+          [ -n "$ISSUE" ] && refs_line="Refs: #${ISSUE}"
+
+          body=$(printf '%s\n' \
+            "## Release-neutral change to \`main\`" \
+            "" \
+            "Carries a change that alters **no published artifact**, so it needs no release." \
+            "" \
+            "Cutting a release for this would republish a functionally identical image and hand every consumer an adoption PR that bumps a pin and changes nothing they run." \
+            "" \
+            "### What must hold before this merges" \
+            "" \
+            "The \`Release-Neutral Guard\` check proves it and posts a verdict comment:" \
+            "" \
+            "- **1** — no release content (\`CHANGELOG.md\`, its mirror, \`.vig-os\`) in the diff" \
+            "- **2** — \`devShells.default\`, \`devkitImage\` and \`devkitImageEnv\` derivations byte-identical to \`main\` *(the contract)*" \
+            "- **3** — the consumer scaffold under \`assets/\` is untouched" \
+            "- **4** — \`main\`'s \`## Unreleased\` is still empty" \
+            "- **5** — no release train is in flight" \
+            "" \
+            "Gate 2 is the one that matters: equal derivation paths mean the published artifacts *cannot* differ, whatever the diff touched." \
+            "" \
+            "### Review note" \
+            "" \
+            "Opened by the release App so the maintainer's approval is permitted — GitHub forbids authors approving their own PRs, and \`main\` requires one review with no App bypass." \
+            "" \
+            "Do not push to this branch after approving: \`main\` sets \`dismiss_stale_reviews_on_push\`." \
+            "" \
+            "Dispatched from ${RUN_URL}" \
+            "" \
+            "$refs_line")
+
+          pr_url=$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
+            gh pr create \
+              --base main \
+              --head "$BRANCH" \
+              --title "$TITLE" \
+              --body "$body" \
+              --label release-neutral)
+
+          echo "pr_url=$pr_url" >> "$GITHUB_OUTPUT"
+          echo "✓ release-neutral PR opened: $pr_url"
+          {
+            echo "### Release-neutral PR opened"
+            echo
+            echo "$pr_url"
+            echo
+            echo "The \`Release-Neutral Guard\` check runs next. Read its verdict comment, then approve and merge."
+          } >> "$GITHUB_STEP_SUMMARY"
