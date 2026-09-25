@@ -853,6 +853,9 @@ _preview_symlinked_template_venv() {
         GITHUB_REPOSITORY=test/repo \
         bash "$INIT_WORKSPACE_SH" --preview --force --no-prompts --mode direnv
     assert_success
+    # A real ADDED row first, so the two refutations below cannot pass merely
+    # because the report's row format changed.
+    assert_line '  +  .vig-os'
     # refute_line, never `refute_output --partial ".git"`: every `.github/...`
     # row of the report contains that substring.
     refute_line '  +  .git'
