@@ -115,6 +115,15 @@ _shared_tree() { printf '%s/shared-%s' "$BATS_FILE_TMPDIR" "$1"; }
 # render is path-independent — .vig-os carries no absolute path, and two renders
 # into different directories are `diff -r` clean with identical modes.
 #
+# The same holds for `_upgrade <mode>` rendered into an EMPTY directory (#1696).
+# The two helpers differ only in their stubs: `_scaffold` stubs `just`, so the
+# tail `just sync` never runs, while `_upgrade` keeps the real `just` with `uv`
+# stubbed, so the recipe runs and no-ops. Rendered into empty directories three
+# times over, the trees are `diff -r` clean with identical
+# `find -printf '%m %y %p'` listings; the only difference is on stdout (the
+# extra `just sync: no pyproject.toml — skipping` line). So a pure-setup
+# `_upgrade both` site may clone the `both` fixture as well.
+#
 # So this is valid ONLY as a pure-setup replacement. A test whose subject is the
 # scaffold run itself — it asserts on that run's $output/$stderr, or on a
 # failure — or which seeds files the shared render did not, or passes flags it
@@ -1670,7 +1679,7 @@ EOF
     # stay silent (no spurious warning on every upgrade of a stock consumer).
     ws="$BATS_TEST_TMPDIR/e2e-878-stock"
     mkdir -p "$ws"
-    run _upgrade both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run _upgrade both "$ws"
     assert_success
@@ -2307,7 +2316,7 @@ _preview() {
 @test "init-workspace --preview exits 0 and prints the file report (#886)" {
     ws="$BATS_TEST_TMPDIR/e2e-886-report"
     mkdir -p "$ws"
-    _upgrade both "$ws"
+    _clone_shared both "$ws"
     run _preview "$ws" --mode both
     assert_success
     assert_output --partial "OVERWRITTEN"
@@ -2318,7 +2327,7 @@ _preview() {
 @test "init-workspace --preview leaves the tree byte-identical (#886)" {
     ws="$BATS_TEST_TMPDIR/e2e-886-intact"
     mkdir -p "$ws"
-    _upgrade both "$ws"
+    _clone_shared both "$ws"
     cp -a "$ws" "$ws.before"
     run _preview "$ws" --mode both
     assert_success
@@ -2358,7 +2367,7 @@ _preview() {
     # "Workspace is not empty" refusal nor require an explicit --force.
     ws="$BATS_TEST_TMPDIR/e2e-886-no-force"
     mkdir -p "$ws"
-    _upgrade both "$ws"
+    _clone_shared both "$ws"
     run _preview "$ws" --mode both
     assert_success
     refute_output --partial "Workspace is not empty"
@@ -2367,7 +2376,7 @@ _preview() {
 @test "init-workspace --preview lists template files new to the tree as ADDED (#886)" {
     ws="$BATS_TEST_TMPDIR/e2e-886-added"
     mkdir -p "$ws"
-    _upgrade both "$ws"
+    _clone_shared both "$ws"
     rm "$ws/justfile"
     run _preview "$ws" --mode both
     assert_success
