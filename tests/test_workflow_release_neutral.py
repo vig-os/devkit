@@ -113,6 +113,20 @@ PUBLISHED_ATTRS = (
 
 GUARD_JOB = "guard"
 
+# The concurrency lane, split by event kind (#1698). Code events share one
+# cancel-in-progress lane; label events get a lane of their own keyed on the run
+# id, because `gh pr create --label a --label b` emits two `labeled` events
+# within a second and an undiscriminated lane made each cancel the run before it.
+CONCURRENCY_GROUP = (
+    "release-neutral-guard-${{ github.event.pull_request.number }}-"
+    "${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') "
+    "&& github.run_id || 'code' }}"
+)
+
+# The sticky-verdict marker: gate 6 upserts one comment rather than appending a
+# thread of stale verdicts.
+VERDICT_MARKER = "<!-- release-neutral-guard:verdict -->"
+
 
 def _guard() -> dict:
     return load_workflow(GUARD_PATH)
@@ -158,6 +172,117 @@ def test_guard_reacts_to_label_changes() -> None:
     types = set(on_block(_guard())["pull_request"]["types"])
     assert {"labeled", "unlabeled"} <= types, (
         f"guard must rerun on label changes; types={sorted(types)}"
+    )
+
+
+# ── Guard: concurrency (the self-cancelling lane, #1698) ─────────────────────
+
+
+def _concurrency() -> dict:
+    block = _guard().get("concurrency")
+    assert isinstance(block, dict), "guard must declare a concurrency block"
+    return block
+
+
+def test_guard_gives_label_events_their_own_concurrency_lane() -> None:
+    """A label event must never cancel the run started by a code event.
+
+    The guard triggers on `labeled`/`unlabeled` as well as `opened`/`synchronize`.
+    With one undiscriminated `cancel-in-progress` lane per PR, every label event
+    cancelled whatever guard run was in flight — and `gh pr create --label a
+    --label b` emits two `labeled` events within a second, so a PR opened with
+    two labels left `cancelled` guard runs on its head beside the eventual
+    success. A cancelled check run of a *required* name keeps a PR's status
+    rollup red however many successes land after it, which is why the split is
+    worth having even though this guard is not required today.
+
+    So the group is keyed on `github.run_id` for the two label actions and on a
+    constant for everything else: label events are mutually independent, code
+    events still supersede each other.
+    """
+    group = " ".join(str(_concurrency().get("group", "")).split())
+    assert group == CONCURRENCY_GROUP, (
+        f"expected concurrency group {CONCURRENCY_GROUP!r}, got {group!r} — "
+        "label events need a lane of their own, keyed on the run id"
+    )
+
+
+def test_guard_still_supersedes_code_runs() -> None:
+    """Cancellation stays unconditional; the lane split does the discriminating.
+
+    Rejected alternative: one lane with
+    `cancel-in-progress: ${{ github.event.action == 'synchronize' }}`.
+    `cancel-in-progress: false` means QUEUE behind the in-flight run, not run
+    beside it, so a label event would wait out an in-flight 90-minute vulnix
+    extra — and the label event is exactly the one whose verdict must not be
+    stale. Hence a literal `true` plus per-event groups.
+    """
+    cancel = _concurrency().get("cancel-in-progress")
+    assert cancel is True, (
+        f"cancel-in-progress must be a literal true, got {cancel!r} — a false or "
+        "expression-valued setting queues a label event behind the in-flight "
+        "code run instead of running it beside it"
+    )
+
+
+def test_guard_activation_gates_label_events_on_the_label_name() -> None:
+    """An unrelated label must not start a gate run, only a cheap success.
+
+    `area:ci`, a priority relabel, a `Refs` triage pass — none of them tell the
+    guard anything it did not already know, and each one now gets its own lane,
+    so without this every relabel would pay for a full gate run (up to a 90-min
+    vulnix extra). Gating the label actions on `github.event.label.name` makes
+    those runs an all-steps-skipped SUCCESS.
+
+    The label *set* is still read from `github.event.pull_request.labels`, not
+    from `github.event.label`, so an `unlabeled` event removing the lane label
+    correctly deactivates rather than activating on its own name.
+    """
+    active = " ".join(str(jobs(_guard())[GUARD_JOB]["env"]["ACTIVE"]).split())
+    assert (
+        f"contains(github.event.pull_request.labels.*.name, '{LANE_LABEL}')" in active
+    ), (
+        "ACTIVE must read the label set from the pull request, so an "
+        f"`unlabeled` event removing `{LANE_LABEL}` deactivates the gates"
+    )
+    assert f"github.event.label.name == '{LANE_LABEL}'" in active, (
+        "ACTIVE must gate the label actions on the label name, or an unrelated "
+        "label starts a full gate run in its own lane"
+    )
+    for action in ("labeled", "unlabeled"):
+        assert f"github.event.action != '{action}'" in active, (
+            f"ACTIVE must exempt non-`{action}` actions from the label-name "
+            "test, or `opened`/`synchronize` (which carry no "
+            "`github.event.label`) would never activate"
+        )
+
+
+def test_scope_report_distinguishes_an_unrelated_label_event() -> None:
+    """The scope report must not claim the label is absent when it is present.
+
+    Once `ACTIVE` gates the label actions on the label name, a relabel for
+    something else resolves inactive on a PR that *does* carry
+    `release-neutral` — so the two-branch report ("no `release-neutral` label")
+    would state the opposite of the truth and invite the reviewer to add a label
+    that is already there. Three states, three messages: active; carries the
+    label but this event is not about it; no label at all.
+
+    `LABELLED` is what makes the middle branch expressible — `ACTIVE` has
+    already collapsed the label set and the event into one boolean.
+    """
+    env = jobs(_guard())[GUARD_JOB]["env"]
+    labelled = " ".join(str(env.get("LABELLED", "")).split())
+    assert (
+        f"contains(github.event.pull_request.labels.*.name, '{LANE_LABEL}')" in labelled
+    ), (
+        "the job needs a LABELLED env reading the label set alone, or the scope "
+        "report cannot tell 'no label' from 'not this event'"
+    )
+    run = str(step_by_name(steps_of_job(_guard(), GUARD_JOB), "Report scope")["run"])
+    assert "LABELLED" in run, "the scope report must consult LABELLED"
+    assert run.count("elif") >= 1, (
+        "the scope report must branch three ways; with two branches an "
+        "unrelated relabel is reported as 'no `release-neutral` label'"
     )
 
 
@@ -394,6 +519,92 @@ def test_gate_6_reports_changelog_drift_explicitly() -> None:
         "the verdict must say the comparison was normalized, so the reader "
         "knows the changelog was excluded from the proof rather than proved "
         "identical"
+    )
+
+
+def test_gate_6_upserts_one_sticky_verdict_comment() -> None:
+    """One current verdict, not a thread of stale ones.
+
+    The guard reruns on every `synchronize` and on its own label event, and each
+    run used to append another comment. A reviewer reading the first verdict
+    would be reading a file list and a changelog diff that no longer exist. So
+    the body carries an HTML marker, and the step looks that marker up and
+    PATCHes the existing comment before falling back to posting a new one.
+
+    Matched by marker rather than `gh pr comment --edit-last`, which edits the
+    acting identity's last comment — for `github-actions[bot]` that may belong
+    to an entirely different workflow.
+    """
+    verdict = str(
+        step_by_name(steps_of_job(_guard(), GUARD_JOB), "verdict").get("run", "")
+    )
+    step = step_by_name(steps_of_job(_guard(), GUARD_JOB), "verdict")
+    marker = VERDICT_MARKER in verdict or VERDICT_MARKER in str(step.get("env", {}))
+    assert marker, (
+        f"the verdict body must carry the {VERDICT_MARKER!r} marker, or a rerun "
+        "cannot find the comment it wrote last time"
+    )
+    # Asserted against the executable lines: the step's comments name
+    # `gh pr comment --edit-last` in order to reject it.
+    code = "\n".join(
+        line for line in verdict.splitlines() if not line.lstrip().startswith("#")
+    )
+    lookup = code.find("contains(")
+    post = code.find("gh pr comment")
+    assert lookup != -1, (
+        "the verdict step must look the marker up among the PR's comments"
+    )
+    assert "--method PATCH" in code, (
+        "the verdict step must PATCH the existing comment in place"
+    )
+    assert post != -1 and lookup < post, (
+        "the marker lookup must precede the `gh pr comment` fallback, or every "
+        "run posts a fresh comment before discovering the old one"
+    )
+    assert "--edit-last" not in code, (
+        "`gh pr comment --edit-last` edits the token identity's last comment, "
+        "which for `github-actions[bot]` may be another workflow's — match the "
+        "marker instead"
+    )
+    assert "env.MARKER" in code, (
+        "the marker must reach jq through the environment, not through a "
+        "shell-escaped interpolation into the filter string"
+    )
+
+
+def test_gate_6_prunes_every_verdict_but_the_newest() -> None:
+    """Concurrent ACTIVE runs must converge on exactly one verdict comment.
+
+    Label events run in per-run lanes, so they neither cancel nor are cancelled:
+    the opener's own flow (`opened` plus two `labeled` events for the lane label)
+    can leave three ACTIVE runs in flight, each racing the marker lookup, each
+    finding nothing and creating its own marked comment. The upsert alone then
+    leaves two or three marked comments and only ever PATCHes the newest, so the
+    stale ones outlive every later run.
+
+    So after upserting, the step lists the marked comments again and deletes
+    all but the newest. Whichever run finishes last leaves exactly one verdict, no
+    matter how many raced. `pull-requests: write` already covers the delete.
+    """
+    step = step_by_name(steps_of_job(_guard(), GUARD_JOB), "verdict")
+    code = "\n".join(
+        line
+        for line in str(step.get("run", "")).splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    assert "--method DELETE" in code, (
+        "gate 6 must delete the verdict comments it superseded, or concurrent "
+        "label runs leave a pile of marked comments behind"
+    )
+    prune = code.find("--method DELETE")
+    for upsert in ("--method PATCH", "gh pr comment"):
+        assert code.find(upsert) < prune, (
+            f"the prune must run AFTER the {upsert!r} upsert, or it deletes the "
+            "comment this run is about to write"
+        )
+    assert "newest" in code and "continue" in code, (
+        "the prune must keep the newest marked comment and delete only the "
+        "others — a prune with no exception deletes the verdict itself"
     )
 
 

@@ -380,7 +380,7 @@ gh workflow run release-neutral-open.yml   -f branch=chore/<issue>-<summary>   -
 | **2** | `devShells.default`, `packages.devkitImage` and `packages.devkitImageEnv` derivation paths are **identical** to `main`'s, compared with the changelog normalized away |
 | **3** | The consumer scaffold under `assets/` is byte-identical |
 | **5** | No `release/*` train is in flight |
-| **6** | Posts a verdict comment listing the files carried, and the changelog drift if there is any |
+| **6** | Upserts one sticky verdict comment (matched by an HTML marker, so a rerun updates it rather than appending) listing the files carried, and the changelog drift if there is any |
 
 Gate **4** was `main`'s `## Unreleased` is still empty. It is deleted, not renumbered — see [below](#main-may-carry-unshipped-changes).
 
