@@ -985,6 +985,72 @@ class TestCheckExpirationsConsumerSurface:
             assert entry.startswith("uv run check-expirations "), (render, entry)
 
 
+class TestShellcheckCompositeActionsHook:
+    """The composite-action shell gate covers BOTH composite trees (#1704).
+
+    ``actionlint`` refuses a composite action, so its ``run:`` bodies get no
+    shellcheck pass at all. The hook closes that gap over devkit's own
+    ``.github/actions/`` *and* the scaffold's ``assets/workspace/.github/
+    actions/`` — the composites consumers actually run — and ships to
+    consumers, where shellcheck must resolve without leaning on PATH.
+    """
+
+    HOOK_ID = "shellcheck-composite-actions"
+
+    def test_portable_renders_keep_the_path_portable_entry(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """Committed YAMLs stay store-path free (docs/NIX.md)."""
+        for render in ("runner", "scaffold"):
+            hook = _normalize(rendered_portable[render])["hooks"][self.HOOK_ID]
+            assert hook["entry"] == "uv run shellcheck-composite-actions", render
+            assert hook["pass_filenames"] is True, render
+
+    def test_consumer_entry_pins_both_binaries(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        """Store paths for the script AND for shellcheck itself."""
+        entry = _normalize(consumer_config)["hooks"][self.HOOK_ID]["entry"]
+        argv = shlex.split(entry)
+        assert argv[0].startswith("/nix/store/"), entry
+        assert argv[0].endswith("/bin/shellcheck-composite-actions"), entry
+        assert argv[1] == "--shellcheck", entry
+        assert argv[2].startswith("/nix/store/"), entry
+        assert argv[2].endswith("/bin/shellcheck"), entry
+
+    def test_scope_covers_both_composite_trees(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """One regex, two trees — and no workflow file caught by accident."""
+        pattern = _normalize(rendered_portable["scaffold"])["hooks"][self.HOOK_ID][
+            "files"
+        ]
+        for path in (
+            ".github/actions/test-project/action.yml",
+            "assets/workspace/.github/actions/resolve-toolchain/action.yml",
+        ):
+            assert re.search(pattern, path), (pattern, path)
+        for path in (
+            ".github/workflows/ci.yml",
+            ".github/actions/test-project/README.md",
+        ):
+            assert not re.search(pattern, path), (pattern, path)
+
+    def test_every_committed_composite_is_in_scope(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """No composite in this repo escapes the gate."""
+        pattern = _normalize(rendered_portable["runner"])["hooks"][self.HOOK_ID][
+            "files"
+        ]
+        composites = sorted(
+            str(path.relative_to(REPO_ROOT))
+            for path in REPO_ROOT.glob("**/.github/actions/*/action.yml")
+        )
+        assert composites, "no composite actions found to gate"
+        assert all(re.search(pattern, path) for path in composites), composites
+
+
 class TestNoConsumerHookResolvesVigUtilsThroughTheVenv:
     """Class-wide guard for the #1434/#1447 defect, on every consumer shell.
 

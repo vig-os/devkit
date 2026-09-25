@@ -55,6 +55,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `sync-main-to-dev.yml` is copy-excluded, so the scaffold render drops the
     step instead of shipping a comparison against a branch that does not exist.
 
+- **Composite-action `run:` bodies are shellchecked**
+  ([#1704](https://github.com/vig-os/devkit/issues/1704))
+  - `actionlint` refuses a composite action outright (`unexpected key "runs" for
+    "workflow" section`) and has no composite mode, so every `run:` body that
+    moved out of a workflow and into `.github/actions/*/action.yml` silently lost
+    its shellcheck pass — locally and in CI
+  - The new `shellcheck-composite-actions` hook reproduces actionlint's own
+    recipe over those bodies: each `${{ … }}` blanked to same-length underscores
+    (so findings still point at the real line and column), GitHub's shell prelude
+    prepended, and actionlint's exclude list passed verbatim — one lint, not two
+    dialects of one. Inline `# shellcheck disable=` directives keep working
+  - Scaffolded: new scaffolds and flake-hooks consumers gate their own
+    composites from this release; a consumer with a preserved
+    `.pre-commit-config.yaml` receives the hook on the release that adds its
+    insert row. Findings are reported in `action.yml` coordinates. The first
+    pass caught one real defect: an unquoted `$(id -u)` in the podman socket
+    URI of `test-integration`
+
 ### Changed
 
 - **BATS suite runs under `bats --jobs`, and a scaffold forks 65% less**
