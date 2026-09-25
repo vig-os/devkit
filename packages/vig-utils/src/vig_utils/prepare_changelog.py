@@ -15,6 +15,63 @@ from pathlib import Path
 STANDARD_SECTIONS = ["Added", "Changed", "Deprecated", "Removed", "Fixed", "Security"]
 
 
+def _unreleased_body(content):
+    """
+    Return the text between ``## Unreleased`` and the next top-level heading.
+
+    Bounded by any ``## `` heading rather than by ``## [``: on a bare
+    ``## Unreleased`` the separating newline is consumed by the heading match
+    itself, so a ``\n## [`` lookahead never fires and the capture used to run to
+    end of file — handing the PREVIOUS release's subsections back as unreleased
+    content (#1689). Returns ``None`` when there is no ``## Unreleased`` heading.
+    """
+    match = re.search(
+        r"^## Unreleased[ \t]*\n(.*?)(?=^## |\Z)",
+        content,
+        re.MULTILINE | re.DOTALL,
+    )
+    return match.group(1) if match else None
+
+
+def _find_loose_bullets(body_text):
+    """
+    Return bullet lines of a section body that sit outside a standard subsection.
+
+    A bullet only counts as content when a recognised ``### <STANDARD_SECTION>``
+    heading precedes it; anything else (a bullet written straight under
+    ``## Unreleased``, or under an invented heading) is invisible to
+    :func:`_parse_subsections` and would be dropped by ``prepare`` (#1689).
+    """
+    loose = []
+    in_standard_section = False
+    for line in body_text.split("\n"):
+        heading = re.match(r"^### (.*)$", line)
+        if heading:
+            in_standard_section = heading.group(1).strip() in STANDARD_SECTIONS
+            continue
+        if not in_standard_section and line.strip().startswith("-"):
+            loose.append(line.rstrip())
+    return loose
+
+
+def _reject_loose_bullets(body_text):
+    """
+    Raise when ``body_text`` carries bullets no ``### `` subsection owns (#1689).
+
+    ``validate`` and ``prepare``/``seed`` share this one notion of content, so
+    the commands can no longer disagree about whether a section is freezable:
+    what validate accepts is exactly what prepare can move.
+    """
+    loose = _find_loose_bullets(body_text)
+    if loose:
+        listed = "\n".join(f"  {line}" for line in loose)
+        raise ValueError(
+            "Unreleased section has bullets outside a recognised '### ' "
+            "subsection; they would be dropped. Move them under one of "
+            f"{', '.join(STANDARD_SECTIONS)}:\n{listed}"
+        )
+
+
 def _parse_subsections(body_text):
     """
     Extract standard subsections that carry bullet content from a section body.
@@ -94,15 +151,14 @@ def extract_unreleased_content(content):
 
     Returns dict: {section_name: content_lines}
     """
-    # Find Unreleased section
-    unreleased_match = re.search(
-        r"## Unreleased\s*\n(.*?)(?=\n## \[|\Z)", content, re.DOTALL
-    )
+    body = _unreleased_body(content)
 
-    if not unreleased_match:
+    if body is None:
         raise ValueError("No '## Unreleased' section found in CHANGELOG")
 
-    return _parse_subsections(unreleased_match.group(1))
+    _reject_loose_bullets(body)
+
+    return _parse_subsections(body)
 
 
 def create_new_changelog(version, old_sections, rest_of_changelog):
@@ -163,6 +219,11 @@ def validate_changelog(filepath="CHANGELOG.md"):
     Validate that CHANGELOG has Unreleased section with content.
 
     Returns: (has_section, has_content)
+
+    Raises:
+        ValueError: If the Unreleased section carries bullets outside a
+                    recognised ``### `` subsection (#1689)
+        FileNotFoundError: If the CHANGELOG file doesn't exist
     """
     path = Path(filepath)
     if not path.exists():
@@ -173,16 +234,15 @@ def validate_changelog(filepath="CHANGELOG.md"):
     # Check for Unreleased section
     has_section = bool(re.search(r"## Unreleased", content))
 
-    # Check for content in Unreleased section
+    # Check for content in Unreleased section. "Content" is what ``prepare``
+    # can actually freeze — bullets under a recognised ``### `` heading — so the
+    # two commands cannot disagree (#1689); loose bullets are refused outright.
     has_content = False
     if has_section:
-        unreleased_match = re.search(
-            r"## Unreleased\s*\n(.*?)(?=\n## \[|\Z)", content, re.DOTALL
-        )
-        if unreleased_match:
-            unreleased_text = unreleased_match.group(1)
-            # Check if any line starts with '-' (bullet point)
-            has_content = bool(re.search(r"^\s*-", unreleased_text, re.MULTILINE))
+        body = _unreleased_body(content)
+        if body is not None:
+            _reject_loose_bullets(body)
+            has_content = bool(_parse_subsections(body))
 
     return has_section, has_content
 
@@ -311,6 +371,10 @@ def prepare_changelog(version, filepath="CHANGELOG.md"):
     """
     Prepare CHANGELOG for release.
 
+    Refuses, leaving the file untouched, when the Unreleased section carries
+    bullets outside a recognised ``### `` subsection or has nothing to freeze at
+    all (#1689) — ``prepare`` never exits 0 having lost an entry.
+
     Args:
         version: Semantic version (e.g., "1.0.0")
         filepath: Path to CHANGELOG.md
@@ -335,6 +399,17 @@ def prepare_changelog(version, filepath="CHANGELOG.md"):
     content, existing_sections = _pop_version_section(content, version)
     if existing_sections:
         old_sections = _merge_sections(old_sections, existing_sections)
+
+    # Fail closed (#1689): an empty Unreleased used to produce an empty
+    # ## [version] - TBD section and a warning on stdout, which only defers the
+    # failure to release time (release.yml's ``validate --version``). ``seed`` is
+    # the command for that case, and the #1682 hotfix classifier already routes
+    # an empty section there.
+    if not old_sections:
+        raise ValueError(
+            f"No content to freeze into [{version}]: the Unreleased section is "
+            "empty. Use 'seed' to write an empty section for a hotfix branch."
+        )
 
     # Get everything after Unreleased section
     rest_match = re.search(r"## Unreleased\s*\n.*?(?=\n## \[)", content, re.DOTALL)
@@ -363,14 +438,9 @@ def cmd_prepare(args):
     sections = prepare_changelog(args.version, args.file)
 
     print(f"✓ Prepared CHANGELOG for version {args.version}")
-    if sections:
-        print(
-            f"✓ Moved {len(sections)} section(s) with content to [{args.version}] - TBD"
-        )
-        for section in sections:
-            print(f"  - {section}")
-    else:
-        print("⚠ Warning: No content found in Unreleased section")
+    print(f"✓ Moved {len(sections)} section(s) with content to [{args.version}] - TBD")
+    for section in sections:
+        print(f"  - {section}")
     print("✓ Created fresh Unreleased section")
 
 
