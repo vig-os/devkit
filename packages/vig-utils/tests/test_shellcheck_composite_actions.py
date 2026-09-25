@@ -63,6 +63,12 @@ EXPRESSION_STEP = """\
         fi
 """
 
+UNRECOGNISED_SHELL_STEP = """\
+    - name: Typo shell
+      shell: Bash
+      run: echo $(id -u)
+"""
+
 PYTHON_STEP = """\
     - name: Python step
       shell: python
@@ -154,6 +160,20 @@ class TestExtractSteps:
     def test_non_shell_steps_are_skipped(self, tmp_path: Path):
         path = write_action(tmp_path / "action.yml", PYTHON_STEP + USES_STEP)
         assert extract_steps(path) == []
+
+    def test_known_non_shell_is_skipped_silently(self, tmp_path: Path, capsys):
+        path = write_action(tmp_path / "action.yml", PYTHON_STEP)
+        assert extract_steps(path) == []
+        assert capsys.readouterr().err == ""
+
+    def test_unrecognised_shell_is_skipped_with_a_note(self, tmp_path: Path, capsys):
+        """A typo in ``shell:`` must not quietly unlint a body (#1704)."""
+        path = write_action(tmp_path / "action.yml", UNRECOGNISED_SHELL_STEP)
+        assert extract_steps(path) == []
+        err = capsys.readouterr().err
+        assert "Bash" in err
+        assert "Typo shell" in err
+        assert str(path) in err
 
 
 class TestShellcheckExcludes:
