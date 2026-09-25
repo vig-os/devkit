@@ -139,3 +139,31 @@ _upgrade_aborting_in_window() {
     run test -w "$ws/.github/workflows/ci.yml"
     assert_success
 }
+
+@test "the u+w sweep prunes the copy step's names, so a .venv twin keeps its mode (#1700)" {
+    # The copy rsync excludes `.git` and `.venv` by BASENAME, so it skips them at
+    # any depth — the image bakes a venv into the template tree (#735). The chmod
+    # sweep walked the same tree with NO prunes, so it reached destinations the
+    # copy never wrote and lifted u+w on the consumer's OWN virtualenv files
+    # sitting at those paths. Sweep and copy must prune the same names.
+    tmpl="$BATS_TEST_TMPDIR/tmpl-1700-venv"
+    cp -r "$PROJECT_ROOT/assets/workspace" "$tmpl"
+    mkdir -p "$tmpl/.venv/lib" "$tmpl/pkg/.venv"
+    printf 'template venv body\n' >"$tmpl/.venv/lib/pyvenv.cfg"
+    printf 'template nested venv body\n' >"$tmpl/pkg/.venv/x"
+
+    # The workspace carries the same two paths (as a consumer's real venvs do),
+    # read-only — a mode the scaffold has no business changing.
+    ws="$BATS_TEST_TMPDIR/e2e-1700-venv"
+    mkdir -p "$ws/.venv/lib" "$ws/pkg/.venv"
+    printf 'consumer venv body\n' >"$ws/.venv/lib/pyvenv.cfg"
+    printf 'consumer nested venv body\n' >"$ws/pkg/.venv/x"
+    chmod 0444 "$ws/.venv/lib/pyvenv.cfg" "$ws/pkg/.venv/x"
+
+    run _run_init both "$ws" TEMPLATE_DIR="$tmpl"
+    assert_success
+    run stat -c '%a' "$ws/.venv/lib/pyvenv.cfg"
+    assert_output "444"
+    run stat -c '%a' "$ws/pkg/.venv/x"
+    assert_output "444"
+}
