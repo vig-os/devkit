@@ -124,7 +124,8 @@ runs:
       run: |
         set -euo pipefail
         echo "Running BATS tests with $(nproc) jobs..."
-        # Jobs within files; GNU parallel rides with the bats wrapper. Refs #1687
+        # Jobs within files; the rush parallel runner rides with the bats
+        # wrapper. Refs #1687, #1708
         bats -j "$(nproc)" tests/bats/
 
     # --- Project tests with coverage (suite: all | pytest) -------------------
