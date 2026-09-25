@@ -11,8 +11,9 @@ Two invariants are easy to undo silently and are therefore pinned here:
 - **Order and wiring.** Restoring the image-mode report (or moving the SBOM
   step back below it) reintroduces the second image parse. The report's
   ``scan-ref`` must be exactly the SBOM step's ``output``, or it scans a file
-  that does not exist yet — Trivy reports *nothing* rather than failing, since
-  the report is deliberately non-blocking (``exit-code: 0``).
+  that does not exist yet. That hard-fails the step (``exit-code: 0`` suppresses
+  findings, not scan errors), so the pin is about keeping the pair coherent,
+  not about a silent pass.
 - **Where the register check lives.** ``check-expirations`` is blocking and must
   keep running in PR CI (an acceptance criterion of #1701), but it needs the Nix
   shell, and keeping it in ``security-scan`` forces a ``setup-env`` onto a job
@@ -130,8 +131,8 @@ def test_report_scans_the_sbom_generated_before_it() -> None:
     output = steps[sbom]["with"]["output"]
     assert steps[report]["with"]["scan-ref"] == output, (
         f"the report's `scan-ref` must be the SBOM step's `output` ({output!r}); "
-        f"a mismatch makes Trivy scan a missing file and report nothing, "
-        f"silently, because the step is non-blocking (#1701)"
+        f"a mismatch points the report at a file the job never wrote and "
+        f"hard-fails it — exit-code 0 suppresses findings, not scan errors (#1701)"
     )
 
 
