@@ -52,6 +52,14 @@ set -euo pipefail
 # Defaults match the in-image layout; overridable so the scaffold can be
 # exercised end-to-end from tests against temporary directories.
 TEMPLATE_DIR="${TEMPLATE_DIR:-/root/assets/workspace}"
+# Strip a trailing slash at the single assignment site (#1703): every walk keyed
+# on the template maps a source path into the workspace by stripping a
+# `$TEMPLATE_DIR/` prefix, and `find` output never carries a trailing slash — so
+# a `.../workspace//` prefix strips NOTHING, every relative path stays absolute,
+# no destination resolves, and the u+w sweep, the +x sweep and the --preview
+# classifier each exit 0 having done nothing at all. The rsync transfer-root
+# `"$TEMPLATE_DIR/"` and the `dirname` below are unaffected either way.
+TEMPLATE_DIR="${TEMPLATE_DIR%/}"
 WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 # Authoritative built-tag record baked into the image by the flake (#921): the
 # fallback pin source when VIG_OS_VERSION is unset (a raw `podman run ...
@@ -67,6 +75,18 @@ PRUNE_DEVCONTAINER=false
 MODE=""
 # Workflow model: gitflow | trunk. Empty = manifest, or the gitflow default (#1205).
 WORKFLOW_MODEL=""
+
+# Names the template copy never transfers (#1700). The rsync `--exclude=` patterns
+# derived below are BASENAME patterns, so they prune at any depth — and the image
+# bakes a `.venv` into the template tree (#735, `python3 -m venv` in flake.nix).
+# Single source of truth for both copy branches and for emit_template_candidates,
+# so no walk keyed on the template can reach a destination the copy never wrote.
+COPY_PRUNE_NAMES=(.git .venv)
+COPY_PRUNE_EXCLUDES=()
+for _prune_name in "${COPY_PRUNE_NAMES[@]}"; do
+    COPY_PRUNE_EXCLUDES+=("--exclude=$_prune_name")
+done
+unset _prune_name
 
 # Files to preserve during --force upgrades (never overwrite if they exist)
 # These are user/project customization files that should survive upgrades
@@ -3109,7 +3129,7 @@ if [[ "$SMOKE_TEST" == "true" ]]; then
     # changelog is consumer state — its own frozen release history
     # (## [X.Y.Z] - TBD) must survive re-deploys (#1403). The anchor keeps
     # .devcontainer/CHANGELOG.md (devkit's manifest mirror) syncing.
-    rsync -avL --checksum --exclude='.git' --exclude='.venv' --exclude='/CHANGELOG.md' "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
+    rsync -avL --checksum "${COPY_PRUNE_EXCLUDES[@]}" --exclude='/CHANGELOG.md' "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
 
     SMOKE_TEST_DIR="$SCRIPT_DIR/smoke-test"
     if [[ -d "$SMOKE_TEST_DIR" ]]; then
@@ -3181,12 +3201,38 @@ else
         fi
     done
 
-    rsync -avL --checksum --exclude='.git' --exclude='.venv' "${EXCLUDE_ARGS[@]}" "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
+    rsync -avL --checksum "${COPY_PRUNE_EXCLUDES[@]}" "${EXCLUDE_ARGS[@]}" "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
 
     # ci.yml is a single mode-aware workflow (#991): it resolves DEVKIT_MODE at
     # run time via the resolve-toolchain job + setup-devkit-toolchain composite,
     # so every mode ships the same file — no per-mode overlay to re-apply.
 fi
+
+# One shared walk for every pass keyed on the template (#1700): the u+w sweep
+# below, the placeholder substitution and the +x sweep all mapped template paths
+# to workspace paths with the same hand-rolled `find` idiom but diverging prunes,
+# so only the substitution walk (#1693) skipped the baked venv. This emitter
+# prunes COPY_PRUNE_NAMES by name at any depth — the copy's own SSoT — and emits
+# NUL-delimited WORKSPACE destinations; each caller supplies the `find`
+# predicates its pass needs (a type filter, a name glob) and keeps its own
+# destination filter. With no predicate every entry below the root is emitted,
+# directories included, which is what the u+w sweep needs.
+emit_template_candidates() {
+    local src_dir="${1%/}"
+    shift
+    # Basename prunes, mirroring the copy rsync's basename --exclude patterns.
+    local -a prune=()
+    local prune_name
+    for prune_name in "${COPY_PRUNE_NAMES[@]}"; do
+        prune+=(-name "$prune_name" -o)
+    done
+    unset 'prune[-1]'
+    local src_path
+    while IFS= read -r -d '' src_path; do
+        printf '%s\0' "$WORKSPACE_DIR/${src_path#"$src_dir"/}"
+    done < <(find -L "$src_dir" -mindepth 1 \
+        \( "${prune[@]}" \) -prune -o "${@:--true}" -print0)
+}
 
 # The Nix-built image stores the baked template as read-only symlinks into the
 # Nix store. The rsync `-L` (--copy-links) above dereferences them into real
@@ -3200,16 +3246,17 @@ fi
 # surface for the transient fts walk failure that aborted a run in the field.
 # Symlinks are skipped: chmod would follow them to a target the scaffold does
 # not own (a preserved store symlink target is read-only by design, #1117).
+# Pruned like the copy since #1700: a template `.venv` is never transferred, so
+# its workspace twin is the consumer's own virtualenv — not a scaffold path, and
+# its mode not ours to lift.
 sweep_scaffold_writable() {
-    local src_dir="$1" src_path rel dest
+    local src_dir="$1" dest
     local -a targets=()
-    while IFS= read -r -d '' src_path; do
-        rel="${src_path#"$src_dir"/}"
-        dest="$WORKSPACE_DIR/$rel"
+    while IFS= read -r -d '' dest; do
         if [[ -e "$dest" && ! -L "$dest" ]]; then
             targets+=("$dest")
         fi
-    done < <(find -L "$src_dir" -mindepth 1 -print0)
+    done < <(emit_template_candidates "$src_dir")
     # One batched chmod instead of one fork per file (#1687): the per-file loop
     # was 23% of a scaffold's ~4.3k forks. The filter above is unchanged, so the
     # set of chmod'ed paths is identical; xargs chunks it under ARG_MAX, and the
@@ -3490,26 +3537,21 @@ GITHUB_REPOSITORY_ESCAPED=$(printf '%s\n' "$GITHUB_REPOSITORY" | sed 's/[&/\]/\\
 # Selection semantics, unchanged from the batched walk this replaces (#1687):
 # regular files only, symlinked destinations skipped (the old `grep -rl` did not
 # follow symlinks found inside the tree), anything under `.git/` skipped, and
-# binaries matched (no -I). `.git` and `.venv` are pruned by NAME at any depth,
-# matching the copy rsync's `--exclude='.git' --exclude='.venv'` — which are
-# basename patterns — so the walk cannot reach a destination the copy never
-# wrote; the image's baked venv inside /root/assets/workspace (#735) is the case
-# that matters in production. Failures are swallowed exactly as the old
+# binaries matched (no -I). COPY_PRUNE_NAMES is pruned by NAME at any depth — the
+# emitter does it for every template walk since #1700, off the same array the copy
+# rsync derives its basename `--exclude` patterns from — so the walk cannot reach a
+# destination the copy never wrote; the image's baked venv inside
+# /root/assets/workspace (#735) is the case that matters in production. This
+# function keeps only its own destination filter. Failures are swallowed as the old
 # `2>/dev/null` + `|| true` did, so neither exit 1 (nothing matched) nor exit 2
 # (unreadable file) trips `set -o pipefail`.
 emit_substitution_candidates() {
-    # Strip a trailing slash: `find` never emits one, so a `$src_dir/` prefix of
-    # `…/workspace//` would match nothing, leave every `rel` absolute and quietly
-    # substitute NOTHING while exiting 0.
-    local src_dir="${1%/}" src_path rel dest
-    while IFS= read -r -d '' src_path; do
-        rel="${src_path#"$src_dir"/}"
-        dest="$WORKSPACE_DIR/$rel"
+    local dest
+    while IFS= read -r -d '' dest; do
         if [[ -f "$dest" && ! -L "$dest" ]]; then
             printf '%s\0' "$dest"
         fi
-    done < <(find -L "$src_dir" -mindepth 1 \
-        \( -name .git -o -name .venv \) -prune -o -type f -print0)
+    done < <(emit_template_candidates "$1" -type f)
 }
 
 {
@@ -3735,10 +3777,9 @@ disarm_torn_window_guard
 # sourced-only .sh libraries are not template paths, so a blanket sweep wrongly
 # flipped their mode (644 → 755) on every --force re-scaffold (#1195).
 echo "Setting executable permissions on shell scripts and hooks..."
-while IFS= read -r -d '' template_script; do
-    rel="${template_script#"$TEMPLATE_DIR"/}"
-    [[ -f "$WORKSPACE_DIR/$rel" ]] && chmod +x "$WORKSPACE_DIR/$rel"
-done < <(find -L "$TEMPLATE_DIR" -type f -name "*.sh" -print0)
+while IFS= read -r -d '' script_dest; do
+    [[ -f "$script_dest" ]] && chmod +x "$script_dest"
+done < <(emit_template_candidates "$TEMPLATE_DIR" -type f -name "*.sh")
 find "$WORKSPACE_DIR/.githooks" -type f -exec chmod +x {} \; 2>/dev/null || true
 
 # The root justfile is managed (rsync overwrites it on upgrade), so the
