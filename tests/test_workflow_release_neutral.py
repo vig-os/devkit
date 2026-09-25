@@ -62,6 +62,7 @@ Refs: #1676
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 import pytest
@@ -73,6 +74,7 @@ from tests.workflow_scaffold import (
     load_workflow,
     on_block,
     run_text_of_job,
+    step_by_id,
     step_by_name,
     steps_of_job,
 )
@@ -798,6 +800,127 @@ def test_gate_6_retracts_the_verdict_without_ever_creating_one() -> None:
         "deactivated run never checked anything out, and a failed gate 2 or "
         "vulnix extra leaves the tree on the base ref, so a file list there "
         "would come out empty"
+    )
+
+
+# ── Step budgets: a hang must fail the step, not the job (#1712) ──────────────
+
+# The three steps that can genuinely hang: the toolchain set-up (a Nix/Cachix
+# fetch), gate 2 (three `nix eval`s) and the vulnix extra, which may rebuild
+# `main`'s closure against a cold NVD cache. The gates above them are seconds of
+# `git` and `gh`.
+LONG_STEP_IDS = ("setup", "gate2", "vulnix")
+
+
+def test_long_steps_carry_their_own_timeout() -> None:
+    """A hang must expire a STEP's budget, never the job's.
+
+    A job `timeout-minutes` expiry *cancels* the job: the in-flight step's
+    `outcome` is `cancelled`, and gate 6 runs under `!cancelled()`, so the
+    verdict is skipped and the last positive one stands over a run that hung.
+    Budget each long step instead and the step FAILS while the job lives on, so
+    gate 6 reaches its refusal.
+
+    That only holds while the step budgets SUM to strictly less than the job's:
+    if they can add up past it, the job's own expiry arrives first and cancels
+    the run anyway — which is the defect, not the fix.
+    """
+    doc = _guard()
+    steps = steps_of_job(doc, GUARD_JOB)
+    job_budget = jobs(doc)[GUARD_JOB].get("timeout-minutes")
+    assert isinstance(job_budget, int), (
+        "the guard job must keep an explicit `timeout-minutes` — the step "
+        f"budgets are only meaningful against it; got {job_budget!r}"
+    )
+
+    total = 0
+    for step_id in LONG_STEP_IDS:
+        budget = step_by_id(steps, step_id).get("timeout-minutes")
+        assert isinstance(budget, int), (
+            f"step `{step_id}` must carry its own integer `timeout-minutes`: "
+            "without one a hang there runs until the JOB's budget expires, "
+            f"which cancels the run and skips gate 6; got {budget!r}"
+        )
+        total += budget
+
+    assert total < job_budget, (
+        f"the step budgets sum to {total} minutes, which is not below the job's "
+        f"{job_budget}: a run that hangs in the last step would hit the job's "
+        "expiry — a cancellation — before its own, and gate 6 would be skipped"
+    )
+
+
+def _verdict_scan() -> str:
+    """Gate 6's `$OUTCOMES` loop: the selection of the first non-green step."""
+    code = _verdict_code()
+    start = code.find("for entry in $OUTCOMES")
+    assert start != -1, (
+        "gate 6 must still scan the gated steps' outcomes in run order, so the "
+        "step it names is the first thing that went wrong"
+    )
+    end = code.find("done", start)
+    assert end != -1, "the outcome scan must be a complete loop"
+    return code[start:end]
+
+
+def test_verdict_scan_treats_any_non_green_outcome_as_non_green() -> None:
+    """Selecting on `failure` alone reads a timeout as a pass.
+
+    A step whose own `timeout-minutes` expires reports `cancelled`, not
+    `failure`; so would a step GitHub cancels for any other reason. A scan that
+    matches the literal `failure` skips such an entry and falls through to the
+    green body, which says "This change is release-neutral" about a run that
+    proved nothing. The scan therefore selects the first entry whose outcome is
+    neither of the two green ones — `success` and `skipped`.
+    """
+    scan = _verdict_scan()
+    assert "success" in scan, (
+        "the scan must name `success` as green, or it cannot select on "
+        "everything that is not"
+    )
+    assert "skipped" in scan, (
+        "the scan must name `skipped` as green too: every step after a failed "
+        "one is skipped, and a skip is not something to report"
+    )
+    assert not re.search(r"=\s*failure", scan), (
+        "the scan must not select on the literal `failure`: a step cancelled by "
+        "its own timeout reports `cancelled` and would be read as green"
+    )
+
+
+def test_verdict_words_a_cancelled_gate_as_infrastructure() -> None:
+    """A `cancelled` gate refused nothing — whichever gate it was.
+
+    The per-step wording distinguishes a gate's refusal ("this change is NOT
+    release-neutral") from an infrastructure failure ("nothing is proved"). A
+    step that ran out of time never reached a judgement, so it takes the
+    infrastructure wording even when it is gate 2 itself, whose *failure* is the
+    lane's central refusal.
+    """
+    code = _verdict_code()
+    cancelled = code.find("cancelled")
+    per_step = code.find('case "$failed" in')
+    assert cancelled != -1, (
+        "gate 6 must recognise a `cancelled` outcome — a step whose timeout "
+        "expired reports it, and it is not a refusal"
+    )
+    assert per_step != -1, "the per-step wording must survive for real failures"
+    assert cancelled < per_step, (
+        "the `cancelled` test must come before the per-step `case`, or a "
+        "cancelled gate 2 is worded as a refusal it never made"
+    )
+    branch = code[cancelled:per_step]
+    assert "$outcome" in branch, (
+        "the test must read the recorded OUTCOME, not the step id: which step "
+        "was cancelled says nothing about whether it refused anything"
+    )
+    assert "infra=true" in branch, (
+        "a cancelled step must take the infrastructure wording — nothing was "
+        "proved either way, so the comment must ask for a rerun"
+    )
+    assert "timed out" in branch.lower(), (
+        "the wording must say the step timed out or was cancelled, so a "
+        "reviewer knows why no gate is named"
     )
 
 
