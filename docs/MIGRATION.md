@@ -418,6 +418,83 @@ safety value depends on ruleset state the knob cannot observe, and it needs
 Renovate-class stale-PR machinery with zero live consumers asking for
 human-gated sync. Revisit only when a consumer actually requests it.
 
+### Bind the commit-App token-minting jobs to a deployment environment
+
+The scaffolded workflows mint the commit App token from `COMMIT_APP_CLIENT_ID` /
+`COMMIT_APP_PRIVATE_KEY`, which in practice are organization or repository
+secrets — readable by a workflow job on **any** branch of the repository. The
+commit App usually holds a branch-protection bypass (that is what lets the issue
+mirror and the changelog freeze push where they push), so that surface lets any
+account with write access push a branch whose workflow mints the token and writes
+straight past the default branch's protection: no PR, no required checks
+([#1710](https://github.com/vig-os/devkit/issues/1710)).
+
+`DEVKIT_COMMIT_APP_ENVIRONMENT` closes it. Set it to the name of a GitHub
+**deployment environment** holding the pair as **environment secrets**, and the
+scaffold renders `environment: <name>` on exactly the jobs that mint the token —
+so a job running from a ref the environment's deployment branch policy does not
+admit cannot read the credentials at all:
+
+```ini
+# .vig-os
+DEVKIT_COMMIT_APP_ENVIRONMENT=commit-app
+```
+
+**Setup order matters — do it before the upgrade:**
+
+1. **Create the environment** (Settings → Environments). A bound job whose
+   environment does not exist **auto-creates an unprotected one**, which silently
+   defeats the whole point, so this comes first.
+2. **Add its deployment branch policy** (*Selected branches and tags*):
+   - `main` — the promote lane and the sync bridge run from it;
+   - `release/*` — `release.yml`'s rollback job and `release-core.yml`'s finalize
+     job run from the release branch;
+   - `dev` — **under the `gitflow` model**, `prepare-release` and
+     `prepare-hotfix` are dispatched from `dev`. A policy without it breaks the
+     first cut. Under `trunk` there is no `dev` branch to admit.
+   - plus your default branch if it is neither of those (the sync-issues job runs
+     from it), and your mirror branch if you set `DEVKIT_SYNC_TARGET`.
+3. **No required reviewers.** A reviewer gate on this environment would inject a
+   *second* human approval into a release train designed around exactly one (the
+   release PR approval), stalling every run on a deployment review.
+4. **Move the secrets**: add `COMMIT_APP_CLIENT_ID` / `COMMIT_APP_PRIVATE_KEY` as
+   environment secrets, then remove the organization/repository copies — while
+   both exist the environment secret simply wins for the bound jobs and nothing
+   is actually closed.
+5. **Set the key and upgrade.** The value is written back to `.vig-os`, so later
+   upgrades keep the binding with no flags. Clearing the key removes it on the
+   next `--force`.
+
+Which jobs get the key: `sync-issues.yml` (`sync`), `prepare-release.yml`
+(`prepare`, `rollback`), `prepare-hotfix.yml` (`prepare`, `rollback`),
+`release.yml` (`rollback`), `release-core.yml` (`finalize`),
+`sync-main-to-dev.yml` (`sync`), and — only in mirror mode
+([#1424](https://github.com/vig-os/devkit/issues/1424)) — the rendered
+`reset-sync-mirror` job in `promote-release.yml`. Workflows your model or your
+`DEVKIT_FEATURES_DISABLED` does not ship are skipped, so the key is safe on any
+shape.
+
+Two details worth knowing:
+
+- **`release-core.yml` is a reusable callee.** `on.workflow_call` takes no
+  `environment` and a reusable workflow's `github` context is the *caller's*, so
+  the key goes on its `finalize` job, not on `release.yml`'s `core:` (`uses:`)
+  job. With the pair held only as environment secrets the caller's
+  `secrets: inherit` resolves nothing, which a `required: true` declaration
+  refuses before the callee's job (and its environment) ever starts — so the
+  render also flips that workflow's two `COMMIT_APP_*` declarations to
+  `required: false`, and the job-level environment supplies them.
+- **`prepare-release-extension.yml` is yours.** It is seeded, never regenerated,
+  and the shipped template mints nothing. If your extension mints the commit App
+  token, add `environment: <name>` to that job yourself — the scaffold will not
+  (and must not) edit your file.
+
+**Honest limit.** Deployment branch policies match ref **names**, so an account
+with write access can still create a branch literally named `release/…` and bind
+the environment from it. The binding is a strict narrowing all the same — an
+arbitrary feature branch loses the token entirely — and consumers who need more
+pair it with a repository ruleset restricting who may *create* `release/*` refs.
+
 ## The `.vig-os` project manifest
 
 Since [#885](https://github.com/vig-os/devkit/issues/885), `.vig-os` is
@@ -438,6 +515,7 @@ unknown keys:
 | `DEVKIT_DEV_PROFILE_PATH` | Absolute path for the direnv-mode dev-shell gcroot profile on the runner host; empty (default) => `$RUNNER_TEMP/devkit-dev-profile`. An ephemeral self-hosted runner sets a persistent path outside its work tree so the closure survives the job (see [Keep the dev-shell gcroot across ephemeral self-hosted jobs](#keep-the-dev-shell-gcroot-across-ephemeral-self-hosted-jobs), [#1601](https://github.com/vig-os/devkit/issues/1601)) |
 | `DEVKIT_SYNC_TARGET` | Branch the scaffolded sync-issues job commits to; empty (default) => the workflow-model default (`dev`/`main`). A protected-`main` consumer sets an unprotected mirror branch, e.g. `sync/issue-mirror` (see [Point sync-issues at an unprotected mirror branch](#point-sync-issues-at-an-unprotected-mirror-branch-protected-main), [#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_SYNC_SCHEDULE` | Cron override (5-field) for the sync-issues schedule trigger; empty (default) => the daily `0 2 * * *` ([#1228](https://github.com/vig-os/devkit/issues/1228)) |
+| `DEVKIT_COMMIT_APP_ENVIRONMENT` | GitHub deployment environment the jobs that MINT the commit App token are bound to, so `COMMIT_APP_CLIENT_ID`/`COMMIT_APP_PRIVATE_KEY` can live as environment secrets behind a deployment branch policy instead of as org/repo secrets any branch can read; empty (default) => no binding, rendered exactly as today. Create the environment BEFORE upgrading — a bound job auto-creates an unprotected one (see [Bind the commit-App token-minting jobs to a deployment environment](#bind-the-commit-app-token-minting-jobs-to-a-deployment-environment), [#1710](https://github.com/vig-os/devkit/issues/1710)) |
 | `DEVKIT_FEATURES_DISABLED` | Comma-separated scaffold feature groups this repo opts OUT of; empty (default) => every group is scaffolded. A disabled group is never shipped and a prior scaffold's copy is pruned on upgrade (see [Scaffold feature opt-outs](#scaffold-feature-opt-outs), [#1284](https://github.com/vig-os/devkit/issues/1284)) |
 | `DEVKIT_REFS_POLICY` | Refs-line enforcement policy driving the `validate-commit-msg` hook — scaffolded **and** flake-generated ([#1434](https://github.com/vig-os/devkit/issues/1434)) — and CI's `validate-commit-range`: `chore-optional` (default/empty — only `chore` may omit `Refs:`) \| `optional` (never required) \| `required` (every type needs `Refs:`) ([#1282](https://github.com/vig-os/devkit/issues/1282)). Sugar over `DEVKIT_REFS_OPTIONAL_TYPES`, which wins when both are set ([#1633](https://github.com/vig-os/devkit/issues/1633)) |
 | `DEVKIT_COMMIT_TYPES` | Comma-separated FULL REPLACEMENT of the approved commit types, driving the `validate-commit-msg` hook's `--types` — scaffolded **and** flake-generated ([#1434](https://github.com/vig-os/devkit/issues/1434)) — and CI's `validate-commit-range`; empty (default) => the stock 11 types. Lowercase alphanumerics only; keep `chore`/`build` unless deliberate (bot commits — the scaffold prints a notice). `DEVKIT_REFS_POLICY=optional` mirrors this list ([#1431](https://github.com/vig-os/devkit/issues/1431)) |

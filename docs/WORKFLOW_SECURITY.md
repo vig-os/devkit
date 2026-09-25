@@ -46,6 +46,31 @@ for devkit's output, re-triaging it on every upgrade (#1182).
    findings are always reported. This scope rule is enforced by
    `tests/test_workflow_zizmor_baseline.py`.
 
+## Where the credentials live (`DEVKIT_COMMIT_APP_ENVIRONMENT`)
+
+The audits above are about the workflow *text*. One residual risk is about the
+*secrets* it reads: the managed workflows mint the commit App token from
+`COMMIT_APP_CLIENT_ID` / `COMMIT_APP_PRIVATE_KEY`, and an organization or
+repository secret is readable by a workflow job running on **any** branch. The
+commit App normally holds a branch-protection bypass — the issue mirror and the
+changelog freeze push to protected refs — so on a repo with several write-access
+accounts the mint itself is the bypass: push a branch with a workflow that mints
+the token, and the branch protection on the default branch is moot. No devkit
+workflow is triggered by `pull_request` for this, so it is not a fork-PR
+exposure; it is a write-access-holder exposure
+([#1710](https://github.com/vig-os/devkit/issues/1710)).
+
+`DEVKIT_COMMIT_APP_ENVIRONMENT` (opt-in, default off) narrows it: the pair moves
+into **environment secrets** and the scaffold binds exactly the token-minting jobs
+to that environment, whose deployment branch policy names the refs those workflows
+legitimately run from. A workflow on any other ref can no longer read the
+credentials, so an arbitrary feature branch cannot mint the token at all. What it
+does **not** do: branch policies match ref *names*, so a branch created as
+`release/…` still satisfies one — pair the environment with a ruleset restricting
+who may create those refs. Setup, the branch policy (including `dev` under
+gitflow), the no-required-reviewers rule and the reusable-callee detail are in
+[`MIGRATION.md`](MIGRATION.md#bind-the-commit-app-token-minting-jobs-to-a-deployment-environment).
+
 ## Regression gate
 
 Devkit's own CI (`.github/workflows/ci.yml`, `project-flake` job) runs
