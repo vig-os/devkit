@@ -498,3 +498,23 @@ STUB
     run env PATH="$RC_DIR/bin:$PATH" just -f "$RC_DIR/justfile" -d "$RC_DIR" test
     assert_failure
 }
+
+# ── BATS runs under --jobs (#1687) ────────────────────────────────────────────
+# The suite is the long pole of CI, and ~80% of its time sits inside a single
+# file, so the jobs have to be spread WITHIN files: `bats -j`, not one GNU
+# parallel job per file. Both entry points (the local recipe and the composite
+# action CI runs) must use it; `parallel` rides with bats in nix/bats.nix.
+
+@test "test-bats recipe runs the suite with bats --jobs (#1687)" {
+    run bash -lc "grep -Fq -- 'bats -j \"\$(nproc)\" tests/bats/' '$PROJECT_ROOT/justfile'"
+    assert_success
+    # The dead per-file GNU-parallel branch is gone (file-level jobs are the
+    # wrong axis, and `parallel` was never on PATH for the check to hit).
+    run bash -lc "grep -Fq -- 'command -v parallel' '$PROJECT_ROOT/justfile'"
+    assert_failure
+}
+
+@test "test-project action runs the suite with bats --jobs (#1687)" {
+    run bash -lc "grep -Fq -- 'bats -j \"\$(nproc)\" tests/bats/' '$PROJECT_ROOT/.github/actions/test-project/action.yml'"
+    assert_success
+}
