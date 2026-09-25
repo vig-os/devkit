@@ -3,31 +3,40 @@
 # This action is self-contained and handles:
 # - Checks out repository code
 # - Sets up the environment (uv, Python deps, BATS) via setup-env
-# - Runs pre-commit linters (ruff, shellcheck, pymarkdown, etc.)
-# - Runs BATS shell script tests
+# - Runs pre-commit linters (ruff, shellcheck, pymarkdown, etc.)       [lint]
+# - Runs BATS shell script tests                                      [bats]
 # - Runs the lightweight project tests (all of tests/ except the Nix/image-heavy
-#   modules, which have their own targeted jobs) plus the vig-utils package tests
-# - Generates code coverage report and GitHub Actions job summary (suite: all)
+#   modules, which have their own targeted jobs) plus the vig-utils package
+#   tests, with the coverage report and job summary                   [pytest]
+# - Runs the flake gates: Tier 0 nix-fast-build, flake output schema, dev-shell
+#   contracts, hooks fidelity + services, capability modules, the downstream
+#   stub, and the zizmor audit of the managed workflow set            [flake]
+#
+# `suite` selects ONE of those blocks; 'all' runs every one of them. This action
+# is the single source of truth for each block body: the four CI lanes that run
+# them in parallel (ci.yml `project-lint` / `project-tests` / `project-bats` /
+# `project-flake`) differ only in the `suite` they pass. An unrecognized `suite`
+# is refused up front rather than silently running nothing. Refs #1692.
 #
 # Inputs:
-#   suite: Which checks to run (all | lint). Default: 'all'
+#   suite: Which block to run (all | lint | bats | pytest | flake). Default: 'all'
 #   test-args: Arguments to pass to pytest (default: '-v -s --tb=short')
 #
 # Usage:
-#   # Run all project checks (includes coverage)
+#   # Run every block in one job (includes coverage)
 #   - uses: ./.github/actions/test-project
 #
-#   # Run only linters
+#   # Run one block (what each CI lane does)
 #   - uses: ./.github/actions/test-project
 #     with:
-#       suite: 'lint'
+#       suite: 'lint'      # or 'bats', 'pytest', 'flake'
 
 name: 'Test Project'
 description: 'Run project-level checks: linters, tests, code coverage'
 
 inputs:
   suite:
-    description: 'Which checks to run: all | lint'
+    description: 'Which block to run: all | lint | bats | pytest | flake'
     required: false
     default: 'all'
 
@@ -49,6 +58,24 @@ inputs:
 runs:
   using: composite
   steps:
+    # Fail fast on an unknown suite. Every block is guarded on an exact match, so
+    # a typo ('flakes', 'tests') would silently run NOTHING and report the lane
+    # green — the one failure mode a per-lane split introduces that the serial
+    # chain could not have. Refs #1692.
+    - name: Validate suite
+      shell: bash
+      env:
+        SUITE: ${{ inputs.suite }}
+      run: |
+        set -euo pipefail
+        case "$SUITE" in
+          all | lint | bats | pytest | flake) ;;
+          *)
+            echo "::error::unknown test-project suite '$SUITE' (expected: all, lint, bats, pytest, flake)"
+            exit 1
+            ;;
+        esac
+
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -56,7 +83,13 @@ runs:
       uses: ./.github/actions/setup-env
       with:
         # taplo and BATS come from the flake (the toolchain SSoT). Refs #632, #720.
-        sync-dependencies: 'true'
+        # The bats block wants the flake toolchain but never the project venv:
+        # no BATS test executes `uv` (init.bats only probes `command -v uv`, the
+        # `uv sync` strings are heredoc payloads, and just.bats/init-workspace.bats
+        # stub the binary), so it skips the sync. Derived from `suite` rather than
+        # exposed as an input: the environment a block needs is a property of the
+        # block, not a caller's choice. Refs #1692.
+        sync-dependencies: ${{ inputs.suite == 'bats' && 'false' || 'true' }}
         cachix-cache: ${{ inputs.cachix-cache }}
         cachix-auth-token: ${{ inputs.cachix-auth-token }}
 
@@ -86,7 +119,7 @@ runs:
 
     # --- BATS shell script tests ---------------------------------------------
     - name: Run BATS shell script tests
-      if: inputs.suite == 'all'
+      if: inputs.suite == 'all' || inputs.suite == 'bats'
       shell: bash
       run: |
         set -euo pipefail
@@ -94,9 +127,9 @@ runs:
         # Jobs within files; GNU parallel rides with the bats wrapper. Refs #1687
         bats -j "$(nproc)" tests/bats/
 
-    # --- Combined run with coverage (suite: all) ----------------------------
+    # --- Project tests with coverage (suite: all | pytest) -------------------
     - name: Run project tests with coverage
-      if: inputs.suite == 'all'
+      if: inputs.suite == 'all' || inputs.suite == 'pytest'
       shell: bash
       env:
         TEST_ARGS: ${{ inputs.test-args }}
@@ -126,7 +159,7 @@ runs:
           $TEST_ARGS
 
     - name: Generate coverage summary
-      if: always() && inputs.suite == 'all'
+      if: always() && (inputs.suite == 'all' || inputs.suite == 'pytest')
       shell: bash
       run: |
         if [ ! -f coverage.xml ]; then
@@ -170,10 +203,98 @@ runs:
         PYEOF
 
     - name: Upload coverage report
-      if: always() && inputs.suite == 'all'
+      if: always() && (inputs.suite == 'all' || inputs.suite == 'pytest')
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
       with:
         name: coverage-report
         path: coverage.xml
         retention-days: 30
         if-no-files-found: warn
+
+    # --- Flake gates (suite: all | flake) ------------------------------------
+    # Tier 0 (#779): evaluate + build every `checks.<system>` derivation in
+    # parallel with an eval cache via nix-fast-build — the pure formatting
+    # (treefmt), deadnix/statix, dev-shell build, devShellTools eval, and the
+    # git-hooks.nix `pre-commit` gate. Faster than serial `nix flake check`;
+    # nix-fast-build evaluates through nix-eval-jobs, so eval/type errors still
+    # surface. The runner is amd64, so target x86_64-linux explicitly. The
+    # effectful checks (image testinfra, integration, vulnix CVE-DB, the impure
+    # pre-commit hooks) stay GH-orchestrated in their own jobs. Refs #674, #779.
+    - name: Check flake quality gates (Tier 0 — nix-fast-build)
+      if: inputs.suite == 'all' || inputs.suite == 'flake'
+      shell: bash
+      run: nix run .#nix-fast-build -- --skip-cached --no-nom --flake ".#checks.x86_64-linux"
+
+    # Validate the flake OUTPUT SCHEMA that nix-fast-build (which only builds
+    # `checks`) does not exercise: the treefmt formatter, the checks attrset
+    # names, the `install` app, and the nixos/homeManager modules. Cheap evals;
+    # the slow `nix flake check` build is covered by nix-fast-build above. #779.
+    - name: Validate flake output schema
+      if: inputs.suite == 'all' || inputs.suite == 'flake'
+      shell: bash
+      run: uv run pytest tests/test_flake_checks.py -k "not flake_check_succeeds" -v
+
+    # Guard the dev-shell <-> image parity: the dev-shell's own PATH must
+    # provide `python3` + the vig-utils release scripts (#729/#993, one
+    # probe: own_path_binaries), carry the `prek` hook runner in the devTools
+    # SSoT (#778), must NOT leak the Nix C++ runtime onto an FHS host's
+    # LD_LIBRARY_PATH (#703), and must provide the fixture-driven tool/env
+    # contracts (bats + helper libs, prek binary hooks, pymarkdown, uv python
+    # pinning, agent-toolkit superset). These drive `nix develop` directly
+    # (not covered by `test-project`'s pytest scope), so run them explicitly
+    # here where Nix + the dev profile are warm. The NixOS-gated and
+    # build-heavy cases (per-tool sweep, python override matrix) stay
+    # local-only. Refs #729, #703, #778, #1413, #1417.
+    - name: Check dev-shell contracts (parity, leak-guard, tool/env fixtures)
+      if: inputs.suite == 'all' || inputs.suite == 'flake'
+      shell: bash
+      run: |
+        uv run pytest tests/test_flake_devshell.py \
+          -k "own_path_binaries or hook_runner_is_prek or no_nix_cxx_runtime_leak \
+              or provides_bats or provides_precommit_binary_hooks or provides_pymarkdown \
+              or bats_lib_path or uv_python or superset_of_agent_toolkit" -v
+
+    # Run the git-hooks fidelity gate (nix/hooks.nix <-> committed YAML, the
+    # consumer hooks/hooksExcludes surface, workflow branch-guards, gitleaks
+    # opt-in) and the services-module contracts. Previously these two modules
+    # ran in no CI job at all despite being deny-listed from the test-project
+    # sweep as "covered by their own targeted jobs". The services PoC boot
+    # (live s3 + postgres) stays local-only. Refs #1413.
+    - name: Check git-hooks fidelity gate + services module
+      if: inputs.suite == 'all' || inputs.suite == 'flake'
+      shell: bash
+      run: |
+        uv run pytest tests/test_flake_hooks.py tests/test_flake_services.py \
+          -k "not services_poc_boots" -v
+
+    # Run the capability-module contract tests (#884): the `native` module
+    # shell exposes the C/C++ toolchain on its own PATH and exports generic
+    # CC/CXX, plus the C-extension sdist smoke. nix-fast-build above already
+    # builds `checks.*.module-native`, so `nix develop` is warm; the sdist
+    # smoke needs PyPI, which this lane already uses (setup-env runs
+    # `uv sync`), so it is included rather than deselected. Refs #884.
+    - name: Check capability-module contracts (native)
+      if: inputs.suite == 'all' || inputs.suite == 'flake'
+      shell: bash
+      run: uv run pytest tests/test_flake_modules.py -v
+
+    # Validate the scaffolded downstream stub (assets/workspace/flake.nix)
+    # against THIS toolchain, not the published vigos, so a change to the flake
+    # API (lib.mkProjectShell / overlays.default) can't silently break a
+    # downstream repo's `direnv allow`. Refs #640.
+    - name: Check downstream flake stub
+      if: inputs.suite == 'all' || inputs.suite == 'flake'
+      shell: bash
+      run: nix flake check ./assets/workspace --override-input vigos "path:$PWD" --accept-flake-config
+
+    # Audit the devkit-managed workflow set (assets/workspace/.github/workflows/)
+    # against the shipped zizmor baseline (zizmor.yml). Gates regressions: a new
+    # zizmor finding — or a managed workflow that regains a fixed finding — fails
+    # here and must be fixed in the workflow or triaged in zizmor.yml, so
+    # consumers never inherit an unbaselined finding from devkit's output. The
+    # baseline scopes exemptions to managed basenames only, so consumer-authored
+    # workflows are never suppressed. Refs #1182.
+    - name: Audit managed workflows (zizmor)
+      if: inputs.suite == 'all' || inputs.suite == 'flake'
+      shell: bash
+      run: uvx zizmor@1.25.2 --offline --config zizmor.yml assets/workspace/.github/workflows/

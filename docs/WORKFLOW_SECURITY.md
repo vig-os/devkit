@@ -48,7 +48,7 @@ for devkit's output, re-triaging it on every upgrade (#1182).
 
 ## Regression gate
 
-Devkit's own CI (`.github/workflows/ci.yml`, `project-checks` job) runs
+Devkit's own CI (`.github/workflows/ci.yml`, `project-flake` job) runs
 
 ```
 uvx zizmor@<pinned> --offline --config zizmor.yml assets/workspace/.github/workflows/
