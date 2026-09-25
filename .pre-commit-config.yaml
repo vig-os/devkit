@@ -115,6 +115,24 @@ repos:
         files: ^\.github/workflows/.*\.ya?ml$
         pass_filenames: false
 
+  # Composite-action shell linting (vig-utils' shellcheck-composite-actions,
+  # #1704). actionlint refuses a composite action outright (`unexpected key
+  # "runs" for "workflow" section`) and has no composite mode, so every `run:`
+  # body moved out of a workflow and into .github/actions/*/action.yml loses its
+  # shellcheck pass. This hook reproduces actionlint's own recipe over those
+  # bodies — same `${{ }}` neutralisation, same prelude, same exclude list — so
+  # the two hooks gate one lint. The `(^|/)` anchor also covers the scaffold's
+  # assets/workspace/.github/actions/ composites; shellcheck itself resolves
+  # from PATH (devTools), like actionlint above.
+  - repo: local
+    hooks:
+      - id: shellcheck-composite-actions
+        name: shellcheck-composite-actions (lint composite action run bodies)
+        entry: uv run shellcheck-composite-actions
+        language: system
+        files: (^|/)\.github/actions/[^/]+/action\.ya?ml$
+        pass_filenames: true
+
   # Markdown linting (pymarkdown from the flake toolchain; excludes auto-generated
   # docs). Packaged in nix/pymarkdown.nix and promoted to a language: system hook
   # (#1170), so it resolves from PATH like shellcheck/typos instead of its
