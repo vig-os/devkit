@@ -83,6 +83,32 @@ DEVKIT_SYNC_TARGET=
 # cannot take inputs (#1228).
 DEVKIT_SYNC_SCHEDULE=
 
+# GitHub deployment environment the scaffolded jobs that MINT THE COMMIT APP
+# TOKEN are bound to. Empty (default) => no binding at all, rendered exactly as
+# today for every existing consumer. Set it to the name of an environment whose
+# ENVIRONMENT SECRETS hold COMMIT_APP_CLIENT_ID / COMMIT_APP_PRIVATE_KEY (e.g.
+# `commit-app`) and the scaffold renders `environment: <name>` on those jobs and
+# no other, so the pair stops being an org/repo secret that a workflow job on ANY
+# branch can read — the commit App usually holds a branch-protection bypass, so
+# that surface let any write-access account push a branch, mint the token and
+# write straight past the default branch's protection (#1710).
+# Create the environment BEFORE upgrading: a bound job whose environment does not
+# exist AUTO-CREATES an unprotected one. Give it a deployment branch policy
+# naming the refs these workflows legitimately run from — `main` and `release/*`,
+# plus `dev` under the gitflow model, which is where prepare-release /
+# prepare-hotfix are dispatched from — and NO required reviewers, which would
+# inject a second approval into the single-approval release train. Branch
+# policies match ref NAMES, so pair it with a ruleset restricting who may create
+# `release/*` refs. prepare-release-extension.yml is yours (seeded, never
+# regenerated): if your extension mints the token, add `environment:` there
+# yourself.
+# Realized at scaffold time (an anchored insert per job, plus a `required: false`
+# flip of release-core.yml's two workflow_call COMMIT_APP_* declarations — an
+# environment secret cannot be delivered through the caller's `secrets: inherit`);
+# written back only for a non-empty value. Strict name charset
+# ([A-Za-z0-9._-], no leading `-`/`.`, <= 255 chars), guarded loudly.
+DEVKIT_COMMIT_APP_ENVIRONMENT=
+
 # Scaffold feature groups this repo opts OUT of — a comma-separated,
 # whitespace-tolerant subset of: release, renovate, sync-issues, scanning,
 # gh-templates, skills, worktree, devkit-upgrade, actionlint. Empty (default) =>

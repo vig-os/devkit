@@ -58,6 +58,10 @@ on:  # yamllint disable-line rule:truthy
       RELEASE_APP_PRIVATE_KEY:
         description: "GitHub App private key used to mint the release token"
         required: true
+      # Both COMMIT_APP_* entries below are flipped to `required: false` at
+      # scaffold time when DEVKIT_COMMIT_APP_ENVIRONMENT is set (#1710): the pair
+      # then lives only as ENVIRONMENT secrets, which `secrets: inherit` cannot
+      # deliver, and the `finalize` job's own `environment:` supplies them instead.
       COMMIT_APP_CLIENT_ID:
         description: "GitHub App client ID used to mint the verified-commit token"
         required: true

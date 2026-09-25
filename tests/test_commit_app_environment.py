@@ -224,15 +224,16 @@ def test_trunk_binds_only_the_workflows_it_ships(tmp_path: Path) -> None:
 # ── feature opt-out composition ──────────────────────────────────────────────
 
 
-def test_release_opt_out_binds_only_the_sync_workflows(tmp_path: Path) -> None:
-    """A release-less consumer has no release workflows to bind — no failure."""
+def test_release_opt_out_binds_only_the_workflows_it_ships(tmp_path: Path) -> None:
+    """A release-less consumer has no release workflows to bind — no failure.
+
+    The ``release`` feature group also drops ``sync-main-to-dev.yml`` (the dev
+    bridge exists for the release train), so only the sync-issues job is left.
+    """
     tree = _render(
         tmp_path, name="no-release", extra="DEVKIT_FEATURES_DISABLED=release\n"
     )
-    assert _bound_jobs(tree) == {
-        ("sync-issues.yml", "sync"),
-        ("sync-main-to-dev.yml", "sync"),
-    }
+    assert _bound_jobs(tree) == {("sync-issues.yml", "sync")}
 
 
 # ── guards (format validation, loud at scaffold time) ────────────────────────
