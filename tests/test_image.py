@@ -12,6 +12,7 @@ base functionality is preserved in their containers.
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -1012,6 +1013,43 @@ class TestFileStructure:
         assert not manifest.exists, (
             "retired placeholder manifest is still baked at "
             "/root/assets/.placeholder-manifest.txt (#1693)"
+        )
+
+    def test_perl_absent_from_image(self, host):
+        """The image ships no perl — not on PATH, not anywhere in the closure.
+
+        #1108 evicted perl from the image (re-wrapping neovim without the
+        wl-clipboard clipboard provider cut the wl-clipboard -> xdg-utils ->
+        perl-module-stack subtree), which retired a standing CVE exception batch
+        instead of babysitting it. #1690 (#1687) silently undid that: `bats
+        --jobs` shells out to a `parallel` binary on bats' own PATH, GNU parallel
+        *is* a perl script, and the bats wrapper rides in the image env — so perl
+        5.42.0 walked back into the runtime closure carrying three unexcepted
+        HIGH/CRITICAL CVEs, caught by the nightly vulnix gate on `dev`. #1708
+        swapped GNU parallel for shenwei356/rush (Go, no interpreter).
+
+        Both halves are pinned, because either alone is blind: `command -v` would
+        miss an interpreter that sits in the closure without being on PATH, and
+        that is precisely where vulnix — the scan the eviction exists to keep
+        quiet — looks.
+        """
+        on_path = host.run("command -v perl")
+        assert on_path.rc != 0, (
+            f"perl is on PATH in the image at {on_path.stdout.strip()!r} — "
+            "#1108 evicted it; something re-imported it (#1708)"
+        )
+
+        store = host.run("ls /nix/store")
+        assert store.rc == 0, f"cannot list /nix/store: {store.stderr}"
+        perl_paths = [
+            name
+            for name in store.stdout.split()
+            if re.match(r"^[a-z0-9]{32}-perl-[0-9]", name)
+        ]
+        assert not perl_paths, (
+            "perl is back in the image's runtime closure: "
+            f"{', '.join(sorted(perl_paths))} — #1108 evicted it and the nightly "
+            "vulnix gate scans that closure (#1708)"
         )
 
     def test_manifest_files(self, host, parse_manifest):
