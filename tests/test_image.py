@@ -997,30 +997,21 @@ class TestFileStructure:
         )
         assert activate.is_file, "venv activate script is not a regular file"
 
-    def test_placeholder_manifest_baked(self, host):
-        """The build-time placeholder manifest is baked next to init-workspace.sh.
+    def test_placeholder_manifest_absent(self, host):
+        """The image ships no build-time placeholder manifest (#1693).
 
-        init-workspace.sh reads ``/root/assets/.placeholder-manifest.txt`` to
-        take its fast substitution path; without it, workspace init falls back
-        to a slow runtime ``find``+``grep`` over the whole scaffold (#718). The
-        manifest lists placeholder-bearing files at their in-image runtime
-        paths, one per line.
+        init-workspace.sh had an image-only fast path that read
+        ``/root/assets/.placeholder-manifest.txt`` and sed'ed one file per entry
+        (#718). It was retired for a single routine scoped to the
+        template-shipped set, so the baked file is gone and nothing must
+        resurrect it: a stale manifest left in the image would be dead weight
+        that no code reads, and the negative pin keeps the flake build step from
+        creeping back.
         """
         manifest = host.file("/root/assets/.placeholder-manifest.txt")
-        assert manifest.exists, (
-            "placeholder manifest not found at /root/assets/.placeholder-manifest.txt"
-        )
-        assert manifest.is_file, "placeholder manifest is not a regular file"
-
-        lines = [ln for ln in manifest.content_string.splitlines() if ln.strip()]
-        assert lines, "placeholder manifest is empty"
-        assert all(ln.startswith("/root/assets/workspace/") for ln in lines), (
-            "placeholder manifest contains non-workspace paths"
-        )
-        # A known placeholder-bearing scaffold file must be listed so the fast
-        # path actually substitutes it (guards against an empty/degenerate list).
-        assert "/root/assets/workspace/justfile.project" in lines, (
-            "placeholder manifest missing known placeholder-bearing file justfile.project"
+        assert not manifest.exists, (
+            "retired placeholder manifest is still baked at "
+            "/root/assets/.placeholder-manifest.txt (#1693)"
         )
 
     def test_manifest_files(self, host, parse_manifest):
