@@ -147,9 +147,10 @@ PRESERVE_FILES=(
 # The upgrade repair below appends the missing ones from the template.
 CI_CONTRACT_RECIPES=(lint format precommit test test-cov sync update)
 
-# Get script directory for manifest location
+# Directory this script ships in (beside it in the image): the source of its
+# library, the justfile.d/ and gitignore.d/ fragment trees and the smoke-test
+# overlay.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MANIFEST_FILE="$SCRIPT_DIR/.placeholder-manifest.txt"
 
 # Co-located with init-workspace.sh in the image; path is dynamic at runtime.
 # shellcheck disable=SC1091
@@ -1568,9 +1569,9 @@ license_is_stock_apache() {
 
 # Render the proprietary LICENSE when DEVKIT_LICENSE=proprietary (#1651). Called
 # BEFORE the placeholder substitution pass, exactly like seed_node_justfile_project
-# (#1027): the file lands at a path the build-time manifest already lists as
-# token-bearing, so {{ORG_NAME}} is resolved by the same pass that renders every
-# other managed file — no second substitution site.
+# (#1027): the file lands at a template-shipped path, which is exactly the set
+# that pass walks, so {{ORG_NAME}} is resolved alongside every other managed
+# file — no second substitution site.
 #
 # Three states, and only the middle one writes:
 #   * already the proprietary text  -> silent no-op (an upgrade must not nag
@@ -1587,9 +1588,10 @@ render_license() {
         return 0
     fi
     # Resolve {{ORG_NAME}} HERE rather than leaning on the shared substitution
-    # pass below: that pass walks the build-time manifest, which is grepped from
-    # assets/workspace/ alone — this template lives outside it and would only be
-    # reached because the Apache LICENSE happens to carry the same token. A
+    # pass below: that pass walks the template tree (assets/workspace/) alone —
+    # this template lives outside it, under assets/licenses/, and its output
+    # would only be reached because the Apache LICENSE it replaces happens to
+    # sit at a template-shipped path carrying the same token. A
     # reworded Apache header would then ship a literal {{ORG_NAME}} to the
     # consumer AND make the comparison below fail forever. Same escaping idiom
     # as that pass (ORG_NAME may contain sed-significant characters).
@@ -3458,16 +3460,16 @@ fi
 # Seed the Node justfile.project on a first scaffold BEFORE the substitution
 # pass below, so the seed's {{SHORT_NAME}} token is resolved like every other
 # managed file (the seed replaces the freshly-copied template at the same path,
-# which the manifest already lists as carrying the token). No-op for non-Node
+# so it is in the template-derived candidate set the pass walks). No-op for non-Node
 # consumers and for an existing (preserved) justfile.project. Refs #1027.
 seed_node_justfile_project
 
 # Render the proprietary LICENSE before the same substitution pass (#1651): the
-# file lands at a path the manifest already lists as token-bearing, so its
-# {{ORG_NAME}} resolves exactly like every other managed file.
+# file lands at a template-shipped path, so its {{ORG_NAME}} resolves exactly
+# like every other managed file.
 render_license
 
-# Replace placeholders in files (using pre-built manifest from image)
+# Replace placeholders in files (scoped to the files devkit ships, #1693)
 echo "Replacing placeholders in files..."
 
 # Escape special characters in variables for sed (especially slashes in ORG_NAME, GITHUB_REPOSITORY)
@@ -3475,34 +3477,52 @@ SHORT_NAME_ESCAPED=$(printf '%s\n' "$SHORT_NAME" | sed 's/[&/\]/\\&/g')
 ORG_NAME_ESCAPED=$(printf '%s\n' "$ORG_NAME" | sed 's/[&/\]/\\&/g')
 GITHUB_REPOSITORY_ESCAPED=$(printf '%s\n' "$GITHUB_REPOSITORY" | sed 's/[&/\]/\\&/g')
 
-if [[ -f "$MANIFEST_FILE" ]]; then
-    # Use build-time manifest (much faster - no searching at runtime)
-    echo "Using build-time manifest ($(wc -l < "$MANIFEST_FILE") files)"
-    while IFS= read -r template_file; do
-        # Translate template path to workspace path
-        workspace_file="${template_file/\/root\/assets\/workspace/$WORKSPACE_DIR}"
-
-        if [[ -f "$workspace_file" ]]; then
-            # Simple sed -i (always Linux in container - no cross-platform needed)
-            sed -i "s/{{SHORT_NAME}}/${SHORT_NAME_ESCAPED}/g; s/{{ORG_NAME}}/${ORG_NAME_ESCAPED}/g; s/{{GITHUB_REPOSITORY}}/${GITHUB_REPOSITORY_ESCAPED}/g" "$workspace_file"
+# Candidate set for the pass (#1693): the template-shipped paths mapped into the
+# workspace, the same way sweep_scaffold_writable maps its chmod set (shared
+# idiom, different filters), plus the smoke overlay's when one was applied.
+# Scoping the walk to the paths devkit ships is what keeps a file devkit does NOT
+# ship out of reach; the whole-workspace `grep -r` this replaces reached the
+# consumer's entire repo, `.venv`/`node_modules` included, and rewrote it. A
+# consumer file sitting AT a shipped path is still substituted, exactly as the
+# retired manifest path substituted it — scoping the walk is not a preservation
+# mechanism, and PRESERVE_FILES is a copy-time concept, not a substitution one.
+#
+# Selection semantics, unchanged from the batched walk this replaces (#1687):
+# regular files only, symlinked destinations skipped (the old `grep -rl` did not
+# follow symlinks found inside the tree), anything under `.git/` skipped, and
+# binaries matched (no -I). `.git` and `.venv` are pruned by NAME at any depth,
+# matching the copy rsync's `--exclude='.git' --exclude='.venv'` — which are
+# basename patterns — so the walk cannot reach a destination the copy never
+# wrote; the image's baked venv inside /root/assets/workspace (#735) is the case
+# that matters in production. Failures are swallowed exactly as the old
+# `2>/dev/null` + `|| true` did, so neither exit 1 (nothing matched) nor exit 2
+# (unreadable file) trips `set -o pipefail`.
+emit_substitution_candidates() {
+    # Strip a trailing slash: `find` never emits one, so a `$src_dir/` prefix of
+    # `…/workspace//` would match nothing, leave every `rel` absolute and quietly
+    # substitute NOTHING while exiting 0.
+    local src_dir="${1%/}" src_path rel dest
+    while IFS= read -r -d '' src_path; do
+        rel="${src_path#"$src_dir"/}"
+        dest="$WORKSPACE_DIR/$rel"
+        if [[ -f "$dest" && ! -L "$dest" ]]; then
+            printf '%s\0' "$dest"
         fi
-    done < "$MANIFEST_FILE"
-else
-    # Fallback: search at runtime (slower, but works if manifest is missing).
-    # One batched grep + one batched sed instead of a fork pair per file
-    # (#1687): the per-file `grep -q` was 42% of a scaffold's ~4.3k forks.
-    # `grep -rl` selects the same files as the old `find -type f ! -path
-    # "*/.git/*"` walk -- regular files only, symlinks inside the tree not
-    # followed, anything under a `.git/` directory skipped -- and, like the old
-    # `grep -q`, it matches binary files too (no -I). Failures are swallowed
-    # exactly as the old `2>/dev/null` + `if` did, so neither exit 1 (nothing
-    # matched) nor exit 2 (unreadable file) trips `set -o pipefail`.
-    echo "Warning: Manifest not found, searching at runtime (slower)"
-    { grep -rl --null --exclude-dir=.git \
-        -e '{{SHORT_NAME}}' -e '{{ORG_NAME}}' -e '{{GITHUB_REPOSITORY}}' \
-        "$WORKSPACE_DIR" 2>/dev/null || true; } |
-        xargs -0 -r sed -i "s/{{SHORT_NAME}}/${SHORT_NAME_ESCAPED}/g; s/{{ORG_NAME}}/${ORG_NAME_ESCAPED}/g; s/{{GITHUB_REPOSITORY}}/${GITHUB_REPOSITORY_ESCAPED}/g" --
-fi
+    done < <(find -L "$src_dir" -mindepth 1 \
+        \( -name .git -o -name .venv \) -prune -o -type f -print0)
+}
+
+{
+    emit_substitution_candidates "$TEMPLATE_DIR"
+    # Smoke overlays land outside the template tree; walk them the same way.
+    if [[ "$SMOKE_TEST" == "true" && -n "${SMOKE_TEST_DIR:-}" && -d "$SMOKE_TEST_DIR" ]]; then
+        emit_substitution_candidates "$SMOKE_TEST_DIR"
+    fi
+} |
+    { xargs -0 -r grep -lZ \
+        -e '{{SHORT_NAME}}' -e '{{ORG_NAME}}' -e '{{GITHUB_REPOSITORY}}' -- \
+        2>/dev/null || true; } |
+    xargs -0 -r sed -i "s/{{SHORT_NAME}}/${SHORT_NAME_ESCAPED}/g; s/{{ORG_NAME}}/${ORG_NAME_ESCAPED}/g; s/{{GITHUB_REPOSITORY}}/${GITHUB_REPOSITORY_ESCAPED}/g" --
 
 # Host-runner hooks default (#1167): a FRESH direnv scaffold defaults to
 # flake-generated pre-commit hooks. The direnv CI lane runs on the bare host

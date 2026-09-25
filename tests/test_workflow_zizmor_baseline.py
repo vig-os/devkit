@@ -28,6 +28,9 @@ SCAFFOLD_BASELINE = REPO_ROOT / "assets" / "workspace" / "zizmor.yml"
 MANAGED_WORKFLOWS = REPO_ROOT / "assets" / "workspace" / ".github" / "workflows"
 MANIFEST = REPO_ROOT / "scripts" / "manifest.toml"
 DEVKIT_CI = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+# Since #1692 the flake-gate block (the zizmor audit included) lives in the
+# test-project composite, run by the `project-flake` lane.
+TEST_PROJECT = REPO_ROOT / ".github" / "actions" / "test-project" / "action.yml"
 
 
 def _rules(path: Path) -> dict:
@@ -70,12 +73,8 @@ def test_every_exemption_targets_a_managed_workflow_basename(baseline: Path) -> 
 
 def test_ci_gate_lints_managed_set_against_baseline() -> None:
     """devkit CI runs zizmor over the managed set with the shipped baseline."""
-    ci = yaml.safe_load(DEVKIT_CI.read_text(encoding="utf-8"))
-    runs = [
-        step.get("run", "")
-        for step in ci["jobs"]["project-checks"]["steps"]
-        if "run" in step
-    ]
+    action = yaml.safe_load(TEST_PROJECT.read_text(encoding="utf-8"))
+    runs = [step.get("run", "") for step in action["runs"]["steps"] if "run" in step]
     gate = [
         r
         for r in runs
@@ -83,7 +82,12 @@ def test_ci_gate_lints_managed_set_against_baseline() -> None:
         and "--config zizmor.yml" in r
         and "assets/workspace/.github/workflows" in r
     ]
-    assert gate, "project-checks must gate the managed workflow set on zizmor"
+    assert gate, "the test-project composite must gate the managed set on zizmor"
+    # The composite body is inert without a lane that calls it (#1692).
+    ci = yaml.safe_load(DEVKIT_CI.read_text(encoding="utf-8"))
+    assert "project-flake" in ci["jobs"], (
+        "the project-flake lane must exist to run the zizmor gate"
+    )
 
 
 def test_hotfix_lane_baseline_matches_its_shape() -> None:
