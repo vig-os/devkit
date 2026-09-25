@@ -23,6 +23,12 @@ Two shapes are load-bearing and only a render test can pin them:
   living only as environment secrets, the caller's ``secrets: inherit`` cannot
   satisfy ``required: true``.
 
+The list is not simply the template grep, either: mirror mode
+(``DEVKIT_SYNC_TARGET``, #1424) *renders* a ninth token-minting job into
+``promote-release.yml``, which a grep over ``assets/workspace/`` cannot see. Left
+unbound it would be the one job still minting from org/repo secrets — i.e. broken
+the moment a consumer moves the pair into the environment.
+
 These drive the REAL ``init-workspace.sh`` end-to-end (the executed-bash style of
 ``tests/test_sync_settings.py``).
 
@@ -63,6 +69,12 @@ TOKEN_MINTING_JOBS = {
     ("release-core.yml", "finalize"),
     ("sync-main-to-dev.yml", "sync"),
 }
+
+# The ninth pair exists only in a mirror-mode render: render_sync_settings appends
+# a `reset-sync-mirror` job to promote-release.yml (#1424) that mints the same
+# token. The default render has no such job.
+MIRROR_MINTING_JOB = ("promote-release.yml", "reset-sync-mirror")
+MIRROR = "sync/issue-mirror"
 
 # The trunk model copy-excludes sync-main-to-dev.yml (no dev branch) and
 # prepare-hotfix.yml (#1625: every trunk release already cuts from main), so
@@ -234,6 +246,29 @@ def test_release_opt_out_binds_only_the_workflows_it_ships(tmp_path: Path) -> No
         tmp_path, name="no-release", extra="DEVKIT_FEATURES_DISABLED=release\n"
     )
     assert _bound_jobs(tree) == {("sync-issues.yml", "sync")}
+
+
+# ── sync-mirror composition (#1424) ──────────────────────────────────────────
+
+
+def test_mirror_mode_binds_the_rendered_reset_job(tmp_path: Path) -> None:
+    """Mirror mode renders a ninth token-minting job; it is bound too.
+
+    ``render_sync_settings`` appends ``reset-sync-mirror`` to
+    ``promote-release.yml``, and it mints the commit App token like the eight
+    template jobs. Unbound, it would be the only job left reading the pair from
+    org/repo secrets — so it breaks the instant a consumer moves them into the
+    environment, at promote time, after the release is already published.
+    """
+    tree = _render(tmp_path, name="mirror", extra=f"DEVKIT_SYNC_TARGET={MIRROR}\n")
+    assert _bound_jobs(tree) == TOKEN_MINTING_JOBS | {MIRROR_MINTING_JOB}
+    assert _environment_of(tree, *MIRROR_MINTING_JOB) == ENV_NAME
+
+
+def test_default_render_ships_no_mirror_reset_job() -> None:
+    """Without the mirror knob there is no such job to bind (hence no binding)."""
+    promote = cached_tree(None) / ".github" / "workflows" / "promote-release.yml"
+    assert MIRROR_MINTING_JOB[1] not in jobs(load_workflow(promote))
 
 
 # ── guards (format validation, loud at scaffold time) ────────────────────────
