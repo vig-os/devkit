@@ -16,7 +16,13 @@ cancel, so the doctrine is pinned parametrically over the two files.
 ``scaffold-drift``) make a skipped job a legitimate outcome rather than a
 missing result.
 
-Refs: #1371, #1414
+Issue #1692: the ``needs:`` set is asserted **exactly**, not as a subset. With
+``if: always()`` a job left out of ``needs:`` is not merely unchecked — it is
+invisible to the aggregate, so its failure cannot block the merge. That is why
+splitting ``project-checks`` into the four ``project-*`` lanes had to update
+this set rather than relax the assertion.
+
+Refs: #1371, #1414, #1692
 """
 
 from __future__ import annotations
@@ -39,7 +45,10 @@ SUMMARY_COPIES: dict[str, tuple[Path, str, set[str]]] = {
             "build-image",
             "test-image",
             "test-integration",
-            "project-checks",
+            "project-lint",
+            "project-tests",
+            "project-bats",
+            "project-flake",
             "commit-checks",
             "python-security",
             "security-scan",
