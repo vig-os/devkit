@@ -5590,3 +5590,48 @@ _assert_consumer_tokens_intact_1693() {
     assert_output --partial 'testproj'
     refute_output --partial '{{SHORT_NAME}}'
 }
+
+@test "the candidate walk prunes .git/.venv at any depth, like the copy rsync (#1693)" {
+    # The copy rsync excludes `.git` and `.venv` by BASENAME, so it skips them at
+    # any depth; the candidate walk must agree, or the pass reaches destinations
+    # the copy never wrote. A path-prefix exclusion only covers the top level, so
+    # a NESTED `.venv` leaked through and its workspace counterpart — a real
+    # virtualenv's own files, which the consumer owns — was substituted.
+    tmpl="$BATS_TEST_TMPDIR/tmpl-1693-venv"
+    cp -r "$PROJECT_ROOT/assets/workspace" "$tmpl"
+    mkdir -p "$tmpl/.venv/lib" "$tmpl/pkg/.venv"
+    printf 'prompt = {{SHORT_NAME}}\n' >"$tmpl/.venv/lib/pyvenv.cfg"
+    printf 'prompt = {{SHORT_NAME}}\n' >"$tmpl/pkg/.venv/pyvenv.cfg"
+
+    # The workspace carries the same two paths (as a consumer's real venvs do).
+    ws="$BATS_TEST_TMPDIR/e2e-1693-venv"
+    mkdir -p "$ws/.venv/lib" "$ws/pkg/.venv"
+    printf 'prompt = {{SHORT_NAME}} {{ORG_NAME}} {{GITHUB_REPOSITORY}}\n' \
+        >"$ws/.venv/lib/pyvenv.cfg"
+    printf 'prompt = {{SHORT_NAME}} {{ORG_NAME}} {{GITHUB_REPOSITORY}}\n' \
+        >"$ws/pkg/.venv/pyvenv.cfg"
+
+    stub="$BATS_TEST_TMPDIR/stub-bin-venv"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+    run env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$tmpl" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode both
+    assert_success
+    # Managed files still resolve...
+    run grep -q 'testproj' "$ws/justfile.project"
+    assert_success
+    # ...and neither venv file was touched, at either depth.
+    for venv_file in "$ws/.venv/lib/pyvenv.cfg" "$ws/pkg/.venv/pyvenv.cfg"; do
+        run cat "$venv_file"
+        assert_success
+        assert_output --partial '{{SHORT_NAME}}'
+        assert_output --partial '{{ORG_NAME}}'
+        assert_output --partial '{{GITHUB_REPOSITORY}}'
+        refute_output --partial 'testproj'
+    done
+}
