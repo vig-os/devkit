@@ -898,7 +898,10 @@ def test_verdict_words_a_cancelled_gate_as_infrastructure() -> None:
     lane's central refusal.
     """
     code = _verdict_code()
-    cancelled = code.find("cancelled")
+    # From the START of the line that tests it: the test reads `$outcome`, which
+    # sits before the word `cancelled` on that same line.
+    hit = re.search(r"^.*cancelled.*$", code, re.MULTILINE)
+    cancelled = hit.start() if hit else -1
     per_step = code.find('case "$failed" in')
     assert cancelled != -1, (
         "gate 6 must recognise a `cancelled` outcome — a step whose timeout "
