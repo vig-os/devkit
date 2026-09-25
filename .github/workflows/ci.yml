@@ -498,6 +498,9 @@ jobs:
       # skip-setup-trivy; the DB comes from trivy-action's own cache of
       # $GITHUB_WORKSPACE/.cache/trivy (cache: true default). Refs #109, #642, #1701.
       - name: Report HIGH/CRITICAL/MEDIUM vulnerabilities (non-blocking)
+        # Awareness only, like its nightly twin in security-scan.yml: a scan
+        # error here (DB pull, malformed SBOM) must not turn the PR red.
+        continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           version: 'v0.74.0'
