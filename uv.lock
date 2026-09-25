@@ -656,11 +656,15 @@ name = "vig-utils"
 version = "0.1.0"
 source = { editable = "packages/vig-utils" }
 dependencies = [
+    { name = "pyyaml" },
     { name = "rich" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "rich" }]
+requires-dist = [
+    { name = "pyyaml" },
+    { name = "rich" },
+]
 
 [[package]]
 name = "wcwidth"

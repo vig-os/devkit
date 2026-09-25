@@ -9,7 +9,7 @@ description = "Reusable CLI utilities for development workflows"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.14,<3.15"
-dependencies = ["rich"]
+dependencies = ["rich", "pyyaml"]
 authors = [
   { name = "Carlos Vigo", email = "carlos.vigo@exoma.ch" },
   { name = "Lars Gerchow", email = "lars.gerchow@exoma.ch" },
@@ -32,6 +32,7 @@ vulnix-gate = "vig_utils.vulnix_gate:main"
 setup-labels = "vig_utils.setup_labels:main"
 retry = "vig_utils.retry:main"
 synthesize-bot-changelog = "vig_utils.synthesize_bot_changelog:main"
+shellcheck-composite-actions = "vig_utils.shellcheck_composite_actions:main"
 vig-utils = "vig_utils.utils:main"
 
 [tool.hatch.build.targets.wheel]

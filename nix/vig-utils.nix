@@ -1,6 +1,6 @@
 # vig-utils packaged from THIS flake's `packages/vig-utils` (#993, #666).
 #
-# A pure-Python hatchling package (single runtime dep `rich`) whose console
+# A pure-Python hatchling package (runtime deps `rich` + `pyyaml`) whose console
 # scripts (prepare-changelog, validate-commit-msg, check-agent-identity, …)
 # are the devkit's own automation surface.
 #
@@ -22,7 +22,10 @@ pkgs.python314.pkgs.buildPythonPackage {
   pyproject = true;
   src = ../packages/vig-utils;
   build-system = [ pkgs.python314.pkgs.hatchling ];
-  dependencies = [ pkgs.python314.pkgs.rich ];
+  dependencies = [
+    pkgs.python314.pkgs.rich
+    pkgs.python314.pkgs.pyyaml
+  ];
   pythonImportsCheck = [ "vig_utils" ];
   # The package's own tests need pytest + the repo; CI covers them.
   doCheck = false;
