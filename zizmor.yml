@@ -3,7 +3,8 @@
 # Devkit OWNS this baseline. It suppresses the residual zizmor findings in the
 # devkit-managed workflows that cannot be fixed without changing release/CI
 # behavior for every consumer. Devkit's own CI gates the managed workflow set
-# against this file (see .github/workflows/ci.yml → "Audit managed workflows"),
+# against this file (see the "Audit managed workflows" step of
+# .github/actions/test-project, run by ci.yml's `project-flake` lane),
 # so a regression — a new finding, or a managed workflow that regains a fixed
 # finding — fails devkit CI and must be fixed or triaged here, not silently
 # baselined downstream.
