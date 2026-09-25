@@ -5499,3 +5499,67 @@ assert 'shellcheck' in ids and 'pymarkdown' in ids, ids
     run just -f "$ws/.devcontainer/justfile.gh" -d "$ws" --summary
     assert_success
 }
+
+# ── Placeholder substitution scope (#1693) ────────────────────────────────────
+# The substitution pass resolves {{SHORT_NAME}}/{{ORG_NAME}}/{{GITHUB_REPOSITORY}}
+# in the files devkit ships. A file carrying one of those literal tokens that
+# devkit did NOT ship is the consumer's, and rewriting it is data loss: the
+# whole-workspace `grep -r` walk this scopes reached the consumer's entire repo —
+# in the image that is the mounted repo, `.venv`/`node_modules` included.
+
+# Seed two consumer-owned files the template never ships, each carrying all
+# three tokens: one under a directory the template does ship (docs/), one under
+# .venv/ (excluded from the copy, but baked in the image and mounted in CI).
+_seed_consumer_tokens_1693() {
+    local ws="$1"
+    mkdir -p "$ws/docs" "$ws/.venv/lib"
+    printf 'name: {{SHORT_NAME}}\norg: {{ORG_NAME}}\nrepo: {{GITHUB_REPOSITORY}}\n' \
+        >"$ws/docs/my-template.tmpl"
+    printf 'cached: {{SHORT_NAME}} {{ORG_NAME}} {{GITHUB_REPOSITORY}}\n' \
+        >"$ws/.venv/lib/consumer-tokens.txt"
+}
+
+# Both seeded files must come back byte-identical: tokens still literal, and no
+# trace of the run's SHORT_NAME/GITHUB_REPOSITORY values.
+_assert_consumer_tokens_intact_1693() {
+    local ws="$1"
+    run cat "$ws/docs/my-template.tmpl"
+    assert_success
+    assert_output --partial '{{SHORT_NAME}}'
+    assert_output --partial '{{ORG_NAME}}'
+    assert_output --partial '{{GITHUB_REPOSITORY}}'
+    refute_output --partial 'testproj'
+    refute_output --partial 'test/repo'
+    run cat "$ws/.venv/lib/consumer-tokens.txt"
+    assert_success
+    assert_output --partial '{{SHORT_NAME}}'
+    assert_output --partial '{{ORG_NAME}}'
+    assert_output --partial '{{GITHUB_REPOSITORY}}'
+    refute_output --partial 'testproj'
+    refute_output --partial 'test/repo'
+}
+
+@test "a first scaffold leaves consumer-owned placeholder tokens alone (#1693)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1693-scaffold"
+    mkdir -p "$ws"
+    _seed_consumer_tokens_1693 "$ws"
+    run _scaffold both "$ws"
+    assert_success
+    # The managed files still resolve — this is a scope fix, not an opt-out.
+    run grep -q 'testproj' "$ws/justfile.project"
+    assert_success
+    _assert_consumer_tokens_intact_1693 "$ws"
+}
+
+@test "an upgrade leaves consumer-owned placeholder tokens alone (#1693)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1693-upgrade"
+    mkdir -p "$ws"
+    run _clone_shared both "$ws"
+    assert_success
+    _seed_consumer_tokens_1693 "$ws"
+    run _upgrade both "$ws"
+    assert_success
+    run grep -q 'testproj' "$ws/justfile.project"
+    assert_success
+    _assert_consumer_tokens_intact_1693 "$ws"
+}
