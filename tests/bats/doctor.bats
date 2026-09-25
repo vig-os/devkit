@@ -9,6 +9,8 @@
 # (GIT_CONFIG_GLOBAL/SYSTEM, SSH_AUTH_SOCK, stub `gh`) so host state never
 # leaks in.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     load test_helper
     DOCTOR_WORK="$BATS_TEST_TMPDIR/host"

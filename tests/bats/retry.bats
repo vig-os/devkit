@@ -2,6 +2,8 @@
 # BATS tests for the bash retry() helper (setup-env / sync-main-to-dev).
 # Regression: exit code after failed command must not be 0 (#500).
 
+bats_require_minimum_version 1.5.0
+
 setup() {
   load test_helper
   # shellcheck source=tests/bats/fixtures/retry_helper.bash

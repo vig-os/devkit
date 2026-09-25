@@ -5,6 +5,8 @@
 # helpers run the real script against temp workspaces) plus a small set of
 # structural pins where a behavior cannot be exercised host-side.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     load test_helper
     INIT_WORKSPACE_SH="$PROJECT_ROOT/assets/init-workspace.sh"

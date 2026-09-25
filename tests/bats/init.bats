@@ -18,6 +18,8 @@
 # Note: SC2016 disabled because we intentionally use single quotes to search
 # for literal shell syntax in the target script.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     load test_helper
     INIT_SH="$PROJECT_ROOT/scripts/init.sh"

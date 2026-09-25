@@ -15,6 +15,8 @@
 # The script is invoked directly (not via `bash`), so the executable bit and
 # shebang are exercised on every run.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     load test_helper
     CLEAN_SH="$PROJECT_ROOT/scripts/clean.sh"

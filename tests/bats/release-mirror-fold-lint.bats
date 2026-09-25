@@ -41,6 +41,8 @@
 # every live consumer's seed, and none of #1488's, which is exactly what the
 # org-config upgrade lacked.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     load test_helper
     MIRROR_GITFLOW="$BATS_FILE_TMPDIR/mirror-gitflow"

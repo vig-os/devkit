@@ -7,6 +7,8 @@
 # (the echoed path attributes any failure). The full functional rewrite of
 # worktree.bats is tracked separately (#630).
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     load test_helper
     WT_MAIN="${PROJECT_ROOT}/justfile.worktree"

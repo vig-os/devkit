@@ -14,6 +14,8 @@
 # "$FIX-worktrees" — no product knob needed. Per-test fixtures also make the
 # file safe for within-file parallelism and for CI.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     load test_helper
     WT_MAIN="${PROJECT_ROOT}/justfile.worktree"
