@@ -207,6 +207,7 @@ This section applies to **`vig-os/devcontainer`** (this repo) and, for matching 
 - All tests passing on `dev`
 - CHANGELOG Unreleased section has content
 - No other `release/*` branch exists — the `validate` job refuses to cut a second train (single-train policy, [#1627](https://github.com/vig-os/devkit/issues/1627)); promote or abandon the other one first
+- Every hook added to the scaffold since the last release has its row in `inserted_hook_blocks()` (`assets/init-workspace.sh`), and every row's version is the one being cut. A consumer with a preserved `.pre-commit-config.yaml` receives a new hook only through that table (`'<first release shipping it> <hook id> [feature group]'`), and the version is a literal nothing else checks: trains have been renamed mid-flight before, and a stale number either under-inserts (safe) or re-adds a hook a consumer deleted (the [#1651](https://github.com/vig-os/devkit/issues/1651) defect). Add or fix rows on the release branch, with `tests/test_scaffold_preserved_hooks.py` updated to match ([#1660](https://github.com/vig-os/devkit/issues/1660), [#1717](https://github.com/vig-os/devkit/issues/1717))
 
 **Execute:**
 
