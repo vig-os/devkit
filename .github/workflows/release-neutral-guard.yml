@@ -254,10 +254,12 @@ jobs:
           set -euo pipefail
           scaffold=(assets/ ':(exclude)assets/workspace/.devcontainer/CHANGELOG.md')
           if ! git diff --quiet "origin/${BASE_REF}...HEAD" -- "${scaffold[@]}"; then
+            # Declared BEFORE the diagnostics: a hiccup in the listing below must
+            # not downgrade a real refusal to an infrastructure failure.
+            echo "refused=true" >> "$GITHUB_OUTPUT"
             echo "::error::gate 3: the diff changes the consumer scaffold under assets/ — that is a published asset and needs a release:"
             git diff --name-only "origin/${BASE_REF}...HEAD" -- "${scaffold[@]}" \
               | awk '{print "  " $0}'
-            echo "refused=true" >> "$GITHUB_OUTPUT"
             exit 1
           fi
           echo "✓ gate 3: assets/ byte-identical to ${BASE_REF} (changelog mirror excluded)"
@@ -273,10 +275,10 @@ jobs:
           set -euo pipefail
           trains=$(git ls-remote --heads origin 'refs/heads/release/*' | awk '{print $2}')
           if [ -n "$trains" ]; then
+            echo "refused=true" >> "$GITHUB_OUTPUT"  # before the diagnostics, as in gate 3
             echo "::error::gate 5: a release train is in flight:"
             awk '{print "  " $0}' <<< "$trains"
             echo "::error::Moving main now would dismiss that train's approval. Promote or abandon it first."
-            echo "refused=true" >> "$GITHUB_OUTPUT"
             exit 1
           fi
           echo "✓ gate 5: no release/* branch in flight"
