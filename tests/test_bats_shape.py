@@ -52,11 +52,12 @@ REQUIRED_DECLARATION = "bats_require_minimum_version 1.5.0"
 # ``teardown_file``. Empty: see the module docstring before adding one.
 TEARDOWN_FILE_ALLOWLIST: frozenset[str] = frozenset()
 
-# A ``teardown_file`` function definition at the start of a line, in either bash
+# A ``teardown_file`` function definition at the start of a line or after a ``;``,
+# in either bash
 # spelling: ``teardown_file() {`` / ``teardown_file () {`` and
 # ``function teardown_file {`` / ``function teardown_file() {``.
 TEARDOWN_FILE_DEFINITION = re.compile(
-    r"^\s*(?:function\s+teardown_file\b|teardown_file\s*\(\s*\))"
+    r"(?:^|;)\s*(?:function\s+teardown_file\b|teardown_file\s*\(\s*\))"
 )
 
 
@@ -75,7 +76,7 @@ def _defines_teardown_file(path: Path) -> bool:
     for raw in path.read_text(encoding="utf-8").splitlines():
         if raw.strip().startswith("#"):
             continue
-        if TEARDOWN_FILE_DEFINITION.match(raw):
+        if TEARDOWN_FILE_DEFINITION.search(raw):
             return True
     return False
 
@@ -129,6 +130,8 @@ def test_bats_file_defines_no_teardown_file(path: Path) -> None:
         ("    teardown_file() {\n", True),
         ("function teardown_file {\n", True),
         ("function teardown_file() {\n", True),
+        ("setup() { :; }; teardown_file() { false; }\n", True),
+        (": ; function teardown_file {\n", True),
         ("# teardown_file() {\n", False),
         ("  #teardown_file() {\n", False),
         ("# function teardown_file {\n", False),
