@@ -824,6 +824,54 @@ _preview_symlinked_template_venv() {
     refute_output --partial "site-packages"
 }
 
+# ── the preview prunes .git/.venv by NAME, as the copy does (#1716) ────────────
+# The #951 fix gave the report `find` path-form excludes (`! -path "*/.venv/*"`),
+# which skip only the CONTENTS of a directory with that name. The copy step
+# prunes by BASENAME (rsync `--exclude=.venv`, COPY_PRUNE_NAMES), so a template
+# *file* named `.git` or `.venv` at any depth was reported as ADDED and then
+# never copied. The preview walks the shared candidate emitter, whose prunes are
+# the copy's own single source of truth.
+
+@test "--preview prunes template entries named .git/.venv like the copy (#1716)" {
+    tmpl="$BATS_TEST_TMPDIR/tmpl-1716"
+    cp -r "$PROJECT_ROOT/assets/workspace" "$tmpl"
+    # Files, not directories: `! -path "*/.git/*"` never matched these.
+    printf 'gitdir: ../elsewhere\n' >"$tmpl/.git"
+    mkdir -p "$tmpl/pkg"
+    printf 'x\n' >"$tmpl/pkg/.venv"
+    ws="$BATS_TEST_TMPDIR/ws-1716"
+    mkdir -p "$ws"
+    stub="$BATS_TEST_TMPDIR/stub-bin-1716"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+
+    run env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$tmpl" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --preview --force --no-prompts --mode direnv
+    assert_success
+    # refute_line, never `refute_output --partial ".git"`: every `.github/...`
+    # row of the report contains that substring.
+    refute_line '  +  .git'
+    refute_line '  +  pkg/.venv'
+
+    # ...and the real run agrees: rsync's basename excludes never write them.
+    run env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$tmpl" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode direnv
+    assert_success
+    run test -e "$ws/.git"
+    assert_failure
+    run test -e "$ws/pkg/.venv"
+    assert_failure
+}
+
 # ── script structure ──────────────────────────────────────────────────────────
 
 @test "init-workspace.sh is an executable bash script" {
