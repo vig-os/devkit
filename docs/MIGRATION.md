@@ -483,7 +483,12 @@ Two details worth knowing:
   `secrets: inherit` resolves nothing, which a `required: true` declaration
   refuses before the callee's job (and its environment) ever starts — so the
   render also flips that workflow's two `COMMIT_APP_*` declarations to
-  `required: false`, and the job-level environment supplies them.
+  `required: false`, and the job-level environment supplies them. **Verify this on
+  your first adoption:** GitHub documents that a reusable workflow's job-level
+  environment secret takes precedence over an inherited one, but no devkit release
+  train had exercised it at the time of writing — dispatch a *candidate* release
+  and watch the `finalize` job's `Generate commit app token` step succeed before
+  you rely on the lane (the adoption PR body carries the full checklist).
 - **`prepare-release-extension.yml` is yours.** It is seeded, never regenerated,
   and the shipped template mints nothing. If your extension mints the commit App
   token, add `environment: '<name>'` to that job yourself — the scaffold will not
