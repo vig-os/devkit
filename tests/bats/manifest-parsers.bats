@@ -10,6 +10,8 @@
 # (The devkit's own root resolve-image composite action was removed in #996; the
 # scaffold's mode-aware resolve-toolchain parser is covered under assets/workspace.)
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     load test_helper
     TEMPLATE_SCRIPTS="$PROJECT_ROOT/assets/workspace/.devcontainer/scripts"

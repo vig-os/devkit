@@ -5,6 +5,8 @@
 # helpers run the real script against temp workspaces) plus a small set of
 # structural pins where a behavior cannot be exercised host-side.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     load test_helper
     INIT_WORKSPACE_SH="$PROJECT_ROOT/assets/init-workspace.sh"
@@ -16,7 +18,7 @@ setup() {
 # reused by every test that only reads a rendered tree — tests that mutate a
 # workspace (upgrades, seeds, previews, prunes) keep their per-test scaffolds.
 setup_file() {
-    local root stub mode
+    local root stub
     root="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
     stub="$BATS_FILE_TMPDIR/shared-stub-bin"
     mkdir -p "$stub"
@@ -26,7 +28,8 @@ setup_file() {
     # Render $BATS_FILE_TMPDIR/shared-<fixture> exactly as _scaffold /
     # _scaffold_ex would: same stubbed `just`, same TEMPLATE_DIR/SHORT_NAME/
     # GITHUB_REPOSITORY, same --force --no-prompts --mode, plus any extra args.
-    # Seed marker files into the fixture directory before calling.
+    # Output goes to the fixture's own log; the caller reports the failures
+    # (#1695), so this stays a plain command a background job can be waited on.
     _render_shared() {
         local fixture="$1" mode="$2" ws
         shift 2
@@ -38,34 +41,68 @@ setup_file() {
             SHORT_NAME=testproj \
             GITHUB_REPOSITORY=test/repo \
             bash "$root/assets/init-workspace.sh" --force --no-prompts \
-            --mode "$mode" "$@" >"$ws.log" 2>&1 || {
-            echo "shared $fixture scaffold failed:" >&2
-            cat "$ws.log" >&2
-            return 1
-        }
+            --mode "$mode" "$@" >"$ws.log" 2>&1
     }
 
-    for mode in devcontainer direnv both bare; do
-        _render_shared "$mode" "$mode" || return 1
+    # Seed marker file $2 (content $3) into fixture $1 before its render, so the
+    # fixture carries the marker exactly as the per-test scaffolds it replaces
+    # did (#1687).
+    _seed_shared() {
+        local fixture="$1" rel="$2" ws
+        ws="$BATS_FILE_TMPDIR/shared-$fixture"
+        mkdir -p "$ws/$(dirname "$rel")"
+        printf '%s\n' "$3" >"$ws/$rel"
+    }
+
+    _seed_shared node-both package.json '{ "name": "probe" }'
+    _seed_shared python-both pyproject.toml $'[project]\nname = "probe"'
+    _seed_shared cargo-both Cargo.toml $'[package]\nname = "probe"'
+    _seed_shared nix-module-both nix/module.nix '{ }'
+
+    # One line per fixture: <name> <mode> [extra args…]. Keep it declarative —
+    # the next cluster that needs a shared tree adds a line here instead of a
+    # per-test render.
+    local -a fixtures=(
+        'devcontainer devcontainer'
+        'direnv direnv'
+        'both both'
+        'bare bare'
+        'node-both both'
+        'python-both both'
+        'trunk-both both --workflow trunk'
+        'cargo-both both'
+        'nix-module-both both'
+    )
+
+    # Render them concurrently (#1695). Each fork writes its own log, so the
+    # only thing that was ever serial is the `|| return 1` short-circuit — and
+    # this prologue is pure critical path: no test in the file can start until
+    # it finishes, while the other cores idle. Every failed fixture's log is
+    # dumped, not just the first.
+    local -a pids=() names=() failed=() spec_argv
+    local spec i name
+    for spec in "${fixtures[@]}"; do
+        read -ra spec_argv <<<"$spec"
+        _render_shared "${spec_argv[@]}" &
+        pids+=("$!")
+        names+=("${spec_argv[0]}")
     done
-
-    # Language-marker variants of the both-mode scaffold (#1687): the marker
-    # file is seeded before the render, so the fixture carries it exactly as the
-    # per-test scaffolds it replaces did.
-    mkdir -p "$BATS_FILE_TMPDIR/shared-node-both"
-    printf '{ "name": "probe" }\n' >"$BATS_FILE_TMPDIR/shared-node-both/package.json"
-    _render_shared node-both both || return 1
-    mkdir -p "$BATS_FILE_TMPDIR/shared-python-both"
-    printf '[project]\nname = "probe"\n' >"$BATS_FILE_TMPDIR/shared-python-both/pyproject.toml"
-    _render_shared python-both both || return 1
-
-    # Trunk workflow model on an otherwise stock both-mode tree (#1205).
-    _render_shared trunk-both both --workflow trunk || return 1
+    for i in "${!pids[@]}"; do
+        wait "${pids[i]}" || failed+=("${names[i]}")
+    done
+    if ((${#failed[@]} > 0)); then
+        for name in "${failed[@]}"; do
+            echo "shared $name scaffold failed:" >&2
+            cat "$BATS_FILE_TMPDIR/shared-$name.log" >&2
+        done
+        return 1
+    fi
 }
 
 # Path of the shared read-only scaffold fixture $1 (#1417). Fixture names are
-# the four delivery modes plus the node-both/python-both/trunk-both variants
-# rendered by setup_file above.
+# the four delivery modes plus the seeded/flagged variants rendered by
+# setup_file above (node-both, python-both, trunk-both, cargo-both,
+# nix-module-both).
 _shared_tree() { printf '%s/shared-%s' "$BATS_FILE_TMPDIR" "$1"; }
 
 # Copy the setup_file-rendered fixture $1 into the absent-or-empty workspace $2
@@ -77,6 +114,15 @@ _shared_tree() { printf '%s/shared-%s' "$BATS_FILE_TMPDIR" "$1"; }
 # setup_file) would have produced in an empty directory. This holds because the
 # render is path-independent — .vig-os carries no absolute path, and two renders
 # into different directories are `diff -r` clean with identical modes.
+#
+# The same holds for `_upgrade <mode>` rendered into an EMPTY directory (#1696).
+# The two helpers differ only in their stubs: `_scaffold` stubs `just`, so the
+# tail `just sync` never runs, while `_upgrade` keeps the real `just` with `uv`
+# stubbed, so the recipe runs and no-ops. Rendered into empty directories three
+# times over, the trees are `diff -r` clean with identical
+# `find -printf '%m %y %p'` listings; the only difference is on stdout (the
+# extra `just sync: no pyproject.toml — skipping` line). So a pure-setup
+# `_upgrade both` site may clone the `both` fixture as well.
 #
 # So this is valid ONLY as a pure-setup replacement. A test whose subject is the
 # scaffold run itself — it asserts on that run's $output/$stderr, or on a
@@ -1633,7 +1679,7 @@ EOF
     # stay silent (no spurious warning on every upgrade of a stock consumer).
     ws="$BATS_TEST_TMPDIR/e2e-878-stock"
     mkdir -p "$ws"
-    run _upgrade both "$ws"
+    run _clone_shared both "$ws"
     assert_success
     run _upgrade both "$ws"
     assert_success
@@ -2270,7 +2316,7 @@ _preview() {
 @test "init-workspace --preview exits 0 and prints the file report (#886)" {
     ws="$BATS_TEST_TMPDIR/e2e-886-report"
     mkdir -p "$ws"
-    _upgrade both "$ws"
+    _clone_shared both "$ws"
     run _preview "$ws" --mode both
     assert_success
     assert_output --partial "OVERWRITTEN"
@@ -2281,7 +2327,7 @@ _preview() {
 @test "init-workspace --preview leaves the tree byte-identical (#886)" {
     ws="$BATS_TEST_TMPDIR/e2e-886-intact"
     mkdir -p "$ws"
-    _upgrade both "$ws"
+    _clone_shared both "$ws"
     cp -a "$ws" "$ws.before"
     run _preview "$ws" --mode both
     assert_success
@@ -2321,7 +2367,7 @@ _preview() {
     # "Workspace is not empty" refusal nor require an explicit --force.
     ws="$BATS_TEST_TMPDIR/e2e-886-no-force"
     mkdir -p "$ws"
-    _upgrade both "$ws"
+    _clone_shared both "$ws"
     run _preview "$ws" --mode both
     assert_success
     refute_output --partial "Workspace is not empty"
@@ -2330,7 +2376,7 @@ _preview() {
 @test "init-workspace --preview lists template files new to the tree as ADDED (#886)" {
     ws="$BATS_TEST_TMPDIR/e2e-886-added"
     mkdir -p "$ws"
-    _upgrade both "$ws"
+    _clone_shared both "$ws"
     rm "$ws/justfile"
     run _preview "$ws" --mode both
     assert_success
@@ -4125,8 +4171,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold codeql matrix for a Rust consumer omits the language leg, keeps actions (#1025)" {
     ws="$BATS_TEST_TMPDIR/e2e-1025-rust-cq"
     mkdir -p "$ws"
-    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
-    run _scaffold both "$ws"
+    run _clone_shared cargo-both "$ws"
     assert_success
     run grep -E '^[[:space:]]*language:' "$ws/.github/workflows/codeql.yml"
     assert_success
@@ -4185,8 +4230,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold codeql push paths for a Rust consumer are workflows-only (#1142)" {
     ws="$BATS_TEST_TMPDIR/e2e-1142-rust-paths"
     mkdir -p "$ws"
-    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
-    run _scaffold both "$ws"
+    run _clone_shared cargo-both "$ws"
     assert_success
     run cat "$ws/.github/workflows/codeql.yml"
     assert_success
@@ -4218,10 +4262,10 @@ _RELEASE_RESOLVERS_991=(
 
 @test "scaffold .gitignore for a nix consumer ignores result symlinks (#1171)" {
     ws="$BATS_TEST_TMPDIR/e2e-1171-nix-gi"
-    mkdir -p "$ws/nix"
-    # A *.nix file beyond the managed root flake.nix marks the repo as nix.
-    printf '{ }\n' >"$ws/nix/module.nix"
-    run _scaffold both "$ws"
+    # The fixture seeds a *.nix file beyond the managed root flake.nix, which is
+    # what marks the repo as nix; `_clone_shared` needs the target empty.
+    mkdir -p "$ws"
+    run _clone_shared nix-module-both "$ws"
     assert_success
     run cat "$ws/.gitignore"
     assert_success
@@ -4246,9 +4290,8 @@ _RELEASE_RESOLVERS_991=(
 
 @test "scaffold codeql matrix for a nix consumer omits the language leg, keeps actions (#1171)" {
     ws="$BATS_TEST_TMPDIR/e2e-1171-nix-cq"
-    mkdir -p "$ws/nix"
-    printf '{ }\n' >"$ws/nix/module.nix"
-    run _scaffold both "$ws"
+    mkdir -p "$ws"
+    run _clone_shared nix-module-both "$ws"
     assert_success
     run grep -E '^[[:space:]]*language:' "$ws/.github/workflows/codeql.yml"
     assert_success

@@ -15,6 +15,8 @@
 # template-derived paths, so a consumer's .git objects and build trees
 # (target/, node_modules) are never walked or touched.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     load test_helper
     INIT_WORKSPACE_SH="$PROJECT_ROOT/assets/init-workspace.sh"

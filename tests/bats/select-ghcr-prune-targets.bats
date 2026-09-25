@@ -1,6 +1,8 @@
 #!/usr/bin/env bats
 # BATS tests for digest-aware GHCR RC prune target selection (#583).
 
+bats_require_minimum_version 1.5.0
+
 setup() {
   load test_helper
   SCRIPT="${PROJECT_ROOT}/.github/scripts/select-ghcr-prune-targets.sh"

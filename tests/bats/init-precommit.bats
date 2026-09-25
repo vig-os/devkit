@@ -5,6 +5,8 @@
 # the project root from its own location, not a hard-coded /workspace/<name>
 # path, so it works regardless of where the workspace is mounted (#854).
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     load test_helper
     INIT_PRECOMMIT_SH="$PROJECT_ROOT/assets/workspace/.devcontainer/scripts/init-precommit.sh"

@@ -3,15 +3,18 @@
 #
 # Encapsulated command behavior (resolve-branch/derive-branch-summary) lives in:
 #   packages/vig-utils/tests/test_shell_entrypoints.py
+#
+# Every recipe here is driven against a THROWAWAY fixture repo under
+# BATS_TEST_TMPDIR, never the checkout running the suite: `worktree-clean`
+# force-removes every entry in `<repo>-worktrees` and `git branch -D`s its
+# branch, so pointing it at the real sibling directory deletes a developer's or
+# an agent's live worktrees (#1694). `_wt_base` is `../<basename $(git
+# rev-parse --show-toplevel)>-worktrees` resolved against just's working
+# directory, so `--working-directory "$FIX"` alone moves the base to
+# "$FIX-worktrees" — no product knob needed. Per-test fixtures also make the
+# file safe for within-file parallelism and for CI.
 
-# The worktree-attach/worktree-clean tests drive real tmux sessions and the
-# repo's real `<repo>-worktrees` directory, and `just worktree-clean` acts on
-# every entry in it — process-global state two tests in this file cannot share
-# concurrently. Opt this file out of bats' within-file parallelism (`bats -j`
-# still runs it alongside the other files). Refs #1687.
-setup_file() {
-    export BATS_NO_PARALLELIZE_WITHIN_FILE=true
-}
+bats_require_minimum_version 1.5.0
 
 setup() {
     load test_helper
@@ -19,20 +22,93 @@ setup() {
     WT_TEMPLATE="${PROJECT_ROOT}/assets/workspace/.devcontainer/justfile.worktree"
 }
 
+# The tmux server is process-global and outlives the test, so an assertion that
+# fails before a test reaches its own `kill-session` would leak a session into
+# the runner (and into a `-j` peer). Reap only what this test derived: a name
+# ending in this test's unique WT_TAG, or the claude probe's own PID-tagged
+# name. WT_TAG is never matched when unset — `wt-*` would sweep a developer's
+# real sessions.
+teardown() {
+    command -v tmux >/dev/null 2>&1 || return 0
+    local session
+    while read -r session; do
+        case "$session" in
+            wt-*) ;;
+            *) continue ;;
+        esac
+        if [ -n "${WT_TAG:-}" ] && [ "${session%"$WT_TAG"}" != "$session" ]; then
+            tmux kill-session -t "$session" 2>/dev/null || true
+        elif [ "$session" = "wt-test-claude-$$" ]; then
+            tmux kill-session -t "$session" 2>/dev/null || true
+        fi
+    done < <(tmux list-sessions -F '#{session_name}' 2>/dev/null || true)
+}
+
+# Pin git config sources so host global/system state never leaks into a fixture.
+_wt_git() {
+    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git "$@"
+}
+
+# A throwaway repo the worktree recipes can act on: one commit (so
+# `git rev-parse --show-toplevel` and `git worktree add` work) and a unique
+# name, so `_wt_base` lands at "$FIX-worktrees" inside BATS_TEST_TMPDIR and the
+# derived tmux session names cannot collide with another test's or a real one.
+# Sets FIX (repo path), WT_BASE (the sibling base) and WT_TAG (the unique
+# suffix the fixture's issue numbers carry).
+_wt_fixture() {
+    WT_TAG="$$-${BATS_TEST_NUMBER:-0}"
+    FIX="$BATS_TEST_TMPDIR/fixture"
+    WT_BASE="$BATS_TEST_TMPDIR/fixture-worktrees"
+    # Before `git init`, not only before the recipes: this helper `git add -A`s
+    # and commits inside FIX, so a FIX pointed at a real checkout would stage
+    # and try to commit that developer's tree.
+    _wt_assert_throwaway
+    mkdir -p "$FIX"
+    _wt_git -c init.defaultBranch=main init -q "$FIX"
+    : >"$FIX/seed"
+    _wt_git -C "$FIX" add -A
+    _wt_git -C "$FIX" -c user.name=t -c user.email=t@example.com \
+        -c commit.gpgsign=false commit -qm init
+}
+
+# #1694 guard: every recipe invocation in this file must be pointed at a
+# throwaway repo. `worktree-clean` force-removes every entry in the derived
+# base and `git branch -D`s its branch, so a base outside the test's own tmpdir
+# deletes a developer's or an agent's live worktrees.
+#
+# FIX is pinned first because FIX is what actually steers the base: no recipe
+# reads WT_BASE — they derive `../<basename $(git rev-parse --show-toplevel)>-
+# worktrees` from just's working directory, which is FIX. WT_BASE is pinned too
+# because the tests build their fixture paths and assertions out of it, so the
+# two must not drift apart.
+_wt_assert_throwaway() {
+    assert [ -n "${FIX:-}" ]
+    assert [ "${FIX#"$BATS_TEST_TMPDIR"}" != "$FIX" ]
+    assert [ -n "${WT_BASE:-}" ]
+    assert [ "${WT_BASE#"$BATS_TEST_TMPDIR"}" != "$WT_BASE" ]
+}
+
+# Run a worktree recipe against the fixture repo.
+_wt_just() {
+    _wt_assert_throwaway
+    run env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+        just --justfile "$WT_MAIN" --working-directory "$FIX" "$@" 2>&1
+}
+
 # ── worktree-attach restart logic (#132) ───────────────────────────────────────
 # Tests that worktree-attach restarts a stopped tmux session when the worktree
 # directory exists. Uses WORKTREE_ATTACH_RESTART_CMD to avoid agent dependency.
 
 @test "worktree-attach restarts stopped session when worktree dir exists" {
-    [ "${CI:-}" = "true" ] && skip "tmux integration tests require interactive TTY"
     command -v tmux >/dev/null 2>&1 || skip "tmux not installed"
     command -v just >/dev/null 2>&1 || skip "just not installed"
 
-    ISSUE=999999
-    REPO=$(basename "$(cd "$PROJECT_ROOT" && git rev-parse --show-toplevel)")
-    WT_BASE="$(dirname "$PROJECT_ROOT")/${REPO}-worktrees"
+    _wt_fixture
+    ISSUE="999999-${WT_TAG}"
     WT_DIR="${WT_BASE}/${ISSUE}"
     SESSION="wt-${ISSUE}"
+
+    _wt_assert_throwaway
 
     mkdir -p "$WT_DIR"
     tmux new-session -d -s "$SESSION" -c "$WT_DIR" "true"
@@ -42,12 +118,19 @@ setup() {
         skip "tmux session did not exit after 'true' (timing)"
     fi
 
-    env WORKTREE_ATTACH_RESTART_CMD="sleep 5" timeout 3 just worktree-attach "$ISSUE" 2>/dev/null &
-    sleep 2
+    env WORKTREE_ATTACH_RESTART_CMD="sleep 5" timeout 3 \
+        just --justfile "$WT_MAIN" --working-directory "$FIX" \
+        worktree-attach "$ISSUE" 2>/dev/null &
+    # Poll rather than sleep a fixed 2 s: the backgrounded `just` has to
+    # evaluate the justfile, shell out to `gh api user` and start the session,
+    # which is more than 2 s on a cold runner — and then the single
+    # `has-session` below would be a false negative, not a slow pass.
+    for _ in $(seq 20); do
+        if tmux has-session -t "$SESSION" 2>/dev/null; then break; fi
+        sleep 0.25
+    done
     run tmux has-session -t "$SESSION" 2>/dev/null
     tmux kill-session -t "$SESSION" 2>/dev/null || true
-    rm -rf "$WT_DIR"
-    rmdir "$WT_BASE" 2>/dev/null || true
 
     assert_success
 }
@@ -61,12 +144,11 @@ setup() {
 # prompt.
 
 @test "claude CLI launches in tmux without an interactive trust prompt" {
-    [ "${CI:-}" = "true" ] && skip "tmux integration tests require interactive TTY"
     command -v tmux >/dev/null 2>&1 || skip "tmux not installed"
     command -v claude >/dev/null 2>&1 || skip "claude CLI not installed"
 
     SESSION="wt-test-claude-$$"
-    TESTDIR="/tmp/bats-claude-$$"
+    TESTDIR="$BATS_TEST_TMPDIR/claude"
     mkdir -p "$TESTDIR"
 
     tmux new-session -d -s "$SESSION" -c "$TESTDIR"
@@ -79,7 +161,6 @@ setup() {
 
     run tmux capture-pane -t "$SESSION" -p
     tmux kill-session -t "$SESSION" 2>/dev/null || true
-    rm -rf "$TESTDIR"
 
     assert_success
     refute_output --partial "trust"
@@ -88,11 +169,11 @@ setup() {
 # ── worktree-attach ───────────────────────────────────────────────────────────
 
 @test "worktree-attach errors when neither worktree dir nor session exists" {
-    [ "${CI:-}" = "true" ] && skip "tmux integration tests require interactive TTY"
     command -v tmux >/dev/null 2>&1 || skip "tmux not installed"
     command -v just >/dev/null 2>&1 || skip "just not installed"
 
-    run just worktree-attach 999998 2>&1
+    _wt_fixture
+    _wt_just worktree-attach "999998-${WT_TAG}"
     assert_failure
     assert_output --partial "[ERROR]"
     assert_output --partial "No tmux session"
@@ -103,54 +184,52 @@ setup() {
 # Mode "all": clean all worktrees (current behavior).
 
 @test "worktree-clean stopped-only skips worktrees with running tmux session" {
-    [ "${CI:-}" = "true" ] && skip "tmux integration tests require interactive TTY"
     command -v tmux >/dev/null 2>&1 || skip "tmux not installed"
     command -v just >/dev/null 2>&1 || skip "just not installed"
 
-    ISSUE_SKIP=999996
-    ISSUE_CLEAN=999995
-    REPO=$(basename "$(cd "$PROJECT_ROOT" && git rev-parse --show-toplevel)")
-    WT_BASE="$(dirname "$PROJECT_ROOT")/${REPO}-worktrees"
+    _wt_fixture
+    ISSUE_SKIP="999996-${WT_TAG}"
+    ISSUE_CLEAN="999995-${WT_TAG}"
     DIR_SKIP="${WT_BASE}/${ISSUE_SKIP}"
     DIR_CLEAN="${WT_BASE}/${ISSUE_CLEAN}"
     SESSION_SKIP="wt-${ISSUE_SKIP}"
+
+    _wt_assert_throwaway
 
     mkdir -p "$DIR_SKIP" "$DIR_CLEAN"
     tmux new-session -d -s "$SESSION_SKIP" -c "$DIR_SKIP" "sleep 60"
     sleep 1
     tmux has-session -t "$SESSION_SKIP" || skip "tmux session did not start"
 
-    run just worktree-clean 2>&1
+    _wt_just worktree-clean
 
     assert_success
     assert_output --partial "[SKIP]"
-    assert_output --partial "999996"
-    assert_output --partial "999995"
+    assert_output --partial "$ISSUE_SKIP"
+    assert_output --partial "$ISSUE_CLEAN"
     assert [ ! -d "$DIR_CLEAN" ]
     assert [ -d "$DIR_SKIP" ]
 
     tmux kill-session -t "$SESSION_SKIP" 2>/dev/null || true
-    rm -rf "$DIR_SKIP" "$DIR_CLEAN"
-    rmdir "$WT_BASE" 2>/dev/null || true
 }
 
 @test "worktree-clean all removes worktrees with running tmux sessions" {
-    [ "${CI:-}" = "true" ] && skip "tmux integration tests require interactive TTY"
     command -v tmux >/dev/null 2>&1 || skip "tmux not installed"
     command -v just >/dev/null 2>&1 || skip "just not installed"
 
-    ISSUE=999994
-    REPO=$(basename "$(cd "$PROJECT_ROOT" && git rev-parse --show-toplevel)")
-    WT_BASE="$(dirname "$PROJECT_ROOT")/${REPO}-worktrees"
+    _wt_fixture
+    ISSUE="999994-${WT_TAG}"
     DIR="${WT_BASE}/${ISSUE}"
     SESSION="wt-${ISSUE}"
+
+    _wt_assert_throwaway
 
     mkdir -p "$DIR"
     tmux new-session -d -s "$SESSION" -c "$DIR" "sleep 60"
     sleep 1
     tmux has-session -t "$SESSION" || skip "tmux session did not start"
 
-    run just worktree-clean all 2>&1
+    _wt_just worktree-clean all
 
     assert_success
     assert_output --partial "[WARNING]"
@@ -158,24 +237,24 @@ setup() {
     assert [ ! -d "$DIR" ]
 
     tmux kill-session -t "$SESSION" 2>/dev/null || true
-    rm -rf "$DIR"
-    rmdir "$WT_BASE" 2>/dev/null || true
 }
 
 @test "wt-clean alias works for stopped-only and all" {
     command -v just >/dev/null 2>&1 || skip "just not installed"
 
-    run just wt-clean 2>&1
+    _wt_fixture
+    _wt_just wt-clean
     assert_success
 
-    run just wt-clean all 2>&1
+    _wt_just wt-clean all
     assert_success
 }
 
 @test "worktree-clean rejects invalid mode" {
     command -v just >/dev/null 2>&1 || skip "just not installed"
 
-    run just worktree-clean invalid 2>&1
+    _wt_fixture
+    _wt_just worktree-clean invalid
     assert_failure
     assert_output --partial "[ERROR]"
     assert_output --partial "Invalid mode"
@@ -190,12 +269,11 @@ setup() {
 @test "just does not leak a git fatal in a foreign-git worktree cwd (#1203)" {
     command -v just >/dev/null 2>&1 || skip "just not installed"
 
-    local broken
-    broken="$(mktemp -d)"
+    local broken="$BATS_TEST_TMPDIR/broken"
+    mkdir -p "$broken"
     printf 'gitdir: /nonexistent/path/outside\n' > "$broken/.git"
 
     run just -d "$broken" -f "$PROJECT_ROOT/justfile.worktree" --evaluate _wt_repo
-    rm -rf "$broken"
 
     assert_success
     refute_output --partial "not a git repository"
@@ -272,12 +350,6 @@ STUB
     chmod +x "$STUBS"/*
 }
 
-# Pin git config sources so host global/system state never leaks into the
-# sandbox (or the assertions).
-_wt_git() {
-    GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null git "$@"
-}
-
 # Build a sandbox: main/ checkout with tracked .githooks shims covering all
 # three stages, plus a bare origin.git carrying the issue branch so the
 # recipe's `git fetch origin <branch>` succeeds.
@@ -301,6 +373,12 @@ _wt_sandbox() {
 
 _run_wt_start() {
     local file="$1" main="$2"
+    # Same #1694 guard as `_wt_just`: worktree-start creates
+    # `<main>-worktrees/<issue>` and `git worktree add`s into it, so point the
+    # shared assertion at this helper's own sandbox before running the recipe.
+    FIX="$main"
+    WT_BASE="$main-worktrees"
+    _wt_assert_throwaway
     run env PATH="$STUBS:$PATH" STUB_LOG="$STUB_LOG" \
         GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
         just --justfile "$file" --working-directory "$main" worktree-start 4242

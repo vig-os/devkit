@@ -1,6 +1,8 @@
 #!/usr/bin/env bats
 # BATS tests for RC draft pre-release selection used by promote-release cleanup (#623).
 
+bats_require_minimum_version 1.5.0
+
 setup() {
   load test_helper
   SCRIPT="${PROJECT_ROOT}/.github/scripts/select-rc-draft-releases.sh"

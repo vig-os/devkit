@@ -22,6 +22,8 @@
 # controlled environment (GIT_CONFIG_GLOBAL/SYSTEM, SSH_AUTH_SOCK, stub `gh`)
 # so host state never leaks in — same harness idiom as doctor.bats.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     load test_helper
     WS="$BATS_TEST_TMPDIR/ws"

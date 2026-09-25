@@ -20,6 +20,8 @@
 # - git repository setup
 # - upgrade preflight guard (#886)
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     load test_helper
     INSTALL_SH="$PROJECT_ROOT/install.sh"

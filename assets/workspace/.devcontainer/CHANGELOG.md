@@ -67,8 +67,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     its only consumer, it lands on nobody's PATH, and the incremental closure
     is under 1 MiB — and both entry points, `just test-bats` and the
     `test-project` composite action, run `bats -j "$(nproc)"`. `worktree.bats`
-    opts out of within-file jobs: its tests drive real tmux sessions and the
-    repo's sibling worktrees directory
+    first opted out of within-file jobs, because its tests drove real tmux
+    sessions against the repository's own sibling worktrees directory; it now
+    drives an isolated per-test fixture repo instead, so it runs under `-j` and
+    in CI like every other file
+    ([#1694](https://github.com/vig-os/devkit/issues/1694))
   - `init-workspace.sh` batches its two per-file fork loops — the `chmod u+w`
     scaffold sweep, which is on the production path, and the host-side
     placeholder-substitution pass — into one `xargs` each. Rendered trees
