@@ -269,6 +269,48 @@ MULTIPLE_TBD_CHANGELOG = """\
 - Initial
 """
 
+LOOSE_BULLET_CHANGELOG = """\
+# Changelog
+
+## Unreleased
+
+- **Loose bullet with no subsection header** ([#1689](https://github.com/vig-os/devkit/issues/1689))
+
+## [1.0.0] - 2026-01-01
+
+### Fixed
+
+- Old fix
+"""
+
+BARE_UNRELEASED_CHANGELOG = """\
+# Changelog
+
+## Unreleased
+
+## [1.0.0] - 2026-01-01
+
+### Fixed
+
+- Old fix
+"""
+
+UNKNOWN_HEADING_CHANGELOG = """\
+# Changelog
+
+## Unreleased
+
+### Notes
+
+- Bullet under a heading that is not a standard section
+
+## [1.0.0] - 2026-01-01
+
+### Fixed
+
+- Old fix
+"""
+
 ALL_SECTIONS_CHANGELOG = """\
 # Changelog
 
@@ -358,6 +400,32 @@ class TestExtractUnreleasedContent:
         """Should return empty dict when Unreleased has no bullet points."""
         sections = extract_unreleased_content(EMPTY_UNRELEASED_CHANGELOG)
         assert sections == {}
+
+    def test_bare_unreleased_does_not_capture_next_release(self, tmp_path):
+        """A bare ## Unreleased must not swallow the next release's body (#1689).
+
+        The body regex used to be bounded by ``\\n## [``; with nothing between
+        the heading and the blank line, that lookahead never matched and the
+        capture ran to EOF, handing the PREVIOUS release's subsections back as
+        if they were unreleased content.
+        """
+        sections = extract_unreleased_content(BARE_UNRELEASED_CHANGELOG)
+        assert sections == {}
+
+    def test_refuses_loose_bullets(self):
+        """Bullets outside a recognised ### subsection are a hard error (#1689)."""
+        with pytest.raises(ValueError, match="outside a recognised"):
+            extract_unreleased_content(LOOSE_BULLET_CHANGELOG)
+
+    def test_refuses_bullets_under_unrecognised_heading(self):
+        """A non-standard ### heading does not shelter its bullets (#1689)."""
+        with pytest.raises(ValueError, match="outside a recognised"):
+            extract_unreleased_content(UNKNOWN_HEADING_CHANGELOG)
+
+    def test_loose_bullet_error_names_the_offending_line(self):
+        """The refusal must quote the lines that would otherwise be dropped."""
+        with pytest.raises(ValueError, match="Loose bullet with no subsection header"):
+            extract_unreleased_content(LOOSE_BULLET_CHANGELOG)
 
     def test_whitespace_only_lines_are_not_content(self):
         """Sections with only whitespace lines should be treated as empty."""
@@ -526,6 +594,26 @@ class TestValidateChangelog:
         assert has_section is True
         assert has_content is False
 
+    def test_bare_unreleased_has_no_content(self, tmp_path):
+        """A bare ## Unreleased is empty, not "has content" (#1689).
+
+        The unbounded body capture used to read the next release's bullets, so
+        validate reported content and the #1682 classifier selected ``prepare``
+        — which then duplicated that release into the new version section.
+        """
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(BARE_UNRELEASED_CHANGELOG)
+        has_section, has_content = validate_changelog(str(f))
+        assert has_section is True
+        assert has_content is False
+
+    def test_rejects_loose_bullets(self, tmp_path):
+        """validate must refuse what prepare cannot freeze (#1689)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(LOOSE_BULLET_CHANGELOG)
+        with pytest.raises(ValueError, match="outside a recognised"):
+            validate_changelog(str(f))
+
     def test_raises_for_missing_file(self, tmp_path):
         """Should raise FileNotFoundError for nonexistent file."""
         with pytest.raises(FileNotFoundError, match="CHANGELOG not found"):
@@ -683,12 +771,45 @@ class TestPrepareChangelog:
         assert "Changed" in sections
         assert "Fixed" in sections
 
-    def test_returns_empty_dict_for_empty_unreleased(self, tmp_path):
-        """Should return {} when Unreleased has no content."""
+    def test_freezes_bullets_under_a_recognised_heading(self, tmp_path):
+        """Regression guard: the supported shape still freezes (#1689)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(MINIMAL_CHANGELOG)
+        sections = prepare_changelog("1.0.0", str(f))
+        assert sections == {"Added": "- Single feature"}
+        content = f.read_text()
+        version_block = content[content.find("## [1.0.0] - TBD") :]
+        assert "- Single feature" in version_block.split("## [0.1.0]")[0]
+
+    def test_refuses_empty_unreleased(self, tmp_path):
+        """Nothing to freeze must refuse, not write an empty section (#1689).
+
+        ``seed`` is the command for the empty case; ``prepare`` writing an
+        empty ``## [X.Y.Z] - TBD`` only defers the failure to release time.
+        """
         f = tmp_path / "CHANGELOG.md"
         f.write_text(EMPTY_UNRELEASED_CHANGELOG)
-        sections = prepare_changelog("1.0.0", str(f))
-        assert sections == {}
+        with pytest.raises(ValueError, match="No content to freeze"):
+            prepare_changelog("1.0.0", str(f))
+        assert f.read_text() == EMPTY_UNRELEASED_CHANGELOG
+
+    def test_refuses_loose_bullets_and_leaves_file_untouched(self, tmp_path):
+        """prepare must never exit 0 having dropped a bullet (#1689)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(LOOSE_BULLET_CHANGELOG)
+        with pytest.raises(ValueError, match="outside a recognised"):
+            prepare_changelog("1.0.1", str(f))
+        assert f.read_text() == LOOSE_BULLET_CHANGELOG
+
+    def test_refuses_bare_unreleased_without_duplicating_previous_release(
+        self, tmp_path
+    ):
+        """A bare ## Unreleased must not scoop the previous release (#1689)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(BARE_UNRELEASED_CHANGELOG)
+        with pytest.raises(ValueError, match="No content to freeze"):
+            prepare_changelog("1.0.1", str(f))
+        assert f.read_text() == BARE_UNRELEASED_CHANGELOG
 
     def test_unreleased_only_no_prior_versions(self, tmp_path):
         """Should work when there are no prior version sections."""
@@ -971,6 +1092,28 @@ class TestSeedChangelog:
             seed_changelog("0.2.1", str(f))
         assert f.read_text() == BASIC_CHANGELOG
 
+    def test_refuses_loose_bullets(self, tmp_path):
+        """The #1682 classifier routes a rejected validate to seed (#1689).
+
+        validate exits non-zero on loose bullets, so the classifier picks
+        ``seed``; seed must refuse the same input rather than wipe it, which is
+        what makes the lane fail closed with no workflow change.
+        """
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(LOOSE_BULLET_CHANGELOG)
+        with pytest.raises(ValueError, match="outside a recognised"):
+            seed_changelog("1.0.1", str(f))
+        assert f.read_text() == LOOSE_BULLET_CHANGELOG
+
+    def test_seeds_a_bare_unreleased(self, tmp_path):
+        """A bare ## Unreleased is the empty case: seed is the right lane (#1689)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(BARE_UNRELEASED_CHANGELOG)
+        seed_changelog("1.0.1", str(f))
+        content = f.read_text()
+        assert "## [1.0.1] - TBD" in content
+        assert content.count("- Old fix") == 1
+
     def test_refuses_missing_unreleased(self, tmp_path):
         """No Unreleased heading at all is refused."""
         f = tmp_path / "CHANGELOG.md"
@@ -1006,17 +1149,21 @@ class TestSeedChangelog:
         with pytest.raises(FileNotFoundError, match="CHANGELOG not found"):
             seed_changelog("0.2.1", str(tmp_path / "nope.md"))
 
-    def test_seed_then_prepare_is_a_noop_shape(self, tmp_path):
-        """A seeded file is valid input for the existing tools (dedupe path, #612)."""
+    def test_seed_then_prepare_refuses_with_nothing_to_freeze(self, tmp_path):
+        """A seeded file has no content anywhere, so prepare refuses (#1689).
+
+        Was ``test_seed_then_prepare_is_a_noop_shape``: prepare used to rewrite
+        the file into the same shape and warn. The #612 dedupe path it stood in
+        for is covered with real content by
+        ``test_double_prepare_same_version_dedupes_heading``.
+        """
         f = tmp_path / "CHANGELOG.md"
         f.write_text(EMPTY_UNRELEASED_CHANGELOG)
         seed_changelog("0.2.1", str(f))
         seeded = f.read_text()
-        prepare_changelog("0.2.1", str(f))
-        assert f.read_text().count("## [0.2.1] - TBD") == 1
-        assert re.findall(r"^## .+$", f.read_text(), re.MULTILINE) == re.findall(
-            r"^## .+$", seeded, re.MULTILINE
-        )
+        with pytest.raises(ValueError, match="No content to freeze"):
+            prepare_changelog("0.2.1", str(f))
+        assert f.read_text() == seeded
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1770,6 +1917,24 @@ class TestCLISubprocess:
         assert result.returncode != 0
         assert "Invalid" in result.stderr or "version" in result.stderr.lower()
 
+    def test_prepare_refuses_loose_bullets_e2e(self, tmp_path):
+        """prepare exits non-zero and leaves the file byte-identical (#1689)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(LOOSE_BULLET_CHANGELOG)
+        result = self._run("prepare", "1.0.1", str(f))
+        assert result.returncode != 0
+        assert "outside a recognised" in result.stderr
+        assert f.read_text() == LOOSE_BULLET_CHANGELOG
+
+    def test_prepare_refuses_bare_unreleased_e2e(self, tmp_path):
+        """prepare refuses instead of duplicating the previous release (#1689)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(BARE_UNRELEASED_CHANGELOG)
+        result = self._run("prepare", "1.0.1", str(f))
+        assert result.returncode != 0
+        assert "No content to freeze" in result.stderr
+        assert f.read_text() == BARE_UNRELEASED_CHANGELOG
+
     # ── validate ──────────────────────────────────────────────────────────
 
     def test_validate_passes_e2e(self, tmp_path):
@@ -1784,6 +1949,22 @@ class TestCLISubprocess:
         """Validate should fail when Unreleased is empty."""
         f = tmp_path / "CHANGELOG.md"
         f.write_text(EMPTY_UNRELEASED_CHANGELOG)
+        result = self._run("validate", str(f))
+        assert result.returncode == 1
+        assert "empty" in result.stderr.lower()
+
+    def test_validate_rejects_loose_bullets_e2e(self, tmp_path):
+        """validate exits 1 so the #1682 classifier never selects prepare (#1689)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(LOOSE_BULLET_CHANGELOG)
+        result = self._run("validate", str(f))
+        assert result.returncode == 1
+        assert "outside a recognised" in result.stderr
+
+    def test_validate_bare_unreleased_is_empty_e2e(self, tmp_path):
+        """A bare ## Unreleased routes to seed, not prepare (#1689)."""
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(BARE_UNRELEASED_CHANGELOG)
         result = self._run("validate", str(f))
         assert result.returncode == 1
         assert "empty" in result.stderr.lower()
@@ -1840,6 +2021,20 @@ class TestCLISubprocess:
         assert result.returncode != 0
         assert "not empty" in result.stderr
         assert f.read_text() == BASIC_CHANGELOG
+
+    def test_seed_refuses_loose_bullets_e2e(self, tmp_path):
+        """The classifier's seed fallback refuses loose bullets too (#1689).
+
+        validate exits 1 -> the #1682 classifier picks ``seed`` -> the dry probe
+        fails loudly instead of wiping the entry. That is the whole fail-closed
+        contract, and it needs no change to prepare-hotfix.yml.
+        """
+        f = tmp_path / "CHANGELOG.md"
+        f.write_text(LOOSE_BULLET_CHANGELOG)
+        result = self._run("seed", "1.0.1", str(f))
+        assert result.returncode != 0
+        assert "outside a recognised" in result.stderr
+        assert f.read_text() == LOOSE_BULLET_CHANGELOG
 
     # ── finalize ──────────────────────────────────────────────────────────
 
