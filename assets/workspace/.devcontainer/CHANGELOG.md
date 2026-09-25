@@ -162,6 +162,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Preserved-config hook inserts survive a disabled anchor and keep their
+  rationale** ([#1725](https://github.com/vig-os/devkit/issues/1725))
+  - A new scaffolded hook was inserted into a preserved `.pre-commit-config.yaml`
+    after the single hook the template places immediately before it, so a consumer
+    pinned below 1.17.0 with `DEVKIT_FEATURES_DISABLED=actionlint` had no anchor
+    for `shellcheck-composite-actions` and lost the hook to a warning on every
+    upgrade, forever — while a *fresh* scaffold with the same opt-out does ship it.
+    The insert now walks every predecessor the template declares, nearest first,
+    and anchors on the first one the file carries (here `shellcheck`); the warning
+    is reached only when the file carries not one of them. A present anchor still
+    wins, and still contributes its **sentinel** range where it has one, so an
+    insert after a bracketed block lands past its closing sentinel rather than
+    inside the range a feature excision deletes
+  - An un-sentinelled template entry was extracted from its `- repo:` line down,
+    so the prose above it — why the hook exists, what it deliberately does not
+    cover — stayed in the template and the consumer's copy arrived as an
+    unexplained `entry:`. The structural extraction now takes the run of
+    whole-line comments directly above the entry too, stopping at a blank line, a
+    non-comment line or a `# >>> devkit:` / `# <<< devkit:` sentinel, so no copy
+    can swallow the previous block's text or half a sentinel pair
+
 - **A hung release-neutral guard no longer leaves its last positive verdict
   standing** ([#1712](https://github.com/vig-os/devkit/issues/1712))
   - The job's `timeout-minutes` expiry *cancels* the job, so gate 6 — which runs
