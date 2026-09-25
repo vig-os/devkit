@@ -339,12 +339,17 @@ def test_the_insert_touches_nothing_else(tmp_path: Path) -> None:
 
 
 def test_a_pin_at_the_release_is_left_alone(tmp_path: Path) -> None:
-    """The repo has seen the hook, so its absence is a decision — durable."""
+    """The repo has seen the hook, so its absence is a decision — durable.
+
+    Per row: the same tree is below the composite release and receives THAT hook
+    (anchored on ``shellcheck``, the nearest predecessor it carries — #1725), so
+    the durability claim is about the actionlint row alone.
+    """
     seed = _insert_seed(tmp_path, f"DEVKIT_VERSION={ACTIONLINT_SINCE}\n")
     proc = _upgrade(tmp_path, seed, name="seen")
 
     assert "- id: actionlint" not in _config(tmp_path, "seen")
-    assert "preserved-hook-insert:" not in proc.stdout
+    assert "preserved-hook-insert: actionlint" not in proc.stdout
 
 
 def test_no_pin_means_no_evidence_and_no_insert(tmp_path: Path) -> None:
@@ -365,14 +370,18 @@ def test_no_pin_means_no_evidence_and_no_insert(tmp_path: Path) -> None:
 
 
 def test_the_feature_opt_out_is_honoured(tmp_path: Path) -> None:
-    """``DEVKIT_FEATURES_DISABLED`` is the durable "no" the insert must obey."""
+    """``DEVKIT_FEATURES_DISABLED`` is the durable "no" the insert must obey.
+
+    Scoped to the hook that carries the group: the opt-out speaks for
+    ``actionlint``'s own block and for nothing that merely sits after it (#1725).
+    """
     seed = _insert_seed(
         tmp_path, "DEVKIT_VERSION=1.15.1\nDEVKIT_FEATURES_DISABLED=actionlint\n"
     )
     proc = _upgrade(tmp_path, seed, name="optout")
 
     assert "- id: actionlint" not in _config(tmp_path, "optout")
-    assert "preserved-hook-insert:" not in proc.stdout
+    assert "preserved-hook-insert: actionlint" not in proc.stdout
 
 
 def test_an_existing_hook_is_never_duplicated(tmp_path: Path) -> None:
@@ -397,7 +406,14 @@ def test_an_existing_hook_is_never_duplicated(tmp_path: Path) -> None:
 def test_a_missing_anchor_skips_the_insert_rather_than_guessing(
     tmp_path: Path,
 ) -> None:
-    """No template neighbour to anchor on means no defensible position."""
+    """A file carrying NOT ONE template predecessor has no defensible position.
+
+    The fallback (#1725) walks every hook the template places before the new one,
+    so the warning is reached only when the consumer's file has none of them —
+    here a config whose single hook (``typos``) the template places *after* both
+    inserted hooks. Nothing is written, and the #878 template diff is the
+    fallback the warning points at.
+    """
     seed = tmp_path / "anchorless"
     seed.mkdir()
     (seed / ".pre-commit-config.yaml").write_text(
@@ -405,11 +421,42 @@ def test_a_missing_anchor_skips_the_insert_rather_than_guessing(
         encoding="utf-8",
     )
     (seed / ".vig-os").write_text("DEVKIT_VERSION=1.15.1\n", encoding="utf-8")
+    before = (seed / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     proc = _upgrade(tmp_path, seed, name="anchorless-ws")
 
+    assert _config(tmp_path, "anchorless-ws") == before
     assert "- id: actionlint" not in _config(tmp_path, "anchorless-ws")
+    assert f"- id: {COMPOSITE_HOOK}" not in _config(tmp_path, "anchorless-ws")
     assert "preserved-hook-insert:" not in proc.stdout
     assert "anchor" in proc.stderr
+
+
+def test_a_disabled_anchor_does_not_block_the_hook_after_it(tmp_path: Path) -> None:
+    """One hook's opt-out may not withhold an unrelated later one (#1725).
+
+    A consumer pinned below the composite release with ``actionlint`` disabled
+    carries no actionlint block, so the single-anchor design skipped the composite
+    insert — with a warning, on every upgrade, forever — while a FRESH scaffold
+    with the same opt-out does ship the composite hook (it sits outside the
+    sentinels the excision takes). The walk falls back through the template's
+    predecessors to the first one the file carries, ``shellcheck``, and the
+    composite block lands after that entry.
+    """
+    seed = _insert_seed(
+        tmp_path,
+        f"DEVKIT_VERSION={ACTIONLINT_SINCE}\nDEVKIT_FEATURES_DISABLED=actionlint\n",
+    )
+    proc = _upgrade(tmp_path, seed, name="fallback")
+    text = _config(tmp_path, "fallback")
+
+    assert _hook_order(text) == ["shellcheck", COMPOSITE_HOOK, "typos"]
+    assert "- id: actionlint" not in text
+    assert (
+        f"preserved-hook-insert: {COMPOSITE_HOOK} in .pre-commit-config.yaml"
+        in proc.stdout
+    )
+    # The skip read as a defect; a satisfied fallback has nothing to report.
+    assert "anchor" not in proc.stderr
 
 
 # ── Case 2, second row: the composite-action shellcheck hook (#1717) ──────────
@@ -457,6 +504,26 @@ def test_a_pin_predating_the_composite_release_receives_the_hook(
     assert _hook_order(text) == ["shellcheck", "actionlint", COMPOSITE_HOOK, "typos"]
     # The actionlint hook they already have is seen, so that row stays quiet.
     assert "preserved-hook-insert: actionlint" not in proc.stdout
+
+
+def test_the_walk_stops_at_the_nearest_present_predecessor(tmp_path: Path) -> None:
+    """``actionlint`` is present, so the #1725 fallback is never reached.
+
+    And the anchor's range is its SENTINEL range: a structural one would end at
+    the hook's last key, putting the insert *between* the actionlint entry and
+    its ``# <<< devkit:actionlint`` line — inside the range
+    ``render_actionlint_optout`` deletes, so a later opt-out would silently take
+    the composite hook with it.
+    """
+    seed = _composite_seed(tmp_path, f"DEVKIT_VERSION={ACTIONLINT_SINCE}\n")
+    _upgrade(tmp_path, seed, name="nearest")
+    lines = _config(tmp_path, "nearest").splitlines()
+
+    closing = next(i for i, ln in enumerate(lines) if "# <<< devkit:actionlint" in ln)
+    inserted = next(
+        i for i, ln in enumerate(lines) if ln.strip() == f"- id: {COMPOSITE_HOOK}"
+    )
+    assert closing < inserted
 
 
 def test_the_composite_insert_touches_nothing_else(tmp_path: Path) -> None:
