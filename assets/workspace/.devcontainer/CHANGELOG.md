@@ -66,9 +66,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     (so findings still point at the real line and column), GitHub's shell prelude
     prepended, and actionlint's exclude list passed verbatim — one lint, not two
     dialects of one. Inline `# shellcheck disable=` directives keep working
-  - Scaffolded, so consumer repos gate their own composites too, and findings are
-    reported in `action.yml` coordinates. The first pass caught one real defect:
-    an unquoted `$(id -u)` in the podman socket URI of `test-integration`
+  - Scaffolded: new scaffolds and flake-hooks consumers gate their own
+    composites from this release; a consumer with a preserved
+    `.pre-commit-config.yaml` receives the hook on the release that adds its
+    insert row. Findings are reported in `action.yml` coordinates. The first
+    pass caught one real defect: an unquoted `$(id -u)` in the podman socket
+    URI of `test-integration`
 
 ### Changed
 
