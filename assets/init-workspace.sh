@@ -88,6 +88,32 @@ for _prune_name in "${COPY_PRUNE_NAMES[@]}"; do
 done
 unset _prune_name
 
+# One shared walk for every pass keyed on the template (#1700): the u+w sweep
+# below, the placeholder substitution and the +x sweep all mapped template paths
+# to workspace paths with the same hand-rolled `find` idiom but diverging prunes,
+# so only the substitution walk (#1693) skipped the baked venv. This emitter
+# prunes COPY_PRUNE_NAMES by name at any depth — the copy's own SSoT — and emits
+# NUL-delimited WORKSPACE destinations; each caller supplies the `find`
+# predicates its pass needs (a type filter, a name glob) and keeps its own
+# destination filter. With no predicate every entry below the root is emitted,
+# directories included, which is what the u+w sweep needs.
+emit_template_candidates() {
+    local src_dir="${1%/}"
+    shift
+    # Basename prunes, mirroring the copy rsync's basename --exclude patterns.
+    local -a prune=()
+    local prune_name
+    for prune_name in "${COPY_PRUNE_NAMES[@]}"; do
+        prune+=(-name "$prune_name" -o)
+    done
+    unset 'prune[-1]'
+    local src_path
+    while IFS= read -r -d '' src_path; do
+        printf '%s\0' "$WORKSPACE_DIR/${src_path#"$src_dir"/}"
+    done < <(find -L "$src_dir" -mindepth 1 \
+        \( "${prune[@]}" \) -prune -o "${@:--true}" -print0)
+}
+
 # Files to preserve during --force upgrades (never overwrite if they exist)
 # These are user/project customization files that should survive upgrades
 PRESERVE_FILES=(
@@ -2762,10 +2788,10 @@ if [[ "$FORCE" == "true" ]]; then
     CONFLICTS=()
     PRESERVED=()
     ADDED=()
-    while IFS= read -r -d '' template_file; do
-        # Get relative path from template directory
-        rel_path="${template_file#"$TEMPLATE_DIR"/}"
-        workspace_file="$WORKSPACE_DIR/$rel_path"
+    while IFS= read -r -d '' workspace_file; do
+        # Get relative path back out of the emitted destination: both sides glue
+        # with the same "$WORKSPACE_DIR/", so the strip is lossless.
+        rel_path="${workspace_file#"$WORKSPACE_DIR"/}"
 
         # Mode/config copy excludes (#1196): skip the template paths the real
         # rsync copy skips for the resolved mode and the consumer's config
@@ -2812,9 +2838,17 @@ if [[ "$FORCE" == "true" ]]; then
         else
             ADDED+=("$rel_path")
         fi
-    done < <(find -L "$TEMPLATE_DIR" -type f \
-        ! -path "*/.git/*" ! -path "*/.venv/*" \
-        ! -path "*/docs/issues/*" ! -path "*/docs/pull-requests/*" -print0)
+    # The copy step's own candidate walk (#1716), so the report cannot classify a
+    # template entry the copy never transfers: emit_template_candidates prunes
+    # COPY_PRUNE_NAMES by BASENAME at any depth, exactly as the rsync
+    # `--exclude=` patterns do, where this walk's former `! -path "*/.venv/*"`
+    # skipped only the CONTENTS of such a directory and reported a *file* named
+    # `.git` or `.venv` as ADDED. `-type f` stays explicit (the emitter defaults
+    # to `-true` and would emit directories too). The two `docs/` predicates are
+    # report-only: they have had no copy analogue since #1466 deleted the rsync
+    # excludes #951 mirrored, and the template ships neither path.
+    done < <(emit_template_candidates "$TEMPLATE_DIR" -type f \
+        ! -path "*/docs/issues/*" ! -path "*/docs/pull-requests/*")
 
     # Mode-prune deletions (#886): paths that exist right now and the upgrade
     # would remove. Mirrors the prune guards further down (#738/#859/#877).
@@ -3209,32 +3243,6 @@ else
     # run time via the resolve-toolchain job + setup-devkit-toolchain composite,
     # so every mode ships the same file — no per-mode overlay to re-apply.
 fi
-
-# One shared walk for every pass keyed on the template (#1700): the u+w sweep
-# below, the placeholder substitution and the +x sweep all mapped template paths
-# to workspace paths with the same hand-rolled `find` idiom but diverging prunes,
-# so only the substitution walk (#1693) skipped the baked venv. This emitter
-# prunes COPY_PRUNE_NAMES by name at any depth — the copy's own SSoT — and emits
-# NUL-delimited WORKSPACE destinations; each caller supplies the `find`
-# predicates its pass needs (a type filter, a name glob) and keeps its own
-# destination filter. With no predicate every entry below the root is emitted,
-# directories included, which is what the u+w sweep needs.
-emit_template_candidates() {
-    local src_dir="${1%/}"
-    shift
-    # Basename prunes, mirroring the copy rsync's basename --exclude patterns.
-    local -a prune=()
-    local prune_name
-    for prune_name in "${COPY_PRUNE_NAMES[@]}"; do
-        prune+=(-name "$prune_name" -o)
-    done
-    unset 'prune[-1]'
-    local src_path
-    while IFS= read -r -d '' src_path; do
-        printf '%s\0' "$WORKSPACE_DIR/${src_path#"$src_dir"/}"
-    done < <(find -L "$src_dir" -mindepth 1 \
-        \( "${prune[@]}" \) -prune -o "${@:--true}" -print0)
-}
 
 # The Nix-built image stores the baked template as read-only symlinks into the
 # Nix store. The rsync `-L` (--copy-links) above dereferences them into real
