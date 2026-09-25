@@ -399,6 +399,13 @@ jobs:
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
+      # Blocking (#637): an expired exception in either register fails PR CI. It
+      # lives here rather than in security-scan because this job already has the
+      # Nix/uv environment it needs and does not wait on build-image, keeping the
+      # check off the run's critical path (#1701).
+      - name: Validate .trivyignore/.vulnixignore exception expirations
+        run: uv run check-expirations .trivyignore .vulnixignore
+
       - name: Install safety
         run: |
           set -euo pipefail
@@ -449,22 +456,14 @@ jobs:
 
     # The Nix image has no apt/dpkg DB, so Trivy's OS-package scanner is largely
     # dark here; the authoritative CVE gate is the nightly vulnix scan
-    # (security-scan.yml, scan-nix-image — blocking via vulnix-gate). PR CI runs
-    # Trivy non-blocking for awareness + a CycloneDX SBOM artifact, and validates
-    # the exception registers' expiry. Refs #642, #637.
+    # (security-scan.yml, scan-nix-image — blocking via vulnix-gate). PR CI emits
+    # the CycloneDX SBOM artifact and reports over that SBOM, non-blocking, for
+    # awareness. The exception registers' expiry is validated in python-security,
+    # which already has the Nix/uv setup this job no longer needs (#1701).
+    # Refs #642, #637, #1701.
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-
-      - name: Set up environment
-        uses: ./.github/actions/setup-env
-        with:
-          sync-dependencies: 'true'
-          cachix-cache: ${{ vars.CACHIX_CACHE }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-
-      - name: Validate .trivyignore/.vulnixignore exception expirations
-        run: uv run check-expirations .trivyignore .vulnixignore
 
       - name: Download image artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
@@ -472,40 +471,45 @@ jobs:
           name: container-image-${{ needs.build-image.outputs.version }}-amd64
           path: /tmp
 
-      # One Trivy pass for every reported severity (was two separate runs, one
-      # per tier). Each trivy-action invocation re-installs Trivy, re-parses the
-      # image tar and cold-pulls the vuln DB, so collapsing HIGH/CRITICAL + MEDIUM
-      # into a single `severity` list drops a whole ~3 min run. Still
-      # non-blocking (exit-code 0) — the authoritative CVE gate is the nightly
-      # vulnix scan (security-scan.yml). `.trivyignore` now also filters MEDIUM;
-      # harmless (awareness only, no MEDIUM-specific entries). trivy-action caches
-      # the DB in $GITHUB_WORKSPACE/.cache/trivy (cache: true default), so this
-      # step populates the cache the SBOM step below reuses. Refs #109, #642.
-      - name: Report HIGH/CRITICAL/MEDIUM vulnerabilities (non-blocking)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
-        with:
-          version: 'v0.74.0'
-          input: /tmp/image.tar
-          format: 'table'
-          severity: 'HIGH,CRITICAL,MEDIUM'
-          exit-code: '0'  # Non-blocking report
-          trivyignores: '.trivyignore'
-
-      # SBOM is a package-inventory pass; it does not need the vuln DB the scan
-      # above already fetched, nor a second Trivy install. Reuse the warm state
-      # (skip-setup-trivy + TRIVY_SKIP_*_DB_UPDATE) so this stops cold-pulling
-      # ~ again on every run. Refs #109.
+      # Both Trivy passes used to walk the same 1.5 GiB image tar, and that walk
+      # — not the DB pull, which hits the daily cache in seconds — is what put
+      # this job on the run's critical path. The image is therefore parsed ONCE:
+      # this pass runs first and the report below scans its output
+      # (`scan-type: sbom`), the pattern security-scan.yml already uses.
+      # `--format cyclonedx` disables security scanning outright, so this step
+      # needs no vuln DB and only installs Trivy — which is also why neither step
+      # carries TRIVY_SKIP_*_DB_UPDATE any more: the report is the first DB
+      # consumer and must be free to fetch one. Refs #109, #1701.
       - name: Generate container SBOM (CycloneDX)
-        if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
-        env:
-          TRIVY_SKIP_DB_UPDATE: 'true'
-          TRIVY_SKIP_JAVA_DB_UPDATE: 'true'
         with:
           version: 'v0.74.0'
           input: /tmp/image.tar
           format: 'cyclonedx'
           output: 'sbom-cyclonedx.json'
+
+      # One Trivy pass for every reported severity (was two separate runs, one
+      # per tier); `.trivyignore` therefore also filters MEDIUM, which is
+      # harmless (awareness only, no MEDIUM-specific entries). SBOM-mode scanning
+      # covers vulnerabilities and licenses only, so this report no longer runs
+      # the secret scanner — accepted (#1701): it is non-blocking awareness
+      # (exit-code 0) and the authoritative CVE gate is the nightly vulnix scan
+      # (security-scan.yml). Trivy is already installed by the step above, hence
+      # skip-setup-trivy; the DB comes from trivy-action's own cache of
+      # $GITHUB_WORKSPACE/.cache/trivy (cache: true default). Refs #109, #642, #1701.
+      - name: Report HIGH/CRITICAL/MEDIUM vulnerabilities (non-blocking)
+        # Awareness only, like its nightly twin in security-scan.yml: a scan
+        # error here (DB pull, malformed SBOM) must not turn the PR red.
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          version: 'v0.74.0'
+          scan-type: 'sbom'
+          scan-ref: 'sbom-cyclonedx.json'
+          format: 'table'
+          severity: 'HIGH,CRITICAL,MEDIUM'
+          exit-code: '0'  # Non-blocking report
+          trivyignores: '.trivyignore'
           skip-setup-trivy: 'true'
 
       - name: Upload SBOM artifact
