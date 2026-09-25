@@ -63,14 +63,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     job on CI's critical path — and ran serially. `init-workspace.bats` alone
     was 80% of it, so the per-file GNU-parallel branch in `just test-bats`
     (dead anyway: `parallel` was never on PATH) was the wrong axis
-  - GNU parallel now rides with the bats wrapper in `nix/bats.nix` — bats is
-    its only consumer, it lands on nobody's PATH, and the incremental closure
-    is under 1 MiB — and both entry points, `just test-bats` and the
-    `test-project` composite action, run `bats -j "$(nproc)"`. `worktree.bats`
-    first opted out of within-file jobs, because its tests drove real tmux
-    sessions against the repository's own sibling worktrees directory; it now
-    drives an isolated per-test fixture repo instead, so it runs under `-j` and
-    in CI like every other file
+  - A parallel runner now rides with the bats wrapper in `nix/bats.nix` — bats
+    is its only consumer and it lands on nobody's PATH — and both entry points,
+    `just test-bats` and the `test-project` composite action, run
+    `bats -j "$(nproc)"`. `worktree.bats` first opted out of within-file jobs,
+    because its tests drove real tmux sessions against the repository's own
+    sibling worktrees directory; it now drives an isolated per-test fixture repo
+    instead, so it runs under `-j` and in CI like every other file
     ([#1694](https://github.com/vig-os/devkit/issues/1694))
   - `init-workspace.sh` batches its two per-file fork loops — the `chmod u+w`
     scaffold sweep, which is on the production path, and the host-side
@@ -220,6 +219,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     each heading was ever read, so the rest was deleted at exit 0. It refuses
     rather than merging the blocks: a repeated heading means an edit went
     wrong, and quietly stitching it back together would hide that.
+
+- **`bats --jobs` runs on rush, keeping perl out of the image**
+  ([#1708](https://github.com/vig-os/devkit/issues/1708))
+  - The parallel runner that arrived with `bats -j`
+    ([#1687](https://github.com/vig-os/devkit/issues/1687)) was GNU parallel,
+    which is a perl script. The bats wrapper ships in the image env, so perl
+    5.42.0 re-entered the image's runtime closure —
+    [#1108](https://github.com/vig-os/devkit/issues/1108) had evicted it
+    precisely so its CVE exception batch could be retired — carrying three
+    findings the register holds no exception for (CVE-2026-4176 9.8,
+    CVE-2026-13221 9.1, CVE-2026-57432 8.4). The nightly vulnix gate on `dev`
+    caught it; no release carried it.
+  - The runner is now [shenwei356/rush](https://github.com/shenwei356/rush),
+    which bats supports natively via `BATS_PARALLEL_BINARY_NAME` (the wrapper
+    sets it, so `bats -j` still needs nothing from the caller). rush is Go: no
+    interpreter behind it, and the image's runtime closure drops 47 MiB.
+  - A negative image test pins the eviction, which nothing had: no perl on PATH
+    **and** no perl derivation anywhere in the image's store. The second half is
+    the one that matters — perl was never on PATH even while it sat in the
+    closure, which is where the vulnix scan looks.
 
 ### Security
 
