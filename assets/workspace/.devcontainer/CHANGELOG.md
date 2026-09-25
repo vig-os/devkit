@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     account with write access push a branch, mint the token there and write
     straight past the default branch's protection — no PR, no required checks
   - The new `.vig-os` knob `DEVKIT_COMMIT_APP_ENVIRONMENT` renders
-    `environment: <name>` onto exactly those jobs — `sync-issues.yml` (`sync`),
+    `environment: '<name>'` onto exactly those jobs — `sync-issues.yml` (`sync`),
     `prepare-release.yml` and `prepare-hotfix.yml` (`prepare`, `rollback`),
     `release.yml` (`rollback`), `sync-main-to-dev.yml` (`sync`), mirror mode's
     rendered `reset-sync-mirror` job — and on the reusable **callee**

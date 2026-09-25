@@ -431,7 +431,7 @@ straight past the default branch's protection: no PR, no required checks
 
 `DEVKIT_COMMIT_APP_ENVIRONMENT` closes it. Set it to the name of a GitHub
 **deployment environment** holding the pair as **environment secrets**, and the
-scaffold renders `environment: <name>` on exactly the jobs that mint the token —
+scaffold renders `environment: '<name>'` on exactly the jobs that mint the token —
 so a job running from a ref the environment's deployment branch policy does not
 admit cannot read the credentials at all:
 
@@ -486,7 +486,7 @@ Two details worth knowing:
   `required: false`, and the job-level environment supplies them.
 - **`prepare-release-extension.yml` is yours.** It is seeded, never regenerated,
   and the shipped template mints nothing. If your extension mints the commit App
-  token, add `environment: <name>` to that job yourself — the scaffold will not
+  token, add `environment: '<name>'` to that job yourself — the scaffold will not
   (and must not) edit your file.
 
 **Honest limit.** Deployment branch policies match ref **names**, so an account
