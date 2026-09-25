@@ -4,6 +4,15 @@
 # Encapsulated command behavior (resolve-branch/derive-branch-summary) lives in:
 #   packages/vig-utils/tests/test_shell_entrypoints.py
 
+# The worktree-attach/worktree-clean tests drive real tmux sessions and the
+# repo's real `<repo>-worktrees` directory, and `just worktree-clean` acts on
+# every entry in it — process-global state two tests in this file cannot share
+# concurrently. Opt this file out of bats' within-file parallelism (`bats -j`
+# still runs it alongside the other files). Refs #1687.
+setup_file() {
+    export BATS_NO_PARALLELIZE_WITHIN_FILE=true
+}
+
 setup() {
     load test_helper
     WT_MAIN="${PROJECT_ROOT}/justfile.worktree"
