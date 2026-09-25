@@ -2525,13 +2525,31 @@ render_actionlint_optout() {
 #               block's explanatory comment, and — decisively for Case 2 — a
 #               block inserted WITHOUT its sentinels would be invisible to
 #               render_actionlint_optout, silently outliving the opt-out.
-#   structural  the `- repo:` entry holding `- id: <hook>`, ending at the last
-#               line before the next entry that is neither blank nor an
-#               entry-level comment (those introduce the NEXT block, and a
-#               consumer's comment is theirs to keep).
+#               A pair is a FEATURE gate, not a way to carry prose, and its id is
+#               matched by prefix: bracketing `shellcheck-composite-actions`
+#               would make a lookup for `shellcheck` return that block's range
+#               instead (#1727). Hence #1725 taught the structural strategy to
+#               carry the comment rather than sentinel-wrapping an ungrouped hook.
+#   structural  the `- repo:` entry holding `- id: <hook>`, PLUS the run of
+#               full-line comments directly above it, ending at the last line
+#               before the next entry that is neither blank nor an entry-level
+#               comment (those introduce the NEXT block, and a consumer's comment
+#               is theirs to keep).
+#
+# The comment run is part of the block, not decoration around it (#1725): the
+# template's prose says why a hook exists and what it deliberately does NOT cover,
+# and a consumer copy extracted from `- repo:` down arrives as an unexplained
+# `entry:`. actionlint kept its comment only because the opt-out sentinels happen
+# to bracket it — a property of that hook being feature-gated, not of the
+# extraction. Three things stop the sweep, so it can only ever take lines that
+# introduce THIS entry: a blank line, a line that is not a whole-line comment,
+# and a `# >>> devkit:` / `# <<< devkit:` sentinel (the latter closes the
+# PREVIOUS block; taking either would hand a copy half a sentinel pair, which
+# a feature excision's `sed` range would then read as running to EOF).
 #
 # Used on the template (to read the block to write) and on the consumer's file
-# (to find the anchor entry to write after), hence the whitespace tolerance.
+# (to find the anchor entry to write after), hence the whitespace tolerance. Only
+# the START moves: the anchor path reads the END, which is unchanged.
 hook_block_range() {
     awk -v id="$2" '
         { L[NR] = $0 }
@@ -2542,15 +2560,20 @@ hook_block_range() {
             for (i = 1; i <= NR; i++) {
                 if (L[i] ~ /^[[:space:]]*-[[:space:]]+repo:/) cur = i
                 if (cur && L[i] ~ ("^[[:space:]]*-[[:space:]]+id:[[:space:]]+" id "[[:space:]]*$")) {
-                    start = cur
+                    entry = cur
                     break
                 }
             }
-            if (!start) exit 1
+            if (!entry) exit 1
             e = NR
-            for (i = start + 1; i <= NR; i++)
+            for (i = entry + 1; i <= NR; i++)
                 if (L[i] ~ /^[[:space:]]*-[[:space:]]+repo:/) { e = i - 1; break }
-            while (e > start && (L[e] ~ /^[[:space:]]*$/ || L[e] ~ /^[[:space:]]*#/)) e--
+            while (e > entry && (L[e] ~ /^[[:space:]]*$/ || L[e] ~ /^[[:space:]]*#/)) e--
+            start = entry
+            while (start > 1 && L[start - 1] ~ /^[[:space:]]*#/ &&
+                   !index(L[start - 1], "# >>> devkit:") &&
+                   !index(L[start - 1], "# <<< devkit:"))
+                start--
             print start, e
         }
     ' "$1"
@@ -2568,21 +2591,28 @@ template_hook_block() {
     sed -n "${range%% *},${range##* }p" "$tpl"
 }
 
-# The hook id the template places immediately BEFORE hook $1 — the anchor an
-# insert writes after. Derived from the template rather than tabulated, so a
-# template reorder moves the insert position with it.
-template_hook_anchor() {
+# Every hook id the template places BEFORE hook $1, one per line, NEAREST
+# FIRST — the candidate anchors an insert writes after, in preference order.
+# Derived from the template rather than tabulated, so a template reorder moves
+# the insert position with it.
+#
+# A list rather than the single immediate neighbour (#1725): the neighbour may be
+# a hook this consumer opted out of, and one feature's opt-out may not withhold
+# an unrelated later hook. Walking outward keeps the position defensible — every
+# candidate is a hook the template puts before the new one, so the nearest
+# present one bounds the insert on the correct side of everything around it.
+template_hook_anchors() {
     local tpl="$TEMPLATE_DIR/.pre-commit-config.yaml"
-    local range start anchor
+    local range start anchors
     [[ -f "$tpl" ]] || return 1
     range="$(hook_block_range "$tpl" "$1")" || return 1
     start="${range%% *}"
     [[ "$start" -gt 1 ]] || return 1
-    anchor="$(head -n "$((start - 1))" "$tpl" \
+    anchors="$(head -n "$((start - 1))" "$tpl" \
         | sed -n -E 's/^[[:space:]]*-[[:space:]]+id:[[:space:]]+([^[:space:]]+)[[:space:]]*$/\1/p' \
-        | tail -n1)"
-    [[ -n "$anchor" ]] || return 1
-    printf '%s' "$anchor"
+        | tac)"
+    [[ -n "$anchors" ]] || return 1
+    printf '%s\n' "$anchors"
 }
 
 # Print "START END" for the first VERBATIM occurrence of the block in file $2
@@ -2693,8 +2723,12 @@ inserted_hook_blocks() {
     # consumer deleted (#1651) and must edit this row on the release branch,
     # which #1723's Phase 1 prerequisite makes a checked step.
     #
-    # Ordering is load-bearing: the insert anchors on the hook the template puts
-    # BEFORE this one, so a pre-1.16.0 tree must meet the actionlint row first.
+    # Ordering is not a dependency since #1725 — the fallback anchors this block
+    # on whichever predecessor the file carries, so the row would be delivered
+    # either way — but it keeps a single pass template-faithful: with the
+    # actionlint row met first, a pre-1.16.0 tree receives THAT block and this one
+    # anchors on it, landing where the template puts it rather than one entry
+    # earlier, after `shellcheck`.
     printf '%s\n' '1.17.0 shellcheck-composite-actions'
 }
 
@@ -2754,12 +2788,15 @@ fold_retired_hook_blocks() {
 #    outranks the version evidence;
 #  - the hook id is absent from the file. Also what makes an rc -> final upgrade
 #    (whose pin is lower than the release) a no-op;
-#  - the template ships the block AND the consumer's file carries the anchor it
-#    goes after. No anchor, no defensible position: skip rather than guess, and
-#    leave the #878 template diff as the fallback.
+#  - the template ships the block AND the consumer's file carries at least one of
+#    the hooks the template places before it. The NEAREST present one is the
+#    anchor (#1725): the immediate neighbour may be a hook this consumer opted
+#    out of, and one feature's opt-out may not withhold an unrelated later hook.
+#    A file carrying not one predecessor has no defensible position: skip rather
+#    than guess, and leave the #878 template diff as the fallback.
 insert_missing_hook_blocks() {
     local mode="$1" pc="$2"
-    local ver hook feat block anchor range end
+    local ver hook feat block anchors candidate anchor range end
     [[ -n "$PREVIOUS_PIN" ]] || return 0
     [[ "$PREVIOUS_PIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || return 0
     while read -r ver hook feat; do
@@ -2772,9 +2809,24 @@ insert_missing_hook_blocks() {
             continue
         fi
         block="$(template_hook_block "$hook")" || continue
-        anchor="$(template_hook_anchor "$hook")" || continue
-        if ! range="$(hook_block_range "$pc" "$anchor")"; then
-            echo "Warning: the preserved .pre-commit-config.yaml carries no '$anchor' hook to anchor the new '$hook' block (#1654)." >&2
+        # A template with no predecessor at all is a template defect, not a
+        # consumer one — silent, like a missing block above.
+        anchors="$(template_hook_anchors "$hook")" || continue
+        anchor=""
+        range=""
+        while IFS= read -r candidate; do
+            [[ -n "$candidate" ]] || continue
+            # The winning range is whatever hook_block_range prefers for that
+            # hook — the SENTINEL range where it has one, so an insert after a
+            # bracketed block lands after its closing sentinel rather than
+            # inside the range the feature's excision deletes.
+            if range="$(hook_block_range "$pc" "$candidate")"; then
+                anchor="$candidate"
+                break
+            fi
+        done <<< "$anchors"
+        if [[ -z "$anchor" ]]; then
+            echo "Warning: the preserved .pre-commit-config.yaml carries none of the hooks the template places before '$hook', so the new block has nothing to anchor on (#1654)." >&2
             echo "         Skipping the insert — fold the block in from the template diff above by hand." >&2
             continue
         fi
