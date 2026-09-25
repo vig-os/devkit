@@ -58,8 +58,8 @@ EXPRESSION_STEP = """\
         if [ "${{ inputs.mode }}" = "full" ]; then
           echo "full"
         fi
-        if [ ${{ inputs.count }} -gt 0 ]; then
-          echo "positive"
+        if [ -n "${{ inputs.label }}" ]; then
+          echo "labelled"
         fi
 """
 
@@ -107,7 +107,7 @@ class TestNeutraliseExpressions:
     def test_expression_becomes_underscores_of_equal_length(self):
         body = 'echo "${{ inputs.mode }}"'
         neutralised = neutralise_expressions(body)
-        assert neutralised == 'echo "_______________"'
+        assert neutralised == 'echo "__________________"'
         assert len(neutralised) == len(body)
 
     def test_every_line_keeps_its_length(self):
