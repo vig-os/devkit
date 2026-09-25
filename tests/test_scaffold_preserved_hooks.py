@@ -138,6 +138,20 @@ def _template_config() -> str:
     return (WORKSPACE / ".pre-commit-config.yaml").read_text(encoding="utf-8")
 
 
+def _template_span(start_marker: str, end_marker: str) -> str:
+    """Template text from the line carrying ``start_marker`` through ``end_marker``.
+
+    Whole lines, inclusive, byte-exact — what a consumer copy of a block has to
+    match. Stronger than "every added line appears somewhere in the template": it
+    pins contiguity and order too, so a block that lost a line in the middle (or
+    its prose comment at the top) fails.
+    """
+    text = _template_config()
+    start = text.rindex("\n", 0, text.index(start_marker)) + 1
+    end = text.index("\n", text.index(end_marker, start)) + 1
+    return text[start:end]
+
+
 def _hook_order(text: str) -> list[str]:
     """The hook ids of a config, in file order."""
     return [
@@ -504,6 +518,54 @@ def test_a_pin_predating_the_composite_release_receives_the_hook(
     assert _hook_order(text) == ["shellcheck", "actionlint", COMPOSITE_HOOK, "typos"]
     # The actionlint hook they already have is seen, so that row stays quiet.
     assert "preserved-hook-insert: actionlint" not in proc.stdout
+
+
+def test_the_inserted_block_carries_the_template_comment_above_it(
+    tmp_path: Path,
+) -> None:
+    """The rationale is part of the block, not decoration around it (#1725).
+
+    An un-sentinelled entry was extracted from its ``- repo:`` line down, so the
+    prose above it — why the hook exists, and what it deliberately does NOT cover
+    — stayed behind in the template and every consumer copy read as an unexplained
+    ``uv run`` invocation. ``actionlint`` keeps its own comment only because the
+    opt-out sentinels happen to bracket it, which is a coincidence of that hook
+    being feature-gated, not a property of the extraction.
+    """
+    seed = _composite_seed(tmp_path, f"DEVKIT_VERSION={ACTIONLINT_SINCE}\n")
+    before = (seed / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    _upgrade(tmp_path, seed, name="composite-rationale")
+
+    text = _config(tmp_path, "composite-rationale")
+    block = _template_span("# Composite-action shell linting", "pass_filenames: true")
+
+    # Prose and entry together, byte-exact and contiguous, in the consumer's file.
+    assert block in text
+    added, removed = _line_diff(before, text)
+    assert removed == []
+    assert all(line in _template_config() for line in added)
+
+
+def test_a_sentinelled_block_still_starts_at_its_opening_sentinel(
+    tmp_path: Path,
+) -> None:
+    """The comment sweep may not change what a sentinel range already covers.
+
+    ``actionlint``'s range is its sentinels, comment included, and it must stay
+    exactly that: the opening ``# >>> devkit:actionlint`` line has to be the first
+    line written or ``render_actionlint_optout`` cannot excise the copy.
+    """
+    seed = _insert_seed(tmp_path, "DEVKIT_VERSION=1.15.1\n")
+    before = (seed / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    _upgrade(tmp_path, seed, name="sentinel-start")
+    text = _config(tmp_path, "sentinel-start")
+
+    assert _template_span("# >>> devkit:actionlint", "# <<< devkit:actionlint") in text
+    # The consumer's own `shellcheck` block sits above it in the template and is
+    # not dragged in: the sweep stops at the blank line and the sentinel alike.
+    assert text.count("- id: shellcheck\n") == 1
+    added, removed = _line_diff(before, text)
+    assert removed == []
 
 
 def test_the_walk_stops_at_the_nearest_present_predecessor(tmp_path: Path) -> None:
