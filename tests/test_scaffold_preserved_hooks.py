@@ -185,9 +185,11 @@ def test_the_insert_table_declares_the_release_that_first_ships_each_hook() -> N
     # third field is absent rather than empty-and-present.
     composite_row = f"'{COMPOSITE_SINCE} {COMPOSITE_HOOK}'"
     assert composite_row in init
-    # Row order is behaviour, not tidiness. The insert anchors on the hook the
-    # template places BEFORE this one (`actionlint`), so a tree missing both must
-    # meet the actionlint row first and anchor on what that row just inserted.
+    # Row order is position, not delivery: since #1725 the composite row is
+    # delivered whichever predecessor the file carries, but meeting the actionlint
+    # row first is what makes a tree missing BOTH end up template-faithful — the
+    # composite block anchors on what that row just inserted instead of on
+    # `shellcheck`, one entry earlier.
     assert init.index(actionlint_row) < init.index(composite_row)
 
 

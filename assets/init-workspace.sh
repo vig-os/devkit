@@ -2528,8 +2528,8 @@ render_actionlint_optout() {
 #               A pair is a FEATURE gate, not a way to carry prose, and its id is
 #               matched by prefix: bracketing `shellcheck-composite-actions`
 #               would make a lookup for `shellcheck` return that block's range
-#               instead. Hence #1725 taught the structural strategy to carry the
-#               comment rather than sentinel-wrapping an ungrouped hook.
+#               instead (#1727). Hence #1725 taught the structural strategy to
+#               carry the comment rather than sentinel-wrapping an ungrouped hook.
 #   structural  the `- repo:` entry holding `- id: <hook>`, PLUS the run of
 #               full-line comments directly above it, ending at the last line
 #               before the next entry that is neither blank nor an entry-level
@@ -2723,8 +2723,12 @@ inserted_hook_blocks() {
     # consumer deleted (#1651) and must edit this row on the release branch,
     # which #1723's Phase 1 prerequisite makes a checked step.
     #
-    # Ordering is load-bearing: the insert anchors on the hook the template puts
-    # BEFORE this one, so a pre-1.16.0 tree must meet the actionlint row first.
+    # Ordering is not a dependency since #1725 — the fallback anchors this block
+    # on whichever predecessor the file carries, so the row would be delivered
+    # either way — but it keeps a single pass template-faithful: with the
+    # actionlint row met first, a pre-1.16.0 tree receives THAT block and this one
+    # anchors on it, landing where the template puts it rather than one entry
+    # earlier, after `shellcheck`.
     printf '%s\n' '1.17.0 shellcheck-composite-actions'
 }
 
