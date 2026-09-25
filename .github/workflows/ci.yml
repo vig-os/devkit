@@ -194,7 +194,10 @@ jobs:
   project-lint:
     name: Project Lint
     runs-on: ubuntu-26.04
-    timeout-minutes: 10
+    # 15, not the block's own ~1 min: a flake.lock change that misses Cachix
+    # makes every lane pay a cold dev-shell build in `setup-env`, and that cost
+    # is now paid four times over rather than once. Refs #1692.
+    timeout-minutes: 15
     if: |
       github.event_name != 'workflow_dispatch' ||
       inputs.test-suite == 'all' ||
@@ -216,7 +219,10 @@ jobs:
   project-tests:
     name: Project Tests
     runs-on: ubuntu-26.04
-    timeout-minutes: 10
+    # 15, not the block's own ~1 min: a flake.lock change that misses Cachix
+    # makes every lane pay a cold dev-shell build in `setup-env`, and that cost
+    # is now paid four times over rather than once. Refs #1692.
+    timeout-minutes: 15
     if: |
       github.event_name != 'workflow_dispatch' ||
       inputs.test-suite == 'all' ||
