@@ -5634,6 +5634,61 @@ _assert_consumer_tokens_intact_1693() {
     refute_output --partial '{{SHORT_NAME}}'
 }
 
+@test "a trailing TEMPLATE_DIR slash still sweeps, +x's and reports the tree (#1703)" {
+    # #1693 fixed the substitution walk's `${src_dir%/}` normalisation, but the
+    # u+w sweep, the +x sweep and the --preview classifier all read the global
+    # TEMPLATE_DIR the same way: `find` never emits a trailing slash, so a
+    # `…/workspace//` prefix strips nothing, every `rel` stays ABSOLUTE, no
+    # destination resolves, and each walk exits 0 having done nothing at all.
+    tmpl="$BATS_TEST_TMPDIR/tmpl-1703-slash"
+    cp -r "$PROJECT_ROOT/assets/workspace" "$tmpl"
+    # A template-shipped, NON-executable shell script: only the +x sweep can flip
+    # its mode (rsync -a would carry an already-executable source bit over).
+    mkdir -p "$tmpl/pkg"
+    printf '#!/usr/bin/env bash\ntrue\n' >"$tmpl/pkg/lib.sh"
+    chmod 0644 "$tmpl/pkg/lib.sh"
+
+    ws="$BATS_TEST_TMPDIR/e2e-1703-slash"
+    mkdir -p "$ws"
+    # A PRESERVED template path: the copy excludes it, so its read-only mode
+    # survives rsync and only the u+w sweep can lift it.
+    printf 'consumer readme\n' >"$ws/README.md"
+    chmod 0444 "$ws/README.md"
+
+    stub="$BATS_TEST_TMPDIR/stub-bin-1703"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+
+    run env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$tmpl/" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode both
+    assert_success
+    # The u+w sweep reached the read-only preserved destination...
+    run test -w "$ws/README.md"
+    assert_success
+    # ...and the +x sweep reached the template-shipped script.
+    run test -x "$ws/pkg/lib.sh"
+    assert_success
+
+    # The --preview classifier maps the same tree: the workspace just scaffolded
+    # from it conflicts with every managed file, so nothing is new and the
+    # OVERWRITTEN report cannot be empty.
+    run env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$tmpl/" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --preview --force --no-prompts --mode both
+    assert_success
+    refute_output --partial "No existing files would be overwritten"
+    assert_output --partial "will be OVERWRITTEN"
+    assert_output --partial "No new files would be added"
+}
+
 @test "the candidate walk prunes .git/.venv at any depth, like the copy rsync (#1693)" {
     # The copy rsync excludes `.git` and `.venv` by BASENAME, so it skips them at
     # any depth; the candidate walk must agree, or the pass reaches destinations
