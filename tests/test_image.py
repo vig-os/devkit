@@ -1044,7 +1044,7 @@ class TestFileStructure:
         perl_paths = [
             name
             for name in store.stdout.split()
-            if re.match(r"^[a-z0-9]{32}-perl-[0-9]", name)
+            if re.match(r"^[a-z0-9]{32}-perl5?[-.][0-9]", name)
         ]
         assert not perl_paths, (
             "perl is back in the image's runtime closure: "
