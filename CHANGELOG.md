@@ -63,6 +63,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The hotfix lane freezes `main`'s unshipped entries instead of refusing to
+  start** ([#1679](https://github.com/vig-os/devkit/issues/1679))
+  - `prepare-hotfix` refused to run whenever `main`'s `## Unreleased` had
+    content, resting on #590's invariant that it never does. #1676 supersedes
+    that invariant — `main` may now carry changes that have landed but are not
+    yet shipped — and this refusal was its only mechanical blocker: the lane
+    that exists for urgent security incidents would have refused every time the
+    release-neutral lane had been used.
+  - `validate` now classifies the section instead of refusing it and publishes
+    the verdict as a `changelog_mode` job output. `prepare` freezes `main`'s
+    carried entries into `## [X.Y.Z] - TBD` (`prepare-changelog prepare`) when
+    there are any, and seeds an empty section (`prepare-changelog seed`) exactly
+    as before when there are not. A hotfix cuts from `main`'s head, so it ships
+    those changes and their entries belong in its own version section.
+  - The write still lands on the **release branch only**, never on `main`, so
+    rollback remains "delete the branch"; `main`'s `## Unreleased` self-clears
+    when the release branch merges back, re-establishing the empty shape after
+    every hotfix.
+  - `release.yml`'s publish-time gate is deliberately unchanged: no empty
+    sections at release time, an empty section is acceptable at
+    `prepare-hotfix` time. Carried entries can therefore satisfy that gate
+    without the hotfix's own fix being described — accepted, with no
+    compensating check.
+  - Both copies of the lane are updated: devkit's own workflow and the consumer
+    scaffold's.
+
 ### Security
 
 - **Except the second unbound 1.26.1 CVE batch in the vulnix register**
