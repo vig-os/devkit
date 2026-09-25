@@ -2525,6 +2525,11 @@ render_actionlint_optout() {
 #               block's explanatory comment, and — decisively for Case 2 — a
 #               block inserted WITHOUT its sentinels would be invisible to
 #               render_actionlint_optout, silently outliving the opt-out.
+#               A pair is a FEATURE gate, not a way to carry prose, and its id is
+#               matched by prefix: bracketing `shellcheck-composite-actions`
+#               would make a lookup for `shellcheck` return that block's range
+#               instead. Hence #1725 taught the structural strategy to carry the
+#               comment rather than sentinel-wrapping an ungrouped hook.
 #   structural  the `- repo:` entry holding `- id: <hook>`, PLUS the run of
 #               full-line comments directly above it, ending at the last line
 #               before the next entry that is neither blank nor an entry-level
