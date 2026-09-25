@@ -228,7 +228,11 @@ jobs:
                 ;;
             esac
           done <<< "$changed"
-          [ "$rc" -eq 0 ] || exit 1
+          if [ "$rc" -ne 0 ]; then
+            # DECLARED, not inferred (#1712): see `REFUSED` at gate 6.
+            echo "refused=true" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
           echo "✓ gate 1: no release content touched"
 
       # ── Gate 3 — scaffold untouched ──────────────────────────────────────
@@ -253,6 +257,7 @@ jobs:
             echo "::error::gate 3: the diff changes the consumer scaffold under assets/ — that is a published asset and needs a release:"
             git diff --name-only "origin/${BASE_REF}...HEAD" -- "${scaffold[@]}" \
               | awk '{print "  " $0}'
+            echo "refused=true" >> "$GITHUB_OUTPUT"
             exit 1
           fi
           echo "✓ gate 3: assets/ byte-identical to ${BASE_REF} (changelog mirror excluded)"
@@ -271,6 +276,7 @@ jobs:
             echo "::error::gate 5: a release train is in flight:"
             awk '{print "  " $0}' <<< "$trains"
             echo "::error::Moving main now would dismiss that train's approval. Promote or abandon it first."
+            echo "refused=true" >> "$GITHUB_OUTPUT"
             exit 1
           fi
           echo "✓ gate 5: no release/* branch in flight"
@@ -345,7 +351,10 @@ jobs:
               rc=1
             fi
           done
-          [ "$rc" -eq 0 ] || exit 1
+          if [ "$rc" -ne 0 ]; then
+            echo "refused=true" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
           echo "✓ gate 2: every published derivation byte-identical to ${BASE_REF} (changelog normalized)"
           {
             echo "### Gate 2 — published derivations (changelog normalized)"
@@ -368,10 +377,10 @@ jobs:
       # than reasoning about whether the removal was safe.
       - name: 'Extra: main stays green under the proposed register'
         id: vulnix
+        if: env.ACTIVE == 'true'
         # The one step that can legitimately take tens of minutes: a cold-NVD
         # rebuild of `main`'s closure. Still two thirds of the job's budget.
         timeout-minutes: 60
-        if: env.ACTIVE == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -424,6 +433,9 @@ jobs:
 
           if ! uv run vulnix-gate "$findings" --register "$reg"; then
             echo "::error::main would be RED with this register. The CVEs above are present in main's closure and unexcepted by the proposed register — most likely an exception was deleted that main's older pin still needs."
+            # The ONE refusal this step can declare. The scan-failure exit above
+            # is infrastructure: a mirror outage says nothing about the register.
+            echo "refused=true" >> "$GITHUB_OUTPUT"
             exit 1
           fi
           git checkout -q -
@@ -446,10 +458,13 @@ jobs:
       # (#1712): a label-event run cannot be superseded, so a hang there skipped
       # the verdict just as a supersession does. Closed from the other side —
       # every long step now carries its own budget, and they sum to less than
-      # the job's, so a hang fails that STEP and this one still runs. The
-      # cancellations left are a manual cancel and a lost runner, and skipping
-      # is correct for both: neither reached a conclusion, and nobody is waiting
-      # on a verdict from a run a human stopped.
+      # the job's, so a hang expires the STEP's budget first and this step still
+      # runs. The runner reports that expiry as `failure` ("The action … has
+      # timed out after N minutes."), NOT as `cancelled` — which is why a
+      # `failure` outcome alone cannot mean "a gate refused": see `REFUSED`
+      # below. The cancellations left are a manual cancel and a lost runner, and
+      # skipping is correct for both: neither reached a conclusion, and nobody
+      # is waiting on a verdict from a run a human stopped.
       - name: 'Gate 6: post the verdict'
         if: ${{ !cancelled() && (env.ACTIVE == 'true' || env.DEACTIVATED == 'true') }}
         continue-on-error: true
@@ -466,10 +481,10 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           MARKER: '<!-- release-neutral-guard:verdict -->'
           # Every gated step's outcome, in RUN ORDER, so the first non-green
-          # entry here is the first thing that went wrong. The checkout and the toolchain
-          # set-up are in the list deliberately: when either fails, every gate
-          # after it is `skipped` — which is not `failure` — so a verdict reading
-          # only the gates would call that run release-neutral.
+          # entry here is the first thing that went wrong. The checkout and the
+          # toolchain set-up are in the list deliberately: when either fails,
+          # every gate after it is `skipped` — a GREEN outcome — so a verdict
+          # reading only the gates would call that run release-neutral.
           OUTCOMES: >-
             checkout=${{ steps.checkout.outcome }}
             gate1=${{ steps.gate1.outcome }}
@@ -478,6 +493,19 @@ jobs:
             setup=${{ steps.setup.outcome }}
             gate2=${{ steps.gate2.outcome }}
             vulnix=${{ steps.vulnix.outcome }}
+          # WHAT EACH GATE DECLARED, keyed like `OUTCOMES` so the two read
+          # together. An outcome cannot say WHY a step is non-green: a step
+          # killed by its own `timeout-minutes` reports `failure`, exactly like a
+          # gate that refused the change. So each gate writes `refused=true` on
+          # the path where it states its refusal, and only these five steps can —
+          # the checkout and the toolchain set-up have nothing to refuse. Empty
+          # means the step never got that far.
+          REFUSED: >-
+            gate1=${{ steps.gate1.outputs.refused }}
+            gate3=${{ steps.gate3.outputs.refused }}
+            gate5=${{ steps.gate5.outputs.refused }}
+            gate2=${{ steps.gate2.outputs.refused }}
+            vulnix=${{ steps.vulnix.outputs.refused }}
         run: |
           set -euo pipefail
           verdict="${RUNNER_TEMP}/verdict.md"
@@ -496,21 +524,19 @@ jobs:
               --jq 'map(select((.body // "") | contains(env.MARKER))) | .[].id'
           }
 
-          # NON-GREEN, not just `failure` (#1712): a step whose own
-          # `timeout-minutes` expires reports `cancelled`, and a scan matching
-          # the literal `failure` skips that entry and falls through to the GREEN
-          # body. The two green outcomes are enumerated instead, so anything else
-          # — today `cancelled`, tomorrow whatever GitHub adds — is reported
-          # rather than waved through. The outcome is kept, not just the step
-          # name: the wording below turns on it.
+          # NON-GREEN, not just `failure` (#1712). Enumerating the BAD outcomes
+          # is the fragile direction: `cancelled`, an empty value, or whatever
+          # GitHub adds next would fall through to the GREEN body and claim
+          # release-neutrality for a run that proved nothing. There are exactly
+          # two green outcomes, so those are enumerated and everything else is
+          # reported. WHY the step is non-green is decided below — from what the
+          # gate declared, never from the outcome.
           failed=''
-          outcome=''
           for entry in $OUTCOMES; do
             case "${entry#*=}" in
               success | skipped) continue ;;
             esac
             failed="${entry%%=*}"
-            outcome="${entry#*=}"
             break
           done
 
@@ -537,32 +563,43 @@ jobs:
             # command that failed. A file list read here would be empty or
             # describe the wrong tree, so these verdicts are stated from the
             # event alone.
-            # A step that never finished refused nothing, so it takes the
-            # infrastructure wording whichever step it was — including gate 2,
-            # whose FAILURE is the lane's central refusal. Only the outcome can
-            # tell the two apart; the step name cannot.
-            why='failed'
-            if [ "$outcome" = cancelled ]; then
-              what="step \`${failed}\`"
-              why='timed out or was cancelled before completing'
-              infra=true
-            else
+            # A REFUSAL IS WHAT A GATE DECLARED. The outcome cannot tell one
+            # from a step the runner killed — both are `failure` — so the flag
+            # decides, and anything undeclared is infrastructure: a step whose
+            # budget expired, a crash before the gate judged anything, an
+            # outcome nobody anticipated. Erring that way costs a rerun; erring
+            # the other way tells a reviewer the change was refused by a gate
+            # that never examined it.
+            refused=''
+            for entry in $REFUSED; do
+              [ "${entry%%=*}" = "$failed" ] || continue
+              refused="${entry#*=}"
+              break
+            done
+
+            if [ "$refused" = true ]; then
+              infra=false
               case "$failed" in
-                checkout) what='the checkout'; infra=true ;;
-                setup) what='the Nix toolchain set-up'; infra=true ;;
-                gate1) what='**gate 1** (no release content in the diff)'; infra=false ;;
-                gate3) what='**gate 3** (consumer scaffold untouched)'; infra=false ;;
-                gate5) what='**gate 5** (no release train in flight)'; infra=false ;;
-                gate2) what="**gate 2** (published derivations identical to \`${BASE_REF}\`)"; infra=false ;;
-                vulnix) what="the **scan-register extra** (\`main\` stays green under the proposed register)"; infra=false ;;
-                *) what="step \`${failed}\`"; infra=false ;;
+                gate1) what='**gate 1** (no release content in the diff)' ;;
+                gate3) what='**gate 3** (consumer scaffold untouched)' ;;
+                gate5) what='**gate 5** (no release train in flight)' ;;
+                gate2) what="**gate 2** (published derivations identical to \`${BASE_REF}\`)" ;;
+                vulnix) what="the **scan-register extra** (\`main\` stays green under the proposed register)" ;;
+                *) what="step \`${failed}\`" ;;
+              esac
+            else
+              infra=true
+              case "$failed" in
+                checkout) what='the checkout' ;;
+                setup) what='the Nix toolchain set-up' ;;
+                *) what="step \`${failed}\`" ;;
               esac
             fi
             {
               echo "### Release-neutral guard — no verdict"
               echo
               if [ "$infra" = true ]; then
-                echo "**Nothing is proved:** ${what} ${why} at \`${HEAD_SHA}\` — an infrastructure failure, not a refusal, so the gates never ran to completion. Rerun the job; until it is green this PR carries no release-neutrality verdict."
+                echo "**Nothing is proved:** ${what} failed or timed out at \`${HEAD_SHA}\` before reaching a verdict — an infrastructure failure, not a refusal, so the gates never ran to completion. Rerun the job; until it is green this PR carries no release-neutrality verdict."
               else
                 echo "**This change is NOT release-neutral**, or not provably so: ${what} refused it at \`${HEAD_SHA}\`. Fix the change, or drop the \`release-neutral\` label and let it ride a real release train."
               fi
