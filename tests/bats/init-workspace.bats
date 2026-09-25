@@ -3698,7 +3698,7 @@ _referenced_secrets() {
     # consumer's release train unlinted.
     local ws="$BATS_TEST_TMPDIR/al-trunk"
     mkdir -p "$ws"
-    run _scaffold_ex both "$ws" --workflow trunk
+    run _clone_shared trunk-both "$ws"
     assert_success
     run bash -c "cd '$ws' && git init -q && actionlint"
     assert_success
@@ -4049,8 +4049,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold .gitignore for a Node consumer ignores node_modules et al, never dist/ (#1024)" {
     ws="$BATS_TEST_TMPDIR/e2e-1024-node-gi"
     mkdir -p "$ws"
-    printf '{ "name": "probe" }\n' >"$ws/package.json"
-    run _scaffold both "$ws"
+    run _clone_shared node-both "$ws"
     assert_success
     run cat "$ws/.gitignore"
     assert_success
@@ -4065,8 +4064,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold .gitignore for a Python consumer keeps the Python ignores incl. dist/ (#1024)" {
     ws="$BATS_TEST_TMPDIR/e2e-1024-py-gi"
     mkdir -p "$ws"
-    printf '[project]\nname = "probe"\n' >"$ws/pyproject.toml"
-    run _scaffold both "$ws"
+    run _clone_shared python-both "$ws"
     assert_success
     run cat "$ws/.gitignore"
     assert_success
@@ -4103,8 +4101,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold codeql matrix for a Node consumer is javascript-typescript + actions (#1025)" {
     ws="$BATS_TEST_TMPDIR/e2e-1025-node-cq"
     mkdir -p "$ws"
-    printf '{ "name": "probe" }\n' >"$ws/package.json"
-    run _scaffold both "$ws"
+    run _clone_shared node-both "$ws"
     assert_success
     run grep -E '^[[:space:]]*language:' "$ws/.github/workflows/codeql.yml"
     assert_success
@@ -4116,8 +4113,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold codeql matrix for a Python consumer is python + actions (#1025)" {
     ws="$BATS_TEST_TMPDIR/e2e-1025-py-cq"
     mkdir -p "$ws"
-    printf '[project]\nname = "probe"\n' >"$ws/pyproject.toml"
-    run _scaffold both "$ws"
+    run _clone_shared python-both "$ws"
     assert_success
     run grep -E '^[[:space:]]*language:' "$ws/.github/workflows/codeql.yml"
     assert_success
@@ -4142,8 +4138,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold codeql.yml documents the GitHub default code-scanning conflict (#1025)" {
     ws="$BATS_TEST_TMPDIR/e2e-1025-doc"
     mkdir -p "$ws"
-    printf '{ "name": "probe" }\n' >"$ws/package.json"
-    run _scaffold both "$ws"
+    run _clone_shared node-both "$ws"
     assert_success
     run cat "$ws/.github/workflows/codeql.yml"
     assert_success
@@ -4163,8 +4158,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold codeql push paths for a Node consumer are TS/JS globs + workflows (#1142)" {
     ws="$BATS_TEST_TMPDIR/e2e-1142-node-paths"
     mkdir -p "$ws"
-    printf '{ "name": "probe" }\n' >"$ws/package.json"
-    run _scaffold both "$ws"
+    run _clone_shared node-both "$ws"
     assert_success
     run cat "$ws/.github/workflows/codeql.yml"
     assert_success
@@ -4179,8 +4173,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold codeql push paths for a Python consumer are '**.py' + workflows (#1142)" {
     ws="$BATS_TEST_TMPDIR/e2e-1142-py-paths"
     mkdir -p "$ws"
-    printf '[project]\nname = "probe"\n' >"$ws/pyproject.toml"
-    run _scaffold both "$ws"
+    run _clone_shared python-both "$ws"
     assert_success
     run cat "$ws/.github/workflows/codeql.yml"
     assert_success
@@ -4275,8 +4268,7 @@ _RELEASE_RESOLVERS_991=(
 @test "first scaffold of a Node consumer seeds npm justfile.project recipes (#1027)" {
     ws="$BATS_TEST_TMPDIR/e2e-1027-node-seed"
     mkdir -p "$ws"
-    printf '{ "name": "probe" }\n' >"$ws/package.json"
-    run _scaffold both "$ws"
+    run _clone_shared node-both "$ws"
     assert_success
     run cat "$ws/justfile.project"
     assert_success
@@ -4296,8 +4288,7 @@ _RELEASE_RESOLVERS_991=(
 @test "first scaffold of a Node consumer substitutes the project placeholder (#1027)" {
     ws="$BATS_TEST_TMPDIR/e2e-1027-node-subst"
     mkdir -p "$ws"
-    printf '{ "name": "probe" }\n' >"$ws/package.json"
-    run _scaffold both "$ws"
+    run _clone_shared node-both "$ws"
     assert_success
     run cat "$ws/justfile.project"
     assert_success
@@ -4325,8 +4316,7 @@ _RELEASE_RESOLVERS_991=(
 @test "first scaffold of a Python consumer keeps the uv template, not npm (#1027)" {
     ws="$BATS_TEST_TMPDIR/e2e-1027-py-notseeded"
     mkdir -p "$ws"
-    printf '[project]\nname = "probe"\n' >"$ws/pyproject.toml"
-    run _scaffold both "$ws"
+    run _clone_shared python-both "$ws"
     assert_success
     run cat "$ws/justfile.project"
     assert_success
@@ -4356,8 +4346,7 @@ _RELEASE_RESOLVERS_991=(
 @test "a first-scaffolded Node justfile.project carries the preserved banner (#1055)" {
     ws="$BATS_TEST_TMPDIR/e2e-1055-node-banner"
     mkdir -p "$ws"
-    printf '{ "name": "probe" }\n' >"$ws/package.json"
-    run _scaffold both "$ws"
+    run _clone_shared node-both "$ws"
     assert_success
     run head -1 "$ws/justfile.project"
     assert_success
@@ -4396,8 +4385,7 @@ _RELEASE_RESOLVERS_991=(
 @test "scaffold .gitignore ignores dist/src/ byproducts but keeps dist/index.js tracked (#1092)" {
     ws="$BATS_TEST_TMPDIR/e2e-1092-node-dist"
     mkdir -p "$ws"
-    printf '{ "name": "probe" }\n' >"$ws/package.json"
-    run _scaffold both "$ws"
+    run _clone_shared node-both "$ws"
     assert_success
     run cat "$ws/.gitignore"
     assert_success
@@ -4555,8 +4543,7 @@ _RELEASE_RESOLVERS_991=(
     ws="$BATS_TEST_TMPDIR/e2e-1145-crosslang"
     mkdir -p "$ws"
     # Node-only marker: python is NOT among the detected languages.
-    printf '{ "name": "probe" }\n' >"$ws/package.json"
-    run _scaffold both "$ws"
+    run _clone_shared node-both "$ws"
     assert_success
     # The repo once used the Python-flavored managed template; its old root
     # .gitignore still carries Python fragment lines. Those are devkit template
@@ -4657,7 +4644,7 @@ _RELEASE_RESOLVERS_991=(
 @test "trunk scaffold omits sync-main-to-dev.yml (#1205)" {
     ws="$BATS_TEST_TMPDIR/e2e-1205-trunk-no-sync"
     mkdir -p "$ws"
-    run _scaffold_ex both "$ws" --workflow trunk
+    run _clone_shared trunk-both "$ws"
     assert_success
     run test -f "$ws/.github/workflows/sync-main-to-dev.yml"
     assert_failure
@@ -4672,7 +4659,7 @@ _RELEASE_RESOLVERS_991=(
     # resolve-image action, and the setup-devkit-toolchain composite is present.
     ws="$BATS_TEST_TMPDIR/e2e-1205-trunk-991"
     mkdir -p "$ws"
-    run _scaffold_ex both "$ws" --workflow trunk
+    run _clone_shared trunk-both "$ws"
     assert_success
     wf="$ws/.github/workflows/prepare-release.yml"
     run grep -q 'ghcr.io/vig-os/devcontainer:' "$wf"
@@ -4726,7 +4713,7 @@ _RELEASE_RESOLVERS_991=(
     # a later --workflow gitflow contradicts it and is refused.
     ws="$BATS_TEST_TMPDIR/e2e-1205-contradict-trunk"
     mkdir -p "$ws"
-    run _scaffold_ex both "$ws" --workflow trunk
+    run _clone_shared trunk-both "$ws"
     assert_success
     run grep -q '^DEVKIT_WORKFLOW=trunk$' "$ws/.vig-os"
     assert_success
@@ -4740,7 +4727,7 @@ _RELEASE_RESOLVERS_991=(
     # it must not trip the contradiction guard even against a persisted value.
     ws="$BATS_TEST_TMPDIR/e2e-1205-preview-bypass"
     mkdir -p "$ws"
-    run _scaffold_ex both "$ws" --workflow trunk
+    run _clone_shared trunk-both "$ws"
     assert_success
     run _preview "$ws" --mode both --workflow gitflow
     assert_success
