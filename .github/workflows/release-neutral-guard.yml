@@ -429,6 +429,9 @@ jobs:
       # and a run cancelled by a newer head reached no conclusion — overwriting
       # the sticky comment with a refusal it never actually reached would be a
       # lie. The `${{ }}` form is required; a bare `!` is a YAML tag.
+      # Residual (#1712): a job TIMEOUT is also a cancellation, so a label-event
+      # run — which lives in its own lane and cannot be superseded — that times
+      # out still leaves the previous verdict standing.
       - name: 'Gate 6: post the verdict'
         if: ${{ !cancelled() && (env.ACTIVE == 'true' || env.DEACTIVATED == 'true') }}
         continue-on-error: true
@@ -512,7 +515,8 @@ jobs:
               gate3) what='**gate 3** (consumer scaffold untouched)'; infra=false ;;
               gate5) what='**gate 5** (no release train in flight)'; infra=false ;;
               gate2) what="**gate 2** (published derivations identical to \`${BASE_REF}\`)"; infra=false ;;
-              *) what="the **scan-register extra** (\`main\` stays green under the proposed register)"; infra=false ;;
+              vulnix) what="the **scan-register extra** (\`main\` stays green under the proposed register)"; infra=false ;;
+              *) what="step \`${failed}\`"; infra=false ;;
             esac
             {
               echo "### Release-neutral guard — no verdict"
