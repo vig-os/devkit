@@ -3493,7 +3493,10 @@ GITHUB_REPOSITORY_ESCAPED=$(printf '%s\n' "$GITHUB_REPOSITORY" | sed 's/[&/\]/\\
 # exactly as the old `2>/dev/null` + `|| true` did, so neither exit 1 (nothing
 # matched) nor exit 2 (unreadable file) trips `set -o pipefail`.
 emit_substitution_candidates() {
-    local src_dir="$1" src_path rel dest
+    # Strip a trailing slash: `find` never emits one, so a `$src_dir/` prefix of
+    # `…/workspace//` would match nothing, leave every `rel` absolute and quietly
+    # substitute NOTHING while exiting 0.
+    local src_dir="${1%/}" src_path rel dest
     while IFS= read -r -d '' src_path; do
         rel="${src_path#"$src_dir"/}"
         dest="$WORKSPACE_DIR/$rel"
