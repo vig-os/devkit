@@ -257,6 +257,35 @@ def test_guard_activation_gates_label_events_on_the_label_name() -> None:
         )
 
 
+def test_scope_report_distinguishes_an_unrelated_label_event() -> None:
+    """The scope report must not claim the label is absent when it is present.
+
+    Once `ACTIVE` gates the label actions on the label name, a relabel for
+    something else resolves inactive on a PR that *does* carry
+    `release-neutral` — so the two-branch report ("no `release-neutral` label")
+    would state the opposite of the truth and invite the reviewer to add a label
+    that is already there. Three states, three messages: active; carries the
+    label but this event is not about it; no label at all.
+
+    `LABELLED` is what makes the middle branch expressible — `ACTIVE` has
+    already collapsed the label set and the event into one boolean.
+    """
+    env = jobs(_guard())[GUARD_JOB]["env"]
+    labelled = " ".join(str(env.get("LABELLED", "")).split())
+    assert (
+        f"contains(github.event.pull_request.labels.*.name, '{LANE_LABEL}')" in labelled
+    ), (
+        "the job needs a LABELLED env reading the label set alone, or the scope "
+        "report cannot tell 'no label' from 'not this event'"
+    )
+    run = str(step_by_name(steps_of_job(_guard(), GUARD_JOB), "Report scope")["run"])
+    assert "LABELLED" in run, "the scope report must consult LABELLED"
+    assert run.count("elif") >= 1, (
+        "the scope report must branch three ways; with two branches an "
+        "unrelated relabel is reported as 'no `release-neutral` label'"
+    )
+
+
 # ── Guard: always reports (the release-blocking hazard) ──────────────────────
 
 
@@ -536,6 +565,46 @@ def test_gate_6_upserts_one_sticky_verdict_comment() -> None:
         "`gh pr comment --edit-last` edits the token identity's last comment, "
         "which for `github-actions[bot]` may be another workflow's — match the "
         "marker instead"
+    )
+    assert "env.MARKER" in code, (
+        "the marker must reach jq through the environment, not through a "
+        "shell-escaped interpolation into the filter string"
+    )
+
+
+def test_gate_6_prunes_every_verdict_but_the_newest() -> None:
+    """Concurrent ACTIVE runs must converge on exactly one verdict comment.
+
+    Label events run in per-run lanes, so they neither cancel nor are cancelled:
+    the opener's own flow (`opened` plus two `labeled` events for the lane label)
+    can leave three ACTIVE runs in flight, each racing the marker lookup, each
+    finding nothing and creating its own marked comment. The upsert alone then
+    leaves two or three marked comments and only ever PATCHes the newest, so the
+    stale ones outlive every later run.
+
+    So after upserting, the step lists the marked comments again and deletes
+    all but the newest. Whichever run finishes last leaves exactly one verdict, no
+    matter how many raced. `pull-requests: write` already covers the delete.
+    """
+    step = step_by_name(steps_of_job(_guard(), GUARD_JOB), "verdict")
+    code = "\n".join(
+        line
+        for line in str(step.get("run", "")).splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    assert "--method DELETE" in code, (
+        "gate 6 must delete the verdict comments it superseded, or concurrent "
+        "label runs leave a pile of marked comments behind"
+    )
+    prune = code.find("--method DELETE")
+    for upsert in ("--method PATCH", "gh pr comment"):
+        assert code.find(upsert) < prune, (
+            f"the prune must run AFTER the {upsert!r} upsert, or it deletes the "
+            "comment this run is about to write"
+        )
+    assert "newest" in code and "continue" in code, (
+        "the prune must keep the newest marked comment and delete only the "
+        "others — a prune with no exception deletes the verdict itself"
     )
 
 
