@@ -49,7 +49,7 @@
 # asserted main's `## Unreleased` was empty, is deleted rather than relaxed.
 # The drift is reported in the verdict instead, so it stays visible.
 #
-# TWO SHAPE RULES, both load-bearing:
+# THREE SHAPE RULES, all load-bearing:
 #
 #   1. The `guard` job carries NO job-level `if`. A job-level condition yields a
 #      SKIPPED job, and were this guard ever promoted to a required status check,
@@ -59,6 +59,12 @@
 #   2. The gates are LABEL-scoped, never diff-scoped. A release PR legitimately
 #      changes `CHANGELOG.md`, `.vig-os` AND the scaffold, so a guard keyed on
 #      the diff shape would fail every release.
+#   3. Each event kind gets its OWN concurrency lane, and the label events are
+#      scoped to this workflow's own label (#1698). Both halves are below, at
+#      `concurrency:` and at `env.ACTIVE`; the short version is that a label
+#      event must never cancel a code event's run, and an unrelated label must
+#      not pay for a gate run. A `cancelled` run of a required check name keeps
+#      a PR's rollup red for good, which is what makes rule 3 more than tidiness.
 #
 # It also never writes: `main` sets `dismiss_stale_reviews_on_push`, so a guard
 # that pushed to the PR branch would discard the very approval the lane depends
@@ -74,13 +80,35 @@ on:  # yamllint disable-line rule:truthy
       - main
     # `labeled`/`unlabeled` matter: the label activates the gates, so a guard
     # that only ran on `opened`/`synchronize` would report a stale pass on a PR
-    # labelled after it was opened.
+    # labelled after it was opened. They pay for that with a lane of their own
+    # (see `concurrency:` below) and a label-name scope (see `env.ACTIVE`).
     types: [opened, reopened, synchronize, labeled, unlabeled]
 
 permissions: {}
 
+# TWO LANES PER PR, split by event kind (#1698). Code events (`opened`,
+# `reopened`, `synchronize`) share the `code` lane and supersede each other —
+# only the newest head matters. Label events get a lane of their own, keyed on
+# the run id, so they never cancel and are never cancelled.
+#
+# One undiscriminated `cancel-in-progress` lane made every label event cancel
+# whatever run was in flight, including the `opened`/`synchronize` run the label
+# had nothing to do with. `gh pr create --label a --label b` emits two `labeled`
+# events within a second, so a PR opened with two labels left `cancelled` guard
+# runs on its head beside the eventual success — and GitHub never resolves a
+# required context to its latest check run, so one `cancelled` run of a required
+# name keeps a PR's status rollup red however many successes land after it. This
+# guard is not required today; the split is what keeps promoting it safe.
+#
+# NOT `cancel-in-progress: ${{ github.event.action == 'synchronize' }}` on a
+# single lane: `false` means QUEUE behind the in-flight run rather than run
+# beside it, so a label event would wait out an in-flight 90-minute vulnix
+# extra — and the label event is exactly the one whose verdict must not be stale.
 concurrency:
-  group: release-neutral-guard-${{ github.event.pull_request.number }}
+  group: >-
+    release-neutral-guard-${{ github.event.pull_request.number }}-${{
+    (github.event.action == 'labeled' || github.event.action == 'unlabeled')
+    && github.run_id || 'code' }}
   cancel-in-progress: true
 
 jobs:
@@ -98,7 +126,22 @@ jobs:
     env:
       # Single evaluation of the lane's discriminator. Steps test `env.ACTIVE`;
       # the job itself stays unconditional so it always reports a conclusion.
-      ACTIVE: ${{ contains(github.event.pull_request.labels.*.name, 'release-neutral') }}
+      #
+      # The second clause scopes the LABEL events to this lane's own label
+      # (#1698). A relabel for anything else — `area:ci`, a priority pass — tells
+      # the guard nothing it did not already know, and now runs in a lane of its
+      # own where it would pay for a full gate run (up to a 90-minute vulnix
+      # extra); resolving it inactive makes it a cheap all-steps-skipped SUCCESS
+      # instead. Never a `cancelled` run, which is the shape rule 3 hazard.
+      #
+      # The label SET is still read from `github.event.pull_request.labels`, not
+      # from `github.event.label`, so an `unlabeled` event removing
+      # `release-neutral` deactivates correctly. The `!=` clauses are what let
+      # `opened`/`synchronize` through: they carry no `github.event.label` at all.
+      ACTIVE: >-
+        ${{ contains(github.event.pull_request.labels.*.name, 'release-neutral')
+        && (github.event.action != 'labeled' && github.event.action != 'unlabeled'
+        || github.event.label.name == 'release-neutral') }}
       BASE_REF: ${{ github.event.pull_request.base.ref }}
 
     steps:
@@ -340,6 +383,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          MARKER: '<!-- release-neutral-guard:verdict -->'
         run: |
           set -euo pipefail
           # No checkout here: gates 2 and the vulnix extra each restore the head
@@ -385,4 +429,30 @@ jobs:
             echo "> Do not push to this branch after approving — \`main\` sets \`dismiss_stale_reviews_on_push\`."
           } > "${RUNNER_TEMP}/verdict.md"
           cat "${RUNNER_TEMP}/verdict.md" >> "$GITHUB_STEP_SUMMARY"
-          gh pr comment "$PR_NUMBER" --body-file "${RUNNER_TEMP}/verdict.md"
+
+          # Sticky by marker, not append (#1698). The guard reruns on every
+          # `synchronize` and on its own label event, and a thread of stale
+          # verdicts is worse than one current verdict: a reviewer reading the
+          # first would be reading a file list and a changelog diff that no
+          # longer exist. The marker goes on AFTER the step summary, so the
+          # summary stays free of it.
+          #
+          # Matched by marker rather than `gh pr comment --edit-last`, which
+          # edits the acting identity's last comment — for `github-actions[bot]`
+          # that may belong to an entirely different workflow. `--paginate`
+          # applies the filter per page, so `tail -n1` picks the newest match
+          # across pages.
+          printf '\n%s\n' "$MARKER" >> "${RUNNER_TEMP}/verdict.md"
+          existing=$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --jq "map(select(.body | contains(\"${MARKER}\"))) | .[-1].id // empty" \
+            | tail -n1)
+          if [ -n "$existing" ]; then
+            gh api --method PATCH \
+              "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" \
+              -F "body=@${RUNNER_TEMP}/verdict.md" > /dev/null
+            echo "Verdict comment ${existing} updated in place"
+          else
+            gh pr comment "$PR_NUMBER" --body-file "${RUNNER_TEMP}/verdict.md"
+            echo "Verdict comment posted"
+          fi
