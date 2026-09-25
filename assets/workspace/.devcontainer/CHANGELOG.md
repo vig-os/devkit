@@ -98,15 +98,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     lane with a conditional `cancel-in-progress`: `false` queues a label event
     *behind* the in-flight run — up to a 90-minute vulnix extra — and the label
     event is precisely the one whose verdict must not be stale.
+  - The trade: label runs neither cancel nor are cancelled, so a burst of
+    activating label events runs the gates more than once, concurrently, instead
+    of superseding — three concurrent runs is the *normal* case, since the opener
+    emits `opened` plus the two `labeled` events GitHub sends for one
+    `gh pr create --label`. Affordable because the gates are eval-only seconds;
+    only a pull request touching `.vulnixignore` pays the vulnix extra per run.
+    Accepted in exchange for never leaving a `cancelled` run behind, which every
+    cancellation-based alternative reintroduces.
   - `env.ACTIVE` additionally scopes the label actions to the lane's own
     `release-neutral` label, so an unrelated relabel is a cheap
     all-steps-skipped success rather than a full gate run in a fresh lane. The
     label *set* is still read from the pull request, so an `unlabeled` event
     removing the lane label deactivates the gates as before.
   - The gate-6 verdict is now one sticky comment, found by an HTML marker and
-    patched in place, instead of a fresh comment per run — two label runs may now
-    both reach it, and a stale verdict names files and a changelog diff that no
-    longer exist.
+    patched in place, instead of a fresh comment per run — a stale verdict names
+    files and a changelog diff that no longer exist. It also **converges**: after
+    upserting, the step deletes every marked comment but the newest, so however
+    many concurrent runs posted one, the last to finish leaves exactly one
+    verdict.
+  - The scope report gained its missing third state. With the label-name gate, a
+    relabel for something else is inactive on a pull request that *does* carry
+    the lane label, where the old two-branch report claimed there was no
+    `release-neutral` label at all.
 
 - **The hotfix lane freezes `main`'s unshipped entries instead of refusing to
   start** ([#1679](https://github.com/vig-os/devkit/issues/1679))
