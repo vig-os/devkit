@@ -2307,10 +2307,14 @@ YAML
 # byte-for-byte unchanged (the knob's whole contract for existing consumers).
 #
 # The pair list is `grep COMMIT_APP .github/workflows/` reduced to the job that
-# owns each create-github-app-token step. Every entry is `-f`-guarded AND skipped
-# when its job key is absent, so one list covers the trunk model (which
-# copy-excludes sync-main-to-dev.yml and prepare-hotfix.yml) and the feature
-# opt-outs (a release-less or sync-less consumer) with no branching. Job keys are
+# owns each create-github-app-token step, PLUS the `reset-sync-mirror` job that
+# render_sync_settings appends to promote-release.yml in mirror mode (#1424) —
+# which mints the same token and no template grep can see. Hence the position
+# AFTER that render. Every entry is `-f`-guarded AND skipped when its job key is
+# absent, so one list covers the trunk model (which copy-excludes
+# sync-main-to-dev.yml and prepare-hotfix.yml), the feature opt-outs (a
+# release-less or sync-less consumer) and the mirror-mode job with no branching.
+# Job keys are
 # unique per file at two-space indent, and a mapping key's position carries no
 # meaning, so `environment:` is appended as the job's first key; a job already
 # carrying one is skipped, so a re-render over an un-recopied tree cannot stack a
@@ -2339,7 +2343,8 @@ render_commit_app_environment() {
         "prepare-hotfix.yml:prepare" \
         "prepare-hotfix.yml:rollback" \
         "release.yml:rollback" \
-        "release-core.yml:finalize"; do
+        "release-core.yml:finalize" \
+        "promote-release.yml:reset-sync-mirror"; do
         wf="${pair%%:*}"
         job="${pair##*:}"
         f="$WORKSPACE_DIR/.github/workflows/$wf"
@@ -3705,10 +3710,11 @@ else
 fi
 # Commit-App environment binding (#1710): bind the token-minting jobs to the
 # deployment environment named by DEVKIT_COMMIT_APP_ENVIRONMENT. A no-op when the
-# key is unset. Runs AFTER render_sync_settings, which is the only other render
-# that touches these files (a mirror-mode consumer's rendered fold steps sit
-# inside release-core.yml's already-bound finalize job, and the job key each
-# insert anchors on is untouched by it), so the two compose.
+# key is unset. Runs AFTER render_sync_settings, and must: mirror mode RENDERS a
+# ninth token-minting job (promote-release.yml's reset-sync-mirror, #1424) that
+# this render then binds like the rest. The two otherwise compose cleanly — the
+# fold steps that render lands in release-core.yml sit inside the already-bound
+# finalize job, and it never touches a job key this one anchors on.
 render_commit_app_environment
 # Refs exemption (#1282, #1633) + commit types (#1431): render the
 # validate-commit-msg hook's --refs-optional-types / --types from
