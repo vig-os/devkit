@@ -2314,13 +2314,12 @@ YAML
 # absent, so one list covers the trunk model (which copy-excludes
 # sync-main-to-dev.yml and prepare-hotfix.yml), the feature opt-outs (a
 # release-less or sync-less consumer) and the mirror-mode job with no branching.
-# Job keys are
-# unique per file at two-space indent, and a mapping key's position carries no
-# meaning, so `environment:` is appended as the job's first key; a job already
-# carrying one is skipped, so a re-render over an un-recopied tree cannot stack a
-# second key. prepare-release-extension.yml is PRESERVED (the consumer's own) and
-# its template mints nothing — a consumer whose extension does adds the key there
-# itself, which is a documented note, not a render.
+# Job keys are unique per file at two-space indent, and a mapping key's position
+# carries no meaning, so `environment:` is appended as the job's first key; a job
+# already carrying one is skipped, so a re-render over an un-recopied tree cannot
+# stack a second key. prepare-release-extension.yml is PRESERVED (the consumer's
+# own) and its template mints nothing — a consumer whose extension does adds the
+# key there itself, which is a documented note, not a render.
 #
 # release-core.yml is the odd one out: it is a `workflow_call` CALLEE, where
 # `on.workflow_call` takes no `environment` and the `github` context is the
