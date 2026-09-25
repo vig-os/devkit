@@ -145,6 +145,23 @@ def _opener_body() -> str:
     return run_text_of_job(jobs(doc)[next(iter(jobs(doc)))])
 
 
+def _verdict_step() -> dict:
+    return step_by_name(steps_of_job(_guard(), GUARD_JOB), "verdict")
+
+
+def _verdict_code() -> str:
+    """Gate 6's executable lines only.
+
+    Its comments name the alternatives it rejects (`gh pr comment --edit-last`,
+    `always()`), so an assertion against the raw body would pass on a comment.
+    """
+    return "\n".join(
+        line
+        for line in str(_verdict_step().get("run", "")).splitlines()
+        if not line.lstrip().startswith("#")
+    )
+
+
 # ── Existence ────────────────────────────────────────────────────────────────
 
 
@@ -605,6 +622,182 @@ def test_gate_6_prunes_every_verdict_but_the_newest() -> None:
     assert "newest" in code and "continue" in code, (
         "the prune must keep the newest marked comment and delete only the "
         "others — a prune with no exception deletes the verdict itself"
+    )
+
+
+def test_gate_6_runs_after_a_gate_failure_and_on_deactivation() -> None:
+    """The verdict must be rewritten, not left standing, when the proof fails.
+
+    Gate 6 ran under a bare `if: env.ACTIVE == 'true'`, which carries an
+    implicit `success()`: a gate-2 failure, or an `unlabeled` event, skipped it
+    and left the last *positive* verdict standing. Since the verdict became
+    sticky (#1698) that stale pass is not merely buried under newer comments —
+    it is the pull request's single, permanent verdict, and the guard is not a
+    required check, so nothing else stops a reviewer reading it as a pass.
+
+    `!cancelled()`, never `always()`: code events still supersede each other, and
+    a run cancelled by a newer head must not overwrite the sticky comment with a
+    refusal it never actually reached.
+
+    The `!` needs the `${{ }}` form — bare `!cancelled()` is a YAML tag.
+    """
+    step = _verdict_step()
+    cond = " ".join(str(step.get("if", "")).split())
+    assert "cancelled()" in cond, (
+        "gate 6 must drop the implicit `success()` — with it, a failed gate "
+        f"leaves the last positive verdict standing; got {cond!r}"
+    )
+    assert "always()" not in cond, (
+        "gate 6 must use `!cancelled()`, not `always()`: a run cancelled by a "
+        "superseding head would overwrite the verdict with a refusal it never "
+        "reached"
+    )
+    assert cond.startswith("${{"), (
+        "the condition must be written in the `${{ }}` form, or YAML reads the "
+        f"leading `!` as a tag; got {cond!r}"
+    )
+    assert "env.ACTIVE == 'true'" in cond, "gate 6 must still run on the active lane"
+    assert "env.DEACTIVATED == 'true'" in cond, (
+        "gate 6 must also run when the lane label was just removed, or the "
+        "verdict it wrote while active outlives the label"
+    )
+    assert step.get("continue-on-error") is True, (
+        "a failure to post the verdict must not turn the gates' conclusion red"
+    )
+
+
+def test_guard_defines_a_deactivation_discriminator() -> None:
+    """`ACTIVE` and `LABELLED` are BOTH false on the payload that needs gate 6.
+
+    On an `unlabeled` event the label is already gone from
+    `github.event.pull_request.labels`, so the label set reads empty: `ACTIVE`
+    is false and so is `LABELLED`. The obvious
+    `always() && (env.ACTIVE == 'true' || env.LABELLED == 'true')` therefore
+    stays false on exactly the event that must retract the verdict. A third
+    discriminator, read from `github.event.label` rather than from the set, is
+    what makes the retraction expressible.
+    """
+    env = jobs(_guard())[GUARD_JOB]["env"]
+    deactivated = " ".join(str(env.get("DEACTIVATED", "")).split())
+    assert "github.event.action == 'unlabeled'" in deactivated, (
+        "the job needs a DEACTIVATED env keyed on the `unlabeled` action — the "
+        "label set is already empty by then, so neither ACTIVE nor LABELLED can "
+        "express it"
+    )
+    assert f"github.event.label.name == '{LANE_LABEL}'" in deactivated, (
+        "DEACTIVATED must read `github.event.label.name` and scope it to "
+        f"`{LANE_LABEL}`, or removing an unrelated label retracts the verdict"
+    )
+
+
+def test_every_gated_step_is_readable_by_the_verdict() -> None:
+    """Every step the verdict can be wrong about must carry an `id`.
+
+    Gate 6 decides which verdict to write from `steps.<id>.outcome`, so a gated
+    step without an `id` is invisible to it — and an invisible *failure* reads as
+    a pass. The checkout and the toolchain set-up count too: if either fails,
+    every gate after it is `skipped`, which is not `failure`, so a verdict
+    consulting only the gates would report neutrality on a run that proved
+    nothing.
+    """
+    steps = steps_of_job(_guard(), GUARD_JOB)
+    verdict = step_by_name(steps, "verdict")
+    read = str(verdict.get("env", {})) + str(verdict.get("run", ""))
+    gated = [
+        s for s in steps if s is not verdict and "env.ACTIVE" in str(s.get("if", ""))
+    ]
+    assert gated, "the guard must still gate its steps on the lane"
+    for step in gated:
+        step_id = step.get("id")
+        assert step_id, (
+            f"gated step {step.get('name')!r} carries no `id`, so gate 6 cannot "
+            "read its outcome and a failure there reads as a pass"
+        )
+        assert f"steps.{step_id}.outcome" in read, (
+            f"gate 6 must consult `steps.{step_id}.outcome` — "
+            f"{step.get('name')!r} can fail, and an unread failure leaves a "
+            "positive verdict standing"
+        )
+
+
+def test_gate_6_refuses_instead_of_repeating_the_positive_verdict() -> None:
+    """The positive wording must sit behind the outcome test, not before it.
+
+    The whole defect is a verdict that says "release-neutral" on a run that
+    proved nothing. So the body branches on the outcomes first, and the positive
+    sentence is reachable only when no gate failed.
+    """
+    code = _verdict_code()
+    assert "failure" in code, (
+        "gate 6 must test the gates' outcomes for `failure`, or it writes the "
+        "same verdict whatever happened"
+    )
+    positive = code.find("This change is release-neutral")
+    assert positive != -1, "the green verdict's wording must survive unchanged"
+    assert code.find("failure") < positive, (
+        "the outcome test must precede the positive verdict, or the refusal is "
+        "written after the pass it is supposed to replace"
+    )
+    assert "not release-neutral" in code.lower(), (
+        "the refusal must say so in words — a reviewer reads the comment, not "
+        "the job's conclusion"
+    )
+
+
+def test_gate_6_separates_an_infrastructure_failure_from_a_refusal() -> None:
+    """ "The gates refused it" and "the runner broke" are different messages.
+
+    A failed checkout or a failed `setup-env` proves nothing either way; only a
+    gate failing is a refusal. Conflating them would either libel a change that
+    was never examined or excuse one that was.
+    """
+    code = _verdict_code()
+    assert "infrastructure" in code.lower(), (
+        "the refusal must distinguish a gate refusal from an infrastructure "
+        "failure (the checkout or `setup-env`), which proves nothing either way"
+    )
+
+
+def test_gate_6_retracts_the_verdict_without_ever_creating_one() -> None:
+    """Deactivation is PATCH-or-nothing; only the failure path may create.
+
+    A pull request that carried the label briefly and never had a verdict must
+    get no comment at all — an "inactive" stub on a PR that was never judged is
+    pure noise. So the deactivation branch withdraws an existing sticky comment
+    and posts nothing when there is none.
+
+    It must also not touch the worktree. `ACTIVE` is false on the `unlabeled`
+    payload, so the checkout step is skipped and there is no tree to read; and on
+    a gate-2 or vulnix-extra failure the tree is still parked on the base ref,
+    because the `git checkout -q -` restore comes *after* the command that
+    failed. Both non-green branches therefore state their verdict from the event
+    alone.
+    """
+    code = _verdict_code()
+    deactivated = code.find("DEACTIVATED")
+    post = code.find("gh pr comment")
+    assert deactivated != -1, "gate 6 must branch on DEACTIVATED"
+    assert post != -1 and deactivated < post, (
+        "the deactivation branch must be decided before the create fallback"
+    )
+    assert "inactive" in code[deactivated:post].lower(), (
+        "the deactivation branch must rewrite the comment as an inactive stub, "
+        "or the positive verdict survives the label's removal"
+    )
+    assert "may_create=false" in code[deactivated:post], (
+        "the deactivation branch must forbid creating a comment, or a pull "
+        "request that was labelled and unlabelled gets a stub it never earned"
+    )
+    assert '"$may_create" = "true"' in code[:post], (
+        "the `gh pr comment` fallback must be gated on that flag, or the "
+        "deactivation branch creates the very comment it must not"
+    )
+    tree = code[deactivated : code.find("changed=$(git diff")]
+    assert "git " not in tree, (
+        "neither the inactive stub nor the refusal may read the worktree: a "
+        "deactivated run never checked anything out, and a failed gate 2 or "
+        "vulnix extra leaves the tree on the base ref, so a file list there "
+        "would come out empty"
     )
 
 
