@@ -3134,7 +3134,9 @@ if [[ "$SMOKE_TEST" == "true" ]]; then
     SMOKE_TEST_DIR="$SCRIPT_DIR/smoke-test"
     if [[ -d "$SMOKE_TEST_DIR" ]]; then
         echo "Deploying smoke-test-specific files..."
-        rsync -avL --checksum "$SMOKE_TEST_DIR/" "$WORKSPACE_DIR/"
+        # Same prunes as the template copy, so the overlay's walks (the u+w
+        # sweep, the substitution pass) never skip a path this copy wrote.
+        rsync -avL --checksum "${COPY_PRUNE_EXCLUDES[@]}" "$SMOKE_TEST_DIR/" "$WORKSPACE_DIR/"
     else
         echo "Warning: Smoke-test directory not found at $SMOKE_TEST_DIR" >&2
     fi
