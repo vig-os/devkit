@@ -1143,8 +1143,8 @@ generated before the hook existed, so its absence cannot have been a decision
 ([#1654](https://github.com/vig-os/devkit/issues/1654), the mirror of the
 retired-path gate in [#1348](https://github.com/vig-os/devkit/issues/1348)). A
 repo pinned at or past that release is left alone. The block lands at its
-template position (after its neighbour, since hook order is observable), and
-says so:
+template position — after the nearest hook the template places before it that
+your file still carries, since hook order is observable — and says so:
 
 ```text
 preserved-hook-insert: actionlint in .pre-commit-config.yaml
@@ -1162,6 +1162,16 @@ DEVKIT_FEATURES_DISABLED=actionlint
 
 That is checked before anything is written, and it survives every upgrade (see
 [Scaffold feature opt-outs](#scaffold-feature-opt-outs)).
+
+An opt-out speaks for its own hook and no longer withholds the ones behind it
+([#1725](https://github.com/vig-os/devkit/issues/1725)): disabling `actionlint`
+used to leave `shellcheck-composite-actions` — a hook in no feature group, which
+a fresh scaffold with the same opt-out does receive — with no anchor to insert
+after, so every upgrade reported a warning instead of delivering it. The insert
+now falls back through the template's earlier hooks and warns only when your file
+carries none of them; then, and only then, fold the block in from the template
+diff by hand.
+
 ### A private consumer: license and changelog
 
 `install.sh --force` **adds** files this repo lacks, and two of them are not
