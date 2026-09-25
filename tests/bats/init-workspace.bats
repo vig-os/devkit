@@ -5563,3 +5563,30 @@ _assert_consumer_tokens_intact_1693() {
     assert_success
     _assert_consumer_tokens_intact_1693 "$ws"
 }
+
+@test "a TEMPLATE_DIR with a trailing slash still substitutes placeholders (#1693)" {
+    # The candidate walk maps template paths to workspace paths by stripping the
+    # source prefix, so a trailing slash in TEMPLATE_DIR turns `$src_dir/` into
+    # `…/workspace//`, which `find` output never starts with. Every relative path
+    # then stays absolute, no destination resolves, and the pass exits 0 having
+    # substituted NOTHING — a silent, total failure that ships 13 files with live
+    # tokens. install.sh does not pass a trailing slash today; nothing stops a
+    # consumer, a wrapper or a future caller from doing so.
+    ws="$BATS_TEST_TMPDIR/e2e-1693-trailing-slash"
+    mkdir -p "$ws"
+    stub="$BATS_TEST_TMPDIR/stub-bin-trailing"
+    mkdir -p "$stub"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$stub/just"
+    chmod +x "$stub/just"
+    run env PATH="$stub:$PATH" \
+        TEMPLATE_DIR="$PROJECT_ROOT/assets/workspace/" \
+        WORKSPACE_DIR="$ws" \
+        SHORT_NAME=testproj \
+        GITHUB_REPOSITORY=test/repo \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts --mode both
+    assert_success
+    run cat "$ws/justfile.project"
+    assert_success
+    assert_output --partial 'testproj'
+    refute_output --partial '{{SHORT_NAME}}'
+}
