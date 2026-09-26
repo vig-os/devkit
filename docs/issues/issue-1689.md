@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-25T07:09:25Z
-updated: 2026-09-25T07:25:06Z
+updated: 2026-09-25T12:32:58Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1689
-comments: 1
+comments: 2
 labels: bug, priority:medium, area:ci, effort:small, semver:patch
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-25T07:32:55.384Z
+synced: 2026-09-26T07:26:46.771Z
 ---
 
 # [Issue 1689]: [[BUG] prepare-changelog prepare silently deletes bullets not under a ### subsection while validate accepts them](https://github.com/vig-os/devkit/issues/1689)
@@ -99,4 +99,12 @@ $ echo $?
 ```
 
 Both hazards share one root cause (the unbounded capture plus two different notions of "content"), and the fix on `bugfix/1689-prepare-changelog-loose-bullets` bounds the body at the next `^## ` heading and makes `validate` and `prepare` agree.
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on September 25, 2026 at 12:32 PM_
+
+Fixed in #1691 (merged to `dev` 2026-09-25, 1d2e7106): `prepare-changelog` now fails closed on content it cannot freeze — loose bullets under `## Unreleased`, a bare Unreleased header, a `[X.Y.Z] - TBD` twin, duplicate `###` headings — and `validate --version` rejects the same shapes. Reaches `main` with the next train.
 

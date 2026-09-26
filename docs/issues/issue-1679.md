@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-24T17:23:07Z
-updated: 2026-09-24T17:23:07Z
+updated: 2026-09-25T12:32:53Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1679
-comments: 0
+comments: 1
 labels: bug, priority:high, area:ci
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-25T07:32:56.529Z
+synced: 2026-09-26T07:26:47.807Z
 ---
 
 # [Issue 1679]: [prepare-hotfix: freeze main's Unreleased instead of refusing](https://github.com/vig-os/devkit/issues/1679)
@@ -69,4 +69,12 @@ Breaking change: no. Behaviour changes only in the case that is currently a hard
 ## Changelog Category
 
 Fixed
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 25, 2026 at 12:32 PM_
+
+Fixed in #1682 (merged to `dev` 2026-09-25, 0e8628ff): `prepare-hotfix` freezes `main`'s carried Unreleased entries instead of refusing. Reaches `main` with the next train; the consumer scaffold copy (`prepare-hotfix.yml`) rides the same release. The loose-bullet deletion found on the way was #1689, fixed in #1691.
 

@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-24T17:23:08Z
-updated: 2026-09-24T17:23:08Z
+updated: 2026-09-25T12:32:55Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1680
-comments: 0
+comments: 1
 labels: feature, priority:medium, area:ci
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-25T07:32:56.112Z
+synced: 2026-09-26T07:26:47.507Z
 ---
 
 # [Issue 1680]: [prepare-release: refuse to cut a release while dev is behind main](https://github.com/vig-os/devkit/issues/1680)
@@ -51,4 +51,12 @@ Breaking change: no. Adds a precondition that should already hold in every inten
 ## Changelog Category
 
 Added
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 25, 2026 at 12:32 PM_
+
+Implemented in #1681 (merged to `dev` 2026-09-25, ed0980d9): `prepare-release` refuses to cut while `dev` is behind `main`, so a train can no longer freeze a section that misses entries the open sync PR still carries. Reaches `main` with the next train.
 

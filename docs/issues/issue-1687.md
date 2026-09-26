@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-25T06:18:02Z
-updated: 2026-09-25T06:51:57Z
+updated: 2026-09-25T12:32:50Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1687
-comments: 0
+comments: 1
 labels: chore, priority:medium, area:ci, area:testing, effort:large, semver:patch
 assignees: c-vigo
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-25T07:32:55.829Z
+synced: 2026-09-26T07:26:47.175Z
 ---
 
 # [Issue 1687]: [[CHORE] BATS runtime: parallelize the suite, batch the init-workspace.sh fork loops, collapse redundant scaffolds](https://github.com/vig-os/devkit/issues/1687)
@@ -215,4 +215,12 @@ Expected outcome of WP1+WP2: CI BATS from 6m 14s to roughly 45-70s,
 `Project Checks` from 11m 28s to ~5m 45s, total CI from 11m 35s to ~6m — at
 which point Security Scan becomes the co-bottleneck and further BATS work stops
 paying.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 25, 2026 at 12:32 PM_
+
+Solved in #1690 (merged to `dev` 2026-09-25, 77e1895e): `bats -j` via GNU parallel riding in the bats wrapper, batched `init-workspace.sh` fork loops, `_clone_shared` fixtures. CI: BATS step 6m14s → 3m11s, `Project Checks` 11m28s → 9m59s (run 36108278820). Every follow-up it predicted has since shipped to `dev` and closed: #1692 (#1702), #1693 (#1707), #1694/#1695/#1696/#1697 (#1709). Remaining spin-offs are tracked separately: #1699, #1700, #1701, #1703, #1704.
 
