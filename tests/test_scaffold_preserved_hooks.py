@@ -30,12 +30,13 @@ Refs: #1654
 from __future__ import annotations
 
 import difflib
+import os
+import subprocess
 from typing import TYPE_CHECKING
 
 from tests.workflow_scaffold import INIT_WORKSPACE, WORKSPACE, scaffold
 
 if TYPE_CHECKING:
-    import subprocess
     from pathlib import Path
 
 # The `jackdewinter/pymarkdown` block byte-for-byte as the template shipped it
@@ -670,6 +671,221 @@ def test_an_existing_composite_hook_is_never_duplicated(tmp_path: Path) -> None:
     assert text.count(f"- id: {COMPOSITE_HOOK}") == 1
     assert f"name: my own {COMPOSITE_HOOK}" in text
     assert "preserved-hook-insert:" not in proc.stdout
+
+
+# ── a sentinel id is matched exactly, never by prefix (#1727) ────────────────
+# `hook_block_range`'s sentinel branch located a pair with
+# `index($0, "# >>> devkit:" id)` — a PREFIX match, so a sentinel whose id
+# EXTENDS another id answered the shorter id's lookup. The two feature excisions
+# (`render_actionlint_optout` #1660, `render_release_optout` #1656) carried the
+# same defect in unanchored `grep`/`sed` patterns.
+#
+# Nothing in the template trips it, which is precisely why it needs tests: the
+# next hook someone sentinel-wraps would silently land the anchor walk (#1725) on
+# the wrong range, or hand a feature's excision a block that is not the feature's.
+
+# A consumer who bracketed the composite hook themselves. Its id EXTENDS
+# `shellcheck` — the hook the template places before `actionlint`, and the
+# nearest anchor the insert's walk finds in these fixtures.
+_SENTINELLED_COMPOSITE = f"""  # >>> devkit:{COMPOSITE_HOOK} — bracketed by the consumer
+  - repo: local
+    hooks:
+      - id: {COMPOSITE_HOOK}
+        name: shellcheck (composite actions)
+        entry: uv run {COMPOSITE_HOOK}
+        language: system
+        pass_filenames: true
+  # <<< devkit:{COMPOSITE_HOOK}
+"""
+
+# A comment-only pair whose id extends the actionlint feature's own.
+_SENTINELLED_ACTIONLINT_NOTE = """  # >>> devkit:actionlint-extra — the consumer's own bracketed note
+  # Their prose, in a pair devkit does not own.
+  # <<< devkit:actionlint-extra
+"""
+
+
+def _shell_function(name: str) -> str:
+    """One shell function of ``init-workspace.sh``, verbatim.
+
+    The script is a straight-line program rather than a library, so a direct test
+    of one function lifts it out instead of sourcing the file — the same harness
+    idea as the workflow suites' executed-``run:`` tests. Reading the real text is
+    the point: a hand-copied awk here would stay green while the script broke.
+    """
+    text = INIT_WORKSPACE.read_text(encoding="utf-8")
+    start = text.index(f"\n{name}() {{\n") + 1
+    end = text.index("\n}\n", start) + len("\n}\n")
+    return text[start:end]
+
+
+def _prefix_hazard_config() -> str:
+    """A consumer config carrying both a plain ``shellcheck`` and the long pair."""
+    return (
+        _CONSUMER_HEAD.replace(
+            "  # Markdown Linting (excludes auto-generated docs)\n", ""
+        )
+        + _SENTINELLED_COMPOSITE
+        + _CONSUMER_TAIL.lstrip("\n")
+    )
+
+
+def _hook_block_range(tmp_path: Path, config: str, hook: str) -> str:
+    """The lines ``hook_block_range`` returns for ``hook``, or ``""``."""
+    probe = tmp_path / "probe.pre-commit-config.yaml"
+    probe.write_text(config, encoding="utf-8")
+    proc = subprocess.run(
+        [
+            "bash",
+            "-c",
+            _shell_function("hook_block_range") + '\nhook_block_range "$1" "$2"\n',
+            "probe",
+            str(probe),
+            hook,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    start, end = (int(n) for n in proc.stdout.split())
+    return "\n".join(config.splitlines()[start - 1 : end])
+
+
+def test_a_prefix_extended_sentinel_does_not_answer_the_shorter_lookup(
+    tmp_path: Path,
+) -> None:
+    """A lookup for ``shellcheck`` must reach ITS entry, sentinels or not.
+
+    The bracketed ``shellcheck-composite-actions`` block satisfied
+    ``index($0, "# >>> devkit:shellcheck")``, so the sentinel branch returned that
+    range and the structural branch — the only one that can find the consumer's
+    own ungrouped ``shellcheck`` entry — was never reached.
+    """
+    block = _hook_block_range(tmp_path, _prefix_hazard_config(), "shellcheck")
+
+    assert _hook_order(block) == ["shellcheck"]
+    # Neither half of a pair that is not this hook's: half a pair in a copy would
+    # read as a feature range running to EOF.
+    assert "devkit:" not in block
+
+
+def test_the_extending_id_still_resolves_to_its_own_sentinel_range(
+    tmp_path: Path,
+) -> None:
+    """Exactness cuts one way only: the long id keeps its own pair."""
+    block = _hook_block_range(tmp_path, _prefix_hazard_config(), COMPOSITE_HOOK)
+
+    assert block.splitlines()[0].strip().startswith(f"# >>> devkit:{COMPOSITE_HOOK}")
+    assert block.splitlines()[-1].strip() == f"# <<< devkit:{COMPOSITE_HOOK}"
+    assert _hook_order(block) == [COMPOSITE_HOOK]
+
+
+def test_the_anchor_walk_ignores_a_prefix_extended_sentinel(tmp_path: Path) -> None:
+    """What the prefix match costs an upgrade: the insert lands in the wrong place.
+
+    A pre-1.16.0 tree receives ``actionlint`` after its nearest present
+    predecessor, ``shellcheck``. With the prefix match that hook's range was the
+    bracketed composite block further down the file, so the new block was spliced
+    in after it — past a hook the template places *after* actionlint.
+    """
+    seed = tmp_path / "prefix-seed"
+    seed.mkdir()
+    (seed / ".pre-commit-config.yaml").write_text(
+        _prefix_hazard_config(), encoding="utf-8"
+    )
+    (seed / ".vig-os").write_text("DEVKIT_VERSION=1.15.1\n", encoding="utf-8")
+    proc = _upgrade(tmp_path, seed, name="prefix")
+    text = _config(tmp_path, "prefix")
+
+    assert _hook_order(text) == ["shellcheck", "actionlint", COMPOSITE_HOOK, "typos"]
+    assert "preserved-hook-insert: actionlint in .pre-commit-config.yaml" in proc.stdout
+
+
+def test_the_actionlint_excision_takes_only_its_own_pair(tmp_path: Path) -> None:
+    """``render_actionlint_optout`` deletes the feature's range and no other.
+
+    Its ``grep``/``sed`` matched ``# >>> devkit:actionlint`` anywhere in a line, so
+    a consumer's ``# >>> devkit:actionlint-extra`` pair opened the range too — and
+    the opt-out silently took their prose with the hook.
+    """
+    seed = _composite_seed(
+        tmp_path,
+        f"DEVKIT_VERSION={COMPOSITE_SINCE}\nDEVKIT_FEATURES_DISABLED=actionlint\n",
+    )
+    config = seed / ".pre-commit-config.yaml"
+    config.write_text(
+        config.read_text(encoding="utf-8").replace(
+            "  # >>> devkit:actionlint",
+            _SENTINELLED_ACTIONLINT_NOTE + "  # >>> devkit:actionlint",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    _upgrade(tmp_path, seed, name="actionlint-decoy")
+    text = _config(tmp_path, "actionlint-decoy")
+
+    assert "- id: actionlint" not in text
+    assert "# >>> devkit:actionlint —" not in text
+    assert "# >>> devkit:actionlint-extra" in text
+    assert "# <<< devkit:actionlint-extra" in text
+    assert "Their prose, in a pair devkit does not own." in text
+
+
+def _render_release_optout(tmp_path: Path, justfile_gh: str) -> str:
+    """``render_release_optout`` run for real against a fixture ``justfile.gh``.
+
+    ``feature_disabled`` is the one collaborator it needs; everything else it
+    reads is ``WORKSPACE_DIR``.
+    """
+    ws = tmp_path / "release-ws"
+    (ws / ".devcontainer").mkdir(parents=True)
+    target = ws / ".devcontainer" / "justfile.gh"
+    target.write_text(justfile_gh, encoding="utf-8")
+    proc = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'feature_disabled() { [[ "$1" == release ]]; }\n'
+            + _shell_function("render_release_optout")
+            + "\nrender_release_optout\n",
+        ],
+        env={**os.environ, "WORKSPACE_DIR": str(ws)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return target.read_text(encoding="utf-8")
+
+
+def test_the_release_excision_takes_only_its_own_pair(tmp_path: Path) -> None:
+    """Same defect, same fix, in the ``justfile.gh`` group (#1656).
+
+    ``# >>> devkit:release-notes`` is a pair whose id merely extends ``release``;
+    the unanchored ``sed`` range opened on it and deleted a recipe the feature
+    group does not own.
+    """
+    after = _render_release_optout(
+        tmp_path,
+        "help:\n"
+        "    @just --list\n"
+        "\n"
+        "# >>> devkit:release-notes — a pair whose id extends the group's\n"
+        "notes:\n"
+        "    @echo notes\n"
+        "# <<< devkit:release-notes\n"
+        "\n"
+        "# >>> devkit:release — excised when the release feature is disabled\n"
+        "prepare-release:\n"
+        "    @echo release\n"
+        "# <<< devkit:release\n",
+    )
+
+    assert "prepare-release:" not in after
+    assert "# >>> devkit:release —" not in after
+    assert "# >>> devkit:release-notes" in after
+    assert "notes:\n    @echo notes" in after
 
 
 def test_a_rewrite_keeps_the_file_mode(tmp_path: Path) -> None:

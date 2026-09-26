@@ -2472,6 +2472,11 @@ render_branch_guard_model() {
 # nix/hooks.nix while giving this excision an exact range instead of a
 # structural guess at where the block ends.
 #
+# The marker match is whole-line and the id EXACT — followed by whitespace (the
+# sentinel's own trailing prose) or end of line (#1727). Unanchored, a consumer's
+# own `# >>> devkit:actionlint-extra` pair opened the range too and the opt-out
+# took their block with the hook's.
+#
 # Guarded, not unconditional (unlike render_refs_policy): this REMOVES rather
 # than substitutes, so there is no value to re-write on every run — and a
 # consumer who clears the key gets the hook back from the template copy on the
@@ -2480,9 +2485,9 @@ render_actionlint_optout() {
     local pc
     feature_disabled actionlint || return 0
     pc="$(precommit_render_target)" || return 0
-    grep -q '# >>> devkit:actionlint' "$pc" || return 0
+    grep -qE '^[[:space:]]*# >>> devkit:actionlint([[:space:]]|$)' "$pc" || return 0
 
-    sed -i '/# >>> devkit:actionlint/,/# <<< devkit:actionlint/d' "$pc"
+    sed -i -E '/^[[:space:]]*# >>> devkit:actionlint([[:space:]]|$)/,/^[[:space:]]*# <<< devkit:actionlint([[:space:]]|$)/d' "$pc"
     echo "Excised the actionlint hook (feature disabled via DEVKIT_FEATURES_DISABLED, #1660)."
 }
 
@@ -2525,10 +2530,11 @@ render_actionlint_optout() {
 #               block's explanatory comment, and — decisively for Case 2 — a
 #               block inserted WITHOUT its sentinels would be invisible to
 #               render_actionlint_optout, silently outliving the opt-out.
-#               A pair is a FEATURE gate, not a way to carry prose, and its id is
-#               matched by prefix: bracketing `shellcheck-composite-actions`
-#               would make a lookup for `shellcheck` return that block's range
-#               instead (#1727). Hence #1725 taught the structural strategy to
+#               The id is matched EXACTLY — whole-line, and followed by whitespace
+#               or end of line (#1727) — so a pair bracketing
+#               `shellcheck-composite-actions` is invisible to a lookup for
+#               `shellcheck`. A pair is still a FEATURE gate and not a way to
+#               carry prose, which is why #1725 taught the structural strategy to
 #               carry the comment rather than sentinel-wrapping an ungrouped hook.
 #   structural  the `- repo:` entry holding `- id: <hook>`, PLUS the run of
 #               full-line comments directly above it, ending at the last line
@@ -2552,9 +2558,20 @@ render_actionlint_optout() {
 # the START moves: the anchor path reads the END, which is unchanged.
 hook_block_range() {
     awk -v id="$2" '
+        # Exact id, never a prefix (#1727): the token after the marker is
+        # extracted and compared as a STRING, so on this sentinel path `id` is
+        # never interpolated into a regex and a metacharacter in a hook id cannot
+        # change what matches. (The structural branch below still builds its
+        # `- id:` pattern from `id`; hook ids are plain words.)
+        function sentinel(line, dir,    tok) {
+            if (!match(line, /^[[:space:]]*# (>>>|<<<) devkit:[^[:space:]]+/)) return 0
+            tok = substr(line, RSTART, RLENGTH)
+            sub(/^[[:space:]]*/, "", tok)
+            return tok == "# " dir " devkit:" id
+        }
         { L[NR] = $0 }
-        index($0, "# >>> devkit:" id) { ss = NR }
-        index($0, "# <<< devkit:" id) { se = NR }
+        sentinel($0, ">>>") { ss = NR }
+        sentinel($0, "<<<") { se = NR }
         END {
             if (ss && se && se >= ss) { print ss, se; exit 0 }
             for (i = 1; i <= NR; i++) {
@@ -2878,9 +2895,11 @@ render_release_optout() {
     feature_disabled release || return 0
     jg="$WORKSPACE_DIR/.devcontainer/justfile.gh"
     [[ -f "$jg" ]] || return 0
-    grep -q '# >>> devkit:release' "$jg" || return 0
+    grep -qE '^[[:space:]]*# >>> devkit:release([[:space:]]|$)' "$jg" || return 0
 
-    sed -i '/# >>> devkit:release/,/# <<< devkit:release/d' "$jg"
+    # Whole-line, exact id — the same #1727 anchoring as the actionlint excision:
+    # a `# >>> devkit:release-notes` pair is not this group's.
+    sed -i -E '/^[[:space:]]*# >>> devkit:release([[:space:]]|$)/,/^[[:space:]]*# <<< devkit:release([[:space:]]|$)/d' "$jg"
     # The block is the file's tail, so its removal strands the blank line that
     # separated it — and a managed file ending on a double newline is rewritten
     # by the consumer's end-of-file-fixer, then restored by the next upgrade.
