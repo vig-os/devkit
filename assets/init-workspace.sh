@@ -2559,8 +2559,10 @@ render_actionlint_optout() {
 hook_block_range() {
     awk -v id="$2" '
         # Exact id, never a prefix (#1727): the token after the marker is
-        # extracted and compared as a STRING, so `id` is never interpolated into
-        # a regex and a metacharacter in a hook id cannot change what matches.
+        # extracted and compared as a STRING, so on this sentinel path `id` is
+        # never interpolated into a regex and a metacharacter in a hook id cannot
+        # change what matches. (The structural branch below still builds its
+        # `- id:` pattern from `id`; hook ids are plain words.)
         function sentinel(line, dir,    tok) {
             if (!match(line, /^[[:space:]]*# (>>>|<<<) devkit:[^[:space:]]+/)) return 0
             tok = substr(line, RSTART, RLENGTH)
