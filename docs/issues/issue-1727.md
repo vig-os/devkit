@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-25T21:09:21Z
-updated: 2026-09-25T21:09:21Z
+updated: 2026-09-26T08:56:52Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1727
-comments: 0
+comments: 1
 labels: chore, priority:low, area:workspace, effort:small, semver:patch
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-26T07:26:39.151Z
+synced: 2026-09-27T07:57:34.887Z
 ---
 
 # [Issue 1727]: [[CHORE] Match devkit sentinel ids exactly in hook_block_range](https://github.com/vig-os/devkit/issues/1727)
@@ -49,4 +49,12 @@ Low
 ### Changelog Category
 
 No changelog needed
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 26, 2026 at 08:56 AM_
+
+Fixed in #1729, merged to `dev` (fd28aa5b): the sentinel branch of `hook_block_range` extracts the token after `devkit:` and compares it to the id as a string (no regex interpolation of the id), and the two feature excisions (`render_actionlint_optout`, `render_release_optout`) anchor their `grep`/`sed` ranges at line start with whitespace-or-end-of-line after the id — the template's opening sentinels carry trailing prose, so an end-of-line anchor alone would have broken the live excision.
 
