@@ -50,7 +50,7 @@ the repo being upgraded: a consumer does not ship one, so the path is either abs
 ```bash
 VERSION=1.18.0
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "refusing: not a version"; exit 1; }
-curl -fsSL "https://raw.githubusercontent.com/vig-os/devkit/${VERSION}/install.sh" \
+curl -fsSL "https://raw.githubusercontent.com/vig-os/devkit/refs/tags/${VERSION}/install.sh" \
   | bash -s -- --preview --version "$VERSION" .
 ```
 
@@ -73,7 +73,7 @@ Read the report back to the operator and call out, specifically:
 ```bash
 VERSION=1.18.0
 [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "refusing: not a version"; exit 1; }
-curl -fsSL "https://raw.githubusercontent.com/vig-os/devkit/${VERSION}/install.sh" \
+curl -fsSL "https://raw.githubusercontent.com/vig-os/devkit/refs/tags/${VERSION}/install.sh" \
   | bash -s -- --force --version "$VERSION" .
 ```
 
@@ -103,13 +103,18 @@ nothing says so (#1497) — check the input by hand and report it either way.
 
 Then re-run `/devkit:status` and confirm drift is clean against the new pin.
 
-Re-add the plugin marketplace at the new tag, or the skills you run stay on the old version:
+Repoint the plugin marketplace at the new tag, or the skills you run stay on the old version. A plain re-add is a
+**no-op** — an already-added marketplace prints `already on disk` and exits 0 — and `marketplace update` refreshes
+the ref it was added with rather than moving to a new one. Remove, then add at the new tag:
 
 ```text
-/plugin marketplace add vig-os/devkit@1.18.0
+/plugin marketplace remove vigos-devkit
+/plugin marketplace add vig-os/devkit@1.18.0 --sparse .claude-plugin plugins
+/plugin install devkit@vigos-devkit
 ```
 
-`/devkit:status` reports a plugin version mismatch until you do.
+The re-install is required: removing a marketplace from its last scope uninstalls the plugins installed from it.
+`/devkit:status` reports a plugin version mismatch until all three have run.
 
 ## 6. Hand off
 

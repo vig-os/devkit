@@ -36,10 +36,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     the consumer scaffold -- the per-repo copy is the drift model
     [#927](https://github.com/vig-os/devkit/issues/927) exists to retire.
     Pin the marketplace to your `DEVKIT_VERSION`
-    (`/plugin marketplace add vig-os/devkit@X.Y.Z` then
-    `/plugin install devkit@vigos-devkit`): an unpinned marketplace tracks
-    devkit's default branch, so the skills would be the newest release's
-    whatever the scaffold pins. `/devkit:status` reports the mismatch.
+    (`/plugin marketplace add vig-os/devkit@X.Y.Z --sparse .claude-plugin plugins`
+    then `/plugin install devkit@vigos-devkit`): an unpinned marketplace
+    tracks devkit's default branch, so the skills would be the newest
+    release's whatever the scaffold pins. `/devkit:status` reports the
+    mismatch. Moving to a new version is remove-then-add; a repeat add is a
+    no-op and `marketplace update` keeps the ref it was added with.
+  - Skills that fetch the installer validate the version against
+    `^[0-9]+\.[0-9]+\.[0-9]+$` in the same snippet, before the fetch, and
+    resolve it as `refs/tags/<version>`. The version is read from the
+    inspected repo's manifest and interpolated into a URL that is piped to
+    a shell, and `curl` collapses `..` before sending, so an unvalidated
+    value would reach an arbitrary repository.
   - `tests/test_devkit_plugin.py` fails when a skill names a `just` recipe or
     a workflow file that does not exist in devkit or in the scaffold.
 - **Creation runbook for the `vigos-devkit-upgrade` GitHub App**

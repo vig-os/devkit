@@ -15,13 +15,27 @@ no matter which `DEVKIT_VERSION` your `.vig-os` pins. The `@ref` form is what ma
 /plugin install devkit@vigos-devkit
 ```
 
-Use the value of `DEVKIT_VERSION` from your `.vig-os` as the ref. When you upgrade devkit, re-add the marketplace
-at the new tag — `/devkit:upgrade` reminds you, and `/devkit:status` reports the mismatch until you do.
+Use the value of `DEVKIT_VERSION` from your `.vig-os` as the ref.
 
-Devkit is a large repository; a sparse add fetches only what the marketplace needs:
+**To move to a new devkit version, remove the marketplace and add it again at the new tag.** A plain re-add is a
+no-op (`already on disk`, exit 0), and `marketplace update` refreshes the ref it was added with rather than moving
+to a different one:
 
 ```text
-/plugin marketplace add vig-os/devkit@1.17.0 --sparse
+/plugin marketplace remove vigos-devkit
+/plugin marketplace add vig-os/devkit@1.18.0 --sparse .claude-plugin plugins
+/plugin install devkit@vigos-devkit
+```
+
+The re-install is required, not a belt-and-braces step: removing a marketplace from its last scope uninstalls the
+plugins installed from it. `/devkit:upgrade` walks you through this, and `/devkit:status` reports the mismatch
+until it is done.
+
+Devkit is a large repository, and `--sparse` takes the directories to check out, so name the two the marketplace
+actually needs:
+
+```text
+/plugin marketplace add vig-os/devkit@1.17.0 --sparse .claude-plugin plugins
 ```
 
 Adding it unpinned is a legitimate choice for someone who always tracks the newest devkit — it is simply not the

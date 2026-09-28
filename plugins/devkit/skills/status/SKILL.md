@@ -80,11 +80,18 @@ echo "plugin version: ${PLUGIN_VERSION}   pinned devkit: ${PINNED:-unset}"
 
 Report `plugin version` on its own line, always. When it differs from the pin, say so explicitly as a **plugin
 version mismatch** and name the consequence: a skill may describe a verb, a flag or a refusal that this repo's
-pinned scaffold does not have. The fix is to re-add the marketplace at the pinned tag:
+pinned scaffold does not have. The fix is to repoint the marketplace at the pinned tag. A plain re-add does **not** do it: adding a marketplace
+that is already on disk prints `already on disk` and exits 0, and `marketplace update` refreshes the ref it was
+added with rather than moving to a new one. Remove first, then add at the tag:
 
 ```text
-/plugin marketplace add vig-os/devkit@<DEVKIT_VERSION>
+/plugin marketplace remove vigos-devkit
+/plugin marketplace add vig-os/devkit@<DEVKIT_VERSION> --sparse .claude-plugin plugins
+/plugin install devkit@vigos-devkit
 ```
+
+The re-install is required, not optional: removing a marketplace from its last scope uninstalls the plugins
+installed from it.
 
 A mismatch is a warning, not a refusal — tracking the newest devkit deliberately is a legitimate choice. The point
 is that it is visible rather than assumed away.
@@ -97,10 +104,20 @@ installer, so that path is either absent or somebody else's script, and this ski
 did not write:
 
 ```bash
-PINNED="$(sed -n 's/^DEVKIT_VERSION=//p' .vig-os)"
-curl -fsSL "https://raw.githubusercontent.com/vig-os/devkit/${PINNED}/install.sh" \
-  | bash -s -- --preview --version "$PINNED" .
+VERSION="$(sed -n 's/^DEVKIT_VERSION=//p' .vig-os)"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  echo "refusing: DEVKIT_VERSION '$VERSION' is not X.Y.Z — it is interpolated into a URL that is piped to bash"
+  exit 1
+}
+curl -fsSL "https://raw.githubusercontent.com/vig-os/devkit/refs/tags/${VERSION}/install.sh" \
+  | bash -s -- --preview --version "$VERSION" .
 ```
+
+**Validate the version before it reaches the URL, every time.** It comes from the manifest of a repository you are
+inspecting, not from the operator, and `curl` collapses `..` in a path before it sends the request — so an
+unvalidated `DEVKIT_VERSION` of `../../someone/else/refs/heads/main` fetches and executes *that* repository's
+script. The `refs/tags/` prefix is the second half: it resolves the tag explicitly, so a branch of the same name
+cannot shadow it.
 
 `--preview` prints the add/overwrite/preserve/delete report and exits without touching a file. It does not need
 `--force`: a preview is by definition a preview of an upgrade, so it rides the force report path already. In a consumer, the

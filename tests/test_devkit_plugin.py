@@ -844,9 +844,16 @@ def test_release_workflow_verifies_the_plugin_version_bump():
 def test_readme_sparse_add_passes_paths():
     """`--sparse <paths...>` takes directories; a bare flag checks out nothing useful."""
     text = PLUGIN_README.read_text(encoding="utf-8")
-    for match in re.finditer(r"--sparse(?P<rest>[^\n]*)", text):
-        rest = match.group("rest").strip()
-        assert rest, "--sparse needs the directories to check out"
+    invocations = [
+        match.group("rest").strip()
+        # Actual `marketplace add` command lines only; prose and inline code
+        # spans may name the bare flag when describing what it does.
+        for region in code_regions(text)
+        if "marketplace add" in region
+        for match in re.finditer(r"--sparse(?P<rest>[^\n]*)", region)
+    ]
+    assert invocations, "README must show the sparse form"
+    for rest in invocations:
         assert ".claude-plugin" in rest and "plugins" in rest, (
             f"--sparse must name the marketplace and plugin directories, got {rest!r}"
         )

@@ -66,9 +66,17 @@ does not ship devkit's installer anyway, so a repo-local path is either absent o
 
 ```bash
 VERSION=1.17.0
-curl -fsSL "https://raw.githubusercontent.com/vig-os/devkit/${VERSION}/install.sh" \
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  echo "refusing: DEVKIT_VERSION '$VERSION' is not X.Y.Z — it is interpolated into a URL that is piped to bash"
+  exit 1
+}
+curl -fsSL "https://raw.githubusercontent.com/vig-os/devkit/refs/tags/${VERSION}/install.sh" \
   | bash -s -- --preview --version "$VERSION" --mode direnv --workflow gitflow .
 ```
+
+Validate the version even when you read it from a manifest rather than from the operator — especially then.
+`curl` collapses `..` in a path before sending, so an unvalidated value escapes the URL prefix and this pipeline
+runs someone else's script. `refs/tags/` resolves the tag explicitly so a same-named branch cannot shadow it.
 
 `--preview` is the non-mutating form: it prints the add/overwrite/preserve/delete report and exits.
 
