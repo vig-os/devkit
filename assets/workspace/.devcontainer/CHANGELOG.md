@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.17.0] - TBD
+
+### Added
+
 - **Opt-in environment binding for the commit-App token-minting jobs**
   ([#1710](https://github.com/vig-os/devkit/issues/1710))
   - The scaffolded workflows mint the commit App token from
@@ -156,9 +170,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `DEVKIT_LICENSE=proprietary`. A template file the consumer deleted, or one a
     mode prunes, is skipped silently
 
-### Deprecated
+#### Dependencies
 
-### Removed
+- Update `github/codeql-action` from `1c5b675` to `2892aa5` ([#1730](https://github.com/vig-os/devkit/pull/1730))
+- Lock file maintenance (pip) ([#1731](https://github.com/vig-os/devkit/pull/1731))
 
 ### Fixed
 
