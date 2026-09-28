@@ -512,14 +512,17 @@ if [[ -n "$MANIFEST_SYNC_SCHEDULE" ]] && ! is_valid_cron "$MANIFEST_SYNC_SCHEDUL
     exit 1
 fi
 
-# Commit-App environment binding (#1710): the value is spliced verbatim into the
-# rendered workflows as an UNQUOTED YAML scalar through a sed replacement, so —
-# exactly as for DEVKIT_SYNC_TARGET above — the LOAD-BEARING guard is a strict
-# charset allowlist. GitHub itself constrains an environment name only to "<= 255
-# characters, case-insensitive, unique within the repository", and therefore
-# accepts names (quotes, `$`, backticks, `&`, `#`, `|`, `/`, inner spaces) that
-# would render invalid YAML or crash/mis-splice the render sed. Pure `.vig-os`
-# key (no CLI flag), so only a format guard.
+# Commit-App environment binding (#1710): the value is rendered into the
+# workflows as a SINGLE-QUOTED YAML scalar (`environment: '<name>'`) via a sed
+# replacement — unlike DEVKIT_SYNC_TARGET's mixed quoted/unquoted splices above,
+# this key is quoted unconditionally (see render_commit_app_environment()
+# below). The LOAD-BEARING guard is still a strict charset allowlist: it refuses
+# `'`, so the quoted splice never needs escaping. GitHub itself constrains an
+# environment name only to "<= 255 characters, case-insensitive, unique within
+# the repository", and therefore accepts names (quotes, `$`, backticks, `&`,
+# `#`, `|`, `/`, inner spaces) that the allowlist alone rules out — without it,
+# such a name could still break the quoting or crash/mis-splice the render sed.
+# Pure `.vig-os` key (no CLI flag), so only a format guard.
 if [[ -n "$MANIFEST_COMMIT_APP_ENVIRONMENT" ]]; then
     if [[ ! "$MANIFEST_COMMIT_APP_ENVIRONMENT" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
         || ((${#MANIFEST_COMMIT_APP_ENVIRONMENT} > 255)); then
