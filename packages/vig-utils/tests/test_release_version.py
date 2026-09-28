@@ -201,11 +201,28 @@ def test_switch_from_undotted_to_dotted_rc_is_refused() -> None:
         compute(fmt="rc.{N}", tags=["1.2.3-rc21"])
 
 
-def test_existing_final_blocks_any_prerelease() -> None:
-    """tessera's legacy v0.1.0 tag outranks every 0.1.0 pre-release."""
+def test_existing_final_warns_but_allows_candidate() -> None:
+    """tessera's legacy v0.1.0 tag outranks every 0.1.0 pre-release.
+
+    That is not a label switch, so it must not block: after a failed final run
+    the ``X.Y.Z`` tag stays (forward-fix policy) and the documented recovery is
+    a NEW candidate of the same version. The hazard is surfaced as a warning.
+    """
     tags = ["v0.1.0", "v0.1.0-alpha.1", "v1.0.0-rc1"]
-    with pytest.raises(rv.ReleaseVersionError, match="v0.1.0"):
-        compute(version="0.1.0", fmt="alpha.{N}", prefix="v", tags=tags)
+    result = compute(version="0.1.0", fmt="alpha.{N}", prefix="v", tags=tags)
+    assert result.publish_version == "0.1.0-alpha.2"
+    assert any("v0.1.0" in w for w in result.warnings)
+
+
+def test_candidate_after_failed_final_is_allowed() -> None:
+    """Regression guard for the forward-fix recovery path (rc after X.Y.Z)."""
+    result = compute(tags=["1.2.3", "1.2.3-rc4"])
+    assert result.publish_version == "1.2.3-rc5"
+    assert result.warnings
+
+
+def test_no_warnings_on_a_clean_series() -> None:
+    assert compute(tags=["1.2.3-rc1"]).warnings == ()
 
 
 def test_legacy_tags_of_other_versions_do_not_interfere() -> None:
@@ -284,6 +301,17 @@ def test_main_defaults_format_when_empty(
     rc = rv.main(["--version", "1.2.3", "--kind", "candidate", "--format", ""])
     assert rc == 0
     assert "publish_version=1.2.3-rc1" in capsys.readouterr().out
+
+
+def test_main_prints_warnings_as_annotations(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "stdin", io.StringIO("1.2.3\n"))
+    rc = rv.main(["--version", "1.2.3", "--kind", "candidate", "--format", ""])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "publish_version=1.2.3-rc1" in captured.out
+    assert captured.err.startswith("::warning::")
 
 
 def test_main_reports_error_and_exits_nonzero(
