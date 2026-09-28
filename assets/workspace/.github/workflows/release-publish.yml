@@ -3,6 +3,8 @@
 
 # Publishes git tag and optionally a GitHub Release. Final releases always get a draft release.
 # Candidates get a draft pre-release only when create_release is true (workflow_dispatch input).
+# The draft is created BEFORE the tag ref (#1746) so tag-triggered consumer workflows always
+# find it; only promote-release.yml publishes it.
 name: Release Publish
 
 on:  # yamllint disable-line rule:truthy
@@ -21,7 +23,7 @@ on:  # yamllint disable-line rule:truthy
         required: true
         type: string
       publish_version:
-        description: "Version tag to publish (X.Y.Z or X.Y.Z-rcN)"
+        description: "Version to publish (X.Y.Z or X.Y.Z-<pre-release>, e.g. X.Y.Z-rcN)"
         required: true
         type: string
       release_kind:
@@ -150,6 +152,106 @@ jobs:
           mode: ${{ inputs.toolchain_mode }}
           devkit-version: ${{ inputs.devkit_version }}
 
+      - name: Extract release notes from CHANGELOG
+        env:
+          VERSION: ${{ inputs.version }}
+          TAG_PREFIX: ${{ inputs.tag_prefix }}
+        run: |
+          set -euo pipefail
+          # A final release reads the heading `prepare-changelog finalize
+          # --tag-prefix` just wrote, which carries the prefix
+          # (`## [v1.0.0](…)`); matching the bare version found nothing there and
+          # published the fallback body (#1355). A candidate publishes before
+          # finalize runs, so its heading is still the bare `## [1.0.0] - TBD`.
+          # Accept both; with an empty prefix the two are the same string.
+          RELEASE_HEADING_TAG="${TAG_PREFIX}${VERSION}"
+          awk -v tag="$RELEASE_HEADING_TAG" -v version="$VERSION" '
+            index($0, "## [" tag "]") == 1 || index($0, "## [" version "]") == 1 {found=1; next}
+            /^## \[/ && found {found=0}
+            found
+          ' CHANGELOG.md > /tmp/release-notes.md
+          if [ ! -s /tmp/release-notes.md ]; then
+            echo "No changelog notes found for $VERSION" > /tmp/release-notes.md
+          fi
+
+      # Draft-Release-first (#1746): the train is the Release owner, and the
+      # draft must exist BEFORE the tag ref so a tag-triggered consumer
+      # workflow (binaries, cargo-dist as an asset builder) always finds a
+      # draft to upload into during the pre-publish assets window. A draft
+      # does not create its tag — GitHub materialises it only on publish — so
+      # the draft targets the finalize SHA and the next step POSTs the ref.
+      # Only promote-release.yml ever flips the draft to published.
+      - name: Create GitHub Release
+        id: draft
+        if: ${{ inputs.release_kind == 'final' || (inputs.release_kind == 'candidate' && inputs.create_release) }}
+        env:
+          PUBLISH_VERSION: ${{ inputs.publish_version }}
+          TAG_PREFIX: ${{ inputs.tag_prefix }}
+          RELEASE_KIND: ${{ inputs.release_kind }}
+          FINALIZE_SHA: ${{ inputs.finalize_sha }}
+          GH_TOKEN: ${{ steps.auth.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Release object is keyed on the actual (prefixed) tag name (#1044).
+          PUBLISH_TAG="${TAG_PREFIX}${PUBLISH_VERSION}"
+          export PUBLISH_TAG FINALIZE_SHA
+          # Look releases up in the release LIST: a draft has no tag ref yet,
+          # so the by-tag endpoint cannot see it (#1746).
+          EXISTING=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
+            gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+              --jq '.[] | select(.tag_name == env.PUBLISH_TAG) | {id, draft, prerelease}' \
+            | jq -s '.')
+          if [ "$(jq 'map(select(.draft | not)) | length' <<<"$EXISTING")" -gt 0 ]; then
+            if [ "$RELEASE_KIND" = "candidate" ] \
+              && [ "$(jq 'map(select((.draft | not) and (.prerelease | not))) | length' <<<"$EXISTING")" -eq 0 ]; then
+              echo "Pre-release already exists for $PUBLISH_TAG; skipping create (candidate retry path)."
+              echo "created=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "ERROR: Published (non-draft) GitHub Release already exists for tag $PUBLISH_TAG"
+            exit 1
+          fi
+          if [ "$(jq 'length' <<<"$EXISTING")" -gt 0 ]; then
+            echo "Draft GitHub Release already exists for $PUBLISH_TAG; skipping create (retry path)."
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CREATE_ARGS=(--title "$PUBLISH_TAG" --notes-file /tmp/release-notes.md --target "$FINALIZE_SHA" --draft)
+          if [ "$RELEASE_KIND" = "candidate" ]; then
+            CREATE_ARGS+=(--prerelease)
+          fi
+          # Idempotent create: a create whose response was lost may still have
+          # made the draft, so every attempt first adopts a draft for this
+          # tag + target instead of minting a second one (#1746).
+          create_draft() {
+            if gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+                --jq '.[] | select(.tag_name == env.PUBLISH_TAG and .draft and .target_commitish == env.FINALIZE_SHA) | .id' \
+                | grep -q .; then
+              echo "Adopted the draft GitHub Release an earlier attempt created for $PUBLISH_TAG."
+              return 0
+            fi
+            gh release create "$PUBLISH_TAG" "$@"
+          }
+          export -f create_draft
+          if ! CREATE_OUTPUT=$(retry --retries 3 --backoff 5 --max-backoff 30 -- bash -c 'create_draft "$@"' _ "${CREATE_ARGS[@]}" 2>&1); then
+            printf '%s\n' "$CREATE_OUTPUT"
+            # A tag name whose published release was deleted under release
+            # immutability is retired forever: release creation for it fails
+            # with GH013 and no retry or wait can ever succeed.
+            if printf '%s' "$CREATE_OUTPUT" | grep -Eqi "GH013|creations restricted"; then
+              echo "ERROR: Tag name $PUBLISH_TAG is tombstoned by release immutability:"
+              echo "a published GitHub Release for this tag was deleted, permanently retiring the name."
+              echo "This version is burned — re-cut the content as the next patch version."
+              echo "See https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md ('Restarting a Finalized Release — the Point of No Return')."
+            fi
+            exit 1
+          fi
+          printf '%s\n' "$CREATE_OUTPUT"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+          if [ "$RELEASE_KIND" = "final" ]; then
+            echo "Draft GitHub Release created; publish from ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases when review is complete."
+          fi
+
       # The release tag is a LIGHTWEIGHT tag: a plain `refs/tags/<tag>` ref
       # POSTed straight at the release commit, with no tag object behind it.
       # `git tag -a` (what this step used to do) writes a tag object carrying a
@@ -161,6 +263,7 @@ jobs:
       # no tagger and no payload, so there is nothing left to be unsigned, and
       # the commit the ref resolves to is the release commit.
       - name: Create release tag
+        id: tag
         if: ${{ !inputs.tag_already_exists }}
         env:
           GH_TOKEN: ${{ steps.auth.outputs.token }}
@@ -217,76 +320,46 @@ jobs:
           fi
           echo "Tag already present on origin at the release commit: $PUBLISH_TAG"
 
-      - name: Extract release notes from CHANGELOG
-        env:
-          VERSION: ${{ inputs.version }}
-          TAG_PREFIX: ${{ inputs.tag_prefix }}
-        run: |
-          set -euo pipefail
-          # A final release reads the heading `prepare-changelog finalize
-          # --tag-prefix` just wrote, which carries the prefix
-          # (`## [v1.0.0](…)`); matching the bare version found nothing there and
-          # published the fallback body (#1355). A candidate publishes before
-          # finalize runs, so its heading is still the bare `## [1.0.0] - TBD`.
-          # Accept both; with an empty prefix the two are the same string.
-          RELEASE_HEADING_TAG="${TAG_PREFIX}${VERSION}"
-          awk -v tag="$RELEASE_HEADING_TAG" -v version="$VERSION" '
-            index($0, "## [" tag "]") == 1 || index($0, "## [" version "]") == 1 {found=1; next}
-            /^## \[/ && found {found=0}
-            found
-          ' CHANGELOG.md > /tmp/release-notes.md
-          if [ ! -s /tmp/release-notes.md ]; then
-            echo "No changelog notes found for $VERSION" > /tmp/release-notes.md
-          fi
-
-      - name: Create GitHub Release
-        if: ${{ inputs.release_kind == 'final' || (inputs.release_kind == 'candidate' && inputs.create_release) }}
+      # A failed tag-ref POST must not strand the draft the step above just
+      # created: without its tag the draft is an orphan nobody promotes (#1746).
+      # Deleting a DRAFT is safe — it never burned the tag name. A pre-existing
+      # draft is left alone when its tag exists (not this run's to discard),
+      # and a published Release is never deleted.
+      - name: Discard orphan draft on tag failure
+        id: discard_orphan_draft
+        if: ${{ failure() && steps.tag.outcome == 'failure' && steps.draft.outcome == 'success' }}
         env:
           PUBLISH_VERSION: ${{ inputs.publish_version }}
           TAG_PREFIX: ${{ inputs.tag_prefix }}
-          RELEASE_KIND: ${{ inputs.release_kind }}
+          FINALIZE_SHA: ${{ inputs.finalize_sha }}
+          DRAFT_CREATED: ${{ steps.draft.outputs.created }}
           GH_TOKEN: ${{ steps.auth.outputs.token }}
         run: |
           set -euo pipefail
-          # Release object is keyed on the actual (prefixed) tag name (#1044).
           PUBLISH_TAG="${TAG_PREFIX}${PUBLISH_VERSION}"
-          if RELEASE_JSON=$(retry --retries 2 --backoff 5 --max-backoff 20 -- gh release view "$PUBLISH_TAG" --json isDraft,isPrerelease 2>/dev/null); then
-            IS_DRAFT=$(printf '%s' "$RELEASE_JSON" | jq -r '.isDraft')
-            if [ "$IS_DRAFT" = "true" ]; then
-              echo "Draft GitHub Release already exists for $PUBLISH_TAG; skipping create (retry path)."
+          export PUBLISH_TAG FINALIZE_SHA
+          if [ "$DRAFT_CREATED" != "true" ]; then
+            REMOTE_TAG=$(retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags origin "refs/tags/$PUBLISH_TAG" | awk '{print $1}')
+            if [ -n "$REMOTE_TAG" ]; then
+              echo "Draft for $PUBLISH_TAG predates this run and its tag exists; leaving it in place."
               exit 0
             fi
-            if [ "$RELEASE_KIND" = "candidate" ]; then
-              IS_PRERELEASE=$(printf '%s' "$RELEASE_JSON" | jq -r '.isPrerelease')
-              if [ "$IS_PRERELEASE" = "true" ]; then
-                echo "Pre-release already exists for $PUBLISH_TAG; skipping create (candidate retry path)."
-                exit 0
-              fi
-            fi
-            echo "ERROR: Published (non-draft) GitHub Release already exists for tag $PUBLISH_TAG"
-            exit 1
           fi
-          CREATE_ARGS=(--title "$PUBLISH_TAG" --notes-file /tmp/release-notes.md --verify-tag --draft)
-          if [ "$RELEASE_KIND" = "candidate" ]; then
-            CREATE_ARGS+=(--prerelease)
+          # Every draft for this tag + target — a lost create response can
+          # leave more than one. Only drafts: a published Release is never
+          # deleted, and a draft for another target is not this train's.
+          DRAFT_IDS=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
+            gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+              --jq '.[] | select(.tag_name == env.PUBLISH_TAG and .draft and .target_commitish == env.FINALIZE_SHA) | .id')
+          if [ -z "$DRAFT_IDS" ]; then
+            echo "No draft GitHub Release for $PUBLISH_TAG at $FINALIZE_SHA; nothing to discard."
+            exit 0
           fi
-          if ! CREATE_OUTPUT=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh release create "$PUBLISH_TAG" "${CREATE_ARGS[@]}" 2>&1); then
-            printf '%s\n' "$CREATE_OUTPUT"
-            # A tag name whose published release was deleted under release
-            # immutability is retired forever: release creation for it fails
-            # with GH013 and no retry or wait can ever succeed.
-            if printf '%s' "$CREATE_OUTPUT" | grep -Eqi "GH013|creations restricted"; then
-              echo "ERROR: Tag name $PUBLISH_TAG is tombstoned by release immutability:"
-              echo "a published GitHub Release for this tag was deleted, permanently retiring the name."
-              echo "This version is burned — re-cut the content as the next patch version."
-              echo "See https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md ('Restarting a Finalized Release — the Point of No Return')."
-            fi
-            exit 1
-          fi
-          printf '%s\n' "$CREATE_OUTPUT"
-          if [ "$RELEASE_KIND" = "final" ]; then
-            echo "Draft GitHub Release created; publish from ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases when review is complete."
-          fi
+          for id in $DRAFT_IDS; do
+            retry --retries 3 --backoff 5 --max-backoff 30 -- \
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/$id"
+          done
+          echo "Discarded orphan draft GitHub Release(s) for $PUBLISH_TAG (tag creation failed); a re-run recreates it."
 
       - name: Set outputs
         id: out
