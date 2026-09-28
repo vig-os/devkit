@@ -901,6 +901,8 @@ jobs:
     env:
       GH_REPO: ${{ github.repository }}
     needs: [ready-release-pr, trigger-release]
+    outputs:
+      head_sha: ${{ steps.poll_checks.outputs.head_sha }}
     steps:
       - name: Generate release app token for PR checks
         id: generate_release_token
@@ -912,6 +914,7 @@ jobs:
           repositories: ${{ github.event.repository.name }}
 
       - name: Poll release PR required checks until green
+        id: poll_checks
         env:
           GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
           PR_NUMBER: ${{ needs.ready-release-pr.outputs.release_pr }}
@@ -920,6 +923,14 @@ jobs:
           set -euo pipefail
           if [ -z "${PR_NUMBER}" ] || [ -z "${PR_URL}" ]; then
             echo "ERROR: missing release PR number or URL"
+            exit 1
+          fi
+
+          # Resolved from the PR itself, not reconstructed from the version
+          # (#1737): the release branch is whatever the PR actually carries.
+          HEAD_REF_NAME="$(gh pr view "${PR_NUMBER}" --json headRefName --jq '.headRefName' 2>/dev/null || echo "")"
+          if [ -z "${HEAD_REF_NAME}" ]; then
+            echo "ERROR: could not resolve release PR head branch name: ${PR_URL}"
             exit 1
           fi
 
@@ -934,9 +945,47 @@ jobs:
               exit 1
             fi
             if [ "${PR_STATE}" = "MERGED" ]; then
+              MERGED_SHA="$(gh pr view "${PR_NUMBER}" --json headRefOid --jq '.headRefOid' 2>/dev/null || echo "")"
               echo "WARNING: release PR was merged unexpectedly -- skipping check wait: ${PR_URL}"
+              if [ -n "${MERGED_SHA}" ]; then
+                echo "head_sha=${MERGED_SHA}" >> "${GITHUB_OUTPUT}"
+              fi
               exit 0
             fi
+
+            # Release-branch quiescence (#1737): finalize pushes a sync-issues
+            # commit that re-triggers the release PR's `pull_request` CI, so a
+            # green check set read while that push is still landing describes
+            # a commit we are about to abandon. A queued or in_progress run on
+            # the release branch -- most commonly the `Sync Issues and PRs`
+            # workflow itself -- means a push may still be coming; hold the
+            # wait until the branch is quiet. This job runs from a
+            # `repository_dispatch` trigger and is never itself a run on the
+            # release branch, so this cannot self-deadlock.
+            QUEUED_COUNT="$(gh run list --branch "${HEAD_REF_NAME}" --status queued --json databaseId --jq 'length' 2>/dev/null)" || QUEUED_COUNT=""
+            INPROGRESS_COUNT="$(gh run list --branch "${HEAD_REF_NAME}" --status in_progress --json databaseId --jq 'length' 2>/dev/null)" || INPROGRESS_COUNT=""
+            if [ -z "${QUEUED_COUNT}" ] || [ -z "${INPROGRESS_COUNT}" ]; then
+              echo "WARNING: gh run list failed while checking release branch quiescence (attempt $((ELAPSED / INTERVAL + 1)))"
+              sleep "${INTERVAL}"
+              ELAPSED=$((ELAPSED + INTERVAL))
+              continue
+            fi
+            if [ "${QUEUED_COUNT}" -gt 0 ] || [ "${INPROGRESS_COUNT}" -gt 0 ]; then
+              echo "Waiting for release branch ${HEAD_REF_NAME} to quiesce (queued=${QUEUED_COUNT} in_progress=${INPROGRESS_COUNT})..."
+              sleep "${INTERVAL}"
+              ELAPSED=$((ELAPSED + INTERVAL))
+              continue
+            fi
+
+            # SHA-anchored required-check read (#1737): resolve the head
+            # immediately before and immediately after the checks query. If it
+            # moved, the bucket set cannot be attributed to a single commit --
+            # discard the observation entirely (no pass, no fail/cancel
+            # verdict) and keep polling. This is what catches a push landing
+            # in the narrow window of the checks query itself; quiescence
+            # above is what holds the wait across the whole finalize ->
+            # sync-issues -> push chain.
+            PRE_SHA="$(gh pr view "${PR_NUMBER}" --json headRefOid --jq '.headRefOid' 2>/dev/null || echo "")"
 
             CHECKS_JSON="$(gh pr checks "${PR_NUMBER}" --required --json bucket 2>&1)" || {
               echo "WARNING: gh pr checks failed (attempt $((ELAPSED / INTERVAL + 1))): ${CHECKS_JSON}"
@@ -944,6 +993,17 @@ jobs:
               ELAPSED=$((ELAPSED + INTERVAL))
               continue
             }
+
+            POST_SHA="$(gh pr view "${PR_NUMBER}" --json headRefOid --jq '.headRefOid' 2>/dev/null || echo "")"
+
+            if [ -z "${PRE_SHA}" ] || [ -z "${POST_SHA}" ] || [ "${PRE_SHA}" != "${POST_SHA}" ]; then
+              echo "WARNING: release PR head moved during the checks query (${PRE_SHA:-?} -> ${POST_SHA:-?}); discarding this observation"
+              sleep "${INTERVAL}"
+              ELAPSED=$((ELAPSED + INTERVAL))
+              continue
+            fi
+            HEAD_SHA="${POST_SHA}"
+
             TOTAL="$(echo "${CHECKS_JSON}" | jq 'length')"
             if [ "${TOTAL}" -eq 0 ]; then
               echo "WARNING: no required checks reported yet (attempt $((ELAPSED / INTERVAL + 1)))"
@@ -957,17 +1017,18 @@ jobs:
             PASS_COUNT="$(echo "${CHECKS_JSON}" | jq '[.[] | select(.bucket == "pass")] | length')"
 
             if [ "${FAIL_COUNT}" -gt 0 ] && [ "${PENDING_COUNT}" -eq 0 ]; then
-              echo "ERROR: release PR required checks failed: ${PR_URL}"
+              echo "ERROR: release PR required checks failed for ${HEAD_SHA}: ${PR_URL}"
               exit 1
             fi
 
             if [ "${CANCEL_COUNT}" -gt 0 ] && [ "${PENDING_COUNT}" -eq 0 ]; then
-              echo "ERROR: release PR required checks cancelled: ${PR_URL}"
+              echo "ERROR: release PR required checks cancelled for ${HEAD_SHA}: ${PR_URL}"
               exit 1
             fi
 
             if [ "${TOTAL}" -gt 0 ] && [ "${PASS_COUNT}" -eq "${TOTAL}" ] && [ "${PENDING_COUNT}" -eq 0 ] && [ "${FAIL_COUNT}" -eq 0 ]; then
-              echo "Release PR required checks passed: ${PR_URL}"
+              echo "Release PR required checks passed for ${HEAD_SHA}: ${PR_URL}"
+              echo "head_sha=${HEAD_SHA}" >> "${GITHUB_OUTPUT}"
               exit 0
             fi
 
@@ -985,7 +1046,7 @@ jobs:
     timeout-minutes: 35
     env:
       GH_REPO: ${{ github.repository }}
-    needs: [validate, wait-release-pr-ci]
+    needs: [validate, ready-release-pr, wait-release-pr-ci]
     if: ${{ needs.validate.outputs.release_kind == 'final' }}
     steps:
       - name: Generate release app token for promote-release dispatch
@@ -996,6 +1057,35 @@ jobs:
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
+
+      # Cheap last-mile guard (#1737): wait-release-pr-ci confirmed a SHA, but
+      # a job boundary is one more window for a push to land in. Re-read the
+      # PR head immediately before dispatch and refuse with an explicit,
+      # actionable message rather than letting promote-release.yml's own
+      # (correct, and not to be loosened) validate step fail on a confusing
+      # "checks still in progress".
+      - name: Guard against a superseded release PR head
+        env:
+          GH_TOKEN: ${{ steps.generate_release_token.outputs.token }}
+          PR_NUMBER: ${{ needs.ready-release-pr.outputs.release_pr }}
+          CONFIRMED_SHA: ${{ needs.wait-release-pr-ci.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CONFIRMED_SHA}" ]; then
+            echo "ERROR: no confirmed release PR head SHA from the check-wait job; refusing to dispatch promote"
+            exit 1
+          fi
+          CURRENT_SHA="$(gh pr view "${PR_NUMBER}" --json headRefOid --jq '.headRefOid' 2>/dev/null || echo "")"
+          if [ -z "${CURRENT_SHA}" ]; then
+            echo "ERROR: could not resolve the current release PR head SHA"
+            exit 1
+          fi
+          if [ "${CURRENT_SHA}" != "${CONFIRMED_SHA}" ]; then
+            echo "ERROR: release PR head moved after the check-wait confirmed ${CONFIRMED_SHA} (now ${CURRENT_SHA}) -- refusing to dispatch promote"
+            echo "A later push re-triggered CI after the wait passed. Re-run this job once the PR's CI is green for the new head."
+            exit 1
+          fi
+          echo "release PR head is still ${CONFIRMED_SHA}; safe to dispatch promote"
 
       - name: Capture latest promote-release run id
         id: capture_promote_before

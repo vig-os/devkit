@@ -27,6 +27,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **SHA-anchored release-PR check-wait in the smoke gate**
+  ([#1737](https://github.com/vig-os/devkit/issues/1737))
+  - The smoke listener's `wait-release-pr-ci` job could observe a complete,
+    green required-check set for the release PR's *pre-push* head SHA and let
+    `trigger-promote-release` dispatch `promote-release.yml` while
+    `finalize`'s `sync-issues` push was still re-triggering that PR's CI --
+    a timing race, not a content defect (live on the 1.17.0 train).
+  - The wait now requires both a quiet release branch (no `queued`/
+    `in_progress` workflow run) and a required-check read anchored by a
+    `headRefOid` snapshot taken immediately before and after the query; a
+    head move discards the observation instead of judging it.
+  - The confirmed SHA is exposed as a job output and consumed by a new
+    last-mile guard in `trigger-promote-release` that re-checks the PR head
+    immediately before dispatch and fails with an explicit message on a
+    mismatch, instead of a confusing downstream "checks still in progress"
+    refusal.
+
 ### Security
 
 ## [1.17.0](https://github.com/vig-os/devkit/releases/tag/1.17.0) - 2026-09-28
