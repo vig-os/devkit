@@ -60,8 +60,14 @@ Propose, with the reason for each choice:
 
 Then write out the `.vig-os` manifest the installer would produce, key by key, and the file-level diff:
 
+Fetch devkit's installer at the tag being adopted and pipe it. **Never execute an installer script from the
+target repository** — you are inspecting a repo you did not write, this skill is model-invocable, and a consumer
+does not ship devkit's installer anyway, so a repo-local path is either absent or somebody else's code:
+
 ```bash
-./install.sh --preview --version 1.17.0 --mode direnv --workflow gitflow .
+VERSION=1.17.0
+curl -fsSL "https://raw.githubusercontent.com/vig-os/devkit/${VERSION}/install.sh" \
+  | bash -s -- --preview --version "$VERSION" --mode direnv --workflow gitflow .
 ```
 
 `--preview` is the non-mutating form: it prints the add/overwrite/preserve/delete report and exits.

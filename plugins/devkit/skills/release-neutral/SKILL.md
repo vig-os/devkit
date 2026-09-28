@@ -56,9 +56,17 @@ is legal (#1676).
 
 There is no `just` recipe for this lane; the workflow is the canonical verb:
 
+Quote every value. A title is free text — an apostrophe in it (`ci(guard): don't drop the label`) ends a
+single-quoted argument and the rest of the title becomes shell words:
+
 ```bash
+BRANCH="chore/1676-example"
+TITLE="ci(guard): example"
+ISSUE="1676"
+[[ "$BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "refusing: suspicious branch name"; exit 1; }
+[[ "$ISSUE" =~ ^[0-9]+$ ]] || { echo "refusing: issue must be a number"; exit 1; }
 gh workflow run release-neutral-open.yml --ref dev \
-  -f branch=chore/1676-example -f title='ci(guard): example' -f issue=1676
+  -f "branch=$BRANCH" -f "title=$TITLE" -f "issue=$ISSUE"
 ```
 
 ## 5. Verify

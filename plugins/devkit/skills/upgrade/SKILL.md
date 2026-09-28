@@ -44,8 +44,14 @@ Never pass `--force` without having shown the dry-run report in the same run.
 
 ## 3. Dry run — this is the default
 
+Validate the target version, then fetch devkit's installer **at that tag**. Never run an installer script from
+the repo being upgraded: a consumer does not ship one, so the path is either absent or somebody else's code.
+
 ```bash
-./install.sh --preview --version 1.18.0 .
+VERSION=1.18.0
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "refusing: not a version"; exit 1; }
+curl -fsSL "https://raw.githubusercontent.com/vig-os/devkit/${VERSION}/install.sh" \
+  | bash -s -- --preview --version "$VERSION" .
 ```
 
 `--preview` prints the add / overwrite / preserve / delete report and exits without changing a single file, and it
@@ -65,7 +71,10 @@ Read the report back to the operator and call out, specifically:
 ## 4. Apply, only after confirmation
 
 ```bash
-./install.sh --force --version 1.18.0 .
+VERSION=1.18.0
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "refusing: not a version"; exit 1; }
+curl -fsSL "https://raw.githubusercontent.com/vig-os/devkit/${VERSION}/install.sh" \
+  | bash -s -- --force --version "$VERSION" .
 ```
 
 Run it inside the project shell so the repo's own hooks run on the resulting commit. Then review the diff before
@@ -93,6 +102,14 @@ consumer whose flake input is named something other than `vigos`, or is pinned t
 nothing says so (#1497) — check the input by hand and report it either way.
 
 Then re-run `/devkit:status` and confirm drift is clean against the new pin.
+
+Re-add the plugin marketplace at the new tag, or the skills you run stay on the old version:
+
+```text
+/plugin marketplace add vig-os/devkit@1.18.0
+```
+
+`/devkit:status` reports a plugin version mismatch until you do.
 
 ## 6. Hand off
 

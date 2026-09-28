@@ -29,6 +29,16 @@ git status --porcelain
 gh pr view --json number,isDraft,reviewDecision,statusCheckRollup,url
 ```
 
+### Validate the version before anything uses it
+
+The `just` recipes interpolate their argument straight into a shell command, so an unvalidated version is a typo
+surface and a command-injection surface at once. Check it, and quote `"$VERSION"` at every use afterwards:
+
+```bash
+VERSION=1.2.3
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "refusing: '$VERSION' is not X.Y.Z"; exit 1; }
+```
+
 ## 2. Refuse
 
 | State | Why | Offer instead |

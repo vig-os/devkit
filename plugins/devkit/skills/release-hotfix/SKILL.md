@@ -24,6 +24,16 @@ git describe --tags --abbrev=0 origin/main
 git status --porcelain
 ```
 
+### Validate the version before anything uses it
+
+The `just` recipes interpolate their argument straight into a shell command, so an unvalidated version is a typo
+surface and a command-injection surface at once. Check it, and quote `"$VERSION"` at every use afterwards:
+
+```bash
+VERSION=1.2.3
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "refusing: '$VERSION' is not X.Y.Z"; exit 1; }
+```
+
 ## 2. Refuse
 
 | State | Why | Offer instead |
@@ -66,9 +76,13 @@ regular lane pushes an `Unreleased` reset to `dev` immediately after cutting, so
 a branch cut from `dev` either):
 
 ```bash
-gh run view --log --job "$(gh run list --workflow prepare-hotfix.yml --limit 1 --json databaseId --jq '.[0].databaseId')" 2>/dev/null | grep -i 'checkout main' | head -3
+RUN_ID="$(gh run list --workflow prepare-hotfix.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+gh run view "$RUN_ID" --log | grep -i 'checkout main' | head -3
 git diff --stat origin/main...origin/release/1.2.4
 ```
+
+`--job` takes a **job** id, not the run id `gh run list` returns; passing the run id there returns nothing and the
+evidence looks empty rather than absent. Pass the run id positionally, as above.
 
 A branch cut from `main` differs from `main` by the seed commit alone. If that diff carries `dev`'s unshipped work,
 the wrong lane ran — stop and say so.

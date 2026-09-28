@@ -579,6 +579,15 @@ jobs:
           # diverge; tests/test_devkit_plugin.py asserts they are equal.
           PLUGIN_MANIFEST=plugins/devkit/.claude-plugin/plugin.json
           sed -i -E "s/^(  \"version\": \")[^\"]*(\",)$/\1$VERSION\2/" "$PLUGIN_MANIFEST"
+          # A sed that matches nothing exits 0. Without this check a reformatted
+          # manifest would silently ship a stale plugin version under the final
+          # tag -- exactly the drift the version lock exists to prevent.
+          if ! jq -e --arg v "$VERSION" '.version == $v' "$PLUGIN_MANIFEST" >/dev/null; then
+            echo "ERROR: $PLUGIN_MANIFEST version is not $VERSION after the bump."
+            echo "The sed pattern no longer matches the manifest's formatting."
+            jq -r '.version' "$PLUGIN_MANIFEST"
+            exit 1
+          fi
           echo "✓ Set version=$VERSION in $PLUGIN_MANIFEST"
 
       - name: Collect finalization files

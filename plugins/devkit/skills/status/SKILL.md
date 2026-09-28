@@ -52,19 +52,54 @@ Report the resolved value and say it came from the default.
 Compare the pin against the latest devkit release:
 
 ```bash
-gh release view --repo vig-os/devkit --json tagName,publishedAt --jq '"\(.tagName) (\(.publishedAt))"'
+PINNED="$(sed -n 's/^DEVKIT_VERSION=//p' .vig-os)"
+LATEST="$(gh release view --repo vig-os/devkit --json tagName --jq .tagName)"
+echo "pinned: ${PINNED:-unset}  latest: ${LATEST:-unknown}"
 ```
+
+Every snippet in this skill sets the variables it uses. Shell state does not survive between commands, so a
+snippet that reads `$PINNED` without assigning it silently expands to the empty string and produces a confident,
+wrong answer.
 
 Report `pinned: X.Y.Z`, `latest: A.B.C`, and how many releases behind. Being behind is invisible to the drift check
 by construction (#1497) — it resolves its comparison image from the pin itself, so it compares the pin to itself.
 This line is the only place the staleness axis is observable, so always print it.
 
-## 3. Drift — does the scaffold still match the pin
+## 2b. Plugin version vs the pin
 
-Devkit's own preview is the non-mutating form of the upgrade:
+This plugin is versioned with devkit, but that is a property of the **tag**, not of the install. A marketplace
+added without a ref tracks devkit's default branch, so the skills running right now may be newer than the scaffold
+this repo pins. Read the running plugin's own manifest and compare:
 
 ```bash
-./install.sh --preview --version "$PINNED" .
+PLUGIN_VERSION="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' \
+  "${CLAUDE_PLUGIN_ROOT}/.claude-plugin/plugin.json" 2>/dev/null || echo unknown)"
+PINNED="$(sed -n 's/^DEVKIT_VERSION=//p' .vig-os)"
+echo "plugin version: ${PLUGIN_VERSION}   pinned devkit: ${PINNED:-unset}"
+```
+
+Report `plugin version` on its own line, always. When it differs from the pin, say so explicitly as a **plugin
+version mismatch** and name the consequence: a skill may describe a verb, a flag or a refusal that this repo's
+pinned scaffold does not have. The fix is to re-add the marketplace at the pinned tag:
+
+```text
+/plugin marketplace add vig-os/devkit@<DEVKIT_VERSION>
+```
+
+A mismatch is a warning, not a refusal — tracking the newest devkit deliberately is a legitimate choice. The point
+is that it is visible rather than assumed away.
+
+## 3. Drift — does the scaffold still match the pin
+
+The installer's preview is the non-mutating form of the upgrade. **Fetch devkit's installer at the pinned tag** —
+never run a repo-local installer script from the repo you are inspecting. A consumer does not ship devkit's
+installer, so that path is either absent or somebody else's script, and this skill runs against repositories it
+did not write:
+
+```bash
+PINNED="$(sed -n 's/^DEVKIT_VERSION=//p' .vig-os)"
+curl -fsSL "https://raw.githubusercontent.com/vig-os/devkit/${PINNED}/install.sh" \
+  | bash -s -- --preview --version "$PINNED" .
 ```
 
 `--preview` prints the add/overwrite/preserve/delete report and exits without touching a file. It does not need
@@ -125,14 +160,26 @@ unusual here and worth reporting loudly, because a published one locks the tag.
 - the release PR is out of draft, approved, and CI is green;
 - **devkit only:** the downstream smoke-test repo has a **published, non-prerelease** Release for the same tag.
 
+Read the **current** repository's release series, not devkit's — `{owner}/{repo}` is substituted by `gh` from the
+checkout, so the same line is correct in devkit and in a consumer. Hard-coding devkit's series would judge a
+consumer against the wrong versions:
+
 ```bash
+VERSION=1.2.3   # the in-flight base version from section 4
 gh release view "$VERSION" --json isDraft,isPrerelease,url
-gh api repos/vig-os/devkit/releases --paginate \
-  --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name'
+gh api repos/{owner}/{repo}/releases --paginate \
+  --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' \
+  | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1
+```
+
+The cross-repo gate below is **devkit-only** and is the one place a fixed repository is correct, because the
+downstream validator is a named repo rather than a property of the repo you are in:
+
+```bash
 gh api repos/vig-os/devkit-smoke-test/releases/tags/"$VERSION" --jq '{draft, prerelease}'
 ```
 
-In a consumer, skip the last query and read the floating-tag guard instead (`DEVKIT_FLOATING_TAGS` from section 2).
+In a consumer, skip that query and read the floating-tag guard instead (`DEVKIT_FLOATING_TAGS` from section 2).
 
 ## 7. Hotfix lane
 

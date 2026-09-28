@@ -1,15 +1,31 @@
 # devkit — the vigOS devkit operator plugin
 
 A Claude Code plugin of state-lookup-first skills for **adopting** vigOS devkit, **operating** its release train,
-and **keeping a consumer in sync**. It ships from the same repository as the workflows it drives, and its version
-is devkit's own version, so a skill can never describe a verb the pinned scaffold does not have.
+and **keeping a consumer in sync**. It ships from the same repository as the workflows it drives, and every release
+tag carries the plugin whose skills match that release's verbs.
 
 ## Install
 
+**Pin the marketplace to the devkit version this repo runs.** A marketplace added without a ref tracks the
+repository's **default branch**, which is the newest release — so an unpinned install gives you the latest skills
+no matter which `DEVKIT_VERSION` your `.vig-os` pins. The `@ref` form is what makes the two agree:
+
 ```text
-/plugin marketplace add vig-os/devkit
+/plugin marketplace add vig-os/devkit@1.17.0
 /plugin install devkit@vigos-devkit
 ```
+
+Use the value of `DEVKIT_VERSION` from your `.vig-os` as the ref. When you upgrade devkit, re-add the marketplace
+at the new tag — `/devkit:upgrade` reminds you, and `/devkit:status` reports the mismatch until you do.
+
+Devkit is a large repository; a sparse add fetches only what the marketplace needs:
+
+```text
+/plugin marketplace add vig-os/devkit@1.17.0 --sparse
+```
+
+Adding it unpinned is a legitimate choice for someone who always tracks the newest devkit — it is simply not the
+same guarantee, and `/devkit:status` will say so rather than let you assume otherwise.
 
 While developing the plugin, load it straight from this directory instead:
 
@@ -47,7 +63,10 @@ Claude Code namespaces every plugin component under the plugin name, so each ski
 3. **Skills wrap canonical verbs.** A skill calls `just prepare-release` or dispatches a workflow; it never
    re-implements one. A missing knob is a devkit issue against the workflow, not a workaround in a skill.
 4. **Versioned with devkit.** `plugin.json`'s version equals `DEVKIT_VERSION`, and `release.yml` bumps both in the
-   same step. Cross-version drift is impossible by construction.
+   same step, so **every release tag carries skills that match that release's verbs**. That is a property of the
+   tag, not of your install: pin the marketplace to your `DEVKIT_VERSION` to inherit it. `/devkit:status` reads the
+   running plugin's own manifest and reports a mismatch, so an unpinned install is visible rather than assumed
+   away.
 5. **Refusals are first-class.** Each mutating skill carries a refusal table: the state, why it is a foot-gun, and
    the verb that clears it.
 

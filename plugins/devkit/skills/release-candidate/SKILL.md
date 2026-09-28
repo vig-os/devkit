@@ -28,6 +28,18 @@ git status --porcelain
 If the operator passed a version, it must equal the branch's. If it does not, that disagreement is the finding —
 report it and stop.
 
+### Validate the inferred version before anything uses it
+
+This is the one skill that takes its version from **repository data** rather than from the operator — a branch
+name is attacker-influenceable in a way a typed argument is not, and the `just` recipes interpolate their argument
+straight into a shell command. Validate what you parsed, and quote `"$VERSION"` at every use afterwards:
+
+```bash
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+VERSION="${BRANCH#release/}"
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "refusing: '$VERSION' is not X.Y.Z"; exit 1; }
+```
+
 ## 2. Refuse
 
 | State | Why | Offer instead |
@@ -47,10 +59,24 @@ Do not hard-code the `-rc` label when you scan: the pre-release format is config
 
 ## 3. Dry run first
 
-Echo the line and the observed state, then confirm. The underlying workflow takes a `dry-run` input:
+Echo the line and the observed state, then confirm. The underlying workflow takes a `dry-run` input, but
+**`publish-candidate`'s signature differs between devkit and a consumer**, so read it before you pass positional
+placeholders — in a consumer the third positional is `create-release`, and a flag passed there lands in it:
+
+```bash
+just --show publish-candidate
+```
+
+Devkit (`version ref *flags`):
 
 ```bash
 just publish-candidate 1.2.3 "" -f dry-run=true
+```
+
+Consumer (`version ref create-release *flags`):
+
+```bash
+just publish-candidate 1.2.3 "" false -f dry-run=true
 ```
 
 ## 4. Dispatch
@@ -62,12 +88,6 @@ just publish-candidate 1.2.3
 The recipe dispatches `release.yml` with `release-kind=candidate`. Never call `gh release create` yourself:
 candidate mode deliberately creates the **git tag only**, with no Release object, so the tag stays unlocked.
 
-**The consumer recipe takes one more positional argument** than devkit's own: `version ref create-release *flags`.
-Read the signature before you pass extra arguments, or a flag lands in `create-release`:
-
-```bash
-just --show publish-candidate
-```
 
 ## 5. Verify
 

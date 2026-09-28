@@ -30,13 +30,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `disable-model-invocation: true`, so an agent cannot infer its way into
     dispatching a release verb.
   - The plugin is versioned with devkit: `plugin.json`'s version equals
-    `DEVKIT_VERSION`, and `release.yml`'s finalize step bumps both, so a
-    consumer pinned to `X.Y.Z` gets the `devkit@X.Y.Z` skills.
-  - Distributed through a marketplace in this repository
-    (`/plugin marketplace add vig-os/devkit` then
-    `/plugin install devkit@vigos-devkit`), not vendored into the consumer
-    scaffold -- the per-repo copy is the drift model
+    `DEVKIT_VERSION`, and `release.yml`'s finalize step bumps and verifies
+    both, so every release tag carries skills matching that release's verbs.
+  - Distributed through a marketplace in this repository, not vendored into
+    the consumer scaffold -- the per-repo copy is the drift model
     [#927](https://github.com/vig-os/devkit/issues/927) exists to retire.
+    Pin the marketplace to your `DEVKIT_VERSION`
+    (`/plugin marketplace add vig-os/devkit@X.Y.Z` then
+    `/plugin install devkit@vigos-devkit`): an unpinned marketplace tracks
+    devkit's default branch, so the skills would be the newest release's
+    whatever the scaffold pins. `/devkit:status` reports the mismatch.
   - `tests/test_devkit_plugin.py` fails when a skill names a `just` recipe or
     a workflow file that does not exist in devkit or in the scaffold.
 - **Creation runbook for the `vigos-devkit-upgrade` GitHub App**
