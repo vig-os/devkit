@@ -520,7 +520,7 @@ def test_skill_documents_its_refusals(skill, markers):
 @pytest.mark.parametrize("skill", sorted(MUTATING_SKILLS | {"adopt"}))
 def test_skill_has_a_refusal_section(skill):
     text = skill_path(skill).read_text(encoding="utf-8")
-    assert "## Refuse" in text or "### Refuse" in text, (
+    assert re.search(r"^#{2,3} (?:\d+\.\s*)?Refuse\b", text, re.MULTILINE), (
         f"{skill}: needs an explicit refusal section listing the states it declines"
     )
 

@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`devkit` Claude Code plugin -- state-lookup-first operator skills**
+  ([#1744](https://github.com/vig-os/devkit/issues/1744))
+  - New `plugins/devkit/` plugin with eleven skills covering adoption
+    (`/devkit:adopt`), the read-only state report (`/devkit:status`), every
+    release-train pathway (`/devkit:release-prepare`, `-candidate`,
+    `-finalize`, `-promote`, `-abandon`, `-hotfix`, `-neutral`), consumer
+    upgrades (`/devkit:upgrade`) and the Rust pack audit
+    (`/devkit:pack-rust`).
+  - Every skill starts with a read-only state lookup and carries an explicit
+    refusal table for the states that would foot-gun the verb it wraps --
+    another train in flight ([#1627](https://github.com/vig-os/devkit/issues/1627)),
+    a floating tag that would move backwards
+    ([#1626](https://github.com/vig-os/devkit/issues/1626)), a published
+    Release whose deletion tombstones the tag name
+    ([#1301](https://github.com/vig-os/devkit/issues/1301)), a dirty tree,
+    `dev` behind `main`. Skills wrap the canonical `just` recipes and workflow
+    dispatches; they never re-implement release logic.
+  - Read-only skills are model-invocable; every mutating skill sets
+    `disable-model-invocation: true`, so an agent cannot infer its way into
+    dispatching a release verb.
+  - The plugin is versioned with devkit: `plugin.json`'s version equals
+    `DEVKIT_VERSION`, and `release.yml`'s finalize step bumps both, so a
+    consumer pinned to `X.Y.Z` gets the `devkit@X.Y.Z` skills.
+  - Distributed through a marketplace in this repository
+    (`/plugin marketplace add vig-os/devkit` then
+    `/plugin install devkit@vigos-devkit`), not vendored into the consumer
+    scaffold -- the per-repo copy is the drift model
+    [#927](https://github.com/vig-os/devkit/issues/927) exists to retire.
+  - `tests/test_devkit_plugin.py` fails when a skill names a `just` recipe or
+    a workflow file that does not exist in devkit or in the scaffold.
 - **Creation runbook for the `vigos-devkit-upgrade` GitHub App**
   ([#1739](https://github.com/vig-os/devkit/issues/1739))
   - New `docs/runbooks/devkit-upgrade-app.md` documents the App's grant, its

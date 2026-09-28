@@ -826,6 +826,17 @@ just abandon-release X.Y.Z
 just reset-changelog
 ```
 
+### Operator plugin (`/devkit:*`)
+
+The recipes above are the canonical verbs. The [`devkit` Claude Code plugin](../plugins/devkit/README.md) wraps
+each of them in a skill that first runs a read-only state lookup (`/devkit:status`) and refuses on the states this
+document warns about -- another train in flight, a floating tag that would move backwards, a published Release
+whose deletion would tombstone the tag name, a dirty tree, `dev` behind `main`.
+
+The plugin is versioned with devkit (`plugin.json`'s version tracks `DEVKIT_VERSION`), so the skills and the
+workflows they drive are released together. It wraps the verbs; it never re-implements them. When a skill and this
+document disagree, this document wins.
+
 ---
 
 ## CI/CD Integration
