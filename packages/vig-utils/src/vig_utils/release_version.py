@@ -47,16 +47,23 @@ KINDS = ("candidate", "final")
 
 _PLACEHOLDER_RE = re.compile(r"\{[^{}]*\}")
 _LITERAL_RE = re.compile(r"^[0-9A-Za-z.-]*$")
-_VERSION_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
+_VERSION_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$", re.ASCII)
 _IDENT = r"(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)"
-_PRERELEASE_RE = re.compile(rf"^{_IDENT}(?:\.{_IDENT})*$")
+_PRERELEASE_RE = re.compile(rf"^{_IDENT}(?:\.{_IDENT})*$", re.ASCII)
 _SEMVER_RE = re.compile(
     r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-("
     + _PRERELEASE_RE.pattern[1:-1]
-    + r"))?$"
+    + r"))?$",
+    re.ASCII,
 )
-_POSITIVE_INT_RE = re.compile(r"^[1-9]\d*$")
-_DATE_RE = re.compile(r"^\d{8}$")
+# {N} directly after/before a digit or the date placeholder yields one run of
+# digits (`{YYYYMMDD}{N}` -> 202601011 < 2026010110 for a later day), so the
+# counter can neither be parsed back nor ordered.
+_AMBIGUOUS_COUNTER_RE = re.compile(
+    r"(?:[0-9]|\{YYYYMMDD\})\{N\}|\{N\}(?:[0-9]|\{YYYYMMDD\})"
+)
+_POSITIVE_INT_RE = re.compile(r"^[1-9]\d*$", re.ASCII)
+_DATE_RE = re.compile(r"^\d{8}$", re.ASCII)
 
 
 class ReleaseVersionError(ValueError):
@@ -96,6 +103,13 @@ class PreReleaseFormat:
                 f"Invalid pre-release format '{fmt}': literal text may only use "
                 "[0-9A-Za-z.-] (SemVer pre-release characters)"
             )
+        if _AMBIGUOUS_COUNTER_RE.search(fmt):
+            raise ReleaseVersionError(
+                f"Invalid pre-release format '{fmt}': {COUNTER} must not touch a digit "
+                f"or {DATE} (e.g. `rc1{COUNTER}` or `{DATE}{COUNTER}` run the counter "
+                "into another number, so versions stop sorting); separate them with "
+                "a letter, `-` or `.`"
+            )
         parsed = cls(fmt)
         sample = parsed.expand(1, "20260101")
         if not _PRERELEASE_RE.match(sample):
@@ -119,7 +133,7 @@ class PreReleaseFormat:
         pattern = re.escape(self.raw)
         pattern = pattern.replace(re.escape(COUNTER), r"(?P<n>0|[1-9]\d*)")
         pattern = pattern.replace(re.escape(DATE), date_pattern)
-        return re.compile(rf"^{pattern}$")
+        return re.compile(rf"^{pattern}$", re.ASCII)
 
     def matches_any_date(self, pre: str) -> bool:
         """``pre`` is a well-formed instance of this format (any date)."""
@@ -277,6 +291,12 @@ def compute_publish_version(
         n = _resolve_counter(parsed, number, tags, base_tag, date)
         publish = f"{version}-{parsed.expand(n, date)}"
         next_n = "" if n is None else str(n)
+        if not number and any(tag == f"{tag_prefix}{publish}" for tag, _ in tags):
+            raise ReleaseVersionError(
+                f"Candidate tag {tag_prefix}{publish} already exists: format "
+                f"'{parsed.raw}' yields one candidate per version (per day for a "
+                f"dated format). Add {COUNTER} to the format to cut further candidates."
+            )
 
     warnings = _check_monotonic(parsed, kind, publish, tags, tag_prefix)
     return PublishVersion(publish_version=publish, next_n=next_n, warnings=warnings)
