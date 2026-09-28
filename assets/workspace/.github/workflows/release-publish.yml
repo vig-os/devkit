@@ -194,29 +194,46 @@ jobs:
           set -euo pipefail
           # Release object is keyed on the actual (prefixed) tag name (#1044).
           PUBLISH_TAG="${TAG_PREFIX}${PUBLISH_VERSION}"
-          if RELEASE_JSON=$(retry --retries 2 --backoff 5 --max-backoff 20 -- gh release view "$PUBLISH_TAG" --json isDraft,isPrerelease 2>/dev/null); then
-            IS_DRAFT=$(printf '%s' "$RELEASE_JSON" | jq -r '.isDraft')
-            if [ "$IS_DRAFT" = "true" ]; then
-              echo "Draft GitHub Release already exists for $PUBLISH_TAG; skipping create (retry path)."
+          export PUBLISH_TAG FINALIZE_SHA
+          # Look releases up in the release LIST: a draft has no tag ref yet,
+          # so the by-tag endpoint cannot see it (#1746).
+          EXISTING=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
+            gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+              --jq '.[] | select(.tag_name == env.PUBLISH_TAG) | {id, draft, prerelease}' \
+            | jq -s '.')
+          if [ "$(jq 'map(select(.draft | not)) | length' <<<"$EXISTING")" -gt 0 ]; then
+            if [ "$RELEASE_KIND" = "candidate" ] \
+              && [ "$(jq 'map(select((.draft | not) and (.prerelease | not))) | length' <<<"$EXISTING")" -eq 0 ]; then
+              echo "Pre-release already exists for $PUBLISH_TAG; skipping create (candidate retry path)."
               echo "created=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            if [ "$RELEASE_KIND" = "candidate" ]; then
-              IS_PRERELEASE=$(printf '%s' "$RELEASE_JSON" | jq -r '.isPrerelease')
-              if [ "$IS_PRERELEASE" = "true" ]; then
-                echo "Pre-release already exists for $PUBLISH_TAG; skipping create (candidate retry path)."
-                echo "created=false" >> "$GITHUB_OUTPUT"
-                exit 0
-              fi
-            fi
             echo "ERROR: Published (non-draft) GitHub Release already exists for tag $PUBLISH_TAG"
             exit 1
+          fi
+          if [ "$(jq 'length' <<<"$EXISTING")" -gt 0 ]; then
+            echo "Draft GitHub Release already exists for $PUBLISH_TAG; skipping create (retry path)."
+            echo "created=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           CREATE_ARGS=(--title "$PUBLISH_TAG" --notes-file /tmp/release-notes.md --target "$FINALIZE_SHA" --draft)
           if [ "$RELEASE_KIND" = "candidate" ]; then
             CREATE_ARGS+=(--prerelease)
           fi
-          if ! CREATE_OUTPUT=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh release create "$PUBLISH_TAG" "${CREATE_ARGS[@]}" 2>&1); then
+          # Idempotent create: a create whose response was lost may still have
+          # made the draft, so every attempt first adopts a draft for this
+          # tag + target instead of minting a second one (#1746).
+          create_draft() {
+            if gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+                --jq '.[] | select(.tag_name == env.PUBLISH_TAG and .draft and .target_commitish == env.FINALIZE_SHA) | .id' \
+                | grep -q .; then
+              echo "Adopted the draft GitHub Release an earlier attempt created for $PUBLISH_TAG."
+              return 0
+            fi
+            gh release create "$PUBLISH_TAG" "$@"
+          }
+          export -f create_draft
+          if ! CREATE_OUTPUT=$(retry --retries 3 --backoff 5 --max-backoff 30 -- bash -c 'create_draft "$@"' _ "${CREATE_ARGS[@]}" 2>&1); then
             printf '%s\n' "$CREATE_OUTPUT"
             # A tag name whose published release was deleted under release
             # immutability is retired forever: release creation for it fails
@@ -314,11 +331,13 @@ jobs:
         env:
           PUBLISH_VERSION: ${{ inputs.publish_version }}
           TAG_PREFIX: ${{ inputs.tag_prefix }}
+          FINALIZE_SHA: ${{ inputs.finalize_sha }}
           DRAFT_CREATED: ${{ steps.draft.outputs.created }}
           GH_TOKEN: ${{ steps.auth.outputs.token }}
         run: |
           set -euo pipefail
           PUBLISH_TAG="${TAG_PREFIX}${PUBLISH_VERSION}"
+          export PUBLISH_TAG FINALIZE_SHA
           if [ "$DRAFT_CREATED" != "true" ]; then
             REMOTE_TAG=$(retry --retries 3 --backoff 5 --max-backoff 30 -- git ls-remote --tags origin "refs/tags/$PUBLISH_TAG" | awk '{print $1}')
             if [ -n "$REMOTE_TAG" ]; then
@@ -326,16 +345,21 @@ jobs:
               exit 0
             fi
           fi
-          if ! RELEASE_JSON=$(retry --retries 2 --backoff 5 --max-backoff 20 -- gh release view "$PUBLISH_TAG" --json isDraft 2>/dev/null); then
-            echo "No GitHub Release for $PUBLISH_TAG; nothing to discard."
+          # Every draft for this tag + target — a lost create response can
+          # leave more than one. Only drafts: a published Release is never
+          # deleted, and a draft for another target is not this train's.
+          DRAFT_IDS=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
+            gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+              --jq '.[] | select(.tag_name == env.PUBLISH_TAG and .draft and .target_commitish == env.FINALIZE_SHA) | .id')
+          if [ -z "$DRAFT_IDS" ]; then
+            echo "No draft GitHub Release for $PUBLISH_TAG at $FINALIZE_SHA; nothing to discard."
             exit 0
           fi
-          if [ "$(printf '%s' "$RELEASE_JSON" | jq -r '.isDraft')" != "true" ]; then
-            echo "::warning::GitHub Release for $PUBLISH_TAG is published; refusing to delete it."
-            exit 0
-          fi
-          retry --retries 3 --backoff 5 --max-backoff 30 -- gh release delete "$PUBLISH_TAG" --yes
-          echo "Discarded orphan draft GitHub Release for $PUBLISH_TAG (tag creation failed); a re-run recreates it."
+          for id in $DRAFT_IDS; do
+            retry --retries 3 --backoff 5 --max-backoff 30 -- \
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/$id"
+          done
+          echo "Discarded orphan draft GitHub Release(s) for $PUBLISH_TAG (tag creation failed); a re-run recreates it."
 
       - name: Set outputs
         id: out
