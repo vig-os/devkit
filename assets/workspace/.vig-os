@@ -49,7 +49,7 @@ DEVKIT_TAG_PREFIX=
 # X.Y.Z-alpha.1, `beta` => X.Y.Z-beta. Prefer a dotted counter (`rc.{N}`) where
 # SemVer tooling orders versions: SemVer compares `rc10` below `rc9`. A
 # `release.yml` `pre-release-format` dispatch input overrides this key; a
-# format that would sort BELOW an existing tag of the same X.Y.Z is refused.
+# format that would sort BELOW an existing pre-release of the same X.Y.Z is refused.
 DEVKIT_PRERELEASE_FORMAT=
 
 # Opt-in floating major/minor tags, force-moved at promote to the final release
