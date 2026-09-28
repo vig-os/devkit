@@ -128,6 +128,10 @@ PRESERVE_FILES=(
     # this no-op with release-branch preparation, so an upgrade must never
     # clobber their implementation — same preserved class as release-extension.
     ".github/workflows/prepare-release-extension.yml"
+    # Standalone publish seam on `release: published` (#1746): consumers replace
+    # the default no-op with crates.io / PyPI / registry publishes, so an upgrade
+    # must never clobber it — same preserved class as the two seams above.
+    ".github/workflows/publish-release-extension.yml"
     "justfile.project"
     # Personal, gitignored recipes (#1054): the file's own header promises it is
     # preserved on upgrade, but it was absent here — so a re-scaffold silently
@@ -1700,6 +1704,7 @@ feature_paths() {
                 ".github/workflows/release-publish.yml" \
                 ".github/workflows/prepare-release.yml" \
                 ".github/workflows/prepare-release-extension.yml" \
+                ".github/workflows/publish-release-extension.yml" \
                 ".github/workflows/prepare-hotfix.yml" \
                 ".github/workflows/promote-release.yml" \
                 ".github/workflows/abandon-release.yml" \
@@ -3076,7 +3081,8 @@ if [[ "$FORCE" == "true" ]]; then
     # Feature opt-outs (#1284): a disabled feature's pre-existing paths are
     # pruned on upgrade — list them under DELETIONS (mirrors the trunk
     # sync-main-to-dev entry above). EXCEPT the preserved class
-    # (release-extension.yml, prepare-release-extension.yml, renovate.json),
+    # (release-extension.yml, prepare-release-extension.yml,
+    # publish-release-extension.yml, renovate.json),
     # which carry consumer implementation and are never pruned: report a
     # left-in-place notice instead (preview only — the post-copy prune echoes it
     # on a real --force run). sync-main-to-dev.yml is skipped when trunk already
@@ -3573,7 +3579,8 @@ done
 # Feature opt-outs (#1284): prune a disabled feature's pre-existing paths left
 # by an earlier scaffold (the rsync copy already excludes them via
 # MODE_CONFIG_EXCLUDES; this removes the upgrade leftover). Preserved-class files
-# (release-extension.yml, prepare-release-extension.yml, renovate.json) carry
+# (release-extension.yml, prepare-release-extension.yml,
+# publish-release-extension.yml, renovate.json) carry
 # consumer implementation and are never pruned — print a left-in-place notice
 # instead. Composes with the trunk gitflow-only prune above: those paths are
 # skipped under trunk so each is pruned + echoed exactly once.
