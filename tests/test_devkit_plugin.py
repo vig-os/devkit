@@ -140,10 +140,16 @@ _INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
 # A recipe invocation inside a code span/fence: `just` at a command position
 # (line start, after a shell separator, or after whitespace) followed by a
 # recipe name. Flags (`--fmt`) never match, because a name must start [a-z].
-_JUST_RE = re.compile(r"(?:^|[;&|(]\s*|\s)just\s+([a-z][a-z0-9_-]*)", re.MULTILINE)
+# Flags between `just` and the recipe name are skipped, so `just --show foo`
+# resolves `foo` rather than silently extracting nothing.
+_JUST_RE = re.compile(
+    r"(?:^|[;&|(]\s*|\s)just\s+(?:--?[a-zA-Z][a-zA-Z0-9-]*\s+)*([a-z][a-z0-9_-]*)",
+    re.MULTILINE,
+)
 
-# A workflow filename token. Requires the `.yml` suffix, so prose never matches.
-_YML_RE = re.compile(r"\b([a-z0-9][a-z0-9._-]*\.yml)\b")
+# A workflow/config filename token. Both YAML spellings count: `.yml` for the
+# workflows, `.yaml` for files such as `.pre-commit-config.yaml` a skill reads.
+_YML_RE = re.compile(r"\b([a-z0-9][a-z0-9._-]*\.ya?ml)\b")
 
 # A recipe definition: `name [params]:` but not the `:=` assignment form. The
 # parameter list may itself carry `=` (`ref=""`), so only the `:=` that directly
@@ -205,8 +211,13 @@ def known_yml_targets() -> set[str]:
         directory = REPO_ROOT / rel
         if directory.is_dir():
             names.update(p.name for p in directory.glob("*.yml"))
-    # Repo-root config files a skill may reference by name (e.g. zizmor.yml).
-    names.update(p.name for p in REPO_ROOT.glob("*.yml"))
+    # Repo-root config files a skill may reference by name (zizmor.yml,
+    # .pre-commit-config.yaml). A leading dot is not part of the extracted
+    # token, so register both spellings.
+    for pattern in ("*.yml", "*.yaml", ".*.yml", ".*.yaml"):
+        for path in REPO_ROOT.glob(pattern):
+            names.add(path.name)
+            names.add(path.name.lstrip("."))
     return names
 
 
@@ -491,8 +502,40 @@ _DISPATCH_RE = re.compile(
 )
 
 
+_SECTION_RE = re.compile(r"^## (\d+)\.\s*(.+)$", re.MULTILINE)
+
+
 @pytest.mark.parametrize("skill", sorted(MUTATING_SKILLS))
-def test_mutating_skill_runs_the_state_lookup_before_dispatching(skill):
+def test_mutating_skill_step_one_is_the_state_lookup(skill):
+    """Principle 1, structurally: section 1 *is* the lookup, not merely near it.
+
+    Comparing text offsets only proved the words appeared in some order. This
+    asserts the shape an operator actually reads: the first numbered section is
+    the state lookup, and that section delegates to `/devkit:status`.
+    """
+    text = skill_path(skill).read_text(encoding="utf-8")
+    sections = _SECTION_RE.findall(text)
+
+    assert sections, f"{skill}: has no numbered `## N. Title` sections"
+    number, title = sections[0]
+    assert number == "1", f"{skill}: first numbered section is {number}, expected 1"
+    assert "state lookup" in title.lower(), (
+        f"{skill}: section 1 is {title!r}, expected the state lookup"
+    )
+
+    body_start = text.index(f"## {number}. {title}")
+    body_end = (
+        text.index(f"## {sections[1][0]}. {sections[1][1]}")
+        if len(sections) > 1
+        else len(text)
+    )
+    assert "/devkit:status" in text[body_start:body_end], (
+        f"{skill}: section 1 does not delegate to /devkit:status"
+    )
+
+
+@pytest.mark.parametrize("skill", sorted(MUTATING_SKILLS))
+def test_mutating_skill_does_not_dispatch_before_the_lookup(skill):
     """Principle 1: no mutation without a fresh state read in the same run."""
     text = skill_path(skill).read_text(encoding="utf-8")
 
@@ -628,3 +671,132 @@ def test_recipe_definitions_are_parsed_not_assignments():
     assert "repo" not in recipes
     # Aliases are callable and therefore known.
     assert "gh-i" in recipes
+
+
+# ---------------------------------------------------------------------------- #
+# Safety and correctness of what a skill tells the operator to run
+# ---------------------------------------------------------------------------- #
+
+# Skills that take an X.Y.Z argument and feed it to a shell command. Each must
+# validate it before use: the recipes interpolate the value straight into bash.
+VERSION_ARG_SKILLS = frozenset(
+    {
+        "release-abandon",
+        "release-candidate",
+        "release-finalize",
+        "release-hotfix",
+        "release-prepare",
+        "release-promote",
+        "upgrade",
+    }
+)
+
+_SEMVER_GUARD_RE = re.compile(r"\^\[0-9\]\+\\?\.\[0-9\]\+\\?\.\[0-9\]\+\$")
+
+
+@pytest.mark.parametrize("skill", skill_ids())
+def test_no_skill_runs_a_repo_local_installer(skill):
+    """`./install.sh` is the *target* repo's script, or absent.
+
+    `/devkit:adopt` and `/devkit:status` run against arbitrary repositories, and
+    a consumer never ships devkit's installer. Executing `./install.sh` there is
+    either a no-op or running someone else's script; both are wrong, and the
+    second is arbitrary code execution from a model-invocable skill. Fetch
+    devkit's installer at a pinned tag instead.
+    """
+    text = skill_path(skill).read_text(encoding="utf-8")
+    assert "./install.sh" not in text, (
+        f"{skill}: runs a repo-local ./install.sh — fetch devkit's installer at a "
+        "pinned tag instead"
+    )
+
+
+@pytest.mark.parametrize("skill", skill_ids())
+def test_installer_fetches_are_pinned_to_a_tag(skill):
+    """A piped installer must come from a tag, never from a moving branch."""
+    text = skill_path(skill).read_text(encoding="utf-8")
+    for match in re.finditer(
+        r"raw\.githubusercontent\.com/vig-os/devkit/(\S+?)/install\.sh", text
+    ):
+        ref = match.group(1)
+        assert ref not in {"main", "dev", "HEAD"}, (
+            f"{skill}: fetches install.sh from the moving ref `{ref}`; pin it to the "
+            "version the operator is adopting"
+        )
+
+
+@pytest.mark.parametrize("skill", skill_ids())
+def test_no_skill_hardcodes_the_devkit_release_series(skill):
+    """A consumer's release series is its own, not devkit's.
+
+    The floating-tag monotonicity check compares against the *current* repo's
+    published releases. Hard-coding devkit's would compare a consumer against
+    the wrong series and either block a valid promote or wave a regression
+    through.
+    """
+    text = skill_path(skill).read_text(encoding="utf-8")
+    assert "repos/vig-os/devkit/releases" not in text, (
+        f"{skill}: hard-codes devkit's release series — use repos/{{owner}}/{{repo}}"
+    )
+
+
+@pytest.mark.parametrize("skill", sorted(VERSION_ARG_SKILLS))
+def test_version_arguments_are_validated_before_use(skill):
+    """The recipes interpolate the version straight into bash — validate it."""
+    text = skill_path(skill).read_text(encoding="utf-8")
+    assert _SEMVER_GUARD_RE.search(text), (
+        f"{skill}: takes a version argument but never validates it against "
+        "^[0-9]+\\.[0-9]+\\.[0-9]+$ before passing it to a shell command"
+    )
+
+
+def test_status_compares_the_plugin_version_against_the_pin():
+    """The version lock is a property of a tag, not of an install.
+
+    An unpinned marketplace tracks the default branch, so a consumer can be
+    running newer skills than their pinned scaffold. `/devkit:status` has to
+    detect that rather than let the plugin assume it cannot happen.
+    """
+    text = skill_path("status").read_text(encoding="utf-8")
+    assert "CLAUDE_PLUGIN_ROOT" in text, (
+        "status must read the running plugin's own manifest to know its version"
+    )
+    lowered = text.lower()
+    assert "plugin version" in lowered
+    assert "mismatch" in lowered or "differs" in lowered
+
+
+def test_readme_documents_ref_pinned_installation():
+    """`owner/repo@ref` is what actually pins a marketplace to a version."""
+    text = PLUGIN_README.read_text(encoding="utf-8")
+    assert "vig-os/devkit@" in text, (
+        "README must document the tag-pinned marketplace form, which is the only "
+        "thing that makes a consumer's skills match their DEVKIT_VERSION"
+    )
+
+
+def test_readme_does_not_overclaim_the_version_lock():
+    """State the guarantee the mechanism actually provides, and its condition."""
+    text = PLUGIN_README.read_text(encoding="utf-8")
+    assert "impossible by construction" not in text, (
+        "the lock guarantees a tag carries matching skills; it does not make an "
+        "unpinned install match the consumer's pin"
+    )
+    assert "default branch" in text, (
+        "README must say what an unpinned marketplace tracks"
+    )
+
+
+def test_release_workflow_verifies_the_plugin_version_bump():
+    """A `sed` that matches nothing is silent — the tag would ship a stale version."""
+    workflow = yaml.safe_load(RELEASE_WORKFLOW.read_text(encoding="utf-8"))
+    script = "\n".join(
+        str(step.get("run", ""))
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+        if "Update root .vig-os to release version" in str(step.get("name", ""))
+    )
+    assert "jq -e" in script, (
+        "the finalize step must verify the plugin version actually changed; a "
+        "non-matching sed otherwise ships a stale plugin.json under the final tag"
+    )
