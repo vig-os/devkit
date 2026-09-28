@@ -152,14 +152,22 @@ git ls-remote --heads origin dev main
 ```
 
 `DEVKIT_WORKFLOW=gitflow` (the default) expects both `dev` and `main`, with topic branches based on `dev`.
-`DEVKIT_WORKFLOW=trunk` expects `main` only. Report a mismatch explicitly — a model switch leaves the preserved
-`.pre-commit-config.yaml` carrying the other model's branch guard (#1642), so also check:
+`DEVKIT_WORKFLOW=trunk` expects `main` only. An **absent** `DEVKIT_WORKFLOW` key means gitflow — the key is
+written back only for trunk. Report a mismatch between the resolved model and the branches that actually exist.
+
+A model switch also leaves the **preserved** `.pre-commit-config.yaml` carrying the other model's branch guard
+(#1642), and an upgrade cannot fix a preserved file. Read the guard's `--pattern`, not its `--branch`:
 
 ```bash
-grep -n 'no-commit-to-branch' -A3 .pre-commit-config.yaml
+grep -n 'no-commit-to-branch' -A8 .pre-commit-config.yaml
 ```
 
-Under `gitflow`, the guard must still name `dev`. If it does not, the repo says gitflow and behaves like trunk.
+Under `gitflow` the pattern must still exclude `dev` (a `(?!dev$)` clause). If it does not, the manifest says
+gitflow and the repo behaves like trunk — direct commits to `dev` are no longer blocked.
+
+Scope this check to a **consumer** repo. Devkit's own config is deliberately a different shape: it passes
+`--branch __none__` and does the whole job in `--pattern`, so a naive "does it name `dev`" test reports a false
+finding here. Compare the pattern's clauses, never the argument list.
 
 Also report whether `dev` is behind `main`: `prepare-release.yml` refuses when it is, because the frozen changelog
 section would silently omit whatever `main` carries.
@@ -185,15 +193,25 @@ recovery is always to cut the next version, never to retry the burnt one.
 
 ## 10. Required Apps and secrets
 
-The release workflows mint App tokens; without these the train fails partway, after it has already moved refs:
+The release workflows mint App tokens; without these the train fails partway, after it has already moved refs.
+
+**These are usually organization secrets, not repository secrets.** `gh secret list` shows the repo scope only, so
+on its own it reports every App secret as missing — which is wrong, and wrong in the direction that blocks a
+release that would have worked. Query both scopes:
 
 ```bash
-gh secret list --json name --jq '.[].name'
+gh secret list --json name --jq '.[].name'                      # repository scope
+gh api repos/{owner}/{repo}/actions/organization-secrets \
+  --jq '.secrets[].name'                                        # organization scope, inherited by this repo
 ```
 
 Report present/absent for each: `RELEASE_APP_CLIENT_ID`, `RELEASE_APP_PRIVATE_KEY`, `COMMIT_APP_CLIENT_ID`,
-`COMMIT_APP_PRIVATE_KEY`. In devkit itself also report `CACHIX_AUTH_TOKEN`. Absent secrets are a hard blocker for
-every release skill in this plugin; say so in the report rather than leaving the reader to infer it.
+`COMMIT_APP_PRIVATE_KEY`. In devkit itself also report `CACHIX_AUTH_TOKEN`.
+
+If **either** query fails — no auth, a token without `secrets:read`, an org that does not expose the listing —
+report `unknown`, not `absent`. A secret you could not see is not a secret that is missing, and the difference
+decides whether a release skill refuses. Absent secrets are a hard blocker for every release skill in this plugin;
+say so in the report rather than leaving the reader to infer it.
 
 ## 11. Print the report
 
