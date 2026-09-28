@@ -113,6 +113,32 @@ def test_invalid_version_is_refused(version: str) -> None:
         compute(version=version)
 
 
+@pytest.mark.parametrize(
+    "version",
+    ["1\uff11.2.3", "1.1\u0662.3", "1.2.1\u09e9"],
+    ids=["fullwidth", "arabic", "bengali"],
+)
+def test_non_ascii_digits_in_version_are_refused(version: str) -> None:
+    with pytest.raises(rv.ReleaseVersionError, match="version"):
+        compute(version=version)
+
+
+def test_non_ascii_digits_in_number_are_refused() -> None:
+    with pytest.raises(rv.ReleaseVersionError, match="number"):
+        compute(number="1\u0662")
+
+
+def test_non_ascii_digits_in_date_are_refused() -> None:
+    with pytest.raises(rv.ReleaseVersionError, match="date"):
+        compute(fmt="pre.{YYYYMMDD}", date="\u0662" * 8)
+
+
+def test_non_ascii_digit_tags_are_not_counted() -> None:
+    """A tag spelled with non-ASCII digits is not an instance of the format."""
+    with pytest.raises(rv.ReleaseVersionError, match="Malformed"):
+        compute(tags=["1.2.3-rc1\u0669"])
+
+
 # ── Pluggable formats ─────────────────────────────────────────────────────────
 
 
@@ -168,6 +194,10 @@ def test_number_with_counterless_format_is_refused() -> None:
         "rc.0{N}",  # numeric identifier with a leading zero
         "rc{N",  # unbalanced brace
         "+build",
+        "{YYYYMMDD}{N}",  # 202601011 vs 2026010110: numeric order breaks
+        "{N}{YYYYMMDD}",
+        "rc1{N}",  # rc11 is ambiguous: counter 11, or 1 + 1?
+        "rc.2{N}",
     ],
 )
 def test_invalid_format_is_refused(fmt: str) -> None:
@@ -232,9 +262,33 @@ def test_legacy_tags_of_other_versions_do_not_interfere() -> None:
     assert result.publish_version == "0.2.0-alpha.1"
 
 
-def test_equal_version_is_allowed_for_retry() -> None:
-    """A re-dispatch of the same bare label lands on the tag_state retry path."""
-    assert compute(fmt="alpha", tags=["1.2.3-alpha"]).publish_version == ("1.2.3-alpha")
+@pytest.mark.parametrize(
+    ("fmt", "tags"),
+    [
+        ("alpha", ["1.2.3-alpha"]),
+        ("pre.{YYYYMMDD}", ["1.2.3-pre.20260928"]),
+    ],
+    ids=["counterless", "dated-same-day"],
+)
+def test_recomputing_an_existing_tag_is_refused(fmt: str, tags: list[str]) -> None:
+    """A counterless format cannot mint a second candidate for the same X.Y.Z.
+
+    Without this, the existing tag was silently recomputed and the run only
+    failed late in finalize (or, on the same SHA, passed as a fake retry).
+    """
+    with pytest.raises(rv.ReleaseVersionError, match="already exists"):
+        compute(fmt=fmt, tags=tags)
+
+
+def test_dated_format_on_a_new_day_is_allowed() -> None:
+    assert compute(
+        fmt="pre.{YYYYMMDD}", tags=["1.2.3-pre.20260927"]
+    ).publish_version == ("1.2.3-pre.20260928")
+
+
+def test_explicit_number_may_name_an_existing_tag() -> None:
+    """The cross-repo gate pins rc-number to an upstream tag (existing contract)."""
+    assert compute(tags=["1.2.3-rc21"], number="21").publish_version == "1.2.3-rc21"
 
 
 def test_final_is_never_lowered_by_prereleases() -> None:
