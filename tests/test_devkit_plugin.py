@@ -681,12 +681,18 @@ def test_recipe_definitions_are_parsed_not_assignments():
 # validate it before use: the recipes interpolate the value straight into bash.
 VERSION_ARG_SKILLS = frozenset(
     {
+        # `adopt` and `status` belong here even though no operator types their
+        # version: both read it out of the INSPECTED repo's `.vig-os` and
+        # interpolate it into an installer URL, which is a worse source than a
+        # typed argument, not a better one.
+        "adopt",
         "release-abandon",
         "release-candidate",
         "release-finalize",
         "release-hotfix",
         "release-prepare",
         "release-promote",
+        "status",
         "upgrade",
     }
 )
@@ -711,17 +717,50 @@ def test_no_skill_runs_a_repo_local_installer(skill):
     )
 
 
+_INSTALLER_FETCH_RE = re.compile(
+    r"raw\.githubusercontent\.com/vig-os/devkit/(\S*?)/install\.sh"
+)
+
+
 @pytest.mark.parametrize("skill", skill_ids())
-def test_installer_fetches_are_pinned_to_a_tag(skill):
-    """A piped installer must come from a tag, never from a moving branch."""
+def test_every_installer_fetch_is_guarded_in_its_own_block(skill):
+    """A semver guard must precede every installer fetch, in the same block.
+
+    A blacklist of `main`/`dev`/`HEAD` is not enough, and neither is a guard
+    somewhere earlier in the file. The ref is interpolated into a URL path and
+    piped to `bash`, and curl collapses `..` before it sends the request, so
+    `DEVKIT_VERSION=../../attacker/repo/refs/heads/main` in the *inspected*
+    repo's manifest fetches and executes that repository's script instead --
+    verified against raw.githubusercontent.com, which serves the collapsed path
+    with HTTP 200 for an arbitrary owner. The guard has to be local to the
+    snippet an operator copies, and it has to come first.
+    """
     text = skill_path(skill).read_text(encoding="utf-8")
-    for match in re.finditer(
-        r"raw\.githubusercontent\.com/vig-os/devkit/(\S+?)/install\.sh", text
-    ):
+
+    for block in _FENCE_RE.findall(text):
+        fetch = _INSTALLER_FETCH_RE.search(block)
+        if fetch is None:
+            continue
+        guard = _SEMVER_GUARD_RE.search(block)
+        assert guard is not None, (
+            f"{skill}: a code block fetches install.sh with no "
+            "^[0-9]+\\.[0-9]+\\.[0-9]+$ guard in the same block"
+        )
+        assert guard.start() < fetch.start(), (
+            f"{skill}: the version guard comes after the installer fetch in the "
+            "same block; it has to run first or it guards nothing"
+        )
+
+
+@pytest.mark.parametrize("skill", skill_ids())
+def test_installer_fetches_resolve_a_tag_explicitly(skill):
+    """`refs/tags/<v>` so a same-named branch cannot shadow the tag."""
+    text = skill_path(skill).read_text(encoding="utf-8")
+    for match in _INSTALLER_FETCH_RE.finditer(text):
         ref = match.group(1)
-        assert ref not in {"main", "dev", "HEAD"}, (
-            f"{skill}: fetches install.sh from the moving ref `{ref}`; pin it to the "
-            "version the operator is adopting"
+        assert ref.startswith("refs/tags/"), (
+            f"{skill}: fetches install.sh from `{ref}`; use refs/tags/<version> so a "
+            "branch of the same name cannot shadow the tag"
         )
 
 
@@ -799,4 +838,30 @@ def test_release_workflow_verifies_the_plugin_version_bump():
     assert "jq -e" in script, (
         "the finalize step must verify the plugin version actually changed; a "
         "non-matching sed otherwise ships a stale plugin.json under the final tag"
+    )
+
+
+def test_readme_sparse_add_passes_paths():
+    """`--sparse <paths...>` takes directories; a bare flag checks out nothing useful."""
+    text = PLUGIN_README.read_text(encoding="utf-8")
+    for match in re.finditer(r"--sparse(?P<rest>[^\n]*)", text):
+        rest = match.group("rest").strip()
+        assert rest, "--sparse needs the directories to check out"
+        assert ".claude-plugin" in rest and "plugins" in rest, (
+            f"--sparse must name the marketplace and plugin directories, got {rest!r}"
+        )
+
+
+@pytest.mark.parametrize("skill", ["status", "upgrade"])
+def test_reref_instructions_remove_before_adding(skill):
+    """A repeat `marketplace add` is a no-op: `already on disk`, exit 0.
+
+    Telling an operator to re-add at the new tag therefore changes nothing, and
+    `marketplace update` refreshes the *same* ref rather than moving it. Only
+    remove-then-add repoints a marketplace at a new version.
+    """
+    text = skill_path(skill).read_text(encoding="utf-8")
+    assert "marketplace remove" in text, (
+        f"{skill}: tells the operator to re-add a marketplace without removing it "
+        "first, which is a silent no-op"
     )
