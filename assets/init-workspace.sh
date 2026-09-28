@@ -52,6 +52,14 @@ set -euo pipefail
 # Defaults match the in-image layout; overridable so the scaffold can be
 # exercised end-to-end from tests against temporary directories.
 TEMPLATE_DIR="${TEMPLATE_DIR:-/root/assets/workspace}"
+# Strip a trailing slash at the single assignment site (#1703): every walk keyed
+# on the template maps a source path into the workspace by stripping a
+# `$TEMPLATE_DIR/` prefix, and `find` output never carries a trailing slash — so
+# a `.../workspace//` prefix strips NOTHING, every relative path stays absolute,
+# no destination resolves, and the u+w sweep, the +x sweep and the --preview
+# classifier each exit 0 having done nothing at all. The rsync transfer-root
+# `"$TEMPLATE_DIR/"` and the `dirname` below are unaffected either way.
+TEMPLATE_DIR="${TEMPLATE_DIR%/}"
 WORKSPACE_DIR="${WORKSPACE_DIR:-/workspace}"
 # Authoritative built-tag record baked into the image by the flake (#921): the
 # fallback pin source when VIG_OS_VERSION is unset (a raw `podman run ...
@@ -67,6 +75,44 @@ PRUNE_DEVCONTAINER=false
 MODE=""
 # Workflow model: gitflow | trunk. Empty = manifest, or the gitflow default (#1205).
 WORKFLOW_MODEL=""
+
+# Names the template copy never transfers (#1700). The rsync `--exclude=` patterns
+# derived below are BASENAME patterns, so they prune at any depth — and the image
+# bakes a `.venv` into the template tree (#735, `python3 -m venv` in flake.nix).
+# Single source of truth for both copy branches and for emit_template_candidates,
+# so no walk keyed on the template can reach a destination the copy never wrote.
+COPY_PRUNE_NAMES=(.git .venv)
+COPY_PRUNE_EXCLUDES=()
+for _prune_name in "${COPY_PRUNE_NAMES[@]}"; do
+    COPY_PRUNE_EXCLUDES+=("--exclude=$_prune_name")
+done
+unset _prune_name
+
+# One shared walk for every pass keyed on the template (#1700): the u+w sweep
+# below, the placeholder substitution and the +x sweep all mapped template paths
+# to workspace paths with the same hand-rolled `find` idiom but diverging prunes,
+# so only the substitution walk (#1693) skipped the baked venv. This emitter
+# prunes COPY_PRUNE_NAMES by name at any depth — the copy's own SSoT — and emits
+# NUL-delimited WORKSPACE destinations; each caller supplies the `find`
+# predicates its pass needs (a type filter, a name glob) and keeps its own
+# destination filter. With no predicate every entry below the root is emitted,
+# directories included, which is what the u+w sweep needs.
+emit_template_candidates() {
+    local src_dir="${1%/}"
+    shift
+    # Basename prunes, mirroring the copy rsync's basename --exclude patterns.
+    local -a prune=()
+    local prune_name
+    for prune_name in "${COPY_PRUNE_NAMES[@]}"; do
+        prune+=(-name "$prune_name" -o)
+    done
+    unset 'prune[-1]'
+    local src_path
+    while IFS= read -r -d '' src_path; do
+        printf '%s\0' "$WORKSPACE_DIR/${src_path#"$src_dir"/}"
+    done < <(find -L "$src_dir" -mindepth 1 \
+        \( "${prune[@]}" \) -prune -o "${@:--true}" -print0)
+}
 
 # Files to preserve during --force upgrades (never overwrite if they exist)
 # These are user/project customization files that should survive upgrades
@@ -147,9 +193,10 @@ PRESERVE_FILES=(
 # The upgrade repair below appends the missing ones from the template.
 CI_CONTRACT_RECIPES=(lint format precommit test test-cov sync update)
 
-# Get script directory for manifest location
+# Directory this script ships in (beside it in the image): the source of its
+# library, the justfile.d/ and gitignore.d/ fragment trees and the smoke-test
+# overlay.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MANIFEST_FILE="$SCRIPT_DIR/.placeholder-manifest.txt"
 
 # Co-located with init-workspace.sh in the image; path is dynamic at runtime.
 # shellcheck disable=SC1091
@@ -350,6 +397,7 @@ MANIFEST_DEV_PROFILE_PATH="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_DEV_P
 MANIFEST_WORKFLOW="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_WORKFLOW || true)"
 MANIFEST_SYNC_TARGET="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_TARGET || true)"
 MANIFEST_SYNC_SCHEDULE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_SCHEDULE || true)"
+MANIFEST_COMMIT_APP_ENVIRONMENT="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_COMMIT_APP_ENVIRONMENT || true)"
 MANIFEST_FEATURES_DISABLED="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FEATURES_DISABLED || true)"
 MANIFEST_LICENSE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_LICENSE || true)"
 
@@ -462,6 +510,22 @@ fi
 if [[ -n "$MANIFEST_SYNC_SCHEDULE" ]] && ! is_valid_cron "$MANIFEST_SYNC_SCHEDULE"; then
     echo "Error: Invalid DEVKIT_SYNC_SCHEDULE in $VIG_OS_MANIFEST: $MANIFEST_SYNC_SCHEDULE (expected a 5-field cron expression, e.g. '0 2 * * *')" >&2
     exit 1
+fi
+
+# Commit-App environment binding (#1710): the value is spliced verbatim into the
+# rendered workflows as an UNQUOTED YAML scalar through a sed replacement, so —
+# exactly as for DEVKIT_SYNC_TARGET above — the LOAD-BEARING guard is a strict
+# charset allowlist. GitHub itself constrains an environment name only to "<= 255
+# characters, case-insensitive, unique within the repository", and therefore
+# accepts names (quotes, `$`, backticks, `&`, `#`, `|`, `/`, inner spaces) that
+# would render invalid YAML or crash/mis-splice the render sed. Pure `.vig-os`
+# key (no CLI flag), so only a format guard.
+if [[ -n "$MANIFEST_COMMIT_APP_ENVIRONMENT" ]]; then
+    if [[ ! "$MANIFEST_COMMIT_APP_ENVIRONMENT" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
+        || ((${#MANIFEST_COMMIT_APP_ENVIRONMENT} > 255)); then
+        echo "Error: Invalid DEVKIT_COMMIT_APP_ENVIRONMENT in $VIG_OS_MANIFEST: $MANIFEST_COMMIT_APP_ENVIRONMENT (expected a GitHub environment name of at most 255 characters using only [A-Za-z0-9._-] and starting with a letter or digit)" >&2
+        exit 1
+    fi
 fi
 
 # Scaffold feature opt-outs (#1284): DEVKIT_FEATURES_DISABLED is a
@@ -1568,9 +1632,9 @@ license_is_stock_apache() {
 
 # Render the proprietary LICENSE when DEVKIT_LICENSE=proprietary (#1651). Called
 # BEFORE the placeholder substitution pass, exactly like seed_node_justfile_project
-# (#1027): the file lands at a path the build-time manifest already lists as
-# token-bearing, so {{ORG_NAME}} is resolved by the same pass that renders every
-# other managed file — no second substitution site.
+# (#1027): the file lands at a template-shipped path, which is exactly the set
+# that pass walks, so {{ORG_NAME}} is resolved alongside every other managed
+# file — no second substitution site.
 #
 # Three states, and only the middle one writes:
 #   * already the proprietary text  -> silent no-op (an upgrade must not nag
@@ -1587,9 +1651,10 @@ render_license() {
         return 0
     fi
     # Resolve {{ORG_NAME}} HERE rather than leaning on the shared substitution
-    # pass below: that pass walks the build-time manifest, which is grepped from
-    # assets/workspace/ alone — this template lives outside it and would only be
-    # reached because the Apache LICENSE happens to carry the same token. A
+    # pass below: that pass walks the template tree (assets/workspace/) alone —
+    # this template lives outside it, under assets/licenses/, and its output
+    # would only be reached because the Apache LICENSE it replaces happens to
+    # sit at a template-shipped path carrying the same token. A
     # reworded Apache header would then ship a literal {{ORG_NAME}} to the
     # consumer AND make the comparison below fail forever. Same escaping idiom
     # as that pass (ORG_NAME may contain sed-significant characters).
@@ -1854,6 +1919,13 @@ render_workflow_model() {
         # the blanket heads/dev retarget below, which must not claim these lines.
         sed -i -E 's|^([[:space:]]*TARGET_BRANCH:) refs/heads/dev$|\1 refs/heads/${{ needs.validate.outputs.release_branch }}|' "$pr"
         sed -i -E 's|^([[:space:]]*FREEZE_REF:) heads/dev$|\1 heads/${{ needs.validate.outputs.release_branch }}|' "$pr"
+        # Sync-ordering guard (#1680) — delete it outright, comment block
+        # through the trailing blank line. Under trunk the release base IS
+        # main, so the guard has nothing to compare (there is no `dev`, and
+        # sync-main-to-dev.yml is copy-excluded); left in place it would fail
+        # every validate run on a missing origin/dev, and its remedy prose
+        # would name a workflow a trunk repo never receives (#1233).
+        sed -i '/^      # Sync-ordering guard (#1680)/,/^$/d' "$pr"
         # Behavioral branch literals: checkout refs + REST ref reads + targets.
         sed -i -E 's|^([[:space:]]*ref:) dev$|\1 main|' "$pr"
         sed -i -E 's|heads/dev\b|heads/main|g' "$pr"
@@ -2250,6 +2322,86 @@ YAML
     echo "Rendered sync-issues settings (target=${MANIFEST_SYNC_TARGET:-default}, schedule=${MANIFEST_SYNC_SCHEDULE:-default})"
 }
 
+# Render the commit-App environment binding (#1710): bind every scaffolded job
+# that MINTS the commit App token to a GitHub deployment environment, so
+# COMMIT_APP_CLIENT_ID / COMMIT_APP_PRIVATE_KEY can live as ENVIRONMENT secrets
+# behind a deployment branch policy instead of as org/repo secrets that a job on
+# ANY branch can read — the commit App usually carries a branch-protection
+# bypass, so that surface let any write-access account push a branch, mint the
+# token and write straight past the default branch's protection. A no-op when
+# DEVKIT_COMMIT_APP_ENVIRONMENT is unset, so an unconfigured workspace stays
+# byte-for-byte unchanged (the knob's whole contract for existing consumers).
+#
+# The pair list is `grep COMMIT_APP .github/workflows/` reduced to the job that
+# owns each create-github-app-token step, PLUS the `reset-sync-mirror` job that
+# render_sync_settings appends to promote-release.yml in mirror mode (#1424) —
+# which mints the same token and no template grep can see. Hence the position
+# AFTER that render. Every entry is `-f`-guarded AND skipped when its job key is
+# absent, so one list covers the trunk model (which copy-excludes
+# sync-main-to-dev.yml and prepare-hotfix.yml), the feature opt-outs (a
+# release-less or sync-less consumer) and the mirror-mode job with no branching.
+# Job keys are unique per file at two-space indent, and a mapping key's position
+# carries no meaning, so `environment: '<name>'` is appended as the job's first
+# key; a job already carrying one is skipped (the prefix test tolerates the quote),
+# so a re-render over an un-recopied tree cannot stack a second key.
+# prepare-release-extension.yml is PRESERVED (the consumer's own) and its template
+# mints nothing — a consumer whose extension does adds the key there itself, which
+# is a documented note, not a render.
+#
+# The name is rendered SINGLE-QUOTED, unconditionally. The allowed charset admits
+# YAML 1.1 bool and number shapes — `true`/`no` parse as booleans, `0755` as the
+# integer 493, `1e3` as a float — and an unquoted scalar hands GitHub a non-string
+# `environment`, which it rejects at dispatch. actionlint does not flag it, so the
+# first failure would be in a consumer's repo. Quoting is always safe here because
+# the guard already refuses `'` (and everything else that would need escaping).
+#
+# release-core.yml is the odd one out: it is a `workflow_call` CALLEE, where
+# `on.workflow_call` takes no `environment` and the `github` context is the
+# CALLER's — so the key goes on its `finalize` job, never on release.yml's
+# `core:` (`uses:`) job, which GitHub does not allow to carry `environment`. And
+# with the pair held ONLY as environment secrets, the caller's `secrets: inherit`
+# resolves nothing, which a `required: true` declaration refuses before the
+# callee's job (and its environment) ever starts — hence the `required: false`
+# flip, after which the job-level environment is what supplies them.
+render_commit_app_environment() {
+    [[ -n "$MANIFEST_COMMIT_APP_ENVIRONMENT" ]] || return 0
+
+    local env_name="$MANIFEST_COMMIT_APP_ENVIRONMENT"
+    local pair wf job f bound=0
+    for pair in \
+        "sync-issues.yml:sync" \
+        "sync-main-to-dev.yml:sync" \
+        "prepare-release.yml:prepare" \
+        "prepare-release.yml:rollback" \
+        "prepare-hotfix.yml:prepare" \
+        "prepare-hotfix.yml:rollback" \
+        "release.yml:rollback" \
+        "release-core.yml:finalize" \
+        "promote-release.yml:reset-sync-mirror"; do
+        wf="${pair%%:*}"
+        job="${pair##*:}"
+        f="$WORKSPACE_DIR/.github/workflows/$wf"
+        [[ -f "$f" ]] || continue
+        grep -q "^  ${job}:\$" "$f" || continue
+        # Idempotence: `sed -n '/job/{n;p;}'` prints the line AFTER the job key.
+        if [[ "$(sed -n "/^  ${job}:\$/{n;p;}" "$f")" == "    environment: "* ]]; then
+            continue
+        fi
+        sed -i "/^  ${job}:\$/a\\    environment: '${env_name}'" "$f"
+        bound=$((bound + 1))
+    done
+
+    # The two workflow_call declarations the caller can no longer satisfy (above).
+    # `{n;n;s/…/}` walks the declaration's own `description:` then `required:`
+    # line, so it can only ever rewrite those two entries' own flag.
+    local rc="$WORKSPACE_DIR/.github/workflows/release-core.yml"
+    if [[ -f "$rc" ]]; then
+        sed -i -E '/^      COMMIT_APP_(CLIENT_ID|PRIVATE_KEY):$/{n;n;s/^(        required: )true$/\1false/}' "$rc"
+    fi
+
+    echo "Rendered commit-App environment binding: ${env_name} (${bound} token-minting job(s))"
+}
+
 # Render the branch guard's dev clause from the workflow model (#1224, #1642).
 #
 # Split out of render_workflow_model, which applies the gitflow -> trunk retarget
@@ -2320,6 +2472,11 @@ render_branch_guard_model() {
 # nix/hooks.nix while giving this excision an exact range instead of a
 # structural guess at where the block ends.
 #
+# The marker match is whole-line and the id EXACT — followed by whitespace (the
+# sentinel's own trailing prose) or end of line (#1727). Unanchored, a consumer's
+# own `# >>> devkit:actionlint-extra` pair opened the range too and the opt-out
+# took their block with the hook's.
+#
 # Guarded, not unconditional (unlike render_refs_policy): this REMOVES rather
 # than substitutes, so there is no value to re-write on every run — and a
 # consumer who clears the key gets the hook back from the template copy on the
@@ -2328,9 +2485,9 @@ render_actionlint_optout() {
     local pc
     feature_disabled actionlint || return 0
     pc="$(precommit_render_target)" || return 0
-    grep -q '# >>> devkit:actionlint' "$pc" || return 0
+    grep -qE '^[[:space:]]*# >>> devkit:actionlint([[:space:]]|$)' "$pc" || return 0
 
-    sed -i '/# >>> devkit:actionlint/,/# <<< devkit:actionlint/d' "$pc"
+    sed -i -E '/^[[:space:]]*# >>> devkit:actionlint([[:space:]]|$)/,/^[[:space:]]*# <<< devkit:actionlint([[:space:]]|$)/d' "$pc"
     echo "Excised the actionlint hook (feature disabled via DEVKIT_FEATURES_DISABLED, #1660)."
 }
 
@@ -2373,32 +2530,67 @@ render_actionlint_optout() {
 #               block's explanatory comment, and — decisively for Case 2 — a
 #               block inserted WITHOUT its sentinels would be invisible to
 #               render_actionlint_optout, silently outliving the opt-out.
-#   structural  the `- repo:` entry holding `- id: <hook>`, ending at the last
-#               line before the next entry that is neither blank nor an
-#               entry-level comment (those introduce the NEXT block, and a
-#               consumer's comment is theirs to keep).
+#               The id is matched EXACTLY — whole-line, and followed by whitespace
+#               or end of line (#1727) — so a pair bracketing
+#               `shellcheck-composite-actions` is invisible to a lookup for
+#               `shellcheck`. A pair is still a FEATURE gate and not a way to
+#               carry prose, which is why #1725 taught the structural strategy to
+#               carry the comment rather than sentinel-wrapping an ungrouped hook.
+#   structural  the `- repo:` entry holding `- id: <hook>`, PLUS the run of
+#               full-line comments directly above it, ending at the last line
+#               before the next entry that is neither blank nor an entry-level
+#               comment (those introduce the NEXT block, and a consumer's comment
+#               is theirs to keep).
+#
+# The comment run is part of the block, not decoration around it (#1725): the
+# template's prose says why a hook exists and what it deliberately does NOT cover,
+# and a consumer copy extracted from `- repo:` down arrives as an unexplained
+# `entry:`. actionlint kept its comment only because the opt-out sentinels happen
+# to bracket it — a property of that hook being feature-gated, not of the
+# extraction. Three things stop the sweep, so it can only ever take lines that
+# introduce THIS entry: a blank line, a line that is not a whole-line comment,
+# and a `# >>> devkit:` / `# <<< devkit:` sentinel (the latter closes the
+# PREVIOUS block; taking either would hand a copy half a sentinel pair, which
+# a feature excision's `sed` range would then read as running to EOF).
 #
 # Used on the template (to read the block to write) and on the consumer's file
-# (to find the anchor entry to write after), hence the whitespace tolerance.
+# (to find the anchor entry to write after), hence the whitespace tolerance. Only
+# the START moves: the anchor path reads the END, which is unchanged.
 hook_block_range() {
     awk -v id="$2" '
+        # Exact id, never a prefix (#1727): the token after the marker is
+        # extracted and compared as a STRING, so on this sentinel path `id` is
+        # never interpolated into a regex and a metacharacter in a hook id cannot
+        # change what matches. (The structural branch below still builds its
+        # `- id:` pattern from `id`; hook ids are plain words.)
+        function sentinel(line, dir,    tok) {
+            if (!match(line, /^[[:space:]]*# (>>>|<<<) devkit:[^[:space:]]+/)) return 0
+            tok = substr(line, RSTART, RLENGTH)
+            sub(/^[[:space:]]*/, "", tok)
+            return tok == "# " dir " devkit:" id
+        }
         { L[NR] = $0 }
-        index($0, "# >>> devkit:" id) { ss = NR }
-        index($0, "# <<< devkit:" id) { se = NR }
+        sentinel($0, ">>>") { ss = NR }
+        sentinel($0, "<<<") { se = NR }
         END {
             if (ss && se && se >= ss) { print ss, se; exit 0 }
             for (i = 1; i <= NR; i++) {
                 if (L[i] ~ /^[[:space:]]*-[[:space:]]+repo:/) cur = i
                 if (cur && L[i] ~ ("^[[:space:]]*-[[:space:]]+id:[[:space:]]+" id "[[:space:]]*$")) {
-                    start = cur
+                    entry = cur
                     break
                 }
             }
-            if (!start) exit 1
+            if (!entry) exit 1
             e = NR
-            for (i = start + 1; i <= NR; i++)
+            for (i = entry + 1; i <= NR; i++)
                 if (L[i] ~ /^[[:space:]]*-[[:space:]]+repo:/) { e = i - 1; break }
-            while (e > start && (L[e] ~ /^[[:space:]]*$/ || L[e] ~ /^[[:space:]]*#/)) e--
+            while (e > entry && (L[e] ~ /^[[:space:]]*$/ || L[e] ~ /^[[:space:]]*#/)) e--
+            start = entry
+            while (start > 1 && L[start - 1] ~ /^[[:space:]]*#/ &&
+                   !index(L[start - 1], "# >>> devkit:") &&
+                   !index(L[start - 1], "# <<< devkit:"))
+                start--
             print start, e
         }
     ' "$1"
@@ -2416,21 +2608,28 @@ template_hook_block() {
     sed -n "${range%% *},${range##* }p" "$tpl"
 }
 
-# The hook id the template places immediately BEFORE hook $1 — the anchor an
-# insert writes after. Derived from the template rather than tabulated, so a
-# template reorder moves the insert position with it.
-template_hook_anchor() {
+# Every hook id the template places BEFORE hook $1, one per line, NEAREST
+# FIRST — the candidate anchors an insert writes after, in preference order.
+# Derived from the template rather than tabulated, so a template reorder moves
+# the insert position with it.
+#
+# A list rather than the single immediate neighbour (#1725): the neighbour may be
+# a hook this consumer opted out of, and one feature's opt-out may not withhold
+# an unrelated later hook. Walking outward keeps the position defensible — every
+# candidate is a hook the template puts before the new one, so the nearest
+# present one bounds the insert on the correct side of everything around it.
+template_hook_anchors() {
     local tpl="$TEMPLATE_DIR/.pre-commit-config.yaml"
-    local range start anchor
+    local range start anchors
     [[ -f "$tpl" ]] || return 1
     range="$(hook_block_range "$tpl" "$1")" || return 1
     start="${range%% *}"
     [[ "$start" -gt 1 ]] || return 1
-    anchor="$(head -n "$((start - 1))" "$tpl" \
+    anchors="$(head -n "$((start - 1))" "$tpl" \
         | sed -n -E 's/^[[:space:]]*-[[:space:]]+id:[[:space:]]+([^[:space:]]+)[[:space:]]*$/\1/p' \
-        | tail -n1)"
-    [[ -n "$anchor" ]] || return 1
-    printf '%s' "$anchor"
+        | tac)"
+    [[ -n "$anchors" ]] || return 1
+    printf '%s\n' "$anchors"
 }
 
 # Print "START END" for the first VERBATIM occurrence of the block in file $2
@@ -2531,6 +2730,23 @@ inserted_hook_blocks() {
     # actionlint had been on PATH since #995 with nothing running it; the hook
     # reached new scaffolds only (#1660).
     printf '%s\n' '1.16.0 actionlint actionlint'
+    # actionlint refuses a composite action outright, so #1704's hook is the only
+    # thing linting .github/actions/*/action.yml run bodies; the template gained
+    # it in #1718, new scaffolds only (#1717). Two fields: no feature group.
+    #
+    # 1.17.0 by construction — dev holds feat commits since 1.16.0 (#1718, #1724)
+    # and no breaking change. A train renamed UPWARD leaves this row harmless (no
+    # consumer can be pinned at 1.17.0); a DOWNWARD rename would re-add a hook a
+    # consumer deleted (#1651) and must edit this row on the release branch,
+    # which #1723's Phase 1 prerequisite makes a checked step.
+    #
+    # Ordering is not a dependency since #1725 — the fallback anchors this block
+    # on whichever predecessor the file carries, so the row would be delivered
+    # either way — but it keeps a single pass template-faithful: with the
+    # actionlint row met first, a pre-1.16.0 tree receives THAT block and this one
+    # anchors on it, landing where the template puts it rather than one entry
+    # earlier, after `shellcheck`.
+    printf '%s\n' '1.17.0 shellcheck-composite-actions'
 }
 
 # Plan-mode heading, printed once and only when there is something to report.
@@ -2589,12 +2805,15 @@ fold_retired_hook_blocks() {
 #    outranks the version evidence;
 #  - the hook id is absent from the file. Also what makes an rc -> final upgrade
 #    (whose pin is lower than the release) a no-op;
-#  - the template ships the block AND the consumer's file carries the anchor it
-#    goes after. No anchor, no defensible position: skip rather than guess, and
-#    leave the #878 template diff as the fallback.
+#  - the template ships the block AND the consumer's file carries at least one of
+#    the hooks the template places before it. The NEAREST present one is the
+#    anchor (#1725): the immediate neighbour may be a hook this consumer opted
+#    out of, and one feature's opt-out may not withhold an unrelated later hook.
+#    A file carrying not one predecessor has no defensible position: skip rather
+#    than guess, and leave the #878 template diff as the fallback.
 insert_missing_hook_blocks() {
     local mode="$1" pc="$2"
-    local ver hook feat block anchor range end
+    local ver hook feat block anchors candidate anchor range end
     [[ -n "$PREVIOUS_PIN" ]] || return 0
     [[ "$PREVIOUS_PIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || return 0
     while read -r ver hook feat; do
@@ -2607,9 +2826,24 @@ insert_missing_hook_blocks() {
             continue
         fi
         block="$(template_hook_block "$hook")" || continue
-        anchor="$(template_hook_anchor "$hook")" || continue
-        if ! range="$(hook_block_range "$pc" "$anchor")"; then
-            echo "Warning: the preserved .pre-commit-config.yaml carries no '$anchor' hook to anchor the new '$hook' block (#1654)." >&2
+        # A template with no predecessor at all is a template defect, not a
+        # consumer one — silent, like a missing block above.
+        anchors="$(template_hook_anchors "$hook")" || continue
+        anchor=""
+        range=""
+        while IFS= read -r candidate; do
+            [[ -n "$candidate" ]] || continue
+            # The winning range is whatever hook_block_range prefers for that
+            # hook — the SENTINEL range where it has one, so an insert after a
+            # bracketed block lands after its closing sentinel rather than
+            # inside the range the feature's excision deletes.
+            if range="$(hook_block_range "$pc" "$candidate")"; then
+                anchor="$candidate"
+                break
+            fi
+        done <<< "$anchors"
+        if [[ -z "$anchor" ]]; then
+            echo "Warning: the preserved .pre-commit-config.yaml carries none of the hooks the template places before '$hook', so the new block has nothing to anchor on (#1654)." >&2
             echo "         Skipping the insert — fold the block in from the template diff above by hand." >&2
             continue
         fi
@@ -2661,9 +2895,11 @@ render_release_optout() {
     feature_disabled release || return 0
     jg="$WORKSPACE_DIR/.devcontainer/justfile.gh"
     [[ -f "$jg" ]] || return 0
-    grep -q '# >>> devkit:release' "$jg" || return 0
+    grep -qE '^[[:space:]]*# >>> devkit:release([[:space:]]|$)' "$jg" || return 0
 
-    sed -i '/# >>> devkit:release/,/# <<< devkit:release/d' "$jg"
+    # Whole-line, exact id — the same #1727 anchoring as the actionlint excision:
+    # a `# >>> devkit:release-notes` pair is not this group's.
+    sed -i -E '/^[[:space:]]*# >>> devkit:release([[:space:]]|$)/,/^[[:space:]]*# <<< devkit:release([[:space:]]|$)/d' "$jg"
     # The block is the file's tail, so its removal strands the blank line that
     # separated it — and a managed file ending on a double newline is rewritten
     # by the consumer's end-of-file-fixer, then restored by the next upgrade.
@@ -2733,10 +2969,10 @@ if [[ "$FORCE" == "true" ]]; then
     CONFLICTS=()
     PRESERVED=()
     ADDED=()
-    while IFS= read -r -d '' template_file; do
-        # Get relative path from template directory
-        rel_path="${template_file#"$TEMPLATE_DIR"/}"
-        workspace_file="$WORKSPACE_DIR/$rel_path"
+    while IFS= read -r -d '' workspace_file; do
+        # Get relative path back out of the emitted destination: both sides glue
+        # with the same "$WORKSPACE_DIR/", so the strip is lossless.
+        rel_path="${workspace_file#"$WORKSPACE_DIR"/}"
 
         # Mode/config copy excludes (#1196): skip the template paths the real
         # rsync copy skips for the resolved mode and the consumer's config
@@ -2783,9 +3019,17 @@ if [[ "$FORCE" == "true" ]]; then
         else
             ADDED+=("$rel_path")
         fi
-    done < <(find -L "$TEMPLATE_DIR" -type f \
-        ! -path "*/.git/*" ! -path "*/.venv/*" \
-        ! -path "*/docs/issues/*" ! -path "*/docs/pull-requests/*" -print0)
+    # The copy step's own candidate walk (#1716), so the report cannot classify a
+    # template entry the copy never transfers: emit_template_candidates prunes
+    # COPY_PRUNE_NAMES by BASENAME at any depth, exactly as the rsync
+    # `--exclude=` patterns do, where this walk's former `! -path "*/.venv/*"`
+    # skipped only the CONTENTS of such a directory and reported a *file* named
+    # `.git` or `.venv` as ADDED. `-type f` stays explicit (the emitter defaults
+    # to `-true` and would emit directories too). The two `docs/` predicates are
+    # report-only: they have had no copy analogue since #1466 deleted the rsync
+    # excludes #951 mirrored, and the template ships neither path.
+    done < <(emit_template_candidates "$TEMPLATE_DIR" -type f \
+        ! -path "*/docs/issues/*" ! -path "*/docs/pull-requests/*")
 
     # Mode-prune deletions (#886): paths that exist right now and the upgrade
     # would remove. Mirrors the prune guards further down (#738/#859/#877).
@@ -3100,12 +3344,14 @@ if [[ "$SMOKE_TEST" == "true" ]]; then
     # changelog is consumer state — its own frozen release history
     # (## [X.Y.Z] - TBD) must survive re-deploys (#1403). The anchor keeps
     # .devcontainer/CHANGELOG.md (devkit's manifest mirror) syncing.
-    rsync -avL --checksum --exclude='.git' --exclude='.venv' --exclude='/CHANGELOG.md' "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
+    rsync -avL --checksum "${COPY_PRUNE_EXCLUDES[@]}" --exclude='/CHANGELOG.md' "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
 
     SMOKE_TEST_DIR="$SCRIPT_DIR/smoke-test"
     if [[ -d "$SMOKE_TEST_DIR" ]]; then
         echo "Deploying smoke-test-specific files..."
-        rsync -avL --checksum "$SMOKE_TEST_DIR/" "$WORKSPACE_DIR/"
+        # Same prunes as the template copy, so the overlay's walks (the u+w
+        # sweep, the substitution pass) never skip a path this copy wrote.
+        rsync -avL --checksum "${COPY_PRUNE_EXCLUDES[@]}" "$SMOKE_TEST_DIR/" "$WORKSPACE_DIR/"
     else
         echo "Warning: Smoke-test directory not found at $SMOKE_TEST_DIR" >&2
     fi
@@ -3172,7 +3418,7 @@ else
         fi
     done
 
-    rsync -avL --checksum --exclude='.git' --exclude='.venv' "${EXCLUDE_ARGS[@]}" "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
+    rsync -avL --checksum "${COPY_PRUNE_EXCLUDES[@]}" "${EXCLUDE_ARGS[@]}" "$TEMPLATE_DIR/" "$WORKSPACE_DIR/"
 
     # ci.yml is a single mode-aware workflow (#991): it resolves DEVKIT_MODE at
     # run time via the resolve-toolchain job + setup-devkit-toolchain composite,
@@ -3191,15 +3437,24 @@ fi
 # surface for the transient fts walk failure that aborted a run in the field.
 # Symlinks are skipped: chmod would follow them to a target the scaffold does
 # not own (a preserved store symlink target is read-only by design, #1117).
+# Pruned like the copy since #1700: a template `.venv` is never transferred, so
+# its workspace twin is the consumer's own virtualenv — not a scaffold path, and
+# its mode not ours to lift.
 sweep_scaffold_writable() {
-    local src_dir="$1" src_path rel dest
-    while IFS= read -r -d '' src_path; do
-        rel="${src_path#"$src_dir"/}"
-        dest="$WORKSPACE_DIR/$rel"
+    local src_dir="$1" dest
+    local -a targets=()
+    while IFS= read -r -d '' dest; do
         if [[ -e "$dest" && ! -L "$dest" ]]; then
-            chmod u+w "$dest"
+            targets+=("$dest")
         fi
-    done < <(find -L "$src_dir" -mindepth 1 -print0)
+    done < <(emit_template_candidates "$src_dir")
+    # One batched chmod instead of one fork per file (#1687): the per-file loop
+    # was 23% of a scaffold's ~4.3k forks. The filter above is unchanged, so the
+    # set of chmod'ed paths is identical; xargs chunks it under ARG_MAX, and the
+    # emptiness guard keeps `printf '%s\0'` from emitting one empty filename.
+    if ((${#targets[@]} > 0)); then
+        printf '%s\0' "${targets[@]}" | xargs -0 -r chmod u+w --
+    fi
 }
 chmod u+w "$WORKSPACE_DIR"
 sweep_scaffold_writable "$TEMPLATE_DIR"
@@ -3443,16 +3698,16 @@ fi
 # Seed the Node justfile.project on a first scaffold BEFORE the substitution
 # pass below, so the seed's {{SHORT_NAME}} token is resolved like every other
 # managed file (the seed replaces the freshly-copied template at the same path,
-# which the manifest already lists as carrying the token). No-op for non-Node
+# so it is in the template-derived candidate set the pass walks). No-op for non-Node
 # consumers and for an existing (preserved) justfile.project. Refs #1027.
 seed_node_justfile_project
 
 # Render the proprietary LICENSE before the same substitution pass (#1651): the
-# file lands at a path the manifest already lists as token-bearing, so its
-# {{ORG_NAME}} resolves exactly like every other managed file.
+# file lands at a template-shipped path, so its {{ORG_NAME}} resolves exactly
+# like every other managed file.
 render_license
 
-# Replace placeholders in files (using pre-built manifest from image)
+# Replace placeholders in files (scoped to the files devkit ships, #1693)
 echo "Replacing placeholders in files..."
 
 # Escape special characters in variables for sed (especially slashes in ORG_NAME, GITHUB_REPOSITORY)
@@ -3460,27 +3715,47 @@ SHORT_NAME_ESCAPED=$(printf '%s\n' "$SHORT_NAME" | sed 's/[&/\]/\\&/g')
 ORG_NAME_ESCAPED=$(printf '%s\n' "$ORG_NAME" | sed 's/[&/\]/\\&/g')
 GITHUB_REPOSITORY_ESCAPED=$(printf '%s\n' "$GITHUB_REPOSITORY" | sed 's/[&/\]/\\&/g')
 
-if [[ -f "$MANIFEST_FILE" ]]; then
-    # Use build-time manifest (much faster - no searching at runtime)
-    echo "Using build-time manifest ($(wc -l < "$MANIFEST_FILE") files)"
-    while IFS= read -r template_file; do
-        # Translate template path to workspace path
-        workspace_file="${template_file/\/root\/assets\/workspace/$WORKSPACE_DIR}"
+# Candidate set for the pass (#1693): the template-shipped paths mapped into the
+# workspace, the same way sweep_scaffold_writable maps its chmod set (shared
+# idiom, different filters), plus the smoke overlay's when one was applied.
+# Scoping the walk to the paths devkit ships is what keeps a file devkit does NOT
+# ship out of reach; the whole-workspace `grep -r` this replaces reached the
+# consumer's entire repo, `.venv`/`node_modules` included, and rewrote it. A
+# consumer file sitting AT a shipped path is still substituted, exactly as the
+# retired manifest path substituted it — scoping the walk is not a preservation
+# mechanism, and PRESERVE_FILES is a copy-time concept, not a substitution one.
+#
+# Selection semantics, unchanged from the batched walk this replaces (#1687):
+# regular files only, symlinked destinations skipped (the old `grep -rl` did not
+# follow symlinks found inside the tree), anything under `.git/` skipped, and
+# binaries matched (no -I). COPY_PRUNE_NAMES is pruned by NAME at any depth — the
+# emitter does it for every template walk since #1700, off the same array the copy
+# rsync derives its basename `--exclude` patterns from — so the walk cannot reach a
+# destination the copy never wrote; the image's baked venv inside
+# /root/assets/workspace (#735) is the case that matters in production. This
+# function keeps only its own destination filter. Failures are swallowed as the old
+# `2>/dev/null` + `|| true` did, so neither exit 1 (nothing matched) nor exit 2
+# (unreadable file) trips `set -o pipefail`.
+emit_substitution_candidates() {
+    local dest
+    while IFS= read -r -d '' dest; do
+        if [[ -f "$dest" && ! -L "$dest" ]]; then
+            printf '%s\0' "$dest"
+        fi
+    done < <(emit_template_candidates "$1" -type f)
+}
 
-        if [[ -f "$workspace_file" ]]; then
-            # Simple sed -i (always Linux in container - no cross-platform needed)
-            sed -i "s/{{SHORT_NAME}}/${SHORT_NAME_ESCAPED}/g; s/{{ORG_NAME}}/${ORG_NAME_ESCAPED}/g; s/{{GITHUB_REPOSITORY}}/${GITHUB_REPOSITORY_ESCAPED}/g" "$workspace_file"
-        fi
-    done < "$MANIFEST_FILE"
-else
-    # Fallback: search at runtime (slower, but works if manifest is missing)
-    echo "Warning: Manifest not found, searching at runtime (slower)"
-    find "$WORKSPACE_DIR" -type f ! -path "*/.git/*" -print0 | while IFS= read -r -d '' file; do
-        if grep -q '{{SHORT_NAME}}\|{{ORG_NAME}}\|{{GITHUB_REPOSITORY}}' "$file" 2>/dev/null; then
-            sed -i "s/{{SHORT_NAME}}/${SHORT_NAME_ESCAPED}/g; s/{{ORG_NAME}}/${ORG_NAME_ESCAPED}/g; s/{{GITHUB_REPOSITORY}}/${GITHUB_REPOSITORY_ESCAPED}/g" "$file"
-        fi
-    done
-fi
+{
+    emit_substitution_candidates "$TEMPLATE_DIR"
+    # Smoke overlays land outside the template tree; walk them the same way.
+    if [[ "$SMOKE_TEST" == "true" && -n "${SMOKE_TEST_DIR:-}" && -d "$SMOKE_TEST_DIR" ]]; then
+        emit_substitution_candidates "$SMOKE_TEST_DIR"
+    fi
+} |
+    { xargs -0 -r grep -lZ \
+        -e '{{SHORT_NAME}}' -e '{{ORG_NAME}}' -e '{{GITHUB_REPOSITORY}}' -- \
+        2>/dev/null || true; } |
+    xargs -0 -r sed -i "s/{{SHORT_NAME}}/${SHORT_NAME_ESCAPED}/g; s/{{ORG_NAME}}/${ORG_NAME_ESCAPED}/g; s/{{GITHUB_REPOSITORY}}/${GITHUB_REPOSITORY_ESCAPED}/g" --
 
 # Host-runner hooks default (#1167): a FRESH direnv scaffold defaults to
 # flake-generated pre-commit hooks. The direnv CI lane runs on the bare host
@@ -3532,6 +3807,14 @@ if feature_disabled sync-issues; then
 else
     render_sync_settings
 fi
+# Commit-App environment binding (#1710): bind the token-minting jobs to the
+# deployment environment named by DEVKIT_COMMIT_APP_ENVIRONMENT. A no-op when the
+# key is unset. Runs AFTER render_sync_settings, and must: mirror mode RENDERS a
+# ninth token-minting job (promote-release.yml's reset-sync-mirror, #1424) that
+# this render then binds like the rest. The two otherwise compose cleanly — the
+# fold steps that render lands in release-core.yml sit inside the already-bound
+# finalize job, and it never touches a job key this one anchors on.
+render_commit_app_environment
 # Refs exemption (#1282, #1633) + commit types (#1431): render the
 # validate-commit-msg hook's --refs-optional-types / --types from
 # DEVKIT_REFS_OPTIONAL_TYPES / DEVKIT_REFS_POLICY / DEVKIT_COMMIT_TYPES (each
@@ -3613,6 +3896,14 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     if [[ -n "$MANIFEST_SYNC_SCHEDULE" ]]; then
         write_manifest_value DEVKIT_SYNC_SCHEDULE "$MANIFEST_SYNC_SCHEDULE"
     fi
+    # Commit-App environment binding (#1710): bare in the template
+    # (DEVKIT_COMMIT_APP_ENVIRONMENT=), so a consumer's environment name is
+    # written back — else an upgrade would silently UNBIND the token-minting jobs
+    # and hand the release train back an org/repo-secret mint. Clearing the key
+    # removes the binding on the next `--force`.
+    if [[ -n "$MANIFEST_COMMIT_APP_ENVIRONMENT" ]]; then
+        write_manifest_value DEVKIT_COMMIT_APP_ENVIRONMENT "$MANIFEST_COMMIT_APP_ENVIRONMENT"
+    fi
     # Feature opt-outs (#1284): bare in the template (DEVKIT_FEATURES_DISABLED=),
     # so a consumer's disabled-feature list is read before the overwrite and
     # written back — else an upgrade silently re-ships the pruned features. The
@@ -3693,10 +3984,9 @@ disarm_torn_window_guard
 # sourced-only .sh libraries are not template paths, so a blanket sweep wrongly
 # flipped their mode (644 → 755) on every --force re-scaffold (#1195).
 echo "Setting executable permissions on shell scripts and hooks..."
-while IFS= read -r -d '' template_script; do
-    rel="${template_script#"$TEMPLATE_DIR"/}"
-    [[ -f "$WORKSPACE_DIR/$rel" ]] && chmod +x "$WORKSPACE_DIR/$rel"
-done < <(find -L "$TEMPLATE_DIR" -type f -name "*.sh" -print0)
+while IFS= read -r -d '' script_dest; do
+    [[ -f "$script_dest" ]] && chmod +x "$script_dest"
+done < <(emit_template_candidates "$TEMPLATE_DIR" -type f -name "*.sh")
 find "$WORKSPACE_DIR/.githooks" -type f -exec chmod +x {} \; 2>/dev/null || true
 
 # The root justfile is managed (rsync overwrites it on upgrade), so the

@@ -12,6 +12,8 @@
 # from the shipped workflow and run against a stub `gh` — real bash, real jq,
 # no network and no GitHub.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     load test_helper
     WF="$PROJECT_ROOT/assets/workspace/.github/workflows/devkit-upgrade.yml"

@@ -1,6 +1,8 @@
 #!/usr/bin/env bats
 # BATS tests for setup-gh-repo.sh
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     load test_helper
     SETUP_GH_REPO_SH="$PROJECT_ROOT/assets/workspace/.devcontainer/scripts/setup-gh-repo.sh"

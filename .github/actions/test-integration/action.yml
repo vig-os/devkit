@@ -148,7 +148,7 @@ runs:
         systemctl --user start podman.socket || true
 
         # Alternative: start socket directly
-        podman system service --time=0 unix:///run/user/$(id -u)/podman/podman.sock &
+        podman system service --time=0 "unix:///run/user/$(id -u)/podman/podman.sock" &
         sleep 2
 
         # Verify socket is accessible

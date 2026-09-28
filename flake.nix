@@ -1457,24 +1457,6 @@
                     # workspace pins the devkit release it was built from. #642.
                     sed -i "s/{{IMAGE_TAG}}/$imageVersion/g" "$out/root/assets/workspace/.vig-os"
 
-                    # Bake the build-time placeholder manifest so
-                    # init-workspace.sh takes its fast substitution path instead
-                    # of a slow runtime find+grep over the whole scaffold (#718).
-                    # Lists every workspace asset carrying a substitution token,
-                    # at the in-image runtime path (/root/assets/workspace/...),
-                    # sorted for bit-reproducibility. The token set mirrors the
-                    # runtime fallback in init-workspace.sh; the Debian
-                    # Containerfile generated this file the same way.
-                    { grep -rl \
-                        '{{SHORT_NAME}}\|{{ORG_NAME}}\|{{GITHUB_REPOSITORY}}' \
-                        "$out/root/assets/workspace" \
-                        --exclude-dir=.git \
-                        --exclude-dir=.venv \
-                        --exclude-dir=.pre-commit-cache \
-                        2>/dev/null || true; } \
-                      | sed "s|$out||" | LC_ALL=C sort \
-                      > "$out/root/assets/.placeholder-manifest.txt"
-
                     # /root/.bashrc with carried aliases: precommit (now the prek
                     # runner, #778) plus cc/cld (#545).
                     cat > "$out/root/.bashrc" <<'BASHRC'

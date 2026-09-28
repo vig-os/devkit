@@ -7,7 +7,8 @@
 #   1. build-image - Build container image
 #   2. test-image - Run image tests
 #   3. test-integration - Run integration tests
-#   4. project-checks - Linters, utils, release cycle tests
+#   4. project-lint / project-tests / project-bats / project-flake - the four
+#      parallel project lanes (linters, project tests, BATS, flake gates)
 #   5. commit-checks - Commit message + PR title validation (PRs only)
 #   6. security-scan - Container image vulnerability scanning (Trivy)
 #   7. dependency-review - Dependency vulnerability check (PRs only)
@@ -183,12 +184,92 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  project-checks:
-    name: Project Checks
+  # Project lanes (#1692). One job per independent block of what used to be the
+  # serial `Project Checks` chain: nothing after `setup-env` consumed another
+  # block's output, so the critical path is setup + the LONGEST block instead of
+  # their sum. Each lane calls the same `test-project` composite with a different
+  # `suite`, which stays the single source of truth for every block body; each
+  # carries the same `workflow_dispatch` gate, so a dispatch of `project` still
+  # runs all four. Timeouts are sized per block, not for the old chain.
+  project-lint:
+    name: Project Lint
     runs-on: ubuntu-26.04
-    # 25 (was 10): the hooks-fidelity + services and widened dev-shell steps
-    # added by #1413 run extra `nix develop`/`nix build` invocations; with a
-    # warm Cachix they are minutes, not tens of minutes, but need headroom.
+    # 15, not the block's own ~1 min: a flake.lock change that misses Cachix
+    # makes every lane pay a cold dev-shell build in `setup-env`, and that cost
+    # is now paid four times over rather than once. Refs #1692.
+    timeout-minutes: 15
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.test-suite == 'all' ||
+      inputs.test-suite == 'project'
+
+    steps:
+      # Needed even though the composite checks out too: a local `uses: ./...`
+      # is resolved from the workspace, so the action file must already be there.
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Run project checks (lint)
+        uses: ./.github/actions/test-project
+        with:
+          suite: 'lint'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+  project-tests:
+    name: Project Tests
+    runs-on: ubuntu-26.04
+    # 15, not the block's own ~1 min: a flake.lock change that misses Cachix
+    # makes every lane pay a cold dev-shell build in `setup-env`, and that cost
+    # is now paid four times over rather than once. Refs #1692.
+    timeout-minutes: 15
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.test-suite == 'all' ||
+      inputs.test-suite == 'project'
+
+    steps:
+      # Needed even though the composite checks out too: a local `uses: ./...`
+      # is resolved from the workspace, so the action file must already be there.
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Run project checks (pytest)
+        uses: ./.github/actions/test-project
+        with:
+          suite: 'pytest'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+  project-bats:
+    name: Project BATS
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.test-suite == 'all' ||
+      inputs.test-suite == 'project'
+
+    steps:
+      # Needed even though the composite checks out too: a local `uses: ./...`
+      # is resolved from the workspace, so the action file must already be there.
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Run project checks (bats)
+        uses: ./.github/actions/test-project
+        with:
+          suite: 'bats'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+  project-flake:
+    name: Project Flake Gates
+    runs-on: ubuntu-26.04
+    # 25 (the old chain's budget): the flake gates run several
+    # `nix develop`/`nix build` invocations, and a Cachix miss after a
+    # dev-shell derivation change rebuilds it — minutes, but needing
+    # headroom. Refs #1413.
     timeout-minutes: 25
     if: |
       github.event_name != 'workflow_dispatch' ||
@@ -196,90 +277,20 @@ jobs:
       inputs.test-suite == 'project'
 
     steps:
+      # Needed even though the composite checks out too: a local `uses: ./...`
+      # is resolved from the workspace, so the action file must already be there.
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
-      - name: Run project checks
+      - name: Run project checks (flake)
         uses: ./.github/actions/test-project
         with:
+          suite: 'flake'
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
-      # Tier 0 (#779): evaluate + build every `checks.<system>` derivation in
-      # parallel with an eval cache via nix-fast-build — the pure formatting
-      # (treefmt), deadnix/statix, dev-shell build, devShellTools eval, and the
-      # git-hooks.nix `pre-commit` gate. Faster than serial `nix flake check`;
-      # nix-fast-build evaluates through nix-eval-jobs, so eval/type errors still
-      # surface. The runner is amd64, so target x86_64-linux explicitly. The
-      # effectful checks (image testinfra, integration, vulnix CVE-DB, the impure
-      # pre-commit hooks) stay GH-orchestrated in their own jobs. Refs #674, #779.
-      - name: Check flake quality gates (Tier 0 — nix-fast-build)
-        run: nix run .#nix-fast-build -- --skip-cached --no-nom --flake ".#checks.x86_64-linux"
-
-      # Validate the flake OUTPUT SCHEMA that nix-fast-build (which only builds
-      # `checks`) does not exercise: the treefmt formatter, the checks attrset
-      # names, the `install` app, and the nixos/homeManager modules. Cheap evals;
-      # the slow `nix flake check` build is covered by nix-fast-build above. #779.
-      - name: Validate flake output schema
-        run: uv run pytest tests/test_flake_checks.py -k "not flake_check_succeeds" -v
-
-      # Guard the dev-shell <-> image parity: the dev-shell's own PATH must
-      # provide `python3` + the vig-utils release scripts (#729/#993, one
-      # probe: own_path_binaries), carry the `prek` hook runner in the devTools
-      # SSoT (#778), must NOT leak the Nix C++ runtime onto an FHS host's
-      # LD_LIBRARY_PATH (#703), and must provide the fixture-driven tool/env
-      # contracts (bats + helper libs, prek binary hooks, pymarkdown, uv python
-      # pinning, agent-toolkit superset). These drive `nix develop` directly
-      # (not covered by `test-project`'s pytest scope), so run them explicitly
-      # here where Nix + the dev profile are warm. The NixOS-gated and
-      # build-heavy cases (per-tool sweep, python override matrix) stay
-      # local-only. Refs #729, #703, #778, #1413, #1417.
-      - name: Check dev-shell contracts (parity, leak-guard, tool/env fixtures)
-        run: |
-          uv run pytest tests/test_flake_devshell.py \
-            -k "own_path_binaries or hook_runner_is_prek or no_nix_cxx_runtime_leak \
-                or provides_bats or provides_precommit_binary_hooks or provides_pymarkdown \
-                or bats_lib_path or uv_python or superset_of_agent_toolkit" -v
-
-      # Run the git-hooks fidelity gate (nix/hooks.nix <-> committed YAML, the
-      # consumer hooks/hooksExcludes surface, workflow branch-guards, gitleaks
-      # opt-in) and the services-module contracts. Previously these two modules
-      # ran in no CI job at all despite being deny-listed from the test-project
-      # sweep as "covered by their own targeted jobs". The services PoC boot
-      # (live s3 + postgres) stays local-only. Refs #1413.
-      - name: Check git-hooks fidelity gate + services module
-        run: |
-          uv run pytest tests/test_flake_hooks.py tests/test_flake_services.py \
-            -k "not services_poc_boots" -v
-
-      # Run the capability-module contract tests (#884): the `native` module
-      # shell exposes the C/C++ toolchain on its own PATH and exports generic
-      # CC/CXX, plus the C-extension sdist smoke. nix-fast-build above already
-      # builds `checks.*.module-native`, so `nix develop` is warm; the sdist
-      # smoke needs PyPI, which this lane already uses (setup-env runs
-      # `uv sync`), so it is included rather than deselected. Refs #884.
-      - name: Check capability-module contracts (native)
-        run: uv run pytest tests/test_flake_modules.py -v
-
-      # Validate the scaffolded downstream stub (assets/workspace/flake.nix)
-      # against THIS toolchain, not the published vigos, so a change to the flake
-      # API (lib.mkProjectShell / overlays.default) can't silently break a
-      # downstream repo's `direnv allow`. Refs #640.
-      - name: Check downstream flake stub
-        run: nix flake check ./assets/workspace --override-input vigos "path:$PWD" --accept-flake-config
-
-      # Audit the devkit-managed workflow set (assets/workspace/.github/workflows/)
-      # against the shipped zizmor baseline (zizmor.yml). Gates regressions: a new
-      # zizmor finding — or a managed workflow that regains a fixed finding — fails
-      # here and must be fixed in the workflow or triaged in zizmor.yml, so
-      # consumers never inherit an unbaselined finding from devkit's output. The
-      # baseline scopes exemptions to managed basenames only, so consumer-authored
-      # workflows are never suppressed. Refs #1182.
-      - name: Audit managed workflows (zizmor)
-        run: uvx zizmor@1.25.2 --offline --config zizmor.yml assets/workspace/.github/workflows/
-
   # Commit-message validation (#1019). `validate-commit-msg` is a commit-msg
-  # stage hook, so `prek run --all-files` (the project-checks lane) never runs
+  # stage hook, so `prek run --all-files` (the project-lint lane) never runs
   # it — and the only other enforcement path, the local core.hooksPath shim,
   # was silently inert for hundreds of commits. A guard that only runs on
   # healthy laptops is not a guard, so the standard is re-checked here against
@@ -388,6 +399,13 @@ jobs:
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
+      # Blocking (#637): an expired exception in either register fails PR CI. It
+      # lives here rather than in security-scan because this job already has the
+      # Nix/uv environment it needs and does not wait on build-image, keeping the
+      # check off the run's critical path (#1701).
+      - name: Validate .trivyignore/.vulnixignore exception expirations
+        run: uv run check-expirations .trivyignore .vulnixignore
+
       - name: Install safety
         run: |
           set -euo pipefail
@@ -438,22 +456,14 @@ jobs:
 
     # The Nix image has no apt/dpkg DB, so Trivy's OS-package scanner is largely
     # dark here; the authoritative CVE gate is the nightly vulnix scan
-    # (security-scan.yml, scan-nix-image — blocking via vulnix-gate). PR CI runs
-    # Trivy non-blocking for awareness + a CycloneDX SBOM artifact, and validates
-    # the exception registers' expiry. Refs #642, #637.
+    # (security-scan.yml, scan-nix-image — blocking via vulnix-gate). PR CI emits
+    # the CycloneDX SBOM artifact and reports over that SBOM, non-blocking, for
+    # awareness. The exception registers' expiry is validated in python-security,
+    # which already has the Nix/uv setup this job no longer needs (#1701).
+    # Refs #642, #637, #1701.
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-
-      - name: Set up environment
-        uses: ./.github/actions/setup-env
-        with:
-          sync-dependencies: 'true'
-          cachix-cache: ${{ vars.CACHIX_CACHE }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-
-      - name: Validate .trivyignore/.vulnixignore exception expirations
-        run: uv run check-expirations .trivyignore .vulnixignore
 
       - name: Download image artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
@@ -461,40 +471,45 @@ jobs:
           name: container-image-${{ needs.build-image.outputs.version }}-amd64
           path: /tmp
 
-      # One Trivy pass for every reported severity (was two separate runs, one
-      # per tier). Each trivy-action invocation re-installs Trivy, re-parses the
-      # image tar and cold-pulls the vuln DB, so collapsing HIGH/CRITICAL + MEDIUM
-      # into a single `severity` list drops a whole ~3 min run. Still
-      # non-blocking (exit-code 0) — the authoritative CVE gate is the nightly
-      # vulnix scan (security-scan.yml). `.trivyignore` now also filters MEDIUM;
-      # harmless (awareness only, no MEDIUM-specific entries). trivy-action caches
-      # the DB in $GITHUB_WORKSPACE/.cache/trivy (cache: true default), so this
-      # step populates the cache the SBOM step below reuses. Refs #109, #642.
-      - name: Report HIGH/CRITICAL/MEDIUM vulnerabilities (non-blocking)
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
-        with:
-          version: 'v0.74.0'
-          input: /tmp/image.tar
-          format: 'table'
-          severity: 'HIGH,CRITICAL,MEDIUM'
-          exit-code: '0'  # Non-blocking report
-          trivyignores: '.trivyignore'
-
-      # SBOM is a package-inventory pass; it does not need the vuln DB the scan
-      # above already fetched, nor a second Trivy install. Reuse the warm state
-      # (skip-setup-trivy + TRIVY_SKIP_*_DB_UPDATE) so this stops cold-pulling
-      # ~ again on every run. Refs #109.
+      # Both Trivy passes used to walk the same 1.5 GiB image tar, and that walk
+      # — not the DB pull, which hits the daily cache in seconds — is what put
+      # this job on the run's critical path. The image is therefore parsed ONCE:
+      # this pass runs first and the report below scans its output
+      # (`scan-type: sbom`), the pattern security-scan.yml already uses.
+      # `--format cyclonedx` disables security scanning outright, so this step
+      # needs no vuln DB and only installs Trivy — which is also why neither step
+      # carries TRIVY_SKIP_*_DB_UPDATE any more: the report is the first DB
+      # consumer and must be free to fetch one. Refs #109, #1701.
       - name: Generate container SBOM (CycloneDX)
-        if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
-        env:
-          TRIVY_SKIP_DB_UPDATE: 'true'
-          TRIVY_SKIP_JAVA_DB_UPDATE: 'true'
         with:
           version: 'v0.74.0'
           input: /tmp/image.tar
           format: 'cyclonedx'
           output: 'sbom-cyclonedx.json'
+
+      # One Trivy pass for every reported severity (was two separate runs, one
+      # per tier); `.trivyignore` therefore also filters MEDIUM, which is
+      # harmless (awareness only, no MEDIUM-specific entries). SBOM-mode scanning
+      # covers vulnerabilities and licenses only, so this report no longer runs
+      # the secret scanner — accepted (#1701): it is non-blocking awareness
+      # (exit-code 0) and the authoritative CVE gate is the nightly vulnix scan
+      # (security-scan.yml). Trivy is already installed by the step above, hence
+      # skip-setup-trivy; the DB comes from trivy-action's own cache of
+      # $GITHUB_WORKSPACE/.cache/trivy (cache: true default). Refs #109, #642, #1701.
+      - name: Report HIGH/CRITICAL/MEDIUM vulnerabilities (non-blocking)
+        # Awareness only, like its nightly twin in security-scan.yml: a scan
+        # error here (DB pull, malformed SBOM) must not turn the PR red.
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          version: 'v0.74.0'
+          scan-type: 'sbom'
+          scan-ref: 'sbom-cyclonedx.json'
+          format: 'table'
+          severity: 'HIGH,CRITICAL,MEDIUM'
+          exit-code: '0'  # Non-blocking report
+          trivyignores: '.trivyignore'
           skip-setup-trivy: 'true'
 
       - name: Upload SBOM artifact
@@ -566,7 +581,10 @@ jobs:
       - build-image
       - test-image
       - test-integration
-      - project-checks
+      - project-lint
+      - project-tests
+      - project-bats
+      - project-flake
       - commit-checks
       - python-security
       - security-scan
@@ -582,7 +600,10 @@ jobs:
           echo "Build Image: ${{ needs.build-image.result }}"
           echo "Image Tests: ${{ needs.test-image.result }}"
           echo "Integration Tests: ${{ needs.test-integration.result }}"
-          echo "Project Checks: ${{ needs.project-checks.result }}"
+          echo "Project Lint: ${{ needs.project-lint.result }}"
+          echo "Project Tests: ${{ needs.project-tests.result }}"
+          echo "Project BATS: ${{ needs.project-bats.result }}"
+          echo "Project Flake Gates: ${{ needs.project-flake.result }}"
           echo "Commit Messages: ${{ needs.commit-checks.result }}"
           echo "Python Security: ${{ needs.python-security.result }}"
           echo "Security Scan: ${{ needs.security-scan.result }}"
@@ -613,8 +634,23 @@ jobs:
             FAILED=true
           fi
 
-          if [ "${{ needs.project-checks.result }}" = "failure" ] || [ "${{ needs.project-checks.result }}" = "cancelled" ]; then
-            echo "ERROR: Project checks failed or were cancelled"
+          if [ "${{ needs.project-lint.result }}" = "failure" ] || [ "${{ needs.project-lint.result }}" = "cancelled" ]; then
+            echo "ERROR: Project lint failed or was cancelled"
+            FAILED=true
+          fi
+
+          if [ "${{ needs.project-tests.result }}" = "failure" ] || [ "${{ needs.project-tests.result }}" = "cancelled" ]; then
+            echo "ERROR: Project tests failed or were cancelled"
+            FAILED=true
+          fi
+
+          if [ "${{ needs.project-bats.result }}" = "failure" ] || [ "${{ needs.project-bats.result }}" = "cancelled" ]; then
+            echo "ERROR: Project BATS tests failed or were cancelled"
+            FAILED=true
+          fi
+
+          if [ "${{ needs.project-flake.result }}" = "failure" ] || [ "${{ needs.project-flake.result }}" = "cancelled" ]; then
+            echo "ERROR: Project flake gates failed or were cancelled"
             FAILED=true
           fi
 

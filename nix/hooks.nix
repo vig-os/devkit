@@ -179,6 +179,12 @@ let
   justfileFiles = "^justfile(\\..*)?$";
   actionPinsFiles = "^\\.github/(workflows/.*\\.ya?ml|actions/.*/action\\.ya?ml)$";
   expirationsFiles = "^\\.(trivyignore|vulnixignore)$";
+  # Both composite-action trees (#1704): the repo's own `.github/actions/` and,
+  # inside devkit, the scaffold's `assets/workspace/.github/actions/` — which
+  # is `.github/actions/` once scaffolded. Anchored on `(^|/)` rather than `^`
+  # for exactly that reason; the same pattern therefore serves the runner, the
+  # scaffold copy and the consumer surface unchanged.
+  compositeActionFiles = "(^|/)\\.github/actions/[^/]+/action\\.ya?ml$";
 
   hookDefs = {
     # ── Formatting ──────────────────────────────────────────────────────
@@ -536,6 +542,49 @@ let
         language = "system";
         files = "^\\.github/workflows/.*\\.ya?ml$";
         pass_filenames = false;
+      };
+    };
+    # The composite-action half of the same pass (#1704). actionlint refuses a
+    # composite action outright (`unexpected key "runs" for "workflow"
+    # section`) and has no composite mode, so every `run:` body a repo moves
+    # out of a workflow and into `.github/actions/*/action.yml` silently loses
+    # its shellcheck. vig-utils' shellcheck-composite-actions reproduces
+    # actionlint's own recipe over those bodies — same `${{ }}` neutralisation,
+    # same prelude, same exclude list — so the two hooks gate one lint, not two
+    # dialects of one.
+    #
+    # Scaffolded: the scaffold ships two composites of its own
+    # (assets/workspace/.github/actions/), and consumer repos grow more. The
+    # committed YAML renders keep the PATH-portable entry and let shellcheck
+    # resolve from PATH (it ships in devTools for every mode, like actionlint
+    # above); the Nix fragments name both store paths, so neither the script
+    # nor shellcheck depends on PATH there (#1447).
+    shellcheck-composite-actions = {
+      scaffold = true;
+      yaml = {
+        name = "shellcheck-composite-actions (lint composite action run bodies)";
+        entry = "uv run shellcheck-composite-actions";
+        language = "system";
+        files = compositeActionFiles;
+        pass_filenames = true;
+      };
+      check =
+        { pkgs, vigUtils, ... }:
+        {
+          enable = true;
+          name = "shellcheck-composite-actions";
+          entry = "${vigUtils}/bin/shellcheck-composite-actions --shellcheck ${pkgs.shellcheck}/bin/shellcheck";
+          language = "system";
+          files = compositeActionFiles;
+          pass_filenames = true;
+        };
+      consumer = pkgs: {
+        enable = true;
+        name = "shellcheck-composite-actions";
+        entry = "${import ./vig-utils.nix pkgs}/bin/shellcheck-composite-actions --shellcheck ${pkgs.shellcheck}/bin/shellcheck";
+        language = "system";
+        files = compositeActionFiles;
+        pass_filenames = true;
       };
     };
     # Markdown lint — a language:system hook resolved from the flake toolchain

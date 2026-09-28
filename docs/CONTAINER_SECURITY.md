@@ -92,6 +92,14 @@ surfaces, so both outputs are uploaded as an artifact to support a
 `vulnix`-vs-Trivy overlap comparison (confidence evidence, not a numeric-parity
 gate).
 
+Per-PR CI (`ci.yml`, job `Security Scan`) uses the same two steps on the
+devcontainer image: it generates the CycloneDX SBOM artifact and reports
+HIGH/CRITICAL/MEDIUM **over that SBOM** rather than walking the image tarball a
+second time (#1701). SBOM-scan mode covers vulnerabilities and licenses only, so
+that report no longer runs Trivy's secret scanner — accepted, because it is
+non-blocking awareness and the authoritative gate remains the nightly `vulnix`
+lane above.
+
 ### 4. Advance the `nixpkgs` rev (remediation lever)
 
 When a HIGH/CRITICAL CVE is real (not a `vulnix` false positive) and fixed

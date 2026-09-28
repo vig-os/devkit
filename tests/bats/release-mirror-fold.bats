@@ -15,6 +15,8 @@
 # force-push — which is why both are now gated on a locally verifiable
 # precondition rather than trusted.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
     load test_helper
     MIRROR_WS="$BATS_FILE_TMPDIR/mirror-ws"

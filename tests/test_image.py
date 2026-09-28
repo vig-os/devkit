@@ -12,6 +12,7 @@ base functionality is preserved in their containers.
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -997,30 +998,58 @@ class TestFileStructure:
         )
         assert activate.is_file, "venv activate script is not a regular file"
 
-    def test_placeholder_manifest_baked(self, host):
-        """The build-time placeholder manifest is baked next to init-workspace.sh.
+    def test_placeholder_manifest_absent(self, host):
+        """The image ships no build-time placeholder manifest (#1693).
 
-        init-workspace.sh reads ``/root/assets/.placeholder-manifest.txt`` to
-        take its fast substitution path; without it, workspace init falls back
-        to a slow runtime ``find``+``grep`` over the whole scaffold (#718). The
-        manifest lists placeholder-bearing files at their in-image runtime
-        paths, one per line.
+        init-workspace.sh had an image-only fast path that read
+        ``/root/assets/.placeholder-manifest.txt`` and sed'ed one file per entry
+        (#718). It was retired for a single routine scoped to the
+        template-shipped set, so the baked file is gone and nothing must
+        resurrect it: a stale manifest left in the image would be dead weight
+        that no code reads, and the negative pin keeps the flake build step from
+        creeping back.
         """
         manifest = host.file("/root/assets/.placeholder-manifest.txt")
-        assert manifest.exists, (
-            "placeholder manifest not found at /root/assets/.placeholder-manifest.txt"
+        assert not manifest.exists, (
+            "retired placeholder manifest is still baked at "
+            "/root/assets/.placeholder-manifest.txt (#1693)"
         )
-        assert manifest.is_file, "placeholder manifest is not a regular file"
 
-        lines = [ln for ln in manifest.content_string.splitlines() if ln.strip()]
-        assert lines, "placeholder manifest is empty"
-        assert all(ln.startswith("/root/assets/workspace/") for ln in lines), (
-            "placeholder manifest contains non-workspace paths"
+    def test_perl_absent_from_image(self, host):
+        """The image ships no perl — not on PATH, not anywhere in the closure.
+
+        #1108 evicted perl from the image (re-wrapping neovim without the
+        wl-clipboard clipboard provider cut the wl-clipboard -> xdg-utils ->
+        perl-module-stack subtree), which retired a standing CVE exception batch
+        instead of babysitting it. #1690 (#1687) silently undid that: `bats
+        --jobs` shells out to a `parallel` binary on bats' own PATH, GNU parallel
+        *is* a perl script, and the bats wrapper rides in the image env — so perl
+        5.42.0 walked back into the runtime closure carrying three unexcepted
+        HIGH/CRITICAL CVEs, caught by the nightly vulnix gate on `dev`. #1708
+        swapped GNU parallel for shenwei356/rush (Go, no interpreter).
+
+        Both halves are pinned, because either alone is blind: `command -v` would
+        miss an interpreter that sits in the closure without being on PATH, and
+        that is precisely where vulnix — the scan the eviction exists to keep
+        quiet — looks.
+        """
+        on_path = host.run("command -v perl")
+        assert on_path.rc != 0, (
+            f"perl is on PATH in the image at {on_path.stdout.strip()!r} — "
+            "#1108 evicted it; something re-imported it (#1708)"
         )
-        # A known placeholder-bearing scaffold file must be listed so the fast
-        # path actually substitutes it (guards against an empty/degenerate list).
-        assert "/root/assets/workspace/justfile.project" in lines, (
-            "placeholder manifest missing known placeholder-bearing file justfile.project"
+
+        store = host.run("ls /nix/store")
+        assert store.rc == 0, f"cannot list /nix/store: {store.stderr}"
+        perl_paths = [
+            name
+            for name in store.stdout.split()
+            if re.match(r"^[a-z0-9]{32}-perl5?[-.][0-9]", name)
+        ]
+        assert not perl_paths, (
+            "perl is back in the image's runtime closure: "
+            f"{', '.join(sorted(perl_paths))} — #1108 evicted it and the nightly "
+            "vulnix gate scans that closure (#1708)"
         )
 
     def test_manifest_files(self, host, parse_manifest):

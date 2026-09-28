@@ -6,6 +6,8 @@
 # fixed interval, and it must never fail the step itself -- failing the release
 # is the retry step's job, not the wait's.
 
+bats_require_minimum_version 1.5.0
+
 setup() {
   load test_helper
   SCRIPT="${PROJECT_ROOT}/.github/scripts/wait-for-rekor.sh"

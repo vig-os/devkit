@@ -207,6 +207,7 @@ This section applies to **`vig-os/devcontainer`** (this repo) and, for matching 
 - All tests passing on `dev`
 - CHANGELOG Unreleased section has content
 - No other `release/*` branch exists — the `validate` job refuses to cut a second train (single-train policy, [#1627](https://github.com/vig-os/devkit/issues/1627)); promote or abandon the other one first
+- Every hook added to the scaffold since the last release has its row in `inserted_hook_blocks()` (`assets/init-workspace.sh`), and every row's version is the one being cut. A consumer with a preserved `.pre-commit-config.yaml` receives a new hook only through that table (`'<first release shipping it> <hook id> [feature group]'`), and the version is a literal nothing else checks: trains have been renamed mid-flight before, and a stale number either under-inserts (safe) or re-adds a hook a consumer deleted (the [#1651](https://github.com/vig-os/devkit/issues/1651) defect). Add or fix rows on the release branch, with `tests/test_scaffold_preserved_hooks.py` updated to match ([#1660](https://github.com/vig-os/devkit/issues/1660), [#1717](https://github.com/vig-os/devkit/issues/1717))
 
 **Execute:**
 
@@ -226,6 +227,7 @@ The `prepare-release.yml` workflow freezes the CHANGELOG on dev and creates the 
    - Validates semantic version format (X.Y.Z)
    - Verifies release branch `release/X.Y.Z` doesn't exist (local or remote)
    - Verifies tag `X.Y.Z` doesn't already exist
+   - Refuses when `dev` is behind `main` — `main` may carry landed-but-unshipped commits, and the cut freezes *dev's* `## Unreleased`, so cutting ahead of the open `chore/sync-main-to-dev-*` PR would drop their entries from the frozen section. Merge that PR, then re-dispatch ([#1680](https://github.com/vig-os/devkit/issues/1680))
    - Runs `synthesize-bot-changelog` → generates the `#### Dependencies` block for merged bot PRs (Renovate, adoptions) since the last stable tag ([#1423](https://github.com/vig-os/devkit/issues/1423))
    - Verifies CHANGELOG has `## Unreleased` section with content (after synthesis, so a bot-only train passes)
    - Confirms dev branch is checked out
@@ -284,7 +286,7 @@ Next steps:
 - `version` is exactly `MAJOR.MINOR.(PATCH+1)` of the highest stable `X.Y.Z` tag reachable from `main` — no "hotfix minors", no patches of an older line, no skipped numbers.
 - **No other `release/*` branch exists.** A hotfix promoted while a regular train is in flight would be silently reintroduced by that train's merge (its branch predates the fix) and the two trains would race for `:latest`, so the lane refuses instead of relying on a cherry-pick obligation. Promote or abandon the other train first.
 - No `release/X.Y.Z` branch and no `X.Y.Z` tag exist.
-- `main`'s `## Unreleased` is empty. This was true by construction under [#590](https://github.com/vig-os/devkit/issues/590), but that invariant is superseded: the [release-neutral lane](#main-may-carry-unshipped-changes) may land entries on `main`. The precondition is still enforced as written, so a hotfix cut while `main` carries entries refuses to start — teaching the check to freeze them instead is phase 1 of [#1676](https://github.com/vig-os/devkit/issues/1676).
+- `main`'s `## Unreleased` is **classified, not required to be empty** ([#1679](https://github.com/vig-os/devkit/issues/1679)). It may carry changes that landed on `main` but have not shipped — [#1676](https://github.com/vig-os/devkit/issues/1676) supersedes [#590](https://github.com/vig-os/devkit/issues/590)'s empty-by-construction invariant. A hotfix cuts from `main`'s head and therefore *ships* those changes, so `validate` records which section shape it found and `prepare` freezes it (`prepare-changelog prepare`) or seeds an empty one (`prepare-changelog seed`) accordingly. The only hard refusal left here is a missing `## Unreleased` or a pre-existing `[X.Y.Z]` section.
 
 **Execute:**
 
@@ -300,20 +302,20 @@ just prepare-hotfix X.Y.Z "" -f dry-run=true
 **What `prepare-hotfix.yml` does (automatically):**
 
 1. ✅ **Validate** — the preconditions above, on a `main` checkout; records `main`'s SHA.
-2. ✅ **Prepare** (skipped on dry-run) — re-checks `main` has not moved, creates `release/X.Y.Z` at that SHA via the Git Data API, runs `prepare-changelog seed X.Y.Z` and commits the **empty** `## [X.Y.Z] - TBD` section **to the release branch** (never `main`, never `dev`).
+2. ✅ **Prepare** (skipped on dry-run) — re-checks `main` has not moved, creates `release/X.Y.Z` at that SHA via the Git Data API, runs `prepare-changelog prepare X.Y.Z` or `prepare-changelog seed X.Y.Z` per `validate`'s verdict, and commits the resulting `## [X.Y.Z] - TBD` section **to the release branch** (never `main`, never `dev` — which is what makes rollback just "delete the branch").
 3. ✅ **Extension** — the same `prepare-release-extension.yml` hook as the regular train, with the seed commit as `branch_sha`, so the workspace changelog mirror is re-synced on the branch. Its `dev` fast-forward path is unreachable for a main-cut branch and its fallback finds `dev`'s mirror clean, so `dev` is untouched.
 4. ✅ **Open** the draft PR `release/X.Y.Z` → `main`.
 5. ✅ **Rollback** on failure or cancellation — deletes the partial branch. Nothing else: there is no `dev` mutation to undo.
 
 **CHANGELOG state after prepare-hotfix:**
 
-- `main`: `## Unreleased` (empty) — untouched
-- `release/X.Y.Z`: `## Unreleased` (empty) + `## [X.Y.Z] - TBD` (**empty**)
+- `main`: `## Unreleased` (empty **or** carrying unshipped entries) — untouched either way; it self-clears when the release branch merges back, so the empty shape re-establishes itself after every hotfix
+- `release/X.Y.Z`: `## Unreleased` (empty) + `## [X.Y.Z] - TBD`, holding `main`'s carried entries (`prepare`) or **empty** for the fix PR to fill (`seed`)
 - `dev`: untouched
 
 **Then, in order:**
 
-1. **Land the fix** via a `bugfix/<issue>-<summary>` PR into `release/X.Y.Z` (the standard release-branch bugfix path). The PR **must fill `## [X.Y.Z] - TBD`** — `release.yml` refuses to publish a version whose section is still empty (`prepare-changelog validate --version`), for candidates and finals alike.
+1. **Land the fix** via a `bugfix/<issue>-<summary>` PR into `release/X.Y.Z` (the standard release-branch bugfix path). The PR **must describe the fix in `## [X.Y.Z] - TBD`** — `release.yml` refuses to publish a version whose section is still empty (`prepare-changelog validate --version`), for candidates and finals alike. That gate is deliberately unchanged by [#1679](https://github.com/vig-os/devkit/issues/1679): **no empty sections at release time, an empty section is acceptable at `prepare-hotfix` time.** It also refuses a section whose bullets sit outside a recognised `###` heading, or that repeats one ([#1689](https://github.com/vig-os/devkit/issues/1689)) — write the fix under `### Fixed`. Note the consequence — when the section was frozen from `main`'s carried entries it is already non-empty, so the gate passes even if the fix itself goes undescribed. Describing it stays the author's job; no compensating check was added.
 2. Run the regular train **unchanged**: `just publish-candidate X.Y.Z`, wait for the smoke-test gate, `gh pr ready`, `just finalize-release X.Y.Z`, approve, `just promote-release X.Y.Z` ([Phase 2](#phase-2-review--testing) onward). Hotfixes ride the full RC → smoke → promote gate; there is no expedite path.
 3. **Resolve the sync-back conflict.** The post-promote `sync-main-to-dev` PR **will conflict on `CHANGELOG.md`** (and the workspace mirror) whenever `dev` is ahead — the regular cycle's conflict-free merge is bought by the shared freeze commit, which cannot exist for content authored off `main`. The sync workflow's manual-conflict lane handles it (`merge-conflict` label, instructions in the PR body). Resolution recipe:
 
@@ -379,9 +381,11 @@ gh workflow run release-neutral-open.yml   -f branch=chore/<issue>-<summary>   -
 | **2** | `devShells.default`, `packages.devkitImage` and `packages.devkitImageEnv` derivation paths are **identical** to `main`'s, compared with the changelog normalized away |
 | **3** | The consumer scaffold under `assets/` is byte-identical |
 | **5** | No `release/*` train is in flight |
-| **6** | Posts a verdict comment listing the files carried, and the changelog drift if there is any |
+| **6** | Upserts one sticky verdict comment (matched by an HTML marker, so a rerun updates it rather than appending): the verdict plus the files carried and the changelog drift when every gate passed, a refusal naming the first failing step when one did not, or an “inactive” stub once the `release-neutral` label is removed |
 
 Gate **4** was `main`'s `## Unreleased` is still empty. It is deleted, not renumbered — see [below](#main-may-carry-unshipped-changes).
+
+Gate 6 runs on `!cancelled()` rather than on success, so a failing gate or a removed label **rewrites** the verdict instead of leaving the last positive one standing ([#1705](https://github.com/vig-os/devkit/issues/1705)). It reads each gated step's `outcome` — the checkout and the toolchain set-up included, since a failure there only *skips* the gates — and distinguishes a gate refusal from an infrastructure failure, which proves nothing either way. The deactivation stub is edit-only: a pull request labelled and unlabelled without ever being judged gets no comment at all. Not `always()`: a run cancelled by a superseding head reached no conclusion and must not overwrite the comment. A job timeout is a cancellation too, so the long steps — the toolchain set-up, gate 2 and the `.vulnixignore` extra — carry their own `timeout-minutes` summing to less than the job's, which turns a hang into a failed *step* gate 6 still reports; and because the runner reports such a step as `failure`, exactly like a gate refusing the change, a refusal is something each gate **declares** (`refused=true`), with every other non-green outcome worded as infrastructure ([#1712](https://github.com/vig-os/devkit/issues/1712)).
 
 **Gate 2 is the contract.** Equal derivation paths mean the published artifacts *cannot* differ, whatever the diff touched — a proof rather than an argument about which files happen to be inputs, and deliberately not a path allowlist (which would encode a guess about what is published and need extending for every new kind of release-neutral change). It covers both consumption modes: `devkitImage` for devcontainer consumers, `devShells.default` for `direnv`/`bare` ones, which never pull the image at all.
 
@@ -414,14 +418,14 @@ Two objections were checked and dropped:
 - **"`dev` would lack the content."** `sync-main-to-dev.yml` triggers on `push: [main]`, not only post-promote, and opens a PR whenever `dev` is behind. Self-healing.
 - **"the next release would conflict on `CHANGELOG.md`."** Because that sync reaches `dev` *before* the next freeze, `prepare-release` freezes the carried entries normally and the release→`main` merge applies cleanly.
 
-Note `prepare-release` never inspects `main`'s `## Unreleased` — it runs on `dev` and requires *dev's* section to have content. Only `prepare-hotfix` reads `main`'s, and that precondition is [phase 1 of #1676](https://github.com/vig-os/devkit/issues/1676), a separate change: until it lands, a hotfix cut while `main` carries entries will refuse to start.
+Note `prepare-release` never inspects `main`'s `## Unreleased` — it runs on `dev` and requires *dev's* section to have content. Only `prepare-hotfix` reads `main`'s, and that precondition has since been rewritten by [#1679](https://github.com/vig-os/devkit/issues/1679) — phase 1 of [#1676](https://github.com/vig-os/devkit/issues/1676) — which classifies the section instead of requiring it to be empty and freezes any carried entries into the release branch.
 
 **Runbook rules:**
 
 - **A changelog entry may ride the lane.** It lands under `main`'s `## Unreleased`, where it correctly describes a change that has landed but not shipped, and it appears in the release notes of whichever train ships it. The entry is normalized out of gate 2's comparison and reported in the verdict; read it there before approving. Cherry-picking from `dev` remains the tidier route, but it is no longer the only one that preserves the release note.
 - **The guard is label-scoped, not diff-scoped,** and its job carries no job-level `if`. A release PR legitimately changes the changelog, `.vig-os` and the scaffold, so a diff-keyed guard would fail every release; and a job-level condition would yield a *skipped* job, which — were the guard ever made a required check — would leave release PRs waiting on a check that never reports. "Inactive" therefore means *ran and passed*.
 - **Do not push after approving.** `main` sets `dismiss_stale_reviews_on_push`. The guard itself never writes, for the same reason.
-- **`main` will carry commits that are in no release,** and `## Unreleased` entries describing them ([#590](https://github.com/vig-os/devkit/issues/590)'s invariant is superseded — see above). Nothing depends on the strict form: the hotfix precondition is "PATCH+1 of the highest stable tag *reachable from* `main`", which extra commits do not disturb. The one live exception is `prepare-hotfix`'s own empty-Unreleased check, phase 1 of [#1676](https://github.com/vig-os/devkit/issues/1676).
+- **`main` will carry commits that are in no release,** and `## Unreleased` entries describing them ([#590](https://github.com/vig-os/devkit/issues/590)'s invariant is superseded — see above). Nothing depends on the strict form: the hotfix precondition is "PATCH+1 of the highest stable tag *reachable from* `main`", which extra commits do not disturb. `prepare-hotfix`'s own empty-Unreleased check was the one live exception; [#1679](https://github.com/vig-os/devkit/issues/1679) retired it.
 - **Reconvergence is free** when the carried commits are cherry-picks of `dev` content: the next train's `dev`→`main` merge sees identical content.
 - **Content-triggered extra.** When the diff touches `.vulnixignore`, the guard also replays `main`'s own nightly gate and requires exit 0. This is not part of the contract — it exists because the register is not append-only: a pin advance on `dev` *clears* exceptions and `dev`'s pin advances first, so there is always a window where `dev` has correctly deleted an exception that `main`'s older, still-vulnerable closure needs. Carrying that deletion would strand a real finding, so the guard runs the real gate rather than reasoning about whether the removal was safe.
 - **Bootstrap.** `workflow_dispatch` registers only from the default branch, so the lane cannot deliver itself: the first deployment of these two workflows to `main` needs one `OrganizationAdmin` bypass merge. After that the lane carries its own future changes.
@@ -734,7 +738,7 @@ docker buildx imagetools inspect ghcr.io/vig-os/devcontainer:1.0.0
 **Actions:**
 
 #### `prepare VERSION [FILE]`
-Move Unreleased content to `[VERSION] - TBD` section and create fresh empty Unreleased section. Used by `prepare-release.yml` to freeze the CHANGELOG on dev.
+Move Unreleased content to `[VERSION] - TBD` section and create fresh empty Unreleased section. Used by `prepare-release.yml` to freeze the CHANGELOG on dev, and by `prepare-hotfix.yml` on the release branch when `main` carries unshipped entries ([#1679](https://github.com/vig-os/devkit/issues/1679)). **Safety ([#1689](https://github.com/vig-os/devkit/issues/1689)):** it refuses, leaving the file untouched, when `## Unreleased` or the `## [VERSION]` block it folds in carries bullets outside a recognised `###` heading, repeats a standard heading, or has nothing to freeze at all — use `seed` for the empty case. Earlier versions scooped the previous release's section on an empty `## Unreleased`; that is fixed, and the hotfix lane still classifies before it writes.
 
 ```bash
 uv run prepare-changelog prepare 1.0.0 [CHANGELOG.md]
@@ -743,13 +747,15 @@ uv run prepare-changelog prepare 1.0.0 [CHANGELOG.md]
 #### `validate [FILE] [--version X.Y.Z]`
 Validate CHANGELOG has Unreleased section with content. Used by `prepare-release.yml` to ensure there are changes to release. With `--version`, validate instead that `## [X.Y.Z] - TBD` exists and carries content — the release-time guard in `release.yml` that keeps a seeded-but-unfilled hotfix section from shipping ([#1621](https://github.com/vig-os/devkit/issues/1621)).
 
+**"Content" means what `prepare` can freeze** ([#1689](https://github.com/vig-os/devkit/issues/1689)): bullets under a recognised `###` heading. Both forms exit non-zero, naming the offending lines, on bullets written outside such a heading or on a repeated standard heading — shapes `prepare` would silently drop. That is what lets `prepare-hotfix.yml` classify with `validate` and trust the verdict.
+
 ```bash
 uv run prepare-changelog validate [CHANGELOG.md]
 uv run prepare-changelog validate --version 1.0.1 [CHANGELOG.md]
 ```
 
 #### `seed VERSION [FILE]`
-Insert an **empty** `## [VERSION] - TBD` section directly under an **empty** `## Unreleased` — `main`'s shape. Used by `prepare-hotfix.yml` on the release branch cut from `main` ([hotfix lane](#hotfix-lane-patch-release-cut-from-main)). **Safety:** refuses a non-empty Unreleased (not a hotfix base — use `prepare`) and an existing `[VERSION]` section.
+Insert an **empty** `## [VERSION] - TBD` section directly under an **empty** `## Unreleased`. Used by `prepare-hotfix.yml` on the release branch cut from `main` when `main`'s `## Unreleased` is empty ([hotfix lane](#hotfix-lane-patch-release-cut-from-main)); when it carries entries the lane calls `prepare` instead ([#1679](https://github.com/vig-os/devkit/issues/1679)). **Safety:** refuses a non-empty Unreleased (use `prepare`) and an existing `[VERSION]` section.
 
 ```bash
 uv run prepare-changelog seed 1.0.1 [CHANGELOG.md]
@@ -845,6 +851,7 @@ Release automation relies on two GitHub Apps with different scopes:
 
 Additional requirement:
 - `COMMIT_APP` must be allowed in branch protection bypass rules for `dev` so sync commits can be pushed by automation.
+- **Optional hardening:** with `DEVKIT_COMMIT_APP_ENVIRONMENT` set, the `COMMIT_APP` pair lives as **environment** secrets and the token-minting jobs (including `release-core.yml`'s `finalize`, whose two `COMMIT_APP_*` `workflow_call` declarations the render flips to `required: false`) carry `environment:`. The environment's deployment branch policy must then admit `main`, `release/*` and — under gitflow — `dev`, and must have **no required reviewers**, which would add a second approval to the single-approval train. The callee's job-level environment secret taking precedence over the inherited one is documented by GitHub but was **not yet exercised by a devkit train** at the time of writing: verify it on first adoption by dispatching a candidate release and watching the `finalize` job's `Generate commit app token` step succeed. See [`MIGRATION.md`](MIGRATION.md#bind-the-commit-app-token-minting-jobs-to-a-deployment-environment) ([#1710](https://github.com/vig-os/devkit/issues/1710)).
 - `RELEASE_APP` must be installed on the validation repository (`vig-os/devkit-smoke-test`) with Contents read and Actions read/write permissions so `release.yml` can send `repository_dispatch` and `repository-dispatch.yml` can trigger workflow runs there for candidate and final release validation.
 
 #### prepare-release.yml (Release Preparation Workflow)

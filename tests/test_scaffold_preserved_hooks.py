@@ -29,12 +29,14 @@ Refs: #1654
 
 from __future__ import annotations
 
+import difflib
+import os
+import subprocess
 from typing import TYPE_CHECKING
 
-from tests.workflow_scaffold import INIT_WORKSPACE, scaffold
+from tests.workflow_scaffold import INIT_WORKSPACE, WORKSPACE, scaffold
 
 if TYPE_CHECKING:
-    import subprocess
     from pathlib import Path
 
 # The `jackdewinter/pymarkdown` block byte-for-byte as the template shipped it
@@ -51,6 +53,16 @@ RETIRED_PYMARKDOWN_BLOCK = r"""  - repo: https://github.com/jackdewinter/pymarkd
 
 # The release that first ships the `actionlint` hook to consumers (#1660).
 ACTIONLINT_SINCE = "1.16.0"
+
+# The release that first ships the composite-action shellcheck hook (#1704,
+# scaffolded by #1718) to consumers. `dev` carries two `feat` commits since
+# 1.16.0 and no breaking change, so the next train is 1.17.0 by construction.
+COMPOSITE_SINCE = "1.17.0"
+
+# That hook belongs to no feature group, so its row in `inserted_hook_blocks()`
+# is two fields wide — `read -r ver hook feat` leaves `feat` empty and the
+# opt-out gate never fires.
+COMPOSITE_HOOK = "shellcheck-composite-actions"
 
 # A consumer config with the consumer's own global exclude, their own
 # `shellcheck` exception, a hand-written comment, and the retired block.
@@ -115,6 +127,32 @@ def _config(tmp_path: Path, name: str) -> str:
     return (tmp_path / name / ".pre-commit-config.yaml").read_text(encoding="utf-8")
 
 
+def _line_diff(before: str, after: str) -> tuple[list[str], list[str]]:
+    """The non-blank lines added and removed between two revisions of a file."""
+    diff = list(difflib.ndiff(before.splitlines(), after.splitlines()))
+    added = [line[2:] for line in diff if line.startswith("+ ") and line[2:].strip()]
+    removed = [line[2:] for line in diff if line.startswith("- ") and line[2:].strip()]
+    return added, removed
+
+
+def _template_config() -> str:
+    return (WORKSPACE / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+
+
+def _template_span(start_marker: str, end_marker: str) -> str:
+    """Template text from the line carrying ``start_marker`` through ``end_marker``.
+
+    Whole lines, inclusive, byte-exact — what a consumer copy of a block has to
+    match. Stronger than "every added line appears somewhere in the template": it
+    pins contiguity and order too, so a block that lost a line in the middle (or
+    its prose comment at the top) fails.
+    """
+    text = _template_config()
+    start = text.rindex("\n", 0, text.index(start_marker)) + 1
+    end = text.index("\n", text.index(end_marker, start)) + 1
+    return text[start:end]
+
+
 def _hook_order(text: str) -> list[str]:
     """The hook ids of a config, in file order."""
     return [
@@ -142,7 +180,18 @@ def test_the_insert_table_declares_the_release_that_first_ships_each_hook() -> N
     """Case 2's version gate reads a ``<version> <hook> <feature>`` manifest."""
     init = INIT_WORKSPACE.read_text(encoding="utf-8")
     assert "inserted_hook_blocks()" in init
-    assert f"{ACTIONLINT_SINCE} actionlint actionlint" in init
+    actionlint_row = f"{ACTIONLINT_SINCE} actionlint actionlint"
+    assert actionlint_row in init
+    # The quotes pin the composite row at TWO fields: no feature group, so the
+    # third field is absent rather than empty-and-present.
+    composite_row = f"'{COMPOSITE_SINCE} {COMPOSITE_HOOK}'"
+    assert composite_row in init
+    # Row order is position, not delivery: since #1725 the composite row is
+    # delivered whichever predecessor the file carries, but meeting the actionlint
+    # row first is what makes a tree missing BOTH end up template-faithful — the
+    # composite block anchors on what that row just inserted instead of on
+    # `shellcheck`, one entry earlier.
+    assert init.index(actionlint_row) < init.index(composite_row)
 
 
 # ── Case 1: fold a retired block ──────────────────────────────────────────────
@@ -176,6 +225,34 @@ def test_the_fold_touches_nothing_but_the_retired_block(tmp_path: Path) -> None:
     assert "# Markdown Linting (excludes auto-generated docs)" in text
     # Ordering is preserved: the replacement lands where the retired block was.
     assert _hook_order(text) == ["shellcheck", "pymarkdown", "typos"]
+
+
+def test_the_folded_block_carries_the_template_comment(tmp_path: Path) -> None:
+    """The fold reads the same block the insert writes, comment included (#1725).
+
+    ``template_hook_block`` is shared, so teaching the structural extraction to
+    carry the prose above an entry reaches Case 1 too: the replacement arrives with
+    the template's rationale, which is the point — the consumer is being handed a
+    hook whose form changed under them. Their OWN comment above the retired block
+    is theirs and survives, so the two comment blocks stack. Pinned rather than
+    tolerated: this shape is what a consumer reviews in their adoption PR, and a
+    later change to either half should have to say so here.
+    """
+    _upgrade(tmp_path, _seed(tmp_path), name="fold-rationale")
+    text = _config(tmp_path, "fold-rationale")
+
+    # The template's prose-plus-entry, byte-exact and contiguous.
+    assert (
+        _template_span(
+            "# Markdown linting (pymarkdown from the flake", "exclude: ^(README"
+        )
+        in text
+    )
+    # Directly under the consumer's own comment, which the fold never touched.
+    assert (
+        "  # Markdown Linting (excludes auto-generated docs)\n"
+        "  # Markdown linting (pymarkdown from the flake toolchain"
+    ) in text
 
 
 def test_a_customized_retired_block_is_never_rewritten(tmp_path: Path) -> None:
@@ -237,7 +314,7 @@ def test_the_fold_marker_rides_stdout_and_the_prose_is_reviewable(
 
 
 def _insert_seed(tmp_path: Path, manifest: str, name: str = "seed") -> Path:
-    """A consumer tree with no ``actionlint`` hook and no retired block."""
+    """A consumer tree with neither inserted hook and no retired block."""
     seed = tmp_path / name
     seed.mkdir()
     (seed / ".pre-commit-config.yaml").write_text(
@@ -263,13 +340,20 @@ def test_a_pin_predating_the_release_receives_the_hook(tmp_path: Path) -> None:
 
 
 def test_the_hook_lands_at_its_template_position(tmp_path: Path) -> None:
-    """After its template neighbour, never appended — hook order is observable."""
+    """After its template neighbour, never appended — hook order is observable.
+
+    A pre-1.16.0 tree lacks BOTH inserted hooks and receives them in one pass,
+    in template order: the composite block anchors on ``actionlint``, which this
+    same pass inserts a row earlier. That is the ordering the table's row
+    sequence protects.
+    """
     seed = _insert_seed(tmp_path, "DEVKIT_VERSION=1.15.1\n")
     _upgrade(tmp_path, seed, name="position")
 
     assert _hook_order(_config(tmp_path, "position")) == [
         "shellcheck",
         "actionlint",
+        COMPOSITE_HOOK,
         "typos",
     ]
 
@@ -300,12 +384,17 @@ def test_the_insert_touches_nothing_else(tmp_path: Path) -> None:
 
 
 def test_a_pin_at_the_release_is_left_alone(tmp_path: Path) -> None:
-    """The repo has seen the hook, so its absence is a decision — durable."""
+    """The repo has seen the hook, so its absence is a decision — durable.
+
+    Per row: the same tree is below the composite release and receives THAT hook
+    (anchored on ``shellcheck``, the nearest predecessor it carries — #1725), so
+    the durability claim is about the actionlint row alone.
+    """
     seed = _insert_seed(tmp_path, f"DEVKIT_VERSION={ACTIONLINT_SINCE}\n")
     proc = _upgrade(tmp_path, seed, name="seen")
 
     assert "- id: actionlint" not in _config(tmp_path, "seen")
-    assert "preserved-hook-insert:" not in proc.stdout
+    assert "preserved-hook-insert: actionlint" not in proc.stdout
 
 
 def test_no_pin_means_no_evidence_and_no_insert(tmp_path: Path) -> None:
@@ -326,14 +415,18 @@ def test_no_pin_means_no_evidence_and_no_insert(tmp_path: Path) -> None:
 
 
 def test_the_feature_opt_out_is_honoured(tmp_path: Path) -> None:
-    """``DEVKIT_FEATURES_DISABLED`` is the durable "no" the insert must obey."""
+    """``DEVKIT_FEATURES_DISABLED`` is the durable "no" the insert must obey.
+
+    Scoped to the hook that carries the group: the opt-out speaks for
+    ``actionlint``'s own block and for nothing that merely sits after it (#1725).
+    """
     seed = _insert_seed(
         tmp_path, "DEVKIT_VERSION=1.15.1\nDEVKIT_FEATURES_DISABLED=actionlint\n"
     )
     proc = _upgrade(tmp_path, seed, name="optout")
 
     assert "- id: actionlint" not in _config(tmp_path, "optout")
-    assert "preserved-hook-insert:" not in proc.stdout
+    assert "preserved-hook-insert: actionlint" not in proc.stdout
 
 
 def test_an_existing_hook_is_never_duplicated(tmp_path: Path) -> None:
@@ -352,13 +445,20 @@ def test_an_existing_hook_is_never_duplicated(tmp_path: Path) -> None:
 
     assert text.count("- id: actionlint") == 1
     assert "name: my own actionlint" in text
-    assert "preserved-hook-insert:" not in proc.stdout
+    assert "preserved-hook-insert: actionlint" not in proc.stdout
 
 
 def test_a_missing_anchor_skips_the_insert_rather_than_guessing(
     tmp_path: Path,
 ) -> None:
-    """No template neighbour to anchor on means no defensible position."""
+    """A file carrying NOT ONE template predecessor has no defensible position.
+
+    The fallback (#1725) walks every hook the template places before the new one,
+    so the warning is reached only when the consumer's file has none of them —
+    here a config whose single hook (``typos``) the template places *after* both
+    inserted hooks. Nothing is written, and the #878 template diff is the
+    fallback the warning points at.
+    """
     seed = tmp_path / "anchorless"
     seed.mkdir()
     (seed / ".pre-commit-config.yaml").write_text(
@@ -366,11 +466,426 @@ def test_a_missing_anchor_skips_the_insert_rather_than_guessing(
         encoding="utf-8",
     )
     (seed / ".vig-os").write_text("DEVKIT_VERSION=1.15.1\n", encoding="utf-8")
+    before = (seed / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     proc = _upgrade(tmp_path, seed, name="anchorless-ws")
 
+    assert _config(tmp_path, "anchorless-ws") == before
     assert "- id: actionlint" not in _config(tmp_path, "anchorless-ws")
+    assert f"- id: {COMPOSITE_HOOK}" not in _config(tmp_path, "anchorless-ws")
     assert "preserved-hook-insert:" not in proc.stdout
     assert "anchor" in proc.stderr
+
+
+def test_a_disabled_anchor_does_not_block_the_hook_after_it(tmp_path: Path) -> None:
+    """One hook's opt-out may not withhold an unrelated later one (#1725).
+
+    A consumer pinned below the composite release with ``actionlint`` disabled
+    carries no actionlint block, so the single-anchor design skipped the composite
+    insert — with a warning, on every upgrade, forever — while a FRESH scaffold
+    with the same opt-out does ship the composite hook (it sits outside the
+    sentinels the excision takes). The walk falls back through the template's
+    predecessors to the first one the file carries, ``shellcheck``, and the
+    composite block lands after that entry.
+    """
+    seed = _insert_seed(
+        tmp_path,
+        f"DEVKIT_VERSION={ACTIONLINT_SINCE}\nDEVKIT_FEATURES_DISABLED=actionlint\n",
+    )
+    proc = _upgrade(tmp_path, seed, name="fallback")
+    text = _config(tmp_path, "fallback")
+
+    assert _hook_order(text) == ["shellcheck", COMPOSITE_HOOK, "typos"]
+    assert "- id: actionlint" not in text
+    assert (
+        f"preserved-hook-insert: {COMPOSITE_HOOK} in .pre-commit-config.yaml"
+        in proc.stdout
+    )
+    # The skip read as a defect; a satisfied fallback has nothing to report.
+    assert "anchor" not in proc.stderr
+
+
+# ── Case 2, second row: the composite-action shellcheck hook (#1717) ──────────
+# The 1.16.0 shape: the consumer took #1660's actionlint block and never saw the
+# composite one, which #1718 added to the template afterwards.
+
+
+def _composite_seed(tmp_path: Path, manifest: str, name: str = "seed") -> Path:
+    """A 1.16.0-shape consumer: ``actionlint`` landed, the composite hook never did."""
+    lines = _template_config().splitlines(keepends=True)
+    start = next(i for i, ln in enumerate(lines) if "# >>> devkit:actionlint" in ln)
+    end = next(i for i, ln in enumerate(lines) if "# <<< devkit:actionlint" in ln)
+
+    seed = tmp_path / name
+    seed.mkdir()
+    (seed / ".pre-commit-config.yaml").write_text(
+        _CONSUMER_HEAD.replace(
+            "  # Markdown Linting (excludes auto-generated docs)\n", ""
+        )
+        + "".join(lines[start : end + 1])
+        + "\n"
+        + _CONSUMER_TAIL.lstrip("\n"),
+        encoding="utf-8",
+    )
+    (seed / ".vig-os").write_text(manifest, encoding="utf-8")
+    return seed
+
+
+def test_a_pin_predating_the_composite_release_receives_the_hook(
+    tmp_path: Path,
+) -> None:
+    """A 1.16.0 tree lints workflows and leaves composite actions unlinted."""
+    seed = _composite_seed(tmp_path, f"DEVKIT_VERSION={ACTIONLINT_SINCE}\n")
+    proc = _upgrade(tmp_path, seed, name="composite")
+    text = _config(tmp_path, "composite")
+
+    assert f"- id: {COMPOSITE_HOOK}" in text
+    assert f"entry: uv run {COMPOSITE_HOOK}" in text
+    assert (
+        f"preserved-hook-insert: {COMPOSITE_HOOK} in .pre-commit-config.yaml"
+        in proc.stdout
+    )
+    # Its template position is right after the actionlint block the tree already
+    # carries — never appended.
+    assert _hook_order(text) == ["shellcheck", "actionlint", COMPOSITE_HOOK, "typos"]
+    # The actionlint hook they already have is seen, so that row stays quiet.
+    assert "preserved-hook-insert: actionlint" not in proc.stdout
+
+
+def test_the_inserted_block_carries_the_template_comment_above_it(
+    tmp_path: Path,
+) -> None:
+    """The rationale is part of the block, not decoration around it (#1725).
+
+    An un-sentinelled entry was extracted from its ``- repo:`` line down, so the
+    prose above it — why the hook exists, and what it deliberately does NOT cover
+    — stayed behind in the template and every consumer copy read as an unexplained
+    ``uv run`` invocation. ``actionlint`` keeps its own comment only because the
+    opt-out sentinels happen to bracket it, which is a coincidence of that hook
+    being feature-gated, not a property of the extraction.
+    """
+    seed = _composite_seed(tmp_path, f"DEVKIT_VERSION={ACTIONLINT_SINCE}\n")
+    before = (seed / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    _upgrade(tmp_path, seed, name="composite-rationale")
+
+    text = _config(tmp_path, "composite-rationale")
+    block = _template_span("# Composite-action shell linting", "pass_filenames: true")
+
+    # Prose and entry together, byte-exact and contiguous, in the consumer's file.
+    assert block in text
+    added, removed = _line_diff(before, text)
+    assert removed == []
+    assert all(line in _template_config() for line in added)
+
+
+def test_a_sentinelled_block_still_starts_at_its_opening_sentinel(
+    tmp_path: Path,
+) -> None:
+    """The comment sweep may not change what a sentinel range already covers.
+
+    ``actionlint``'s range is its sentinels, comment included, and it must stay
+    exactly that: the opening ``# >>> devkit:actionlint`` line has to be the first
+    line written or ``render_actionlint_optout`` cannot excise the copy.
+    """
+    seed = _insert_seed(tmp_path, "DEVKIT_VERSION=1.15.1\n")
+    before = (seed / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    _upgrade(tmp_path, seed, name="sentinel-start")
+    text = _config(tmp_path, "sentinel-start")
+
+    assert _template_span("# >>> devkit:actionlint", "# <<< devkit:actionlint") in text
+    # The consumer's own `shellcheck` block sits above it in the template and is
+    # not dragged in: the sweep stops at the blank line and the sentinel alike.
+    assert text.count("- id: shellcheck\n") == 1
+    added, removed = _line_diff(before, text)
+    assert removed == []
+
+
+def test_the_walk_stops_at_the_nearest_present_predecessor(tmp_path: Path) -> None:
+    """``actionlint`` is present, so the #1725 fallback is never reached.
+
+    And the anchor's range is its SENTINEL range: a structural one would end at
+    the hook's last key, putting the insert *between* the actionlint entry and
+    its ``# <<< devkit:actionlint`` line — inside the range
+    ``render_actionlint_optout`` deletes, so a later opt-out would silently take
+    the composite hook with it.
+    """
+    seed = _composite_seed(tmp_path, f"DEVKIT_VERSION={ACTIONLINT_SINCE}\n")
+    _upgrade(tmp_path, seed, name="nearest")
+    lines = _config(tmp_path, "nearest").splitlines()
+
+    closing = next(i for i, ln in enumerate(lines) if "# <<< devkit:actionlint" in ln)
+    inserted = next(
+        i for i, ln in enumerate(lines) if ln.strip() == f"- id: {COMPOSITE_HOOK}"
+    )
+    assert closing < inserted
+
+
+def test_the_composite_insert_touches_nothing_else(tmp_path: Path) -> None:
+    """Nothing of theirs is removed, and every added line is the template's own."""
+    seed = _composite_seed(tmp_path, f"DEVKIT_VERSION={ACTIONLINT_SINCE}\n")
+    before = (seed / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    _upgrade(tmp_path, seed, name="composite-surgical")
+
+    added, removed = _line_diff(before, _config(tmp_path, "composite-surgical"))
+    assert removed == []
+    assert f"      - id: {COMPOSITE_HOOK}" in added
+    template = _template_config()
+    assert all(line in template for line in added)
+
+
+def test_a_pin_at_the_composite_release_is_left_alone(tmp_path: Path) -> None:
+    """The repo has seen the hook, so its absence is a decision — durable (#1651)."""
+    seed = _composite_seed(tmp_path, f"DEVKIT_VERSION={COMPOSITE_SINCE}\n")
+    before = (seed / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    proc = _upgrade(tmp_path, seed, name="composite-seen")
+
+    assert _config(tmp_path, "composite-seen") == before
+    assert "preserved-hook-insert:" not in proc.stdout
+
+
+def test_a_pin_past_the_composite_release_is_left_alone(tmp_path: Path) -> None:
+    """A patch release on top of it has seen the hook too."""
+    seed = _composite_seed(tmp_path, "DEVKIT_VERSION=1.17.1\n")
+    before = (seed / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    proc = _upgrade(tmp_path, seed, name="composite-past")
+
+    assert _config(tmp_path, "composite-past") == before
+    assert "preserved-hook-insert:" not in proc.stdout
+
+
+def test_an_existing_composite_hook_is_never_duplicated(tmp_path: Path) -> None:
+    """A consumer's own copy of the hook is theirs; the insert stands down."""
+    seed = _composite_seed(
+        tmp_path, f"DEVKIT_VERSION={ACTIONLINT_SINCE}\n", name="dup-composite-seed"
+    )
+    config = seed / ".pre-commit-config.yaml"
+    config.write_text(
+        config.read_text(encoding="utf-8")
+        + f"\n  - repo: local\n    hooks:\n      - id: {COMPOSITE_HOOK}\n"
+        + f"        name: my own {COMPOSITE_HOOK}\n        entry: my-composite-lint\n"
+        + "        language: system\n        pass_filenames: true\n",
+        encoding="utf-8",
+    )
+    proc = _upgrade(tmp_path, seed, name="dup-composite")
+    text = _config(tmp_path, "dup-composite")
+
+    assert text.count(f"- id: {COMPOSITE_HOOK}") == 1
+    assert f"name: my own {COMPOSITE_HOOK}" in text
+    assert "preserved-hook-insert:" not in proc.stdout
+
+
+# ── a sentinel id is matched exactly, never by prefix (#1727) ────────────────
+# `hook_block_range`'s sentinel branch located a pair with
+# `index($0, "# >>> devkit:" id)` — a PREFIX match, so a sentinel whose id
+# EXTENDS another id answered the shorter id's lookup. The two feature excisions
+# (`render_actionlint_optout` #1660, `render_release_optout` #1656) carried the
+# same defect in unanchored `grep`/`sed` patterns.
+#
+# Nothing in the template trips it, which is precisely why it needs tests: the
+# next hook someone sentinel-wraps would silently land the anchor walk (#1725) on
+# the wrong range, or hand a feature's excision a block that is not the feature's.
+
+# A consumer who bracketed the composite hook themselves. Its id EXTENDS
+# `shellcheck` — the hook the template places before `actionlint`, and the
+# nearest anchor the insert's walk finds in these fixtures.
+_SENTINELLED_COMPOSITE = f"""  # >>> devkit:{COMPOSITE_HOOK} — bracketed by the consumer
+  - repo: local
+    hooks:
+      - id: {COMPOSITE_HOOK}
+        name: shellcheck (composite actions)
+        entry: uv run {COMPOSITE_HOOK}
+        language: system
+        pass_filenames: true
+  # <<< devkit:{COMPOSITE_HOOK}
+"""
+
+# A comment-only pair whose id extends the actionlint feature's own.
+_SENTINELLED_ACTIONLINT_NOTE = """  # >>> devkit:actionlint-extra — the consumer's own bracketed note
+  # Their prose, in a pair devkit does not own.
+  # <<< devkit:actionlint-extra
+"""
+
+
+def _shell_function(name: str) -> str:
+    """One shell function of ``init-workspace.sh``, verbatim.
+
+    The script is a straight-line program rather than a library, so a direct test
+    of one function lifts it out instead of sourcing the file — the same harness
+    idea as the workflow suites' executed-``run:`` tests. Reading the real text is
+    the point: a hand-copied awk here would stay green while the script broke.
+    """
+    text = INIT_WORKSPACE.read_text(encoding="utf-8")
+    start = text.index(f"\n{name}() {{\n") + 1
+    end = text.index("\n}\n", start) + len("\n}\n")
+    return text[start:end]
+
+
+def _prefix_hazard_config() -> str:
+    """A consumer config carrying both a plain ``shellcheck`` and the long pair."""
+    return (
+        _CONSUMER_HEAD.replace(
+            "  # Markdown Linting (excludes auto-generated docs)\n", ""
+        )
+        + _SENTINELLED_COMPOSITE
+        + _CONSUMER_TAIL.lstrip("\n")
+    )
+
+
+def _hook_block_range(tmp_path: Path, config: str, hook: str) -> str:
+    """The lines ``hook_block_range`` returns for ``hook``, or ``""``."""
+    probe = tmp_path / "probe.pre-commit-config.yaml"
+    probe.write_text(config, encoding="utf-8")
+    proc = subprocess.run(
+        [
+            "bash",
+            "-c",
+            _shell_function("hook_block_range") + '\nhook_block_range "$1" "$2"\n',
+            "probe",
+            str(probe),
+            hook,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    start, end = (int(n) for n in proc.stdout.split())
+    return "\n".join(config.splitlines()[start - 1 : end])
+
+
+def test_a_prefix_extended_sentinel_does_not_answer_the_shorter_lookup(
+    tmp_path: Path,
+) -> None:
+    """A lookup for ``shellcheck`` must reach ITS entry, sentinels or not.
+
+    The bracketed ``shellcheck-composite-actions`` block satisfied
+    ``index($0, "# >>> devkit:shellcheck")``, so the sentinel branch returned that
+    range and the structural branch — the only one that can find the consumer's
+    own ungrouped ``shellcheck`` entry — was never reached.
+    """
+    block = _hook_block_range(tmp_path, _prefix_hazard_config(), "shellcheck")
+
+    assert _hook_order(block) == ["shellcheck"]
+    # Neither half of a pair that is not this hook's: half a pair in a copy would
+    # read as a feature range running to EOF.
+    assert "devkit:" not in block
+
+
+def test_the_extending_id_still_resolves_to_its_own_sentinel_range(
+    tmp_path: Path,
+) -> None:
+    """Exactness cuts one way only: the long id keeps its own pair."""
+    block = _hook_block_range(tmp_path, _prefix_hazard_config(), COMPOSITE_HOOK)
+
+    assert block.splitlines()[0].strip().startswith(f"# >>> devkit:{COMPOSITE_HOOK}")
+    assert block.splitlines()[-1].strip() == f"# <<< devkit:{COMPOSITE_HOOK}"
+    assert _hook_order(block) == [COMPOSITE_HOOK]
+
+
+def test_the_anchor_walk_ignores_a_prefix_extended_sentinel(tmp_path: Path) -> None:
+    """What the prefix match costs an upgrade: the insert lands in the wrong place.
+
+    A pre-1.16.0 tree receives ``actionlint`` after its nearest present
+    predecessor, ``shellcheck``. With the prefix match that hook's range was the
+    bracketed composite block further down the file, so the new block was spliced
+    in after it — past a hook the template places *after* actionlint.
+    """
+    seed = tmp_path / "prefix-seed"
+    seed.mkdir()
+    (seed / ".pre-commit-config.yaml").write_text(
+        _prefix_hazard_config(), encoding="utf-8"
+    )
+    (seed / ".vig-os").write_text("DEVKIT_VERSION=1.15.1\n", encoding="utf-8")
+    proc = _upgrade(tmp_path, seed, name="prefix")
+    text = _config(tmp_path, "prefix")
+
+    assert _hook_order(text) == ["shellcheck", "actionlint", COMPOSITE_HOOK, "typos"]
+    assert "preserved-hook-insert: actionlint in .pre-commit-config.yaml" in proc.stdout
+
+
+def test_the_actionlint_excision_takes_only_its_own_pair(tmp_path: Path) -> None:
+    """``render_actionlint_optout`` deletes the feature's range and no other.
+
+    Its ``grep``/``sed`` matched ``# >>> devkit:actionlint`` anywhere in a line, so
+    a consumer's ``# >>> devkit:actionlint-extra`` pair opened the range too — and
+    the opt-out silently took their prose with the hook.
+    """
+    seed = _composite_seed(
+        tmp_path,
+        f"DEVKIT_VERSION={COMPOSITE_SINCE}\nDEVKIT_FEATURES_DISABLED=actionlint\n",
+    )
+    config = seed / ".pre-commit-config.yaml"
+    config.write_text(
+        config.read_text(encoding="utf-8").replace(
+            "  # >>> devkit:actionlint",
+            _SENTINELLED_ACTIONLINT_NOTE + "  # >>> devkit:actionlint",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    _upgrade(tmp_path, seed, name="actionlint-decoy")
+    text = _config(tmp_path, "actionlint-decoy")
+
+    assert "- id: actionlint" not in text
+    assert "# >>> devkit:actionlint —" not in text
+    assert "# >>> devkit:actionlint-extra" in text
+    assert "# <<< devkit:actionlint-extra" in text
+    assert "Their prose, in a pair devkit does not own." in text
+
+
+def _render_release_optout(tmp_path: Path, justfile_gh: str) -> str:
+    """``render_release_optout`` run for real against a fixture ``justfile.gh``.
+
+    ``feature_disabled`` is the one collaborator it needs; everything else it
+    reads is ``WORKSPACE_DIR``.
+    """
+    ws = tmp_path / "release-ws"
+    (ws / ".devcontainer").mkdir(parents=True)
+    target = ws / ".devcontainer" / "justfile.gh"
+    target.write_text(justfile_gh, encoding="utf-8")
+    proc = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'feature_disabled() { [[ "$1" == release ]]; }\n'
+            + _shell_function("render_release_optout")
+            + "\nrender_release_optout\n",
+        ],
+        env={**os.environ, "WORKSPACE_DIR": str(ws)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return target.read_text(encoding="utf-8")
+
+
+def test_the_release_excision_takes_only_its_own_pair(tmp_path: Path) -> None:
+    """Same defect, same fix, in the ``justfile.gh`` group (#1656).
+
+    ``# >>> devkit:release-notes`` is a pair whose id merely extends ``release``;
+    the unanchored ``sed`` range opened on it and deleted a recipe the feature
+    group does not own.
+    """
+    after = _render_release_optout(
+        tmp_path,
+        "help:\n"
+        "    @just --list\n"
+        "\n"
+        "# >>> devkit:release-notes — a pair whose id extends the group's\n"
+        "notes:\n"
+        "    @echo notes\n"
+        "# <<< devkit:release-notes\n"
+        "\n"
+        "# >>> devkit:release — excised when the release feature is disabled\n"
+        "prepare-release:\n"
+        "    @echo release\n"
+        "# <<< devkit:release\n",
+    )
+
+    assert "prepare-release:" not in after
+    assert "# >>> devkit:release —" not in after
+    assert "# >>> devkit:release-notes" in after
+    assert "notes:\n    @echo notes" in after
 
 
 def test_a_rewrite_keeps_the_file_mode(tmp_path: Path) -> None:
@@ -415,6 +930,18 @@ def test_preview_reports_the_planned_insert(tmp_path: Path) -> None:
     assert "actionlint" in proc.stdout
     assert "INSERTED" in proc.stdout
     assert "- id: actionlint" not in _config(tmp_path, "preview-insert")
+
+
+def test_preview_reports_the_planned_composite_insert(tmp_path: Path) -> None:
+    """The plan line names the release the row claims, so a stale row is visible."""
+    seed = _composite_seed(tmp_path, f"DEVKIT_VERSION={ACTIONLINT_SINCE}\n")
+    before = (seed / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    proc = _upgrade(tmp_path, seed, name="preview-composite", preview=True)
+
+    assert COMPOSITE_HOOK in proc.stdout
+    assert "INSERTED" in proc.stdout
+    assert f"shipped since {COMPOSITE_SINCE}" in proc.stdout
+    assert _config(tmp_path, "preview-composite") == before
 
 
 # ── the stock scaffold stays byte-identical ───────────────────────────────────
