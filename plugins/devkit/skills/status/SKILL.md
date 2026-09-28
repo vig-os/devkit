@@ -64,10 +64,11 @@ This line is the only place the staleness axis is observable, so always print it
 Devkit's own preview is the non-mutating form of the upgrade:
 
 ```bash
-./install.sh --preview --force --version "$PINNED" .
+./install.sh --preview --version "$PINNED" .
 ```
 
-`--preview` prints the add/overwrite/preserve/delete report and exits without touching a file. In a consumer, the
+`--preview` prints the add/overwrite/preserve/delete report and exits without touching a file. It does not need
+`--force`: a preview is by definition a preview of an upgrade, so it rides the force report path already. In a consumer, the
 scheduled `devkit-upgrade.yml` and the scaffold-drift lane in `ci.yml` report the same axis; read their latest runs
 instead of re-running the installer when the repo is not yours to dirty:
 

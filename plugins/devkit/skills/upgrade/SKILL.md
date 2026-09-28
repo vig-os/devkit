@@ -45,10 +45,12 @@ Never pass `--force` without having shown the dry-run report in the same run.
 ## 3. Dry run — this is the default
 
 ```bash
-./install.sh --preview --force --version 1.18.0 .
+./install.sh --preview --version 1.18.0 .
 ```
 
-`--preview` prints the add / overwrite / preserve / delete report and exits without changing a single file. In a
+`--preview` prints the add / overwrite / preserve / delete report and exits without changing a single file, and it
+already reports the *upgrade* — do not add `--force` to make it do so. `--force` on a preview is redundant, and
+pairing them teaches the reader that a preview mutates something. In a
 repo that has no local installer, fetch the one for the target version rather than `main`, so the preview matches
 what you would apply.
 
