@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     byte-identical. A format switch that would sort below an existing tag of
     the same `X.Y.Z` is refused. Computed by the new `release-version`
     vig-utils CLI
+  - Candidate discovery now lists every `X.Y.Z-*` tag, not only `-rc*`, so a
+    stray pre-release tag that sorts above the next `rcN` (e.g. `1.2.3-test`)
+    now stops a candidate for that version. Delete the stray tag, or release
+    the next version
   - `release-publish.yml` now creates the draft GitHub Release before the tag
     ref, so tag-triggered asset workflows always find it (the "pre-publish
     assets window"); a failed tag push discards the orphan draft.
