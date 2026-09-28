@@ -32,6 +32,7 @@ vulnix-gate = "vig_utils.vulnix_gate:main"
 setup-labels = "vig_utils.setup_labels:main"
 retry = "vig_utils.retry:main"
 synthesize-bot-changelog = "vig_utils.synthesize_bot_changelog:main"
+release-version = "vig_utils.release_version:main"
 shellcheck-composite-actions = "vig_utils.shellcheck_composite_actions:main"
 vig-utils = "vig_utils.utils:main"
 

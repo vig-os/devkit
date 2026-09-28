@@ -128,6 +128,10 @@ PRESERVE_FILES=(
     # this no-op with release-branch preparation, so an upgrade must never
     # clobber their implementation — same preserved class as release-extension.
     ".github/workflows/prepare-release-extension.yml"
+    # Standalone publish seam on `release: published` (#1746): consumers replace
+    # the default no-op with crates.io / PyPI / registry publishes, so an upgrade
+    # must never clobber it — same preserved class as the two seams above.
+    ".github/workflows/publish-release-extension.yml"
     "justfile.project"
     # Personal, gitignored recipes (#1054): the file's own header promises it is
     # preserved on upgrade, but it was absent here — so a re-scaffold silently
@@ -391,6 +395,7 @@ MANIFEST_ORG="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_ORG || true)"
 MANIFEST_REPO="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REPO || true)"
 MANIFEST_MODULES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_MODULES || true)"
 MANIFEST_TAG_PREFIX="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TAG_PREFIX || true)"
+MANIFEST_PRERELEASE_FORMAT="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_PRERELEASE_FORMAT || true)"
 MANIFEST_FLOATING_TAGS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FLOATING_TAGS || true)"
 MANIFEST_CI_RUNNER="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_CI_RUNNER || true)"
 MANIFEST_DEV_PROFILE_PATH="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_DEV_PROFILE_PATH || true)"
@@ -1699,6 +1704,7 @@ feature_paths() {
                 ".github/workflows/release-publish.yml" \
                 ".github/workflows/prepare-release.yml" \
                 ".github/workflows/prepare-release-extension.yml" \
+                ".github/workflows/publish-release-extension.yml" \
                 ".github/workflows/prepare-hotfix.yml" \
                 ".github/workflows/promote-release.yml" \
                 ".github/workflows/abandon-release.yml" \
@@ -3075,7 +3081,8 @@ if [[ "$FORCE" == "true" ]]; then
     # Feature opt-outs (#1284): a disabled feature's pre-existing paths are
     # pruned on upgrade — list them under DELETIONS (mirrors the trunk
     # sync-main-to-dev entry above). EXCEPT the preserved class
-    # (release-extension.yml, prepare-release-extension.yml, renovate.json),
+    # (release-extension.yml, prepare-release-extension.yml,
+    # publish-release-extension.yml, renovate.json),
     # which carry consumer implementation and are never pruned: report a
     # left-in-place notice instead (preview only — the post-copy prune echoes it
     # on a real --force run). sync-main-to-dev.yml is skipped when trunk already
@@ -3572,7 +3579,8 @@ done
 # Feature opt-outs (#1284): prune a disabled feature's pre-existing paths left
 # by an earlier scaffold (the rsync copy already excludes them via
 # MODE_CONFIG_EXCLUDES; this removes the upgrade leftover). Preserved-class files
-# (release-extension.yml, prepare-release-extension.yml, renovate.json) carry
+# (release-extension.yml, prepare-release-extension.yml,
+# publish-release-extension.yml, renovate.json) carry
 # consumer implementation and are never pruned — print a left-in-place notice
 # instead. Composes with the trunk gitflow-only prune above: those paths are
 # skipped under trunk so each is pruned + echoed exactly once.
@@ -3868,6 +3876,12 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     fi
     if [[ -n "$MANIFEST_FLOATING_TAGS" ]]; then
         write_manifest_value DEVKIT_FLOATING_TAGS "$MANIFEST_FLOATING_TAGS"
+    fi
+    # Candidate pre-release format (#1746): same bare tag-scheme shape — read
+    # before the template overwrite, written back so an upgrade never silently
+    # resets a repo's alpha/beta series onto the rc{N} default.
+    if [[ -n "$MANIFEST_PRERELEASE_FORMAT" ]]; then
+        write_manifest_value DEVKIT_PRERELEASE_FORMAT "$MANIFEST_PRERELEASE_FORMAT"
     fi
     # CI runner override (#1173): bare in the template (DEVKIT_CI_RUNNER=), so a
     # self-hosted consumer's label list is read before the overwrite and written

@@ -106,8 +106,9 @@ To stop consumers from opening duplicate pin-bump PRs against files the next
 upgrade clobbers, the shipped preset
 ([`assets/workspace/.github/renovate-default.json`](../assets/workspace/.github/renovate-default.json))
 ends with an `enabled: false` `packageRule` naming exactly the managed set (all
-shipped workflows **minus** the consumer-owned seams `release-extension.yml` and
-`prepare-release-extension.yml`, plus the two managed action directories). The
+shipped workflows **minus** the consumer-owned seams `release-extension.yml`,
+`prepare-release-extension.yml` and `publish-release-extension.yml`, plus the two
+managed action directories). The
 enumeration is drift-gated by
 [`tests/test_renovate_preset_managed_exclusion.py`](../tests/test_renovate_preset_managed_exclusion.py)
 so a new or renamed managed workflow cannot silently reopen the gap.

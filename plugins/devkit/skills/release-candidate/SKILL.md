@@ -55,7 +55,9 @@ VERSION="${BRANCH#release/}"
 Do **not** refuse because the PR is still a draft. Candidates are published from a draft PR by design.
 
 Do not hard-code the `-rc` label when you scan: the pre-release format is configurable
-(`DEVKIT_PRERELEASE_FORMAT`, #1746). Match `<base>-<anything>` and read the label from what is there.
+(`DEVKIT_PRERELEASE_FORMAT`, shipped in #1746). Match `<base>-<anything>` and read the label from what is there.
+A format switch that would sort below an existing pre-release of the same `X.Y.Z` is refused by the train, so
+report the existing label before proposing a different one.
 
 ## 3. Dry run first
 

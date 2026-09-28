@@ -10,9 +10,10 @@ description: >-
 # devkit pack-rust
 
 A read-only audit, and the proof that the extension seam takes more than one pack. It reports on what devkit ships
-**today** and is explicit about what it does not: the Rust pack's template layers are tracked in #1496 and have
-never been adopted cold, and the release-layer contracts a Rust repo needs are tracked in #1746 and are not
-merged yet. Report the gap; never describe an unmerged contract as if it were available.
+**today**. The release-layer contracts a Rust repo needs shipped with #1746 — a pluggable pre-release format, the
+draft-first Release-owner contract with its pre-publish assets window, and a standalone publish seam — so audit
+those as configuration. The Rust pack's template layers are tracked in #1496 and have **not** shipped; report that
+gap as a gap. Never describe an unmerged contract as if it were available, and never the reverse.
 
 ## 1. State lookup
 
@@ -51,23 +52,75 @@ A `test` recipe that resolves to nothing, or that runs against an empty target s
 its whole CI while compiling none of its own code. Report what the recipes actually invoked and how many targets
 they touched, not just the exit status.
 
-## 4. Release layer — what is still open
+## 4. Release layer — check the three seams are wired
 
-State these as open work, with their issue numbers, and stop. Do not write config for a contract that has not
-merged, and do not name a workflow file that devkit does not ship yet.
+These shipped with #1746. Audit them as present-or-absent configuration, not as future work.
 
-- **Pre-release format.** The train's version model renders `X.Y.Z-rcN` and its tag discovery is built around that
-  literal. A repo mid `0.1.0-alpha.1` cannot adopt without a version-series decision. A configurable format, and
-  the manifest key that would set a per-repo default, are proposed in #1746.
-- **Release-object ownership.** The train creates the GitHub Release as a draft; a build tool that also creates one
-  collides with it by design. The draft-first "Release Owner" contract and its named pre-publish assets window are
-  proposed in #1746. Until it merges, a cargo-dist repo must set `create-release = false` by hand and host into
-  the draft.
-- **Live publish path.** Nothing in the shipped train covers an irreversible outward push such as a crates.io or
-  PyPI publish. The existing `release-extension.yml` seam fires **before** the tag exists, so it structurally
-  cannot host one. A standalone seam triggered on a published Release is proposed in #1746.
+### Pre-release format
+
+The train no longer hard-codes `-rcN`. Read the resolved format and report it:
+
+```bash
+sed -n 's/^DEVKIT_PRERELEASE_FORMAT=//p' .vig-os
+```
+
+Precedence is `release.yml`'s `pre-release-format` input, then this key, then the `rc{N}` default — which
+reproduces today's `X.Y.Z-rcN` tags byte-identically, so an existing consumer needs no change. `{N}` is an
+optional counter and `{YYYYMMDD}` a UTC date, so `alpha.{N}` gives `X.Y.Z-alpha.1` and `beta` gives `X.Y.Z-beta`.
+
+Two things to flag when you find a non-default format:
+
+- **Prefer a dotted counter** (`rc.{N}`, `alpha.{N}`). SemVer compares `rc10` *below* `rc9`, so an undotted
+  counter sorts wrongly in any tooling that parses the version properly.
+- **A format switch that would sort below an existing pre-release of the same `X.Y.Z` is refused** by the train.
+  If a repo wants to move from `rc` to `alpha` mid-version, that is the refusal it will hit.
+
+Also report any stray `X.Y.Z-*` tag: candidate discovery now lists every pre-release of the version, not only
+`-rc*`, so a leftover tag such as `1.2.3-test` sorting above the next counter blocks candidates for that version.
+
+### Release-object ownership — the draft window
+
+The train **always** creates the GitHub Release as a draft, and `promote-release.yml` is the only step that flips
+it to published. Between the draft's creation and promote there is a named pre-publish assets window in which a
+consumer workflow may upload into it.
+
+**Check that no other tool creates or publishes the Release for a train tag.** That is the whole contract, and it
+is the one a Rust repo most often breaks.
+
+```bash
+ls dist-workspace.toml 2>/dev/null && grep -nE 'ci|create-release|github-release|hosting|installers' dist-workspace.toml
+```
+
+For cargo-dist specifically, read `docs/DOWNSTREAM_RELEASE.md` rather than assuming: **`create-release = false` is
+not the fix.** cargo-dist uploads into the draft and then publishes it itself, which bypasses promote, makes the
+Release immutable before late assets land, and fires no `release: published` event. No `github-release` or
+`dispatch-releases` setting avoids it. The supported shape is cargo-dist as an **asset builder** with no `ci` key
+at all, plus a consumer-owned tag-push workflow that uploads into the draft and never publishes it. Flag a
+generated `.github/workflows/release.yml` from cargo-dist as a direct collision with the train's orchestrator
+path.
+
+### Live publish path
+
+Irreversible outward pushes — crates.io, PyPI, a container registry — belong in the standalone seam, which fires
+on `release: published`, i.e. after promote:
+
+```bash
+ls .github/workflows/publish-release-extension.yml 2>/dev/null
+grep -nE 'environment:|id-token|permissions:' .github/workflows/publish-release-extension.yml 2>/dev/null
+```
+
+Report whether the seam is still the no-op seed or has been filled in. When it is filled in, check the three
+invariants: the trigger is the point of no return (rolling back a GitHub Release does not retract a published
+crate), an `environment:` with a required reviewer should gate the irreversible step, and each artefact should
+have an idempotency precheck so a re-dispatch after a transient failure skips what already published.
+
+`release-extension.yml` is **not** the place for this: it fires before the tag exists, so it structurally cannot
+host a live publish. Flag any publish command found there.
+
+### Still open
+
 - **Pack template layers.** The toolchain, lint-table and project-recipe seeds that would make a Rust repo
-  adoptable in one step are tracked in #1496.
+  adoptable in one step are tracked in #1496 and have not shipped.
 
 ## 5. Hand back
 

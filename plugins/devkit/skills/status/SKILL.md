@@ -148,13 +148,14 @@ train cannot be cut until it is promoted or abandoned.
 ## 5. Pre-release tags and their Releases
 
 Do **not** assume the `-rc` label. The pre-release format is a per-repo setting (`DEVKIT_PRERELEASE_FORMAT`,
-landing with #1746); today's default renders `X.Y.Z-rcN`, but `alpha.N`, `beta.N` and date-stamped forms are the
-point of that change. Match a pre-release as `<base>-<anything>` and read the label out of what you find:
+shipped in #1746): the default `rc{N}` still renders `X.Y.Z-rcN`, but `alpha.{N}`, `beta`, and `{YYYYMMDD}`
+date-stamped forms are all valid. Match a pre-release as `<base>-<anything>` and read the label out of what you
+find:
 
 ```bash
 git ls-remote --tags origin \
   | sed -n 's#.*refs/tags/##p' | grep -v '\^{}' | sort -V
-sed -n 's/^DEVKIT_PRERELEASE_FORMAT=//p' .vig-os   # absent until #1746 lands; empty means the rc default
+sed -n 's/^DEVKIT_PRERELEASE_FORMAT=//p' .vig-os   # empty means the rc{N} default
 ```
 
 For the base version of the train found in section 4, report every `X.Y.Z-*` tag, the highest one, and whether a
@@ -164,8 +165,12 @@ GitHub Release object is attached to each:
 gh release list --limit 50 --json tagName,isDraft,isPrerelease,publishedAt
 ```
 
-Candidates create the **git tag only** — no Release object. A pre-release tag that *does* carry a Release is
-unusual here and worth reporting loudly, because a published one locks the tag.
+By default a candidate creates the **git tag only**. A candidate run with `create-release: true` also creates a
+**draft** GitHub pre-release; `promote-release.yml` is the only step that ever publishes one. So report the draft
+state rather than assuming absence, and flag a *published* pre-release loudly — publishing locks the tag.
+
+Report any stray `X.Y.Z-*` tag too: candidate discovery lists every pre-release of the version, not only `-rc*`,
+so a leftover such as `1.2.3-test` sorting above the next counter blocks further candidates for that version.
 
 ## 6. Promote gate — is the version ready to promote
 
