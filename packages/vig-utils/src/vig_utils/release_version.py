@@ -20,9 +20,11 @@ Existing tags are read from stdin, one per line (the ``git ls-remote`` output of
 
 Monotonicity gate: tags of the *current* format rank by their counter (``rc9``
 before ``rc10`` — SemVer would rank them lexically the other way round), but a
-tag of any *other* format, or the final ``X.Y.Z`` itself, must not sort above
-the new version under SemVer precedence. That refuses a label switch such as
-``rc{N}`` -> ``alpha.{N}`` after ``X.Y.Z-rc21`` shipped.
+pre-release tag of any *other* format must not sort above the new version under
+SemVer precedence. That refuses a label switch such as ``rc{N}`` ->
+``alpha.{N}`` after ``X.Y.Z-rc21`` shipped. An existing final ``X.Y.Z`` tag only
+warns: after a failed final run the tag stays (forward-fix policy) and a new
+candidate of the same version is the documented recovery.
 """
 
 from __future__ import annotations
@@ -65,6 +67,7 @@ class ReleaseVersionError(ValueError):
 class PublishVersion:
     publish_version: str
     next_n: str
+    warnings: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -216,11 +219,21 @@ def _check_monotonic(
     publish_version: str,
     tags: list[tuple[str, str | None]],
     tag_prefix: str,
-) -> None:
+) -> tuple[str, ...]:
+    """Refuse a lowering label switch; return warnings for non-blocking cases."""
     new_key = semver_key(publish_version)
     blockers = []
+    warnings: list[str] = []
     for tag, pre in tags:
-        if pre is not None and kind == "candidate" and fmt.matches_any_date(pre):
+        if pre is None:
+            if kind == "candidate":
+                warnings.append(
+                    f"Final tag {tag} already exists, so {tag_prefix}{publish_version} "
+                    "sorts below a released version (fine when recovering from a "
+                    "failed final run; a legacy tag will block the final release)."
+                )
+            continue
+        if kind == "candidate" and fmt.matches_any_date(pre):
             continue  # same series: ordered by its counter, not lexically
         bare = tag[len(tag_prefix) :]
         if not _SEMVER_RE.match(bare):
@@ -235,6 +248,7 @@ def _check_monotonic(
             "version for the same X.Y.Z. Keep the previous pre-release format for "
             "this version, or release the next X.Y.Z with the new one."
         )
+    return tuple(warnings)
 
 
 def compute_publish_version(
@@ -264,8 +278,8 @@ def compute_publish_version(
         publish = f"{version}-{parsed.expand(n, date)}"
         next_n = "" if n is None else str(n)
 
-    _check_monotonic(parsed, kind, publish, tags, tag_prefix)
-    return PublishVersion(publish_version=publish, next_n=next_n)
+    warnings = _check_monotonic(parsed, kind, publish, tags, tag_prefix)
+    return PublishVersion(publish_version=publish, next_n=next_n, warnings=warnings)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -307,6 +321,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ReleaseVersionError as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
+    for warning in result.warnings:
+        print(f"::warning::{warning}", file=sys.stderr)
     print(f"publish_version={result.publish_version}")
     print(f"next_n={result.next_n}")
     return 0
