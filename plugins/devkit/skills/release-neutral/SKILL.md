@@ -56,18 +56,26 @@ is legal (#1676).
 
 There is no `just` recipe for this lane; the workflow is the canonical verb:
 
-Quote every value. A title is free text — an apostrophe in it (`ci(guard): don't drop the label`) ends a
-single-quoted argument and the rest of the title becomes shell words:
+The title is **free text, usually copied from an issue**, and it is the one value here you must never let the
+shell interpret. A double-quoted assignment is not enough: `TITLE="ci(guard): $(whoami)"` runs the substitution at
+assignment time, and backticks do the same. A single-quoted heredoc is the form that keeps every character
+literal, apostrophes included:
 
 ```bash
 BRANCH="chore/1676-example"
-TITLE="ci(guard): example"
 ISSUE="1676"
+TITLE=$(cat <<'TITLE_EOF'
+ci(guard): deploy the release-neutral lane
+TITLE_EOF
+)
 [[ "$BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "refusing: suspicious branch name"; exit 1; }
 [[ "$ISSUE" =~ ^[0-9]+$ ]] || { echo "refusing: issue must be a number"; exit 1; }
 gh workflow run release-neutral-open.yml --ref dev \
   -f "branch=$BRANCH" -f "title=$TITLE" -f "issue=$ISSUE"
 ```
+
+Paste the title between the two `TITLE_EOF` markers exactly as it should appear. Validate the branch and the issue
+number, which are structured values, and quote all three at the point of use.
 
 ## 5. Verify
 

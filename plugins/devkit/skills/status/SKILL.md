@@ -193,6 +193,11 @@ The cross-repo gate below is **devkit-only** and is the one place a fixed reposi
 downstream validator is a named repo rather than a property of the repo you are in:
 
 ```bash
+VERSION=1.2.3   # the in-flight base version from section 4
+[[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+  echo "refusing: '$VERSION' is not X.Y.Z"
+  exit 1
+}
 gh api repos/vig-os/devkit-smoke-test/releases/tags/"$VERSION" --jq '{draft, prerelease}'
 ```
 

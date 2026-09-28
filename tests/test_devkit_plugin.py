@@ -962,7 +962,12 @@ def test_release_neutral_title_cannot_execute():
     (`<<'EOF'`) is the form that keeps the text literal.
     """
     text = skill_path("release-neutral").read_text(encoding="utf-8")
-    assert 'TITLE="' not in text, (
+    blocks = re.findall(r"^```bash[^\n]*\n(.*?)^```", text, re.DOTALL | re.MULTILINE)
+    runnable = "\n".join(blocks)
+
+    # Command lines only: the prose names the unsafe form on purpose, to say
+    # why it is unsafe. What matters is what an operator copies and runs.
+    assert 'TITLE="' not in runnable, (
         "a double-quoted TITLE executes command substitution in issue-sourced text"
     )
-    assert "<<'" in text, "use a quoted heredoc so the title stays literal"
+    assert "<<'" in runnable, "use a quoted heredoc so the title stays literal"
