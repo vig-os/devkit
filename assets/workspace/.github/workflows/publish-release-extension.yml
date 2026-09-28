@@ -75,7 +75,8 @@ jobs:
             echo "::error::No release tag in the $EVENT_NAME payload (workflow_dispatch needs the 'tag' input)"
             exit 1
           fi
-          if ! RELEASE_JSON=$(gh release view "$TAG" --json tagName,isDraft,isPrerelease); then
+          # `--` ends gh's flags: a dispatch input like `--repo=x/y` stays a tag name.
+          if ! RELEASE_JSON=$(gh release view --json tagName,isDraft,isPrerelease -- "$TAG"); then
             echo "::error::No GitHub Release found for tag $TAG"
             exit 1
           fi
