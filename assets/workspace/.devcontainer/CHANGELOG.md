@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Release train: pluggable pre-release format, draft-Release-first owner
+  contract, and a standalone publish seam**
+  ([#1746](https://github.com/vig-os/devkit/issues/1746))
+  - Candidates can be tagged in any SemVer pre-release format, e.g. `alpha.{N}`
+    for `v0.1.0-alpha.1` (`{N}` counter, `{YYYYMMDD}` date). Precedence:
+    `release.yml` input `pre-release-format` > `.vig-os`
+    `DEVKIT_PRERELEASE_FORMAT` > `rc{N}`, which keeps today's `X.Y.Z-rcN` tags
+    byte-identical. A format switch that would sort below an existing tag of
+    the same `X.Y.Z` is refused. Computed by the new `release-version`
+    vig-utils CLI
+  - `release-publish.yml` now creates the draft GitHub Release before the tag
+    ref, so tag-triggered asset workflows always find it (the "pre-publish
+    assets window"); a failed tag push discards the orphan draft.
+    `promote-release.yml` stays the only place a draft is published
+  - New preserved, default no-op seam `publish-release-extension.yml` on
+    `release: published` (plus a `workflow_dispatch` tag retry) for
+    irreversible publishes such as crates.io or PyPI. It is standalone so
+    Trusted Publishing binds to its own path
+  - `docs/DOWNSTREAM_RELEASE.md` documents the contract and a cargo-dist
+    recipe: cargo-dist builds the assets and a tag-push workflow uploads them
+    into the train's draft, because `create-release = false` makes cargo-dist
+    publish the draft itself
+
 - **Creation runbook for the `vigos-devkit-upgrade` GitHub App**
   ([#1739](https://github.com/vig-os/devkit/issues/1739))
   - New `docs/runbooks/devkit-upgrade-app.md` documents the App's grant, its

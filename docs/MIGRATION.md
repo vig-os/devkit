@@ -618,7 +618,8 @@ The nine groups:
 mode-aware workflow.
 
 **Preserved-class caveat.** The consumer-owned extension seams
-`release-extension.yml` and `prepare-release-extension.yml`, `renovate.json`, and
+`release-extension.yml`, `prepare-release-extension.yml` and
+`publish-release-extension.yml`, `renovate.json`, and
 `.github/actionlint.yaml` (all in the upgrade preserve list) are **never pruned**
 when their feature is disabled — an existing one is left in place with a notice, and `--preview`
 reports it as left-in-place rather than under DELETIONS. Delete it by hand if you
