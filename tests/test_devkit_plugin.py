@@ -872,3 +872,97 @@ def test_reref_instructions_remove_before_adding(skill):
         f"{skill}: tells the operator to re-add a marketplace without removing it "
         "first, which is a silent no-op"
     )
+
+
+# ---------------------------------------------------------------------------- #
+# The guards have to actually guard
+# ---------------------------------------------------------------------------- #
+
+# Variables a snippet defines for itself. Shell state does not survive between
+# commands, so a block that reads one of these must also assign it.
+SELF_CONTAINED_VARS = ("VERSION", "PINNED", "BRANCH", "RUN_ID", "TITLE", "ISSUE")
+
+# How far past the guard to look for the abort. The guard is either a one-line
+# `|| { echo …; exit 1; }` or the same spread over a short brace block.
+_GUARD_WINDOW = 240
+
+
+def guard_aborts(block: str) -> bool:
+    """Does every semver guard in ``block`` actually abort when it fails?
+
+    Matching the regex text alone proves nothing: a guard whose failure branch
+    runs `true` reads exactly the same to a text search and lets an unvalidated
+    value straight through to the command underneath.
+    """
+    matches = list(_SEMVER_GUARD_RE.finditer(block))
+    if not matches:
+        return False
+    return all(
+        re.search(r"\b(exit|return)\b", block[m.end() : m.end() + _GUARD_WINDOW])
+        for m in matches
+    )
+
+
+@pytest.mark.parametrize("skill", skill_ids())
+def test_every_installer_fetch_guard_aborts(skill):
+    """A guard that does not abort is decoration."""
+    text = skill_path(skill).read_text(encoding="utf-8")
+    for block in _FENCE_RE.findall(text):
+        if _INSTALLER_FETCH_RE.search(block) is None:
+            continue
+        assert guard_aborts(block), (
+            f"{skill}: a block fetching install.sh has a semver guard whose failure "
+            "branch does not exit/return, so an invalid version reaches the fetch"
+        )
+
+
+def test_guard_abort_check_rejects_a_non_aborting_guard():
+    """Mutation test: the check above must fail when the abort is removed."""
+    aborting = (
+        "VERSION=1.2.3\n"
+        '[[ "$VERSION" =~ ^[0-9]+\\.[0-9]+\\.[0-9]+$ ]] || { echo "refusing"; exit 1; }\n'
+        'curl -fsSL "https://raw.githubusercontent.com/vig-os/devkit/'
+        'refs/tags/${VERSION}/install.sh" | bash\n'
+    )
+    assert guard_aborts(aborting)
+
+    # The only change: `exit 1` becomes `true`. The regex text is identical.
+    neutered = aborting.replace("exit 1", "true")
+    assert _SEMVER_GUARD_RE.search(neutered), "the mutation must keep the regex text"
+    assert not guard_aborts(neutered), (
+        "a guard whose failure branch does not abort must be rejected"
+    )
+
+
+@pytest.mark.parametrize("skill", skill_ids())
+def test_bash_blocks_are_self_contained(skill):
+    """Shell state does not persist between commands an operator runs.
+
+    A block that reads `$VERSION` without assigning it expands to the empty
+    string and produces a confident, wrong answer — or, next to a guard, skips
+    the value the guard was meant to check.
+    """
+    text = skill_path(skill).read_text(encoding="utf-8")
+    for block in re.findall(
+        r"^```bash[^\n]*\n(.*?)^```", text, re.DOTALL | re.MULTILINE
+    ):
+        for var in SELF_CONTAINED_VARS:
+            if not re.search(rf"\$\{{?{var}\b", block):
+                continue
+            assert re.search(rf"^\s*{var}=", block, re.MULTILINE), (
+                f"{skill}: a bash block reads ${var} without assigning it; shell "
+                "state does not survive between commands"
+            )
+
+
+def test_release_neutral_title_cannot_execute():
+    """The PR title is issue-sourced free text, so it must never be expanded.
+
+    `TITLE="…"` runs `$(…)` and backticks at assignment time. A quoted heredoc
+    (`<<'EOF'`) is the form that keeps the text literal.
+    """
+    text = skill_path("release-neutral").read_text(encoding="utf-8")
+    assert 'TITLE="' not in text, (
+        "a double-quoted TITLE executes command substitution in issue-sourced text"
+    )
+    assert "<<'" in text, "use a quoted heredoc so the title stays literal"
