@@ -60,11 +60,18 @@ git ls-remote --heads origin 'refs/heads/release/1.2.4'
 gh pr list --state open --base main --json number,headRefName,isDraft,url
 ```
 
-Confirm the branch was cut **from `main`**, a seeded changelog section exists, and a draft PR into `main` is open:
+Confirm a seeded changelog section exists and a draft PR into `main` is open. To confirm the branch was cut from
+`main`, use the run you just dispatched as the evidence — not an ancestry test, which is not conclusive here (the
+regular lane pushes an `Unreleased` reset to `dev` immediately after cutting, so `dev`'s tip is not an ancestor of
+a branch cut from `dev` either):
 
 ```bash
-git merge-base --is-ancestor origin/release/1.2.4 origin/dev && echo "WRONG: cut from dev" || echo "cut from main"
+gh run view --log --job "$(gh run list --workflow prepare-hotfix.yml --limit 1 --json databaseId --jq '.[0].databaseId')" 2>/dev/null | grep -i 'checkout main' | head -3
+git diff --stat origin/main...origin/release/1.2.4
 ```
+
+A branch cut from `main` differs from `main` by the seed commit alone. If that diff carries `dev`'s unshipped work,
+the wrong lane ran — stop and say so.
 
 ## 6. Hand off
 

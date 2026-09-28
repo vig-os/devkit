@@ -135,14 +135,22 @@ In a consumer, skip the last query and read the floating-tag guard instead (`DEV
 
 ## 7. Hotfix lane
 
-A hotfix is a `release/X.Y.Z` branch cut from `main` rather than `dev`. Distinguish it by merge base:
+A hotfix is a `release/X.Y.Z` branch cut from `main` rather than `dev`.
+
+**Do not infer this from topology.** An ancestry test looks conclusive and is not: `prepare-release.yml` pushes the
+`Unreleased` reset to `dev` right after it cuts the branch, so `dev`'s tip stops being an ancestor of a branch that
+was cut from `dev` minutes earlier. Use direct evidence instead — which workflow created the branch, and whether
+the version is the next patch of `main`'s latest tag (which is exactly what the hotfix lane enforces):
 
 ```bash
+gh run list --workflow prepare-hotfix.yml --limit 5 --json displayTitle,conclusion,createdAt,event
+gh run list --workflow prepare-release.yml --limit 5 --json displayTitle,conclusion,createdAt
 git fetch origin main dev
-git merge-base --is-ancestor origin/"$BRANCH" origin/dev && echo "from dev" || echo "from main (hotfix)"
+git describe --tags --abbrev=0 origin/main
 ```
 
-Report `hotfix in flight: yes/no`. When yes, no regular train may be cut (#1627), and the eventual promote order
+Report `hotfix in flight: yes/no`, and say which of the two signals you used. If they disagree, report the
+disagreement rather than picking one. When yes, no regular train may be cut (#1627), and the eventual promote order
 decides whether `:latest` moves forward (#1626).
 
 ## 8. Workflow model vs the actual topology
