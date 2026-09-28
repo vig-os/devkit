@@ -114,6 +114,12 @@ def test_publish_job_consumes_the_resolved_payload() -> None:
 
 FAKE_GH = r"""#!/usr/bin/env bash
 echo "gh $*" >> "$FAKE_LOG"
+# Model gh's flag parsing: a `--repo=` BEFORE a `--` is honoured as a flag
+# (pointing the lookup at another repository, whose release then "exists").
+for a in "$@"; do
+  [ "$a" = "--" ] && break
+  case "$a" in --repo=*) echo '{"tagName":"x","isDraft":false,"isPrerelease":false}'; exit 0 ;; esac
+done
 if [ "$1 $2" = "release view" ]; then
   [ -n "${FAKE_RELEASE_JSON:-}" ] || { echo "release not found" >&2; exit 1; }
   printf '%s\n' "$FAKE_RELEASE_JSON"; exit 0
@@ -220,6 +226,17 @@ def test_dispatch_on_a_missing_release_is_refused(tmp_path: Path) -> None:
         tmp_path, event="workflow_dispatch", input_tag="v9.9.9", release_json=None
     )
     assert proc.returncode != 0
+
+
+def test_dispatch_tag_cannot_be_read_as_a_gh_flag(tmp_path: Path) -> None:
+    """A dispatch input like ``--repo=x/y`` is a tag NAME, never a gh flag."""
+    proc, outputs = _resolve(
+        tmp_path, event="workflow_dispatch", input_tag="--repo=x/y", release_json=None
+    )
+    assert proc.returncode != 0, "the flag-shaped tag was honoured as --repo"
+    assert "tag" not in outputs
+    log = (tmp_path / "gh.log").read_text(encoding="utf-8")
+    assert " -- --repo=x/y" in log
 
 
 @pytest.mark.parametrize("tag", ["", "   "])
