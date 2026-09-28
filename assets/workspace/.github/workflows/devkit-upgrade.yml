@@ -17,16 +17,13 @@
 #
 # Requires a dedicated GitHub App identity: DEVKIT_UPGRADE_APP_CLIENT_ID +
 # DEVKIT_UPGRADE_APP_PRIVATE_KEY (repo or org secrets) feed a per-run
-# installation token minted in-workflow — contents:write + pull-requests:write +
-# workflows:write on this repo, plus issues:write for the failure report (the
-# only optional grant: the report degrades to a warning without it, the upgrade
-# itself is unaffected). The legacy numeric
+# installation token minted in-workflow. The legacy numeric
 # DEVKIT_UPGRADE_APP_ID still works this release (either value is a valid App
 # JWT issuer); vig-os/devkit#1366 retires it. The default GITHUB_TOKEN cannot
 # open the PR: PRs it creates do not trigger CI. A static PAT is not supported
 # (#1302: user-bound, expiring, single-owner). The workflow fails fast when the
-# secrets are absent. App provisioning + rotation:
-# https://github.com/vig-os/devkit/issues/1302
+# secrets are absent. App grant, provisioning, and rotation:
+# https://github.com/vig-os/devkit/blob/main/docs/runbooks/devkit-upgrade-app.md
 
 name: Devkit Upgrade
 

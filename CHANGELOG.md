@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Creation runbook for the `vigos-devkit-upgrade` GitHub App**
+  ([#1739](https://github.com/vig-os/devkit/issues/1739))
+  - New `docs/runbooks/devkit-upgrade-app.md` documents the App's grant, its
+    public visibility (linking to the recorded decision in
+    `vig-os/org-config`), its install targets, which org secrets carry its
+    credentials, and the key-rotation procedure, including the mandatory
+    `GET /app/installations` inventory sweep for a public App with no webhook
+  - The scaffolded `devkit-upgrade.yml` grant header now links to the runbook
+    instead of restating the permission set inline
+
 ### Changed
 
 ### Deprecated
