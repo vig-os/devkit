@@ -41,6 +41,17 @@ DEVKIT_MODULES=""
 # `release/X.Y.Z` branch name, and the `## [X.Y.Z]` freeze heading stay bare.
 DEVKIT_TAG_PREFIX=
 
+# Candidate pre-release format for `release.yml` (#1746). Empty (default) =>
+# `rc{N}`, i.e. today's X.Y.Z-rcN tags (no change for devkit or existing
+# consumers). Literal SemVer pre-release characters [0-9A-Za-z.-] plus two
+# placeholders: `{N}` (optional counter, auto-incremented per format, pinned by
+# the `rc-number` input) and `{YYYYMMDD}` (UTC date). e.g. `alpha.{N}` =>
+# X.Y.Z-alpha.1, `beta` => X.Y.Z-beta. Prefer a dotted counter (`rc.{N}`) where
+# SemVer tooling orders versions: SemVer compares `rc10` below `rc9`. A
+# `release.yml` `pre-release-format` dispatch input overrides this key; a
+# format that would sort BELOW an existing tag of the same X.Y.Z is refused.
+DEVKIT_PRERELEASE_FORMAT=
+
 # Opt-in floating major/minor tags, force-moved at promote to the final release
 # commit (comma-separated subset of `major,minor`; empty/absent => off). e.g.
 # `major,minor` moves <prefix>X and <prefix>X.Y so consumers can pin

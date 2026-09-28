@@ -391,6 +391,7 @@ MANIFEST_ORG="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_ORG || true)"
 MANIFEST_REPO="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REPO || true)"
 MANIFEST_MODULES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_MODULES || true)"
 MANIFEST_TAG_PREFIX="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TAG_PREFIX || true)"
+MANIFEST_PRERELEASE_FORMAT="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_PRERELEASE_FORMAT || true)"
 MANIFEST_FLOATING_TAGS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FLOATING_TAGS || true)"
 MANIFEST_CI_RUNNER="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_CI_RUNNER || true)"
 MANIFEST_DEV_PROFILE_PATH="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_DEV_PROFILE_PATH || true)"
@@ -3868,6 +3869,12 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     fi
     if [[ -n "$MANIFEST_FLOATING_TAGS" ]]; then
         write_manifest_value DEVKIT_FLOATING_TAGS "$MANIFEST_FLOATING_TAGS"
+    fi
+    # Candidate pre-release format (#1746): same bare tag-scheme shape — read
+    # before the template overwrite, written back so an upgrade never silently
+    # resets a repo's alpha/beta series onto the rc{N} default.
+    if [[ -n "$MANIFEST_PRERELEASE_FORMAT" ]]; then
+        write_manifest_value DEVKIT_PRERELEASE_FORMAT "$MANIFEST_PRERELEASE_FORMAT"
     fi
     # CI runner override (#1173): bare in the template (DEVKIT_CI_RUNNER=), so a
     # self-hosted consumer's label list is read before the overwrite and written
