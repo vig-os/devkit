@@ -1215,6 +1215,22 @@ the same reason the switch **back** to `apache-2.0` is a no-op on a repo that
 already has a `LICENSE`: the file is preserved, so delete it by hand and let the
 next `--force` re-add the Apache template.
 
+### Renovate: add `cargo` to a Rust repo's `renovate.json`
+
+The shipped `renovate.json` template now enables the `cargo` manager, so
+Renovate opens vulnerability-fix and update PRs for Cargo dependencies
+([#1763](https://github.com/vig-os/devkit/issues/1763)). `renovate.json` is
+preserved on upgrade, so an existing consumer keeps its old manager list. A Rust
+consumer adds `cargo` by hand:
+
+```json
+"enabledManagers": ["github-actions", "pep621", "npm", "cargo"]
+```
+
+The preset already carries the matching `build(cargo)` rule. See
+[Vulnerability-fix PRs](WORKFLOW_SECURITY.md#vulnerability-fix-prs) for why an
+unlisted manager gets no vulnerability PRs.
+
 ### Migrating a `devcontainer`/`both` repo to `direnv` or `bare`
 
 By default a mode switch is **non-destructive** toward a populated pre-existing
