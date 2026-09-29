@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **DEVKIT_FLAKE_PIN_ADVANCE: advance a pinned devkit flake input on upgrade**
+  ([#1752](https://github.com/vig-os/devkit/issues/1752), [#1756](https://github.com/vig-os/devkit/issues/1756))
+  - New `.vig-os` key `DEVKIT_FLAKE_PIN_ADVANCE`. With `true`, an
+    `install.sh --force` upgrade in direnv or `both` mode rewrites a pinned
+    release ref (`?ref=X` or `/X`, form kept) to the new `DEVKIT_VERSION` and
+    runs `nix flake update <input>` in the same step. If the lock update fails,
+    `flake.nix` and `flake.lock` are both restored. Empty or `false` (default)
+    leaves a pin untouched, and the `flake-bump:` line now names the key
+  - The scaffolded `ci.yml` fails its `resolve-toolchain` job when a pinned
+    release ref differs from `DEVKIT_VERSION`, so an adoption PR can no longer
+    wire hooks the pinned toolchain cannot run. Floating inputs, non-release
+    pins, `bare` and `devcontainer` modes are not gated
+  - Pinned consumers: the adoption PR that ships this gate is red once. Fix it
+    in one commit on that branch (bump the pin, `nix flake update <input>`, set
+    the key) and merge it before the next weekly upgrade run replaces the
+    branch; see `docs/MIGRATION.md`
 - **Release train: pluggable pre-release format, draft-Release-first owner
   contract, and a standalone publish seam**
   ([#1746](https://github.com/vig-os/devkit/issues/1746))

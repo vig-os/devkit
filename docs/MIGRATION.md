@@ -528,6 +528,7 @@ unknown keys:
 | `DEVKIT_BRANCH_TYPES` | Comma-separated FULL REPLACEMENT of the issue-numbered `<type>/<issue>-<summary>` branch-type set, driving the local `no-commit-to-branch` guard, the flake-generated consumer surface, and CI's branch-name gate; empty (default) => the stock set (`feature,bugfix,hotfix,release,docs,test,refactor`). The `chore/`, `renovate/`, `worktree/` clauses are never knob-driven. Pre-#1432 direnv consumers hand-port the flake reader (see [Commit and branch policy on the flake surface](#commit-and-branch-policy-on-the-flake-surface-direnv-consumers), [#1432](https://github.com/vig-os/devkit/issues/1432)) |
 | `DEVKIT_AUTO_UPGRADE` | Opt-out for the scaffolded `devkit-upgrade.yml` weekly schedule; empty (default) or any value but `false` keeps the auto-adoption poll on. `false` disables only the schedule — manual `workflow_dispatch` always runs ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
 | `DEVKIT_UPGRADE_EXCLUDE` | Comma-separated (whitespace-tolerant) paths the `devkit-upgrade` workflow resets before the adoption commit, so generated-doc churn never rides along in the upgrade diff; empty (default) => no exclusions ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
+| `DEVKIT_FLAKE_PIN_ADVANCE` | `true` \| `false`; empty (default) or `false` => a pinned devkit flake input is never touched. `true` => an `install.sh --force` upgrade (direnv/`both`) advances a RELEASE pin (`?ref=X` or `/X`, form preserved) to the new `DEVKIT_VERSION`, atomically with `nix flake update <input>`; written back only for a non-empty value (see [`DEVKIT_VERSION` and the pinned flake `ref` move in lockstep](#devkit_version-and-the-pinned-flake-ref-move-in-lockstep), [#1752](https://github.com/vig-os/devkit/issues/1752)) |
 | `DEVKIT_LICENSE` | License the scaffold ships: `apache-2.0` (default/empty) \| `proprietary` \| `none`. `proprietary` renders an all-rights-reserved notice over an untouched Apache scaffold copy; `none` manages no `LICENSE` at all, so a delete sticks. Neither ever deletes an existing file (see [A private consumer: license and changelog](#a-private-consumer-license-and-changelog), [#1651](https://github.com/vig-os/devkit/issues/1651)) |
 | `DEVKIT_LANGUAGES` | Comma-separated (whitespace-tolerant) subset of `python,node,rust,nix` the repo DECLARES. A declaration, not a detection cache: the scaffold seeds it from detection, ADDS a newly detected language, and never removes one (see [Declared project languages](#declared-project-languages), [#1478](https://github.com/vig-os/devkit/issues/1478)) |
 
@@ -1002,6 +1003,11 @@ with a floating input and host `nix` is available; otherwise it prints the
 manual step. Review and commit the `flake.lock` change together with the
 scaffold diff. Should the two ever drift anyway (e.g. a raw `podman run`
 upgrade), the dev shell warns on every entry until the lock is advanced.
+A **pinned** input is advanced only when `.vig-os` sets
+`DEVKIT_FLAKE_PIN_ADVANCE=true` — then `flake.nix` changes too, and both files
+are committed with the upgrade; a pin left behind `DEVKIT_VERSION` fails CI (see
+[`DEVKIT_VERSION` and the pinned flake `ref` move in lockstep](#devkit_version-and-the-pinned-flake-ref-move-in-lockstep),
+[#1752](https://github.com/vig-os/devkit/issues/1752)).
 
 - **Toolchain versions / CVEs:** advance the pinned `nixpkgs` revision
   (Renovate's `nix` manager opens the PR); `flake.lock` is the controlling
@@ -1552,20 +1558,41 @@ vigos.url = "github:vig-os/devkit"; # was github:vig-os/devcontainer
 ### `DEVKIT_VERSION` and the pinned flake `ref` move in lockstep
 
 If you **pin** the flake input to a release
-(`vigos.url = "github:vig-os/devkit?ref=<tag>"`), the pinned `<tag>` and the
-`DEVKIT_VERSION` written into `.vig-os` by the scaffold must stay on the **same
-version**. They deliver **coupled halves of the same change**: the scaffold
-(keyed to `DEVKIT_VERSION`, delivered by `install.sh --force`) writes files,
-while the pinned flake input (`nix/hooks.nix`) delivers the matching hook
-behavior. For example, the JSONC provenance banner
+(`vigos.url = "github:vig-os/devkit?ref=<tag>"`, or the `/<tag>` path form), the
+pinned `<tag>` and the `DEVKIT_VERSION` written into `.vig-os` by the scaffold
+must stay on the **same version**. They deliver **coupled halves of the same
+change**: the scaffold (keyed to `DEVKIT_VERSION`, delivered by
+`install.sh --force`) writes files, while the pinned flake input (`nix/hooks.nix`)
+delivers the matching hook behavior. For example, the JSONC provenance banner
 ([#1053](https://github.com/vig-os/devkit/issues/1053)) is written by the
 scaffold, but its compensating `check-json` exclude lives in the flake input —
 bump only the scaffold and the strict `check-json` hook rejects the banner,
 failing **every** commit
-([#1093](https://github.com/vig-os/devkit/issues/1093)).
+([#1093](https://github.com/vig-os/devkit/issues/1093)); a hook the new scaffold
+wires may not even exist in the old toolchain and fail to spawn
+([#1756](https://github.com/vig-os/devkit/issues/1756)).
 
-Keep them aligned: whenever a `--force` upgrade advances `DEVKIT_VERSION`, bump
-the pinned `ref` to the same version and re-resolve the input:
+**Let the upgrade move the pin** by setting, in `.vig-os`:
+
+```sh
+DEVKIT_FLAKE_PIN_ADVANCE=true
+```
+
+Every `install.sh --force` upgrade (direnv/`both` mode, with a committed
+`flake.lock` — including the weekly `devkit-upgrade` adoption PR) then rewrites a
+release pin to the new `DEVKIT_VERSION`, keeping its form (`?ref=X` stays
+`?ref=X`, `/X` stays `/X`), and runs `nix flake update <input>` in the same step.
+The two files move atomically: if the lock update fails (or host `nix` is
+missing), `flake.nix` and `flake.lock` are left byte-identical and the upgrade
+continues. Only release pins are advanced — `?ref=main`, `?rev=<sha>` or
+`?ref=refs/tags/X` stay as they are. Every outcome prints one `flake-bump:` line,
+which the adoption PR body carries. Empty (the default) or `false` keeps a pin
+untouched, as before; the key is written back across upgrades
+([#1752](https://github.com/vig-os/devkit/issues/1752)).
+
+Without the knob, keep them aligned by hand: whenever a `--force` upgrade advances
+`DEVKIT_VERSION`, bump the pinned `ref` to the same version and re-resolve the
+input:
 
 ```nix
 vigos.url = "github:vig-os/devkit?ref=<new-DEVKIT_VERSION>";
@@ -1575,8 +1602,25 @@ vigos.url = "github:vig-os/devkit?ref=<new-DEVKIT_VERSION>";
 nix flake update vigos
 ```
 
-A `--force` upgrade whose scaffold version differs from a pinned `vigos` ref now
+A `--force` upgrade whose scaffold version differs from a pinned `vigos` ref
 prints a warning to that effect.
+
+**CI enforces the invariant.** The scaffolded `ci.yml` runs a
+`Check flake pin lockstep` step in its `resolve-toolchain` job (direnv/`both`
+mode): a pinned release ref that differs from `DEVKIT_VERSION` fails the job, so
+every toolchain job is skipped and the summary reports it. Floating inputs,
+non-release pins (a warning), `bare` and `devcontainer` modes are never gated,
+and `DEVKIT_DRIFT_CHECK=false` does not switch it off.
+
+**First adoption of this gate on a pinned consumer.** The adoption PR that ships
+the gate is itself red (its scaffold predates your opt-in). Fix it with ONE
+commit on the adoption branch — bump the pin to the PR's `DEVKIT_VERSION`, run
+`nix flake update <input>`, and set `DEVKIT_FLAKE_PIN_ADVANCE=true` — and merge
+it **before the next Monday 06:00 UTC** `devkit-upgrade` run, which force-updates
+the adoption branch and would discard the commit. Setting the knob on your
+default branch *ahead* of that adoption is safe only with
+`DEVKIT_DRIFT_CHECK=false`: the scaffold-drift job re-scaffolds at your current
+version, which does not know the key yet and drops it, failing the drift gate.
 
 A **floating** input (`vigos.url = "github:vig-os/devkit"`, no `?ref=`) needs no
 manual `ref` bump, but it is **not** exempt from skew: the dev shell runs
