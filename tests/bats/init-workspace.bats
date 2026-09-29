@@ -2645,7 +2645,7 @@ _upgrade_no_flags() {
 # The dev-shell gcroot path (#1601) rides along: same shape, same failure mode —
 # an upgrade that drops it silently re-roots CI's dev-shell in RUNNER_TEMP.
 
-@test "upgrade writes back every persisted .vig-os knob (#885, #1116, #1173, #1295, #1284, #1601)" {
+@test "upgrade writes back every persisted .vig-os knob (#885, #1116, #1173, #1295, #1284, #1601, #1752)" {
     ws="$BATS_TEST_TMPDIR/e2e-knob-writeback"
     mkdir -p "$ws"
     run _clone_shared both "$ws"
@@ -2660,6 +2660,7 @@ _upgrade_no_flags() {
         'DEVKIT_FEATURES_DISABLED=renovate,scanning'
         'DEVKIT_REFS_OPTIONAL_TYPES=chore,build'
         'DEVKIT_LICENSE=none'
+        'DEVKIT_FLAKE_PIN_ADVANCE=true'
     )
     for row in "${rows[@]}"; do
         key="${row%%=*}"
@@ -2756,7 +2757,7 @@ _upgrade_no_flags() {
     assert_failure
 }
 
-@test "invalid or hostile .vig-os knob values fail the scaffold loudly (#1228, #1282, #1295, #1284, #1431, #1432, #1633)" {
+@test "invalid or hostile .vig-os knob values fail the scaffold loudly (#1228, #1282, #1295, #1284, #1431, #1432, #1633, #1752)" {
     # KEY|VALUE table of rejected values, each asserted against the clean
     # "Invalid <KEY>" message. The hostile SYNC_TARGET row: git
     # check-ref-format alone accepts quotes/$/backticks/;/|/# — values that
@@ -2794,6 +2795,9 @@ _upgrade_no_flags() {
         # values may pass — a typo must never silently fall back to Apache on a
         # repo that asked for a proprietary notice (#1651).
         'DEVKIT_LICENSE|bsd-3-clause'
+        # The flake-pin knob gates a host-side rewrite of flake.nix, so a typo
+        # must refuse loudly rather than silently leave the pin behind (#1752).
+        'DEVKIT_FLAKE_PIN_ADVANCE|maybe'
     )
     local i=0
     for row in "${rows[@]}"; do

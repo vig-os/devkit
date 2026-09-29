@@ -9,7 +9,7 @@ the near-identical ``test_vig_os_declares_X_key`` /
 feature file (#1413).
 
 Refs: #1044, #1045, #1173, #1207, #1228, #1282, #1284, #1295, #1296, #1431,
-#1478, #1601, #1633, #1651, #1710, #1746
+#1478, #1601, #1633, #1651, #1710, #1746, #1752
 """
 
 from __future__ import annotations
@@ -39,6 +39,7 @@ MANIFEST_KEYS = [
     ("DEVKIT_LICENSE", "#1651"),
     ("DEVKIT_COMMIT_APP_ENVIRONMENT", "#1710"),
     ("DEVKIT_PRERELEASE_FORMAT", "#1746"),
+    ("DEVKIT_FLAKE_PIN_ADVANCE", "#1752"),
 ]
 
 # (output, issue) — outputs the resolve-toolchain composite action must declare

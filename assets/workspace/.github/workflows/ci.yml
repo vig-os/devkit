@@ -129,12 +129,14 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          # flake.nix is parsed by the flake-pin lockstep gate below (#1752).
           sparse-checkout: |
             .vig-os
             .github/actions/resolve-toolchain
             pyproject.toml
             package.json
             Cargo.toml
+            flake.nix
           sparse-checkout-cone-mode: false
 
       - name: Resolve toolchain
@@ -203,6 +205,50 @@ jobs:
             echo "::error::.vig-os declares language(s) whose project file is gone: ${MISSING[*]}. The lint/test recipes skip a language whose marker file is absent, so nothing else in this workflow would notice. Restore the missing file(s), or — if the language was dropped deliberately — remove it from DEVKIT_LANGUAGES in .vig-os."
             exit 1
           fi
+
+      # Flake-pin lockstep gate (#1752, #1756). A direnv/both consumer that PINS
+      # its devkit flake input builds its dev shell (hooks, vig-utils) from that
+      # pin, while .vig-os DEVKIT_VERSION drives the scaffold — an adoption that
+      # moved only DEVKIT_VERSION wired hooks the old toolchain could not spawn.
+      # Same placement rationale as the languages gate above: a failure here
+      # skips every toolchain job and the summary reports it. Floating inputs,
+      # non-release pins, bare and devcontainer modes are never gated; the
+      # scaffold-drift opt-out does not apply. The regex is byte-identical to
+      # init-workspace.sh's lagging-pin WARNING regex (keep them in sync;
+      # install.sh's flake-bump detector is a different, broader one).
+      # A dispatch that reroutes the image makes image-tag diverge from .vig-os;
+      # PR runs never set it.
+      - name: Check flake pin lockstep
+        if: ${{ !inputs.image-tag }}
+        env:
+          MODE: ${{ steps.resolve.outputs.mode }}
+          DEVKIT_VERSION: ${{ steps.resolve.outputs.image-tag }}
+        run: |
+          set -euo pipefail
+          if [[ "$MODE" != "direnv" && "$MODE" != "both" ]] || [[ ! -f flake.nix ]]; then
+            exit 0
+          fi
+          pinned_line="$(grep -E '^[[:space:]]*(inputs\.)?[A-Za-z0-9_-]+\.url[[:space:]]*=[[:space:]]*"github:vig-os/devkit[/?][^"]+"' \
+            flake.nix | head -n1 || true)"
+          if [[ -z "$pinned_line" ]]; then
+            exit 0
+          fi
+          pinned_input="$(sed -E 's/^[[:space:]]*(inputs\.)?([A-Za-z0-9_-]+)\.url.*/\2/' <<<"$pinned_line")"
+          pinned_ref="$(sed -E 's|.*"github:vig-os/devkit[/?](ref=)?([^"]+)".*|\2|' <<<"$pinned_line")"
+          release_re='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+          if [[ -z "$DEVKIT_VERSION" ]]; then
+            echo "::warning::.vig-os DEVKIT_VERSION is empty — cannot check the pinned devkit input '$pinned_input' ($pinned_ref)."
+            exit 0
+          fi
+          if ! [[ "$pinned_ref" =~ $release_re ]]; then
+            echo "::warning::flake.nix pins the devkit input '$pinned_input' to '$pinned_ref', not a release version — not checked against DEVKIT_VERSION $DEVKIT_VERSION."
+            exit 0
+          fi
+          if [[ "$pinned_ref" != "$DEVKIT_VERSION" ]]; then
+            echo "::error::flake.nix pins the devkit input '$pinned_input' to $pinned_ref but .vig-os DEVKIT_VERSION is $DEVKIT_VERSION — the scaffold and its toolchain must move together. In one commit: bump the pin, run 'nix flake update $pinned_input', and set DEVKIT_FLAKE_PIN_ADVANCE=true in .vig-os so upgrades do this for you."
+            exit 1
+          fi
+          echo "flake.nix pins the devkit input '$pinned_input' to $pinned_ref, matching DEVKIT_VERSION."
 
   lint:
     name: Lint & Format

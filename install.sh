@@ -1093,9 +1093,78 @@ fi
 # green while the flake input stayed frozen; the upgrade workflow surfaces the
 # line in the adoption PR. One-liner `<name>.url = "..."` declarations are
 # recognized; the anchored grep never matches the doc-comment example (#1110).
+#
+# A PINNED input is advanced only under DEVKIT_FLAKE_PIN_ADVANCE=true (#1752):
+# a RELEASE pin moves to the new .vig-os DEVKIT_VERSION (written by the
+# scaffold above), form preserved, atomically with the lock — on any failure
+# flake.nix and flake.lock are restored, so flake.nix never runs ahead of it.
+#
+# Broad detector: matches a floating OR pinned devkit input. A different
+# detector from the narrow pinned-only regex shared by init-workspace.sh's
+# lagging-pin WARNING and ci.yml's `Check flake pin lockstep` step.
+DEVKIT_INPUT_RE='^[[:space:]]*(inputs\.)?[A-Za-z0-9_-]+\.url[[:space:]]*=[[:space:]]*"github:vig-os/devkit["/?]'
+
+# Lock the devkit input $1 of the flake at $2 to its current flake.nix URL.
+advance_flake_lock() {
+    nix --extra-experimental-features "nix-command flakes" \
+        flake update "$1" --flake "$2"
+}
+
+# Rewrite the pinned devkit input $1 from release $2 to release $3 in
+# $PROJECT_PATH/flake.nix (form preserved) and lock it. Atomic: on any failure
+# flake.nix and flake.lock are left (or restored) byte-identical. Temp files
+# live in one mktemp -d dir under $TMPDIR, never in the project (a stray file
+# there would trip the next upgrade's dirty-tree preflight), removed on every
+# path. Prints exactly one `flake-bump:` line; every abort path (no line, no
+# temp dir, bad rewrite, failed backup) prints its line and returns 0.
+advance_pinned_input() {
+    local name="$1" old="$2" new="$3" flake="$PROJECT_PATH/flake.nix"
+    local lock="$PROJECT_PATH/flake.lock" line_no old_esc new_esc new_re tmpd
+    local flake_tmp flake_orig lock_orig
+    # `|| true`: a no-match grep would abort the upgrade under pipefail.
+    line_no="$(grep -nE "$DEVKIT_INPUT_RE" "$flake" | head -n1 | cut -d: -f1 || true)"
+    if [ -z "$line_no" ]; then
+        echo "flake-bump: failed — internal error locating the pinned input line; pin left at '$old'"
+        return 0
+    fi
+    old_esc="$(printf '%s' "$old" | sed 's/[.[\*^$]/\\&/g')"
+    new_re="$(printf '%s' "$new" | sed 's/[.[\*^$]/\\&/g')"
+    new_esc="$(printf '%s' "$new" | sed 's/[&/\]/\\&/g')"
+    if ! tmpd="$(mktemp -d)"; then
+        echo "flake-bump: failed — internal error creating temp files; pin left at '$old'"
+        return 0
+    fi
+    flake_tmp="$tmpd/flake.nix" flake_orig="$tmpd/flake.nix.orig" lock_orig="$tmpd/flake.lock.orig"
+    if ! sed -E "${line_no}s|(github:vig-os/devkit[/?](ref=)?)${old_esc}\"|\1${new_esc}\"|" \
+        "$flake" >"$flake_tmp" \
+        || ! sed -n "${line_no}p" "$flake_tmp" \
+        | grep -qE "github:vig-os/devkit[/?](ref=)?${new_re}\""; then
+        echo "flake-bump: failed — internal error rewriting flake.nix; pin left at '$old'"
+        rm -rf "$tmpd"
+        return 0
+    fi
+    if ! { cp "$flake" "$flake_orig" && cp "$lock" "$lock_orig"; }; then
+        echo "flake-bump: failed — internal error backing up flake.nix/flake.lock; pin left at '$old'"
+        rm -rf "$tmpd"
+        return 0
+    fi
+    cat "$flake_tmp" >"$flake"
+    info "Advancing the pinned '$name' flake input $old -> $new (nix flake update $name)..."
+    if advance_flake_lock "$name" "$PROJECT_PATH"; then
+        echo "flake-bump: advanced pinned input '$name' $old -> $new (flake.nix + flake.lock); review and commit both with the upgrade"
+    else
+        cat "$flake_orig" >"$flake" || true
+        cat "$lock_orig" >"$lock" || true
+        echo "flake-bump: failed — nix flake update $name did not succeed; pin '$name' left at $old (non-fatal)"
+        echo "  Advance it manually: edit flake.nix to the new release, then:"
+        echo "    cd $PROJECT_PATH && nix flake update $name"
+    fi
+    rm -rf "$tmpd"
+}
+
 if [ -n "$FORCE" ] && { [ "$MODE" = "direnv" ] || [ "$MODE" = "both" ]; } \
     && [ -f "$PROJECT_PATH/flake.nix" ] && [ -f "$PROJECT_PATH/flake.lock" ]; then
-    DEVKIT_INPUT_LINE="$(grep -E '^[[:space:]]*(inputs\.)?[A-Za-z0-9_-]+\.url[[:space:]]*=[[:space:]]*"github:vig-os/devkit["/?]' \
+    DEVKIT_INPUT_LINE="$(grep -E "$DEVKIT_INPUT_RE" \
         "$PROJECT_PATH/flake.nix" | head -n1 || true)"
     if [ -z "$DEVKIT_INPUT_LINE" ]; then
         echo "flake-bump: no devkit input recognized in flake.nix; nothing to advance"
@@ -1107,8 +1176,7 @@ if [ -n "$FORCE" ] && { [ "$MODE" = "direnv" ] || [ "$MODE" = "both" ]; } \
         if [ "$DEVKIT_INPUT_URL" = "github:vig-os/devkit" ]; then
             if command -v nix >/dev/null 2>&1; then
                 info "Advancing the floating '$DEVKIT_INPUT_NAME' flake input (nix flake update $DEVKIT_INPUT_NAME)..."
-                if nix --extra-experimental-features "nix-command flakes" \
-                    flake update "$DEVKIT_INPUT_NAME" --flake "$PROJECT_PATH"; then
+                if advance_flake_lock "$DEVKIT_INPUT_NAME" "$PROJECT_PATH"; then
                     echo "flake-bump: advanced input '$DEVKIT_INPUT_NAME'; review and commit flake.lock with the upgrade"
                 else
                     echo "flake-bump: failed — nix flake update $DEVKIT_INPUT_NAME did not succeed (non-fatal)"
@@ -1124,9 +1192,25 @@ if [ -n "$FORCE" ] && { [ "$MODE" = "direnv" ] || [ "$MODE" = "both" ]; } \
         else
             DEVKIT_PINNED_REF="$(printf '%s' "$DEVKIT_INPUT_URL" \
                 | sed -E 's|^github:vig-os/devkit[/?](ref=)?||')"
-            echo "flake-bump: skipped — input '$DEVKIT_INPUT_NAME' is pinned to '$DEVKIT_PINNED_REF' (your explicit choice; never auto-bumped)"
-            echo "  To follow releases automatically: $DEVKIT_INPUT_NAME.url = \"github:vig-os/devkit\""
-            echo "  To advance the pin: point it at the new release, then run 'nix flake update $DEVKIT_INPUT_NAME'."
+            PIN_ADVANCE="$(read_manifest_value "$PROJECT_PATH/.vig-os" DEVKIT_FLAKE_PIN_ADVANCE || true)"
+            NEW_DEVKIT_VERSION="$(read_manifest_value "$PROJECT_PATH/.vig-os" DEVKIT_VERSION || true)"
+            RELEASE_RE='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+            if [ "$PIN_ADVANCE" != "true" ]; then
+                echo "flake-bump: skipped — input '$DEVKIT_INPUT_NAME' is pinned to '$DEVKIT_PINNED_REF' (never auto-bumped; set DEVKIT_FLAKE_PIN_ADVANCE=true in .vig-os to advance release pins with upgrades)"
+                echo "  To follow releases automatically: $DEVKIT_INPUT_NAME.url = \"github:vig-os/devkit\""
+                echo "  To advance the pin: point it at the new release, then run 'nix flake update $DEVKIT_INPUT_NAME'."
+            elif ! [[ "$NEW_DEVKIT_VERSION" =~ $RELEASE_RE ]]; then
+                echo "flake-bump: skipped — DEVKIT_VERSION '$NEW_DEVKIT_VERSION' in .vig-os is not a release version; pin '$DEVKIT_PINNED_REF' left as is"
+            elif ! [[ "$DEVKIT_PINNED_REF" =~ $RELEASE_RE ]]; then
+                echo "flake-bump: skipped — input '$DEVKIT_INPUT_NAME' is pinned to '$DEVKIT_PINNED_REF', not a release version; DEVKIT_FLAKE_PIN_ADVANCE applies to release pins only"
+            elif [ "$DEVKIT_PINNED_REF" = "$NEW_DEVKIT_VERSION" ]; then
+                echo "flake-bump: input '$DEVKIT_INPUT_NAME' already pinned to '$NEW_DEVKIT_VERSION'; nothing to advance"
+            elif ! command -v nix >/dev/null 2>&1; then
+                echo "flake-bump: skipped — nix not found on PATH; pin '$DEVKIT_INPUT_NAME' $DEVKIT_PINNED_REF -> $NEW_DEVKIT_VERSION not advanced"
+                echo "  Run: edit flake.nix, then 'nix flake update $DEVKIT_INPUT_NAME'"
+            else
+                advance_pinned_input "$DEVKIT_INPUT_NAME" "$DEVKIT_PINNED_REF" "$NEW_DEVKIT_VERSION"
+            fi
         fi
     fi
 fi

@@ -417,6 +417,9 @@ MANIFEST_BRANCH_TYPES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_BRANCH_TY
 MANIFEST_AUTO_UPGRADE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_AUTO_UPGRADE || true)"
 MANIFEST_UPGRADE_EXCLUDE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_UPGRADE_EXCLUDE || true)"
 MANIFEST_DRIFT_CHECK="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_DRIFT_CHECK || true)"
+# Pinned devkit flake-input advance (#1752): runtime-only, consumed host-side by
+# install.sh after the scaffold — read solely to guard and write it back.
+MANIFEST_FLAKE_PIN_ADVANCE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FLAKE_PIN_ADVANCE || true)"
 
 # Declared project languages (#1478): read before the template overwrite, both to
 # seed the sticky declaration further down and to write it back — the template
@@ -770,6 +773,17 @@ case "$MANIFEST_DRIFT_CHECK" in
     ""|true|false) ;;
     *)
         echo "Error: Invalid DEVKIT_DRIFT_CHECK in $VIG_OS_MANIFEST: $MANIFEST_DRIFT_CHECK (expected: true | false)" >&2
+        exit 1
+        ;;
+esac
+
+# Pinned devkit flake-input advance (#1752): pure runtime toggle for install.sh's
+# host-side flake-bump (empty = false). No render here — only a value guard, so
+# a typo refuses loudly instead of silently leaving the pin behind.
+case "$MANIFEST_FLAKE_PIN_ADVANCE" in
+    ""|true|false) ;;
+    *)
+        echo "Error: Invalid DEVKIT_FLAKE_PIN_ADVANCE in $VIG_OS_MANIFEST: $MANIFEST_FLAKE_PIN_ADVANCE (expected: true | false)" >&2
         exit 1
         ;;
 esac
@@ -3677,6 +3691,9 @@ if [[ -n "${VIG_OS_VERSION:-}" && -f "$WORKSPACE_DIR/.vig-os" ]]; then
         # either form (?ref=X, or the /X path suffix the field case carried) —
         # the literal-`vigos`/`?ref=`-only match left exactly those consumers
         # with neither a bump nor a warning from any mechanism.
+        # Byte-identical to the regex in ci.yml's `Check flake pin lockstep`
+        # step (#1752) — keep them in sync; install.sh's flake-bump detector is
+        # a different, broader one (it also matches a floating input).
         pinned_line="$(grep -E '^[[:space:]]*(inputs\.)?[A-Za-z0-9_-]+\.url[[:space:]]*=[[:space:]]*"github:vig-os/devkit[/?][^"]+"' \
             "$WORKSPACE_DIR/flake.nix" 2>/dev/null | head -n1 || true)"
         pinned_input=""
@@ -3978,6 +3995,12 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     # silently re-enables the drift gate the consumer disabled.
     if [[ -n "$MANIFEST_DRIFT_CHECK" ]]; then
         write_manifest_value DEVKIT_DRIFT_CHECK "$MANIFEST_DRIFT_CHECK"
+    fi
+    # Pinned devkit flake-input advance (#1752): bare in the template
+    # (DEVKIT_FLAKE_PIN_ADVANCE=), so a consumer's opt-in is written back — else
+    # the upgrade that should advance the pin would first erase the knob.
+    if [[ -n "$MANIFEST_FLAKE_PIN_ADVANCE" ]]; then
+        write_manifest_value DEVKIT_FLAKE_PIN_ADVANCE "$MANIFEST_FLAKE_PIN_ADVANCE"
     fi
     # Declared languages (#1478): bare in the template (DEVKIT_LANGUAGES=), so
     # the declaration is written back — else an upgrade would erase it and the

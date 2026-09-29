@@ -97,9 +97,9 @@ git status --porcelain
 git diff --stat
 ```
 
-Confirm the pin moved, the flake input (if any) moved with it, and nothing you did not expect changed. Note that a
-consumer whose flake input is named something other than `vigos`, or is pinned to a ref, is **not** auto-bumped and
-nothing says so (#1497) — check the input by hand and report it either way.
+Confirm the pin moved, the flake input (if any) moved with it, and nothing you did not expect changed. A pinned
+flake input is reported on the `flake-bump:` line, advanced only under `DEVKIT_FLAKE_PIN_ADVANCE=true` in `.vig-os`,
+and gated in CI when it lags `DEVKIT_VERSION` (#1752) — report the line either way.
 
 Then re-run `/devkit:status` and confirm drift is clean against the new pin.
 
