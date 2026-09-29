@@ -572,6 +572,23 @@ jobs:
           set -euo pipefail
           sed -i -E "s/^(DEVKIT_VERSION|DEVCONTAINER_VERSION)=.*/DEVKIT_VERSION=$VERSION/" .vig-os
           echo "✓ Set DEVKIT_VERSION=$VERSION in .vig-os"
+          # The devkit Claude Code plugin is versioned WITH devkit (#1744): its
+          # skills wrap these workflows, so a plugin release that did not move
+          # with the scaffold would let a consumer's skills describe verbs their
+          # pinned devkit does not ship. Bumped here so the two versions cannot
+          # diverge; tests/test_devkit_plugin.py asserts they are equal.
+          PLUGIN_MANIFEST=plugins/devkit/.claude-plugin/plugin.json
+          sed -i -E "s/^(  \"version\": \")[^\"]*(\",)$/\1$VERSION\2/" "$PLUGIN_MANIFEST"
+          # A sed that matches nothing exits 0. Without this check a reformatted
+          # manifest would silently ship a stale plugin version under the final
+          # tag -- exactly the drift the version lock exists to prevent.
+          if ! jq -e --arg v "$VERSION" '.version == $v' "$PLUGIN_MANIFEST" >/dev/null; then
+            echo "ERROR: $PLUGIN_MANIFEST version is not $VERSION after the bump."
+            echo "The sed pattern no longer matches the manifest's formatting."
+            jq -r '.version' "$PLUGIN_MANIFEST"
+            exit 1
+          fi
+          echo "✓ Set version=$VERSION in $PLUGIN_MANIFEST"
 
       - name: Collect finalization files
         if: needs.validate.outputs.release_kind == 'final'
