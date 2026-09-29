@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-28T08:15:07Z
-updated: 2026-09-28T08:15:07Z
+updated: 2026-09-28T09:30:09Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1737
-comments: 0
+comments: 1
 labels: bug, priority:high, area:ci, area:workflow, effort:medium, semver:patch
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-28T08:33:58.458Z
+synced: 2026-09-29T08:16:57.330Z
 ---
 
 # [Issue 1737]: [[BUG] Smoke gate dispatches promote while the finalize sync-issues push is re-running PR CI](https://github.com/vig-os/devkit/issues/1737)
@@ -78,4 +78,25 @@ rerun) and #1487 (validate counting superseded runs) are the same family of
   `sync-issues` there too.
 - Recovery in the meantime is a plain re-dispatch of
   `promote-release.yml` once the PR's CI settles — no content change needed.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 28, 2026 at 09:30 AM_
+
+Fixed on `dev` in #1741 (merge `9bab3bbe`).
+
+The `wait-release-pr-ci` job now holds on two independent conditions per poll iteration:
+
+- **Release-branch quiescence** — no `queued`/`in_progress` run on the PR's own head branch (resolved via `gh pr view --json headRefName`, not reconstructed from the version). This is what spans the `finalize` → `sync-issues` → push chain, since the `Sync Issues and PRs` run is in progress on the branch for its whole life.
+- **SHA-anchored check read** — `headRefOid` sampled immediately before and after `gh pr checks`; a mismatch discards the observation with no pass *and no fail/cancel verdict*, so a push landing inside the query window cannot be misread either way.
+
+The confirmed SHA is exposed as `wait-release-pr-ci.outputs.head_sha`, and `trigger-promote-release` carries a last-mile guard that re-reads the head before dispatch and refuses with both SHAs named. `promote-release.yml`'s own `CI_PENDING` refusal was deliberately left untouched — it behaved correctly and is the control that stops a published release that then fails to merge.
+
+**Devkit's own promote path was audited and needs no change** (issue Notes): `finalize` waits synchronously on `sync-issues` within the same job, and promote is human-dispatched via `just promote-release` after the single human approval, so there is no unattended wait-then-dispatch chain to race.
+
+**Still owed before the next final train:** `repository_dispatch` executes the listener from `devkit-smoke-test`'s default branch, so this devkit asset is the source of truth but is **not live** until it reaches smoke-test `main` (precedent: devkit-smoke-test#345, #353). Until then the race can still reproduce.
+
+Residual narrowness, not a defect today: the quiescence gate matches `queued`/`in_progress` but not `waiting` (a run parked for environment approval). `devkit-smoke-test`'s `.vig-os` has `DEVKIT_COMMIT_APP_ENVIRONMENT=` empty, so no run there can enter that state; it would only matter if that key were set.
 

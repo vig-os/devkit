@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-09-28T05:02:45Z
+updated: 2026-09-29T00:30:16Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,22 +13,24 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-28T06:36:48.869Z
+synced: 2026-09-29T08:16:57.725Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.<br>[View this repository on the Mend.io Web Portal](https://developer.mend.io/github/vig-os/devkit).
 
-## Other Branches
+## Awaiting Schedule
 
-The following updates are pending. To force the creation of a PR, click on a checkbox below.
+The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
- - [ ] <!-- other-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
+ - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update vig-os/sync-issues-action action to v0.5.1
+ - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
+ - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
 
 ## Detected Dependencies
 
-<details><summary>github-actions (43)</summary>
+<details><summary>github-actions (44)</summary>
 <blockquote>
 
 <details><summary>.github/actions/setup-env/action.yml (3)</summary>
@@ -312,7 +314,7 @@ The following updates are pending. To force the creation of a PR, click on a che
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
- - `vig-os/sync-issues-action v0.5.0@b62c8eca72f4ee7177caee4f689ee080a5997164`
+ - `vig-os/sync-issues-action v0.5.0@b62c8eca72f4ee7177caee4f689ee080a5997164` → [Updates: `v0.5.1`]
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
  - `ubuntu 26.04`
@@ -505,6 +507,13 @@ The following updates are pending. To force the creation of a PR, click on a che
 
 </details>
 
+<details><summary>assets/workspace/.github/workflows/publish-release-extension.yml (2)</summary>
+
+ - `ubuntu 26.04`
+ - `ubuntu 26.04`
+
+</details>
+
 <details><summary>assets/workspace/.github/workflows/release-core.yml (11)</summary>
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
@@ -561,7 +570,7 @@ The following updates are pending. To force the creation of a PR, click on a che
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
- - `vig-os/sync-issues-action v0.5.0@b62c8eca72f4ee7177caee4f689ee080a5997164`
+ - `vig-os/sync-issues-action v0.5.0@b62c8eca72f4ee7177caee4f689ee080a5997164` → [Updates: `v0.5.1`]
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
  - `ubuntu 26.04`

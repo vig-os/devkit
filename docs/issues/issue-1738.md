@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-28T08:15:28Z
-updated: 2026-09-28T08:15:28Z
+updated: 2026-09-28T09:30:22Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1738
-comments: 0
+comments: 1
 labels: docs, priority:low, area:workspace, effort:small
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-28T08:33:58.150Z
+synced: 2026-09-29T08:16:56.903Z
 ---
 
 # [Issue 1738]: [[DOCS] DEVKIT_COMMIT_APP_ENVIRONMENT guard comment says UNQUOTED, but the renderer single-quotes](https://github.com/vig-os/devkit/issues/1738)
@@ -73,4 +73,18 @@ and gate 2 will refuse it. It needs a normal train.
 Found during the live RC validation of `1.17.0-rc1` (tier 3, the
 `DEVKIT_COMMIT_APP_ENVIRONMENT` render checks); all six render checks passed and
 this was the only finding. Not a release blocker, so 1.17.0 shipped with it.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 28, 2026 at 09:30 AM_
+
+Fixed on `dev` in #1740 (merge `66ba41fb`).
+
+The guard comment now states that `DEVKIT_COMMIT_APP_ENVIRONMENT` is rendered as a **single-quoted** YAML scalar, says the charset allowlist stays load-bearing because it refuses `'` (so no escaping is ever needed), and makes the quoting difference from `DEVKIT_SYNC_TARGET` explicit instead of implying the two behave alike.
+
+Verified rather than taken from the issue text: the splice really is `sed -i "/^  \${job}:\$/a\\    environment: '\${env_name}'"`, and the guard regex `^[A-Za-z0-9][A-Za-z0-9._-]*$` really does exclude `'`. The `DEVKIT_SYNC_TARGET` comparison also checks out and is now phrased as a genuine difference: that key's renderer mixes single-quoted YAML splices (`init-workspace.sh:2068-2069`) with a bare CLI-argument splice (`:2113`), which is where the original 'UNQUOTED' wording was carried over from.
+
+Comment-only: 11/-8 lines, all inside the `#` block. The guard's `if` and `render_commit_app_environment()` are byte-identical, and no changelog entry was added since a code comment has no user-visible impact.
 

@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-28T08:27:32Z
-updated: 2026-09-28T08:27:32Z
+updated: 2026-09-28T09:30:37Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1739
-comments: 0
+comments: 1
 labels: docs, priority:low, effort:small, area:docs
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-28T08:33:57.827Z
+synced: 2026-09-29T08:16:56.516Z
 ---
 
 # [Issue 1739]: [[DOCS] No creation runbook for the vigos-devkit-upgrade App the scaffold depends on](https://github.com/vig-os/devkit/issues/1739)
@@ -82,4 +82,27 @@ Not urgent: the App exists, works, and its visibility posture is now written dow
 `org-config` side. This matters the day the App has to be recreated or handed over — the grant is
 `contents` / `issues` / `pull_requests` / `workflows` write, so reconstructing it by guesswork is
 how an App ends up wider than it needs to be.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 28, 2026 at 09:30 AM_
+
+Done on `dev` in #1742 (merge `81e30a8b`).
+
+`docs/runbooks/devkit-upgrade-app.md` (new; the directory did not exist) mirrors `vig-os/org-config`'s `docs/runbooks/github-app.md` structure — Purpose, Prerequisites, Create the App, Permissions, Webhooks, Visibility, Installation, Bootstrap secrets, Key rotation, What this App must NOT be given.
+
+Against the acceptance criteria:
+
+- [x] Runbook exists and states the grant (`contents`/`pull_requests`/`workflows`/`issues` write + `metadata` read, with `issues:write` marked as the one optional grant), the visibility setting, the install targets and key rotation
+- [x] The visibility paragraph links to the recorded decision (`vig-os/org-config#271` and the `APP VISIBILITY DECISION` comment at `otterdog/vig-os/vig-os.jsonnet:115-181`) rather than re-deciding it, and names that repo as the source of truth for the credential lists
+- [x] Key rotation step 6 is the mandatory `GET /app/installations` inventory sweep
+- [x] The scaffolded `devkit-upgrade.yml` header links to the runbook instead of restating the grant
+
+**Two gaps are flagged in the runbook for live verification rather than guessed**, since no source read for it states them: the App's display name / homepage URL, and the installation *scope* ("All repositories" vs selected) on each org. The `exo-pet` installation id `151387251` is recorded because the org-config jsonnet states it; the scope alongside it is not.
+
+Note on the header link: it is an absolute `blob/main/…` URL, not a relative path, because `docs/` is not shipped into the scaffold and a bare relative token fails `test_scaffold_has_no_unshipped_path_references`. It resolves once the runbook reaches `main` with the next train, which is also when the amended header reaches consumers via a released image — so the two land together outside of the RC window.
+
+One deliberate tradeoff worth knowing: moving the grant into the runbook means the header no longer says at the point of use that `issues:write` is the skippable one. That is the SSoT outcome this issue asked for, but it is a real loss of locality.
 
