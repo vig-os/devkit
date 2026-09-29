@@ -224,6 +224,21 @@ DEVKIT_AUTO_UPGRADE=
 # non-empty value (#1296).
 DEVKIT_UPGRADE_EXCLUDE=
 
+# Advance a PINNED devkit flake input with upgrades: true | false. Empty (=
+# unset, default) or false => a pinned input (`?ref=X` or the `/X` path form)
+# is never touched, as before. true => on an install.sh --force upgrade (direnv
+# and both modes, with a flake.lock and a release-shaped DEVKIT_VERSION) a
+# RELEASE pin is rewritten to the new DEVKIT_VERSION, keeping its form,
+# atomically with `nix flake update <input>` — if the lock update fails both
+# files are restored (non-fatal).
+# Release pins only: `main`, `rev=<sha>`, `refs/tags/X` are left as is. Every
+# outcome prints one `flake-bump:` line, surfaced in the adoption PR. A pin that
+# lags DEVKIT_VERSION fails ci.yml's resolve-toolchain job; the first adoption
+# of this knob on a pinned consumer is remedied in one commit: bump the pin, run
+# `nix flake update <input>`, set this key. Written back only for a non-empty
+# value (#1752).
+DEVKIT_FLAKE_PIN_ADVANCE=
+
 # Scaffold-drift CI gate: true (default) | false. Empty (= unset) resolves to
 # `true` — ci.yml's `scaffold-drift` job re-runs the pinned devkit version's
 # scaffold over the checkout and fails a PR whose managed files diverge from it
