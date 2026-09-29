@@ -3,5 +3,5 @@
   "extends": [
     "github>vig-os/devkit-smoke-test//.github/renovate-default"
   ],
-  "enabledManagers": ["github-actions"]
+  "enabledManagers": ["github-actions", "pep621"]
 }

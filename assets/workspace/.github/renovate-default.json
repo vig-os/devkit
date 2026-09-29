@@ -10,6 +10,10 @@
     "enabled": true,
     "schedule": ["before 9am on monday"]
   },
+  "vulnerabilityAlerts": {
+    "description": "Renovate is the org's vulnerability-fix channel (Dependabot security updates are off, vig-os/org-config#307). GitHub alerts become forced rules at repo init: vulnerability PRs target baseBranchPatterns, bypass the schedule and keep the per-manager semanticCommitType below, so they pass the commit gate. Only dependencies an enabledManagers entry extracts are covered; transitive dependencies rely on lockFileMaintenance above (https://github.com/vig-os/devkit/issues/1041). Refs https://github.com/vig-os/devkit/issues/1763.",
+    "labels": ["security"]
+  },
   "gitIgnoredAuthors": ["41898282+github-actions[bot]@users.noreply.github.com"],
   "packageRules": [
     {
@@ -64,6 +68,12 @@
       "matchDepTypes": ["dependencies"],
       "matchUpdateTypes": ["minor", "patch"],
       "groupName": "npm (minor and patch)"
+    },
+    {
+      "description": "Rust (Cargo)",
+      "matchManagers": ["cargo"],
+      "semanticCommitType": "build",
+      "semanticCommitScope": "cargo"
     },
     {
       "description": "Devkit-managed workflows and composite actions are regenerated wholesale on every devkit upgrade, so their SHA-pinned action digests are advanced upstream by devkit's own Renovate and shipped with each devkit release — never here. Disabling them stops duplicate/clobbering pin-bump PRs in consumer repos. This rule is intentionally last so a consumer's own later packageRules (in their preserved renovate.json) win: a consumer that wants to manage a specific managed file can re-enable it there. Refs vig-os/devkit#1332.",
