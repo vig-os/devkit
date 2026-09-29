@@ -3691,6 +3691,9 @@ if [[ -n "${VIG_OS_VERSION:-}" && -f "$WORKSPACE_DIR/.vig-os" ]]; then
         # either form (?ref=X, or the /X path suffix the field case carried) —
         # the literal-`vigos`/`?ref=`-only match left exactly those consumers
         # with neither a bump nor a warning from any mechanism.
+        # Byte-identical to the regex in ci.yml's `Check flake pin lockstep`
+        # step (#1752) — keep them in sync; install.sh's flake-bump detector is
+        # a different, broader one (it also matches a floating input).
         pinned_line="$(grep -E '^[[:space:]]*(inputs\.)?[A-Za-z0-9_-]+\.url[[:space:]]*=[[:space:]]*"github:vig-os/devkit[/?][^"]+"' \
             "$WORKSPACE_DIR/flake.nix" 2>/dev/null | head -n1 || true)"
         pinned_input=""
