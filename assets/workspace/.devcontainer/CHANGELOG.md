@@ -110,6 +110,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     immediately before dispatch and fails with an explicit message on a
     mismatch, instead of a confusing downstream "checks still in progress"
     refusal.
+- **Renovate vulnerability-fix coverage for smoke-test Python and Rust
+  consumers** ([#1763](https://github.com/vig-os/devkit/issues/1763))
+  - Renovate is the vulnerability-fix channel, but its alert rules only fire
+    for dependencies an enabled manager extracts. The smoke-test overlay
+    enabled `github-actions` only, and every smoke deploy overwrote a hand
+    fix; it now also enables `pep621`.
+  - The workspace `renovate.json` template now enables `cargo`, and the preset
+    carries a `cargo` rule (`build(cargo)`) so Cargo PRs pass the commit gate.
+    `renovate.json` is preserved on upgrade: existing Rust consumers add
+    `cargo` by hand (see `docs/MIGRATION.md`).
+  - The preset now configures `vulnerabilityAlerts` explicitly and labels
+    vulnerability PRs `security`.
 
 ### Security
 

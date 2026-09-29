@@ -3,5 +3,5 @@
   "extends": [
     "github>{{GITHUB_REPOSITORY}}//.github/renovate-default"
   ],
-  "enabledManagers": ["github-actions", "pep621", "npm"]
+  "enabledManagers": ["github-actions", "pep621", "npm", "cargo"]
 }
