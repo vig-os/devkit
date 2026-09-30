@@ -4126,16 +4126,21 @@ _RELEASE_RESOLVERS_991=(
     # dist/) defines a `bundle` just recipe; the release finalize flow detects
     # it via `just --summary`, runs `just bundle`, and commits the bundle as
     # part of the finalization commit. Language-neutral: no bundle recipe -> no-op.
-    f="$TEMPLATE_DIR/.github/workflows/release-core.yml"
-    run grep -q 'just --summary' "$f"
+    # The detect+build logic lives in the shared build-bundle action, which
+    # prepare-release.yml also calls at prepare time (#1745).
+    a="$TEMPLATE_DIR/.github/actions/build-bundle/action.yml"
+    run grep -q 'just --summary' "$a"
     assert_success
-    run grep -q 'just bundle' "$f"
+    run grep -q 'just bundle' "$a"
     assert_success
     # Only the non-ignored dist/ files join CHANGELOG.md in the finalization
     # commit's FILE_PATHS -- the whole `dist` dir would force-add the gitignored
-    # tsc/ncc emit via commit-action (#1159). The build step computes the set
-    # with git-add/.gitignore semantics and exposes it as a step output.
-    run grep -q 'git ls-files -co --exclude-standard -- dist' "$f"
+    # tsc/ncc emit via commit-action (#1159). The action computes the set
+    # with git-add/.gitignore semantics and exposes it as an output.
+    run grep -q 'git ls-files -co --exclude-standard -- dist' "$a"
+    assert_success
+    f="$TEMPLATE_DIR/.github/workflows/release-core.yml"
+    run grep -q 'uses: ./.github/actions/build-bundle' "$f"
     assert_success
     run grep -q 'steps.artifact.outputs.dist_paths' "$f"
     assert_success
@@ -5283,6 +5288,8 @@ _seed_license() {
     assert_success
     run test -f "$ws/.github/workflows/abandon-release.yml"
     assert_success
+    run test -f "$ws/.github/actions/build-bundle/action.yml"
+    assert_success
     _seed_features_disabled "$ws" "release,skills"
     run _upgrade_no_flags "$ws"
     assert_success
@@ -5292,6 +5299,9 @@ _seed_license() {
     run test -e "$ws/.github/workflows/promote-release.yml"
     assert_failure
     run test -e "$ws/.github/workflows/abandon-release.yml"
+    assert_failure
+    # the shared bundle action is release-only (#1745)
+    run test -e "$ws/.github/actions/build-bundle"
     assert_failure
     run test -e "$ws/.claude/skills/tdd"
     assert_failure
