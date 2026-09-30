@@ -402,9 +402,9 @@ MULTIPLEXER_TMUX_CONFIG = (
     "set -g set-clipboard on",
     "bind-key -T copy-mode-vi v send-keys -X begin-selection",
     "bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel",
-    # Killing one project switches to another live session; terminal windows
-    # are distinguishable by project.
-    "set -g detach-on-destroy off",
+    # Killing one project switches to a detached session or detaches; terminal
+    # windows are distinguishable by project.
+    "set -g detach-on-destroy no-detached",
     "set -g set-titles on",
     'set -g set-titles-string "#S"',
     # Pane navigation coherent with vi keyMode.

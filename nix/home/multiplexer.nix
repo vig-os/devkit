@@ -60,11 +60,11 @@
       bind-key -T copy-mode-vi v send-keys -X begin-selection
       bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel
 
-      # Killing one project switches to another live session instead of
-      # dropping to a bare shell (the client still detaches if it was the
-      # last one); titles make several terminal windows distinguishable by
-      # project rather than all showing the launch command.
-      set -g detach-on-destroy off
+      # Killing one project: the client switches to a detached session if one
+      # exists, and otherwise detaches (closing the window); titles make
+      # several terminal windows distinguishable by project rather than all
+      # showing the launch command.
+      set -g detach-on-destroy no-detached
       set -g set-titles on
       set -g set-titles-string "#S"
 
