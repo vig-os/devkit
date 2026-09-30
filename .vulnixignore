@@ -294,7 +294,7 @@ CVE-2026-11824
 #      2026-07-28 "no fix in the pinned channel" note was already stale.
 #    - CVE-2026-56123: the pin ships socat 1.8.1.3, past the 1.8.1.2 fix.)
 
-Expiration: 2026-10-07
+Expiration: 2026-11-18
 # (gzip CVE-2026-41992 removed 2026-08-04 (#1327): contrary to the "no nixpkgs
 #   patch yet" note above, the pinned rev applies CVE-2026-41992.patch to gzip
 #   1.14, so vulnix no longer reports it.)
@@ -323,6 +323,11 @@ Expiration: 2026-10-07
 #   availability-only on a 64-bit image and no 26.05 backport is open, so this
 #   block takes a later slot than the ones whose backport could land in any
 #   week's bump. Extension is scheduling only; the assessment above stands.
+# Renewed 2026-09-30 (#1789): the pin cf5e7650 and all three 26.05 branches
+#   still ship fzf 0.72.0 with no backport open (0.73.1+ is unstable only).
+#   Both findings remain availability-only on a 64-bit image (53432 is
+#   32-bit-only, 53433 is fzf's opt-in localhost --listen server). Renewed
+#   risk acceptance, not a date bump. Moved to 2026-11-18.
 CVE-2026-53432
 CVE-2026-53433
 
