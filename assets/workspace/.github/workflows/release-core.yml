@@ -450,14 +450,9 @@ jobs:
           # prefix reproduces today's bare heading byte-for-byte (#1044).
           prepare-changelog finalize "$VERSION" "$RELEASE_DATE" CHANGELOG.md --tag-prefix "$TAG_PREFIX"
 
-      # Language-neutral, opt-in release artifact. A repo that ships a committed
-      # build artifact (e.g. a JS Action's @vercel/ncc `dist/`) exposes a
-      # `bundle` just recipe; we detect it via `just --summary` so the step is a
-      # no-op for repos without one (e.g. a pure-Python consumer). No new config
-      # surface — the recipe's presence is the flag (#1029).
-      # Shared composite action (also used by prepare-release.yml for prepare-time
-      # rebuild, so the release PR opens with a fresh artifact). An idempotent
-      # re-run at finalize is harmless and ensures the tag ships the latest bundle.
+      # Opt-in committed artifact (`bundle` recipe, #1029), built by the action
+      # prepare-release.yml shares (#1745); the finalize re-run is idempotent
+      # and keeps the tag authoritative.
       - name: Build release artifact
         id: artifact
         if: ${{ inputs.release_kind == 'final' }}

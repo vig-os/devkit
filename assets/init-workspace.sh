@@ -1724,6 +1724,7 @@ feature_paths() {
                 ".github/workflows/promote-release.yml" \
                 ".github/workflows/abandon-release.yml" \
                 ".github/workflows/sync-main-to-dev.yml" \
+                ".github/actions/build-bundle" \
                 "docs/DOWNSTREAM_RELEASE.md" \
                 "CHANGELOG.md"
             ;;

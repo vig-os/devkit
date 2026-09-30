@@ -296,12 +296,12 @@ jobs:
           set -euo pipefail
           prepare-changelog validate CHANGELOG.md
 
-      # Refs: #1745 — rebuild the committed bundle when preparing the release,
-      # so the artifact is fresh by the time the release PR opens and dist-check
-      # evaluates it. A stale bundle on dev (from bot PRs like Renovate lockfile
-      # bumps) would fail the check, even though finalize would rebuild it later.
-      # This action returns has_bundle (whether to include the artifact in the
-      # commit) and dist_paths (the non-ignored files to commit).
+      # Rebuild the committed bundle at prepare time so the release PR opens
+      # with a fresh artifact (#1745). `dev` is not dist-gated, so bot PRs
+      # (Renovate lockfile bumps) leave it stale; without this, Dist Check
+      # fails the release PR and the candidate's check gate aborts before
+      # finalize's rebuild could fix it. The refreshed dist/ rides the freeze
+      # commit below; no-op without a `bundle` recipe.
       - name: Build prepare-time artifact
         id: bundle
         uses: ./.github/actions/build-bundle
@@ -611,8 +611,8 @@ jobs:
             exit 0
           fi
 
-          # A fresher bundle on dev is harmless; the prepare step's rebuild
-          # is idempotent and improves the release PR's dist-check readiness (#1745).
+          # The freeze commit may also carry a rebuilt dist/ (#1745); only
+          # CHANGELOG.md is rolled back — a fresher bundle on dev is harmless.
 
           # Read the freeze target AFTER the delete above, and tolerate a missing
           # ref: under a trunk render the freeze lives on the release branch that

@@ -44,9 +44,8 @@ runs:
         # dev-shell but not the repo's node_modules, so `just bundle` alone
         # exits 127; every other build job syncs first (#1130).
         just sync
-        # Rebuild the committed artifact from the finalized sources so the tag
-        # ships a fresh bundle, not a stale one. Output (dist/) is committed
-        # alongside CHANGELOG.md below.
+        # Rebuild the committed artifact from the current sources so the
+        # caller commits a fresh bundle (dist/) alongside CHANGELOG.md.
         just bundle
         # Commit only the shipped bundle, not the whole dir. `just bundle`
         # also emits gitignored tsc/ncc byproducts (dist/src/**, *.tsbuildinfo);
@@ -55,7 +54,7 @@ runs:
         # re-tracks those byproducts on every final release (#1159).
         # `git ls-files -co --exclude-standard` lists tracked + untracked files
         # that are NOT gitignored (git-add semantics), so only the real bundle
-        # (dist/index.js, dist/licenses.txt) reaches the finalize commit.
+        # (dist/index.js, dist/licenses.txt) reaches the caller's commit.
         DIST_PATHS=$(git ls-files -co --exclude-standard -- dist | paste -sd,)
         if [[ -z "$DIST_PATHS" ]]; then
           echo "::error::bundle recipe produced no non-ignored files under dist/" >&2
