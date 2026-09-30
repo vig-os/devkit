@@ -1,10 +1,16 @@
-"""Workflow-shape tests: superseded CI runs are cancelled per ref (#1602).
+"""Workflow-shape tests: superseded CI runs are cancelled per ref (#1602, #1759).
 
 Issue #1602: ``ci.yml`` carried no ``concurrency`` block, so a force-push or a
 rapid follow-up push left the superseded run's every lane running to completion
 for a commit that no longer matters. On a hosted runner that is wasted billed
 minutes; on a self-hosted consumer with a small fixed slot pool the stale run
 occupies the slots and the replacement run queues behind its own predecessor.
+
+Issue #1759: ``ci.yml`` and ``codeql.yml`` restrict ``pull_request.branches``
+to a specific list (dev, release/**, main), so a PR stacked on a topic branch
+gets no checks at all. Widening to ``- '**'`` accepts any base. ``codeql.yml``
+has no concurrency group, so a force-push leaves the superseded analysis
+running — reintroducing the runner-waste problem #1602 fixed.
 
 Both copies are pinned, because they are separate render paths — devkit's own
 image-building CI and the mode-aware scaffold consumers receive — and #1414 is
@@ -25,7 +31,7 @@ CI gate evaluates only the latest run per check name (#1522, pinned in
 ``tests/test_ci_green_gate.py``), so a superseded run's entries cannot refuse a
 branch that is actually green.
 
-Refs: #1602
+Refs: #1602, #1759
 """
 
 from __future__ import annotations
@@ -45,9 +51,18 @@ CI_COPIES: dict[str, Path] = {
     "scaffold": WORKSPACE / ".github" / "workflows" / "ci.yml",
 }
 
+# CodeQL copies for both devkit and scaffold.
+CODEQL_COPIES: dict[str, Path] = {
+    "devkit": REPO_ROOT / ".github" / "workflows" / "codeql.yml",
+    "scaffold": WORKSPACE / ".github" / "workflows" / "codeql.yml",
+}
+
 # Per-workflow, per-ref: a PR's superseded run is cancelled, while distinct refs
 # (another PR, a dispatch on another branch) stay independent.
 GROUP = "ci-${{ github.workflow }}-${{ github.ref }}"
+
+# CodeQL concurrency group (similar to ci.yml).
+CODEQL_GROUP = "codeql-${{ github.workflow }}-${{ github.ref }}"
 
 # Cancel everything except a push run (see module docstring).
 CANCEL_IN_PROGRESS = "${{ github.event_name != 'push' }}"
@@ -57,6 +72,27 @@ def _concurrency(copy: str) -> dict:
     block = load_workflow(CI_COPIES[copy]).get("concurrency")
     assert isinstance(block, dict), (
         f"{copy} ci.yml must declare a workflow-level concurrency block (#1602)"
+    )
+    return block
+
+
+def _on_block(workflow: dict) -> dict:
+    """Extract the trigger block (YAML 1.1 parses bare on: as True)."""
+    return workflow.get("on", workflow.get(True)) or {}
+
+
+def _pull_request_branches(workflow: dict) -> list:
+    """Extract the pull_request branches list."""
+    on = _on_block(workflow)
+    pr = on.get("pull_request") or {}
+    branches = pr.get("branches") or []
+    return list(branches) if isinstance(branches, list) else []
+
+
+def _codeql_concurrency(copy: str) -> dict:
+    block = load_workflow(CODEQL_COPIES[copy]).get("concurrency")
+    assert isinstance(block, dict), (
+        f"{copy} codeql.yml must declare a workflow-level concurrency block (#1759)"
     )
     return block
 
@@ -81,4 +117,58 @@ def test_ci_cancels_superseded_runs(copy: str) -> None:
         f"{cancel!r} — superseded pull_request and workflow_dispatch runs must "
         "be cancelled, while an in-flight push run must survive a newer push "
         "so a deploy gating on its exact-commit CI stays satisfiable"
+    )
+
+
+@pytest.mark.parametrize("copy", sorted(CI_COPIES))
+def test_pr_branches_accept_any_base(copy: str) -> None:
+    """Pull requests to any base branch get CI checks, not just dev/release/**/main (#1759)."""
+    workflow = load_workflow(CI_COPIES[copy])
+    branches = _pull_request_branches(workflow)
+    assert branches == ["**"], (
+        f"{copy} ci.yml: expected pull_request.branches to be ['**'] so "
+        "stacked PRs on topic branches are verified; got {branches!r} (#1759)"
+    )
+
+
+@pytest.mark.parametrize("copy", sorted(CI_COPIES))
+def test_codeql_pr_branches_accept_any_base(copy: str) -> None:
+    """CodeQL should run on pull requests to any base branch (#1759)."""
+    workflow = load_workflow(CODEQL_COPIES[copy])
+    branches = _pull_request_branches(workflow)
+    assert branches == ["**"], (
+        f"{copy} codeql.yml: expected pull_request.branches to be ['**'] so "
+        "stacked PRs on topic branches get security analysis; got {branches!r} (#1759)"
+    )
+
+
+@pytest.mark.parametrize("copy", sorted(CODEQL_COPIES))
+def test_codeql_has_concurrency_block(copy: str) -> None:
+    """CodeQL must have a concurrency block to cancel superseded analyses (#1759)."""
+    # This will assert if the block is missing
+    _codeql_concurrency(copy)
+
+
+@pytest.mark.parametrize("copy", sorted(CODEQL_COPIES))
+def test_codeql_groups_concurrency_per_ref(copy: str) -> None:
+    """CodeQL concurrency group is per-workflow and per-ref (#1759)."""
+    group = _codeql_concurrency(copy).get("group", "")
+    assert "${{ github.ref }}" in group, (
+        f"{copy}: the CodeQL concurrency group must be per-ref so distinct refs "
+        "(other PRs, dispatches on other branches) stay independent"
+    )
+    assert group == CODEQL_GROUP, (
+        f"{copy}: expected group {CODEQL_GROUP!r}, got {group!r}"
+    )
+
+
+@pytest.mark.parametrize("copy", sorted(CODEQL_COPIES))
+def test_codeql_cancels_superseded_runs(copy: str) -> None:
+    """A newer CodeQL run on the same ref cancels the superseded one — except on push (#1759)."""
+    cancel = _codeql_concurrency(copy).get("cancel-in-progress")
+    assert cancel == CANCEL_IN_PROGRESS, (
+        f"{copy}: expected cancel-in-progress {CANCEL_IN_PROGRESS!r}, got "
+        f"{cancel!r} — superseded pull_request and workflow_dispatch runs must "
+        "be cancelled, while an in-flight push run must survive a newer push "
+        "so post-merge analysis can report to the security tab"
     )
