@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-09-28T21:17:18Z
-updated: 2026-09-28T21:17:18Z
+updated: 2026-09-29T15:32:20Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1754
-comments: 0
+comments: 3
 labels: feature
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-29T08:16:52.884Z
+synced: 2026-09-30T08:17:49.215Z
 ---
 
 # [Issue 1754]: [[FEATURE] Data release lane: CalVer data artefacts on their own tag namespace, with an integrity contract and a mirror-target seam (GH Releases / HF / OCI / DOI)](https://github.com/vig-os/devkit/issues/1754)
@@ -67,6 +67,7 @@ The data lane is **opt-in** (unlike `DEVKIT_FEATURES_DISABLED`, which opts *out*
 | `DEVKIT_DATA_RELEASE` | `false` | Enables the lane; scaffolds the workflows. |
 | `DEVKIT_DATA_TAG_PREFIX` | `data-` | Second tag namespace, independent of `DEVKIT_TAG_PREFIX`. |
 | `DEVKIT_DATA_VERSION_SOURCE` | — | `<path>#<json-pointer>`, e.g. `data/catalog.json#/data_version`. The file shape stays consumer-owned; the devkit only knows how to read one scalar out of it. |
+| `DEVKIT_DATA_PACKAGE_FORMAT` | `archive+manifest` | Wire package provider (§4). `bagit`, `oci-native`, `frictionless`, or `custom` for a self-sealing consumer format. |
 | `DEVKIT_DATA_VERSION_FORMAT` | `calver` | `calver` (`YYYY.MM.MICRO`), `semver`, or `date` (`YYYYMMDD`). Validated; the tag-discovery pattern is **derived** from it, never hard-coded. |
 
 Scaffold-time realisation, same as `DEVKIT_WORKFLOW`/`DEVKIT_LANGUAGES` — no runtime branching on absent config.
@@ -81,6 +82,7 @@ Scaffold-time realisation, same as `DEVKIT_WORKFLOW`/`DEVKIT_LANGUAGES` — no r
 4. **`attest`** — manifest + signature (§4).
 5. **`publish`** — draft-first upload into the pre-publish window (§3).
 6. **`mirror`** → `release-data-mirror.yml` (consumer-owned, §6).
+7. **`landed`** — run each enabled target's landing probe with the authority a consumer would have (§7). A target that published but did not land fails the lane and says which one.
 
 #### 3. One-operation tagging: `auto-tag-data.yml`
 
@@ -95,13 +97,31 @@ Four properties, each one a paid-for lesson from [exoma-ch/nucl-parquet#350](htt
 
 `concurrency: cancel-in-progress: false` — cancelling a run that has already pushed the tag abandons it before the confirmation step, reintroducing the same unwatched half-state by another route.
 
-#### 4. Integrity: a shipped composite action, not a copied script
+#### 4. Integrity: a **pluggable wire package**, plus a shipped composite action
 
-`.github/actions/data-manifest` + `data-sign`, with the contract, not the payload, fixed:
+The devkit fixes the *contract*, never the package format. A **wire package provider** is declared by `DEVKIT_DATA_PACKAGE_FORMAT` and supplies four operations the lane calls:
 
-- **Manifest**: per-file path → digest, plus release-level fields (version, tag, archive digest, file count). Two hard gates: a **floor** (refuse to sign a manifest listing implausibly few files — an empty manifest signs and publishes perfectly happily while asserting nothing), and **set equality** between the archive's members and the manifest's keys. The archive and the manifest are built by different tools over different exclusion rules; asserting that they agree — rather than trusting it — is what stops a file shipping without a manifest entry.
-- **Signature**: over the archive *and* the manifest, with the version+tag+digest bound into the signed trusted comment, so the signature attests to *which release* these bytes are and a valid signature cannot be replayed onto a different one. Key material written to `RUNNER_TEMP` under `umask 077` with a `shred` trap — never into the workspace, where a release-asset glob could sweep it up. Verified against the **committed** public key before upload.
-- **Signing backend is a choice, not a baked-in tool** — see the spike matrix below. Default to GitHub artifact attestations (zero ceremony, already in the ceiling); `minisign` / `cosign` opt-in for consumers that must be verifiable offline.
+| Op | In | Out | Why the lane needs it |
+| --- | --- | --- | --- |
+| `pack` | payload + version | artefact file(s) | build the thing that ships |
+| `members` | artefact | `path → digest` map | feeds the set-equality gate and lets a *partial* transfer be verified |
+| `root-digest` | artefact | one digest that transitively commits to every member | what gets signed, attested and pinned |
+| `verify` | artefact (+ trust material) | exit 0/1 | what a **consumer** runs, offline |
+
+Each provider also declares what it already does, so the lane skips what it must not duplicate:
+
+```
+provides: members, root_digest, offline_verify, signature
+```
+
+Two rules follow, and they are the whole point of the abstraction:
+
+- **The lane signs the root digest; it never re-derives integrity a format already provides.** Wrapping a self-sealing container in a second, weaker manifest is a downgrade dressed as diligence.
+- **If a format supplies `signature`, the lane verifies it and stops.** It does not add a second signature under a different key — "which signature is authoritative?" must never be a live question at the point of consumption.
+
+Where the lane *does* build the manifest (the `provides` set is missing `members`), two hard gates apply: a **file-count floor** (an empty manifest signs and publishes perfectly happily while asserting nothing) and **set equality** between the archive's members and the manifest's keys, printed both ways on failure. Archive and manifest are built by different tools over different exclusion rules; asserting that they agree — rather than trusting it — is what stops a file shipping without a manifest entry.
+
+Signing, where the lane does it: key material to `RUNNER_TEMP` under `umask 077` with a `shred` trap, never into the workspace where a release-asset glob could sweep it up; version+tag+digest bound into the signed comment so a signature cannot be replayed onto a different release; verified against the **committed** public key before upload.
 
 #### 5. `reconcile-data-release.yml` — assert the invariant, not the mechanism
 
@@ -118,7 +138,139 @@ Standalone, consumer-owned, preserved on upgrade, no-op default. Two invariants 
 
 Docs must also state the retirement path: to retire a mirror, drop the job *and* the consumer-facing URLs that point at it together, so nobody is left pointed at something nobody updates.
 
-#### 7. Docs
+#### 7. Landing verification: did the release actually arrive, at every target?
+
+Publishing is not landing. A mirror push can return 200 and leave the target serving the previous version; an asset can upload and be unreadable; a DOI can mint against the wrong files. So each enabled target declares a **landing probe** the lane runs *after* publish, and the reconcile lane (§5) re-runs on schedule.
+
+This is not new machinery — it is [`docs/CROSS_REPO_RELEASE_GATE.md`](https://github.com/vig-os/devkit/blob/main/docs/CROSS_REPO_RELEASE_GATE.md) applied to a second artefact class. That contract already exists to *"validate release artifacts **outside the release repository execution context**"* and to *"keep release orchestration and validation responsibilities separated"*, over a `repository_dispatch` payload. The data lane reuses it — `client_payload[tag]` plus the target set — rather than inventing a parallel one.
+
+**The probe runs with the least authority a real consumer would have — and for a public target that means none.**
+
+This is the part worth arguing for explicitly, because the instinct is the opposite. Verifying a public artefact with a privileged token exercises a code path **no consumer will ever take**: it can succeed against an object the public cannot read, against a repo whose visibility flipped, against a registry whose anonymous-pull policy changed. The probe's whole job is to answer *"can a consumer get this?"*, so it must ask the question the way a consumer asks it.
+
+| Target | Probe | Credential |
+| --- | --- | --- |
+| GitHub Release | asset set complete, sizes non-zero, `root-digest` matches the signed comment, **signature verifies against the committed public key** | none — unauthenticated `https://github.com/.../releases/download/...` on a public repo; `contents: read` only if private |
+| HF dataset | revision resolves, `root-digest` matches, generated card's licence block equals the repo's licence record | none if public; read-scoped `HF_TOKEN` if gated |
+| OCI / ghcr | `oras manifest fetch` by **tag**, digest equals the published `root-digest` | none if public; read token if private |
+| Zenodo/DOI | DOI resolves, record files' checksums match | none — published records are public |
+
+So the answer to *"does each target need a GitHub App?"* is **mostly no, and deliberately so**:
+
+- **Write paths already have one, and should not get another.** Devkit already mandates two ([DOWNSTREAM_RELEASE.md § Required App Secrets](https://github.com/vig-os/devkit/blob/main/docs/DOWNSTREAM_RELEASE.md#required-app-secrets)): `COMMIT_APP_*` for protected-ref writes, `RELEASE_APP_*` for release orchestration — with `github.token` explicitly not a fallback. The data lane's tag push (§3) **reuses the Commit App**; it does not mint a third. nucl-parquet reached the same conclusion independently in [#350](https://github.com/exoma-ch/nucl-parquet/pull/350) (reuse the existing release App rather than keep a bespoke PAT alive — the PAT expiring is what caused [#344](https://github.com/exoma-ch/nucl-parquet/issues/344)).
+- **Read/verify paths should have less authority, not more.** A new read-scoped App per target is a credential to rotate, an installation to keep current, and a way for the probe to pass while consumers are locked out.
+- **The one place an App is genuinely right** is an *independent observer*: a reconcile job that must `issues: write` to file the tracking signal, or that watches from a different repository (the cross-repo gate shape). And even there, check the scope rather than reaching by reflex — nucl-parquet's App installation carries `{contents, metadata, pull_requests}` and **no `issues` scope**, so its reconcile lane deliberately runs on `GITHUB_TOKEN`. The rule to write into the docs is **"confirm the credential actually holds the permission you need"**, not "use the App token".
+
+Running post-publish tests (not just presence probes) against the landed artefact is the same seam: the probe target may be a consumer repo's own CI, dispatched exactly as the cross-repo gate already dispatches, which is how you get "the clients still work against the bytes we just shipped" rather than "the bytes exist".
+
+#### 8. Confirmation at scale — what changes when the artefact is big
+
+Three failure modes appear at size that simply do not exist for a 5 MB asset:
+
+1. **A partial upload that reports success.** The API call returns 200, the asset row exists, the bytes are truncated.
+2. **Confirmation itself becomes expensive.** "Download it and hash it" × N targets × every release is minutes of CI and gigabytes of egress per release. **Confirmation must be O(1) in artefact size**, or it will be quietly disabled the first time it makes a release slow.
+3. **Past the per-asset ceiling you ship a *set*** — and a set of individually valid parts can still be the *wrong* set.
+
+**Every target already computes a digest server-side. Read it; do not re-download.**
+
+| Target | Server-side confirmation | Cost |
+| --- | --- | --- |
+| GitHub Releases | `.assets[].state == "uploaded"` **and** `.assets[].digest == "sha256:<hex>"` — computed by GitHub at upload, immutable, [GA 2025-06-03](https://github.blog/changelog/2025-06-03-releases-now-expose-digests-for-release-assets/). `null` on pre-GA assets, so treat null as "unknown", never as "fine" | 1 API call |
+| HF dataset | `repo_info(..., files_metadata=True)` → per-file size + LFS `sha256`; the Xet CAS verifies xorb integrity on ingest. **Only valid for a handful of files** — at file-count scale this does not hold; see "Two regimes" below | 1 API call (few-large only) |
+| OCI / ghcr | **Intrinsic — the registry rejects a blob whose content does not match its digest.** A successful push *is* the confirmation; `oras manifest fetch --descriptor <repo>:<tag>` resolves tag → manifest digest to confirm what the tag now points at | 1 API call |
+| Zenodo | record files' `checksum` (`md5:<hex>`; Zenodo stores two independent MD5s, one to detect out-of-band modification) | 1 API call |
+
+**The confirmation is a three-way agreement, and it is free:**
+
+```
+digest bound into the signature  ==  digest the target computed  ==  digest computed at pack time
+```
+
+Verified live against `data-2026.8.5` while writing this section:
+
+- minisign trusted comment (covered by the signature): `sha256=938d46e4cef3fa9ec98eb3c4d2a42b5bf36054cd654f843997dc2f81e634647d`
+- GitHub REST `.assets[].digest`: `sha256:938d46e4cef3fa9ec98eb3c4d2a42b5bf36054cd654f843997dc2f81e634647d`
+- `.assets[].state`: `uploaded`, `.assets[].size`: `1014354062`
+
+**967 MiB artefact; the whole confirmation cost one API call and a 378-byte signature fetch.** Note which direction the strength runs: GitHub's digest is a **third-party computation over the bytes the target actually holds**. Agreeing with the signed digest says *the bytes the target is serving are the bytes we signed* — strictly stronger than "our hash of our own file matched", which is what a naive re-download-and-hash probe actually tests.
+
+This is also why §4's rule matters: bind the digest **into the signature** (trusted comment or equivalent), not merely alongside it. A digest in a sidecar file confirms nothing against an attacker who can replace the artefact, because they can replace the sidecar too.
+
+**Cheap evidence about the *served* bytes.** The digest describes the stored object; consumers get a CDN in front of it. Range requests work on release downloads — verified: `accept-ranges: bytes`, `HTTP 206`, `content-range: bytes 0-63/1014354062`, served from Azure Blob — so a probe can confirm, for kilobytes: total size (from `content-range`), format magic (`28 b5 2f fd` = zstd), and a random middle chunk against the per-file manifest. **This is the second place the per-file manifest earns its keep** ([exoma-ch/nucl-parquet#296](https://github.com/exoma-ch/nucl-parquet/issues/296)) — partial verification is only meaningful if you have per-file digests to check it against.
+
+**Sharding: confirmation becomes a set property.** Past the 2 GiB per-asset ceiling the artefact ships as parts, and "every part is valid" is no longer sufficient:
+
+- every part present, each with `state: uploaded`,
+- every part's digest matching its manifest entry,
+- **and a `root-digest` over the ordered set** — a Merkle root, or a digest of the ordered list of part digests.
+
+Without the third, a complete set of individually valid parts drawn from *two different releases* confirms perfectly and reassembles into garbage. That is precisely what §4's `root-digest` op exists for, and why a provider that already has one (tessera's MMR `content_hash`) needs nothing added.
+
+##### Two regimes, and they invert several answers
+
+Everything above assumes the **few-large** regime (nucl-parquet: four assets, one of them 967 MiB). The **many-small** regime — [morepet/mat-vis](https://github.com/morepet/mat-vis), ~3000 PBR materials × channels × tiers ≈ **28k LFS files** per release — inverts the target choice, the atomicity story, and the confirmation mechanism. The lane must know which regime it is in, because advice correct in one is wrong in the other.
+
+| | **Few-large** (nucl-parquet) | **Many-small** (mat-vis) |
+| --- | --- | --- |
+| Shape | 4 assets, 967 MiB tarball | ~28k files, KB–MB each |
+| Canonical target | **GitHub Releases** | **HF Datasets** — GH Releases is *wrong* here |
+| Why | 2 GiB/asset ceiling is the only constraint | GH Releases has **no atomic multi-file commit** |
+| Binding constraint | asset size | per-directory count, commit rate, tree pagination |
+| Confirmation | O(1) digest read | **O(commits), not O(files)** — see below |
+| Atomicity unit | one asset | one commit (a *batch*, not the release) |
+
+**GitHub Releases is disqualified for many-small on atomicity, not size.** mat-vis's [ADR-0007](https://github.com/morepet/mat-vis/blob/main/docs/decisions/0007-substrate-move-to-hf-datasets-and-tar-container.md) attributes two bug classes directly to the substrate: dangling rowmap → missing parquet (#79, non-atomic multi-file upload) and index files written at **15 of 1965 entries** (#99, clobber-rather-than-merge across batches). A release made of N independently uploaded objects has N chances to be half-published, and the digest-per-asset confirmation from §8 does not catch a *missing* asset nobody listed.
+
+**HF's real limits are not the documented ones.** mat-vis probed them ([`scripts/probe-hf-per-file-limits.py`](https://github.com/morepet/mat-vis/blob/main/scripts/probe-hf-per-file-limits.py), 2026-04-21):
+
+| Files in one commit | Wall-clock | Outcome |
+| ---: | :--- | :--- |
+| 100 | 3.8 s | ✅ |
+| 1,000 | 9.7 s | ✅ |
+| 5,000 | 38 s | ✅ |
+| 10,000 | 88 s | ✅ |
+| 25,000 | 193 s | ❌ `too many files per directory` |
+
+The docs say 25,000 LFS files / 1 GB per commit and suggest 50–100 files per commit to stay inside the 60 s HTTP timeout. **The limit that actually binds is 10,000 files per _directory_** — a different axis from the one documented, findable only by probing. Two further hard ceilings, both measured in production:
+
+- **Commits: 128 per hour, per repo.** A matrix of 3 parallel sources × ~20 batch-commits each saturates it inside one rolling hour and dies on `429 … exceeded the rate limit for repository commits (128 per hour)` ([mat-vis#225](https://github.com/morepet/mat-vis/issues/225)). It is a **global per-repo counter**, so per-job `concurrency` groups do not protect it — parallel writers each see headroom and collectively blow the cap.
+- **API requests: 1000 per 300 s** rolling.
+
+**Confirmation must not enumerate files.** My §8 HF row ("one `repo_info(files_metadata=True)` call") is **wrong in this regime** and I am correcting it. HF's tree API caps at **1000 entries per page**, and with `recursive=true` *directories count as entries* — so at 3000 materials the first page came back as 1000 directories and **zero files**. mat-vis's Python client filtered for `type == file`, got an empty list, and correctly concluded `sources: {}` against a production release that was entirely fine ([mat-vis#238](https://github.com/morepet/mat-vis/issues/238)). The smoke tag (~750 entries) fit under the cap, so the bug was invisible until production scale.
+
+So for many-small, confirmation is **not** a per-file digest sweep. It is:
+
+1. **A committed manifest read directly** (`release-manifest.json` at a pinned revision) — never reconstructed from a tree listing. The three clients that read the manifest passed; only the one that rebuilt from the tree broke.
+2. **Sentinel objects** per unit of work (mat-vis uses `<source>/<tier>/.tier_complete`) — a commit that landed says so explicitly.
+3. **Expected-count assertions**, because the failure mode here is *silent incompleteness*: catalog entry count == materials baked, asserted against the upstream count. "The file exists" is not the question; "are all 1965 of them listed" is.
+4. **An orphan audit.** A crash mid-batch leaves **orphaned LFS blobs with no documented auto-GC on dataset repos** ([mat-vis#190](https://github.com/morepet/mat-vis/issues/190), [#221](https://github.com/morepet/mat-vis/issues/221)), so the lane needs a housekeeping op, and the reconcile lane should report `orphans / total_lfs`.
+
+**Container vs per-file is a real fork, and the answer is empirical.** mat-vis chose a tar container in [ADR-0007](https://github.com/morepet/mat-vis/blob/main/docs/decisions/0007-substrate-move-to-hf-datasets-and-tar-container.md) on 2026-04-19 and **reversed it two days later** in [ADR-0012](https://github.com/morepet/mat-vis/blob/main/docs/decisions/0012-per-file-substrate-drop-tar.md), because a staging bake built a ~70 GB tar that filled a 126 GB disk and wedged mid-write with no durable state. Three things the reversal establishes, which generalise:
+
+- **Peak local disk is O(container), not O(payload).** Per-file batching peaks at O(batch) — the same source went from 70 GB to under 1 GB.
+- **Batch commits are durable checkpoints.** A crash at material 1500/1993 keeps 1450 committed and a tree-listing preflight resumes at 1451. A single container has no partial state — it is resumable by construction or not at all.
+- **A container defeats Xet's deduplication.** Xet's chunk-level CDC dedupes identical channel bytes *across tiers* automatically: the same `color.png` at 128/256/512/1k costs one xorb. Wrapped in per-tier tars it costs four copies. **On HF specifically, containerising is a storage pessimisation** — which is the exact opposite of the intuition that fewer, larger files are kinder to a hub.
+
+This is the strongest argument in the whole spike for §4's provider seam being a *choice with a probe attached* rather than a default: two defensible container decisions, two days apart, same project, reversed by measurement. The lane must ship `just data-release-probe-target` — a throwaway-branch probe of per-commit latency, directory/file ceilings and commit-rate headroom — and the docs must say to run it **before** committing to a layout, not after.
+
+**Upload-side mechanics that only bite at size:**
+
+- `hf upload` streams in several commits and **resumes** — re-running skips already-uploaded files.
+- OCI blob upload is **chunked and resumable** per the distribution spec.
+- **GitHub release asset upload does not resume.** A failed 967 MiB upload restarts from zero. That is a second, independent argument for the draft window (§3 — retry into the draft rather than against a frozen release) and for sizing the job timeout for *N* attempts rather than one.
+- Probes carry their own timeout and retry budget, separate from the upload's, so a slow upload cannot silently consume the confirmation step's runway.
+
+#### 9. Setup: the credentials and the preflight are part of adoption, not of the first release
+
+Everything above is declared config plus credentials, so it belongs in `install.sh` / `init-workspace.sh`, not in a runbook someone reads after the first failure.
+
+- **Scaffold-time refusal, not a warning.** `DEVKIT_DATA_RELEASE=true` with a target declared and its credential absent **fails setup**. Same declared-state rule as the mirror gate (§6), one layer earlier. "Warn and continue" is how [#283](https://github.com/exoma-ch/nucl-parquet/pull/283) shipped two green releases that pushed nothing.
+- **Provisioning is scripted.** Devkit already has the [`gh-app-provision`](https://github.com/vig-os/devkit/tree/main/.claude/skills/gh-app-provision) skill for App creation → `gh secret set` (PEM piped, never logged). Setup extends it to the lane: create/confirm the Commit App installation covers this repo, then set each enabled target's variable + secret pair.
+- **`just data-release-preflight`** — one command that, for every *enabled* target, proves (a) the write credential works, (b) the **probe path works with the authority the probe will actually use**, and (c) the downstream workflow is `active`. Runnable locally at adoption time and run again as the lane's first job, **before any ref moves** — the ordering that turns "a human works out what happened" into "re-run the job" ([#350](https://github.com/exoma-ch/nucl-parquet/pull/350)).
+- **The signing key ceremony is setup, not release.** Whichever backend a consumer picks, key generation, the committed public key, and the rotation runbook are adoption-time artefacts with a scaffolded doc stub — because the first release is the worst possible moment to discover that the committed public key and the secret have diverged.
+
+#### 10. Docs
+
 
 New `docs/DATA_RELEASE.md` (SSoT), linked from `docs/RELEASE_CYCLE.md` and `docs/DOWNSTREAM_RELEASE.md`. Spike writeup under `docs/spikes/<issue>-data-release-targets/` per the [`1206-workflow-model`](https://github.com/vig-os/devkit/tree/main/docs/spikes/1206-workflow-model) convention.
 
@@ -142,15 +294,24 @@ Sizing anchor — nucl-parquet's published data assets: **617 MB** (`data-2026.7
 
 #### Integrity and metadata tooling
 
-**Manifest format** — three real options, to be decided in the spike rather than pre-committed here:
+**Wire package format** — pluggable, five providers, of which the devkit ships the first two:
 
-| Option | For | Against |
-| --- | --- | --- |
-| Bespoke `manifest.json` (nucl-parquet today) | Exactly the fields the lane needs; trivial to generate and verify | One more private format for consumers to learn; no tooling ecosystem |
-| **BagIt — [RFC 8493](https://www.rfc-editor.org/rfc/rfc8493.html)** | IETF standard; payload manifest of per-file checksums is *precisely* this use case; in-place upgrade to stronger hash algorithms without breaking compatibility; digital-preservation tooling exists; ORAS dataset prior art already uses `application/bagit-1.0` | It is a *directory layout*, so the serialized-bag-in-a-tarball shape needs a written convention |
-| Frictionless `datapackage.json` | Good schema story for tabular resources | Oriented at tabular schemas, not arbitrary binary payloads or fixity; poor fit |
+| Provider | `provides` | For | Against | Status |
+| --- | --- | --- | --- | --- |
+| **`archive+manifest`** (nucl-parquet's shape) | — | Trivial to generate and verify; exactly the fields the lane needs | One more private format; no tooling ecosystem | **Ship — default.** The zero-assumption fallback. |
+| **`bagit`** — [RFC 8493](https://www.rfc-editor.org/rfc/rfc8493.html) | `members` | IETF standard; payload manifest of per-file checksums is *precisely* this use case; in-place upgrade to stronger hash algorithms without breaking compatibility; digital-preservation tooling; ORAS dataset prior art already uses `application/bagit-1.0` | It is a *directory layout*, so serialized-bag-in-a-tarball needs a written convention | **Ship — recommended** for archival/air-gapped payloads. |
+| **`self-sealing`** (consumer-provided) | `members`, `root_digest`, `offline_verify`, `signature` | The package already carries a transitive seal and its own verifier — the lane only orchestrates | Consumer must implement the four ops | **Seam.** See below. |
+| **`oci-native`** | `members`, `root_digest` | When the target is a registry the **OCI image manifest *is* the descriptor list** — `members` = layer descriptors, `root-digest` = manifest digest. No sidecar, sharding native | Only meaningful for the registry target | **Ship as a target-coupled mode.** |
+| `frictionless` (`datapackage.json`) | `members` | Good schema story for tabular resources | Oriented at tabular schemas, not arbitrary binary payloads or fixity | Opt-in; poor general fit. |
 
-Leaning **BagIt for the on-the-wire package** plus a small release-level JSON sidecar for the fields the train itself reads (version, tag, archive digest) — standards-aligned without contorting the manifest into carrying release metadata.
+**The `self-sealing` case is not hypothetical — [vig-os/tessera](https://github.com/vig-os/tessera) is it.** A `.tsra` is an immutable, content-addressed FAIR data product with blake3 hash-on-write, a Merkle-Mountain-Range `content_hash`, and a `manifest_hash` seal that *transitively commits to every block digest plus all metadata*. It signs a JCS-canonical envelope binding `{alg, key_id, manifest_hash, signer, signed_at, key_format}` ([ADR-0037](https://github.com/vig-os/tessera/blob/dev/docs/adr/0037-signing-trust-model.md)), verifies offline with `tessera verify-sig`, and already distributes to the same targets this spike picked: `tessera push`/`pull` carry the signature as a second OCI layer (`application/vnd.tessera.signature.v1+json`), and `tessera publish` deposits into InvenioRDM/Zenodo with a DOI.
+
+Two things that makes obvious:
+
+1. **Wrapping a `.tsra` in a BagIt bag would be actively wrong** — a flat, non-transitive payload manifest laid over a Merkle seal, and a second signature competing with one whose entire design goal is decade-scale offline verification. Any design that hard-codes one package format produces exactly that.
+2. **Tessera arrived independently at GitHub Releases + OCI + DOI.** Two unrelated projects converging on the same target set is the strongest evidence in this spike that the target tiers are right — and that the devkit's contribution is orchestration, not format.
+
+Tessera is pre-1.0 with an unfrozen on-disk format and a held first release, so it is a **design constraint today and an adopter later**: the provider seam must exist at v1 of the lane so tessera can plug in without the lane changing.
 
 **Signature backend:**
 
@@ -168,7 +329,9 @@ Leaning **BagIt for the on-the-wire package** plus a small release-level JSON si
 - **(B) Fold data publishing into [#1746](https://github.com/vig-os/devkit/issues/1746)'s `publish-release-extension.yml`.** Rejected. That seam fires on `release: published` of a **code** release. A data refresh is not a code release and must not require one. The two issues should share §2 (the draft asset window) and nothing else.
 - **(C) Ship an opinionated data-release *tool*** (tarball layout + HF sync + DOI minting baked in). Rejected on smallest-denominator grounds ([#1519](https://github.com/vig-os/devkit/issues/1519)). The archive layout, catalog shape, shard naming and licence records are irreducibly per-project. The devkit ships the state machine, the integrity gates and the seam.
 - **(D) Leave it to each repo.** Rejected — this is the "third adopter rediscovers it" cut. nucl-parquet needed six issues to get the state machine right ([#289](https://github.com/exoma-ch/nucl-parquet/issues/289), [#296](https://github.com/exoma-ch/nucl-parquet/issues/296), [#283](https://github.com/exoma-ch/nucl-parquet/pull/283), [#344](https://github.com/exoma-ch/nucl-parquet/issues/344), [#350](https://github.com/exoma-ch/nucl-parquet/pull/350), [#364](https://github.com/exoma-ch/nucl-parquet/issues/364)) — two of them production incidents where a published version was undownloadable. Candidate next adopters in the orgs: `exoma-ch/talys` (Parquet output), `exoma-ch/theranostics-landscape`, `vig-os/tessera` (FAIR data products — the DOI/Croissant row is squarely for it).
-- **(E) Use `git-lfs` and skip the whole lane.** Rejected on economics — see the spike table. Metered per-clone bandwidth makes the publisher's cost a function of consumer popularity, and LFS storage is append-only across history.
+- **(E) Fix one wire package format (just ship BagIt).** Rejected. `vig-os/tessera`'s `.tsra` already carries a Merkle-sealed, self-verifying, independently-signed package; laying a flat BagIt manifest and a second signature over it is a downgrade. The lane must consume a format's own integrity when it has one — hence the provider contract in §4.
+- **(F) Give every target its own read-scoped GitHub App.** Rejected as the default. A privileged probe verifies a path no consumer takes, and each App is another installation to keep current and another key to rotate. The probe uses the least authority a consumer would have — none, for a public target. An App stays right for exactly one role: an independent observer that must `issues: write` or watch from another repository (§7).
+- **(G) Use `git-lfs` and skip the whole lane.** Rejected on economics — see the spike table. Metered per-clone bandwidth makes the publisher's cost a function of consumer popularity, and LFS storage is append-only across history.
 
 ### Acceptance Criteria
 
@@ -186,7 +349,22 @@ Leaning **BagIt for the on-the-wire package** plus a small release-level JSON si
 - [ ] Signing hard-fails when the configured backend's credentials are absent — an unsigned data release is impossible, not merely unusual — and verifies against the committed public key before upload.
 - [ ] `reconcile-data-release.yml` opens **and** updates **and** closes a single label-deduped tracking issue, files it under `if: always()` even when an earlier step failed, and goes red second.
 - [ ] `release-data-mirror.yml` ships as a preserved no-op seed; the declared-state gate is tested for all three states (unset → skipped, set without token → **failed**, set with token → runs).
-- [ ] `docs/DATA_RELEASE.md` exists as SSoT, linked from `RELEASE_CYCLE.md` and `DOWNSTREAM_RELEASE.md`, and carries: the target matrix with its verdicts, the HF + OCI + Zenodo recipes, the signing-backend decision table, the mirror retirement path, and the Zenodo "archives the source tree, not your assets" caveat.
+- [ ] `DEVKIT_DATA_PACKAGE_FORMAT` selects the wire package provider; `archive+manifest` and `bagit` ship, and a `custom` provider supplying all four ops (`pack`/`members`/`root-digest`/`verify`) runs the lane end to end **without the lane building a manifest or adding a second signature**. A test asserts that a provider declaring `provides: signature` is verified, not re-signed.
+- [ ] The lane detects or declares its **regime** (few-large vs many-small) and the docs give the inverted target/confirmation advice for each.
+- [ ] Many-small confirmation reads a **committed manifest at a pinned revision** plus sentinels and expected-count assertions — never a tree listing. A test reproduces the >1000-entry tree pagination trap and proves the probe survives it.
+- [ ] The lane paces commits against a **global per-repo** budget (HF: 128/hour), not per-job concurrency, and backs off on 429 using `Retry-After`.
+- [ ] An orphan-audit op exists and the reconcile lane reports `orphans / total_lfs`.
+- [ ] `just data-release-probe-target` measures per-commit latency, directory/file ceilings and commit-rate headroom on a throwaway branch; docs require running it before fixing a layout.
+- [ ] Confirmation is **O(1) in artefact size**: each target's probe reads the server-computed digest/state rather than re-downloading the artefact. A test asserts no probe downloads the full artefact.
+- [ ] The probe asserts three-way agreement — signed digest == target-reported digest == pack-time digest — and treats a `null`/absent server digest as **unknown**, never as pass.
+- [ ] For a sharded artefact, the probe additionally asserts the `root-digest` over the ordered part set; a test proves that a complete set of individually valid parts taken from two different releases **fails**.
+- [ ] The GitHub-target upload path retries into the **draft** (asset upload is not resumable), and the job timeout is sized for repeated attempts.
+- [ ] Each enabled target has a landing probe that runs after publish and again on the reconcile schedule; a target that published but did not land fails the lane and names itself.
+- [ ] Landing probes for **public** targets run **unauthenticated**, and a test asserts no probe is handed a write-scoped credential.
+- [ ] The data lane's tag push reuses the existing `COMMIT_APP` credential — no third App is introduced.
+- [ ] `just data-release-preflight` validates every enabled target's write credential, its probe path under the probe's own authority, and the downstream workflow's `active` state; the lane runs it as its first job, before any ref moves.
+- [ ] Setup **fails** when `DEVKIT_DATA_RELEASE=true` declares a target whose credential is absent — never warns and continues.
+- [ ] `docs/DATA_RELEASE.md` exists as SSoT, linked from `RELEASE_CYCLE.md` and `DOWNSTREAM_RELEASE.md`, and carries: the target matrix with its verdicts, the HF + OCI + Zenodo recipes, the signing-backend decision table, the mirror retirement path, the credential/probe-authority rule, the key-rotation runbook stub, and the Zenodo "archives the source tree, not your assets" caveat.
 - [ ] `docs/spikes/<issue>-data-release-targets/` records the target/tooling evaluation and the manifest-format decision.
 - [ ] `exoma-ch/nucl-parquet` can adopt the devkit and retire all three of its hand-written data workflows, keeping its CalVer namespace, its minisign key, its manifest gate and its HF mirror — with no bespoke workarounds. **This is the acceptance test for the whole cut.**
 - [ ] No existing consumer (`h5v`, `scitadel`, `devkit` itself) changes behaviour.
@@ -222,7 +400,7 @@ Leaning **BagIt for the on-the-wire package** plus a small release-level JSON si
 
 ### Impact
 
-- **Beneficiaries:** any devkit consumer that publishes a dataset alongside (or instead of) code. Immediate: `exoma-ch/nucl-parquet` (blocked from adopting today — its data lane is the reason), `vig-os/tessera` (FAIR data products; the DOI + Croissant rows exist for it), `exoma-ch/talys` and `exoma-ch/theranostics-landscape` (Parquet outputs, no release lane yet).
+- **Beneficiaries:** any devkit consumer that publishes a dataset alongside (or instead of) code. Immediate: `exoma-ch/nucl-parquet` (blocked from adopting today — its data lane is the reason), `vig-os/tessera` (FAIR data products — and the reference `self-sealing` package provider; pre-1.0 today, so it is a **design constraint now, adopter later**), `exoma-ch/talys` and `exoma-ch/theranostics-landscape` (Parquet outputs, no release lane yet).
 - **Compatibility:** purely additive. The lane is opt-in via `DEVKIT_DATA_RELEASE`, defaults off, and scaffolds nothing when off. No change to the code train's version model, tag namespace, concurrency group or promote gate. Every existing consumer is byte-identical.
 - **Coupling to [#1746](https://github.com/vig-os/devkit/issues/1746):** this issue depends on #1746's §2 (draft-Release-first + the named pre-publish assets window) and should land after it, or share that section. It does **not** depend on #1746's §1 (pre-release format) or §3 (`publish-release-extension.yml`).
 - **Sequencing suggestion:** cut §§1–4 (keys, lane, one-operation tagging, integrity) as the MVP; §§5–6 (reconciliation, mirror recipes) as a fast follow-up; the Zenodo/DOI recipe last, since it is the only target with no adopter blocked on it today.
@@ -230,4 +408,144 @@ Leaning **BagIt for the on-the-wire package** plus a small release-level JSON si
 ### Changelog Category
 
 Added
+
+---
+
+# [Comment #1]() by [gerchowl]()
+
+_Posted on September 29, 2026 at 12:25 PM_
+
+**Amended** — three changes to the body, recorded here so anyone who read the first version sees the delta.
+
+### 1. The wire package is pluggable; BagIt is one provider, not *the* format (§4, and the spike table)
+
+The first draft leaned toward "ship BagIt". That was wrong, and [vig-os/tessera](https://github.com/vig-os/tessera) is why. A `.tsra` is already an immutable, content-addressed data product with blake3 hash-on-write, a Merkle-Mountain-Range `content_hash`, and a `manifest_hash` seal transitively committing to every block digest plus all metadata — with its own signed JCS-canonical envelope ([ADR-0037](https://github.com/vig-os/tessera/blob/dev/docs/adr/0037-signing-trust-model.md)), its own offline verifier, and its own OCI and DOI distribution paths. Wrapping that in a BagIt bag lays a flat, non-transitive manifest over a Merkle seal and puts a second signature next to one designed for decade-scale offline verification. That is a downgrade dressed as diligence.
+
+So §4 is now a **provider contract** — `pack` / `members` / `root-digest` / `verify`, plus a `provides:` declaration — with two rules: the lane signs the root digest and never re-derives integrity a format already supplies, and if a provider declares `signature`, the lane **verifies it and stops** rather than adding a competing one. Five providers listed; the devkit ships `archive+manifest` (default) and `bagit` (recommended for archival/air-gapped), with `oci-native`, `frictionless` and consumer-supplied `self-sealing` as the rest.
+
+Worth noting independently: tessera converged on **GitHub Releases + OCI + DOI** without reference to this spike. Two unrelated projects picking the same target set is the best evidence here that the tiers are right and that the devkit's contribution is orchestration, not format.
+
+Tessera is pre-1.0 with an unfrozen on-disk format, so it is a **design constraint today and an adopter later** — the seam has to exist at v1 of the lane so it can plug in without the lane changing.
+
+### 2. "Did it land?" is a first-class job — and mostly needs *less* authority, not a GitHub App (§7)
+
+Publishing is not landing: a mirror push can 200 and still serve the previous version. Each enabled target now declares a **landing probe** that runs after publish and again on the reconcile schedule.
+
+This is not new machinery. [`docs/CROSS_REPO_RELEASE_GATE.md`](https://github.com/vig-os/devkit/blob/main/docs/CROSS_REPO_RELEASE_GATE.md) already exists to *"validate release artifacts outside the release repository execution context"* and *"keep release orchestration and validation responsibilities separated"* — the data lane reuses that `repository_dispatch` contract instead of inventing a parallel one. Dispatching a consumer's own CI against the landed bytes is the same seam, which is how you get "the clients still work" rather than "the bytes exist".
+
+On whether each target needs its own App: **mostly no, deliberately.**
+
+- **Write paths already have one.** Devkit mandates `COMMIT_APP_*` + `RELEASE_APP_*` with `github.token` explicitly not a fallback. The lane's tag push **reuses the Commit App** — no third credential. [exoma-ch/nucl-parquet#350](https://github.com/exoma-ch/nucl-parquet/pull/350) reached the same conclusion after a bespoke PAT expired mid-release ([#344](https://github.com/exoma-ch/nucl-parquet/issues/344)).
+- **Probes should have less authority, not more.** Verifying a *public* artefact with a privileged token exercises a path no consumer will ever take — it passes against an object the public cannot read, a repo whose visibility flipped, a registry whose anonymous-pull policy changed. The probe's job is "can a consumer get this?", so it asks the way a consumer asks: unauthenticated, for every public target. A read secret appears only where the target is genuinely private.
+- **One role where an App is right:** an independent observer that must `issues: write`, or that watches from another repo. Even there, check the scope rather than reaching by reflex — nucl-parquet's App installation has no `issues` scope, which is exactly why its reconcile lane runs on `GITHUB_TOKEN`. The documented rule is *confirm the credential actually holds the permission*, not *use the App token*.
+
+### 3. Credentials and preflight are part of **setup**, not of the first release (§8)
+
+- Scaffold-time **refusal**, not a warning: `DEVKIT_DATA_RELEASE=true` with a declared target and no credential fails setup. "Warn and continue" is how [#283](https://github.com/exoma-ch/nucl-parquet/pull/283) shipped two green releases that pushed nothing.
+- Provisioning is scripted via the existing [`gh-app-provision`](https://github.com/vig-os/devkit/tree/main/.claude/skills/gh-app-provision) skill, extended to set each enabled target's variable + secret pair.
+- `just data-release-preflight` proves, per enabled target: the write credential works, the probe path works **under the probe's own authority**, and the downstream workflow is `active`. Run at adoption, and again as the lane's first job **before any ref moves**.
+- The signing-key ceremony (generation, committed public key, rotation runbook) is an adoption-time artefact with a scaffolded doc stub — the first release is the worst moment to discover the committed key and the secret have diverged.
+
+Acceptance criteria extended accordingly, including a test that a provider declaring `provides: signature` is verified rather than re-signed, and a test that no probe is handed a write-scoped credential.
+
+---
+
+Also filed [exoma-ch/nucl-parquet#429](https://github.com/exoma-ch/nucl-parquet/issues/429) — its data lane uploads assets onto an already-published release, so enabling immutable releases 422s every data release *after* the suite has run, the tarball is built and the signing key has been used. The fix there (draft → upload → assert asset set → undraft) is this issue's §3 contract, so that repo moves onto the target shape rather than away from it. That issue also records the adoption position: revisit once this lane has actually shipped and been through a cycle in a consumer repo — until then nucl-parquet stays the reference implementation, and anything the lane cannot express is a gap to report here.
+
+
+---
+
+# [Comment #2]() by [gerchowl]()
+
+_Posted on September 29, 2026 at 03:13 PM_
+
+**Amended again — §8, "Confirmation at scale".** The first version specified *whether* a release landed but not how you confirm a **big** one without the confirmation becoming the expensive part. Three failure modes only exist at size:
+
+1. a partial upload that reports success — 200 returned, asset row exists, bytes truncated;
+2. **confirmation itself becoming expensive** — "download and hash" × N targets × every release is minutes of CI and gigabytes of egress, and a probe that makes releases slow gets disabled;
+3. past the per-asset ceiling you ship a **set**, and a set of individually valid parts can still be the *wrong* set.
+
+### Every target already computes a digest server-side — read it, don't re-download
+
+| Target | Confirmation | Cost |
+| --- | --- | --- |
+| GitHub Releases | `.assets[].state == "uploaded"` + `.assets[].digest == "sha256:<hex>"`, computed by GitHub at upload and immutable ([GA 2025-06-03](https://github.blog/changelog/2025-06-03-releases-now-expose-digests-for-release-assets/)). `null` on pre-GA assets → treat as **unknown**, never as pass | 1 API call |
+| HF dataset | `repo_info(..., files_metadata=True)` → per-file size + LFS `sha256`; the Xet CAS verifies xorb integrity on ingest and registers the sha256 | 1 API call |
+| OCI / ghcr | **Intrinsic** — the registry rejects a blob whose content does not match its digest, so a successful push *is* the confirmation; `oras manifest fetch --descriptor` resolves tag → manifest digest | 1 API call |
+| Zenodo | record files' `checksum` (`md5:<hex>`; two independent MD5s stored, one to detect out-of-band modification) | 1 API call |
+
+### The confirmation is a three-way agreement, and it is free
+
+`signed digest == target-computed digest == pack-time digest`.
+
+Verified live against `data-2026.8.5` while writing this:
+
+- minisign trusted comment (covered by the signature): `sha256=938d46e4cef3fa9ec98eb3c4d2a42b5bf36054cd654f843997dc2f81e634647d`
+- GitHub REST `.assets[].digest`: `sha256:938d46e4cef3fa9ec98eb3c4d2a42b5bf36054cd654f843997dc2f81e634647d`
+- `state: uploaded`, `size: 1014354062`
+
+**967 MiB artefact, confirmed for one API call and a 378-byte signature fetch.** And note which way the strength runs: GitHub's digest is a **third-party computation over the bytes the target actually holds**, so agreement with the signed digest says *the bytes being served are the bytes we signed* — strictly stronger than what a re-download-and-hash probe tests, which is only "our hash of our own file matched".
+
+Corollary for §4: the digest must be bound **into** the signature, not merely shipped alongside it. A sidecar digest confirms nothing against anyone who can replace the artefact, since they can replace the sidecar too.
+
+### Cheap evidence about the *served* bytes
+
+The digest describes the stored object; consumers get a CDN. Range requests work on release downloads — verified: `accept-ranges: bytes`, `HTTP 206`, `content-range: bytes 0-63/1014354062`, served from Azure Blob — so for kilobytes a probe confirms total size, format magic (`28 b5 2f fd` = zstd) and a random middle chunk against the per-file manifest. **Second place the per-file manifest earns its keep** ([nucl-parquet#296](https://github.com/exoma-ch/nucl-parquet/issues/296)): partial verification needs per-file digests to check against.
+
+### Sharding makes confirmation a set property
+
+Past 2 GiB: every part present and `uploaded`, every part digest matching, **and a `root-digest` over the ordered set**. Without the third, a complete set of individually valid parts drawn from *two different releases* confirms perfectly and reassembles into garbage — which is what §4's `root-digest` op is for, and why a provider that already has one (tessera's MMR `content_hash`) needs nothing added.
+
+### Upload mechanics that only bite at size
+
+`hf upload` resumes and skips already-uploaded files; OCI blob upload is chunked and resumable per the distribution spec; **GitHub release asset upload does not resume** — a failed 967 MiB upload restarts from zero. That is a second, independent argument for the draft window (§3): retry into the draft rather than against a frozen release, and size the job timeout for *N* attempts. Probes get their own retry budget so a slow upload cannot eat the confirmation step's runway.
+
+Acceptance criteria extended: probes must be O(1) in artefact size (with a test that none downloads the full artefact), must treat an absent server digest as unknown rather than pass, and a sharded-artefact test must prove that a complete set of valid parts from two different releases **fails**.
+
+
+---
+
+# [Comment #3]() by [gerchowl]()
+
+_Posted on September 29, 2026 at 03:32 PM_
+
+**Amended — §8 now has a "Two regimes" subsection, and one thing I had wrong is corrected.**
+
+Second motivating adopter: **[morepet/mat-vis](https://github.com/morepet/mat-vis)** — ~3000 PBR materials × channels × tiers ≈ **28k LFS files** per release. It is the *inverse* of nucl-parquet, and it inverts the target choice, the atomicity story and the confirmation mechanism. Its ADR trail and issue history are the best empirical record of the many-small regime I have seen, so most of this is cited rather than reasoned.
+
+### Correction
+
+§8's HF row said confirmation is "one `repo_info(files_metadata=True)` call". **That is wrong at file-count scale.** HF's tree API caps at **1000 entries per page**, and with `recursive=true` *directories count as entries* — at 3000 materials the first page returned 1000 directories and **zero files**. mat-vis's Python client filtered for `type == file`, got nothing, and reported `sources: {}` for a production release that was completely fine ([mat-vis#238](https://github.com/morepet/mat-vis/issues/238)). The smoke tag (~750 entries) fit under the cap, so it passed staging and broke only at production scale. Row corrected and scoped to few-large.
+
+### GitHub Releases is disqualified for many-small on **atomicity**, not size
+
+[ADR-0007](https://github.com/morepet/mat-vis/blob/main/docs/decisions/0007-substrate-move-to-hf-datasets-and-tar-container.md) attributes two bug classes straight to the substrate: dangling rowmap → missing parquet (non-atomic multi-file upload) and index files written at **15 of 1965 entries** (clobber-rather-than-merge across batches). A release assembled from N independently uploaded objects has N chances to be half-published — and per-asset digest confirmation cannot catch an asset that nobody listed.
+
+### HF's real limits are not the documented ones
+
+Probed on a throwaway branch ([`scripts/probe-hf-per-file-limits.py`](https://github.com/morepet/mat-vis/blob/main/scripts/probe-hf-per-file-limits.py), 2026-04-21): 100 files → 3.8 s, 1k → 9.7 s, 5k → 38 s, 10k → 88 s, 25k → ❌ `too many files per directory`. Docs say 25,000 LFS files / 1 GB per commit and suggest 50–100 files per commit for the 60 s HTTP timeout; **the ceiling that actually binds is 10,000 files per _directory_** — a different axis than the documented one, findable only by probing. Plus two production-measured ceilings:
+
+- **Commits: 128/hour, per repo** — `429 … exceeded the rate limit for repository commits (128 per hour)` ([mat-vis#225](https://github.com/morepet/mat-vis/issues/225)). It is a **global per-repo counter**, so per-job `concurrency` groups do not protect it: parallel matrix writers each see headroom and collectively blow the cap.
+- **API requests: 1000 / 300 s** rolling.
+
+### Many-small confirmation is O(commits), not O(files)
+
+Not a per-file digest sweep. Read a **committed manifest at a pinned revision** (never rebuild from a tree listing — the three clients that read the manifest passed; only the one rebuilding from the tree broke), plus **sentinels** per unit of work (`.tier_complete`), plus **expected-count assertions** — the failure mode here is silent *incompleteness*, so "are all 1965 listed?" is the question, not "does this file exist?". And an **orphan audit**: a mid-batch crash leaves orphaned LFS blobs with **no documented auto-GC on dataset repos** ([#190](https://github.com/morepet/mat-vis/issues/190), [#221](https://github.com/morepet/mat-vis/issues/221)), so reconcile should report `orphans / total_lfs`.
+
+### Container vs per-file is a real fork, and the answer is empirical
+
+mat-vis chose a tar container in ADR-0007 on **2026-04-19** and reversed it **two days later** in [ADR-0012](https://github.com/morepet/mat-vis/blob/main/docs/decisions/0012-per-file-substrate-drop-tar.md), after a staging bake built a ~70 GB tar that filled a 126 GB disk and wedged mid-write with no durable state. Three generalisable findings:
+
+- **Peak local disk is O(container), not O(payload)** — the same source went from 70 GB to under 1 GB with per-file batching.
+- **Batch commits are durable checkpoints** — a crash at material 1500/1993 keeps 1450 committed and resumes at 1451 via a tree-listing preflight. A single container is resumable by construction or not at all.
+- **A container defeats Xet deduplication.** Xet's chunk-level CDC dedupes identical bytes across tiers automatically — the same `color.png` at 128/256/512/1k costs one xorb; wrapped in per-tier tars it costs four copies. **On HF, containerising is a storage pessimisation**, the exact opposite of the usual "fewer, larger files are kinder to a hub" intuition.
+
+This is the strongest argument in the spike for §4's provider seam being *a choice with a probe attached* rather than a default: two defensible container decisions, two days apart, same project, reversed by measurement. So the lane ships **`just data-release-probe-target`** — throwaway-branch measurement of per-commit latency, directory/file ceilings and commit-rate headroom — and the docs say run it **before** fixing a layout.
+
+### Also noted
+
+[mat-vis#421](https://github.com/morepet/mat-vis/issues/421) (open): client returns 434 KB for a thumb whose HF `content-length` is 47 KB — a 9× served-vs-expected mismatch. Independent of its root cause, it is a live instance of §8's "the digest describes the stored object; consumers get something else", and an argument for the range-based served-bytes spot check being a real probe rather than a nicety.
+
+Acceptance criteria extended: declare/detect the regime; many-small confirmation reads a committed manifest + sentinels + expected counts with a test reproducing the >1000-entry pagination trap; pace commits against a **global per-repo** budget with `Retry-After` backoff; ship an orphan audit; ship the target probe and require it before fixing a layout.
+
 

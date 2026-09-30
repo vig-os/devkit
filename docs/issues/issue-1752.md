@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-28T12:58:17Z
-updated: 2026-09-28T12:58:17Z
+updated: 2026-09-29T16:06:18Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1752
-comments: 0
+comments: 1
 labels: feature, priority:medium, area:ci, area:workspace, effort:medium, semver:minor
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-29T08:16:53.709Z
+synced: 2026-09-30T08:17:49.727Z
 ---
 
 # [Issue 1752]: [feat(scaffold): knob to advance a PINNED devkit flake input on upgrade, plus a CI guard for scaffold/toolchain skew](https://github.com/vig-os/devkit/issues/1752)
@@ -160,3 +160,11 @@ coupling actually needs.
 #1263, #1497 (flake-bump lineage) · #1654 (surgical edit of a preserved file) ·
 #1295 (`resolve-toolchain` / drift gate) · #1676 (release-neutral `main`) ·
 [vig-os/scitadel#225](https://github.com/vig-os/scitadel/issues/225) (where this was hit)
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 29, 2026 at 04:06 PM_
+
+Shipped in #1768 (merged to `dev` as 9adbe219, rides the next release). Knob `DEVKIT_FLAKE_PIN_ADVANCE` + the `Check flake pin lockstep` CI gate. Pinned consumers set the knob at adoption time with a commit on the adoption PR (bump pin, `nix flake update <input>`, set the key).
+

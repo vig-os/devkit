@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-28T21:38:59Z
-updated: 2026-09-28T21:38:59Z
+updated: 2026-09-29T13:07:30Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1755
-comments: 0
+comments: 1
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-29T08:16:52.509Z
+synced: 2026-09-30T08:17:48.738Z
 ---
 
 # [Issue 1755]: [ci.yml branch-name gate allows renovate/* but not dependabot/** — every Dependabot PR fails commit-checks](https://github.com/vig-os/devkit/issues/1755)
@@ -88,3 +88,11 @@ namespaces without forking `ci.yml`.
 
 Filed from vig-os/tessera, which is patching `ci.yml` locally in the meantime and will drop the patch
 once this lands.
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 29, 2026 at 01:07 PM_
+
+Superseded: vig-os moved vulnerability-fix and version-update PRs to Renovate (vig-os/org-config#307, #310; #1763/#1764). Dependabot security updates are off org-wide except qx, which is not devkit-managed. tessera, the only repo using Dependabot for version updates, removed its dependabot.yml (vig-os/tessera#512). No org repo opens dependabot/* PRs into devkit's managed gate anymore.
+
