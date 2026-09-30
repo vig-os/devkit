@@ -451,6 +451,24 @@ def test_multiplexer_bindings_precede_consumer_overrides() -> None:
     )
 
 
+def test_multiplexer_detach_on_destroy_no_detached() -> None:
+    """The module must set detach-on-destroy to no-detached, not off (#1753).
+
+    When a session is destroyed, tmux switches to a detached session if one
+    exists, and otherwise detaches (closing the window). The `off` setting
+    re-attaches a client to an already-attached session, duplicating the
+    window on screen — a broken case when each terminal window runs its own
+    session.
+    """
+    rendered = _ci_full_config()["tmuxExtraConfig"]
+    assert "set -g detach-on-destroy no-detached" in rendered, (
+        "detach-on-destroy must be set to no-detached"
+    )
+    assert "set -g detach-on-destroy off" not in rendered, (
+        "detach-on-destroy must not be set to off"
+    )
+
+
 def _home_module_eval(
     module: str, module_config: str, expr: str, extra: str = ""
 ) -> subprocess.CompletedProcess[str]:
