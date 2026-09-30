@@ -1987,26 +1987,17 @@ render_workflow_model() {
         sed -i '/^# Prepare a hotfix release branch/,/^$/d' "$jg"
     fi
 
-    # ci.yml — drop `- dev` from the PR branch filter; retarget the commit-gate
-    # TRUNK anchor used to exclude already-merged history on release PRs. Also
-    # scrub the inert prose: the trigger-header comment and the origin/dev
+    # ci.yml — retarget the commit-gate TRUNK anchor used to exclude
+    # already-merged history on release PRs, and scrub the origin/dev
     # commit-gate rationale so a trunk repo carries no lying `dev` comments
-    # (#1226; no behavior change — comments only).
+    # (#1226; no behavior change — comments only). The PR branch filter is
+    # `'**'` in both models (#1759), so ci.yml and codeql.yml need no filter
+    # edit.
     local ci="$wf/ci.yml"
     if [[ -f "$ci" ]]; then
-        sed -i '/^      - dev$/d' "$ci"
         sed -i 's|TRUNK="dev"|TRUNK="main"|' "$ci"
-        sed -i 's|Pull requests to dev, release/\*\*, and main|Pull requests to release/** and main|' "$ci"
         sed -i 's|origin/dev — a no-op on a dev PR|origin/main — a no-op on a main PR|' "$ci"
         sed -i 's|(its base IS dev)|(its base IS main)|' "$ci"
-    fi
-
-    # codeql.yml — drop `- dev` from the PR branch filter (push is main-only)
-    # and scrub the trigger-header comment prose dev -> main (#1226).
-    local cq="$wf/codeql.yml"
-    if [[ -f "$cq" ]]; then
-        sed -i '/^      - dev$/d' "$cq"
-        sed -i 's|Pull requests to dev, release/\*\*, and main|Pull requests to release/** and main|' "$cq"
     fi
 
     # sync-issues.yml — default target branch + `|| 'dev'` fallbacks dev -> main,

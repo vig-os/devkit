@@ -37,8 +37,10 @@ name: CodeQL
 
 on:  # yamllint disable-line rule:truthy
   pull_request:
+    # Any base, so a PR stacked on a topic branch is verified too; the
+    # concurrency group cancels superseded runs (#1759).
     branches:
-      - '**'  # any base is accepted so stacked PRs are verified; concurrency group cancels superseded runs (#1759)
+      - '**'
   push:
     branches:
       - main
