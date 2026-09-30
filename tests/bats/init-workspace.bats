@@ -3404,6 +3404,77 @@ STOCK_BRANCH_ALTERNATION='(feature|bugfix|hotfix|release|docs|test|refactor)'
     assert_output --partial "Notice: DEVKIT_BRANCH_TYPES omits"
 }
 
+# ── Issue-less branch form per Refs-optional type (#1767) ─────────────────────
+# Every type in the resolved Refs-optional set also gets an issue-less
+# `<type>/<summary>` branch form; the old hardcoded `(chore)` clause is the
+# default case. Derived from DEVKIT_REFS_OPTIONAL_TYPES / DEVKIT_REFS_POLICY
+# (never its own key), with `chore` as a floor because the bot branches are
+# `chore/<slug>`. The CI gate mirrors it via resolve-toolchain
+# (tests/test_ci_runner.py); the flake surface via nix/hooks.nix
+# (tests/test_flake_hooks.py).
+
+@test "DEVKIT_REFS_OPTIONAL_TYPES adds the issue-less branch form (#1767)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1767-docs"
+    mkdir -p "$ws"
+    run _clone_shared both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=chore,docs/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '(?!^(chore|docs)/[a-z0-9]+(-[a-z0-9]+)*$)' "$ws/.pre-commit-config.yaml"
+    assert_success
+    # The issue-numbered alternation is untouched.
+    run grep -qF "${STOCK_BRANCH_ALTERNATION}/[0-9]" "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "the issue-less branch set keeps chore as a floor (#1767)" {
+    # The sync-main-to-dev and devkit-upgrade bot branches are chore/<slug>;
+    # neither a list without chore nor DEVKIT_REFS_POLICY=required drops them.
+    ws="$BATS_TEST_TMPDIR/e2e-1767-floor"
+    mkdir -p "$ws"
+    run _clone_shared both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=docs/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '(?!^(chore|docs)/[a-z0-9]' "$ws/.pre-commit-config.yaml"
+    assert_success
+    sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=/' "$ws/.vig-os"
+    sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=required/' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -qF '(?!^(chore)/[a-z0-9]' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "clearing DEVKIT_REFS_OPTIONAL_TYPES restores the chore branch clause (#1767)" {
+    # Preserved file, unconditional render (#1640): the generic anchor must
+    # match a previously rendered custom set, and the default must land back
+    # on the template byte for byte.
+    ws="$BATS_TEST_TMPDIR/e2e-1767-clear"
+    run _render_then_clear "$ws" DEVKIT_REFS_OPTIONAL_TYPES chore,docs
+    assert_success
+    run diff "$TEMPLATE_DIR/.pre-commit-config.yaml" "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
+@test "a custom issue-less set survives a trunk -> gitflow switch (#1767)" {
+    # render_branch_guard_model re-inserts `(?!dev$)` in front of the issue-less
+    # clause; a custom set there must not hide its anchor.
+    ws="$BATS_TEST_TMPDIR/e2e-1767-trunk"
+    mkdir -p "$ws"
+    run _clone_shared both "$ws"
+    assert_success
+    sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=chore,docs/' "$ws/.vig-os"
+    run _switch_workflow "$ws" trunk
+    assert_success
+    run _switch_workflow "$ws" gitflow
+    assert_success
+    run grep -qF '(?!main$)(?!dev$)(?!^(chore|docs)/[a-z0-9]' "$ws/.pre-commit-config.yaml"
+    assert_success
+}
+
 # ── scaffold-drift opt-out knob (#1295) ───────────────────────────────────────
 # DEVKIT_DRIFT_CHECK is a pure runtime gate for the ci.yml scaffold-drift job
 # (empty/absent => enabled). It steers no scaffold render — the CI job reads it

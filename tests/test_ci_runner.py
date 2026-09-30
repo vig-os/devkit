@@ -472,7 +472,9 @@ def test_branch_name_step_precedes_commit_validation() -> None:
     assert names.index(BRANCH_NAME_STEP) < names.index(COMMIT_CHECKS_STEP)
 
 
-def _run_branch_gate(head_ref: str, branch_types: str) -> int:
+def _run_branch_gate(
+    head_ref: str, branch_types: str, issueless_types: str = "chore"
+) -> int:
     """Execute the gate step's real bash against a head ref; return exit code."""
     workflow = _load(WORKFLOWS / "ci.yml")
     step = _branch_name_step(workflow)
@@ -482,6 +484,7 @@ def _run_branch_gate(head_ref: str, branch_types: str) -> int:
             **os.environ,
             "HEAD_REF": head_ref,
             "BRANCH_TYPES": branch_types,
+            "ISSUELESS_BRANCH_TYPES": issueless_types,
         },
         check=False,
         capture_output=True,
@@ -535,3 +538,97 @@ def test_branch_gate_follows_custom_types() -> None:
     custom = DEFAULT_BRANCH_TYPES + ",record"
     assert _run_branch_gate("record/54-x", custom) == 0
     assert _run_branch_gate("record/no-issue", custom) == 1
+
+
+# ── Issue-less branch form per Refs-optional type (#1767) ─────────────────────
+# Every commit type whose `Refs:` line is optional also gets an issue-less
+# `<type>/<summary>` branch form, generalising the old hardcoded `chore/<slug>`
+# clause. The set is DERIVED from the resolved refs-optional-types (never a
+# second list that could disagree with it), with `chore` as a floor: the
+# sync-main-to-dev and devkit-upgrade bot branches are `chore/<slug>`, so no
+# Refs policy may take that clause away — `required` (the `none` sentinel)
+# included. The default and `required` therefore resolve to plain `chore`, the
+# byte-identical pre-#1767 gate.
+
+
+@pytest.mark.parametrize(
+    ("manifest_extra", "expected"),
+    [
+        pytest.param("", "chore", id="key-absent-defaults-chore"),
+        pytest.param(
+            "DEVKIT_REFS_OPTIONAL_TYPES=chore,docs\n", "chore,docs", id="chore-docs"
+        ),
+        # `chore` is a floor, not a member the consumer must remember to keep.
+        pytest.param(
+            "DEVKIT_REFS_OPTIONAL_TYPES=docs\n", "chore,docs", id="chore-floor"
+        ),
+        pytest.param(
+            "DEVKIT_REFS_OPTIONAL_TYPES=docs,chore\n",
+            "chore,docs",
+            id="chore-not-duplicated",
+        ),
+        # `none` is a sentinel type, never a branch prefix.
+        pytest.param("DEVKIT_REFS_POLICY=required\n", "chore", id="required"),
+        pytest.param(
+            "DEVKIT_REFS_POLICY=optional\n",
+            "chore,feat,fix,docs,refactor,perf,test,ci,build,revert,style",
+            id="optional-every-type",
+        ),
+        # A rejected list falls back to the clamped exemption, so the branch
+        # rule never widens on a typo either.
+        pytest.param(
+            "DEVKIT_REFS_OPTIONAL_TYPES=docs,Bad-Type\n",
+            "chore",
+            id="invalid-falls-back",
+        ),
+    ],
+)
+def test_issueless_branch_types_mapping(
+    tmp_path: Path, manifest_extra: str, expected: str
+) -> None:
+    """The issue-less branch set follows the resolved Refs-optional set (#1767)."""
+    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\n" + manifest_extra)
+    assert outputs["issueless-branch-types"] == expected
+
+
+def test_resolve_toolchain_job_reexports_issueless_branch_types() -> None:
+    """ci.yml's resolve-toolchain job maps the action output to a job output."""
+    workflow = _load(WORKFLOWS / "ci.yml")
+    outputs = workflow["jobs"]["resolve-toolchain"]["outputs"]
+    assert (
+        outputs.get("issueless-branch-types")
+        == "${{ steps.resolve.outputs.issueless-branch-types }}"
+    )
+
+
+def test_branch_name_step_reads_issueless_types_through_env() -> None:
+    """The gate takes the issue-less set from resolve-toolchain via env."""
+    workflow = _load(WORKFLOWS / "ci.yml")
+    step = _branch_name_step(workflow)
+    assert (
+        "${{ needs.resolve-toolchain.outputs.issueless-branch-types }}"
+        in step["env"].values()
+    )
+
+
+def test_branch_gate_admits_issueless_form_of_refs_optional_types() -> None:
+    """A Refs-optional type gets `<type>/<summary>` next to its issue form."""
+    assert _run_branch_gate("docs/vendor-quotation", DEFAULT_BRANCH_TYPES) == 1
+    assert (
+        _run_branch_gate("docs/vendor-quotation", DEFAULT_BRANCH_TYPES, "chore,docs")
+        == 0
+    )
+    # The issue-numbered form stays available alongside it.
+    assert _run_branch_gate("docs/12-x", DEFAULT_BRANCH_TYPES, "chore,docs") == 0
+
+
+def test_branch_gate_issueless_type_outside_branch_types() -> None:
+    """Refs-optional but not a branch type: only the issue-less form, like chore."""
+    assert (
+        _run_branch_gate("record/datasheet", DEFAULT_BRANCH_TYPES, "chore,record") == 0
+    )
+    # `record/54-x` is still admitted — `54-x` is itself a valid summary slug,
+    # exactly as `chore/54-x` always was.
+    assert (
+        _run_branch_gate("record/Bad_Slug", DEFAULT_BRANCH_TYPES, "chore,record") == 1
+    )

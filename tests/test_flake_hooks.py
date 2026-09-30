@@ -1237,6 +1237,51 @@ class TestCommitPolicyKnobsOnTheFlakeSurface:
             )
 
 
+class TestIssuelessBranchFormOnTheFlakeSurface:
+    """The branch guard's issue-less clause follows the Refs-optional set (#1767).
+
+    Each type whose ``Refs:`` line is optional gets ``<type>/<summary>``, the
+    old hardcoded ``(chore)`` clause being the default case. ``chore`` is a
+    floor (the bot branches are ``chore/<slug>``) and the ``none`` sentinel is
+    never a prefix. Must resolve exactly like ``render_issueless_branch_types``
+    in ``assets/init-workspace.sh`` and resolve-toolchain's
+    ``issueless-branch-types`` output.
+    """
+
+    def test_default_keeps_the_chore_clause(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        assert "(?!^(chore)/[a-z0-9]" in _branch_guard(consumer_config)
+
+    def test_named_refs_optional_types_get_the_issueless_form(
+        self, refs_optional_types_config: dict[str, Any]
+    ) -> None:
+        entry = _branch_guard(refs_optional_types_config)
+        assert "(?!^(chore|record)/[a-z0-9]" in entry
+        pattern = entry.split("--pattern ")[1]
+        assert re.match(pattern, "record/vendor-datasheet") is None
+        assert re.match(pattern, "chore/foo") is None
+        assert re.match(pattern, "fix/no-issue") is not None
+
+    def test_required_keeps_chore_as_a_floor(
+        self, refs_required_config: dict[str, Any]
+    ) -> None:
+        entry = _branch_guard(refs_required_config)
+        assert "(?!^(chore)/[a-z0-9]" in entry
+        # (`--branch __none__` is the guard's own argv, not a type.)
+        assert "|none" not in entry
+        assert "(none" not in entry
+
+    def test_optional_policy_extends_to_every_resolved_type(
+        self, commit_policy_config: dict[str, Any]
+    ) -> None:
+        entry = _branch_guard(commit_policy_config)
+        assert (
+            "(?!^(chore|feat|fix|docs|refactor|perf|test|ci|build|revert|style"
+            "|record)/[a-z0-9]"
+        ) in entry
+
+
 @pytest.fixture(scope="module")
 def default_shellhook() -> str:
     """The shellHook of the flake's own default dev-shell (``hooks = null``)."""
