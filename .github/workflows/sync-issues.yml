@@ -160,7 +160,10 @@ jobs:
           FILE_PATHS: ${{ steps.sync.outputs.modified-files }}
 
       - name: Save sync state
-        if: always()
+        # Gate on sync having succeeded and the commit not having failed.
+        # When commit is skipped (nothing to commit), its outcome is skipped != failure, so save runs (correct).
+        # A failed push then leaves the previous cutoff intact and the next run retries the delta (self-healing).
+        if: ${{ steps.sync.outcome == 'success' && steps.commit.outcome != 'failure' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: .sync-state
