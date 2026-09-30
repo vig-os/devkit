@@ -117,6 +117,7 @@ jobs:
       # Branch types (#1432): re-export the resolved branch-type set so the
       # commit-checks branch-name gate can consume it via needs.
       branch-types: ${{ steps.resolve.outputs.branch-types }}
+      issueless-branch-types: ${{ steps.resolve.outputs.issueless-branch-types }}
       # Scaffold-drift gate (#1295): re-export the DEVKIT_DRIFT_CHECK toggle so
       # the scaffold-drift job's `if:` can self-skip when a consumer opts out,
       # plus the all-modes image ref it `docker run`s (keeps the ghcr literal in
@@ -370,22 +371,25 @@ jobs:
       # guard's: automation branches never run local hooks but do open PRs.
       # The head ref is attacker-controlled text, so it reaches the check via
       # env, never inline ${{ }} (the zizmor template-injection gate / #1279
-      # env-routing pattern); the type set is mapped once from
-      # DEVKIT_BRANCH_TYPES by resolve-toolchain.
+      # env-routing pattern); the type sets are mapped once from
+      # DEVKIT_BRANCH_TYPES and the Refs-optional set by resolve-toolchain.
       - name: Validate branch name
         env:
           HEAD_REF: ${{ github.head_ref }}
           BRANCH_TYPES: ${{ needs.resolve-toolchain.outputs.branch-types }}
+          ISSUELESS_BRANCH_TYPES: ${{ needs.resolve-toolchain.outputs.issueless-branch-types }}
         run: |
           set -euo pipefail
           TYPES_ALTERNATION="${BRANCH_TYPES//,/|}"
+          ISSUELESS_ALTERNATION="${ISSUELESS_BRANCH_TYPES//,/|}"
           # Every alternative is individually ^...$-anchored:
           #   main|dev                 long-lived branches (committing on them
           #                            is allowed locally; a deliberate PR
           #                            from one stays possible)
-          #   chore/<slug>             issue-less maintenance branches — also
-          #                            covers the sync-main-to-dev and
-          #                            devkit-upgrade bot branches
+          #   <type>/<slug>            issue-less branches: chore (also the
+          #                            sync-main-to-dev and devkit-upgrade
+          #                            bot branches) plus every other
+          #                            Refs-optional commit type (#1767)
           #   <type>/<issue>-<slug>    issue-numbered topic branches
           #                            (DEVKIT_BRANCH_TYPES)
           #   worktree/<n>             autonomous worktree pipeline
@@ -394,7 +398,7 @@ jobs:
           #   release/X.Y.Z            release-train branches (prepare-release
           #                            creates release/$VERSION, bare semver)
           ALLOWED="^(main|dev)$"
-          ALLOWED+="|^chore/[a-z0-9]+(-[a-z0-9]+)*$"
+          ALLOWED+="|^(${ISSUELESS_ALTERNATION})/[a-z0-9]+(-[a-z0-9]+)*$"
           ALLOWED+="|^(${TYPES_ALTERNATION})/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$"
           ALLOWED+="|^worktree/[0-9]+$"
           ALLOWED+="|^renovate/.+$"
@@ -402,7 +406,7 @@ jobs:
           if printf '%s' "${HEAD_REF}" | grep -qE "${ALLOWED}"; then
             echo "Branch name OK: ${HEAD_REF}"
           else
-            echo "::error::Branch name '${HEAD_REF}' does not follow the convention <type>/<issue>-<summary> (types: ${BRANCH_TYPES}) or chore/<summary>. See docs/COMMIT_MESSAGE_STANDARD.md and the branch-naming skill."
+            echo "::error::Branch name '${HEAD_REF}' does not follow the convention <type>/<issue>-<summary> (types: ${BRANCH_TYPES}) or <type>/<summary> (types: ${ISSUELESS_BRANCH_TYPES}). See docs/COMMIT_MESSAGE_STANDARD.md and the branch-naming skill."
             exit 1
           fi
 

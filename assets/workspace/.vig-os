@@ -188,9 +188,13 @@ DEVKIT_COMMIT_TYPES=
 # alphanumerics AND a subset of the resolved DEVKIT_COMMIT_TYPES (guarded
 # loudly at scaffold time). This key WINS over DEVKIT_REFS_POLICY when both
 # are set — the narrower key decides; use `DEVKIT_REFS_POLICY=required` to
-# exempt nothing at all. Realized at scaffold time (an anchored render of the
-# hook arg + resolve-toolchain's `refs-optional-types` output); written back
-# only for a non-empty value (#1633).
+# exempt nothing at all. Each exempt type also gets the issue-less
+# `<type>/<summary>` branch form in the branch guard and CI's branch-name gate
+# (`chore/<summary>` is always allowed, whatever the policy) (#1767).
+# Realized at scaffold time (an anchored render of the hook arg + the branch
+# pattern, and resolve-toolchain's `refs-optional-types` and
+# `issueless-branch-types` outputs); written back only for a non-empty value
+# (#1633).
 DEVKIT_REFS_OPTIONAL_TYPES=
 
 # Issue-numbered branch types for the branch guard — a comma-separated
@@ -199,8 +203,9 @@ DEVKIT_REFS_OPTIONAL_TYPES=
 # surface (read by flake.nix at eval time), and CI's branch-name gate from this
 # one key. Empty (default) resolves to the stock set
 # (feature,bugfix,hotfix,release,docs,test,refactor) — unchanged for devkit or
-# existing consumers. The `chore/<summary>`, `renovate/*`, and
-# `worktree/<issue>` clauses are never knob-driven. Lowercase alphanumerics
+# existing consumers. The `renovate/*` and `worktree/<issue>` clauses are
+# never knob-driven; the issue-less `<type>/<summary>` form follows
+# DEVKIT_REFS_OPTIONAL_TYPES above (#1767). Lowercase alphanumerics
 # only (guarded loudly at scaffold time; the scaffold prints a notice when
 # `release` is dropped). Realized at scaffold time (an anchored render of the
 # hook pattern + resolve-toolchain's `branch-types` output); written back only

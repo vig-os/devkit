@@ -107,6 +107,13 @@ outputs:
       absent/empty (or carries an out-of-charset value — fail-safe, the loud
       guard lives at the scaffold write path).
     value: ${{ steps.resolve.outputs.branch-types }}
+  issueless-branch-types:
+    description: >-
+      Comma-separated branch types admitted in the issue-less
+      `<type>/<summary>` form by the commit-checks branch-name gate: `chore`
+      plus every other type in refs-optional-types (the `none` sentinel
+      dropped). Derived, never its own key (#1767).
+    value: ${{ steps.resolve.outputs.issueless-branch-types }}
   drift-check:
     description: >-
       Scaffold-drift gate toggle from DEVKIT_DRIFT_CHECK: `true` (default/absent)
@@ -404,6 +411,23 @@ runs:
           fi
         fi
         echo "refs-optional-types=$REFS_OPTIONAL_TYPES" >> "$GITHUB_OUTPUT"
+
+        # Issue-less branch types (#1767): every Refs-optional type also gets
+        # the issue-less `<type>/<summary>` branch form. DERIVED from the
+        # resolved exemption above (never its own key, so a branch may skip
+        # the issue only where its commits may), with `chore` as a floor —
+        # the sync-main-to-dev and devkit-upgrade bot branches are
+        # `chore/<slug>` — and the `none` sentinel dropped. MIRRORS
+        # render_issueless_branch_types in assets/init-workspace.sh and
+        # issuelessBranchTypesFor in nix/hooks.nix (three renderers, one
+        # derivation — keep in lockstep).
+        ISSUELESS_BRANCH_TYPES="chore"
+        IFS=',' read -ra refs_optional_resolved <<< "$REFS_OPTIONAL_TYPES"
+        for entry in "${refs_optional_resolved[@]}"; do
+          [[ "$entry" == "chore" || "$entry" == "none" ]] && continue
+          ISSUELESS_BRANCH_TYPES+=",$entry"
+        done
+        echo "issueless-branch-types=$ISSUELESS_BRANCH_TYPES" >> "$GITHUB_OUTPUT"
 
         # Scaffold-drift gate (#1295): DEVKIT_DRIFT_CHECK toggles ci.yml's
         # scaffold-drift job. Absent/empty => `true` (enabled), so existing
