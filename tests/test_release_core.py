@@ -50,13 +50,14 @@ def test_finalize_does_not_commit_the_whole_dist_dir() -> None:
     assert "'CHANGELOG.md,dist'" not in file_paths
 
 
-def test_build_step_computes_non_ignored_dist_paths() -> None:
-    """The artifact build honors .gitignore when listing dist/ files to commit."""
-    run = _step("Build release artifact")["run"]
-    assert "git ls-files -co --exclude-standard -- dist" in run
-    # The list is exposed as a step output for the commit step to consume.
-    assert "dist_paths=" in run
-    assert '>> "$GITHUB_OUTPUT"' in run
+def test_build_step_uses_shared_action() -> None:
+    """The artifact build must use the shared build-bundle composite action."""
+    build_step = _step("Build release artifact")
+    uses = str(build_step.get("uses", ""))
+    assert "build-bundle" in uses, (
+        "build step must delegate to ./.github/actions/build-bundle; "
+        "the composite action contains the gitignore-respecting dist-paths logic (#1159)"
+    )
 
 
 def test_file_paths_reference_the_computed_dist_paths() -> None:

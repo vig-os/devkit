@@ -49,32 +49,10 @@ def _step_index(steps: list[dict], name_fragment: str) -> int:
     raise AssertionError(f"no step matching {name_fragment!r}")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Prepare-time bundle rebuild: detect + build + commit
-# ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_prepare_step_detects_bundle_recipe(prepare_steps: list[dict]) -> None:
-    """Prepare job must detect the bundle recipe before the dev commit step."""
-    step = _step(prepare_steps, "Detect release bundle")
-    assert step is not None, "Prepare job missing bundle detection step"
-    assert "just --summary" in str(step.get("run", ""))
-    assert "grep -qw bundle" in str(step.get("run", ""))
-
-
-def test_prepare_detects_bundle_before_dev_commit(
-    prepare_steps: list[dict],
-) -> None:
-    """Bundle detection must precede the dev commit step."""
-    detect_idx = _step_index(prepare_steps, "Detect release bundle")
-    commit_idx = _step_index(prepare_steps, "Commit prepared CHANGELOG to dev")
-    assert detect_idx < commit_idx, (
-        "bundle detection must run before committing to dev so the "
-        "commit can include the bundle if present"
-    )
-
-
-def test_prepare_builds_bundle_before_dev_commit(
+def test_prepare_step_builds_bundle_before_dev_commit(
     prepare_steps: list[dict],
 ) -> None:
     """Bundle build must precede the dev commit step."""
@@ -86,24 +64,23 @@ def test_prepare_builds_bundle_before_dev_commit(
     )
 
 
-def test_prepare_build_step_runs_when_bundle_detected(
+def test_prepare_build_step_uses_shared_action(
     prepare_steps: list[dict],
 ) -> None:
-    """The build step must be conditional on the detection step's output."""
+    """The prepare-time build step must use the shared build-bundle action."""
     build_step = _step(prepare_steps, "Build prepare-time artifact")
-    if_condition = str(build_step.get("if", ""))
-    assert "steps.bundle.outputs.has_bundle == 'true'" in if_condition or (
-        "steps.detect" in if_condition and "has_bundle" in if_condition
-    ), "build step must gate on the detection step's has_bundle output"
+    uses = str(build_step.get("uses", ""))
+    assert "build-bundle" in uses, (
+        "build step must delegate to ./.github/actions/build-bundle"
+    )
 
 
-def test_prepare_build_computes_dist_paths(prepare_steps: list[dict]) -> None:
-    """Build step must compute non-ignored dist paths using git ls-files."""
+def test_prepare_build_step_has_bundle_id(prepare_steps: list[dict]) -> None:
+    """The build step must have id 'bundle' for output references."""
     build_step = _step(prepare_steps, "Build prepare-time artifact")
-    run = str(build_step.get("run", ""))
-    assert "git ls-files -co --exclude-standard -- dist" in run
-    assert "dist_paths=" in run
-    assert '>> "$GITHUB_OUTPUT"' in run
+    assert build_step.get("id") == "bundle", (
+        "build step must have id='bundle' so FILE_PATHS can reference its outputs"
+    )
 
 
 def test_prepare_commit_includes_bundle_in_file_paths(
@@ -112,23 +89,16 @@ def test_prepare_commit_includes_bundle_in_file_paths(
     """The dev commit's FILE_PATHS must include the computed dist_paths."""
     commit_step = _step(prepare_steps, "Commit prepared CHANGELOG to dev")
     file_paths = str(commit_step.get("env", {}).get("FILE_PATHS", ""))
+    assert "steps.bundle.outputs" in file_paths, (
+        "FILE_PATHS must thread the bundle action's outputs"
+    )
     assert "dist_paths" in file_paths, (
-        "FILE_PATHS must thread the bundle's computed dist_paths output"
+        "FILE_PATHS must reference the bundle's computed dist_paths output"
     )
     assert "CHANGELOG.md" in file_paths, "CHANGELOG.md must still be committed"
 
 
-def test_prepare_detect_step_has_output_id(prepare_steps: list[dict]) -> None:
-    """The detect step must expose its has_bundle output."""
-    step = _step(prepare_steps, "Detect release bundle")
-    assert step.get("id") is not None, (
-        "detection step must have an id so its outputs can be referenced"
-    )
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Shared build logic: prepare-release and release-core use the same action
-# ─────────────────────────────────────────────────────────────────────────────
 
 
 def test_shared_build_action_exists() -> None:
