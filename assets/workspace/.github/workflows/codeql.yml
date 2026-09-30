@@ -9,7 +9,7 @@
 # subprocess execution.
 #
 # Triggers:
-#   - Pull requests to dev, release/**, and main
+#   - Pull requests to any base branch (stacked PRs verified)
 #   - Pushes to main (post-merge analysis)
 #   - Weekly schedule (catch newly disclosed patterns)
 #
@@ -37,10 +37,10 @@ name: CodeQL
 
 on:  # yamllint disable-line rule:truthy
   pull_request:
+    # Any base, so a PR stacked on a topic branch is verified too; the
+    # concurrency group cancels superseded runs (#1759).
     branches:
-      - dev
-      - 'release/**'
-      - main
+      - '**'
   push:
     branches:
       - main
@@ -49,6 +49,14 @@ on:  # yamllint disable-line rule:truthy
       - '.github/workflows/**'
   schedule:
     - cron: '15 2 * * 1'  # Monday at 02:15 UTC
+
+# Cancel a superseded CodeQL analysis run (#1759): same rationale as ci.yml
+# (#1602). The cancel condition is != 'push' rather than a bare true: post-merge
+# analysis feeds the security tab, so two merges landing quickly should each
+# report instead of the first being cancelled.
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'push' }}
 
 permissions: {}  # restrict default; job declares its own
 

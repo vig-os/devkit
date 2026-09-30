@@ -9,7 +9,8 @@ UI, who creates it, installs it, and rotates its key.
 
 The App exists because of #1302 (default `GITHUB_TOKEN` cannot open a PR that triggers CI, and a
 static PAT is unsuitable — user-bound, expiring, single-owner); #1365 is the `DEVKIT_UPGRADE_APP_ID`
-→ `DEVKIT_UPGRADE_APP_CLIENT_ID` rename, and #1366 retires the legacy numeric-ID fallback.
+→ `DEVKIT_UPGRADE_APP_CLIENT_ID` rename, and #1366 removed the legacy numeric-ID fallback: the
+workflow reads only the Client ID.
 
 ## Purpose
 
@@ -92,7 +93,7 @@ the #256 ruleset-bypass coupling that does *not* apply here, and the UI-only ver
 lives in two places, both outside this repo:
 
 - The `APP VISIBILITY DECISION` comment beside the `DEVKIT_UPGRADE_APP_CLIENT_ID` /
-  `DEVKIT_UPGRADE_APP_ID` / `DEVKIT_UPGRADE_APP_PRIVATE_KEY` declarations in
+  `DEVKIT_UPGRADE_APP_PRIVATE_KEY` declarations in
   `vig-os/org-config`'s `otterdog/vig-os/vig-os.jsonnet` — the App's **only appearance in code**,
   and the source of truth for exactly which repositories each credential secret is scoped to (see
   [Bootstrap secrets](#bootstrap-secrets) below).
@@ -147,17 +148,16 @@ adds itself to the relevant list, per the jsonnet's own maintenance-coupling com
 
 | Secret name                      | Value                                              |
 | --------------------------------- | --------------------------------------------------- |
-| `DEVKIT_UPGRADE_APP_CLIENT_ID`     | the App's Client ID (preferred; #1365)              |
-| `DEVKIT_UPGRADE_APP_ID`            | the App's legacy numeric App ID — **deprecated**, retired by #1366; either value is a valid App JWT issuer |
+| `DEVKIT_UPGRADE_APP_CLIENT_ID`     | the App's Client ID (#1365; the only ID read since #1366) |
 | `DEVKIT_UPGRADE_APP_PRIVATE_KEY`   | the full `.pem` private key, PEM-encoded             |
 
 At the time this runbook was written, `otterdog/vig-os/vig-os.jsonnet` scoped
 `DEVKIT_UPGRADE_APP_CLIENT_ID` and `DEVKIT_UPGRADE_APP_PRIVATE_KEY` to `commit-action`,
-`devkit-smoke-test`, `h5v`, `org-config`, `scitadel`, `sync-issues-action`, and `tessera`, and the
-legacy `DEVKIT_UPGRADE_APP_ID` to the subset still on a pre-1.7 scaffold form
-(`commit-action`, `devkit-smoke-test`, `org-config`, `sync-issues-action`). Treat these lists as a
+`devkit-smoke-test`, `h5v`, `org-config`, `scitadel`, `sync-issues-action`, and `tessera`. The
+legacy numeric `DEVKIT_UPGRADE_APP_ID` is no longer read by any scaffold (#1366); its org secret is
+retired in `vig-os/org-config`. Treat these lists as a
 snapshot, not a promise — `vig-os/org-config` is authoritative going forward. `devkit` itself does
-not upgrade itself, so `devkit` is not on either list. `exo-pet`'s own consuming repositories carry
+not upgrade itself, so `devkit` is not on that list. `exo-pet`'s own consuming repositories carry
 their own copies of these secrets, declared in `exo-pet`'s own private `org-config` repo (out of
 scope for this runbook — it belongs to a different repo and a different confidentiality boundary).
 

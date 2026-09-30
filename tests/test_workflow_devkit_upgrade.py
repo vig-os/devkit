@@ -11,11 +11,11 @@ release time. These tests pin the deliverable without executing the workflow:
 - the template carries the managed banner, both triggers, the public
   ``releases/latest`` version check with prerelease-aware compare, the dedicated
   GitHub App identity (a per-run installation token minted from
-  ``DEVKIT_UPGRADE_APP_CLIENT_ID`` + ``DEVKIT_UPGRADE_APP_PRIVATE_KEY``, with a
-  one-release legacy ``DEVKIT_UPGRADE_APP_ID`` fallback — #1365/#1366; fail-fast
-  when absent; never the default ``GITHUB_TOKEN`` for the PR — #1302), the
-  ``install.sh`` bootstrap and the ``nix develop`` commit — both run under a
-  Nix that trusts the consumer flake's own ``nixConfig`` (#1599);
+  ``DEVKIT_UPGRADE_APP_CLIENT_ID`` + ``DEVKIT_UPGRADE_APP_PRIVATE_KEY`` with no
+  legacy fallback — #1366; fail-fast when absent; never the default
+  ``GITHUB_TOKEN`` for the PR — #1302), the ``install.sh`` bootstrap and the
+  ``nix develop`` commit — both run under a Nix that trusts the consumer flake's
+  own ``nixConfig`` (#1599);
 - no ``run:`` block interpolates a dispatch input or event field directly
   (zizmor template-injection: every such value is routed through ``env:``);
 - the base branch is workflow-model aware (``dev`` gitflow / ``main`` trunk),
@@ -137,7 +137,8 @@ def test_version_compare_is_prerelease_aware() -> None:
 def test_requires_app_identity_and_never_uses_github_token_for_pr() -> None:
     """The GitHub App is the ONLY identity: a per-run installation token is
     minted from DEVKIT_UPGRADE_APP_CLIENT_ID + DEVKIT_UPGRADE_APP_PRIVATE_KEY
-    (fail-fast when absent), and no static token secret remains (#1302)."""
+    (fail-fast when absent), with no legacy fallback to numeric APP_ID, and
+    no static token secret remains (#1302)."""
     text = TEMPLATE.read_text(encoding="utf-8")
     assert "secrets.DEVKIT_UPGRADE_APP_CLIENT_ID" in text
     assert "secrets.DEVKIT_UPGRADE_APP_PRIVATE_KEY" in text
@@ -153,11 +154,11 @@ def test_requires_app_identity_and_never_uses_github_token_for_pr() -> None:
         assert re.search(r"create-github-app-token@[0-9a-f]{40}", s["uses"]), (
             "app-token action must be SHA-pinned"
         )
-        # Every mint uses the preferred client-id input (with the one-release
-        # legacy fallback), never the deprecated numeric app-id input.
+        # Every mint uses the client-id input with only the new secret name,
+        # no fallback to the legacy numeric app-id.
         with_block = s.get("with", {})
         assert with_block.get("client-id") == (
-            "${{ secrets.DEVKIT_UPGRADE_APP_CLIENT_ID || secrets.DEVKIT_UPGRADE_APP_ID }}"
+            "${{ secrets.DEVKIT_UPGRADE_APP_CLIENT_ID }}"
         )
         assert "app-id" not in with_block
     # Least-privilege mint (zizmor github-app audit): the upgrade job's token is
@@ -190,22 +191,26 @@ def test_requires_app_identity_and_never_uses_github_token_for_pr() -> None:
         )
 
 
-def test_legacy_numeric_app_id_still_accepted_with_warning() -> None:
-    """The credential rename rides a minor (#1365): the legacy numeric
-    DEVKIT_UPGRADE_APP_ID keeps working for one release — GitHub accepts either
-    the App ID or the Client ID as the App JWT issuer, so the mint falls back to
-    it — the preflight gates on *either* name being present, and the legacy path
-    emits a deprecation warning. #1366 drops the fallback once the fleet has
-    upgraded; a consumer that upgrades before its org grew the new secret is
-    never bricked."""
+def test_legacy_numeric_app_id_removed() -> None:
+    """The numeric DEVKIT_UPGRADE_APP_ID fallback is retired (#1366).
+
+    Once all consumers adopt the release carrying #1365 (which added the
+    DEVKIT_UPGRADE_APP_CLIENT_ID secret), the fallback has no purpose.
+    The template must not reference DEVKIT_UPGRADE_APP_ID at all, and must
+    not contain any || secrets.*_APP_ID fallback expression."""
     text = TEMPLATE.read_text(encoding="utf-8")
-    # The fallback expression is the compatibility contract.
+    # The legacy secret name must be completely gone (not just unused).
+    assert "DEVKIT_UPGRADE_APP_ID" not in text
+    # The fallback expression must be gone.
     assert (
-        "secrets.DEVKIT_UPGRADE_APP_CLIENT_ID || secrets.DEVKIT_UPGRADE_APP_ID" in text
+        "|| secrets." not in text
+        or "|| secrets.DEVKIT_UPGRADE_APP_CLIENT_ID"
+        not in text.replace(
+            "secrets.DEVKIT_UPGRADE_APP_CLIENT_ID || secrets.DEVKIT_UPGRADE_APP_ID", ""
+        )
     )
-    # The legacy path warns, pointing at the retirement issue.
-    assert "::warning::" in text
-    assert "1366" in text
+    # Simpler: no fallback for App IDs anywhere.
+    assert not re.search(r"\|\|\s*secrets\.[A-Z_]*APP_ID", text)
 
 
 def test_publishes_a_verified_commit_via_api_not_git_push() -> None:

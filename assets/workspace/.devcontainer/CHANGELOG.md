@@ -121,8 +121,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **Numeric `DEVKIT_UPGRADE_APP_ID` fallback in `devkit-upgrade.yml`**
+  ([#1366](https://github.com/vig-os/devkit/issues/1366))
+  - The workflow now reads only `DEVKIT_UPGRADE_APP_CLIENT_ID`; the legacy
+    numeric secret is no longer read at all, and its deprecation warning is
+    gone. Every consumer org already carries the Client-ID secret (#1365), so
+    no consumer loses its App identity. The org secret can be retired in
+    org-config once this release is adopted
+
 ### Fixed
 
+- **Sync watermark advanced past a failed push**
+  ([#1757](https://github.com/vig-os/devkit/issues/1757))
+  - `sync-issues.yml` saved its incremental cutoff with `if: always()`, so a
+    failed `Commit and push` step still advanced it and the next run never
+    regenerated the unpushed issues and PRs. The save now runs only when the
+    sync succeeded and the push did not fail; a skipped push (nothing changed)
+    still saves
+- **Stacked PRs ran no CI or CodeQL**
+  ([#1759](https://github.com/vig-os/devkit/issues/1759))
+  - `ci.yml` and `codeql.yml` filtered `pull_request` to `dev`,
+    `release/**` and `main`, so a PR onto a topic branch showed no checks at
+    all. Both now accept any base (`'**'`); `codeql.yml` gains the same
+    concurrency group as `ci.yml`, cancelling superseded runs except on push
+- **Release train deadlocked on its own Dist Check**
+  ([#1745](https://github.com/vig-os/devkit/issues/1745))
+  - A repo with a `bundle` recipe now rebuilds its committed `dist/` when the
+    release is prepared, and the refreshed bundle rides the CHANGELOG freeze
+    commit, so the release PR opens with a fresh artifact instead of failing
+    Dist Check before the candidate can run. Finalize still rebuilds it. The
+    detect-and-build logic moved into a shared managed action,
+    `.github/actions/build-bundle`, which the `release` feature group prunes
+- **`vigos.multiplexer` re-attached a window to an on-screen session**
+  ([#1753](https://github.com/vig-os/devkit/issues/1753))
+  - `detach-on-destroy` is now `no-detached`: killing a session switches the
+    client to a detached session if one exists and otherwise closes the
+    window, instead of showing a project already attached elsewhere
 - **SHA-anchored release-PR check-wait in the smoke gate**
   ([#1737](https://github.com/vig-os/devkit/issues/1737))
   - The smoke listener's `wait-release-pr-ci` job could observe a complete,

@@ -2,7 +2,7 @@
 rfc: ADR-publish-lanes
 date: 2026-09-29
 title: Turnkey publish lanes — one managed top-level publish workflow, repo-owned builds
-status: proposed
+status: accepted
 authors:
   - Lars Gerchow (gerchowl)
 ---

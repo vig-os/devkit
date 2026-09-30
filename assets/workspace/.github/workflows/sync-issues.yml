@@ -197,7 +197,10 @@ jobs:
           FILE_PATHS: ${{ steps.sync.outputs.modified-files }}
 
       - name: Save sync state
-        if: always()
+        # Advance the watermark only once the delta landed (#1757): a failed
+        # push keeps the old cutoff so the next run retries it; a skipped
+        # commit (nothing changed) still saves.
+        if: ${{ steps.sync.outcome == 'success' && steps.commit.outcome != 'failure' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: .sync-state

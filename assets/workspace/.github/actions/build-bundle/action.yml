@@ -1,0 +1,63 @@
+# Managed by vigOS devkit — regenerated on upgrade; local edits are lost.
+# Customize in justfile.project. Bugs / missing tools: https://github.com/vig-os/devkit/issues
+
+name: Build Release Bundle
+description: "Detect and build a committed release artifact (e.g., dist/ from ncc bundling)"
+
+outputs:
+  has_bundle:
+    description: "true if a bundle recipe was detected and built; false otherwise"
+    value: ${{ steps.bundle-detect.outputs.has_bundle }}
+  dist_paths:
+    description: "Comma-separated list of non-ignored dist/ files to commit; empty if no bundle"
+    value: ${{ steps.bundle-build.outputs.dist_paths }}
+
+runs:
+  using: composite
+  steps:
+    # Language-neutral, opt-in release artifact. A repo that ships a committed
+    # build artifact (e.g. a JS Action's @vercel/ncc `dist/`) exposes a
+    # `bundle` just recipe; we detect it via `just --summary` so the step is a
+    # no-op for repos without one (e.g. a pure-Python consumer). No new config
+    # surface — the recipe's presence is the flag (#1029).
+    - name: Detect bundle recipe
+      id: bundle-detect
+      shell: bash
+      run: |
+        set -euo pipefail
+        if just --summary 2>/dev/null | grep -qw bundle; then
+          echo "has_bundle=true" >> "$GITHUB_OUTPUT"
+          echo "Bundle recipe detected; will build and commit dist/."
+        else
+          echo "has_bundle=false" >> "$GITHUB_OUTPUT"
+          echo "No bundle recipe; skipping artifact build (language-neutral release)."
+        fi
+
+    - name: Build release artifact
+      id: bundle-build
+      if: ${{ steps.bundle-detect.outputs.has_bundle == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Install project deps (npm ci / uv sync) so the bundler (e.g. ncc, a
+        # devDependency) is on PATH. The toolchain preamble provisions the
+        # dev-shell but not the repo's node_modules, so `just bundle` alone
+        # exits 127; every other build job syncs first (#1130).
+        just sync
+        # Rebuild the committed artifact from the current sources so the
+        # caller commits a fresh bundle (dist/) alongside CHANGELOG.md.
+        just bundle
+        # Commit only the shipped bundle, not the whole dir. `just bundle`
+        # also emits gitignored tsc/ncc byproducts (dist/src/**, *.tsbuildinfo);
+        # commit-action walks a directory path on disk and force-adds EVERY
+        # file it finds — it never consults .gitignore — so passing bare `dist`
+        # re-tracks those byproducts on every final release (#1159).
+        # `git ls-files -co --exclude-standard` lists tracked + untracked files
+        # that are NOT gitignored (git-add semantics), so only the real bundle
+        # (dist/index.js, dist/licenses.txt) reaches the caller's commit.
+        DIST_PATHS=$(git ls-files -co --exclude-standard -- dist | paste -sd,)
+        if [[ -z "$DIST_PATHS" ]]; then
+          echo "::error::bundle recipe produced no non-ignored files under dist/" >&2
+          exit 1
+        fi
+        echo "dist_paths=$DIST_PATHS" >> "$GITHUB_OUTPUT"
