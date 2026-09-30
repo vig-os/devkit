@@ -734,7 +734,8 @@ fi
 # tolerant) FULL REPLACEMENT of the issue-numbered branch-type set in the
 # no-commit-to-branch pattern, steering the local guard, the flake consumer
 # surface (via the template flake.nix reader), and CI's branch-name gate from
-# this one key. The chore/renovate/worktree clauses are never knob-driven. The
+# this one key. The renovate/worktree clauses are never knob-driven; the
+# issue-less `chore` clause follows the Refs-optional set (#1767). The
 # value lands in a sed replacement AND a regex alternation, so the same strict
 # per-entry charset allowlist as DEVKIT_COMMIT_TYPES is load-bearing. Resolves
 # into RESOLVED_BRANCH_TYPES (stock set when the key is empty) for
@@ -2437,12 +2438,17 @@ render_commit_app_environment() {
 #
 # So this runs for BOTH models and renders the clause FROM the resolved model.
 # Each direction's anchors stop matching once applied, which makes a re-run a
-# no-op: `(?!dev$)` inserts only between `(?!main$)` and `(?!^(chore)`, and each
-# comment substitution rewrites the phrase it matched on. A default gitflow
-# scaffold is therefore byte-identical to the template, drift baseline included.
+# no-op: `(?!dev$)` inserts only between `(?!main$)` and the issue-less clause
+# `(?!^(`, and each comment substitution rewrites the phrase it matched on. A
+# default gitflow scaffold is therefore byte-identical to the template, drift
+# baseline included. The insert anchors on the bare `(?!^(` prefix, never on the
+# `(chore)` literal: render_issueless_branch_types (#1767) rewrites that
+# alternation, and a preserved config carrying a custom set must still regain
+# its dev clause on a switch back to gitflow.
 #
-# Anchors are distinct from render_branch_types' alternation and the two arg-value
-# renders below, so all four compose on the same file.
+# Anchors are distinct from render_branch_types' and
+# render_issueless_branch_types' alternations and the two arg-value renders
+# below, so all five compose on the same file.
 #
 # Basic-regex sed, where `(`, `)` and `?` are literal but `$` and `^` are NOT
 # reliably so: GNU sed 4.10 still treats a MID-pattern `$` as an end anchor, so
@@ -2462,7 +2468,7 @@ render_branch_guard_model() {
     else
         sed -i 's|# Allows main and|# Allows main, dev, and|' "$pc"
         sed -i 's|main is not protected|main/dev are not protected|' "$pc"
-        sed -i 's|(?!main\$)(?!\^(chore)|(?!main$)(?!dev$)(?!^(chore)|' "$pc"
+        sed -i 's|(?!main\$)(?!\^(|(?!main$)(?!dev$)(?!^(|' "$pc"
     fi
     echo "Rendered branch guard: workflow model ${model}"
 }
@@ -2981,6 +2987,36 @@ render_branch_types() {
     local alternation="${RESOLVED_BRANCH_TYPES//,/|}"
     sed -i -E "s#\\(\\?!\\^\\([a-z0-9|]+\\)/\\[0-9\\]#(?!^(${alternation})/[0-9]#" "$pc"
     echo "Rendered branch types: ${RESOLVED_BRANCH_TYPES}"
+}
+
+# Render the issue-less branch form (#1767): every Refs-optional commit type
+# also gets `<type>/<summary>`, generalising the old hardcoded `(chore)` clause
+# of the no-commit-to-branch pattern. DERIVED from RESOLVED_REFS_OPTIONAL_TYPES
+# (never its own key, so a branch may skip the issue only where its commits
+# may), with `chore` as a floor — the sync-main-to-dev and devkit-upgrade bot
+# branches are `chore/<slug>`, so no Refs policy may drop them — and the `none`
+# sentinel dropped. The default and DEVKIT_REFS_POLICY=required therefore
+# resolve to plain `chore`: byte-identical to the template. The IDENTICAL
+# derivation drives the flake consumer surface (issuelessBranchTypesFor in
+# nix/hooks.nix) and CI's branch-name gate (resolve-toolchain's
+# `issueless-branch-types` output) — keep in lockstep. UNCONDITIONAL and
+# idempotent (#1640) on a generic anchor, like render_branch_types: the
+# `(?!^(` prefix plus the `)/[a-z0-9]` suffix pin this one alternation (the
+# issue-numbered clause ends `)/[0-9]`). Charset is already guarded where the
+# Refs set resolves above.
+render_issueless_branch_types() {
+    local pc
+    pc="$(precommit_render_target)" || return 0
+
+    local types="chore" _itype
+    IFS=',' read -ra _itypes <<< "$RESOLVED_REFS_OPTIONAL_TYPES"
+    for _itype in "${_itypes[@]}"; do
+        [[ "$_itype" == "chore" || "$_itype" == "none" ]] && continue
+        types+=",$_itype"
+    done
+
+    sed -i -E "s#\\(\\?!\\^\\([a-z0-9|]+\\)/\\[a-z0-9\\]#(?!^(${types//,/|})/[a-z0-9]#" "$pc"
+    echo "Rendered issue-less branch types: ${types}"
 }
 
 # Warn if forcing (prompt user) - show which files would be overwritten
@@ -3856,6 +3892,10 @@ render_commit_types
 # guard pattern — a distinct anchor from the three renders above, so all
 # compose. No-op for the default.
 render_branch_types
+# Issue-less branch form (#1767): swaps the `(chore)` alternation of the same
+# pattern from the resolved Refs-optional set — its own anchor, distinct from
+# render_branch_types' and render_branch_guard_model's, so all compose.
+render_issueless_branch_types
 # actionlint opt-out (#1660): a whole-block excision, not a value sed, so it runs
 # LAST of the .pre-commit-config.yaml renders — the anchors above no longer need
 # to exist once the block is gone, and any of them landing inside it is moot.

@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Issue-less branch form for every Refs-optional commit type**
+  ([#1767](https://github.com/vig-os/devkit/issues/1767))
+  - Every type in the resolved `DEVKIT_REFS_OPTIONAL_TYPES` set now gets a
+    `<type>/<summary>` branch form, as `chore` already did. With
+    `DEVKIT_REFS_OPTIONAL_TYPES=chore,docs`, `docs/<summary>` is accepted next
+    to `docs/<issue>-<summary>`. There is no new key: a branch may skip the
+    issue only where its commits may
+  - Applies to the scaffolded branch guard, the flake-generated guard and CI's
+    branch-name gate (new `issueless-branch-types` output of
+    `resolve-toolchain`). `chore/<summary>` stays allowed under every policy,
+    `required` included, so the default pattern is unchanged
+  - Consumers on `DEVKIT_REFS_POLICY=optional` exempt every approved type, so
+    every type now gets the issue-less form (e.g. `feat/<summary>`)
 - **DEVKIT_FLAKE_PIN_ADVANCE: advance a pinned devkit flake input on upgrade**
   ([#1752](https://github.com/vig-os/devkit/issues/1752), [#1756](https://github.com/vig-os/devkit/issues/1756))
   - New `.vig-os` key `DEVKIT_FLAKE_PIN_ADVANCE`. With `true`, an

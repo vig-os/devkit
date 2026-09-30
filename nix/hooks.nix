@@ -52,9 +52,14 @@ let
   # Issue-numbered branch-type set (#1432): the ONLY knob-driven clause of the
   # pattern — DEVKIT_BRANCH_TYPES replaces this list (scaffold path:
   # render_branch_types in assets/init-workspace.sh; flake path:
-  # mkProjectShell's `branchTypes`). The chore/renovate/worktree clauses stay
+  # mkProjectShell's `branchTypes`). The renovate/worktree clauses stay
   # fixed. The default must render the pattern byte-identically to the
   # pre-#1432 literal (drift gate + zero-hooks parity).
+  #
+  # Issue-less branch-type set (#1767): the `(chore)` clause is the default
+  # case of `<type>/<summary>` for every Refs-optional commit type. DERIVED
+  # from the resolved Refs exemption (`issuelessBranchTypesFor` below), never
+  # its own knob, so a branch may skip the issue only where its commits may.
   defaultBranchTypes = [
     "feature"
     "bugfix"
@@ -65,14 +70,15 @@ let
     "refactor"
   ];
   branchNamePatternFor =
-    workflow: branchTypes:
+    workflow: branchTypes: issuelessTypes:
     let
       devClause = lib.optionalString (workflow != "trunk") "(?!dev$)";
       typesAlternation = lib.concatStringsSep "|" branchTypes;
+      issuelessAlternation = lib.concatStringsSep "|" issuelessTypes;
     in
-    "^(?!main$)${devClause}(?!^(chore)/[a-z0-9]+(-[a-z0-9]+)*$)(?!^(${typesAlternation})/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$)(?!^renovate/.+$)(?!^worktree/[0-9]+$).+$";
+    "^(?!main$)${devClause}(?!^(${issuelessAlternation})/[a-z0-9]+(-[a-z0-9]+)*$)(?!^(${typesAlternation})/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$)(?!^renovate/.+$)(?!^worktree/[0-9]+$).+$";
   # The gitflow default, used by the committed runner/scaffold YAML renders.
-  branchNamePattern = branchNamePatternFor "gitflow" defaultBranchTypes;
+  branchNamePattern = branchNamePatternFor "gitflow" defaultBranchTypes [ "chore" ];
 
   # ── validate-commit-msg argv (knob-driven; #1431 + #1282 + #1633) ──────
   # The approved commit types (DEVKIT_COMMIT_TYPES, #1431) and the Refs
@@ -116,6 +122,17 @@ let
       "none"
     else
       "chore";
+  # The issue-less branch set (#1767): `chore` as a floor (the sync-main-to-dev
+  # and devkit-upgrade bot branches are `chore/<slug>`, so no Refs policy may
+  # drop them), then every other resolved Refs-optional type, minus the `none`
+  # sentinel. MIRRORS render_issueless_branch_types (assets/init-workspace.sh)
+  # and resolve-toolchain's `issueless-branch-types` output.
+  issuelessBranchTypesFor =
+    refsOptionalTypes: refsPolicy: commitTypes:
+    [ "chore" ]
+    ++ lib.filter (t: t != "chore" && t != "none") (
+      lib.splitString "," (refsOptionalTypesFor refsOptionalTypes refsPolicy commitTypes)
+    );
   validateCommitMsgArgs = refsOptionalTypes: refsPolicy: commitTypes: [
     "--types"
     (lib.concatStringsSep "," commitTypes)
@@ -1127,14 +1144,16 @@ in
     }:
     let
       base = collectFor "consumer" "consumerName" pkgs;
-      # Branch guard: workflow (#1224) and branch-types (#1432) feed one
-      # computation.
-      effectiveBranchTypes = if branchTypes == null then defaultBranchTypes else branchTypes;
-      effectivePattern = branchNamePatternFor workflow effectiveBranchTypes;
       # validate-commit-msg argv: commit-types (#1431) and the Refs policy
       # (#1282) feed one computation, because `optional` mirrors the resolved
       # types list.
       effectiveCommitTypes = if commitTypes == null then defaultCommitTypes else commitTypes;
+      # Branch guard: workflow (#1224), branch-types (#1432) and the
+      # Refs-derived issue-less set (#1767) feed one computation.
+      effectiveBranchTypes = if branchTypes == null then defaultBranchTypes else branchTypes;
+      effectivePattern = branchNamePatternFor workflow effectiveBranchTypes (
+        issuelessBranchTypesFor refsOptionalTypes refsPolicy effectiveCommitTypes
+      );
       effectiveValidateArgs = validateCommitMsgArgs refsOptionalTypes refsPolicy effectiveCommitTypes;
     in
     {

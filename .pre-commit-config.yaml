@@ -14,7 +14,8 @@ repos:
     rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b  # v5.0.0
     hooks:
       # Enforce topic branch naming:
-      # - chore/<short_summary> (no issue required)
+      # - chore/<short_summary> (no issue required; likewise every other
+      #   Refs-optional commit type from DEVKIT_REFS_OPTIONAL_TYPES, #1767)
       # - <type>/<issue_number>-<short_summary> (for feature, bugfix, etc.)
       # - worktree/<issue_number> (autonomous worktree branches)
       # - renovate/* (Renovate's branch namespace; maintainer fix-up commits)
