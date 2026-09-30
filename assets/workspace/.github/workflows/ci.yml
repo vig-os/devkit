@@ -46,7 +46,7 @@
 #   7. summary           — Aggregate results for branch protection
 #
 # Triggers:
-#   - Pull requests to dev, release/**, and main
+#   - Pull requests to any base branch (stacked PRs verified)
 #   - Manual workflow_dispatch
 #
 
@@ -55,9 +55,7 @@ name: CI
 on:  # yamllint disable-line rule:truthy
   pull_request:
     branches:
-      - dev
-      - 'release/**'
-      - main
+      - '**'  # any base is accepted so stacked PRs are verified; concurrency group cancels superseded runs (#1759)
   workflow_dispatch:
     inputs:
       test-suite:
