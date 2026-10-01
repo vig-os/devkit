@@ -14,24 +14,35 @@
 #   render-cell.sh <cell> [<dir>]     render the cell into <dir> (default: a
 #                                     fresh temp dir) and run its gates
 #
-# A cell is a delivery mode, a workflow model and an optional pre-seeded
-# `.vig-os`. Knobs are seeded, never passed as flags: init-workspace.sh has no
+# A cell is a delivery mode, a workflow model, an optional pre-seeded
+# `.vig-os` and an optional language fixture (tests/fixtures/consumer/<lang>/:
+# a zero-dependency hello world plus one test, copied in as the marker files
+# the scaffold detects the language from). Knobs are seeded, never passed as flags: init-workspace.sh has no
 # knob flags, and it treats a directory holding only a dotfile as empty, so a
 # seeded render is the genuine FIRST-scaffold path (not `--force`, which would
 # exercise upgrade semantics instead).
 #
 # Gates, per cell (each runs even when an earlier one failed, so a red cell
 # names every broken gate at once):
-#   seed       every pre-seeded knob survived the render into .vig-os
+#   seed       every pre-seeded knob survived the render into .vig-os, and a
+#              fixture cell's language was detected into DEVKIT_LANGUAGES
+#   flake-check  (direnv-flake only) `nix flake check` of the rendered flake
+#              against THIS checkout (--override-input vigos), then its dev
+#              shell is built; every later gate of the cell runs inside it, so
+#              the flake-generated direnv hooks are the ones exercised
 #   first-commit  the commit-stage hooks over the STAGED scaffold, before the
 #              first commit exists — what a new consumer's first `git commit`
 #              runs (`prek run` without --all-files); skipped like precommit
 #              when the mode ships no .pre-commit-config.yaml
+#   sync       `just sync`, as the consumer's CI runs before lint and test
 #   lint       `just lint`
 #   precommit  `just precommit` (prek over the committed tree, as the
 #              consumer's CI runs it); direnv mode ships no
 #              .pre-commit-config.yaml (its hooks come from flake eval), so
 #              the gate reports itself skipped there
+#   test       `just test`; a fixture cell must also PROVE its suite ran (the
+#              fixture test writes $CONSUMER_MATRIX_SENTINEL), so a recipe that
+#              silently no-ops fails instead of passing green
 #   actionlint actionlint over the rendered .github/workflows (skipped when
 #              the cell disables the actionlint feature, as the consumer does)
 #   zizmor     zizmor over the rendered .github/workflows, with the rendered
@@ -42,7 +53,8 @@
 #              language-guard cell — when it FIRES (#1466)
 #
 # Requires just, uv, prek, actionlint, git and jq on PATH (the devkit dev shell
-# provides them); zizmor runs through `uvx` unless ZIZMOR names a binary.
+# provides them), npm for the node cell and nix for direnv-flake; zizmor runs
+# through `uvx` unless ZIZMOR names a binary.
 
 set -euo pipefail
 
@@ -62,6 +74,10 @@ CELLS=(
     ci-runner
     tag-prefix
     language-guard
+    python
+    node
+    rust
+    direnv-flake
 )
 
 # Every scaffold feature group, read from init-workspace.sh's own enum so a new
@@ -70,17 +86,30 @@ all_features() {
     sed -n 's/^VALID_FEATURES=(\(.*\))$/\1/p' "$INIT_WORKSPACE" | tr ' ' ','
 }
 
-# Set CELL_MODE, CELL_WORKFLOW, CELL_SEED (array of KEY=VALUE lines) and
-# CELL_LANGUAGES_GUARD (hold | fire) for cell $1. Knob cells render `both`, the
-# mode with the widest surface (devcontainer AND flake files, plus the
-# scaffolded hook config).
+# Set CELL_MODE, CELL_WORKFLOW, CELL_SEED (array of KEY=VALUE lines),
+# CELL_LANGUAGES_GUARD (hold | fire), CELL_FIXTURE (language fixture or empty)
+# and CELL_FLAKE (true | false) for cell $1. Knob cells render `both`, the mode
+# with the widest surface (devcontainer AND flake files, plus the scaffolded
+# hook config). Language cells render `bare`, which ships the scaffolded hook
+# config with no mode-specific files, so a red language cell is about the
+# language (the mode axis has its own cells).
 cell_spec() {
     CELL_MODE=""
     CELL_WORKFLOW=gitflow
     CELL_SEED=()
     CELL_LANGUAGES_GUARD=hold
+    CELL_FIXTURE=""
+    CELL_FLAKE=false
     case "$1" in
         direnv | devcontainer | bare) CELL_MODE="$1" ;;
+        python | node | rust)
+            CELL_MODE=bare
+            CELL_FIXTURE="$1"
+            ;;
+        direnv-flake)
+            CELL_MODE=direnv
+            CELL_FLAKE=true
+            ;;
         trunk)
             # `both`, not direnv: direnv ships no .pre-commit-config.yaml, so
             # only a mode with the scaffolded hook config runs the trunk branch
@@ -122,6 +151,9 @@ render_cell() {
         echo "render-cell: refusing to render into non-empty '$ws'" >&2
         return 1
     fi
+    if [[ -n "$CELL_FIXTURE" ]]; then
+        cp -a "$ROOT/tests/fixtures/consumer/$CELL_FIXTURE/." "$ws/"
+    fi
     if ((${#CELL_SEED[@]} > 0)); then
         for line in "${CELL_SEED[@]}"; do
             printf '%s\n' "$line" >>"$ws/.vig-os"
@@ -129,6 +161,10 @@ render_cell() {
     fi
     local -a args=(--no-prompts --mode "$CELL_MODE")
     [[ "$CELL_WORKFLOW" == gitflow ]] || args+=(--workflow "$CELL_WORKFLOW")
+    # A fixture is an EXISTING project adopting devkit: its files make the
+    # directory non-empty, and init-workspace.sh takes that path only with
+    # --force (no .vig-os yet, so nothing is upgraded — an adoption).
+    [[ -z "$CELL_FIXTURE" ]] || args+=(--force)
     # No baked image VERSION outside the image: point VERSION_FILE at a path
     # that does not exist so the template pin stays as shipped.
     version_file="$ws/.consumer-matrix-no-version"
@@ -162,10 +198,19 @@ PY
 }
 
 gate_seed() {
-    local line rc=0
+    local line rc=0 declared
+    if [[ -n "$CELL_FIXTURE" ]]; then
+        declared="$(sed -n 's/^DEVKIT_LANGUAGES=//p' .vig-os)"
+        if [[ "$declared" == "$CELL_FIXTURE" ]]; then
+            echo "detected: DEVKIT_LANGUAGES=$declared"
+        else
+            echo "NOT detected: expected DEVKIT_LANGUAGES=$CELL_FIXTURE, got '$declared'"
+            rc=1
+        fi
+    fi
     if ((${#CELL_SEED[@]} == 0)); then
         echo "no seeded knobs"
-        return 0
+        return "$rc"
     fi
     for line in "${CELL_SEED[@]}"; do
         if grep -qxF -- "$line" .vig-os; then
@@ -178,23 +223,65 @@ gate_seed() {
     return "$rc"
 }
 
+# Run "$@" in the cell's environment: inside the rendered flake's dev shell for
+# a flake cell (built by gate_flake_check), directly otherwise.
+in_shell() {
+    if [[ "$CELL_FLAKE" == true ]]; then
+        nix develop "$CELL_PROFILE" --command "$@"
+    else
+        "$@"
+    fi
+}
+
+# Evaluate the rendered flake against THIS checkout and build its dev shell
+# into $CELL_PROFILE. The vigos override is what makes it this PR's toolchain
+# (precedent: test-project's "Check downstream flake stub"); the rendered
+# flake.nix floats on github:vig-os/devkit and ships no lock, so the lock stays
+# in memory (--no-write-lock-file) and the tree stays clean.
+gate_flake_check() {
+    local -a flake_args=(--override-input vigos "path:$ROOT" --accept-flake-config --no-write-lock-file)
+    nix flake check . "${flake_args[@]}" || return 1
+    nix develop . "${flake_args[@]}" --profile "$CELL_PROFILE" --command true
+}
+
 # Hooks over the staged files only, as `git commit` invokes them: some hooks
 # (check-added-large-files) inspect ADDED files, which a committed tree never
 # has again, so this is the only gate that sees the first-scaffold commit.
+# A flake cell's shell hook installs the generated config on entry, so only a
+# non-flake cell without a scaffolded config skips (direnv-flake covers it).
 gate_first_commit() {
-    if [[ ! -f .pre-commit-config.yaml ]]; then
-        echo "SKIP: no .pre-commit-config.yaml (mode '$CELL_MODE' generates its hooks by flake eval)"
+    if [[ "$CELL_FLAKE" != true && ! -f .pre-commit-config.yaml ]]; then
+        echo "SKIP: no .pre-commit-config.yaml (mode '$CELL_MODE' generates its hooks by flake eval; see direnv-flake)"
         return 0
     fi
-    prek run --hook-stage pre-commit
+    in_shell prek run --hook-stage pre-commit
 }
 
 gate_precommit() {
-    if [[ ! -f .pre-commit-config.yaml ]]; then
-        echo "SKIP: no .pre-commit-config.yaml (mode '$CELL_MODE' generates its hooks by flake eval)"
+    if [[ "$CELL_FLAKE" != true && ! -f .pre-commit-config.yaml ]]; then
+        echo "SKIP: no .pre-commit-config.yaml (mode '$CELL_MODE' generates its hooks by flake eval; see direnv-flake)"
         return 0
     fi
-    just precommit
+    in_shell just precommit
+}
+
+# `just test`, plus — for a fixture cell — proof the fixture suite ran. The
+# recipes guard on a marker file and exit 0 when theirs is absent, so a green
+# `just test` alone cannot tell "tested" from "skipped" (#1466, #1496).
+gate_test() {
+    local sentinel rc=0
+    sentinel="$(mktemp -u "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/consumer-matrix-sentinel.XXXXXX")"
+    CONSUMER_MATRIX_SENTINEL="$sentinel" in_shell just test || rc=$?
+    if ((rc == 0)) && [[ -n "$CELL_FIXTURE" ]]; then
+        if [[ -f "$sentinel" ]]; then
+            echo "fixture suite ran ($(cat "$sentinel"))"
+        else
+            echo "\`just test\` exited 0 but the $CELL_FIXTURE fixture suite never ran (silent no-op)"
+            rc=1
+        fi
+    fi
+    rm -f "$sentinel"
+    return "$rc"
 }
 
 # The consumer's actionlint gate exists only while the actionlint feature is
@@ -256,6 +343,7 @@ run_cell() {
     local -a failed=()
     cell_spec "$cell"
     [[ -n "$ws" ]] || ws="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/consumer-matrix-$cell.XXXXXX")"
+    CELL_PROFILE="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/consumer-matrix-profile.XXXXXX")/dev-profile"
 
     echo "== consumer-matrix cell '$cell' (mode=$CELL_MODE workflow=$CELL_WORKFLOW) in $ws"
     if ! render_cell "$cell" "$ws"; then
@@ -274,7 +362,10 @@ run_cell() {
     # every later gate needs; the commit itself bypasses hooks so a red
     # first-commit gate does not hide the remaining gates' verdicts.
     local -a rows=("| gate | result |" "| --- | --- |")
-    for gate in seed first-commit commit lint precommit actionlint zizmor languages; do
+    local -a gates=(seed)
+    [[ "$CELL_FLAKE" == true ]] && gates+=(flake-check)
+    gates+=(first-commit commit sync lint precommit test actionlint zizmor languages)
+    for gate in "${gates[@]}"; do
         if [[ "$gate" == commit ]]; then
             git -c user.name=consumer-matrix -c user.email=consumer-matrix@invalid \
                 -c commit.gpgsign=false -c core.hooksPath=/dev/null \
@@ -285,9 +376,12 @@ run_cell() {
         rc=0
         case "$gate" in
             seed) gate_seed || rc=$? ;;
+            flake-check) gate_flake_check || rc=$? ;;
             first-commit) gate_first_commit || rc=$? ;;
-            lint) just lint || rc=$? ;;
+            sync) in_shell just sync || rc=$? ;;
+            lint) in_shell just lint || rc=$? ;;
             precommit) gate_precommit || rc=$? ;;
+            test) gate_test || rc=$? ;;
             actionlint) gate_actionlint || rc=$? ;;
             zizmor) gate_zizmor || rc=$? ;;
             languages) gate_languages || rc=$? ;;

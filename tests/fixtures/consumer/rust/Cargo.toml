@@ -1,0 +1,8 @@
+[package]
+name = "consumer_matrix_rust"
+version = "0.1.0"
+edition = "2021"
+description = "Consumer-matrix hello world (devkit #1762)"
+publish = false
+
+[dependencies]

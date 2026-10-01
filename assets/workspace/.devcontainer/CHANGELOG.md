@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     declared language with no marker file that must fail the guard
   - `scripts/consumer-matrix/render-cell.sh` holds the cell list and runs any
     cell locally, as the RC validation recipe
+  - Language cells for python, node and rust adopt a zero-dependency hello
+    world (`tests/fixtures/consumer/`) and run `just sync` and `just test`; the
+    fixture test must prove it ran, so a `just test` that silently skips fails
+  - A `direnv-flake` cell runs `nix flake check` on the rendered flake against
+    the PR's own devkit and runs the direnv cell's gates inside its dev shell,
+    so the flake-generated hooks are exercised too
   - Devkit CI only: nothing changes in what consumers receive
 - **CI extension seam so consumer jobs gate CI Summary**
   ([#1761](https://github.com/vig-os/devkit/issues/1761))
