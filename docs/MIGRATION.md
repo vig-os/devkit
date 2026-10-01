@@ -468,8 +468,10 @@ DEVKIT_COMMIT_APP_ENVIRONMENT=commit-app
 Which jobs get the key: `sync-issues.yml` (`sync`), `prepare-release.yml`
 (`prepare`, `rollback`), `prepare-hotfix.yml` (`prepare`, `rollback`),
 `release.yml` (`rollback`), `release-core.yml` (`finalize`),
-`sync-main-to-dev.yml` (`sync`), and — only in mirror mode
-([#1424](https://github.com/vig-os/devkit/issues/1424)) — the rendered
+`sync-main-to-dev.yml` (`sync`), and — only on a `--smoke-test` scaffold
+([#1793](https://github.com/vig-os/devkit/issues/1793)) — `repository-dispatch.yml`
+(`deploy`), the cross-repo listener's own commit App mint. And — only in mirror
+mode ([#1424](https://github.com/vig-os/devkit/issues/1424)) — the rendered
 `reset-sync-mirror` job in `promote-release.yml`. Workflows your model or your
 `DEVKIT_FEATURES_DISABLED` does not ship are skipped, so the key is safe on any
 shape.
