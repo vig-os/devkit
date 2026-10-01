@@ -339,8 +339,12 @@ summary() {
 }
 
 run_cell() {
-    local cell="$1" ws="${2:-}" gate rc
+    local cell="$1" ws="${2:-}" gate rc start
     local -a failed=()
+    # Per-gate and per-cell wall time, for the job summary: the cells run
+    # concurrently and their logs are printed afterwards, so log timestamps
+    # cannot show where the time went.
+    SECONDS=0
     cell_spec "$cell"
     [[ -n "$ws" ]] || ws="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/consumer-matrix-$cell.XXXXXX")"
     CELL_PROFILE="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/consumer-matrix-profile.XXXXXX")/dev-profile"
@@ -361,7 +365,7 @@ run_cell() {
     # first-commit runs against the index, so it comes before the commit that
     # every later gate needs; the commit itself bypasses hooks so a red
     # first-commit gate does not hide the remaining gates' verdicts.
-    local -a rows=("| gate | result |" "| --- | --- |")
+    local -a rows=("| gate | result | time |" "| --- | --- | --- |")
     local -a gates=(seed)
     [[ "$CELL_FLAKE" == true ]] && gates+=(flake-check)
     gates+=(first-commit commit sync lint precommit test actionlint zizmor languages)
@@ -374,6 +378,7 @@ run_cell() {
         fi
         echo "::group::$cell / $gate"
         rc=0
+        start=$SECONDS
         case "$gate" in
             seed) gate_seed || rc=$? ;;
             flake-check) gate_flake_check || rc=$? ;;
@@ -388,21 +393,21 @@ run_cell() {
         esac
         echo "::endgroup::"
         if ((rc == 0)); then
-            rows+=("| $gate | pass |")
+            rows+=("| $gate | pass | $((SECONDS - start)) s |")
         else
             echo "::error::consumer-matrix cell '$cell': gate '$gate' failed (exit $rc)"
-            rows+=("| $gate | **FAIL** (exit $rc) |")
+            rows+=("| $gate | **FAIL** (exit $rc) | $((SECONDS - start)) s |")
             failed+=("$gate")
         fi
     done
 
     if ((${#failed[@]} > 0)); then
-        summary "### Consumer matrix: \`$cell\` FAILED (${failed[*]})" "" "${rows[@]}" ""
-        echo "== cell '$cell' FAILED: ${failed[*]}"
+        summary "### Consumer matrix: \`$cell\` FAILED (${failed[*]}, ${SECONDS} s)" "" "${rows[@]}" ""
+        echo "== cell '$cell' FAILED: ${failed[*]} (${SECONDS} s)"
         return 1
     fi
-    summary "### Consumer matrix: \`$cell\` passed" "" "${rows[@]}" ""
-    echo "== cell '$cell' passed"
+    summary "### Consumer matrix: \`$cell\` passed (${SECONDS} s)" "" "${rows[@]}" ""
+    echo "== cell '$cell' passed (${SECONDS} s)"
 }
 
 main() {
