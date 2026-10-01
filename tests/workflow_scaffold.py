@@ -38,6 +38,8 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WORKSPACE = REPO_ROOT / "assets" / "workspace"
 WORKFLOWS = WORKSPACE / ".github" / "workflows"
+SMOKE_TEST = REPO_ROOT / "assets" / "smoke-test"
+SMOKE_WORKFLOWS = SMOKE_TEST / ".github" / "workflows"
 INIT_WORKSPACE = REPO_ROOT / "assets" / "init-workspace.sh"
 RESOLVE_ACTION = WORKSPACE / ".github" / "actions" / "resolve-toolchain" / "action.yml"
 
@@ -239,6 +241,7 @@ def scaffold(
     name: str = "workspace",
     check: bool = True,
     preview: bool = False,
+    smoke_test: bool = False,
 ) -> subprocess.CompletedProcess[str]:
     """Scaffold a workspace by executing the real init-workspace.sh.
 
@@ -246,7 +249,9 @@ def scaffold(
     ``workflow`` appends ``--workflow``; ``seed`` pre-populates the workspace
     (to exercise the upgrade path); ``preview`` appends ``--preview`` so the
     run reports the add/overwrite/preserve/delete plan and exits without
-    touching the tree (#886). Returns the CompletedProcess so callers can
+    touching the tree (#886); ``smoke_test`` appends ``--smoke-test``, which
+    overlays ``assets/smoke-test/`` (e.g. ``repository-dispatch.yml``) on top
+    of the rendered workspace. Returns the CompletedProcess so callers can
     assert on exit code / stderr.
     """
     dest = tmp_path / name
@@ -274,6 +279,8 @@ def scaffold(
         args += ["--workflow", workflow]
     if preview:
         args.append("--preview")
+    if smoke_test:
+        args.append("--smoke-test")
 
     return subprocess.run(args, env=env, check=check, capture_output=True, text=True)
 
