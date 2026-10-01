@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tests.workflow_scaffold import (
+    REPO_ROOT,
     WORKFLOWS,
 )
 from tests.workflow_scaffold import (
@@ -424,7 +425,7 @@ def test_invalid_refs_optional_types_warns_loudly(tmp_path: Path) -> None:
 
 # ── Branch types knob + CI branch-name gate (#1432 / #1430) ───────────────────
 # DEVKIT_BRANCH_TYPES replaces the issue-numbered branch-type set that the
-# local no-commit-to-branch guard renders from, and — because the local hook
+# local validate-branch-name guard renders from, and — because the local hook
 # depends on local git config that a fresh clone does not have (#1430) — the
 # same resolved set drives a CI branch-name gate: a commit-checks step
 # validating the PR head ref. The list->output mapping lives once in
@@ -513,7 +514,7 @@ def test_branch_name_step_precedes_commit_validation() -> None:
 # too, so the accepted shapes cannot drift between the two again. Devkit's own
 # ci.yml (the producer, no .vig-os) calls it with the validator's stock
 # defaults, which test_flake_hooks pins to nix/hooks.nix's defaultBranchTypes.
-DEVKIT_CI = WORKFLOWS.parents[2] / ".github" / "workflows" / "ci.yml"
+DEVKIT_CI = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
 
 @pytest.mark.parametrize(

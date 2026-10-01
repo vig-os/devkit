@@ -616,8 +616,8 @@ def trunk_consumer_config() -> dict[str, Any]:
     """Generated config for a trunk-workflow consumer (#1224).
 
     A ``DEVKIT_WORKFLOW=trunk`` workspace has no long-lived ``dev`` branch, so
-    the flake-generated branch guard must drop the ``(?!dev$)`` clause — exactly
-    what ``render_workflow_model`` does to the scaffolded YAML. Mirrors the
+    the flake-generated branch guard must run with ``--workflow=trunk`` — exactly
+    what ``render_branch_guard_model`` does to the scaffolded YAML. Mirrors the
     ``consumer_config`` fixture but threads ``workflow = "trunk"`` (built in
     the same single derivation set, #1417).
     """
@@ -722,6 +722,19 @@ class TestBranchNameHook:
             "--issueless-types": "chore",
             "--workflow": "gitflow",
         }
+
+    def test_validator_defaults_are_the_hooks_nix_defaults(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """Devkit's own CI step passes no type sets and relies on this equality."""
+        from vig_utils.validate_branch_name import (
+            DEFAULT_BRANCH_TYPES,
+            DEFAULT_ISSUELESS_TYPES,
+        )
+
+        args = _branch_args(rendered_portable["runner"])
+        assert args["--types"] == ",".join(DEFAULT_BRANCH_TYPES)
+        assert args["--issueless-types"] == ",".join(DEFAULT_ISSUELESS_TYPES)
 
     def test_stock_argv_semantics(self, rendered_portable: dict[str, Any]) -> None:
         for branch in self.ACCEPTED:
