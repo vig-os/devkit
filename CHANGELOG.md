@@ -129,6 +129,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Promote-release cleanup matches the configured pre-release format**
+  ([#1749](https://github.com/vig-os/devkit/issues/1749))
+  - The scaffolded `promote-release.yml` cleanup job used to prune only
+    `-rc*` candidate tags, so a repo on a non-default
+    `DEVKIT_PRERELEASE_FORMAT` (e.g. `alpha.{N}`, #1746) never got its
+    candidate tags cleaned up. The match is now derived from the resolved
+    format via the new `release-version --list-pattern` CLI mode
+    (`PreReleaseFormat.list_pattern` in vig-utils), reusing the format's
+    existing `re.escape`/placeholder machinery rather than a second parser
+  - A tag from a *previously* configured format (a mid-series switch) is
+    intentionally left alone; the existing "no GitHub Release" guard is
+    unchanged
+  - Scope: the scaffold copy only. Devkit's own
+    `.github/workflows/promote-release.yml` stays on literal `rc{N}` -- it
+    sets no pre-release format and its cleanup also prunes per-arch GHCR
+    `-rcN-<arch>` tags, which a format-generic matcher would not cover
+
 ### Deprecated
 
 ### Removed
