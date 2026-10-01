@@ -22,11 +22,12 @@ _manifest() {
     sed -n "s/^$2=//p" "$1/.vig-os"
 }
 
-@test "list prints exactly the MVP cells, one per line" {
+@test "list prints exactly the cells, one per line" {
     run "$RENDER_CELL" list
     assert_success
     assert_output "$(printf '%s\n' direnv devcontainer bare trunk \
-        features-disabled ci-runner tag-prefix language-guard)"
+        features-disabled ci-runner tag-prefix language-guard \
+        python node rust direnv-flake)"
 }
 
 @test "an unknown cell is refused, naming the known cells" {
@@ -38,7 +39,7 @@ _manifest() {
 
 @test "mode and workflow cells pre-seed nothing" {
     local cell
-    for cell in direnv devcontainer bare trunk; do
+    for cell in direnv devcontainer bare trunk python node rust direnv-flake; do
         run "$RENDER_CELL" seed "$cell"
         assert_success
         assert_output ""
@@ -111,4 +112,100 @@ _manifest() {
     run "$RENDER_CELL" render direnv "$ws"
     assert_failure
     assert_output --partial "refusing to render into non-empty"
+}
+
+@test "language cells render their fixture and the scaffold detects the language" {
+    local lang ws marker
+    for lang in python node rust; do
+        case "$lang" in
+            python) marker=pyproject.toml ;;
+            node) marker=package.json ;;
+            rust) marker=Cargo.toml ;;
+        esac
+        ws="$BATS_TEST_TMPDIR/$lang"
+        PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render "$lang" "$ws"
+        assert_success
+        assert_file_exists "$ws/$marker"
+        assert_equal "$(_manifest "$ws" DEVKIT_LANGUAGES)" "$lang"
+        assert_equal "$(_manifest "$ws" DEVKIT_MODE)" bare
+    done
+}
+
+@test "the node cell gets the npm-mapped justfile.project" {
+    local ws="$BATS_TEST_TMPDIR/node"
+    PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render node "$ws"
+    assert_success
+    run grep -q 'npm test' "$ws/justfile.project"
+    assert_success
+}
+
+@test "every language fixture test can prove it ran" {
+    local lang
+    for lang in python node rust; do
+        run grep -rq CONSUMER_MATRIX_SENTINEL "$PROJECT_ROOT/tests/fixtures/consumer/$lang"
+        assert_success
+    done
+}
+
+@test "direnv-flake renders direnv mode with a flake and flake-generated hooks" {
+    local ws="$BATS_TEST_TMPDIR/direnv-flake"
+    PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render direnv-flake "$ws"
+    assert_success
+    assert_equal "$(_manifest "$ws" DEVKIT_MODE)" direnv
+    assert_file_exists "$ws/flake.nix"
+    assert_file_not_exists "$ws/.pre-commit-config.yaml"
+}
+
+# ── Strict expected-fail (#1496) ─────────────────────────────────────────────
+# The verdict logic is sourced and called directly: the gates themselves need
+# prek/uv/nix, but whether a cell's outcome is an accepted known defect is pure.
+
+_source_render_cell() {
+    # shellcheck source=/dev/null
+    source "$RENDER_CELL"
+}
+
+@test "the rust cell carries the #1496 expected-fail marker, and only it" {
+    _source_render_cell
+    run expected_fail_spec rust
+    assert_success
+    assert_output "test #1496"
+    local cell
+    for cell in $("$RENDER_CELL" list); do
+        [[ "$cell" == rust ]] && continue
+        run expected_fail_spec "$cell"
+        assert_output ""
+    done
+}
+
+@test "expected-fail holds only for the exact silent-no-op failure" {
+    _source_render_cell
+    run cell_verdict rust true test
+    assert_success
+    assert_output --partial "expected-fail (#1496)"
+}
+
+@test "an expected-fail cell that passes fails, asking to drop the marker" {
+    _source_render_cell
+    run cell_verdict rust false
+    assert_failure
+    assert_output --partial "rust now passes — remove the #1496 expected-fail marker"
+}
+
+@test "an expected-fail cell failing any other way is still a failure" {
+    _source_render_cell
+    run cell_verdict rust false test
+    assert_failure
+    run cell_verdict rust true test lint
+    assert_failure
+    run cell_verdict rust false lint
+    assert_failure
+}
+
+@test "unmarked cells pass only with no failed gate" {
+    _source_render_cell
+    run cell_verdict python false
+    assert_success
+    run cell_verdict python true test
+    assert_failure
 }

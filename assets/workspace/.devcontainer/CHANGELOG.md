@@ -19,6 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     declared language with no marker file that must fail the guard
   - `scripts/consumer-matrix/render-cell.sh` holds the cell list and runs any
     cell locally, as the RC validation recipe
+  - Language cells for python, node and rust adopt a zero-dependency hello
+    world (`tests/fixtures/consumer/`) and run `just sync` and `just test`; the
+    fixture test must prove it ran, so a `just test` that silently skips fails
+  - The `rust` cell is a strict expected-fail on
+    [#1496](https://github.com/vig-os/devkit/issues/1496): it passes only while
+    `just test` silently skips the Rust suite, and fails once that is fixed so
+    the marker gets removed
+  - A `direnv-flake` cell runs `nix flake check` on the rendered flake against
+    the PR's own devkit and runs the direnv cell's gates inside its dev shell,
+    so the flake-generated hooks are exercised too
   - Devkit CI only: nothing changes in what consumers receive
 - **`packages.<system>.guardrails`: the vendored gates without a `mkProjectShell` migration**
   ([#1572](https://github.com/vig-os/devkit/issues/1572))
