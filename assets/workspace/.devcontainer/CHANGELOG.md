@@ -13,8 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([#1762](https://github.com/vig-os/devkit/issues/1762))
   - New `Consumer Matrix` job renders consumer variants with the PR's own
     `init-workspace.sh` and runs each rendered consumer's own gates
-    (`just lint`, `just precommit`, actionlint, zizmor, the declared-language
-    guard). Cells: `direnv`, `devcontainer` and `bare` modes, trunk, every
+    (`just lint`, `just precommit`, the commit-stage hooks over the staged
+    first commit, actionlint, zizmor, the declared-language guard). Cells: `direnv`, `devcontainer` and `bare` modes, trunk, every
     feature disabled, a custom `DEVKIT_CI_RUNNER`, `DEVKIT_TAG_PREFIX=v`, and a
     declared language with no marker file that must fail the guard
   - `scripts/consumer-matrix/render-cell.sh` holds the cell list and runs any

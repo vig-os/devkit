@@ -23,6 +23,10 @@
 # Gates, per cell (each runs even when an earlier one failed, so a red cell
 # names every broken gate at once):
 #   seed       every pre-seeded knob survived the render into .vig-os
+#   first-commit  the commit-stage hooks over the STAGED scaffold, before the
+#              first commit exists — what a new consumer's first `git commit`
+#              runs (`prek run` without --all-files); skipped like precommit
+#              when the mode ships no .pre-commit-config.yaml
 #   lint       `just lint`
 #   precommit  `just precommit` (prek over the committed tree, as the
 #              consumer's CI runs it); direnv mode ships no
@@ -53,7 +57,7 @@ CELLS=(
     direnv
     devcontainer
     bare
-    trunk-direnv
+    trunk
     features-disabled
     ci-runner
     tag-prefix
@@ -77,8 +81,11 @@ cell_spec() {
     CELL_LANGUAGES_GUARD=hold
     case "$1" in
         direnv | devcontainer | bare) CELL_MODE="$1" ;;
-        trunk-direnv)
-            CELL_MODE=direnv
+        trunk)
+            # `both`, not direnv: direnv ships no .pre-commit-config.yaml, so
+            # only a mode with the scaffolded hook config runs the trunk branch
+            # guard (the direnv cell still covers direnv mode).
+            CELL_MODE=both
             CELL_WORKFLOW=trunk
             ;;
         features-disabled)
@@ -171,6 +178,17 @@ gate_seed() {
     return "$rc"
 }
 
+# Hooks over the staged files only, as `git commit` invokes them: some hooks
+# (check-added-large-files) inspect ADDED files, which a committed tree never
+# has again, so this is the only gate that sees the first-scaffold commit.
+gate_first_commit() {
+    if [[ ! -f .pre-commit-config.yaml ]]; then
+        echo "SKIP: no .pre-commit-config.yaml (mode '$CELL_MODE' generates its hooks by flake eval)"
+        return 0
+    fi
+    prek run --hook-stage pre-commit
+}
+
 gate_precommit() {
     if [[ ! -f .pre-commit-config.yaml ]]; then
         echo "SKIP: no .pre-commit-config.yaml (mode '$CELL_MODE' generates its hooks by flake eval)"
@@ -248,16 +266,23 @@ run_cell() {
     [[ "$CELL_WORKFLOW" == trunk ]] && branch=main
     git init -q -b "$branch"
     git add -A
-    git -c user.name=consumer-matrix -c user.email=consumer-matrix@invalid \
-        -c commit.gpgsign=false -c core.hooksPath=/dev/null \
-        commit -q -m "chore: initial scaffold"
 
+    # first-commit runs against the index, so it comes before the commit that
+    # every later gate needs; the commit itself bypasses hooks so a red
+    # first-commit gate does not hide the remaining gates' verdicts.
     local -a rows=("| gate | result |" "| --- | --- |")
-    for gate in seed lint precommit actionlint zizmor languages; do
+    for gate in seed first-commit commit lint precommit actionlint zizmor languages; do
+        if [[ "$gate" == commit ]]; then
+            git -c user.name=consumer-matrix -c user.email=consumer-matrix@invalid \
+                -c commit.gpgsign=false -c core.hooksPath=/dev/null \
+                commit -q -m "chore: initial scaffold"
+            continue
+        fi
         echo "::group::$cell / $gate"
         rc=0
         case "$gate" in
             seed) gate_seed || rc=$? ;;
+            first-commit) gate_first_commit || rc=$? ;;
             lint) just lint || rc=$? ;;
             precommit) gate_precommit || rc=$? ;;
             actionlint) gate_actionlint || rc=$? ;;
