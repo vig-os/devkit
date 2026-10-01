@@ -1,0 +1,43 @@
+# Smoke-test override of the shipped no-op (#1761): a real, non-empty
+# extension so the release train live-proves the ci.yml -> ci-extension.yml
+# seam on every deploy PR, rather than leaving scitadel's migration (the
+# issue's first real consumer) as its first test. Redeployed wholesale on
+# every `--smoke-test` run, like the rest of this overlay.
+
+name: CI Extension
+
+on:  # yamllint disable-line rule:truthy
+  workflow_call:
+    inputs:
+      mode:
+        required: false
+        type: string
+      image:
+        required: false
+        type: string
+      image-tag:
+        required: false
+        type: string
+      runner-json:
+        required: false
+        type: string
+        default: '["ubuntu-26.04"]'
+
+permissions:
+  contents: read
+
+jobs:
+  extension:
+    name: Extension Hook (Smoke Check)
+    runs-on: ${{ fromJSON(inputs.runner-json) }}
+    steps:
+      - name: Assert the CI extension seam ran for real (#1761)
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          if [ -z "$MODE" ]; then
+            echo "::error::ci-extension.yml received no 'mode' input — the ci.yml -> ci-extension.yml wiring is broken."
+            exit 1
+          fi
+          echo "CI extension seam live-proven: resolved mode is '$MODE'."

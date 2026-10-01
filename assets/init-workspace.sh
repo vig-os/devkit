@@ -132,6 +132,11 @@ PRESERVE_FILES=(
     # the default no-op with crates.io / PyPI / registry publishes, so an upgrade
     # must never clobber it — same preserved class as the two seams above.
     ".github/workflows/publish-release-extension.yml"
+    # CI extension seam (#1761): the fourth consumer-owned seam, called
+    # unconditionally from the managed ci.yml as the `extension` job and
+    # aggregated by the CI Summary gate — same preserved class as the three
+    # release-process seams above, but for CI rather than release.
+    ".github/workflows/ci-extension.yml"
     "justfile.project"
     # Personal, gitignored recipes (#1054): the file's own header promises it is
     # preserved on upgrade, but it was absent here — so a re-scaffold silently
