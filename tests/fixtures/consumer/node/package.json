@@ -1,0 +1,11 @@
+{
+  "name": "consumer-matrix-node",
+  "version": "0.1.0",
+  "description": "Consumer-matrix hello world (devkit #1762)",
+  "private": true,
+  "main": "index.js",
+  "scripts": {
+    "lint": "node --check index.js",
+    "test": "node --test"
+  }
+}

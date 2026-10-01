@@ -2500,12 +2500,50 @@ render_branch_guard_model() {
 # consumer who clears the key gets the hook back from the template copy on the
 # next --force. Idempotent either way: a second run finds no sentinels.
 render_actionlint_optout() {
-    local pc
+    local pc tmp
     feature_disabled actionlint || return 0
     pc="$(precommit_render_target)" || return 0
     grep -qE '^[[:space:]]*# >>> devkit:actionlint([[:space:]]|$)' "$pc" || return 0
 
-    sed -i -E '/^[[:space:]]*# >>> devkit:actionlint([[:space:]]|$)/,/^[[:space:]]*# <<< devkit:actionlint([[:space:]]|$)/d' "$pc"
+    # The sentinel range deletion alone (sed range-delete, pre-#1800) left the
+    # blank lines flanking the block in place, so the excision produced two
+    # adjacent blank lines — "too many blank lines (2 > 1)" under the
+    # consumer's own yamllint (empty-lines: max 1, #1800). This awk pass does
+    # the same range delete PLUS drops the one blank line immediately BEFORE
+    # the opening sentinel, by deferring every blank line's print by one line
+    # so it can be dropped instead of printed when the very next line turns
+    # out to start the block. Blank runs anywhere else in the file pass
+    # through unchanged (each deferred blank is flushed before the next
+    # non-matching line), so this is scoped to the one seam the excision
+    # creates, not a file-wide blank-line collapse.
+    #
+    # splice_lines's COPY-not-rename note applies here too: the new content is
+    # written to a temp file and copied back over the original so the
+    # consumer's file keeps its mode and inode.
+    tmp="$(mktemp)"
+    awk '
+        /^[[:space:]]*# >>> devkit:actionlint([[:space:]]|$)/ {
+            pending = 0
+            skip = 1
+            next
+        }
+        skip {
+            if ($0 ~ /^[[:space:]]*# <<< devkit:actionlint([[:space:]]|$)/) skip = 0
+            next
+        }
+        /^[[:space:]]*$/ {
+            if (pending) print ""
+            pending = 1
+            next
+        }
+        {
+            if (pending) { print ""; pending = 0 }
+            print
+        }
+        END { if (pending) print "" }
+    ' "$pc" > "$tmp"
+    cat "$tmp" > "$pc"
+    rm -f "$tmp"
     echo "Excised the actionlint hook (feature disabled via DEVKIT_FEATURES_DISABLED, #1660)."
 }
 

@@ -373,6 +373,26 @@ class TestCheckJsonExcludesJsoncBanners:
             assert "renovate" not in exclude, cfg
 
 
+class TestCheckAddedLargeFilesExcludesScaffoldChangelog:
+    """check-added-large-files excludes the scaffold-rendered CHANGELOG.md (#1801).
+
+    The scaffold renders devkit's own CHANGELOG.md into
+    ``.devcontainer/CHANGELOG.md`` (528 KB+ on dev); a fresh consumer's first
+    commit ADDS that file, which ``check-added-large-files``' 500 KB default
+    rejects. The exclude lives in the one shared ``yaml`` (not a scaffold-only
+    override, unlike ``check-json`` above which genuinely differs by surface):
+    devkit's own repo has no ``.devcontainer/`` directory at all, so the
+    identical exclude on the runner render matches nothing there and is an
+    inert no-op — one render, both committed YAMLs.
+    """
+
+    def test_runner_and_scaffold_exclude_the_rendered_changelog(self) -> None:
+        for cfg in (ROOT_CONFIG, SCAFFOLD_CONFIG):
+            hooks = _normalize(yaml.safe_load(cfg.read_text()))["hooks"]
+            exclude = hooks["check-added-large-files"].get("exclude", "")
+            assert re.search(r"\.devcontainer/CHANGELOG\\?\.md", exclude), cfg
+
+
 class TestCommitMsgHookContract:
     """The commit-message validator's shipped argv (Refs #1019).
 

@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Consumer matrix in devkit PR CI**
+  ([#1762](https://github.com/vig-os/devkit/issues/1762))
+  - New `Consumer Matrix` job renders consumer variants with the PR's own
+    `init-workspace.sh` and runs each rendered consumer's own gates
+    (`just lint`, `just precommit`, the commit-stage hooks over the staged
+    first commit, actionlint, zizmor, the declared-language guard). Cells: `direnv`, `devcontainer` and `bare` modes, trunk, every
+    feature disabled, a custom `DEVKIT_CI_RUNNER`, `DEVKIT_TAG_PREFIX=v`, and a
+    declared language with no marker file that must fail the guard
+  - `scripts/consumer-matrix/render-cell.sh` holds the cell list and runs any
+    cell locally, as the RC validation recipe
+  - Language cells for python, node and rust adopt a zero-dependency hello
+    world (`tests/fixtures/consumer/`) and run `just sync` and `just test`; the
+    fixture test must prove it ran, so a `just test` that silently skips fails
+  - The `rust` cell is a strict expected-fail on
+    [#1496](https://github.com/vig-os/devkit/issues/1496): it passes only while
+    `just test` silently skips the Rust suite, and fails once that is fixed so
+    the marker gets removed
+  - A `direnv-flake` cell runs `nix flake check` on the rendered flake against
+    the PR's own devkit and runs the direnv cell's gates inside its dev shell,
+    so the flake-generated hooks are exercised too
+  - Devkit CI only: nothing changes in what consumers receive
+- **`packages.<system>.guardrails`: the vendored gates without a `mkProjectShell` migration**
+  ([#1572](https://github.com/vig-os/devkit/issues/1572))
+  - The guardrails gates derivation (previously reachable only through
+    `mkProjectShell`'s `modules = [ "guardrails" ]`) is now exposed directly
+    as `packages.<system>.guardrails`, for a consumer that owns its own dev
+    shell and pre-commit/prek config and only wants the hermetic gate
+    binaries. Composes with #1492: the consumer's hook config stays
+    consumer-owned
+  - Documented in `docs/NIX.md`: `$out/share/guardrails/gates/test-gates.sh`
+    is the supported way for a consumer to assert gate execution in its own
+    flake
 - **`validate-branch-name`: one branch-name rule for every enforcement point**
   ([#1760](https://github.com/vig-os/devkit/issues/1760))
   - New vig-utils entry point `validate-branch-name` (`--branch`, `--types`,
@@ -139,6 +171,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Promote-release cleanup matches the configured pre-release format**
+  ([#1749](https://github.com/vig-os/devkit/issues/1749))
+  - The scaffolded `promote-release.yml` cleanup job used to prune only
+    `-rc*` candidate tags, so a repo on a non-default
+    `DEVKIT_PRERELEASE_FORMAT` (e.g. `alpha.{N}`, #1746) never got its
+    candidate tags cleaned up. The match is now derived from the resolved
+    format via the new `release-version --list-pattern` CLI mode
+    (`PreReleaseFormat.list_pattern` in vig-utils), reusing the format's
+    existing `re.escape`/placeholder machinery rather than a second parser
+  - A tag from a *previously* configured format (a mid-series switch) is
+    intentionally left alone; the existing "no GitHub Release" guard is
+    unchanged
+  - Scope: the scaffold copy only. Devkit's own
+    `.github/workflows/promote-release.yml` stays on literal `rc{N}` -- it
+    sets no pre-release format and its cleanup also prunes per-arch GHCR
+    `-rcN-<arch>` tags, which a format-generic matcher would not cover
 - **The local branch guard is the `validate-branch-name` hook**
   ([#1760](https://github.com/vig-os/devkit/issues/1760))
   - The scaffolded `.pre-commit-config.yaml` and the flake-generated hook set
@@ -167,6 +215,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Actionlint opt-out left a double blank line that failed yamllint**
+  ([#1800](https://github.com/vig-os/devkit/issues/1800))
+  - `DEVKIT_FEATURES_DISABLED=actionlint` excised the `# >>> devkit:actionlint`
+    … `# <<< devkit:actionlint` block from a rendered `.pre-commit-config.yaml`
+    but left the blank lines flanking it, so the two ends met as two adjacent
+    blank lines — `too many blank lines (2 > 1)` under the scaffold's own
+    `.yamllint` (`empty-lines: max: 1`). The excision now also drops the blank
+    line immediately before the block, scoped to that one seam
+  - A consumer who already hit the bug on a prior render is not repaired by a
+    later upgrade: the excision is sentinel-gated and the sentinels are
+    already gone from an already-excised file, so there is nothing new to
+    trigger on. Fixing the double blank line by hand (or re-adding the hook
+    and re-running the opt-out) clears it
+- **Fresh scaffold's first commit failed `check-added-large-files` on `.devcontainer/CHANGELOG.md`**
+  ([#1801](https://github.com/vig-os/devkit/issues/1801))
+  - The scaffold copies devkit's own, growing `CHANGELOG.md` into
+    `.devcontainer/CHANGELOG.md` (528 KB+ on `dev`), which crossed the hook's
+    500 KB default. `check-added-large-files` now excludes that path; devkit's
+    own repo has no `.devcontainer/` directory, so the exclude is an inert
+    no-op on devkit's own commits
 - **`sync-issues.yml`'s `sync` job ignored `DEVKIT_CI_RUNNER`**
   ([#1795](https://github.com/vig-os/devkit/issues/1795))
   - `resolve-toolchain` now re-exports `runner-json`, and the `sync` job routes

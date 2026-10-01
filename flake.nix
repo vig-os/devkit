@@ -1337,6 +1337,12 @@
           # The #795 SeaweedFS+Postgres local-services PoC (servicesPoC above):
           # `nix run .#services` — pure module eval, cross-platform.
           services = servicesPoC;
+          # The vendored guardrails gates (#1488), surfaced as a stable API for
+          # a consumer that owns its dev shell and pre-commit config and only
+          # wants the hermetic gate binaries — not a `mkProjectShell` migration
+          # (#1572). Compatible with #1492: the hook config stays
+          # consumer-owned, only the binaries' provenance changes.
+          guardrails = guardrailsPkg;
         }
         # The image and its scan targets are Linux-only (dockerTools.* fails to
         # even evaluate on darwin), so expose them only on *-linux systems.

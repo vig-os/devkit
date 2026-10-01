@@ -1,0 +1,12 @@
+[project]
+name = "consumer-matrix-python"
+version = "0.1.0"
+description = "Consumer-matrix hello world (devkit #1762)"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

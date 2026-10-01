@@ -5575,6 +5575,33 @@ assert 'shellcheck' in ids and 'pymarkdown' in ids, ids
     assert_success
 }
 
+@test "the actionlint opt-out leaves no double blank line behind (#1800)" {
+    # The sentinel range deletion left the blank lines on BOTH sides of the
+    # block in place, so excising the block between them produced two adjacent
+    # blank lines — "too many blank lines (2 > 1)" under the scaffold's own
+    # .yamllint (empty-lines: max: 1). Assert the blank-line shape directly
+    # (no two consecutive blank lines anywhere in the rendered file), and, if
+    # yamllint happens to be on PATH (it is a prek-managed hook, not part of
+    # the devkit dev shell, so this is opportunistic rather than guaranteed),
+    # also run it over the rendered file with the scaffold's own config for
+    # the strongest proof.
+    ws="$BATS_TEST_TMPDIR/e2e-1800-optout-blank-lines"
+    mkdir -p "$ws"
+    run _scaffold_seeded both "$ws" "actionlint"
+    assert_success
+
+    run awk '
+        /^[[:space:]]*$/ { if (prev) exit 1; prev = 1; next }
+        { prev = 0 }
+    ' "$ws/.pre-commit-config.yaml"
+    assert_success
+
+    if command -v yamllint >/dev/null 2>&1; then
+        run yamllint -c "$ws/.yamllint" "$ws/.pre-commit-config.yaml"
+        assert_success
+    fi
+}
+
 @test "an existing label config survives the actionlint opt-out (#1660)" {
     # Preserved-class carve-out (#1284): the consumer's own declarations are
     # never deleted by a feature prune, only reported.

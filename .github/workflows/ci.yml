@@ -9,6 +9,7 @@
 #   3. test-integration - Run integration tests
 #   4. project-lint / project-tests / project-bats / project-flake - the four
 #      parallel project lanes (linters, project tests, BATS, flake gates)
+#   4b. consumer-matrix - render consumer variants and run their own gates
 #   5. commit-checks - Commit message + PR title validation (PRs only)
 #   6. security-scan - Container image vulnerability scanning (Trivy)
 #   7. dependency-review - Dependency vulnerability check (PRs only)
@@ -288,6 +289,85 @@ jobs:
           suite: 'flake'
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+  # Consumer matrix (#1762). bats checks the RENDERED FILES; this job renders
+  # consumer variants with this PR's assets/init-workspace.sh and runs each
+  # rendered consumer's OWN gates (just lint, just precommit, actionlint,
+  # zizmor, the #1466 declared-language guard), so a variant that renders the
+  # right files but fails when it runs is caught here instead of at RC time or
+  # in a consumer's adoption PR. scripts/consumer-matrix/render-cell.sh is the
+  # single source of the cells and the gates, and runs the same locally.
+  #
+  # ONE job running the cells, not a matrix job per cell: setup-env costs
+  # ~44 s per job while a cell runs in ~2-40 s, so a per-cell matrix would pay
+  # setup eight times over; the cells run concurrently inside the job instead.
+  # Every cell runs whatever another did (the fail-fast: false equivalent) and
+  # each failing cell is named in the job summary.
+  consumer-matrix:
+    name: Consumer Matrix
+    runs-on: ubuntu-26.04
+    # Cold dev-shell build on a Cachix miss, same headroom as the project lanes.
+    timeout-minutes: 15
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.test-suite == 'all' ||
+      inputs.test-suite == 'project'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up environment
+        uses: ./.github/actions/setup-env
+        with:
+          # step_script reads the rendered workflows with the project's PyYAML.
+          sync-dependencies: 'true'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      # The rendered hook config fetches the same two remote hook repos as the
+      # template's; key on the template so a hook bump re-warms the cache.
+      - name: Cache prek hooks
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/prek
+          key: prek-consumer-${{ runner.os }}-${{ hashFiles('assets/workspace/.pre-commit-config.yaml') }}
+          restore-keys: |
+            prek-consumer-${{ runner.os }}-
+
+      - name: Render and gate every consumer cell
+        run: |
+          set -uo pipefail
+          # Cells run concurrently (a serial loop measured 221 s, putting the
+          # job level with the BATS/flake lanes on the critical path); each
+          # writes its own log, printed in list order once all have finished.
+          LOGS="$RUNNER_TEMP/consumer-matrix-logs"
+          mkdir -p "$LOGS"
+          mapfile -t CELLS < <(scripts/consumer-matrix/render-cell.sh list)
+          PIDS=()
+          for cell in "${CELLS[@]}"; do
+            scripts/consumer-matrix/render-cell.sh "$cell" > "$LOGS/$cell.log" 2>&1 &
+            PIDS+=("$!")
+          done
+          FAILED=()
+          for i in "${!CELLS[@]}"; do
+            wait "${PIDS[$i]}" || FAILED+=("${CELLS[$i]}")
+          done
+          for cell in "${CELLS[@]}"; do
+            cat "$LOGS/$cell.log"
+          done
+          if [[ ${#FAILED[@]} -gt 0 ]]; then
+            {
+              echo "## Consumer matrix: ${#FAILED[@]} cell(s) FAILED"
+              echo ""
+              printf -- '- %s\n' "${FAILED[@]}"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::consumer-matrix failing cell(s): ${FAILED[*]}"
+            exit 1
+          fi
+          echo "## Consumer matrix: all cells passed" >> "$GITHUB_STEP_SUMMARY"
 
   # Commit-message validation (#1019). `validate-commit-msg` is a commit-msg
   # stage hook, so `prek run --all-files` (the project-lint lane) never runs
@@ -579,6 +659,7 @@ jobs:
       - project-tests
       - project-bats
       - project-flake
+      - consumer-matrix
       - commit-checks
       - python-security
       - security-scan
@@ -598,6 +679,7 @@ jobs:
           echo "Project Tests: ${{ needs.project-tests.result }}"
           echo "Project BATS: ${{ needs.project-bats.result }}"
           echo "Project Flake Gates: ${{ needs.project-flake.result }}"
+          echo "Consumer Matrix: ${{ needs.consumer-matrix.result }}"
           echo "Commit Messages: ${{ needs.commit-checks.result }}"
           echo "Python Security: ${{ needs.python-security.result }}"
           echo "Security Scan: ${{ needs.security-scan.result }}"
@@ -645,6 +727,11 @@ jobs:
 
           if [ "${{ needs.project-flake.result }}" = "failure" ] || [ "${{ needs.project-flake.result }}" = "cancelled" ]; then
             echo "ERROR: Project flake gates failed or were cancelled"
+            FAILED=true
+          fi
+
+          if [ "${{ needs.consumer-matrix.result }}" = "failure" ] || [ "${{ needs.consumer-matrix.result }}" = "cancelled" ]; then
+            echo "ERROR: Consumer matrix failed or was cancelled"
             FAILED=true
           fi
 

@@ -129,11 +129,40 @@ class PreReleaseFormat:
             DATE, date
         )
 
-    def _regex(self, date_pattern: str) -> re.Pattern[str]:
+    def _pattern_body(self, counter_group: str, date_pattern: str) -> str:
+        """The format's body as a regex fragment (no anchors, no prefix/version).
+
+        Shared by ``_regex`` (internal matching, needs the counter back via a
+        named group) and ``list_pattern`` (handed to external tools, which
+        must get a plain group instead -- see ``list_pattern``).
+        """
         pattern = re.escape(self.raw)
-        pattern = pattern.replace(re.escape(COUNTER), r"(?P<n>0|[1-9]\d*)")
+        pattern = pattern.replace(re.escape(COUNTER), counter_group)
         pattern = pattern.replace(re.escape(DATE), date_pattern)
-        return re.compile(rf"^{pattern}$", re.ASCII)
+        return pattern
+
+    def _regex(self, date_pattern: str) -> re.Pattern[str]:
+        body = self._pattern_body(r"(?P<n>0|[1-9]\d*)", date_pattern)
+        return re.compile(rf"^{body}$", re.ASCII)
+
+    def list_pattern(self, tag_prefix: str, version: str) -> str:
+        """Anchored regex (as a string) matching this format's tags of ``version``.
+
+        Built on the same ``re.escape``/placeholder-substitution machinery as
+        ``_regex`` -- no second parser -- but restricted to plain POSIX ERE:
+        the pattern is meant for external consumers (jq's ``test()``, a
+        ``grep -E`` filter), and only one of those speaks PCRE. A plain
+        ``(...)`` group replaces ``_regex``'s named ``(?P<n>...)`` (GNU
+        ``grep -E`` warns on ``(?:...)`` and silently mis-parses it), and
+        ``[0-9]`` replaces ``\\d`` (GNU ``grep -E`` does not expand it --
+        verified directly against both tools, not assumed). ``{YYYYMMDD}``
+        matches any 8-digit date. Used by the promote-release cleanup job
+        (#1749) to find candidate tags of the CONFIGURED format only -- a tag
+        from a previously configured format is intentionally not matched.
+        """
+        base = re.escape(f"{tag_prefix}{version}") + "-"
+        body = self._pattern_body(r"(0|[1-9][0-9]*)", r"[0-9]{8}")
+        return rf"^{base}{body}$"
 
     def matches_any_date(self, pre: str) -> bool:
         """``pre`` is a well-formed instance of this format (any date)."""
@@ -167,12 +196,16 @@ def semver_key(version: str) -> tuple:
     return (int(major), int(minor), int(patch), pre_key)
 
 
-def _validate_inputs(version: str, kind: str) -> None:
+def _validate_version(version: str) -> None:
     if not _VERSION_RE.match(version):
         raise ReleaseVersionError(
             f"Invalid version format '{version}': version must follow semantic "
             "versioning MAJOR.MINOR.PATCH (e.g., 1.2.3)"
         )
+
+
+def _validate_inputs(version: str, kind: str) -> None:
+    _validate_version(version)
     if kind not in KINDS:
         raise ReleaseVersionError(
             f"Invalid release kind '{kind}': kind must be one of: {', '.join(KINDS)}"
@@ -311,7 +344,9 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--version", required=True, help="Release version X.Y.Z")
-    parser.add_argument("--kind", required=True, help="candidate | final")
+    parser.add_argument(
+        "--kind", default="", help="candidate | final (required unless --list-pattern)"
+    )
     parser.add_argument(
         "--format",
         default="",
@@ -322,11 +357,38 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--tag-prefix", default="", help="DEVKIT_TAG_PREFIX")
     parser.add_argument("--date", default="", help="UTC date YYYYMMDD (default: today)")
+    parser.add_argument(
+        "--list-pattern",
+        action="store_true",
+        help=(
+            "Print the anchored regex matching --format's tags of --version "
+            "(with --tag-prefix) and exit; reads no stdin, needs no --kind"
+        ),
+    )
     return parser
 
 
+def _list_pattern(args: argparse.Namespace) -> int:
+    try:
+        _validate_version(args.version)
+        fmt = PreReleaseFormat.parse(args.format.strip() or DEFAULT_FORMAT)
+    except ReleaseVersionError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 1
+    print(fmt.list_pattern(args.tag_prefix, args.version))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    args = _build_parser().parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    if args.list_pattern:
+        return _list_pattern(args)
+
+    if not args.kind:
+        parser.error("--kind is required unless --list-pattern is given")
+
     tags = [line.strip() for line in sys.stdin if line.strip()]
     try:
         result = compute_publish_version(
