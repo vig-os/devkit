@@ -67,6 +67,41 @@ def test_dependency_review_stays_hosted() -> None:
     assert workflow["jobs"]["dependency-review"]["runs-on"] == HOSTED_DEFAULT
 
 
+# ── sync-issues.yml's sync job (#1795) ────────────────────────────────────────
+# The daily-cron sync job did its real work on the hosted default regardless of
+# DEVKIT_CI_RUNNER, unlike ci.yml's toolchain jobs. resolve-toolchain now
+# re-exports runner-json here too, and sync routes runs-on through it, exactly
+# like ci.yml's toolchain jobs. Its own resolve-toolchain job stays hosted, same
+# chicken-and-egg reasoning as ci.yml's (#1173).
+
+
+def test_sync_issues_resolve_toolchain_reexports_runner_json() -> None:
+    """sync-issues.yml's resolve-toolchain job maps the action output to a job output."""
+    workflow = _load(WORKFLOWS / "sync-issues.yml")
+    outputs = workflow["jobs"]["resolve-toolchain"]["outputs"]
+    assert outputs.get("runner-json") == "${{ steps.resolve.outputs.runner-json }}"
+
+
+def test_sync_job_uses_runner_json() -> None:
+    """The sync job routes runs-on through the resolved runner, like ci.yml's lanes."""
+    workflow = _load(WORKFLOWS / "sync-issues.yml")
+    assert workflow["jobs"]["sync"]["runs-on"] == RUNNER_JSON_EXPR
+
+
+def test_sync_job_needs_resolve_toolchain() -> None:
+    """The sync job must depend on resolve-toolchain to read its runner-json output."""
+    workflow = _load(WORKFLOWS / "sync-issues.yml")
+    needs = workflow["jobs"]["sync"]["needs"]
+    needs = [needs] if isinstance(needs, str) else list(needs)
+    assert "resolve-toolchain" in needs
+
+
+def test_sync_issues_resolve_toolchain_job_stays_hosted() -> None:
+    """The producer job cannot depend on its own output — it stays hosted."""
+    workflow = _load(WORKFLOWS / "sync-issues.yml")
+    assert workflow["jobs"]["resolve-toolchain"]["runs-on"] == HOSTED_DEFAULT
+
+
 @pytest.mark.parametrize(
     ("runner_value", "expected"),
     [

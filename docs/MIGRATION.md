@@ -285,20 +285,30 @@ DEVKIT_CI_RUNNER=self-hosted,linux,x64,meatgrinder
 of the labels (`["self-hosted","linux","x64","meatgrinder"]`), or
 `["ubuntu-26.04"]` when the key is absent — and the toolchain jobs (`lint`,
 `test`, `commit-checks`) plus the `summary` gate declare
-`runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}`. A single
-label still emits a valid one-element array. The key is persisted across
-re-scaffolds like the other manifest keys, so an upgrade preserves it with no
-flags. Absent => unchanged behavior for every existing consumer
+`runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}`. The
+scaffolded `sync-issues.yml`'s `sync` job (its daily-cron real work) routes
+through its own `resolve-toolchain`'s `runner-json` output the same way, so a
+self-hosted consumer no longer pays for that job on a hosted runner either
+([#1795](https://github.com/vig-os/devkit/issues/1795)). A single label still
+emits a valid one-element array. The key is persisted across re-scaffolds like
+the other manifest keys, so an upgrade preserves it with no flags. Absent =>
+unchanged behavior for every existing consumer
 ([#1173](https://github.com/vig-os/devkit/issues/1173)).
 
-**Limitation — two jobs always stay hosted.** `resolve-toolchain` runs on the
-hosted default because it *produces* `runner-json` (a job cannot depend on its
-own output — chicken-and-egg); it is a seconds-long sparse checkout.
-`dependency-review` also stays hosted: it is public-repo-only (skipped on private
-repos), needs no toolchain, and reads GitHub's dependency-graph API. A consumer
-whose org **cannot run any hosted job at all** therefore still needs those two
-lanes handled separately (e.g. a repo-specific static render); this v1 keeps the
-managed workflow minimal and does not cover that case.
+**Limitation — some jobs always stay hosted.** Every `resolve-toolchain` job
+runs on the hosted default because it *produces* `runner-json` (a job cannot
+depend on its own output — chicken-and-egg); each is a seconds-long sparse
+checkout. There is one per workflow that declares it, so `ci.yml`'s and
+`sync-issues.yml`'s both stay hosted. `dependency-review` also stays hosted: it
+is public-repo-only (skipped on private repos), needs no toolchain, and reads
+GitHub's dependency-graph API. A consumer whose org **cannot run any hosted job
+at all** therefore still needs those lanes handled separately (e.g. a
+repo-specific static render); this v1 keeps the managed workflow minimal and
+does not cover that case.
+
+On a **private** repo each hosted lane is billed as a full minute however short
+it is, so this residual cost scales with the number of scaffolded workflows that
+run rather than with how long they take.
 
 ### Keep the dev-shell gcroot across ephemeral self-hosted jobs
 
@@ -518,7 +528,7 @@ unknown keys:
 | `DEVKIT_ORG` | Persisted organization name (`ORG_NAME`) |
 | `DEVKIT_REPO` | Persisted GitHub `owner/repo` (Renovate preset) |
 | `DEVKIT_MODULES` | Reserved: space-separated capability modules mirroring `mkProjectShell`'s `modules = [ … ]` ([#884](https://github.com/vig-os/devkit/issues/884)) |
-| `DEVKIT_CI_RUNNER` | Comma-separated runner label list for the scaffolded `ci.yml` toolchain jobs; empty (default) => the hosted `ubuntu-26.04` runner ([#1173](https://github.com/vig-os/devkit/issues/1173)) |
+| `DEVKIT_CI_RUNNER` | Comma-separated runner label list for the scaffolded `ci.yml` toolchain jobs and the `sync-issues.yml` `sync` job; empty (default) => the hosted `ubuntu-26.04` runner ([#1173](https://github.com/vig-os/devkit/issues/1173), [#1795](https://github.com/vig-os/devkit/issues/1795)) |
 | `DEVKIT_DEV_PROFILE_PATH` | Absolute path for the direnv-mode dev-shell gcroot profile on the runner host; empty (default) => `$RUNNER_TEMP/devkit-dev-profile`. An ephemeral self-hosted runner sets a persistent path outside its work tree so the closure survives the job (see [Keep the dev-shell gcroot across ephemeral self-hosted jobs](#keep-the-dev-shell-gcroot-across-ephemeral-self-hosted-jobs), [#1601](https://github.com/vig-os/devkit/issues/1601)) |
 | `DEVKIT_SYNC_TARGET` | Branch the scaffolded sync-issues job commits to; empty (default) => the workflow-model default (`dev`/`main`). A protected-`main` consumer sets an unprotected mirror branch, e.g. `sync/issue-mirror` (see [Point sync-issues at an unprotected mirror branch](#point-sync-issues-at-an-unprotected-mirror-branch-protected-main), [#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_SYNC_SCHEDULE` | Cron override (5-field) for the sync-issues schedule trigger; empty (default) => the daily `0 2 * * *` ([#1228](https://github.com/vig-os/devkit/issues/1228)) |

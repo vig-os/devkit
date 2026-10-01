@@ -59,11 +59,12 @@ DEVKIT_PRERELEASE_FORMAT=
 DEVKIT_FLOATING_TAGS=
 
 # CI runner labels for the scaffolded ci.yml toolchain jobs (lint, test,
-# commit-checks) and the summary gate — comma-separated, e.g.
-# `self-hosted,linux,x64,meatgrinder`. Empty (default) => the hosted `ubuntu-26.04`
-# runner (no change for existing consumers). Routed into `runs-on` via
-# resolve-toolchain's `runner-json` output; the resolve-toolchain and
-# dependency-review jobs always stay on the hosted default (#1173).
+# commit-checks), its summary gate, and the sync-issues.yml sync job —
+# comma-separated, e.g. `self-hosted,linux,x64,meatgrinder`. Empty (default) =>
+# the hosted `ubuntu-26.04` runner (no change for existing consumers). Routed
+# into `runs-on` via each workflow's own resolve-toolchain's `runner-json`
+# output; every resolve-toolchain job and the dependency-review job always stay
+# on the hosted default (#1173, #1795).
 DEVKIT_CI_RUNNER=
 
 # Absolute path for the direnv-mode dev-shell gcroot profile on the runner host.
