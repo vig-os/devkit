@@ -25,7 +25,7 @@ _manifest() {
 @test "list prints exactly the MVP cells, one per line" {
     run "$RENDER_CELL" list
     assert_success
-    assert_output "$(printf '%s\n' direnv devcontainer bare trunk-direnv \
+    assert_output "$(printf '%s\n' direnv devcontainer bare trunk \
         features-disabled ci-runner tag-prefix language-guard)"
 }
 
@@ -38,7 +38,7 @@ _manifest() {
 
 @test "mode and workflow cells pre-seed nothing" {
     local cell
-    for cell in direnv devcontainer bare trunk-direnv; do
+    for cell in direnv devcontainer bare trunk; do
         run "$RENDER_CELL" seed "$cell"
         assert_success
         assert_output ""
@@ -85,7 +85,7 @@ _manifest() {
     assert_file_not_exists "$ws/pyproject.toml"
 }
 
-@test "mode cells render their mode; trunk-direnv renders the trunk model" {
+@test "mode cells render their mode; trunk renders the trunk model in both mode" {
     local cell ws
     for cell in direnv devcontainer bare; do
         ws="$BATS_TEST_TMPDIR/$cell"
@@ -94,11 +94,14 @@ _manifest() {
         assert_equal "$(_manifest "$ws" DEVKIT_MODE)" "$cell"
         assert_equal "$(_manifest "$ws" DEVKIT_WORKFLOW)" ""
     done
-    ws="$BATS_TEST_TMPDIR/trunk-direnv"
-    PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render trunk-direnv "$ws"
+    # `both`, not direnv: direnv ships no .pre-commit-config.yaml, so only a
+    # mode with the scaffolded hook config runs the trunk branch guard.
+    ws="$BATS_TEST_TMPDIR/trunk"
+    PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render trunk "$ws"
     assert_success
-    assert_equal "$(_manifest "$ws" DEVKIT_MODE)" direnv
+    assert_equal "$(_manifest "$ws" DEVKIT_MODE)" both
     assert_equal "$(_manifest "$ws" DEVKIT_WORKFLOW)" trunk
+    assert_file_exists "$ws/.pre-commit-config.yaml"
 }
 
 @test "render refuses a non-empty workspace" {
