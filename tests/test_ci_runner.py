@@ -507,6 +507,45 @@ def test_branch_name_step_precedes_commit_validation() -> None:
     assert names.index(BRANCH_NAME_STEP) < names.index(COMMIT_CHECKS_STEP)
 
 
+# ── One branch-name rule (#1760) ──────────────────────────────────────────────
+# The gate no longer spells the rule as its own bash `ALLOWED` alternation: it
+# calls vig-utils' validate-branch-name, the implementation the local hook runs
+# too, so the accepted shapes cannot drift between the two again. Devkit's own
+# ci.yml (the producer, no .vig-os) calls it with the validator's stock
+# defaults, which test_flake_hooks pins to nix/hooks.nix's defaultBranchTypes.
+DEVKIT_CI = WORKFLOWS.parents[2] / ".github" / "workflows" / "ci.yml"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param(WORKFLOWS / "ci.yml", id="scaffold"),
+        pytest.param(DEVKIT_CI, id="devkit"),
+    ],
+)
+def test_branch_name_step_calls_the_shared_validator(path: Path) -> None:
+    run = _branch_name_step(_load(path))["run"]
+    assert "uv run validate-branch-name" in run
+    assert '--branch="${HEAD_REF}"' in run
+    # No second rendering of the rule left behind.
+    assert "ALLOWED" not in run
+    assert "grep" not in run
+    assert "${{" not in run
+
+
+def test_scaffold_branch_name_step_forwards_both_type_sets() -> None:
+    run = _branch_name_step(_load(WORKFLOWS / "ci.yml"))["run"]
+    assert '--types="${BRANCH_TYPES}"' in run
+    assert '--issueless-types="${ISSUELESS_BRANCH_TYPES}"' in run
+
+
+def test_devkit_branch_name_step_restates_no_type_list() -> None:
+    """Devkit's producer CI uses the validator's stock sets, never a copy."""
+    step = _branch_name_step(_load(DEVKIT_CI))
+    assert "--types" not in step["run"]
+    assert "BRANCH_TYPES" not in step.get("env", {})
+
+
 def _run_branch_gate(
     head_ref: str, branch_types: str, issueless_types: str = "chore"
 ) -> int:
