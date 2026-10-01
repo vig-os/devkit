@@ -143,6 +143,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`sync-issues.yml`'s `sync` job ignored `DEVKIT_CI_RUNNER`**
+  ([#1795](https://github.com/vig-os/devkit/issues/1795))
+  - `resolve-toolchain` now re-exports `runner-json`, and the `sync` job routes
+    `runs-on` through it (`${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}`),
+    matching `ci.yml`. A self-hosted consumer's own runner now also carries
+    this daily-cron job instead of paying for it on the hosted default every
+    day regardless of activity. `resolve-toolchain`'s own `runs-on` is
+    unchanged (hosted default, per #1173)
 - **Smoke listener's deploy job unbound from the commit-App environment**
   ([#1793](https://github.com/vig-os/devkit/issues/1793))
   - `repository-dispatch.yml`'s `deploy` job mints the commit App token but was

@@ -52,6 +52,7 @@ jobs:
       mode: ${{ steps.resolve.outputs.mode }}
       image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
+      runner-json: ${{ steps.resolve.outputs.runner-json }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -71,7 +72,7 @@ jobs:
 
   sync:
     needs: [resolve-toolchain]
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
     container:
       image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
