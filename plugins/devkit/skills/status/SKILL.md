@@ -238,19 +238,17 @@ git ls-remote --heads origin dev main
 `DEVKIT_WORKFLOW=trunk` expects `main` only. An **absent** `DEVKIT_WORKFLOW` key means gitflow — the key is
 written back only for trunk. Report a mismatch between the resolved model and the branches that actually exist.
 
-A model switch also leaves the **preserved** `.pre-commit-config.yaml` carrying the other model's branch guard
-(#1642), and an upgrade cannot fix a preserved file. Read the guard's `--pattern`, not its `--branch`:
+The branch guard in the **preserved** `.pre-commit-config.yaml` is the `validate-branch-name` hook (#1760), and
+the upgrade re-renders its `--workflow` arg from the model (#1642). Check it names the resolved model:
 
 ```bash
-grep -n 'no-commit-to-branch' -A8 .pre-commit-config.yaml
+grep -n -- '--workflow=' .pre-commit-config.yaml
 ```
 
-Under `gitflow` the pattern must still exclude `dev` (a `(?!dev$)` clause). If it does not, the manifest says
-gitflow and the repo behaves like trunk — direct commits to `dev` are no longer blocked.
-
-Scope this check to a **consumer** repo. Devkit's own config is deliberately a different shape: it passes
-`--branch __none__` and does the whole job in `--pattern`, so a naive "does it name `dev`" test reports a false
-finding here. Compare the pattern's clauses, never the argument list.
+Under `gitflow` it must read `--workflow=gitflow`, which allows commits on `dev`; `--workflow=trunk` rejects them.
+A config still carrying the pre-#1760 `no-commit-to-branch` hook has a hand-edited pattern the upgrade could not
+fold (it prints `preserved-hook-drift: no-commit-to-branch-pre-1760`) — report it as a second branch rule that
+drifts from CI's.
 
 Also report whether `dev` is behind `main`: `prepare-release.yml` refuses when it is, because the frozen changelog
 section would silently omit whatever `main` carries.
