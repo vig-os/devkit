@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Consumer matrix in devkit PR CI**
+  ([#1762](https://github.com/vig-os/devkit/issues/1762))
+  - New `Consumer Matrix` job renders consumer variants with the PR's own
+    `init-workspace.sh` and runs each rendered consumer's own gates
+    (`just lint`, `just precommit`, actionlint, zizmor, the declared-language
+    guard). Cells: `direnv`, `devcontainer` and `bare` modes, trunk, every
+    feature disabled, a custom `DEVKIT_CI_RUNNER`, `DEVKIT_TAG_PREFIX=v`, and a
+    declared language with no marker file that must fail the guard
+  - `scripts/consumer-matrix/render-cell.sh` holds the cell list and runs any
+    cell locally, as the RC validation recipe
+  - Devkit CI only: nothing changes in what consumers receive
 - **CI extension seam so consumer jobs gate CI Summary**
   ([#1761](https://github.com/vig-os/devkit/issues/1761))
   - New preserved stub `.github/workflows/ci-extension.yml`, called
