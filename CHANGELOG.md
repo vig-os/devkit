@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`packages.<system>.guardrails`: the vendored gates without a `mkProjectShell` migration**
+  ([#1572](https://github.com/vig-os/devkit/issues/1572))
+  - The guardrails gates derivation (previously reachable only through
+    `mkProjectShell`'s `modules = [ "guardrails" ]`) is now exposed directly
+    as `packages.<system>.guardrails`, for a consumer that owns its own dev
+    shell and pre-commit/prek config and only wants the hermetic gate
+    binaries. Composes with #1492: the consumer's hook config stays
+    consumer-owned
+  - Documented in `docs/NIX.md`: `$out/share/guardrails/gates/test-gates.sh`
+    is the supported way for a consumer to assert gate execution in its own
+    flake
 - **CI extension seam so consumer jobs gate CI Summary**
   ([#1761](https://github.com/vig-os/devkit/issues/1761))
   - New preserved stub `.github/workflows/ci-extension.yml`, called
