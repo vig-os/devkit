@@ -16,6 +16,7 @@ Refs: #1746
 from __future__ import annotations
 
 import io
+import re
 import subprocess
 import sys
 
@@ -301,6 +302,82 @@ def test_undotted_rc_series_is_never_refused_by_its_own_tags() -> None:
     assert compute(tags=tags).publish_version == "1.2.3-rc12"
 
 
+# ── list_pattern: the promote-cleanup regex (#1749) ───────────────────────────
+#
+# promote-release.yml's best-effort cleanup used to hardcode
+# `^<prefix>X\.Y\.Z-rc[0-9]+$`. `list_pattern` derives the same shape from the
+# CONFIGURED format, reusing `_regex`'s re.escape/placeholder-substitution
+# machinery rather than a second hand-rolled parser. Unlike `_regex`'s
+# internal counter group (named, for `counter_on` to read back), this pattern
+# is handed verbatim to jq `test()`/`grep -E` by the workflow, neither of
+# which accepts Python's `(?P<name>...)` syntax -- verified directly against
+# both tools, not assumed.
+
+
+def _fmt(raw: str) -> rv.PreReleaseFormat:
+    return rv.PreReleaseFormat.parse(raw)
+
+
+def test_list_pattern_default_format_matches_rc_tags() -> None:
+    """``rc{N}`` must match everything the former ``-rc[0-9]+$`` matched."""
+    pattern = re.compile(_fmt("rc{N}").list_pattern("", "1.2.3"))
+    for tag in ("1.2.3-rc1", "1.2.3-rc9", "1.2.3-rc10", "1.2.3-rc999"):
+        assert pattern.match(tag), tag
+
+
+@pytest.mark.parametrize(
+    "tag",
+    [
+        "1.2.3-rc1-amd64",  # per-arch GHCR suffix (devkit's own copy) never matches
+        "1.2.4-rc1",  # different patch
+        "v1.2.3-rc1",  # unexpected prefix
+        "1.2.3-rc",  # no counter
+        "1.2.3-alpha.1",  # a previous/different format
+    ],
+)
+def test_list_pattern_default_format_rejects_non_matches(tag: str) -> None:
+    pattern = re.compile(_fmt("rc{N}").list_pattern("", "1.2.3"))
+    assert not pattern.match(tag)
+
+
+def test_list_pattern_honors_tag_prefix() -> None:
+    pattern = re.compile(_fmt("rc{N}").list_pattern("v", "1.2.3"))
+    assert pattern.match("v1.2.3-rc1")
+    assert not pattern.match("1.2.3-rc1")  # bare tag is a different namespace
+
+
+def test_list_pattern_dotted_alpha_format() -> None:
+    pattern = re.compile(_fmt("alpha.{N}").list_pattern("", "0.1.0"))
+    assert pattern.match("0.1.0-alpha.1")
+    assert pattern.match("0.1.0-alpha.12")
+    assert not pattern.match("0.1.0-rc1")  # a previous format is left alone
+
+
+def test_list_pattern_date_stamped_format() -> None:
+    pattern = re.compile(_fmt("pre.{YYYYMMDD}").list_pattern("", "1.2.3"))
+    assert pattern.match("1.2.3-pre.20260928")
+    assert not pattern.match("1.2.3-pre.2026092")  # short date
+    assert not pattern.match("1.2.3-pre.202609288")  # long date
+
+
+def test_list_pattern_escapes_regex_metacharacters_in_prefix_and_version() -> None:
+    """A dotted prefix/version must match literally, not as "any character"."""
+    pattern = re.compile(_fmt("rc{N}").list_pattern("rel.", "1.2.3"))
+    assert pattern.match("rel.1.2.3-rc1")
+    assert not pattern.match("relX1X2X3-rc1")
+
+
+def test_list_pattern_has_no_named_group() -> None:
+    """jq ``test()`` and ``grep -E`` both reject Python's ``(?P<name>...)``."""
+    pattern = _fmt("rc{N}").list_pattern("", "1.2.3")
+    assert "?P<" not in pattern
+
+
+def test_list_pattern_rejects_invalid_format() -> None:
+    with pytest.raises(rv.ReleaseVersionError, match="format"):
+        _fmt("rc_{N}")
+
+
 # ── SemVer precedence helper ──────────────────────────────────────────────────
 
 
@@ -377,6 +454,58 @@ def test_main_reports_error_and_exits_nonzero(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "ERROR" in captured.err
+
+
+def test_main_list_pattern_prints_pattern_without_reading_stdin(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class _ExplodingStdin:
+        def __iter__(self) -> _ExplodingStdin:
+            raise AssertionError("--list-pattern must not read stdin")
+
+    monkeypatch.setattr(sys, "stdin", _ExplodingStdin())
+    rc = rv.main(
+        [
+            "--list-pattern",
+            "--version",
+            "1.2.3",
+            "--format",
+            "alpha.{N}",
+            "--tag-prefix",
+            "v",
+        ]
+    )
+    assert rc == 0
+    out = capsys.readouterr().out.strip()
+    assert out == rv.PreReleaseFormat.parse("alpha.{N}").list_pattern("v", "1.2.3")
+
+
+def test_main_list_pattern_defaults_format_when_empty(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+    rc = rv.main(["--list-pattern", "--version", "1.2.3", "--format", ""])
+    assert rc == 0
+    pattern = re.compile(capsys.readouterr().out.strip())
+    assert pattern.match("1.2.3-rc1")
+
+
+def test_main_list_pattern_reports_error_for_invalid_format(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rc = rv.main(["--list-pattern", "--version", "1.2.3", "--format", "rc_{N}"])
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "ERROR" in captured.err
+
+
+def test_main_requires_kind_unless_list_pattern(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit):
+        rv.main(["--version", "1.2.3"])
+    assert "--kind" in capsys.readouterr().err
 
 
 def test_console_script_is_installed() -> None:
