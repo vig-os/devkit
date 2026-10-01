@@ -155,3 +155,57 @@ _manifest() {
     assert_file_exists "$ws/flake.nix"
     assert_file_not_exists "$ws/.pre-commit-config.yaml"
 }
+
+# ── Strict expected-fail (#1496) ─────────────────────────────────────────────
+# The verdict logic is sourced and called directly: the gates themselves need
+# prek/uv/nix, but whether a cell's outcome is an accepted known defect is pure.
+
+_source_render_cell() {
+    # shellcheck source=/dev/null
+    source "$RENDER_CELL"
+}
+
+@test "the rust cell carries the #1496 expected-fail marker, and only it" {
+    _source_render_cell
+    run expected_fail_spec rust
+    assert_success
+    assert_output "test #1496"
+    local cell
+    for cell in $("$RENDER_CELL" list); do
+        [[ "$cell" == rust ]] && continue
+        run expected_fail_spec "$cell"
+        assert_output ""
+    done
+}
+
+@test "expected-fail holds only for the exact silent-no-op failure" {
+    _source_render_cell
+    run cell_verdict rust true test
+    assert_success
+    assert_output --partial "expected-fail (#1496)"
+}
+
+@test "an expected-fail cell that passes fails, asking to drop the marker" {
+    _source_render_cell
+    run cell_verdict rust false
+    assert_failure
+    assert_output --partial "rust now passes — remove the #1496 expected-fail marker"
+}
+
+@test "an expected-fail cell failing any other way is still a failure" {
+    _source_render_cell
+    run cell_verdict rust false test
+    assert_failure
+    run cell_verdict rust true test lint
+    assert_failure
+    run cell_verdict rust false lint
+    assert_failure
+}
+
+@test "unmarked cells pass only with no failed gate" {
+    _source_render_cell
+    run cell_verdict python false
+    assert_success
+    run cell_verdict python true test
+    assert_failure
+}
