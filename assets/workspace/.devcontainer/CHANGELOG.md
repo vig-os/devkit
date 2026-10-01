@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **CI extension seam so consumer jobs gate CI Summary**
+  ([#1761](https://github.com/vig-os/devkit/issues/1761))
+  - New preserved stub `.github/workflows/ci-extension.yml`, called
+    unconditionally from the managed `ci.yml` as the `extension` job — no
+    opt-in knob, so a consumer's own CI jobs can never be silently skipped.
+    `summary` (`CI Summary`) lists it in `needs:` and fails on `failure` or
+    `cancelled`, exactly like every other lane
+  - Every `workflow_call` input (`mode`, `image`, `image-tag`, `runner-json`)
+    is `required: false`; the stub's `runs-on` resolves from
+    `fromJSON(inputs.runner-json)` rather than a literal label
+  - The smoke-test deploy overlay ships a real, non-empty extension so the
+    seam is live-proven by the release train
 - **Issue-less branch form for every Refs-optional commit type**
   ([#1767](https://github.com/vig-os/devkit/issues/1767))
   - Every type in the resolved `DEVKIT_REFS_OPTIONAL_TYPES` set now gets a

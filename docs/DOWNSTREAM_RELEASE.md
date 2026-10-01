@@ -474,6 +474,23 @@ Invariants:
 - **Make every step idempotent:** check whether the registry already has the version and skip it, so a `workflow_dispatch` retry after a transient failure completes the job instead of failing on the first already-published artefact.
 - Pre-release tags (`X.Y.Z-alpha.1`, …) also fire the event when their draft pre-release is published; branch on `needs.resolve.outputs.prerelease` if a registry should only receive finals.
 
+## CI Extension Hook
+
+Project-specific CI checks belong in `.github/workflows/ci-extension.yml` ([#1761](https://github.com/vig-os/devkit/issues/1761)) — a fourth project-owned seam next to the three release-process ones above, but called from the managed `ci.yml` rather than the release orchestrator. Default template behavior is no-op; the file is preserved on upgrades.
+
+`ci.yml` calls it **unconditionally**, as a job named `extension` — there is no opt-in knob. A knob would reintroduce exactly the failure this seam exists to prevent: a consumer writes real jobs into the stub, forgets to flip the flag, and the job is silently skipped while red checks merge. The one hosted no-op runner this costs every PR is the accepted price, and the three release extensions above are always called too.
+
+Contract inputs — every one `required: false`, so devkit can add an input later without breaking a consumer's existing copy:
+
+- `mode` — resolved delivery mode (`devcontainer`/`direnv`/`both`/`bare`)
+- `image` — resolved container image (empty string in the host modes)
+- `image-tag` — resolved devkit image tag
+- `runner-json` — JSON array of runner labels (`DEVKIT_CI_RUNNER`); the stub's own `runs-on: ${{ fromJSON(inputs.runner-json) }}` takes its runner from this input rather than a literal label (actionlint does not know every hosted label, so a literal fails the moment you start editing the stub) and carries a safe default so the job still resolves on a direct call
+
+`summary` (`CI Summary`, the sole required check) lists `extension` in its `needs:` and fails the gate on `failure` or `cancelled`, exactly like every other lane — a failing or cancelled extension blocks the merge.
+
+**Permissions:** `ci.yml`'s caller job grants `contents: read, packages: read` — the same read-only ceiling as the rest of CI; no consumer needs more today. The shipped default no-op stays within it.
+
 ## Cross-Repo Validation Gate
 
 Cross-repository validation gate details are documented in `docs/CROSS_REPO_RELEASE_GATE.md`.
