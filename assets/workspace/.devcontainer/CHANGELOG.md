@@ -156,6 +156,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     already gone from an already-excised file, so there is nothing new to
     trigger on. Fixing the double blank line by hand (or re-adding the hook
     and re-running the opt-out) clears it
+- **Fresh scaffold's first commit failed `check-added-large-files` on `.devcontainer/CHANGELOG.md`**
+  ([#1801](https://github.com/vig-os/devkit/issues/1801))
+  - The scaffold copies devkit's own, growing `CHANGELOG.md` into
+    `.devcontainer/CHANGELOG.md` (528 KB+ on `dev`), which crossed the hook's
+    500 KB default. `check-added-large-files` now excludes that path; devkit's
+    own repo has no `.devcontainer/` directory, so the exclude is an inert
+    no-op on devkit's own commits
 - **`sync-issues.yml`'s `sync` job ignored `DEVKIT_CI_RUNNER`**
   ([#1795](https://github.com/vig-os/devkit/issues/1795))
   - `resolve-toolchain` now re-exports `runner-json`, and the `sync` job routes
