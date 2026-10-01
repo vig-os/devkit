@@ -79,6 +79,12 @@ file before proposing a type outside the table. The stock issue-numbered set
 is `feature,bugfix,hotfix,release,docs,test,refactor`
 ([#1432](https://github.com/vig-os/devkit/issues/1432)).
 
+Both enforcement points — the local `validate-branch-name` pre-commit hook and
+CI's branch-name gate — run the same vig-utils `validate-branch-name`, which
+also admits `main`, `dev` (gitflow), `worktree/<issue>`, `renovate/*` and
+`release/X.Y.Z` ([#1760](https://github.com/vig-os/devkit/issues/1760)). Check
+the current branch with `prek run validate-branch-name`.
+
 ## One-off branch name only
 
 When the user only wants a branch name suggestion (no "create" or "start work"), propose the name in the format above and do not run the full workflow.

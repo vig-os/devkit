@@ -1240,7 +1240,7 @@ class TestDevContainerCLI:
                 f"stderr: {result.stderr}"
             )
             output = (result.stdout + result.stderr).lower()
-            assert "branch" in output or "no-commit-to-branch" in output, (
+            assert "branch" in output or "validate-branch-name" in output, (
                 f"Expected branch-name hook failure in output\n"
                 f"stdout: {result.stdout}\nstderr: {result.stderr}"
             )

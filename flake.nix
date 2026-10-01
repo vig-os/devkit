@@ -293,19 +293,19 @@
           hooks ? null,
           hooksExcludes ? [ ],
           # Workflow model (#1224): gitflow (default) | trunk. Tunes the
-          # flake-generated branch guard so a trunk consumer's
-          # no-commit-to-branch pattern drops the `(?!dev$)` clause, mirroring
-          # what render_workflow_model does to the scaffolded config. The
+          # flake-generated branch guard's `--workflow` arg (a trunk consumer
+          # has no `dev` branch to allow), mirroring what
+          # render_branch_guard_model does to the scaffolded config. The
           # scaffold template reads this from the workspace `.vig-os`
           # DEVKIT_WORKFLOW and forwards it here. Inert for gitflow.
           workflow ? "gitflow",
           # Branch-type set (#1432): null (default) keeps the stock
-          # issue-numbered alternation in the flake-generated branch guard; a
-          # list of type strings replaces it, mirroring what
+          # issue-numbered set in the flake-generated branch guard's `--types`
+          # arg; a list of type strings replaces it, mirroring what
           # render_branch_types does to the scaffolded config. The scaffold
           # template reads this from the workspace `.vig-os`
           # DEVKIT_BRANCH_TYPES and forwards it here. Validated below —
-          # entries reach a regex alternation, so the charset is load-bearing.
+          # entries reach the validator's regex, so the charset is load-bearing.
           branchTypes ? null,
           # Approved commit types (#1431): null (default) keeps the stock 11 in
           # the flake-generated validate-commit-msg hook; a list of type
@@ -692,7 +692,7 @@
           "gitflow"
           "trunk"
         ]) "mkProjectShell: workflow must be \"gitflow\" or \"trunk\", got \"${workflow}\"";
-        # branchTypes (#1432): entries land inside the branch guard's regex
+        # branchTypes (#1432): entries land inside validate-branch-name's regex
         # alternation, so refuse anything but a non-empty list of lowercase
         # alphanumeric type names — loudly, at eval time.
         assert pkgs.lib.assertMsg

@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tests.workflow_scaffold import (
+    REPO_ROOT,
     WORKFLOWS,
 )
 from tests.workflow_scaffold import (
@@ -424,7 +425,7 @@ def test_invalid_refs_optional_types_warns_loudly(tmp_path: Path) -> None:
 
 # ── Branch types knob + CI branch-name gate (#1432 / #1430) ───────────────────
 # DEVKIT_BRANCH_TYPES replaces the issue-numbered branch-type set that the
-# local no-commit-to-branch guard renders from, and — because the local hook
+# local validate-branch-name guard renders from, and — because the local hook
 # depends on local git config that a fresh clone does not have (#1430) — the
 # same resolved set drives a CI branch-name gate: a commit-checks step
 # validating the PR head ref. The list->output mapping lives once in
@@ -505,6 +506,45 @@ def test_branch_name_step_precedes_commit_validation() -> None:
     workflow = _load(WORKFLOWS / "ci.yml")
     names = [step.get("name") for step in workflow["jobs"]["commit-checks"]["steps"]]
     assert names.index(BRANCH_NAME_STEP) < names.index(COMMIT_CHECKS_STEP)
+
+
+# ── One branch-name rule (#1760) ──────────────────────────────────────────────
+# The gate no longer spells the rule as its own bash `ALLOWED` alternation: it
+# calls vig-utils' validate-branch-name, the implementation the local hook runs
+# too, so the accepted shapes cannot drift between the two again. Devkit's own
+# ci.yml (the producer, no .vig-os) calls it with the validator's stock
+# defaults, which test_flake_hooks pins to nix/hooks.nix's defaultBranchTypes.
+DEVKIT_CI = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param(WORKFLOWS / "ci.yml", id="scaffold"),
+        pytest.param(DEVKIT_CI, id="devkit"),
+    ],
+)
+def test_branch_name_step_calls_the_shared_validator(path: Path) -> None:
+    run = _branch_name_step(_load(path))["run"]
+    assert "uv run validate-branch-name" in run
+    assert '--branch="${HEAD_REF}"' in run
+    # No second rendering of the rule left behind.
+    assert "ALLOWED" not in run
+    assert "grep" not in run
+    assert "${{" not in run
+
+
+def test_scaffold_branch_name_step_forwards_both_type_sets() -> None:
+    run = _branch_name_step(_load(WORKFLOWS / "ci.yml"))["run"]
+    assert '--types="${BRANCH_TYPES}"' in run
+    assert '--issueless-types="${ISSUELESS_BRANCH_TYPES}"' in run
+
+
+def test_devkit_branch_name_step_restates_no_type_list() -> None:
+    """Devkit's producer CI uses the validator's stock sets, never a copy."""
+    step = _branch_name_step(_load(DEVKIT_CI))
+    assert "--types" not in step["run"]
+    assert "BRANCH_TYPES" not in step.get("env", {})
 
 
 def _run_branch_gate(

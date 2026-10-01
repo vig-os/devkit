@@ -496,7 +496,7 @@ enables it for itself.
   render and carry no gate profile in `nix/hooks.nix`: the generators
   `generate-docs`/`sync-manifest`, `pip-licenses` (reads `uv.lock`),
   `check-unreleased-typos` (a repo script over this repo's own `CHANGELOG.md`,
-  #1534), `no-commit-to-branch` and `destroyed-symlinks`
+  #1534), `validate-branch-name` and `destroyed-symlinks`
   (git-state-dependent), `check-agent-identity` (inspects the commit
   author/committer), and the `commit-msg`/`prepare-commit-msg`-stage hooks (never
   run by `--all-files`). `checks.pre-commit` is thus a Nix-verified guarantee that

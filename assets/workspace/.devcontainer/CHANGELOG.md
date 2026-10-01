@@ -41,6 +41,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Documented in `docs/NIX.md`: `$out/share/guardrails/gates/test-gates.sh`
     is the supported way for a consumer to assert gate execution in its own
     flake
+- **`validate-branch-name`: one branch-name rule for every enforcement point**
+  ([#1760](https://github.com/vig-os/devkit/issues/1760))
+  - New vig-utils entry point `validate-branch-name` (`--branch`, `--types`,
+    `--issueless-types`, `--workflow`; pure arguments, no `.vig-os` reads). It
+    accepts `main`, `dev` (gitflow), `<issueless-type>/<summary>`,
+    `<type>/<issue>-<summary>`, `worktree/<issue>`, `renovate/*` and
+    `release/X.Y.Z`; a detached HEAD passes with a note
+  - The scaffolded and devkit CI `Validate branch name` steps now call it
+    instead of hand-kept bash alternations, so the local and CI gates can no
+    longer disagree on shape
 - **CI extension seam so consumer jobs gate CI Summary**
   ([#1761](https://github.com/vig-os/devkit/issues/1761))
   - New preserved stub `.github/workflows/ci-extension.yml`, called
@@ -177,6 +187,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `.github/workflows/promote-release.yml` stays on literal `rc{N}` -- it
     sets no pre-release format and its cleanup also prunes per-arch GHCR
     `-rcN-<arch>` tags, which a format-generic matcher would not cover
+- **The local branch guard is the `validate-branch-name` hook**
+  ([#1760](https://github.com/vig-os/devkit/issues/1760))
+  - The scaffolded `.pre-commit-config.yaml` and the flake-generated hook set
+    replace pre-commit-hooks' `no-commit-to-branch` regex with a `repo: local`
+    `validate-branch-name` hook; `DEVKIT_BRANCH_TYPES`, the Refs-optional set
+    and `DEVKIT_WORKFLOW` now render its `--types`, `--issueless-types` and
+    `--workflow` args. `release/X.Y.Z` branches now pass locally, as they did
+    in CI
+  - The upgrade folds every rendered shape of the old hook in a preserved
+    config into the new one, reported as
+    `preserved-hook-fold: no-commit-to-branch-pre-1760`. A hand-edited
+    pattern is left in place and reported as
+    `preserved-hook-drift: no-commit-to-branch-pre-1760`
 
 ### Deprecated
 

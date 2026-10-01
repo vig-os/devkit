@@ -106,6 +106,8 @@ Additionally, the CI validator skips two classes of commit outright:
 
 Because `commit-msg` is a stage-gated hook, `prek run --all-files` does **not** run it — CI enforcement comes from the `commit-checks` job, not from the lint lane.
 
+Branch names follow the same two-gate pattern: the `validate-branch-name` pre-commit hook and the `commit-checks` job's `Validate branch name` step run one vig-utils validator, so the two cannot disagree ([#1760](https://github.com/vig-os/devkit/issues/1760)); the branch-naming skill documents the shapes.
+
 ## Compliance note
 
 This standard supports:

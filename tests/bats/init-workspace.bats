@@ -3014,9 +3014,9 @@ _upgrade_no_flags() {
     # (a) the refs policy rendered the full types list
     run grep -qF '"--refs-optional-types", "feat,fix,docs,chore,refactor,perf,test,ci,build,revert,style",' "$ws/.pre-commit-config.yaml"
     assert_success
-    # (b) the trunk render still dropped the dev protect-clause on the same file
-    run grep -qF '(?!dev$)' "$ws/.pre-commit-config.yaml"
-    assert_failure
+    # (b) the trunk render still set the branch guard's model on the same file
+    run grep -qF -- '- --workflow=trunk' "$ws/.pre-commit-config.yaml"
+    assert_success
 }
 
 # ── Commit types knob (#1431) ─────────────────────────────────────────────────
@@ -3192,14 +3192,13 @@ _render_then_clear() {
     assert_success
 }
 
-@test "clearing DEVKIT_BRANCH_TYPES restores the stock branch alternation (#1640)" {
-    # This render is anchored on the literal STOCK alternation, so restoring it
-    # needs a GENERIC anchor as well as an unconditional call — once a custom
-    # set is in the file the stock-literal anchor can never match again.
+@test "clearing DEVKIT_BRANCH_TYPES restores the stock branch types (#1640)" {
+    # The render needs a GENERIC anchor as well as an unconditional call — once
+    # a custom set is in the file a stock-literal anchor could never match again.
     ws="$BATS_TEST_TMPDIR/e2e-1640-branch-types"
     run _render_then_clear "$ws" DEVKIT_BRANCH_TYPES feature,bugfix,record
     assert_success
-    run grep -qF '(feature|bugfix|hotfix|release|docs|test|refactor)/[0-9]' "$ws/.pre-commit-config.yaml"
+    run grep -qxF -- "${STOCK_BRANCH_TYPES_ARG}" "$ws/.pre-commit-config.yaml"
     assert_success
 }
 
@@ -3252,10 +3251,11 @@ _render_then_clear() {
 # file it touches but .pre-commit-config.yaml is MANAGED, so the template
 # overwrite restores the gitflow shape and the one-way render is harmless there.
 # .pre-commit-config.yaml is PRESERVED, so switching a consumer back to gitflow
-# left the dev-branch guard silently stripped — no-commit-to-branch stopped
-# blocking direct commits to `dev` on a repo whose manifest says gitflow. The
-# dev clause must be rendered FROM the resolved model in both directions, and
-# idempotently. Last instance of the #1640 class.
+# left the dev-branch guard silently stripped — the branch guard stopped
+# allowing commits on `dev` on a repo whose manifest says gitflow. The model
+# (validate-branch-name's --workflow arg since #1760) must be rendered FROM the
+# resolved model in both directions, and idempotently. Last instance of the
+# #1640 class.
 
 # Flip DEVKIT_WORKFLOW in a scaffolded workspace and re-upgrade.
 _switch_workflow() {
@@ -3271,16 +3271,16 @@ _switch_workflow() {
     assert_success
     run _switch_workflow "$ws" trunk
     assert_success
-    # Trunk still strips it (the direction that already worked).
-    run grep -qF '(?!dev$)' "$ws/.pre-commit-config.yaml"
-    assert_failure
+    # Trunk renders its model (the direction that already worked).
+    run grep -qxF -- '          - --workflow=trunk' "$ws/.pre-commit-config.yaml"
+    assert_success
     run _switch_workflow "$ws" gitflow
     assert_success
-    # ... and switching back restores both the clause and its comment.
-    run grep -qF '(?!main$)(?!dev$)(?!^(chore)' "$ws/.pre-commit-config.yaml"
+    # ... and switching back restores the gitflow model.
+    run grep -qxF -- '          - --workflow=gitflow' "$ws/.pre-commit-config.yaml"
     assert_success
-    run grep -qF '# Allows main, dev, and branches matching the convention.' "$ws/.pre-commit-config.yaml"
-    assert_success
+    run grep -qF -- '--workflow=trunk' "$ws/.pre-commit-config.yaml"
+    assert_failure
 }
 
 @test "the restored branch guard matches the template byte for byte (#1642)" {
@@ -3299,7 +3299,7 @@ _switch_workflow() {
 }
 
 @test "the gitflow branch-guard render is idempotent (#1642)" {
-    # Re-running gitflow must not double-insert the clause or mangle the comment.
+    # Re-running gitflow must not double-render the model arg.
     ws="$BATS_TEST_TMPDIR/e2e-1642-idempotent"
     mkdir -p "$ws"
     run _clone_shared both "$ws"
@@ -3308,7 +3308,7 @@ _switch_workflow() {
     assert_success
     run _upgrade_no_flags "$ws"
     assert_success
-    run grep -c 'dev\$' "$ws/.pre-commit-config.yaml"
+    run grep -c -- '--workflow=' "$ws/.pre-commit-config.yaml"
     assert_success
     assert_output "1"
     run diff "$TEMPLATE_DIR/.pre-commit-config.yaml" "$ws/.pre-commit-config.yaml"
@@ -3336,26 +3336,26 @@ _switch_workflow() {
 
 # ── Branch types knob (#1432) ─────────────────────────────────────────────────
 # DEVKIT_BRANCH_TYPES replaces the issue-numbered branch-type set in the
-# no-commit-to-branch pattern at scaffold time (the CI branch-name gate is
-# driven from the same key via resolve-toolchain, covered in
-# tests/test_ci_runner.py; the flake consumer surface in
-# tests/test_flake_hooks.py). Empty (default) keeps the stock alternation
-# byte-identical; the chore/renovate/worktree clauses are never knob-driven.
+# validate-branch-name hook's --types arg at scaffold time (#1760; the CI
+# branch-name gate is driven from the same key via resolve-toolchain, covered
+# in tests/test_ci_runner.py; the flake consumer surface in
+# tests/test_flake_hooks.py). Empty (default) keeps the stock set
+# byte-identical; the renovate/worktree/release shapes are never knob-driven.
 # Persisted like DEVKIT_COMMIT_TYPES; invalid values fail loudly (knob loop
 # above).
 
-STOCK_BRANCH_ALTERNATION='(feature|bugfix|hotfix|release|docs|test|refactor)'
+STOCK_BRANCH_TYPES_ARG='          - --types=feature,bugfix,hotfix,release,docs,test,refactor'
 
-@test "default scaffold keeps the stock branch-type alternation (#1432)" {
+@test "default scaffold keeps the stock branch types (#1432)" {
     ws="$BATS_TEST_TMPDIR/e2e-1432-default"
     mkdir -p "$ws"
     run _clone_shared both "$ws"
     assert_success
-    run grep -qF "${STOCK_BRANCH_ALTERNATION}/[0-9]" "$ws/.pre-commit-config.yaml"
+    run grep -qxF -- "${STOCK_BRANCH_TYPES_ARG}" "$ws/.pre-commit-config.yaml"
     assert_success
 }
 
-@test "DEVKIT_BRANCH_TYPES renders the custom alternation + writes back (#1432)" {
+@test "DEVKIT_BRANCH_TYPES renders the custom types + writes back (#1432)" {
     ws="$BATS_TEST_TMPDIR/e2e-1432-custom"
     mkdir -p "$ws"
     run _clone_shared both "$ws"
@@ -3363,19 +3363,18 @@ STOCK_BRANCH_ALTERNATION='(feature|bugfix|hotfix|release|docs|test|refactor)'
     sed -i 's/^DEVKIT_BRANCH_TYPES=.*/DEVKIT_BRANCH_TYPES=feature,bugfix,hotfix,release,docs,test,refactor,record/' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
     assert_success
-    run grep -qF '(feature|bugfix|hotfix|release|docs|test|refactor|record)/[0-9]' "$ws/.pre-commit-config.yaml"
+    run grep -qxF -- "${STOCK_BRANCH_TYPES_ARG},record" "$ws/.pre-commit-config.yaml"
     assert_success
-    # The stock alternation is gone (replaced, not duplicated).
-    run grep -qF "${STOCK_BRANCH_ALTERNATION}/[0-9]" "$ws/.pre-commit-config.yaml"
+    # The stock set is gone (replaced, not duplicated).
+    run grep -qxF -- "${STOCK_BRANCH_TYPES_ARG}" "$ws/.pre-commit-config.yaml"
     assert_failure
     run grep -x 'DEVKIT_BRANCH_TYPES=feature,bugfix,hotfix,release,docs,test,refactor,record' "$ws/.vig-os"
     assert_success
 }
 
 @test "DEVKIT_BRANCH_TYPES composes with the trunk workflow render (#1432)" {
-    # render_workflow_model deletes the `(?!dev$)` clause; render_branch_types
-    # swaps the alternation — distinct anchors on the same pattern line, both
-    # must apply.
+    # render_branch_guard_model sets --workflow; render_branch_types sets
+    # --types — distinct args of the same hook, both must apply.
     ws="$BATS_TEST_TMPDIR/e2e-1432-trunk"
     mkdir -p "$ws"
     run _clone_shared both "$ws"
@@ -3384,10 +3383,10 @@ STOCK_BRANCH_ALTERNATION='(feature|bugfix|hotfix|release|docs|test|refactor)'
     sed -i 's/^DEVKIT_BRANCH_TYPES=.*/DEVKIT_BRANCH_TYPES=feature,bugfix,record/' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
     assert_success
-    run grep -qF '(feature|bugfix|record)/[0-9]' "$ws/.pre-commit-config.yaml"
+    run grep -qxF -- '          - --types=feature,bugfix,record' "$ws/.pre-commit-config.yaml"
     assert_success
-    run grep -qF '(?!dev$)' "$ws/.pre-commit-config.yaml"
-    assert_failure
+    run grep -qxF -- '          - --workflow=trunk' "$ws/.pre-commit-config.yaml"
+    assert_success
 }
 
 @test "dropping the release branch type prints a notice, never aborts (#1432)" {
@@ -3421,10 +3420,10 @@ STOCK_BRANCH_ALTERNATION='(feature|bugfix|hotfix|release|docs|test|refactor)'
     sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=chore,docs/' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
     assert_success
-    run grep -qF '(?!^(chore|docs)/[a-z0-9]+(-[a-z0-9]+)*$)' "$ws/.pre-commit-config.yaml"
+    run grep -qxF -- '          - --issueless-types=chore,docs' "$ws/.pre-commit-config.yaml"
     assert_success
-    # The issue-numbered alternation is untouched.
-    run grep -qF "${STOCK_BRANCH_ALTERNATION}/[0-9]" "$ws/.pre-commit-config.yaml"
+    # The issue-numbered set is untouched.
+    run grep -qxF -- "${STOCK_BRANCH_TYPES_ARG}" "$ws/.pre-commit-config.yaml"
     assert_success
 }
 
@@ -3438,13 +3437,13 @@ STOCK_BRANCH_ALTERNATION='(feature|bugfix|hotfix|release|docs|test|refactor)'
     sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=docs/' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
     assert_success
-    run grep -qF '(?!^(chore|docs)/[a-z0-9]' "$ws/.pre-commit-config.yaml"
+    run grep -qxF -- '          - --issueless-types=chore,docs' "$ws/.pre-commit-config.yaml"
     assert_success
     sed -i 's/^DEVKIT_REFS_OPTIONAL_TYPES=.*/DEVKIT_REFS_OPTIONAL_TYPES=/' "$ws/.vig-os"
     sed -i 's/^DEVKIT_REFS_POLICY=.*/DEVKIT_REFS_POLICY=required/' "$ws/.vig-os"
     run _upgrade_no_flags "$ws"
     assert_success
-    run grep -qF '(?!^(chore)/[a-z0-9]' "$ws/.pre-commit-config.yaml"
+    run grep -qxF -- '          - --issueless-types=chore' "$ws/.pre-commit-config.yaml"
     assert_success
 }
 
@@ -3460,8 +3459,8 @@ STOCK_BRANCH_ALTERNATION='(feature|bugfix|hotfix|release|docs|test|refactor)'
 }
 
 @test "a custom issue-less set survives a trunk -> gitflow switch (#1767)" {
-    # render_branch_guard_model re-inserts `(?!dev$)` in front of the issue-less
-    # clause; a custom set there must not hide its anchor.
+    # render_branch_guard_model and render_issueless_branch_types rewrite
+    # neighbouring args of the same hook; neither may clobber the other.
     ws="$BATS_TEST_TMPDIR/e2e-1767-trunk"
     mkdir -p "$ws"
     run _clone_shared both "$ws"
@@ -3471,7 +3470,9 @@ STOCK_BRANCH_ALTERNATION='(feature|bugfix|hotfix|release|docs|test|refactor)'
     assert_success
     run _switch_workflow "$ws" gitflow
     assert_success
-    run grep -qF '(?!main$)(?!dev$)(?!^(chore|docs)/[a-z0-9]' "$ws/.pre-commit-config.yaml"
+    run grep -qxF -- '          - --issueless-types=chore,docs' "$ws/.pre-commit-config.yaml"
+    assert_success
+    run grep -qxF -- '          - --workflow=gitflow' "$ws/.pre-commit-config.yaml"
     assert_success
 }
 
