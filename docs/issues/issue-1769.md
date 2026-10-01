@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-09-29T15:35:21Z
-updated: 2026-09-29T15:54:19Z
+updated: 2026-09-30T20:16:37Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1769
-comments: 2
+comments: 4
 labels: discussion, area:workspace, area:workflow
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: 1770, 1771, 1772, 1773, 1774, 1775, 1776, 1778, 1787
-synced: 2026-09-30T08:17:44.688Z
+synced: 2026-10-01T08:40:56.485Z
 ---
 
 # [Issue 1769]: [[SPIKE] Turnkey publish lanes: 2026 best practice per channel, so no repo reinvents its release publishing](https://github.com/vig-os/devkit/issues/1769)
@@ -167,4 +167,22 @@ _Posted on September 29, 2026 at 03:54 PM_
   - A new managed asset builder owns the bytes on the Release.
 
 The channel spikes (#1770–#1776) close when the ADR is accepted.
+
+---
+
+# [Comment #3]() by [c-vigo]()
+
+_Posted on September 30, 2026 at 05:51 PM_
+
+ADR merged in #1785 (36e74ccc); channel spikes #1770–#1776 are closed with pointers to their implementation issues (#1777–#1787). The ADR's front matter still reads `status: proposed`; the flip to `accepted` rides the next devkit fix PR.
+
+Still open on this spike: **dated rows in the #1523 stack matrix for every channel verdict**. This issue stays open until they land.
+
+---
+
+# [Comment #4]() by [c-vigo]()
+
+_Posted on September 30, 2026 at 08:16 PM_
+
+ADR status flipped to `accepted` on `dev` in #1792.
 

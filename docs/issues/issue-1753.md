@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-28T18:12:15Z
-updated: 2026-09-28T18:12:15Z
+updated: 2026-09-30T20:16:33Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1753
-comments: 0
+comments: 1
 labels: bug, priority:low, area:workspace, effort:small, semver:patch
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-29T08:16:53.338Z
+synced: 2026-10-01T08:40:58.913Z
 ---
 
 # [Issue 1753]: [[BUG] vigos.multiplexer: detach-on-destroy off re-attaches a client to an already-attached session](https://github.com/vig-os/devkit/issues/1753)
@@ -73,4 +73,12 @@ conditional: switch to a detached session if one exists, otherwise detach.
 
 Re-set the option after the module's block from the consumer's own
 `extraConfig`, ordered later. The override can be dropped once this lands.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 30, 2026 at 08:16 PM_
+
+Fixed on `dev` by #1792 (964a49da): `detach-on-destroy no-detached`. The consumer-side `extraConfig` override can be dropped once this release is adopted.
 

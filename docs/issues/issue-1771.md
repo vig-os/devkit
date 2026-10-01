@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-29T15:36:32Z
-updated: 2026-09-29T15:41:37Z
+updated: 2026-09-30T17:51:17Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1771
-comments: 1
+comments: 2
 labels: discussion, area:workflow
 assignees: none
 milestone: none
 projects: none
 parent: 1769
 children: 1748
-synced: 2026-09-30T08:17:43.623Z
+synced: 2026-10-01T08:40:55.579Z
 ---
 
 # [Issue 1771]: [[SPIKE] Publish lane: crates.io (Trusted Publishing, atomic workspace publish, semver gates)](https://github.com/vig-os/devkit/issues/1771)
@@ -87,4 +87,14 @@ _Posted on September 29, 2026 at 03:41 PM_
 
 Sources: [crates.io TP](https://crates.io/docs/trusted-publishing) · [RFC 3691](https://rust-lang.github.io/rfcs/3691-trusted-publishing-cratesio.html) · [Cargo changelog](https://doc.rust-lang.org/beta/cargo/CHANGELOG.html) · [rate limits](https://crates.io/docs/rate-limits) · [tweag on workspace publish](https://www.tweag.io/blog/2025-07-10-cargo-package-workspace/)
 
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on September 30, 2026 at 05:51 PM_
+
+Spike complete. The dated verdict is in the review above; the cross-cutting decision is recorded in `docs/rfcs/ADR-publish-lanes.md` (PR #1785, merged to `dev` as 36e74ccc), per #1769's rule that the channel spikes close when the ADR lands.
+
+Implementation continues in: #1748 (crates.io lane) (lane foundation: #1778).
 

@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-29T14:02:35Z
-updated: 2026-09-29T14:02:35Z
+updated: 2026-09-30T17:40:29Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1767
-comments: 0
+comments: 1
 labels: feature
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-30T08:17:45.157Z
+synced: 2026-10-01T08:40:56.992Z
 ---
 
 # [Issue 1767]: [[FEATURE] Issue-less branch form for every Refs-optional commit type, not just chore](https://github.com/vig-os/devkit/issues/1767)
@@ -54,4 +54,12 @@ Opt-in only. The default Refs-optional set is `chore`, so the rendered branch pa
 ### Changelog Category
 
 Added
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 30, 2026 at 05:40 PM_
+
+Shipped to `dev` in #1790 (4c49e414); reaches `main` with the next release train. Every resolved Refs-optional type now gets the issue-less `<type>/<summary>` branch form across the scaffolded guard, the flake-generated guard and CI's branch-name gate; `chore` stays allowed under every policy.
 

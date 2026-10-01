@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-28T11:50:09Z
-updated: 2026-09-28T11:50:09Z
+updated: 2026-09-30T20:16:31Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1745
-comments: 0
+comments: 1
 labels: bug, priority:medium, area:ci, effort:small, semver:patch
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-29T08:16:55.686Z
+synced: 2026-10-01T08:40:59.383Z
 ---
 
 # [Issue 1745]: [[BUG] Release train deadlocks on its own Dist Check: the bundle rebuild is final-only and downstream of the candidate's check gate](https://github.com/vig-os/devkit/issues/1745)
@@ -114,4 +114,12 @@ adoption PRs that never touched `CHANGELOG.md` on `dev` are reconciled before
 the content gate evaluates. The bundle has the identical shape of problem — bot
 PRs that legitimately skip a managed artifact on `dev` — but no equivalent
 prepare-time reconciliation, so it fails a gate instead.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 30, 2026 at 08:16 PM_
+
+Fixed on `dev` by #1792 (964a49da), option (a): `prepare-release.yml` rebuilds a committed bundle (`bundle` recipe) before the CHANGELOG freeze, and the refreshed `dist/` rides the freeze commit, so the release PR opens with a fresh artifact. The build logic lives in a new managed `.github/actions/build-bundle`, shared with finalize. The live proof is still owed on the first consumer train with a stale bundle after adoption (likely sync-issues-action); if it still deadlocks, open a new issue rather than reopening this one.
 

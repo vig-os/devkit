@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-29T15:36:28Z
-updated: 2026-09-29T15:41:36Z
+updated: 2026-09-30T17:51:15Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1770
-comments: 1
+comments: 2
 labels: discussion, area:workflow
 assignees: none
 milestone: none
 projects: none
 parent: 1769
 children: 1777, 1786
-synced: 2026-09-30T08:17:44.197Z
+synced: 2026-10-01T08:40:55.987Z
 ---
 
 # [Issue 1770]: [[SPIKE] Publish lane: GitHub Releases & release assets (checksums, SBOM, attestations, immutability)](https://github.com/vig-os/devkit/issues/1770)
@@ -85,4 +85,14 @@ A 2026 best-practice Release carries **per-asset build provenance in GitHub's at
 
 Sources: [attest-build-provenance](https://github.com/actions/attest-build-provenance) · [offline verify](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations/verifying-attestations-offline) · [goreleaser attestations](https://goreleaser.com/customization/attestations/) · [Immutable releases GA](https://github.blog/changelog/2025-10-28-immutable-releases-are-now-generally-available/) · [SLSA L3 w/ attestations](https://github.blog/enterprise-software/devsecops/enhance-build-security-and-reach-slsa-level-3-with-github-artifact-attestations/) · [rulesets REST](https://docs.github.com/en/rest/repos/rules)
 
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on September 30, 2026 at 05:51 PM_
+
+Spike complete. The dated verdict is in the review above; the cross-cutting decision is recorded in `docs/rfcs/ADR-publish-lanes.md` (PR #1785, merged to `dev` as 36e74ccc), per #1769's rule that the channel spikes close when the ADR lands.
+
+Implementation continues in: #1777 (release seal), #1786 (release asset builder), #1782 (GitHub Action lane) (lane foundation: #1778).
 

@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-28T21:44:34Z
-updated: 2026-09-28T21:44:34Z
+updated: 2026-09-30T20:16:25Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1757
-comments: 0
+comments: 1
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-29T08:16:51.422Z
+synced: 2026-10-01T08:40:58.451Z
 ---
 
 # [Issue 1757]: [sync-issues: 'Save sync state' with if: always() advances the watermark even when the push FAILED — the delta is silently dropped](https://github.com/vig-os/devkit/issues/1757)
@@ -94,3 +94,11 @@ commit **skips** it and the job goes green. So a repo whose pushes are permanent
 on every quiet day and red only when something changed — which is how this stayed unnoticed in
 tessera for weeks. Worth considering whether a push that *should* have happened and did not ought to
 fail louder than one red run.
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 30, 2026 at 08:16 PM_
+
+Fixed on `dev` by #1792 (964a49da): `Save sync state` now runs only when `steps.sync.outcome == 'success' && steps.commit.outcome != 'failure'`, in both the scaffold and devkit's own `sync-issues.yml`. A failed push keeps the old cutoff, so the next run retries the delta. Consumers receive it with the next devkit release.
+

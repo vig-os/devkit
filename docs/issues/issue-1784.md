@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-09-29T15:45:33Z
-updated: 2026-09-29T15:45:33Z
+updated: 2026-10-01T01:57:06Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1784
-comments: 0
+comments: 1
 labels: feature, area:workspace, area:workflow, semver:minor
 assignees: none
 milestone: none
 projects: none
 parent: 1776
 children: none
-synced: 2026-09-30T08:17:36.089Z
+synced: 2026-10-01T08:40:52.662Z
 ---
 
 # [Issue 1784]: [[FEATURE] Nix: seeded CI cache + opt-in trusted release-cache push](https://github.com/vig-os/devkit/issues/1784)
@@ -50,4 +50,12 @@ Nix consumers get substitutable releases and faster CI.
 Added
 
 Refs: #1769, #1776
+
+---
+
+# [Comment #1]() by [DerDennisOP]()
+
+_Posted on October 1, 2026 at 01:57 AM_
+
+Hey! You might want to look into Gradient: https://wavelens.github.io/gradient/ :)
 

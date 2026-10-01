@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-28T21:48:15Z
-updated: 2026-09-28T22:00:29Z
+updated: 2026-09-30T20:16:28Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1759
-comments: 1
+comments: 2
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-29T08:16:50.306Z
+synced: 2026-10-01T08:40:57.983Z
 ---
 
 # [Issue 1759]: [ci.yml/codeql.yml pull_request base filter excludes stacked PRs — a PR onto a topic branch gets no checks at all](https://github.com/vig-os/devkit/issues/1759)
@@ -121,4 +121,12 @@ instead of the first being cancelled.
 Consumers likely have the same gap in their own `nix flake check`-style workflows — in tessera that
 lane is ~40-60 min per leg across two arch legs, so it is the one where an uncancelled superseded run
 actually hurts. Might be worth a line in the scaffold docs even though those files are consumer-owned.
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on September 30, 2026 at 08:16 PM_
+
+Fixed on `dev` by #1792 (964a49da): `ci.yml` and `codeql.yml` (scaffold and devkit) now accept any PR base (`'**'`), and `codeql.yml` gained `codeql-${{ github.workflow }}-${{ github.ref }}` concurrency with `cancel-in-progress: ${{ github.event_name != 'push' }}`. The trunk render no longer edits the filter. Consumers receive it with the next devkit release; downstream `REMOVE once this lands` patches can go then.
 

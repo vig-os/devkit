@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-09-29T06:10:53Z
-updated: 2026-09-29T06:10:53Z
+updated: 2026-09-30T17:51:31Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1760
-comments: 0
+comments: 1
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-29T08:16:49.726Z
+synced: 2026-10-01T08:40:57.443Z
 ---
 
 # [Issue 1760]: [The branch-name rule exists only inline in ci.yml, so every consumer's local gate must duplicate it (and drifts)](https://github.com/vig-os/devkit/issues/1760)
@@ -85,3 +85,13 @@ only on the shape, and the script says so at the top. Happy to contribute that u
 
 Note also that consumers using Dependabot rather than Renovate need a `dependabot/**` clause here, which
 is vig-os/devkit#1755 — a second thing a duplicated local gate has to remember to mirror.
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 30, 2026 at 05:51 PM_
+
+Premise correction: the rule is not CI-only. The scaffold already ships a local gate, `no-commit-to-branch` in `assets/workspace/.pre-commit-config.yaml`, and `init-workspace.sh` renders it from `DEVKIT_BRANCH_TYPES`, `DEVKIT_REFS_POLICY` and the workflow model (#1432, #1642, #1767). That means a consumer that keeps the scaffolded hook already gets the same *type list* locally.
+
+What is still true, and why this stays open, is that the rule lives in **two hand-kept renderings**: a negative-lookahead regex in the hook, and the `ALLOWED` bash alternation in `ci.yml`'s `Validate branch name` step. They can disagree on *shape*. For example, `ci.yml` accepts `release/X.Y.Z`, while the hook only accepts `release` in its issue-numbered form. A `vig-utils validate-branch-name` entry point that both call, following the `validate-commit-msg` precedent, remains the right fix. tessera's divergence came from replacing the scaffolded hook with its own pattern.
+

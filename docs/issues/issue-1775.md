@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-29T15:36:43Z
-updated: 2026-09-29T15:41:43Z
+updated: 2026-09-30T17:51:26Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1775
-comments: 1
+comments: 2
 labels: discussion, area:workflow
 assignees: none
 milestone: none
 projects: none
 parent: 1769
 children: 1780
-synced: 2026-09-30T08:17:41.562Z
+synced: 2026-10-01T08:40:53.460Z
 ---
 
 # [Issue 1775]: [[SPIKE] Publish lane: OCI images / GHCR (cosign, SBOM, provenance, floating tags)](https://github.com/vig-os/devkit/issues/1775)
@@ -89,4 +89,14 @@ _Posted on September 29, 2026 at 03:41 PM_
 
 Sources: [Kyverno sigstore](https://kyverno.io/docs/policy-types/cluster-policy/verify-images/sigstore/) · [GH admission controller](https://docs.github.com/en/actions/security-guides/enforcing-artifact-attestations-with-a-kubernetes-admission-controller) · [use artifact attestations](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations) · [Docker attestations](https://docs.docker.com/build/metadata/attestations/) · [arm64 private runners](https://github.blog/changelog/2026-01-29-arm64-standard-runners-are-now-available-in-private-repositories/) · [OIDC + reusable workflows](https://docs.github.com/actions/deployment/security-hardening-your-deployments/using-openid-connect-with-reusable-workflows)
 
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on September 30, 2026 at 05:51 PM_
+
+Spike complete. The dated verdict is in the review above; the cross-cutting decision is recorded in `docs/rfcs/ADR-publish-lanes.md` (PR #1785, merged to `dev` as 36e74ccc), per #1769's rule that the channel spikes close when the ADR lands.
+
+Implementation continues in: #1780 (OCI lane) (lane foundation: #1778).
 

@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-29T15:36:38Z
-updated: 2026-09-29T15:41:40Z
+updated: 2026-09-30T17:51:21Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1773
-comments: 1
+comments: 2
 labels: discussion, area:workflow
 assignees: none
 milestone: none
 projects: none
 parent: 1769
 children: 1781, 1782
-synced: 2026-09-30T08:17:42.690Z
+synced: 2026-10-01T08:40:54.508Z
 ---
 
 # [Issue 1773]: [[SPIKE] Publish lane: npm (Trusted Publishing, provenance, dist-tags)](https://github.com/vig-os/devkit/issues/1773)
@@ -92,4 +92,14 @@ The token era is over. **Classic tokens were permanently revoked on 2025-12-09.*
 
 Sources: [npm trusted publishers](https://docs.npmjs.com/trusted-publishers/) · [TP GA](https://github.blog/changelog/2025-07-31-npm-trusted-publishing-with-oidc-is-generally-available/) · [classic tokens revoked](https://github.blog/changelog/2025-12-09-npm-classic-tokens-revoked-session-based-auth-and-cli-token-management-now-available/) · [bypass-2FA restriction](https://github.blog/changelog/2026-07-31-restricting-npm-bypass-2fa-granular-access-tokens/) · [npm/cli#8544](https://github.com/npm/cli/issues/8544) · [publishing actions](https://docs.github.com/en/actions/how-tos/create-and-publish-actions/release-and-maintain-actions)
 
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on September 30, 2026 at 05:51 PM_
+
+Spike complete. The dated verdict is in the review above; the cross-cutting decision is recorded in `docs/rfcs/ADR-publish-lanes.md` (PR #1785, merged to `dev` as 36e74ccc), per #1769's rule that the channel spikes close when the ADR lands.
+
+Implementation continues in: #1781 (npm lane) (lane foundation: #1778).
 
