@@ -31,35 +31,31 @@
 # pre-commit-hooks ids, e.g. check-case-conflict -> check-case-conflicts).
 { lib }:
 let
-  # Topic-branch naming convention enforced by no-commit-to-branch:
-  # chore/<summary>, <type>/<issue>-<summary>, worktree/<issue>, renovate/*;
-  # main and dev are allowed (pushing there is blocked server-side, not here).
+  # Topic-branch naming convention, enforced by vig-utils' validate-branch-name
+  # (#1760) — the ONE implementation of the rule: this hook, the scaffolded CI
+  # `Validate branch name` step and devkit's own CI step all run it, so the
+  # accepted shapes (main, dev under gitflow, <issueless-type>/<summary>,
+  # <type>/<issue>-<summary>, worktree/<n>, renovate/*, release/X.Y.Z) live
+  # only in packages/vig-utils/src/vig_utils/validate_branch_name.py. Every
+  # render here carries ARGUMENTS, never a pattern (the pre-#1760 guard was
+  # pre-commit-hooks' no-commit-to-branch with a negative-lookahead regex, a
+  # second hand-kept rendering that disagreed with CI on release/X.Y.Z).
   #
-  # Workflow-model aware (#1224): the `(?!dev$)` clause protects the long-lived
-  # gitflow `dev` branch, which a trunk workspace does not have — so the trunk
-  # pattern drops it, mirroring EXACTLY the `s|(?!dev$)||` deletion
-  # `render_workflow_model` (assets/init-workspace.sh) applies to the scaffolded
-  # `.pre-commit-config.yaml`. The committed runner/scaffold YAML stays gitflow
-  # (its trunk render is the scaffold path's job); only the flake-generated
-  # consumer surface follows `workflow`.
+  # The knob-driven args, each mirrored by an init-workspace.sh render of the
+  # scaffolded YAML (render_branch_types / render_issueless_branch_types /
+  # render_branch_guard_model) and by resolve-toolchain for CI:
   #
-  # The `renovate/` clause (#1433) admits the Renovate app's tool-owned branch
-  # namespace (like `worktree/<n>`): the bot commits server-side, but
-  # maintainer fix-up commits on its branches (changelog conflict merges,
-  # dist/ rebuilds) are a legitimate local flow. Permissive `.+` after the
-  # prefix — Renovate composes names from dep names/version ranges (dots,
-  # parentheses), so a charset pin would re-break on the next scheme.
-  # Issue-numbered branch-type set (#1432): the ONLY knob-driven clause of the
-  # pattern — DEVKIT_BRANCH_TYPES replaces this list (scaffold path:
-  # render_branch_types in assets/init-workspace.sh; flake path:
-  # mkProjectShell's `branchTypes`). The renovate/worktree clauses stay
-  # fixed. The default must render the pattern byte-identically to the
-  # pre-#1432 literal (drift gate + zero-hooks parity).
+  #   --types            DEVKIT_BRANCH_TYPES (#1432), the issue-numbered set;
+  #   --issueless-types  DERIVED from the resolved Refs exemption
+  #                      (`issuelessBranchTypesFor` below, #1767), never its
+  #                      own knob, so a branch may skip the issue only where its
+  #                      commits may;
+  #   --workflow         DEVKIT_WORKFLOW (#1224): gitflow also allows `dev`.
   #
-  # Issue-less branch-type set (#1767): the `(chore)` clause is the default
-  # case of `<type>/<summary>` for every Refs-optional commit type. DERIVED
-  # from the resolved Refs exemption (`issuelessBranchTypesFor` below), never
-  # its own knob, so a branch may skip the issue only where its commits may.
+  # `--flag=value` single-element args, so the scaffold renders can anchor on
+  # one whole line each (distinct from validate-commit-msg's `"--types", "…"`).
+  # The default must match the validator's DEFAULT_BRANCH_TYPES, which devkit's
+  # own CI step relies on (pinned by tests/test_flake_hooks.py).
   defaultBranchTypes = [
     "feature"
     "bugfix"
@@ -69,16 +65,14 @@ let
     "test"
     "refactor"
   ];
-  branchNamePatternFor =
-    workflow: branchTypes: issuelessTypes:
-    let
-      devClause = lib.optionalString (workflow != "trunk") "(?!dev$)";
-      typesAlternation = lib.concatStringsSep "|" branchTypes;
-      issuelessAlternation = lib.concatStringsSep "|" issuelessTypes;
-    in
-    "^(?!main$)${devClause}(?!^(${issuelessAlternation})/[a-z0-9]+(-[a-z0-9]+)*$)(?!^(${typesAlternation})/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$)(?!^renovate/.+$)(?!^worktree/[0-9]+$).+$";
-  # The gitflow default, used by the committed runner/scaffold YAML renders.
-  branchNamePattern = branchNamePatternFor "gitflow" defaultBranchTypes [ "chore" ];
+  validateBranchNameArgs = workflow: branchTypes: issuelessTypes: [
+    "--types=${lib.concatStringsSep "," branchTypes}"
+    "--issueless-types=${lib.concatStringsSep "," issuelessTypes}"
+    "--workflow=${workflow}"
+  ];
+  # The gitflow default, used by the committed runner/scaffold YAML renders
+  # and as the parity baseline of the consumer render.
+  defaultValidateBranchNameArgs = validateBranchNameArgs "gitflow" defaultBranchTypes [ "chore" ];
 
   # ── validate-commit-msg argv (knob-driven; #1431 + #1282 + #1633) ──────
   # The approved commit types (DEVKIT_COMMIT_TYPES, #1431) and the Refs
@@ -221,29 +215,6 @@ let
     };
 
     # ── pre-commit-hooks meta hooks ─────────────────────────────────────
-    # Enforce topic branch naming (runner-only: inspects git state, absent
-    # in the Nix sandbox). Consumers can override the pattern via
-    # `hooks."no-commit-to-branch".settings.{branch,pattern}`.
-    no-commit-to-branch = {
-      repo = "pre-commit-hooks";
-      scaffold = true;
-      yaml = {
-        name = "branch-name (enforce <type>/<issue>-<summary>)";
-        args = [
-          "--branch"
-          "__none__" # override default so main/dev are not protected
-          "--pattern"
-          branchNamePattern
-        ];
-      };
-      consumer = _: {
-        enable = true;
-        settings = {
-          branch = [ "__none__" ];
-          pattern = [ branchNamePattern ];
-        };
-      };
-    };
     check-added-large-files = {
       repo = "pre-commit-hooks";
       scaffold = true;
@@ -1031,6 +1002,37 @@ let
     # something else, exactly like the branch guard — so an unset-knob
     # consumer's generated config stays byte-identical to the pre-#1434
     # render.
+    # Branch-name guard (#1760). No `check` fragment, like the
+    # no-commit-to-branch hook it replaces: it inspects git state, which the Nix
+    # sandbox gate does not have. Two renders,
+    # exactly like validate-commit-msg below: the PATH-portable `uv run` entry
+    # for the committed YAMLs, the pinned vig-utils store path for the consumer
+    # surface. `always_run` + `pass_filenames = false`: the check is about the
+    # branch, not the staged files. The consumer fragment ships the DEFAULT
+    # argv; `consumer` below overrides it only when the knobs resolve to
+    # something else.
+    validate-branch-name = {
+      scaffold = true;
+      yaml = {
+        name = "branch-name (enforce <type>/<issue>-<summary>)";
+        entry = "uv run validate-branch-name";
+        language = "system";
+        always_run = true;
+        pass_filenames = false;
+        stages = [ "pre-commit" ];
+        args = defaultValidateBranchNameArgs;
+      };
+      consumer = pkgs: {
+        enable = true;
+        name = "branch-name (enforce <type>/<issue>-<summary>)";
+        entry = "${import ./vig-utils.nix pkgs}/bin/validate-branch-name";
+        language = "system";
+        always_run = true;
+        pass_filenames = false;
+        stages = [ "pre-commit" ];
+        args = defaultValidateBranchNameArgs;
+      };
+    };
     validate-commit-msg = {
       scaffold = true;
       yaml = {
@@ -1120,8 +1122,8 @@ in
   # flake-hooks consumer's local enforcement follows the same manifest keys as
   # the scaffolded YAML renders:
   #
-  #   workflow    — DEVKIT_WORKFLOW,     branch guard dev-clause      (#1224)
-  #   branchTypes — DEVKIT_BRANCH_TYPES, branch guard alternation     (#1432)
+  #   workflow    — DEVKIT_WORKFLOW,     branch guard --workflow      (#1224)
+  #   branchTypes — DEVKIT_BRANCH_TYPES, branch guard --types         (#1432)
   #   commitTypes — DEVKIT_COMMIT_TYPES, validate-commit-msg --types  (#1431)
   #   refsPolicy  — DEVKIT_REFS_POLICY,  --refs-optional-types        (#1282)
   #   refsOptionalTypes
@@ -1151,7 +1153,7 @@ in
       # Branch guard: workflow (#1224), branch-types (#1432) and the
       # Refs-derived issue-less set (#1767) feed one computation.
       effectiveBranchTypes = if branchTypes == null then defaultBranchTypes else branchTypes;
-      effectivePattern = branchNamePatternFor workflow effectiveBranchTypes (
+      effectiveBranchArgs = validateBranchNameArgs workflow effectiveBranchTypes (
         issuelessBranchTypesFor refsOptionalTypes refsPolicy effectiveCommitTypes
       );
       effectiveValidateArgs = validateCommitMsgArgs refsOptionalTypes refsPolicy effectiveCommitTypes;
@@ -1160,11 +1162,9 @@ in
       excludes = baseExcludes;
       hooks =
         base
-        // lib.optionalAttrs (effectivePattern != branchNamePattern) {
-          no-commit-to-branch = base.no-commit-to-branch // {
-            settings = base.no-commit-to-branch.settings // {
-              pattern = [ effectivePattern ];
-            };
+        // lib.optionalAttrs (effectiveBranchArgs != defaultValidateBranchNameArgs) {
+          validate-branch-name = base.validate-branch-name // {
+            args = effectiveBranchArgs;
           };
         }
         // lib.optionalAttrs (effectiveValidateArgs != defaultValidateCommitMsgArgs) {

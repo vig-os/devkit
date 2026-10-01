@@ -363,16 +363,20 @@ jobs:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           dev-profile-path: ${{ needs.resolve-toolchain.outputs.dev-profile-path }}
 
-      # Branch-name gate (#1432 / #1430): validate the PR head ref against the
-      # same branch-type set the local no-commit-to-branch guard renders from.
-      # The local hook depends on local git config a fresh clone does not have
+      # Branch-name gate (#1432 / #1430): validate the PR head ref with
+      # vig-utils' validate-branch-name — the SAME implementation the local
+      # validate-branch-name hook runs (#1760), so the accepted shapes (main,
+      # dev, <issueless-type>/<slug>, <type>/<issue>-<slug>, worktree/<n>,
+      # renovate/*, release/X.Y.Z) cannot drift between the two. The local
+      # hook depends on local git config a fresh clone does not have
       # (core.hooksPath), so this is the enforcement point that survives an
-      # un-initialised clone. The allowed set is a SUPERSET of the local
-      # guard's: automation branches never run local hooks but do open PRs.
-      # The head ref is attacker-controlled text, so it reaches the check via
-      # env, never inline ${{ }} (the zizmor template-injection gate / #1279
-      # env-routing pattern); the type sets are mapped once from
-      # DEVKIT_BRANCH_TYPES and the Refs-optional set by resolve-toolchain.
+      # un-initialised clone; automation branches never run local hooks but
+      # do open PRs. No --workflow: a deliberate PR from `dev` stays possible
+      # in either model. The head ref is attacker-controlled text, so it
+      # reaches the check via env, never inline ${{ }} (the zizmor
+      # template-injection gate / #1279 env-routing pattern); the type sets
+      # are mapped once from DEVKIT_BRANCH_TYPES and the Refs-optional set by
+      # resolve-toolchain.
       - name: Validate branch name
         env:
           HEAD_REF: ${{ github.head_ref }}
@@ -380,35 +384,17 @@ jobs:
           ISSUELESS_BRANCH_TYPES: ${{ needs.resolve-toolchain.outputs.issueless-branch-types }}
         run: |
           set -euo pipefail
-          TYPES_ALTERNATION="${BRANCH_TYPES//,/|}"
-          ISSUELESS_ALTERNATION="${ISSUELESS_BRANCH_TYPES//,/|}"
-          # Every alternative is individually ^...$-anchored:
-          #   main|dev                 long-lived branches (committing on them
-          #                            is allowed locally; a deliberate PR
-          #                            from one stays possible)
-          #   <type>/<slug>            issue-less branches: chore (also the
-          #                            sync-main-to-dev and devkit-upgrade
-          #                            bot branches) plus every other
-          #                            Refs-optional commit type (#1767)
-          #   <type>/<issue>-<slug>    issue-numbered topic branches
-          #                            (DEVKIT_BRANCH_TYPES)
-          #   worktree/<n>             autonomous worktree pipeline
-          #   renovate/*               Renovate's namespace (#1433); free-form
-          #                            names (dots, parentheses)
-          #   release/X.Y.Z            release-train branches (prepare-release
-          #                            creates release/$VERSION, bare semver)
-          ALLOWED="^(main|dev)$"
-          ALLOWED+="|^(${ISSUELESS_ALTERNATION})/[a-z0-9]+(-[a-z0-9]+)*$"
-          ALLOWED+="|^(${TYPES_ALTERNATION})/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$"
-          ALLOWED+="|^worktree/[0-9]+$"
-          ALLOWED+="|^renovate/.+$"
-          ALLOWED+="|^release/[0-9]+\.[0-9]+\.[0-9]+$"
-          if printf '%s' "${HEAD_REF}" | grep -qE "${ALLOWED}"; then
-            echo "Branch name OK: ${HEAD_REF}"
-          else
-            echo "::error::Branch name '${HEAD_REF}' does not follow the convention <type>/<issue>-<summary> (types: ${BRANCH_TYPES}) or <type>/<summary> (types: ${ISSUELESS_BRANCH_TYPES}). See docs/COMMIT_MESSAGE_STANDARD.md and the branch-naming skill."
+          # The validator's last stderr line is its verdict; surface it as the
+          # step's annotation.
+          if ! err="$(uv run validate-branch-name \
+              --branch="${HEAD_REF}" \
+              --types="${BRANCH_TYPES}" \
+              --issueless-types="${ISSUELESS_BRANCH_TYPES}" 2>&1 >/dev/null)"; then
+            printf '%s\n' "${err}" >&2
+            echo "::error::${err##*$'\n'}"
             exit 1
           fi
+          echo "Branch name OK: ${HEAD_REF}"
 
       # The PR title is attacker-controlled text, so it reaches the validator as
       # an environment variable — never interpolated into the shell command.

@@ -193,23 +193,23 @@ DEVKIT_COMMIT_TYPES=
 # `<type>/<summary>` branch form in the branch guard and CI's branch-name gate
 # (`chore/<summary>` is always allowed, whatever the policy) (#1767).
 # Realized at scaffold time (an anchored render of the hook arg + the branch
-# pattern, and resolve-toolchain's `refs-optional-types` and
+# guard's --issueless-types arg, and resolve-toolchain's `refs-optional-types` and
 # `issueless-branch-types` outputs); written back only for a non-empty value
 # (#1633).
 DEVKIT_REFS_OPTIONAL_TYPES=
 
 # Issue-numbered branch types for the branch guard — a comma-separated
 # (whitespace-tolerant) FULL REPLACEMENT of the `<type>/<issue>-<summary>` set,
-# driving the local no-commit-to-branch hook, the flake-generated consumer
+# driving the local validate-branch-name hook (#1760), the flake-generated consumer
 # surface (read by flake.nix at eval time), and CI's branch-name gate from this
 # one key. Empty (default) resolves to the stock set
 # (feature,bugfix,hotfix,release,docs,test,refactor) — unchanged for devkit or
-# existing consumers. The `renovate/*` and `worktree/<issue>` clauses are
-# never knob-driven; the issue-less `<type>/<summary>` form follows
+# existing consumers. The `renovate/*`, `worktree/<issue>` and `release/X.Y.Z`
+# shapes are never knob-driven; the issue-less `<type>/<summary>` form follows
 # DEVKIT_REFS_OPTIONAL_TYPES above (#1767). Lowercase alphanumerics
 # only (guarded loudly at scaffold time; the scaffold prints a notice when
 # `release` is dropped). Realized at scaffold time (an anchored render of the
-# hook pattern + resolve-toolchain's `branch-types` output); written back only
+# hook's --types arg + resolve-toolchain's `branch-types` output); written back only
 # for a non-empty value (#1432).
 DEVKIT_BRANCH_TYPES=
 
