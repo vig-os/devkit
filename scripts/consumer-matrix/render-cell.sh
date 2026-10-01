@@ -55,8 +55,8 @@
 # Requires just, uv, prek, actionlint, git and jq on PATH (the devkit dev shell
 # provides them), npm for the node cell and nix for direnv-flake; zizmor runs
 # through `uvx` unless ZIZMOR names a binary.
-
-set -euo pipefail
+#
+# Sourcing the script (bats does) defines its functions without running it.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INIT_WORKSPACE="$ROOT/assets/init-workspace.sh"
@@ -79,6 +79,49 @@ CELLS=(
     rust
     direnv-flake
 )
+
+# Known defects a cell must reproduce EXACTLY: <cell> -> "<gate> <issue>". The
+# cell still runs every gate; it is accepted only when that one gate is the
+# sole failure AND failed with the silent-no-op signal. Passing fails the cell
+# (the marker is stale), and so does failing any other way. Remove an entry in
+# the PR that fixes its issue.
+declare -gA EXPECTED_FAIL=(
+    [rust]="test #1496" # Rust consumers get the Python justfile.project
+)
+
+# Print the expected-fail spec ("<gate> <issue>") of cell $1, or nothing.
+expected_fail_spec() {
+    if [[ -n "${EXPECTED_FAIL[$1]:-}" ]]; then
+        printf '%s\n' "${EXPECTED_FAIL[$1]}"
+    fi
+}
+
+# Verdict for cell $1 given the silent-no-op signal $2 (true | false) and the
+# failed gates in $3...: prints it, returns 0 for an accepted outcome.
+cell_verdict() {
+    local cell="$1" noop="$2" spec gate issue
+    shift 2
+    spec="$(expected_fail_spec "$cell")"
+    if [[ -z "$spec" ]]; then
+        if (($# == 0)); then
+            echo "passed"
+            return 0
+        fi
+        echo "FAILED: $*"
+        return 1
+    fi
+    read -r gate issue <<<"$spec"
+    if (($# == 0)); then
+        echo "FAILED: $cell now passes — remove the $issue expected-fail marker"
+        return 1
+    fi
+    if [[ "$*" == "$gate" && "$noop" == true ]]; then
+        echo "expected-fail ($issue)"
+        return 0
+    fi
+    echo "FAILED: $* (the $issue expected-fail accepts only the silent no-op of gate '$gate')"
+    return 1
+}
 
 # Every scaffold feature group, read from init-workspace.sh's own enum so a new
 # group is disabled here without a second list to keep in sync.
@@ -277,6 +320,7 @@ gate_test() {
             echo "fixture suite ran ($(cat "$sentinel"))"
         else
             echo "\`just test\` exited 0 but the $CELL_FIXTURE fixture suite never ran (silent no-op)"
+            CELL_SILENT_NOOP=true
             rc=1
         fi
     fi
@@ -339,8 +383,10 @@ summary() {
 }
 
 run_cell() {
-    local cell="$1" ws="${2:-}" gate rc start
+    local cell="$1" ws="${2:-}" gate rc start verdict vrc=0 expected_gate="" issue=""
     local -a failed=()
+    CELL_SILENT_NOOP=false
+    read -r expected_gate issue <<<"$(expected_fail_spec "$cell")" || true
     # Per-gate and per-cell wall time, for the job summary: the cells run
     # concurrently and their logs are printed afterwards, so log timestamps
     # cannot show where the time went.
@@ -394,6 +440,11 @@ run_cell() {
         echo "::endgroup::"
         if ((rc == 0)); then
             rows+=("| $gate | pass | $((SECONDS - start)) s |")
+        elif [[ "$gate" == "$expected_gate" ]]; then
+            # Judged by cell_verdict below; no annotation for a known defect.
+            echo "consumer-matrix cell '$cell': gate '$gate' failed (exit $rc), expected-fail candidate ($issue)"
+            rows+=("| $gate | expected-fail ($issue) | $((SECONDS - start)) s |")
+            failed+=("$gate")
         else
             echo "::error::consumer-matrix cell '$cell': gate '$gate' failed (exit $rc)"
             rows+=("| $gate | **FAIL** (exit $rc) | $((SECONDS - start)) s |")
@@ -401,13 +452,13 @@ run_cell() {
         fi
     done
 
-    if ((${#failed[@]} > 0)); then
-        summary "### Consumer matrix: \`$cell\` FAILED (${failed[*]}, ${SECONDS} s)" "" "${rows[@]}" ""
-        echo "== cell '$cell' FAILED: ${failed[*]} (${SECONDS} s)"
+    verdict="$(cell_verdict "$cell" "$CELL_SILENT_NOOP" ${failed[@]+"${failed[@]}"})" || vrc=$?
+    summary "### Consumer matrix: \`$cell\` $verdict (${SECONDS} s)" "" "${rows[@]}" ""
+    echo "== cell '$cell' $verdict (${SECONDS} s)"
+    if ((vrc != 0)); then
+        echo "::error::consumer-matrix cell '$cell': $verdict"
         return 1
     fi
-    summary "### Consumer matrix: \`$cell\` passed (${SECONDS} s)" "" "${rows[@]}" ""
-    echo "== cell '$cell' passed (${SECONDS} s)"
 }
 
 main() {
@@ -426,4 +477,7 @@ main() {
     esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    set -euo pipefail
+    main "$@"
+fi

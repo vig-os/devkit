@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Language cells for python, node and rust adopt a zero-dependency hello
     world (`tests/fixtures/consumer/`) and run `just sync` and `just test`; the
     fixture test must prove it ran, so a `just test` that silently skips fails
+  - The `rust` cell is a strict expected-fail on
+    [#1496](https://github.com/vig-os/devkit/issues/1496): it passes only while
+    `just test` silently skips the Rust suite, and fails once that is fixed so
+    the marker gets removed
   - A `direnv-flake` cell runs `nix flake check` on the rendered flake against
     the PR's own devkit and runs the direnv cell's gates inside its dev shell,
     so the flake-generated hooks are exercised too
