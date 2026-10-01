@@ -231,8 +231,11 @@ gate_languages() {
     languages="$(sed -n 's/^languages=//p' "$out")"
     rm -f "$out"
     echo "resolved languages: '${languages}'"
-    env LANGUAGES="$languages" bash -eo pipefail -c "$guard" || rc=$?
     if [[ "$CELL_LANGUAGES_GUARD" == fire ]]; then
+        # The firing guard's `::error::` lines are this cell's PASS evidence;
+        # defuse them so they do not surface as PR annotations.
+        env LANGUAGES="$languages" bash -eo pipefail -c "$guard" 2>&1 \
+            | sed 's/^::error::/(expected) error: /' || rc=$?
         if ((rc == 0)); then
             echo "EXPECTED the declared-language guard to fire, but it passed (#1466 regression)"
             return 1
@@ -240,7 +243,7 @@ gate_languages() {
         echo "guard fired as expected (exit $rc)"
         return 0
     fi
-    return "$rc"
+    env LANGUAGES="$languages" bash -eo pipefail -c "$guard"
 }
 
 summary() {

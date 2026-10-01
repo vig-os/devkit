@@ -298,12 +298,11 @@ jobs:
   # in a consumer's adoption PR. scripts/consumer-matrix/render-cell.sh is the
   # single source of the cells and the gates, and runs the same locally.
   #
-  # ONE job looping the cells, not a matrix job per cell: setup-env costs ~43 s
-  # per job while a warm cell runs in ~1-15 s, so a per-cell matrix would pay
-  # setup eight times over for no critical-path gain — the loop already
-  # finishes well inside the BATS/flake lanes. Every cell runs whatever an
-  # earlier one did (the fail-fast: false equivalent) and each failing cell is
-  # named in the job summary.
+  # ONE job running the cells, not a matrix job per cell: setup-env costs
+  # ~44 s per job while a cell runs in ~2-40 s, so a per-cell matrix would pay
+  # setup eight times over; the cells run concurrently inside the job instead.
+  # Every cell runs whatever another did (the fail-fast: false equivalent) and
+  # each failing cell is named in the job summary.
   consumer-matrix:
     name: Consumer Matrix
     runs-on: ubuntu-26.04
@@ -341,12 +340,24 @@ jobs:
       - name: Render and gate every consumer cell
         run: |
           set -uo pipefail
+          # Cells run concurrently (a serial loop measured 221 s, putting the
+          # job level with the BATS/flake lanes on the critical path); each
+          # writes its own log, printed in list order once all have finished.
+          LOGS="$RUNNER_TEMP/consumer-matrix-logs"
+          mkdir -p "$LOGS"
+          mapfile -t CELLS < <(scripts/consumer-matrix/render-cell.sh list)
+          PIDS=()
+          for cell in "${CELLS[@]}"; do
+            scripts/consumer-matrix/render-cell.sh "$cell" > "$LOGS/$cell.log" 2>&1 &
+            PIDS+=("$!")
+          done
           FAILED=()
-          while IFS= read -r cell; do
-            if ! scripts/consumer-matrix/render-cell.sh "$cell"; then
-              FAILED+=("$cell")
-            fi
-          done < <(scripts/consumer-matrix/render-cell.sh list)
+          for i in "${!CELLS[@]}"; do
+            wait "${PIDS[$i]}" || FAILED+=("${CELLS[$i]}")
+          done
+          for cell in "${CELLS[@]}"; do
+            cat "$LOGS/$cell.log"
+          done
           if [[ ${#FAILED[@]} -gt 0 ]]; then
             {
               echo "## Consumer matrix: ${#FAILED[@]} cell(s) FAILED"
