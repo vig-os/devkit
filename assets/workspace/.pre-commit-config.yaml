@@ -28,6 +28,10 @@ repos:
           - --pattern
           - "^(?!main$)(?!dev$)(?!^(chore)/[a-z0-9]+(-[a-z0-9]+)*$)(?!^(feature|bugfix|hotfix|release|docs|test|refactor)/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$)(?!^renovate/.+$)(?!^worktree/[0-9]+$).+$"
       - id: check-added-large-files
+        # The scaffold copies devkit's own, growing CHANGELOG.md into
+        # .devcontainer/CHANGELOG.md; a fresh consumer's first commit adds
+        # that file past this hook's 500 KB default (#1801).
+        exclude: ^\.devcontainer/CHANGELOG\.md$
       - id: check-case-conflict
       - id: check-json
         # The three JSONC scaffold files carry a `//` provenance banner (#1053)
