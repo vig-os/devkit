@@ -22,11 +22,12 @@ _manifest() {
     sed -n "s/^$2=//p" "$1/.vig-os"
 }
 
-@test "list prints exactly the MVP cells, one per line" {
+@test "list prints exactly the cells, one per line" {
     run "$RENDER_CELL" list
     assert_success
     assert_output "$(printf '%s\n' direnv devcontainer bare trunk \
-        features-disabled ci-runner tag-prefix language-guard)"
+        features-disabled ci-runner tag-prefix language-guard \
+        python node rust direnv-flake)"
 }
 
 @test "an unknown cell is refused, naming the known cells" {
@@ -38,7 +39,7 @@ _manifest() {
 
 @test "mode and workflow cells pre-seed nothing" {
     local cell
-    for cell in direnv devcontainer bare trunk; do
+    for cell in direnv devcontainer bare trunk python node rust direnv-flake; do
         run "$RENDER_CELL" seed "$cell"
         assert_success
         assert_output ""
@@ -111,4 +112,46 @@ _manifest() {
     run "$RENDER_CELL" render direnv "$ws"
     assert_failure
     assert_output --partial "refusing to render into non-empty"
+}
+
+@test "language cells render their fixture and the scaffold detects the language" {
+    local lang ws marker
+    for lang in python node rust; do
+        case "$lang" in
+            python) marker=pyproject.toml ;;
+            node) marker=package.json ;;
+            rust) marker=Cargo.toml ;;
+        esac
+        ws="$BATS_TEST_TMPDIR/$lang"
+        PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render "$lang" "$ws"
+        assert_success
+        assert_file_exists "$ws/$marker"
+        assert_equal "$(_manifest "$ws" DEVKIT_LANGUAGES)" "$lang"
+        assert_equal "$(_manifest "$ws" DEVKIT_MODE)" bare
+    done
+}
+
+@test "the node cell gets the npm-mapped justfile.project" {
+    local ws="$BATS_TEST_TMPDIR/node"
+    PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render node "$ws"
+    assert_success
+    run grep -q 'npm test' "$ws/justfile.project"
+    assert_success
+}
+
+@test "every language fixture test can prove it ran" {
+    local lang
+    for lang in python node rust; do
+        run grep -rq CONSUMER_MATRIX_SENTINEL "$PROJECT_ROOT/tests/fixtures/consumer/$lang"
+        assert_success
+    done
+}
+
+@test "direnv-flake renders direnv mode with a flake and flake-generated hooks" {
+    local ws="$BATS_TEST_TMPDIR/direnv-flake"
+    PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render direnv-flake "$ws"
+    assert_success
+    assert_equal "$(_manifest "$ws" DEVKIT_MODE)" direnv
+    assert_file_exists "$ws/flake.nix"
+    assert_file_not_exists "$ws/.pre-commit-config.yaml"
 }
