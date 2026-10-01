@@ -644,11 +644,43 @@ jobs:
         with:
           fail-on-severity: high
 
+  # CI extension seam (#1761): a fourth consumer-owned seam, next to the three
+  # release-process ones (release-extension.yml et al.), but called from ci.yml
+  # rather than the release orchestrator. Called UNCONDITIONALLY — no knob, no
+  # `if:` — because a skip-by-default gate reintroduces exactly the silent-skip
+  # failure this issue exists to prevent: a consumer writes real jobs into
+  # ci-extension.yml, forgets to flip a flag, and the job is silently skipped
+  # while red checks merge. The one hosted no-op runner this costs every PR is
+  # the accepted price. `permissions:` stays the same read-only ceiling as the
+  # rest of this workflow; a called reusable workflow can only downgrade it.
+  extension:
+    name: CI Extension
+    needs: [resolve-toolchain]
+    uses: ./.github/workflows/ci-extension.yml
+    permissions:
+      contents: read
+      packages: read
+    with:
+      mode: ${{ needs.resolve-toolchain.outputs.mode }}
+      image: ${{ needs.resolve-toolchain.outputs.image }}
+      image-tag: ${{ needs.resolve-toolchain.outputs.image-tag }}
+      runner-json: ${{ needs.resolve-toolchain.outputs.runner-json }}
+    secrets: inherit
+
   summary:
     name: CI Summary
     runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
     timeout-minutes: 5
-    needs: [resolve-toolchain, lint, test, commit-checks, scaffold-drift, dependency-review]
+    needs:
+      [
+        resolve-toolchain,
+        lint,
+        test,
+        commit-checks,
+        scaffold-drift,
+        dependency-review,
+        extension,
+      ]
     if: always()
 
     steps:
@@ -663,6 +695,7 @@ jobs:
           echo "Commit messages: ${{ needs.commit-checks.result }}"
           echo "Scaffold drift: ${{ needs.scaffold-drift.result }}"
           echo "Dependency review: ${{ needs.dependency-review.result }}"
+          echo "Extension: ${{ needs.extension.result }}"
           echo ""
 
           # Fail on 'failure' AND on 'cancelled': a cancelled job (timeout,
@@ -704,6 +737,13 @@ jobs:
           # the gate.
           if [ "${{ needs.dependency-review.result }}" = "failure" ] || [ "${{ needs.dependency-review.result }}" = "cancelled" ]; then
             echo "ERROR: Dependency review failed or was cancelled"
+            FAILED=true
+          fi
+
+          # Called unconditionally (#1761) — never skipped, so 'failure'/
+          # 'cancelled' are the only non-passing results a consumer can hit.
+          if [ "${{ needs.extension.result }}" = "failure" ] || [ "${{ needs.extension.result }}" = "cancelled" ]; then
+            echo "ERROR: CI extension failed or was cancelled"
             FAILED=true
           fi
 

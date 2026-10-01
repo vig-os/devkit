@@ -1,0 +1,56 @@
+# Seeded by vigOS devkit — yours to edit; upgrades never overwrite this file.
+# Bugs / missing tools: https://github.com/vig-os/devkit/issues
+
+#
+# Called unconditionally from the managed ci.yml as the `extension` job and
+# aggregated by the CI Summary gate — a failing or cancelled job here blocks
+# the merge exactly like lint/test/commit-checks. Every input is
+# `required: false`: this file is a preserved, consumer-owned contract, so a
+# later devkit release can add an input without breaking an existing copy.
+# `runs-on` resolves from `runner-json` (the same DEVKIT_CI_RUNNER-derived
+# value the rest of ci.yml uses) rather than a literal label, so a self-hosted
+# consumer's own runners pick this job up too, and so actionlint keeps linting
+# clean once you start editing below (it does not know every hosted label).
+# See "CI Extension Hook" in docs/DOWNSTREAM_RELEASE.md.
+
+name: CI Extension
+
+on:  # yamllint disable-line rule:truthy
+  workflow_call:
+    inputs:
+      mode:
+        description: "Resolved delivery mode (devcontainer/direnv/both/bare)"
+        required: false
+        type: string
+      image:
+        description: "Resolved container image (empty string in host modes)"
+        required: false
+        type: string
+      image-tag:
+        description: "Resolved devkit image tag"
+        required: false
+        type: string
+      runner-json:
+        description: "JSON array of runner labels (DEVKIT_CI_RUNNER)"
+        required: false
+        type: string
+        default: '["ubuntu-26.04"]'
+
+permissions:
+  contents: read
+
+jobs:
+  extension:
+    name: Extension Hook (Default No-op)
+    runs-on: ${{ fromJSON(inputs.runner-json) }}
+    steps:
+      - name: Default extension summary
+        env:
+          MODE: ${{ inputs.mode }}
+          IMAGE: ${{ inputs.image }}
+          IMAGE_TAG: ${{ inputs.image-tag }}
+        run: |
+          echo "No CI extension configured."
+          echo "Mode: $MODE"
+          echo "Image: $IMAGE"
+          echo "Image tag: $IMAGE_TAG"

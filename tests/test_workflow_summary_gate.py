@@ -84,6 +84,7 @@ SUMMARY_COPIES: dict[str, tuple[Path, str, set[str]]] = {
             "commit-checks",
             "scaffold-drift",
             "dependency-review",
+            "extension",
         },
     ),
 }
