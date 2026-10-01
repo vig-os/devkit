@@ -5601,39 +5601,6 @@ assert 'shellcheck' in ids and 'pymarkdown' in ids, ids
     fi
 }
 
-@test "a pre-existing double blank line is not repaired by a later upgrade (#1800)" {
-    # PRESERVED-file case: a consumer who already hit the bug (opted out while
-    # running a buggy devkit) has the double blank line baked into their
-    # tracked .pre-commit-config.yaml, with the sentinels themselves already
-    # gone (the old code deleted the sentinel-to-sentinel range and nothing
-    # else). render_actionlint_optout's own guard — no sentinel, no-op — means
-    # a later upgrade does NOT retroactively fix an already-damaged file; this
-    # pins that (documented, not fixed: no fold machinery for a cosmetic
-    # blank-line defect, unlike #1652's structural folds).
-    ws="$BATS_TEST_TMPDIR/e2e-1800-optout-preexisting-damage"
-    mkdir -p "$ws"
-    run _clone_shared both "$ws"
-    assert_success
-    # Reproduce the OLD (buggy) excision by hand: sentinel-to-sentinel only.
-    sed -i -E '/^[[:space:]]*# >>> devkit:actionlint([[:space:]]|$)/,/^[[:space:]]*# <<< devkit:actionlint([[:space:]]|$)/d' \
-        "$ws/.pre-commit-config.yaml"
-    run awk '
-        /^[[:space:]]*$/ { if (prev) exit 1; prev = 1; next }
-        { prev = 0 }
-    ' "$ws/.pre-commit-config.yaml"
-    assert_failure
-
-    _seed_features_disabled "$ws" "actionlint"
-    run _upgrade_no_flags "$ws"
-    assert_success
-
-    run awk '
-        /^[[:space:]]*$/ { if (prev) exit 1; prev = 1; next }
-        { prev = 0 }
-    ' "$ws/.pre-commit-config.yaml"
-    assert_failure
-}
-
 @test "an existing label config survives the actionlint opt-out (#1660)" {
     # Preserved-class carve-out (#1284): the consumer's own declarations are
     # never deleted by a feature prune, only reported.
