@@ -154,6 +154,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Actionlint opt-out left a double blank line that failed yamllint**
+  ([#1800](https://github.com/vig-os/devkit/issues/1800))
+  - `DEVKIT_FEATURES_DISABLED=actionlint` excised the `# >>> devkit:actionlint`
+    … `# <<< devkit:actionlint` block from a rendered `.pre-commit-config.yaml`
+    but left the blank lines flanking it, so the two ends met as two adjacent
+    blank lines — `too many blank lines (2 > 1)` under the scaffold's own
+    `.yamllint` (`empty-lines: max: 1`). The excision now also drops the blank
+    line immediately before the block, scoped to that one seam
+  - A consumer who already hit the bug on a prior render is not repaired by a
+    later upgrade: the excision is sentinel-gated and the sentinels are
+    already gone from an already-excised file, so there is nothing new to
+    trigger on. Fixing the double blank line by hand (or re-adding the hook
+    and re-running the opt-out) clears it
+- **Fresh scaffold's first commit failed `check-added-large-files` on `.devcontainer/CHANGELOG.md`**
+  ([#1801](https://github.com/vig-os/devkit/issues/1801))
+  - The scaffold copies devkit's own, growing `CHANGELOG.md` into
+    `.devcontainer/CHANGELOG.md` (528 KB+ on `dev`), which crossed the hook's
+    500 KB default. `check-added-large-files` now excludes that path; devkit's
+    own repo has no `.devcontainer/` directory, so the exclude is an inert
+    no-op on devkit's own commits
 - **`sync-issues.yml`'s `sync` job ignored `DEVKIT_CI_RUNNER`**
   ([#1795](https://github.com/vig-os/devkit/issues/1795))
   - `resolve-toolchain` now re-exports `runner-json`, and the `sync` job routes
