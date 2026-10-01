@@ -244,10 +244,20 @@ let
         };
       };
     };
+    # The scaffold copies devkit's own (large, growing) CHANGELOG.md into
+    # .devcontainer/CHANGELOG.md (assets/init-workspace.sh); a fresh
+    # consumer's first commit ADDS that file, which this hook's 500 KB
+    # default rejects (514,976 bytes at 1.17.0; grows every release, #1801).
+    # The exclude lives in the one shared `yaml` (not a scaffold-only
+    # override): devkit's own repo has no `.devcontainer/` directory at all,
+    # so the pattern matches nothing there and the runner render is an
+    # inert no-op, keeping one render for both committed YAMLs.
     check-added-large-files = {
       repo = "pre-commit-hooks";
       scaffold = true;
-      yaml = { };
+      yaml = {
+        exclude = "^\\.devcontainer/CHANGELOG\\.md$";
+      };
       check = _: {
         enable = true;
       };

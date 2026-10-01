@@ -31,11 +31,22 @@ suites are parametrized over both copies rather than pinning the scaffold alone.
 
 The tag-move and re-query choreography is bash and not unit-testable here.
 
-Refs: #1045, #1132, #1487
+Issue #1749: the cleanup job's candidate-tag match was hardcoded to
+``X.Y.Z-rc[0-9]+`` / ``X.Y.Z-rc*``, so a repo on a non-default
+``DEVKIT_PRERELEASE_FORMAT`` (e.g. ``alpha.{N}``, #1746) never got its
+candidate tags cleaned up. The cleanup pattern is now derived from the
+resolved format via ``release-version --list-pattern``, scoped to the
+SCAFFOLD copy only -- devkit's own copy stays on literal ``rc{N}`` (it sets
+no format and additionally prunes per-arch GHCR ``-rcN-<arch>`` tags a
+format-generic matcher would not cover). A tag from a PREVIOUSLY configured
+format (mid-series switch) is intentionally left alone.
+
+Refs: #1045, #1132, #1487, #1749
 """
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 import pytest
@@ -59,6 +70,55 @@ PROMOTE_COPIES: dict[str, Path] = {
     "scaffold": WORKFLOWS / "promote-release.yml",
 }
 COPIES = list(PROMOTE_COPIES)
+
+
+# ── cleanup pattern derives from the configured pre-release format (#1749) ────
+#
+# Scaffold copy only -- devkit's own copy is out of scope (see module
+# docstring).
+
+
+def _cleanup_step() -> dict:
+    workflow = load_workflow(PROMOTE)
+    return step_by_name(steps_of_job(workflow, "cleanup"), "Delete RC draft")
+
+
+def test_promote_resolve_job_exposes_prerelease_format() -> None:
+    """``resolve-toolchain`` re-exposes the format so cleanup can read it."""
+    workflow = load_workflow(PROMOTE)
+    resolve_out = workflow["jobs"]["resolve-toolchain"]["outputs"]
+    assert "prerelease-format" in resolve_out
+
+
+def test_cleanup_step_reads_resolved_prerelease_format() -> None:
+    env = _cleanup_step().get("env", {})
+    assert "PRERELEASE_FORMAT" in env
+    assert "needs.resolve-toolchain.outputs.prerelease-format" in str(
+        env["PRERELEASE_FORMAT"]
+    )
+
+
+def test_cleanup_step_calls_release_version_list_pattern() -> None:
+    run = _cleanup_step()["run"]
+    assert "release-version" in run
+    assert "--list-pattern" in run
+
+
+def test_cleanup_step_has_no_hardcoded_rc_pattern() -> None:
+    """The former literal ``-rc[0-9]+`` / ``-rc*`` match must be fully gone."""
+    run = _cleanup_step()["run"]
+    assert "rc[0-9]" not in run
+    assert "-rc*" not in run
+
+
+def test_cleanup_step_passes_pattern_to_jq_via_arg() -> None:
+    """The pattern reaches jq as data (``--arg``), never string-built into the filter."""
+    run = _cleanup_step()["run"]
+    assert re.search(r"--arg\s+pat\s+\S*PATTERN\S*", run)
+    assert "test($pat)" in run
+    # The former inline regex construction (dot-escaping + literal `-rc[0-9]+`
+    # glued together with string concatenation) must be gone.
+    assert "gsub" not in run
 
 
 # ── floating tags (#1045) ─────────────────────────────────────────────────────
