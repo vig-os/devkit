@@ -373,6 +373,57 @@ def test_list_pattern_has_no_named_group() -> None:
     assert "?P<" not in pattern
 
 
+def test_list_pattern_is_plain_posix_ere() -> None:
+    """Only ONE of the two real consumers speaks PCRE (GNU ``grep -E`` does
+
+    not): the pattern must avoid ``\\d`` and ``(?:...)``, which GNU grep
+    either mis-parses (non-capturing groups: a warning, then a parse GNU
+    grep still accepts but does not implement as intended) or treats as a
+    literal backslash-d (verified directly against ``grep -E``, not assumed).
+    A plain, unnamed ``(...)`` group and ``[0-9]`` are valid ERE and are
+    understood identically by jq's Oniguruma ``test()``.
+    """
+    pattern = _fmt("pre.{YYYYMMDD}.{N}").list_pattern("v", "1.2.3")
+    assert "?:" not in pattern
+    assert "\\d" not in pattern
+
+
+@pytest.mark.parametrize(
+    ("fmt", "prefix", "version", "match", "no_match"),
+    [
+        ("rc{N}", "", "1.2.3", "1.2.3-rc1", "1.2.3-rc1-amd64"),
+        ("alpha.{N}", "v", "0.1.0", "v0.1.0-alpha.12", "v0.1.0-alpha.01"),
+        ("pre.{YYYYMMDD}", "", "1.2.3", "1.2.3-pre.20260928", "1.2.3-pre.2026092"),
+    ],
+)
+def test_list_pattern_matches_via_real_grep_e(
+    fmt: str, prefix: str, version: str, match: str, no_match: str
+) -> None:
+    """Exercise the ACTUAL promote-cleanup consumer, not a Python re stand-in."""
+    pattern = _fmt(fmt).list_pattern(prefix, version)
+    proc = subprocess.run(
+        ["grep", "-E", pattern],
+        input=f"{match}\n{no_match}\n",
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.stdout.splitlines() == [match], proc.stderr
+
+
+def test_list_pattern_matches_via_real_jq_test() -> None:
+    """Exercise the ACTUAL promote-cleanup consumer, not a Python re stand-in."""
+    pattern = _fmt("alpha.{N}").list_pattern("v", "0.1.0")
+    proc = subprocess.run(
+        ["jq", "-r", "--arg", "pat", pattern, "test($pat)"],
+        input='"v0.1.0-alpha.3"\n',
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.stdout.strip() == "true", proc.stderr
+
+
 def test_list_pattern_rejects_invalid_format() -> None:
     with pytest.raises(rv.ReleaseVersionError, match="format"):
         _fmt("rc_{N}")

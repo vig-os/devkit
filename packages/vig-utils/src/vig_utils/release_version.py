@@ -149,16 +149,19 @@ class PreReleaseFormat:
         """Anchored regex (as a string) matching this format's tags of ``version``.
 
         Built on the same ``re.escape``/placeholder-substitution machinery as
-        ``_regex`` -- no second parser -- but the ``{N}`` counter becomes a
-        plain, unnamed group: the pattern is meant for external consumers
-        (jq's ``test()``, a ``grep -E`` filter) and neither accepts Python's
-        ``(?P<name>...)`` syntax ``_regex`` uses internally. ``{YYYYMMDD}``
+        ``_regex`` -- no second parser -- but restricted to plain POSIX ERE:
+        the pattern is meant for external consumers (jq's ``test()``, a
+        ``grep -E`` filter), and only one of those speaks PCRE. A plain
+        ``(...)`` group replaces ``_regex``'s named ``(?P<n>...)`` (GNU
+        ``grep -E`` warns on ``(?:...)`` and silently mis-parses it), and
+        ``[0-9]`` replaces ``\\d`` (GNU ``grep -E`` does not expand it --
+        verified directly against both tools, not assumed). ``{YYYYMMDD}``
         matches any 8-digit date. Used by the promote-release cleanup job
         (#1749) to find candidate tags of the CONFIGURED format only -- a tag
         from a previously configured format is intentionally not matched.
         """
         base = re.escape(f"{tag_prefix}{version}") + "-"
-        body = self._pattern_body(r"(?:0|[1-9]\d*)", r"\d{8}")
+        body = self._pattern_body(r"(0|[1-9][0-9]*)", r"[0-9]{8}")
         return rf"^{base}{body}$"
 
     def matches_any_date(self, pre: str) -> bool:
