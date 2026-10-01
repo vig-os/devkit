@@ -2393,7 +2393,8 @@ render_commit_app_environment() {
         "prepare-hotfix.yml:rollback" \
         "release.yml:rollback" \
         "release-core.yml:finalize" \
-        "promote-release.yml:reset-sync-mirror"; do
+        "promote-release.yml:reset-sync-mirror" \
+        "repository-dispatch.yml:deploy"; do
         wf="${pair%%:*}"
         job="${pair##*:}"
         f="$WORKSPACE_DIR/.github/workflows/$wf"

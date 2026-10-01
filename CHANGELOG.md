@@ -131,6 +131,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Smoke listener's deploy job unbound from the commit-App environment**
+  ([#1793](https://github.com/vig-os/devkit/issues/1793))
+  - `repository-dispatch.yml`'s `deploy` job mints the commit App token but was
+    missing from `render_commit_app_environment`'s render list, so a
+    `--smoke-test` scaffold with `DEVKIT_COMMIT_APP_ENVIRONMENT` set left it
+    reading `COMMIT_APP_CLIENT_ID`/`COMMIT_APP_PRIVATE_KEY` from org/repo
+    secrets instead of the environment. It is now bound alongside the other
+    token-minting jobs.
 - **Sync watermark advanced past a failed push**
   ([#1757](https://github.com/vig-os/devkit/issues/1757))
   - `sync-issues.yml` saved its incremental cutoff with `if: always()`, so a
