@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `scripts/consumer-matrix/render-cell.sh` holds the cell list and runs any
     cell locally, as the RC validation recipe
   - Devkit CI only: nothing changes in what consumers receive
+- **`packages.<system>.guardrails`: the vendored gates without a `mkProjectShell` migration**
+  ([#1572](https://github.com/vig-os/devkit/issues/1572))
+  - The guardrails gates derivation (previously reachable only through
+    `mkProjectShell`'s `modules = [ "guardrails" ]`) is now exposed directly
+    as `packages.<system>.guardrails`, for a consumer that owns its own dev
+    shell and pre-commit/prek config and only wants the hermetic gate
+    binaries. Composes with #1492: the consumer's hook config stays
+    consumer-owned
+  - Documented in `docs/NIX.md`: `$out/share/guardrails/gates/test-gates.sh`
+    is the supported way for a consumer to assert gate execution in its own
+    flake
 - **CI extension seam so consumer jobs gate CI Summary**
   ([#1761](https://github.com/vig-os/devkit/issues/1761))
   - New preserved stub `.github/workflows/ci-extension.yml`, called
@@ -139,6 +150,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     instead of restating the permission set inline
 
 ### Changed
+
+- **Promote-release cleanup matches the configured pre-release format**
+  ([#1749](https://github.com/vig-os/devkit/issues/1749))
+  - The scaffolded `promote-release.yml` cleanup job used to prune only
+    `-rc*` candidate tags, so a repo on a non-default
+    `DEVKIT_PRERELEASE_FORMAT` (e.g. `alpha.{N}`, #1746) never got its
+    candidate tags cleaned up. The match is now derived from the resolved
+    format via the new `release-version --list-pattern` CLI mode
+    (`PreReleaseFormat.list_pattern` in vig-utils), reusing the format's
+    existing `re.escape`/placeholder machinery rather than a second parser
+  - A tag from a *previously* configured format (a mid-series switch) is
+    intentionally left alone; the existing "no GitHub Release" guard is
+    unchanged
+  - Scope: the scaffold copy only. Devkit's own
+    `.github/workflows/promote-release.yml` stays on literal `rc{N}` -- it
+    sets no pre-release format and its cleanup also prunes per-arch GHCR
+    `-rcN-<arch>` tags, which a format-generic matcher would not cover
 
 ### Deprecated
 
