@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-29T06:10:53Z
-updated: 2026-09-30T17:51:31Z
+updated: 2026-10-01T17:46:39Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1760
-comments: 1
+comments: 2
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-10-01T08:40:57.443Z
+synced: 2026-10-02T08:18:26.019Z
 ---
 
 # [Issue 1760]: [The branch-name rule exists only inline in ci.yml, so every consumer's local gate must duplicate it (and drifts)](https://github.com/vig-os/devkit/issues/1760)
@@ -94,4 +94,12 @@ _Posted on September 30, 2026 at 05:51 PM_
 Premise correction: the rule is not CI-only. The scaffold already ships a local gate, `no-commit-to-branch` in `assets/workspace/.pre-commit-config.yaml`, and `init-workspace.sh` renders it from `DEVKIT_BRANCH_TYPES`, `DEVKIT_REFS_POLICY` and the workflow model (#1432, #1642, #1767). That means a consumer that keeps the scaffolded hook already gets the same *type list* locally.
 
 What is still true, and why this stays open, is that the rule lives in **two hand-kept renderings**: a negative-lookahead regex in the hook, and the `ALLOWED` bash alternation in `ci.yml`'s `Validate branch name` step. They can disagree on *shape*. For example, `ci.yml` accepts `release/X.Y.Z`, while the hook only accepts `release` in its issue-numbered form. A `vig-utils validate-branch-name` entry point that both call, following the `validate-commit-msg` precedent, remains the right fix. tessera's divergence came from replacing the scaffolded hook with its own pattern.
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on October 1, 2026 at 05:46 PM_
+
+Resolved by #1806 (merged to `dev`, ships with the next release): `validate-branch-name` in vig-utils is now the one rule, called by the local hook (replacing `no-commit-to-branch`), the scaffolded CI step, devkit's own CI step and the flake hook surface. `release/X.Y.Z` now passes locally as it did in CI. Consumers' preserved configs get every rendered shape of the old hook folded on upgrade; a hand-edited pattern is left in place and reported as `preserved-hook-drift: no-commit-to-branch-pre-1760`. Known gap, unchanged from `validate-commit-msg`: the scaffold's `uv run` entry needs uv, and a stale dev shell must be reloaded after upgrading.
 

@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-29T11:07:41Z
-updated: 2026-09-29T11:07:41Z
+updated: 2026-10-01T17:46:58Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1762
-comments: 0
+comments: 1
 labels: feature, priority:medium, area:ci, area:testing, effort:large
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-30T08:17:47.224Z
+synced: 2026-10-02T08:18:24.587Z
 ---
 
 # [Issue 1762]: [feat(ci): run a rendered-consumer variant matrix in PR CI](https://github.com/vig-os/devkit/issues/1762)
@@ -68,4 +68,13 @@ Devkit CI only. No change to what consumers receive.
 ### Changelog Category
 
 Added
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on October 1, 2026 at 05:46 PM_
+
+Resolved by #1803 and #1807 (merged to `dev`, ship with the next release): the `Consumer Matrix` PR-CI job renders 12 consumer variants with the PR's own `init-workspace.sh` and runs each one's own gates (lint, precommit, the first-commit hook run, actionlint, zizmor, the declared-language guard, `just test` for the python/node/rust fixtures, and a flake check). Cells live in `scripts/consumer-matrix/render-cell.sh`, which also runs any cell locally as the RC validation recipe. It adds nothing to the critical path. On its first run it caught #1800 and #1801. The `rust` cell is a strict expected-fail tracked on #1496.
+
 

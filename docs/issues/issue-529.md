@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-09-29T00:30:16Z
+updated: 2026-10-01T16:43:04Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-29T08:16:57.725Z
+synced: 2026-10-02T08:18:28.170Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -24,7 +24,7 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
- - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update vig-os/sync-issues-action action to v0.5.1
+ - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update github-actions (minor and patch) (`aquasecurity/trivy`, `vig-os/sync-issues-action`)
  - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
  - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
 
@@ -69,7 +69,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 </details>
 
-<details><summary>.github/workflows/ci.yml (35)</summary>
+<details><summary>.github/workflows/ci.yml (38)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
@@ -82,6 +82,8 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
@@ -102,8 +104,9 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `ubuntu 26.04`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
- - `aquasecurity/trivy v0.74.0`
- - `aquasecurity/trivy v0.74.0`
+ - `ubuntu 26.04`
+ - `aquasecurity/trivy v0.74.0` → [Updates: `v0.75.0`]
+ - `aquasecurity/trivy v0.74.0` → [Updates: `v0.75.0`]
  - `ubuntu 26.04`
  - `ubuntu 26.04`
 
@@ -270,7 +273,7 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/github-script v9.0.0@3a2844b7e9c422d3c10d287c895573f7108da1b3`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
- - `aquasecurity/trivy v0.74.0`
+ - `aquasecurity/trivy v0.74.0` → [Updates: `v0.75.0`]
  - `ubuntu 26.04`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
@@ -304,8 +307,8 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `aquasecurity/trivy-action v0.36.0@ed142fd0673e97e23eac54620cfb913e5ce36c25`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `ubuntu 26.04`
- - `aquasecurity/trivy v0.74.0`
- - `aquasecurity/trivy v0.74.0`
+ - `aquasecurity/trivy v0.74.0` → [Updates: `v0.75.0`]
+ - `aquasecurity/trivy v0.74.0` → [Updates: `v0.75.0`]
 
 </details>
 
@@ -564,7 +567,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/sync-issues.yml (9)</summary>
+<details><summary>assets/workspace/.github/workflows/sync-issues.yml (8)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
@@ -573,7 +576,6 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `vig-os/sync-issues-action v0.5.0@b62c8eca72f4ee7177caee4f689ee080a5997164` → [Updates: `v0.5.1`]
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
- - `ubuntu 26.04`
  - `ubuntu 26.04`
 
 </details>

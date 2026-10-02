@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-28T12:10:34Z
-updated: 2026-09-28T12:10:34Z
+updated: 2026-10-01T17:46:36Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1749
-comments: 0
+comments: 1
 labels: feature
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-29T08:16:54.046Z
+synced: 2026-10-02T08:18:26.476Z
 ---
 
 # [Issue 1749]: [[FEATURE] promote-release: generalise candidate tag cleanup to the configured pre-release format](https://github.com/vig-os/devkit/issues/1749)
@@ -47,4 +47,12 @@ Promote-time cleanup only; no change for `rc{N}` repos.
 ### Changelog Category
 
 Changed
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on October 1, 2026 at 05:46 PM_
+
+Resolved by #1802 (merged to `dev`, ships with the next release): the scaffolded promote cleanup derives its tag match from the resolved `DEVKIT_PRERELEASE_FORMAT` via the new `release-version --list-pattern` (POSIX ERE, passed to jq with `--arg`). Policy: tags of a *previously* configured format for the same X.Y.Z are left alone; only tags with no GitHub Release are ever deleted. Devkit's own promote-release keeps literal `rc{N}` (it sets no format and also prunes per-arch image tags).
 
