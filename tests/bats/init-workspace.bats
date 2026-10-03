@@ -5391,6 +5391,39 @@ _seed_license() {
     refute_output --partial "Rendered sync-issues settings"
 }
 
+# Mirror mode's only fold-back is the release train (#1424): a disabled release
+# group prunes release-core.yml, so the trunk's archive freezes at the switch.
+# Deliberate is allowed — but never silent (#1758).
+@test "mirror mode with a disabled release feature warns but does not abort (#1758)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1758-no-fold"
+    mkdir -p "$ws"
+    run _clone_shared both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
+    _seed_features_disabled "$ws" "release"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "Notice: DEVKIT_SYNC_TARGET mirror has no fold-back"
+}
+
+@test "the no-fold-back notice stays quiet when it does not apply (#1758)" {
+    # release enabled: the fold is rendered, nothing to warn about
+    ws="$BATS_TEST_TMPDIR/e2e-1758-fold"
+    mkdir -p "$ws"
+    run _clone_shared both "$ws"
+    assert_success
+    sed -i 's#^DEVKIT_SYNC_TARGET=.*#DEVKIT_SYNC_TARGET=sync/issue-mirror#' "$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    refute_output --partial "mirror has no fold-back"
+    # sync-issues disabled too: the target is inert, the #1284 notice covers it
+    _seed_features_disabled "$ws" "release,sync-issues"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    assert_output --partial "will have no effect"
+    refute_output --partial "mirror has no fold-back"
+}
+
 @test "trunk workflow plus a disabled release feature compose without double-reporting (#1284)" {
     ws="$BATS_TEST_TMPDIR/e2e-1284-compose"
     mkdir -p "$ws"

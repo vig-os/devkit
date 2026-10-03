@@ -610,6 +610,14 @@ if feature_disabled sync-issues && [[ -n "$MANIFEST_SYNC_TARGET" || -n "$MANIFES
     echo "Notice: sync-issues feature disabled (DEVKIT_FEATURES_DISABLED); DEVKIT_SYNC_TARGET/DEVKIT_SYNC_SCHEDULE will have no effect (#1284)." >&2
 fi
 
+# Composition notice (#1758): mirror mode's only fold-back is the release train
+# (#1424), rendered into release-core.yml — which a disabled release group
+# prunes. The mirror then never reaches the trunk and the trunk's archive
+# freezes at the switch. A legitimate interim choice, so warn, never abort.
+if feature_disabled release && ! feature_disabled sync-issues && [[ -n "$MANIFEST_SYNC_TARGET" ]]; then
+    echo "Notice: DEVKIT_SYNC_TARGET mirror has no fold-back — the release feature is disabled (DEVKIT_FEATURES_DISABLED), so the mirror is never merged back and the trunk's issue/PR archive stops updating (#1758)." >&2
+fi
+
 # Refs policy (#1282): scaffold-time knob steering the Refs enforcement of the
 # validate-commit-msg hook and CI's validate-commit-range. Pure `.vig-os` key
 # (no CLI flag), so only a value guard — empty resolves to the chore-optional
@@ -2067,8 +2075,10 @@ render_workflow_model() {
 # their manifest key is unset, so an unconfigured workspace stays byte-for-byte
 # unchanged. When a custom target is set — a protected-main mirror branch such as
 # sync/issue-mirror (#1227) — the job also gains a bootstrap step that creates the
-# branch from the default branch head if absent; the mirror diverges permanently
-# and is never merged back (each sync regenerates full state).
+# branch from the default branch head if absent. The sync is incremental (only
+# items changed since the last watermark), so the mirror is not self-healing;
+# the release-core fold below is its only path back to the trunk (#1424), and
+# it is absent when the release feature is disabled (notice: #1758).
 render_sync_settings() {
     local si="$WORKSPACE_DIR/.github/workflows/sync-issues.yml"
     [[ -f "$si" ]] || return 0

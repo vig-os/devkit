@@ -404,10 +404,11 @@ DEVKIT_SYNC_TARGET=sync/issue-mirror
 
 The scaffolded job then **bootstraps** that branch from the default branch head
 if it is absent (so its first run creates it) and pushes the archive there,
-outside the `main` ruleset. Every sync run regenerates the issue/PR state from
-the GitHub API, so the branch is a standalone, self-healing archive, not
-integration work. Absent => the workflow-model default (`dev`/`main`),
-unchanged for every existing consumer.
+outside the `main` ruleset. The sync is incremental — each run writes only the
+issues/PRs changed since the last watermark, and only a `force-update: true`
+dispatch rebuilds the archive from scratch — so the branch is an archive, not
+integration work, but it is not self-healing. Absent => the workflow-model
+default (`dev`/`main`), unchanged for every existing consumer.
 
 The mirror **never merges directly into `main`** — the release train is its
 integration point ([#1424](https://github.com/vig-os/devkit/issues/1424)).
@@ -423,6 +424,13 @@ merges, the rendered `promote-release.yml` force-resets the mirror onto
 divergence stays bounded to post-release snapshot commits. Between releases
 the mirror remains the live archive; `main` holds the archive as of the last
 release.
+
+That fold lives in `release-core.yml`, so it needs the `release` feature group.
+With `release` in `DEVKIT_FEATURES_DISABLED` there is no fold-back: the mirror
+is never merged into the trunk, and the trunk's `docs/issues/` +
+`docs/pull-requests/` freeze at the moment of the switch, with no marker. The
+scaffold prints a notice for this combination but does not refuse it
+([#1758](https://github.com/vig-os/devkit/issues/1758)).
 
 A second optional key, `DEVKIT_SYNC_SCHEDULE`, overrides the schedule trigger's
 cron (validated as a 5-field cron at scaffold time; a protected-main mirror is
@@ -627,7 +635,10 @@ The nine groups:
   `just --list` stops offering commands that can only fail — a dispatch to a
   pruned workflow, or a `reset-changelog` against the withheld `CHANGELOG.md`
   ([#1656](https://github.com/vig-os/devkit/issues/1656)). The file is managed,
-  so clearing the key brings the recipes back on the next `--force`.
+  so clearing the key brings the recipes back on the next `--force`. Disabling
+  `release` also removes the `DEVKIT_SYNC_TARGET` mirror's only fold-back to
+  the trunk (a notice is printed,
+  [#1758](https://github.com/vig-os/devkit/issues/1758)).
 - `renovate` — `renovate.json` and `.github/renovate-default.json`.
 - `sync-issues` — `sync-issues.yml` and `.github/label-taxonomy.toml`. With this
   group disabled, `DEVKIT_SYNC_TARGET`/`DEVKIT_SYNC_SCHEDULE` become inert (a
