@@ -268,6 +268,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     regenerated the unpushed issues and PRs. The save now runs only when the
     sync succeeded and the push did not fail; a skipped push (nothing changed)
     still saves
+- **Mirror mode without a release feature froze the trunk's archive silently**
+  ([#1758](https://github.com/vig-os/devkit/issues/1758))
+  - The `DEVKIT_SYNC_TARGET` mirror's only fold-back is the release train, so
+    with `release` in `DEVKIT_FEATURES_DISABLED` it was never merged back and
+    the trunk's `docs/issues/` stopped updating, with no output. The scaffold
+    now prints a notice for that combination (it still proceeds)
+  - The `.vig-os` and migration docs no longer claim each sync regenerates full
+    state: the sync is incremental, and only `force-update` rebuilds
 - **Stacked PRs ran no CI or CodeQL**
   ([#1759](https://github.com/vig-os/devkit/issues/1759))
   - `ci.yml` and `codeql.yml` filtered `pull_request` to `dev`,

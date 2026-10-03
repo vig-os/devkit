@@ -87,8 +87,12 @@ DEVKIT_DEV_PROFILE_PATH=
 # existing consumers. A repo whose `main` carries a require-PR ruleset (which
 # refuses the sync job's direct API push, #1227) sets a dedicated UNPROTECTED
 # mirror branch, e.g. `sync/issue-mirror`; the sync job bootstraps it from the
-# default branch head if absent. The mirror diverges permanently and is never
-# merged back — each sync run regenerates full state (#1228).
+# default branch head if absent. Each sync run writes only the items changed
+# since the last watermark (a `force-update` dispatch rebuilds from scratch), so
+# the mirror is not self-healing. Its only path back to the trunk is the release
+# train, which folds the mirror's archive into the release branch (#1424): with
+# `release` in DEVKIT_FEATURES_DISABLED there is no fold-back, and the trunk's
+# archive freezes at the switch (a notice is printed, #1758).
 DEVKIT_SYNC_TARGET=
 
 # Cron override for the sync-issues schedule trigger (5-field cron, validated at
@@ -136,8 +140,10 @@ DEVKIT_COMMIT_APP_ENVIRONMENT=
 # hook alone would lint against actionlint's bare built-in label list (#1660).
 # Consumer-owned extension seams (release-extension.yml,
 # prepare-release-extension.yml), renovate.json and .github/actionlint.yaml are
-# left in place if present (never pruned). Governs scaffold SHAPE only, not the
-# flake — an unknown name aborts the scaffold loudly (#1284).
+# left in place if present (never pruned). Disabling `release` also removes the
+# DEVKIT_SYNC_TARGET mirror's only fold-back to the trunk (#1758). Governs
+# scaffold SHAPE only, not the flake — an unknown name aborts the scaffold
+# loudly (#1284).
 DEVKIT_FEATURES_DISABLED=
 
 # License the scaffold ships: apache-2.0 (default) | proprietary | none. Empty
