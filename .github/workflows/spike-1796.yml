@@ -1,0 +1,33 @@
+# TEMPORARY spike for #1796 — deleted before merge.
+# Proves `vars` is an available context for jobs.<id>.runs-on, resolved before
+# any runner is provisioned: a SET variable steers the job onto arm64, an UNSET
+# one falls through to the hosted default.
+name: Spike 1796 vars in runs-on
+
+on:  # yamllint disable-line rule:truthy
+  push:
+    branches: [feature/1796-resolve-runner-var]
+    paths: [.github/workflows/spike-1796.yml]
+
+permissions: {}
+
+jobs:
+  set-var:
+    name: Set variable selects runner
+    runs-on: ${{ vars.CACHIX_CACHE && 'ubuntu-26.04-arm' || 'ubuntu-26.04' }}
+    timeout-minutes: 2
+    steps:
+      - name: Report runner
+        run: |
+          echo "arch=$(uname -m) runner=${RUNNER_NAME}"
+          test "$(uname -m)" = aarch64
+
+  unset-var:
+    name: Unset variable falls back to default
+    runs-on: ${{ vars.DEVKIT_SPIKE_1796_UNSET || 'ubuntu-26.04' }}
+    timeout-minutes: 2
+    steps:
+      - name: Report runner
+        run: |
+          echo "arch=$(uname -m) runner=${RUNNER_NAME}"
+          test "$(uname -m)" = x86_64
