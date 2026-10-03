@@ -295,20 +295,44 @@ the other manifest keys, so an upgrade preserves it with no flags. Absent =>
 unchanged behavior for every existing consumer
 ([#1173](https://github.com/vig-os/devkit/issues/1173)).
 
-**Limitation — some jobs always stay hosted.** Every `resolve-toolchain` job
-runs on the hosted default because it *produces* `runner-json` (a job cannot
-depend on its own output — chicken-and-egg); each is a seconds-long sparse
-checkout. There is one per workflow that declares it, so `ci.yml`'s and
-`sync-issues.yml`'s both stay hosted. `dependency-review` also stays hosted: it
-is public-repo-only (skipped on private repos), needs no toolchain, and reads
-GitHub's dependency-graph API. A consumer whose org **cannot run any hosted job
-at all** therefore still needs those lanes handled separately (e.g. a
-repo-specific static render); this v1 keeps the managed workflow minimal and
-does not cover that case.
+**The `resolve-toolchain` jobs take a repository variable, not this key.**
+Every `resolve-toolchain` job *produces* `runner-json` (a job cannot depend on
+its own output — chicken-and-egg), and `.vig-os` cannot be read before a runner
+exists. Each is a seconds-long sparse checkout, one per scaffolded workflow
+that declares it (`ci.yml`, `sync-issues.yml`, `sync-main-to-dev.yml`,
+`abandon-release.yml`, `prepare-hotfix.yml`, `promote-release.yml`,
+`release.yml`). On a **private** repo each is still billed as a full minute, so
+that cost scales with the number of workflow runs rather than with how long
+they take. To move them too, set the repository (or organization) **variable**
+`DEVKIT_CI_RESOLVE_RUNNER` — `vars` resolves server-side before any runner is
+provisioned, so there is no circularity
+([#1796](https://github.com/vig-os/devkit/issues/1796)):
 
-On a **private** repo each hosted lane is billed as a full minute however short
-it is, so this residual cost scales with the number of scaffolded workflows that
-run rather than with how long they take.
+```sh
+gh variable set DEVKIT_CI_RESOLVE_RUNNER --body meatgrinder
+```
+
+Every `resolve-toolchain` job declares
+`runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}`; unset or
+empty => the hosted default, unchanged for every existing consumer.
+
+- The value is **one runner label**, not a comma-separated list: `a,b` is read
+  as a single label named `a,b`. Pick a label only your intended runners carry
+  (e.g. the custom one in your `DEVKIT_CI_RUNNER` list).
+- **Nothing validates it.** The job has no runner to validate it on, so a label
+  no online runner carries does not fail fast: the run sits *queued* until
+  GitHub's job-queue ceiling, and every workflow that declares the job is stuck
+  behind it. If runs queue indefinitely after setting it, check the label
+  first; deleting the variable (`gh variable delete DEVKIT_CI_RESOLVE_RUNNER`)
+  restores the hosted default on the next run with no commit.
+- This is a billing knob, **not an outage fallback**: where the expensive jobs
+  run is still `DEVKIT_CI_RUNNER` in `.vig-os`, so recovering from a self-hosted
+  outage remains a commit to that file.
+
+`dependency-review` stays hosted: it is public-repo-only (skipped on private
+repos), needs no toolchain, and reads GitHub's dependency-graph API. A consumer
+whose org **cannot run any hosted job at all** therefore still needs that lane
+handled separately (e.g. a repo-specific static render).
 
 ### Keep the dev-shell gcroot across ephemeral self-hosted jobs
 

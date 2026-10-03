@@ -56,12 +56,6 @@ def test_ci_toolchain_jobs_use_runner_json() -> None:
         assert workflow["jobs"][job]["runs-on"] == RUNNER_JSON_EXPR
 
 
-def test_resolve_toolchain_job_stays_hosted() -> None:
-    """The producer job cannot depend on its own output — it stays hosted."""
-    workflow = _load(WORKFLOWS / "ci.yml")
-    assert workflow["jobs"]["resolve-toolchain"]["runs-on"] == HOSTED_DEFAULT
-
-
 def test_dependency_review_stays_hosted() -> None:
     """dependency-review is public-repo-only + toolchain-free, so it stays hosted."""
     workflow = _load(WORKFLOWS / "ci.yml")
@@ -72,8 +66,8 @@ def test_dependency_review_stays_hosted() -> None:
 # The daily-cron sync job did its real work on the hosted default regardless of
 # DEVKIT_CI_RUNNER, unlike ci.yml's toolchain jobs. resolve-toolchain now
 # re-exports runner-json here too, and sync routes runs-on through it, exactly
-# like ci.yml's toolchain jobs. Its own resolve-toolchain job stays hosted, same
-# chicken-and-egg reasoning as ci.yml's (#1173).
+# like ci.yml's toolchain jobs. Its own resolve-toolchain job is not routed through
+# runner-json, same chicken-and-egg reasoning as ci.yml's (#1173); see #1796 below.
 
 
 def test_sync_issues_resolve_toolchain_reexports_runner_json() -> None:
@@ -97,10 +91,40 @@ def test_sync_job_needs_resolve_toolchain() -> None:
     assert "resolve-toolchain" in needs
 
 
-def test_sync_issues_resolve_toolchain_job_stays_hosted() -> None:
-    """The producer job cannot depend on its own output — it stays hosted."""
-    workflow = _load(WORKFLOWS / "sync-issues.yml")
-    assert workflow["jobs"]["resolve-toolchain"]["runs-on"] == HOSTED_DEFAULT
+# ── resolve-toolchain's own runner (#1796) ────────────────────────────────────
+# The producer job cannot read its own runner-json (chicken-and-egg), but `vars`
+# resolves server-side before any runner is provisioned, so a repo/org variable
+# selects it with no circularity. Default unchanged => no-op until opted in.
+
+RESOLVE_RUNNER_EXPR = "${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}"
+
+# Every managed workflow that declares a resolve-toolchain job (#1796 table).
+RESOLVE_TOOLCHAIN_WORKFLOWS = (
+    "ci.yml",
+    "sync-issues.yml",
+    "sync-main-to-dev.yml",
+    "abandon-release.yml",
+    "prepare-hotfix.yml",
+    "promote-release.yml",
+    "release.yml",
+)
+
+
+def test_resolve_toolchain_workflow_list_is_complete() -> None:
+    """The pinned list covers every scaffolded workflow declaring the job."""
+    declaring = {
+        path.name
+        for path in WORKFLOWS.glob("*.yml")
+        if "resolve-toolchain" in (_load(path).get("jobs") or {})
+    }
+    assert declaring == set(RESOLVE_TOOLCHAIN_WORKFLOWS)
+
+
+@pytest.mark.parametrize("workflow_name", RESOLVE_TOOLCHAIN_WORKFLOWS)
+def test_resolve_toolchain_runner_is_var_overridable(workflow_name: str) -> None:
+    """resolve-toolchain takes its runner from a repo/org variable, hosted default."""
+    workflow = _load(WORKFLOWS / workflow_name)
+    assert workflow["jobs"]["resolve-toolchain"]["runs-on"] == RESOLVE_RUNNER_EXPR
 
 
 @pytest.mark.parametrize(
