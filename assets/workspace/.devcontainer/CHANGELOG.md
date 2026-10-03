@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`DEVKIT_CI_RESOLVE_RUNNER` variable for the `resolve-toolchain` jobs**
+  ([#1796](https://github.com/vig-os/devkit/issues/1796))
+  - The `resolve-toolchain` job in all seven scaffolded workflows that declare it
+    takes its runner from the repository or organization variable
+    `DEVKIT_CI_RESOLVE_RUNNER` (one runner label), so a private consumer stops
+    paying a billed hosted minute per workflow run for it
+  - Unset => the hosted `ubuntu-26.04` default, unchanged for every existing
+    consumer; an unmatched label queues rather than failing, as documented in
+    `docs/MIGRATION.md`
+
 - **Consumer matrix in devkit PR CI**
   ([#1762](https://github.com/vig-os/devkit/issues/1762))
   - New `Consumer Matrix` job renders consumer variants with the PR's own

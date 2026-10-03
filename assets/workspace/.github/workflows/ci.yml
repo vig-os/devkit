@@ -25,8 +25,10 @@
 # test, commit-checks) and the summary gate declare
 # `runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}`, so a
 # self-hosted consumer routes them onto its own runners without hand-editing this
-# managed file. `resolve-toolchain` itself stays on the hosted default (it
-# produces the output — chicken-and-egg); `dependency-review` stays hosted too
+# managed file. `resolve-toolchain` itself cannot consume `runner-json` (it
+# produces the output — chicken-and-egg); its runner comes from the optional
+# repo/org variable `DEVKIT_CI_RESOLVE_RUNNER` instead, since `vars` resolves
+# before any runner exists (#1796). `dependency-review` stays hosted
 # (public-repo-only, toolchain-free, and reads GitHub's dependency-graph API).
 #
 # Dev-shell gcroot (#1601): those same three lanes pass the resolved
@@ -96,7 +98,7 @@ permissions:
 jobs:
   resolve-toolchain:
     name: Resolve toolchain
-    runs-on: ubuntu-26.04
+    runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
     timeout-minutes: 2
     outputs:
       mode: ${{ steps.resolve.outputs.mode }}
