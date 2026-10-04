@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-10-02T16:55:16Z
+updated: 2026-10-03T18:26:43Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-10-03T07:54:50.528Z
+synced: 2026-10-04T08:17:15.465Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -403,17 +403,16 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/abandon-release.yml (5)</summary>
+<details><summary>assets/workspace/.github/workflows/abandon-release.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
- - `ubuntu 26.04`
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/ci.yml (9)</summary>
+<details><summary>assets/workspace/.github/workflows/ci.yml (8)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
@@ -422,7 +421,6 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/dependency-review-action v5.0.0@a1d282b36b6f3519aa1f3fc636f609c47dddb294`
- - `ubuntu 26.04`
  - `ubuntu 26.04`
 
 </details>
@@ -445,7 +443,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/prepare-hotfix.yml (14)</summary>
+<details><summary>assets/workspace/.github/workflows/prepare-hotfix.yml (13)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
@@ -456,7 +454,6 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `ubuntu 26.04`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
@@ -488,7 +485,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/promote-release.yml (17)</summary>
+<details><summary>assets/workspace/.github/workflows/promote-release.yml (16)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
@@ -501,7 +498,6 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `ubuntu 26.04`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
@@ -547,13 +543,12 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/release.yml (6)</summary>
+<details><summary>assets/workspace/.github/workflows/release.yml (5)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `ubuntu 26.04`
  - `ubuntu 26.04`
 
 </details>
@@ -567,7 +562,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/sync-issues.yml (8)</summary>
+<details><summary>assets/workspace/.github/workflows/sync-issues.yml (7)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
@@ -576,11 +571,10 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `vig-os/sync-issues-action v0.5.0@b62c8eca72f4ee7177caee4f689ee080a5997164` → [Updates: `v0.5.1`]
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
- - `ubuntu 26.04`
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/sync-main-to-dev.yml (9)</summary>
+<details><summary>assets/workspace/.github/workflows/sync-main-to-dev.yml (8)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
@@ -588,7 +582,6 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
- - `ubuntu 26.04`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
 

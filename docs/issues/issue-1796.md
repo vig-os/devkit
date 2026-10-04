@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-10-01T12:57:47Z
-updated: 2026-10-01T12:57:47Z
+updated: 2026-10-03T18:26:35Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1796
-comments: 0
+comments: 1
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-10-02T08:18:22.915Z
+synced: 2026-10-04T08:17:14.771Z
 ---
 
 # [Issue 1796]: [resolve-toolchain: make the resolve job's own runs-on overridable (vars)](https://github.com/vig-os/devkit/issues/1796)
@@ -88,4 +88,12 @@ consumers an out-of-band escape hatch for a self-hosted outage. `runner-json` â€
 which controls where the expensive downstream jobs run â€” is still derived only
 from `DEVKIT_CI_RUNNER` in `.vig-os`, so recovery remains a commit to that file
 either way. This issue is strictly about the resolve job's own billed minute.
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on October 3, 2026 at 06:26 PM_
+
+Shipped to dev in #1808 (229a923b). The `vars`-in-`runs-on` spike passed live: https://github.com/vig-os/devkit/actions/runs/37143060031. Consumers get it through adoption once the next release ships it.
 

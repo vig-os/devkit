@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-09-28T21:44:59Z
-updated: 2026-09-28T22:00:30Z
+updated: 2026-10-03T18:47:15Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1758
-comments: 1
+comments: 2
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-29T08:16:50.873Z
+synced: 2026-10-04T08:17:15.131Z
 ---
 
 # [Issue 1758]: [DEVKIT_SYNC_TARGET mirror mode has no fold-back when the release feature group is disabled — the archive diverges permanently](https://github.com/vig-os/devkit/issues/1758)
@@ -106,4 +106,12 @@ a mirror can be missing items with nothing to recover them.
 
 Suggest dropping the parenthetical or replacing it with something like "each sync run writes the items
 changed since the last watermark; `force-update` rebuilds from scratch".
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on October 3, 2026 at 06:47 PM_
+
+Fixed by #1809 (merged to dev): the scaffold now prints a notice when DEVKIT_SYNC_TARGET is set with `release` disabled, and the docs no longer claim each sync regenerates full state. A release-independent fold-back (option 2) was left out of scope; file separately if a release-less consumer needs it.
 
