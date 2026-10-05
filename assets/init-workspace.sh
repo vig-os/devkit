@@ -1387,6 +1387,18 @@ seed_language_variant() {
 # PRESERVE_FILES too, so no later copy reaches them, and #1400 assigns their
 # ownership to the pack, so a guardrails-era deny.toml is simply kept.
 seed_language_statics() {
+    local lang src rel
+    while IFS= read -r -d '' lang && IFS= read -r -d '' src && IFS= read -r -d '' rel; do
+        mkdir -p "$(dirname "$WORKSPACE_DIR/$rel")"
+        cp "$src" "$WORKSPACE_DIR/$rel"
+        echo "Seeding $rel ($lang pack base config, #1496)"
+    done < <(emit_language_statics)
+}
+
+# The configs seed_language_statics will write, as NUL-separated
+# <lang> <source> <relative path> triples: the one decision, shared with the
+# --preview report so the preview never promises (or hides) a different set.
+emit_language_statics() {
     local lang root src rel
     for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
         root="$SCRIPT_DIR/lang.d/$lang"
@@ -1395,9 +1407,7 @@ seed_language_statics() {
         while IFS= read -r -d '' src; do
             rel="${src#"$root"/}"
             lang_static_present "$rel" && continue
-            mkdir -p "$(dirname "$WORKSPACE_DIR/$rel")"
-            cp "$src" "$WORKSPACE_DIR/$rel"
-            echo "Seeding $rel ($lang pack base config, #1496)"
+            printf '%s\0%s\0%s\0' "$lang" "$src" "$rel"
         done < <(find "$root" -type f -print0 | sort -z)
     done
 }
@@ -3462,6 +3472,21 @@ if [[ "$FORCE" == "true" ]]; then
             for added in "${ADDED[@]}"; do
                 echo "  +  $added"
             done
+            echo "─────────────────────────────────────────────────────────────"
+        fi
+        # Language pack base configs (#1496) live outside the template, so the
+        # ADDED listing above cannot see them; report them from the same
+        # decision seed_language_statics acts on.
+        _statics_report=""
+        while IFS= read -r -d '' _s_lang && IFS= read -r -d '' _s_src \
+            && IFS= read -r -d '' _s_rel; do
+            _statics_report+="  +  $_s_rel ($_s_lang pack base config)"$'\n'
+        done < <(emit_language_statics)
+        if [[ -n "$_statics_report" ]]; then
+            echo ""
+            echo "Language pack configs that will be SEEDED (yours from then on):"
+            echo "─────────────────────────────────────────────────────────────"
+            printf '%s' "$_statics_report"
             echo "─────────────────────────────────────────────────────────────"
         fi
         # Feature opt-outs (#1284): surface the disabled set so the preview is
