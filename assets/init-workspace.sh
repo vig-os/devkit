@@ -1461,7 +1461,7 @@ notice_rust_pack_bypass() {
         echo "Notice: this is a Rust repo (Cargo.toml) but flake.nix does not use vigos.lib.mkRustProject, so the Rust pack's checks (fmt, clippy, nextest, doctests, cargo-deny) are not wired. flake.nix is preserved; port it by hand: $doc (#1831)." >&2
     fi
     if [[ "$JUSTFILE_PROJECT_PREEXISTED" == "true" && -f "$recipes" ]] \
-        && ! grep -qw 'cargo' "$recipes"; then
+        && ! grep -Eq '^[[:space:]]+[^#[:space:]].*\bcargo\b' "$recipes"; then
         echo "Notice: this is a Rust repo (Cargo.toml) but justfile.project never runs cargo, so \`just lint\` / \`just test\` do not compile or test the crate. justfile.project is preserved; take the cargo recipes by hand: $doc (#1831)." >&2
     fi
 }

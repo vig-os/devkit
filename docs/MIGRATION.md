@@ -994,7 +994,7 @@ is just a starter crate that already passes the whole suite.
 seeded on the **first** scaffold. A repo that gained its `Cargo.toml` later, or
 was scaffolded before devkit shipped the seeds, keeps its old ones, and the
 scaffold prints a notice naming each. The base tool configs are still seeded
-on the next `install.sh --force`, wherever the repo has none.
+by the upgrade that first detects the `Cargo.toml`, wherever the repo has none.
 
 Port the two files by hand:
 
@@ -1049,7 +1049,11 @@ every test the sandbox *can* run.
 ### The base tool configs
 
 The seeded `rustfmt.toml`, `clippy.toml` and `deny.toml` are a starting point,
-yours from the first commit: an upgrade never overwrites them. `deny.toml`
+yours from the first commit: an upgrade never overwrites them. They are seeded
+only by the scaffold that adopts Rust (the first one that detects
+`Cargo.toml`), never into a repo that already declares `rust`, and never beside
+an equivalent the tool also reads (`.rustfmt.toml`, `.clippy.toml`,
+`.cargo/deny.toml`). `deny.toml`
 turns the `deny` check on; its licence allow-list is permissive-only and
 ignores `publish = false` crates. Advisories are not in the sandboxed check
 (they need the network), so run `cargo deny check advisories` in CI or by hand.
