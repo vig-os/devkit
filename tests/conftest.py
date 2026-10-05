@@ -179,6 +179,22 @@ def _load_jsonc(path: Path) -> dict:
     return json.loads(body)
 
 
+def scaffold_files(root: Path, excluded_dirs=()) -> list[Path]:
+    """List the regular files of a scaffolded workspace, skipping ``.git/``.
+
+    The scaffold commit spawns a detached ``git maintenance run --auto`` that
+    can repack and delete every loose object while a test walks the tree, and
+    git internals never hold a placeholder anyway (#1815). The list is
+    materialized up front so callers never iterate a live directory walk.
+    """
+    skipped = {".git", *excluded_dirs}
+    return sorted(
+        path
+        for path in root.rglob("*")
+        if not skipped.intersection(path.relative_to(root).parts) and path.is_file()
+    )
+
+
 def dc_exec(workspace_path, *cmd, **kwargs):
     """Run a command inside the running devcontainer via ``devcontainer exec``.
 
