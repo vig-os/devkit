@@ -957,15 +957,23 @@ STUB
 # Build an upgradeable consumer fixture at $1: clean feature-branch repo with a
 # .vig-os manifest (mode $4, default direnv), a flake.nix whose vigos input is
 # $2 (a full `vigos.url = ...` line), and — unless $3=nolock — a flake.lock.
+# Optional $5 writes DEVKIT_FLAKE_PIN_ADVANCE=$5 into .vig-os and optional $6
+# adds one more input line (e.g. a sibling `nixpkgs.url`), both BEFORE the
+# fixture commit (the --force preflight refuses a dirty tree, #1752).
 _make_flake_workspace() {
     local dir="$1" url_line="$2" with_lock="${3:-lock}" mode="${4:-direnv}"
+    local pin_advance="${5:-}" extra_line="${6:-}"
     _make_repo "$dir"
     printf 'DEVKIT_VERSION=1.4.1\nDEVKIT_MODE=%s\n' "$mode" >"$dir/.vig-os"
+    if [ -n "$pin_advance" ]; then
+        printf 'DEVKIT_FLAKE_PIN_ADVANCE=%s\n' "$pin_advance" >>"$dir/.vig-os"
+    fi
     cat >"$dir/flake.nix" <<FLAKE
 {
   inputs = {
     #   vigos.url = "github:vig-os/devkit?ref=<tag>";
     $url_line
+    $extra_line
     nixpkgs.follows = "vigos/nixpkgs";
   };
 }
@@ -978,7 +986,9 @@ FLAKE
 }
 
 # Run install.sh against stub docker + a logging stub nix (exit code $3).
-# Extra install.sh args (e.g. --force) follow.
+# Extra install.sh args (e.g. --force) follow. A failing stub nix also clobbers
+# the --flake target's flake.lock, so a caller can prove it is restored (#1752).
+# A non-empty $INSTALL_TMPDIR is passed to install.sh as its TMPDIR (#1752).
 _run_install_nix_stub() {
     local dir="$1" nixlog="$2" nix_exit="${3:-0}"
     shift 3
@@ -989,10 +999,17 @@ _run_install_nix_stub() {
     cat >"$stub/nix" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$nixlog"
+if [ "$nix_exit" -ne 0 ]; then
+    while [ "\$#" -gt 0 ]; do
+        [ "\$1" = --flake ] && echo '{"clobbered":true}' >"\$2/flake.lock"
+        shift
+    done
+fi
 exit $nix_exit
 STUB
     chmod +x "$stub/nix"
-    run env PATH="$stub:$PATH" bash "$INSTALL_SH" --docker --skip-pull "$@" "$dir" </dev/null
+    run env PATH="$stub:$PATH" ${INSTALL_TMPDIR:+TMPDIR="$INSTALL_TMPDIR"} \
+        bash "$INSTALL_SH" --docker --skip-pull "$@" "$dir" </dev/null
 }
 
 @test "upgrade advances a floating vigos flake lock (#1263)" {
@@ -1021,6 +1038,8 @@ STUB
     _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit";' nolock
     _run_install_nix_stub "$dir" "$log" 0 --force
     assert_success
+    # Regression pin (#1752): outside the outer gate nothing reports at all.
+    refute_output --partial "flake-bump:"
     run grep -F "flake update" "$log"
     assert_failure
 }
@@ -1031,6 +1050,8 @@ STUB
     _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit";'
     _run_install_nix_stub "$dir" "$log" 0
     assert_success
+    # Regression pin (#1752): outside the outer gate nothing reports at all.
+    refute_output --partial "flake-bump:"
     run grep -F "flake update" "$log"
     assert_failure
 }
@@ -1041,6 +1062,8 @@ STUB
     _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit";' lock devcontainer
     _run_install_nix_stub "$dir" "$log" 0 --force
     assert_success
+    # Regression pin (#1752): outside the outer gate nothing reports at all.
+    refute_output --partial "flake-bump:"
     run grep -F "flake update" "$log"
     assert_failure
 }
@@ -1131,4 +1154,217 @@ STUB
     refute_output --partial "flake-bump: skipped"
     run grep -F "flake update" "$log"
     assert_failure
+}
+
+# ── pinned devkit input advance (#1752) ───────────────────────────────────────
+# A PINNED devkit input (`?ref=X` or `/X`) was never advanced, so a pinned
+# consumer's adoption PR moved .vig-os DEVKIT_VERSION while the dev shell kept
+# the old release's toolchain (#1756: hooks the new scaffold wires failed to
+# spawn). DEVKIT_FLAKE_PIN_ADVANCE=true opts a consumer into advancing a
+# RELEASE pin to the new DEVKIT_VERSION on --force, form preserved, atomically
+# with `nix flake update <input>`; empty/false keeps today's loud skip. The
+# stub docker is a no-op, so the fixture's DEVKIT_VERSION=1.4.1 IS the version
+# being adopted: a 1.4.0 pin is the skew, a 1.4.1 pin is already aligned.
+
+# Exactly one `flake-bump:` line per run, whatever the outcome ($1 = output).
+_assert_one_flake_bump_line() {
+    [ "$(grep -c '^flake-bump:' <<<"$1")" -eq 1 ]
+}
+
+# Run install.sh with no `nix` on PATH at all. install.sh uses coreutils/git
+# long before the flake block, so PATH cannot shrink to the stub dir alone:
+# build a symlink farm of every executable on the current PATH except `nix`,
+# plus the no-op docker stub, and run with PATH set to the farm only.
+_run_install_no_nix() {
+    local dir="$1"
+    shift
+    local farm="$BATS_TEST_TMPDIR/no-nix-bin" d f n
+    mkdir -p "$farm"
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$farm/docker"
+    chmod +x "$farm/docker"
+    local ds
+    IFS=: read -ra ds <<<"$PATH"
+    for d in "${ds[@]}"; do
+        [ -d "$d" ] || continue
+        for f in "$d"/*; do
+            n="${f##*/}"
+            [ "$n" = nix ] && continue
+            [ -e "$farm/$n" ] || [ -L "$farm/$n" ] || ln -s "$f" "$farm/$n"
+        done
+    done
+    run env PATH="$farm" bash "$INSTALL_SH" --docker --skip-pull "$@" "$dir" </dev/null
+}
+
+@test "pinned input without the knob stays put and names the knob (#1752)" {
+    for knob in "" false; do
+        echo "knob: '${knob}'"
+        dir="$BATS_TEST_TMPDIR/pin-knob-off-${knob:-absent}"
+        log="$BATS_TEST_TMPDIR/pin-knob-off-${knob:-absent}-nix.log"
+        _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock direnv "$knob"
+        cp "$dir/flake.nix" "$BATS_TEST_TMPDIR/before.nix"
+        _run_install_nix_stub "$dir" "$log" 0 --force
+        assert_success
+        assert_line --partial "flake-bump: skipped — input 'vigos' is pinned to '1.4.0'"
+        assert_line --partial "DEVKIT_FLAKE_PIN_ADVANCE=true"
+        assert_line '  To follow releases automatically: vigos.url = "github:vig-os/devkit"'
+        assert_line "  To advance the pin: point it at the new release, then run 'nix flake update vigos'."
+        _assert_one_flake_bump_line "$output"
+        cmp "$BATS_TEST_TMPDIR/before.nix" "$dir/flake.nix"
+        [ ! -e "$log" ]
+    done
+}
+
+@test "knob true advances a ?ref= pin and locks it (#1752)" {
+    dir="$BATS_TEST_TMPDIR/pin-qref"
+    log="$BATS_TEST_TMPDIR/pin-qref-nix.log"
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock direnv true
+    _run_install_nix_stub "$dir" "$log" 0 --force
+    assert_success
+    assert_output --partial "flake-bump: advanced pinned input 'vigos' 1.4.0 -> 1.4.1"
+    _assert_one_flake_bump_line "$output"
+    grep -qF 'vigos.url = "github:vig-os/devkit?ref=1.4.1";' "$dir/flake.nix"
+    run grep -F "flake update vigos --flake $dir" "$log"
+    assert_success
+}
+
+@test "knob true advances a /X path pin, preserving the form (#1752)" {
+    dir="$BATS_TEST_TMPDIR/pin-path"
+    log="$BATS_TEST_TMPDIR/pin-path-nix.log"
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit/1.4.0";' lock direnv true
+    _run_install_nix_stub "$dir" "$log" 0 --force
+    assert_success
+    assert_output --partial "flake-bump: advanced pinned input 'vigos' 1.4.0 -> 1.4.1"
+    _assert_one_flake_bump_line "$output"
+    grep -qF 'vigos.url = "github:vig-os/devkit/1.4.1";' "$dir/flake.nix"
+    run grep -F "flake update vigos --flake $dir" "$log"
+    assert_success
+}
+
+@test "knob true advances a pinned input named devkit (#1752)" {
+    dir="$BATS_TEST_TMPDIR/pin-renamed"
+    log="$BATS_TEST_TMPDIR/pin-renamed-nix.log"
+    _make_flake_workspace "$dir" 'devkit.url = "github:vig-os/devkit?ref=1.4.0";' lock direnv true
+    _run_install_nix_stub "$dir" "$log" 0 --force
+    assert_success
+    assert_output --partial "flake-bump: advanced pinned input 'devkit' 1.4.0 -> 1.4.1"
+    _assert_one_flake_bump_line "$output"
+    grep -qF 'devkit.url = "github:vig-os/devkit?ref=1.4.1";' "$dir/flake.nix"
+    run grep -F "flake update devkit --flake $dir" "$log"
+    assert_success
+}
+
+@test "the advance rewrites only the devkit line (#1752)" {
+    dir="$BATS_TEST_TMPDIR/pin-siblings"
+    log="$BATS_TEST_TMPDIR/pin-siblings-nix.log"
+    # A doc-comment carrying the OLD pin: an unaddressed rewrite would hit it.
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock direnv true \
+        '# vigos.url = "github:vig-os/devkit?ref=1.4.0";'
+    _run_install_nix_stub "$dir" "$log" 0 --force
+    assert_success
+    _assert_one_flake_bump_line "$output"
+    grep -qxF '    vigos.url = "github:vig-os/devkit?ref=1.4.1";' "$dir/flake.nix"
+    grep -qxF '    # vigos.url = "github:vig-os/devkit?ref=1.4.0";' "$dir/flake.nix"
+    grep -qxF '    #   vigos.url = "github:vig-os/devkit?ref=<tag>";' "$dir/flake.nix"
+    run ! grep -qxF '    vigos.url = "github:vig-os/devkit?ref=1.4.0";' "$dir/flake.nix"
+}
+
+@test "an unusable TMPDIR aborts the advance with one line, nothing written (#1752)" {
+    dir="$BATS_TEST_TMPDIR/pin-no-tmpdir"
+    log="$BATS_TEST_TMPDIR/pin-no-tmpdir-nix.log"
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock direnv true
+    cp "$dir/flake.nix" "$BATS_TEST_TMPDIR/before.nix"
+    INSTALL_TMPDIR="$BATS_TEST_TMPDIR/nonexistent" _run_install_nix_stub "$dir" "$log" 0 --force
+    assert_success
+    assert_output --partial "flake-bump: failed — internal error creating temp files; pin left at '1.4.0'"
+    _assert_one_flake_bump_line "$output"
+    cmp "$BATS_TEST_TMPDIR/before.nix" "$dir/flake.nix"
+    [ ! -e "$log" ]
+}
+
+@test "an already-aligned pin is reported and not touched (#1752)" {
+    dir="$BATS_TEST_TMPDIR/pin-aligned"
+    log="$BATS_TEST_TMPDIR/pin-aligned-nix.log"
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.1";' lock direnv true
+    cp "$dir/flake.nix" "$BATS_TEST_TMPDIR/before.nix"
+    _run_install_nix_stub "$dir" "$log" 0 --force
+    assert_success
+    assert_output --partial "flake-bump: input 'vigos' already pinned to '1.4.1'; nothing to advance"
+    _assert_one_flake_bump_line "$output"
+    cmp "$BATS_TEST_TMPDIR/before.nix" "$dir/flake.nix"
+    [ ! -e "$log" ]
+}
+
+@test "a non-release pin is left alone even with the knob (#1752)" {
+    local i=0
+    for url in 'github:vig-os/devkit?ref=main' 'github:vig-os/devkit?rev=0123abcd' \
+        'github:vig-os/devkit?ref=refs/tags/1.4.0'; do
+        echo "url: $url"
+        dir="$BATS_TEST_TMPDIR/pin-nonrelease-$i"
+        log="$BATS_TEST_TMPDIR/pin-nonrelease-$((i++))-nix.log"
+        _make_flake_workspace "$dir" "vigos.url = \"$url\";" lock direnv true
+        cp "$dir/flake.nix" "$BATS_TEST_TMPDIR/before.nix"
+        _run_install_nix_stub "$dir" "$log" 0 --force
+        assert_success
+        assert_output --partial "not a release version; DEVKIT_FLAKE_PIN_ADVANCE applies to release pins only"
+        _assert_one_flake_bump_line "$output"
+        cmp "$BATS_TEST_TMPDIR/before.nix" "$dir/flake.nix"
+        [ ! -e "$log" ]
+    done
+}
+
+@test "a non-release DEVKIT_VERSION leaves the pin alone (#1752)" {
+    dir="$BATS_TEST_TMPDIR/pin-latest"
+    log="$BATS_TEST_TMPDIR/pin-latest-nix.log"
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock direnv true
+    sed -i 's/^DEVKIT_VERSION=.*/DEVKIT_VERSION=latest/' "$dir/.vig-os"
+    _git -C "$dir" commit -q -am "chore: fixture latest"
+    cp "$dir/flake.nix" "$BATS_TEST_TMPDIR/before.nix"
+    _run_install_nix_stub "$dir" "$log" 0 --force
+    assert_success
+    assert_output --partial "flake-bump: skipped — DEVKIT_VERSION 'latest' in .vig-os is not a release version; pin '1.4.0' left as is"
+    _assert_one_flake_bump_line "$output"
+    cmp "$BATS_TEST_TMPDIR/before.nix" "$dir/flake.nix"
+    [ ! -e "$log" ]
+}
+
+@test "a failed lock update restores flake.nix and flake.lock (#1752)" {
+    dir="$BATS_TEST_TMPDIR/pin-fail"
+    log="$BATS_TEST_TMPDIR/pin-fail-nix.log"
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock direnv true
+    cp "$dir/flake.nix" "$BATS_TEST_TMPDIR/before.nix"
+    cp "$dir/flake.lock" "$BATS_TEST_TMPDIR/before.lock"
+    _run_install_nix_stub "$dir" "$log" 1 --force
+    assert_success
+    assert_output --partial "flake-bump: failed — nix flake update vigos did not succeed; pin 'vigos' left at 1.4.0 (non-fatal)"
+    _assert_one_flake_bump_line "$output"
+    run grep -F "flake update vigos --flake $dir" "$log"
+    assert_success
+    cmp "$BATS_TEST_TMPDIR/before.nix" "$dir/flake.nix"
+    cmp "$BATS_TEST_TMPDIR/before.lock" "$dir/flake.lock"
+}
+
+@test "no nix on PATH leaves the pin alone and says so (#1752)" {
+    dir="$BATS_TEST_TMPDIR/pin-no-nix"
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock direnv true
+    cp "$dir/flake.nix" "$BATS_TEST_TMPDIR/before.nix"
+    _run_install_no_nix "$dir" --force
+    assert_success
+    assert_output --partial "flake-bump: skipped — nix not found on PATH; pin 'vigos' 1.4.0 -> 1.4.1 not advanced"
+    _assert_one_flake_bump_line "$output"
+    cmp "$BATS_TEST_TMPDIR/before.nix" "$dir/flake.nix"
+}
+
+@test "regression pin: knob true leaves the floating advance unchanged (#1752)" {
+    # Green before #1752 too: the knob only governs PINNED inputs.
+    dir="$BATS_TEST_TMPDIR/pin-knob-floating"
+    log="$BATS_TEST_TMPDIR/pin-knob-floating-nix.log"
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit";' lock direnv true
+    cp "$dir/flake.nix" "$BATS_TEST_TMPDIR/before.nix"
+    _run_install_nix_stub "$dir" "$log" 0 --force
+    assert_success
+    assert_output --partial "flake-bump: advanced input 'vigos'; review and commit flake.lock with the upgrade"
+    _assert_one_flake_bump_line "$output"
+    cmp "$BATS_TEST_TMPDIR/before.nix" "$dir/flake.nix"
+    run grep -F "flake update vigos --flake $dir" "$log"
+    assert_success
 }

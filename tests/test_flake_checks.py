@@ -24,6 +24,7 @@ import functools
 import json
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -121,6 +122,40 @@ def test_nix_fast_build_driver_is_exposed() -> None:
         )
     assert result.stdout.strip() == "nix-fast-build", (
         f"nix-fast-build package main program is unexpected: {result.stdout.strip()!r}"
+    )
+
+
+def test_guardrails_package_is_exposed() -> None:
+    """``packages.<system>.guardrails`` must expose the vendored gates (#1572).
+
+    #1488 vendored the guardrails gates as a capability module, but the
+    wrapped derivation (``guardrailsPkg``) was reachable only through
+    ``mkProjectShell``'s ``modules = [ "guardrails" ]`` — there was no stable
+    API for a consumer that owns its own dev shell and pre-commit config.
+    Build the package directly and assert the execution-proof entry point
+    (``$out/share/guardrails/gates/test-gates.sh``, the supported way for a
+    consumer to assert gate execution in its own flake) is present.
+    """
+    system = current_system()
+    result = subprocess.run(
+        [
+            "nix",
+            "build",
+            "--no-link",
+            "--print-out-paths",
+            f"{REPO_ROOT}#packages.{system}.guardrails",
+        ],
+        capture_output=True,
+        text=True,
+        env=nix_env(),
+        timeout=600,
+    )
+    if result.returncode != 0:
+        pytest.fail("Failed to build packages.<system>.guardrails:\n" + result.stderr)
+    out_path = Path(result.stdout.strip().splitlines()[-1])
+    gate_script = out_path / "share" / "guardrails" / "gates" / "test-gates.sh"
+    assert gate_script.is_file(), (
+        f"guardrails package is missing {gate_script} (expected shipped entry point)"
     )
 
 
@@ -402,9 +437,9 @@ MULTIPLEXER_TMUX_CONFIG = (
     "set -g set-clipboard on",
     "bind-key -T copy-mode-vi v send-keys -X begin-selection",
     "bind-key -T copy-mode-vi y send-keys -X copy-pipe-and-cancel",
-    # Killing one project switches to another live session; terminal windows
-    # are distinguishable by project.
-    "set -g detach-on-destroy off",
+    # Killing one project switches to a detached session or detaches; terminal
+    # windows are distinguishable by project.
+    "set -g detach-on-destroy no-detached",
     "set -g set-titles on",
     'set -g set-titles-string "#S"',
     # Pane navigation coherent with vi keyMode.
@@ -448,6 +483,24 @@ def test_multiplexer_bindings_precede_consumer_overrides() -> None:
     rendered = _ci_full_config()["tmuxExtraConfig"]
     assert rendered.index("bind o display-popup") > max(
         rendered.index(line) for line in MULTIPLEXER_TMUX_CONFIG
+    )
+
+
+def test_multiplexer_detach_on_destroy_no_detached() -> None:
+    """The module must set detach-on-destroy to no-detached, not off (#1753).
+
+    When a session is destroyed, tmux switches to a detached session if one
+    exists, and otherwise detaches (closing the window). The `off` setting
+    re-attaches a client to an already-attached session, duplicating the
+    window on screen — a broken case when each terminal window runs its own
+    session.
+    """
+    rendered = _ci_full_config()["tmuxExtraConfig"]
+    assert "set -g detach-on-destroy no-detached" in rendered, (
+        "detach-on-destroy must be set to no-detached"
+    )
+    assert "set -g detach-on-destroy off" not in rendered, (
+        "detach-on-destroy must not be set to off"
     )
 
 

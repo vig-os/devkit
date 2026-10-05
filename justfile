@@ -339,9 +339,17 @@ clean-test-containers:
     echo "Cleaning up lingering test containers..."
     FMT=$(printf '\x7b\x7b.ID\x7d\x7d')
     DEVCONTAINERS=$(podman ps -a --filter "name=workspace-devcontainer" --format "$FMT" 2>/dev/null)
+    # Image-test fixture `test_container` (tests/conftest.py) names them test-devcontainer-<epoch>
+    IMAGE_TEST_CONTAINERS=$(podman ps -a --filter "name=^test-devcontainer-" --format "$FMT" 2>/dev/null)
     if [ -n "$DEVCONTAINERS" ]; then
         echo "  Removing workspace devcontainers..."
         echo "$DEVCONTAINERS" | xargs -r podman rm -f
+    fi
+    if [ -n "$IMAGE_TEST_CONTAINERS" ]; then
+        echo "  Removing image-test containers..."
+        echo "$IMAGE_TEST_CONTAINERS" | xargs -r podman rm -f
+    fi
+    if [ -n "$DEVCONTAINERS$IMAGE_TEST_CONTAINERS" ]; then
         echo "[OK] Cleanup complete"
     else
         echo "[*] No lingering test containers found"

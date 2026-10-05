@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-07T13:31:23Z
-updated: 2026-08-07T13:31:23Z
+updated: 2026-10-01T12:39:02Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/1366
-comments: 0
+comments: 3
 labels: chore, priority:medium, area:ci, effort:small
 assignees: none
 milestone: Backlog
 projects: none
 parent: none
 children: none
-synced: 2026-08-07T21:31:00.995Z
+synced: 2026-10-02T08:18:27.677Z
 ---
 
 # [Issue 1366]: [[CHORE] Drop the numeric App-ID fallback and retire *_APP_ID org secrets](https://github.com/vig-os/devkit/issues/1366)
@@ -91,4 +91,30 @@ Medium
 ### Changelog Category
 
 Changed
+
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on September 30, 2026 at 08:16 PM_
+
+Devkit side done on `dev` in #1792 (964a49da): `devkit-upgrade.yml` reads only `DEVKIT_UPGRADE_APP_CLIENT_ID`, and the fallback, legacy preflight branch and warning are gone. The test pins their absence, and the runbook is updated. Preconditions verified live 2026-09-30: every vig-os repo scoped to the legacy secret is also scoped to the Client-ID secret, and exo-pet (private repos) and exoma-ch (all repos) carry it org-wide.
+
+**Remaining, so this stays open:** after the next release is adopted fleet-wide, delete the numeric org secrets in org-config. That means `DEVKIT_UPGRADE_APP_ID` and `COMMIT_APP_ID` in vig-os, plus the unreferenced `RELEASE_APP_ID`; exoma-ch also still carries `COMMIT_APP_ID`/`RELEASE_APP_ID`.
+
+---
+
+# [Comment #2]() by [c-vigo]()
+
+_Posted on September 30, 2026 at 08:19 PM_
+
+The org-side deletion is now tracked in vig-os/org-config#315.
+
+---
+
+# [Comment #3]() by [c-vigo]()
+
+_Posted on October 1, 2026 at 12:39 PM_
+
+Done on `dev` in #1792: the scaffolded `devkit-upgrade.yml` reads only `DEVKIT_UPGRADE_APP_CLIENT_ID`, the numeric fallback, its preflight branch and the deprecation warning are gone. It reaches consumers with the next release. Deleting the numeric org secrets is tracked in vig-os/org-config#315 (also gated on scitadel leaving its 1.6.0 scaffold).
 

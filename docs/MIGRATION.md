@@ -285,20 +285,54 @@ DEVKIT_CI_RUNNER=self-hosted,linux,x64,meatgrinder
 of the labels (`["self-hosted","linux","x64","meatgrinder"]`), or
 `["ubuntu-26.04"]` when the key is absent — and the toolchain jobs (`lint`,
 `test`, `commit-checks`) plus the `summary` gate declare
-`runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}`. A single
-label still emits a valid one-element array. The key is persisted across
-re-scaffolds like the other manifest keys, so an upgrade preserves it with no
-flags. Absent => unchanged behavior for every existing consumer
+`runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}`. The
+scaffolded `sync-issues.yml`'s `sync` job (its daily-cron real work) routes
+through its own `resolve-toolchain`'s `runner-json` output the same way, so a
+self-hosted consumer no longer pays for that job on a hosted runner either
+([#1795](https://github.com/vig-os/devkit/issues/1795)). A single label still
+emits a valid one-element array. The key is persisted across re-scaffolds like
+the other manifest keys, so an upgrade preserves it with no flags. Absent =>
+unchanged behavior for every existing consumer
 ([#1173](https://github.com/vig-os/devkit/issues/1173)).
 
-**Limitation — two jobs always stay hosted.** `resolve-toolchain` runs on the
-hosted default because it *produces* `runner-json` (a job cannot depend on its
-own output — chicken-and-egg); it is a seconds-long sparse checkout.
-`dependency-review` also stays hosted: it is public-repo-only (skipped on private
+**The `resolve-toolchain` jobs take a repository variable, not this key.**
+Every `resolve-toolchain` job *produces* `runner-json` (a job cannot depend on
+its own output — chicken-and-egg), and `.vig-os` cannot be read before a runner
+exists. Each is a seconds-long sparse checkout, one per scaffolded workflow
+that declares it (`ci.yml`, `sync-issues.yml`, `sync-main-to-dev.yml`,
+`abandon-release.yml`, `prepare-hotfix.yml`, `promote-release.yml`,
+`release.yml`). On a **private** repo each is still billed as a full minute, so
+that cost scales with the number of workflow runs rather than with how long
+they take. To move them too, set the repository (or organization) **variable**
+`DEVKIT_CI_RESOLVE_RUNNER` — `vars` resolves server-side before any runner is
+provisioned, so there is no circularity
+([#1796](https://github.com/vig-os/devkit/issues/1796)):
+
+```sh
+gh variable set DEVKIT_CI_RESOLVE_RUNNER --body meatgrinder
+```
+
+Every `resolve-toolchain` job declares
+`runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}`; unset or
+empty => the hosted default, unchanged for every existing consumer.
+
+- The value is **one runner label**, not a comma-separated list: `a,b` is read
+  as a single label named `a,b`. Pick a label only your intended runners carry
+  (e.g. the custom one in your `DEVKIT_CI_RUNNER` list).
+- **Nothing validates it.** The job has no runner to validate it on, so a label
+  no online runner carries does not fail fast: the run sits *queued* until
+  GitHub's job-queue ceiling, and every workflow that declares the job is stuck
+  behind it. If runs queue indefinitely after setting it, check the label
+  first; deleting the variable (`gh variable delete DEVKIT_CI_RESOLVE_RUNNER`)
+  restores the hosted default on the next run with no commit.
+- This is a billing knob, **not an outage fallback**: where the expensive jobs
+  run is still `DEVKIT_CI_RUNNER` in `.vig-os`, so recovering from a self-hosted
+  outage remains a commit to that file.
+
+`dependency-review` stays hosted: it is public-repo-only (skipped on private
 repos), needs no toolchain, and reads GitHub's dependency-graph API. A consumer
-whose org **cannot run any hosted job at all** therefore still needs those two
-lanes handled separately (e.g. a repo-specific static render); this v1 keeps the
-managed workflow minimal and does not cover that case.
+whose org **cannot run any hosted job at all** therefore still needs that lane
+handled separately (e.g. a repo-specific static render).
 
 ### Keep the dev-shell gcroot across ephemeral self-hosted jobs
 
@@ -370,10 +404,11 @@ DEVKIT_SYNC_TARGET=sync/issue-mirror
 
 The scaffolded job then **bootstraps** that branch from the default branch head
 if it is absent (so its first run creates it) and pushes the archive there,
-outside the `main` ruleset. Every sync run regenerates the issue/PR state from
-the GitHub API, so the branch is a standalone, self-healing archive, not
-integration work. Absent => the workflow-model default (`dev`/`main`),
-unchanged for every existing consumer.
+outside the `main` ruleset. The sync is incremental — each run writes only the
+issues/PRs changed since the last watermark, and only a `force-update: true`
+dispatch rebuilds the archive from scratch — so the branch is an archive, not
+integration work, but it is not self-healing. Absent => the workflow-model
+default (`dev`/`main`), unchanged for every existing consumer.
 
 The mirror **never merges directly into `main`** — the release train is its
 integration point ([#1424](https://github.com/vig-os/devkit/issues/1424)).
@@ -389,6 +424,13 @@ merges, the rendered `promote-release.yml` force-resets the mirror onto
 divergence stays bounded to post-release snapshot commits. Between releases
 the mirror remains the live archive; `main` holds the archive as of the last
 release.
+
+That fold lives in `release-core.yml`, so it needs the `release` feature group.
+With `release` in `DEVKIT_FEATURES_DISABLED` there is no fold-back: the mirror
+is never merged into the trunk, and the trunk's `docs/issues/` +
+`docs/pull-requests/` freeze at the moment of the switch, with no marker. The
+scaffold prints a notice for this combination but does not refuse it
+([#1758](https://github.com/vig-os/devkit/issues/1758)).
 
 A second optional key, `DEVKIT_SYNC_SCHEDULE`, overrides the schedule trigger's
 cron (validated as a 5-field cron at scaffold time; a protected-main mirror is
@@ -468,8 +510,10 @@ DEVKIT_COMMIT_APP_ENVIRONMENT=commit-app
 Which jobs get the key: `sync-issues.yml` (`sync`), `prepare-release.yml`
 (`prepare`, `rollback`), `prepare-hotfix.yml` (`prepare`, `rollback`),
 `release.yml` (`rollback`), `release-core.yml` (`finalize`),
-`sync-main-to-dev.yml` (`sync`), and — only in mirror mode
-([#1424](https://github.com/vig-os/devkit/issues/1424)) — the rendered
+`sync-main-to-dev.yml` (`sync`), and — only on a `--smoke-test` scaffold
+([#1793](https://github.com/vig-os/devkit/issues/1793)) — `repository-dispatch.yml`
+(`deploy`), the cross-repo listener's own commit App mint. And — only in mirror
+mode ([#1424](https://github.com/vig-os/devkit/issues/1424)) — the rendered
 `reset-sync-mirror` job in `promote-release.yml`. Workflows your model or your
 `DEVKIT_FEATURES_DISABLED` does not ship are skipped, so the key is safe on any
 shape.
@@ -516,7 +560,7 @@ unknown keys:
 | `DEVKIT_ORG` | Persisted organization name (`ORG_NAME`) |
 | `DEVKIT_REPO` | Persisted GitHub `owner/repo` (Renovate preset) |
 | `DEVKIT_MODULES` | Reserved: space-separated capability modules mirroring `mkProjectShell`'s `modules = [ … ]` ([#884](https://github.com/vig-os/devkit/issues/884)) |
-| `DEVKIT_CI_RUNNER` | Comma-separated runner label list for the scaffolded `ci.yml` toolchain jobs; empty (default) => the hosted `ubuntu-26.04` runner ([#1173](https://github.com/vig-os/devkit/issues/1173)) |
+| `DEVKIT_CI_RUNNER` | Comma-separated runner label list for the scaffolded `ci.yml` toolchain jobs and the `sync-issues.yml` `sync` job; empty (default) => the hosted `ubuntu-26.04` runner ([#1173](https://github.com/vig-os/devkit/issues/1173), [#1795](https://github.com/vig-os/devkit/issues/1795)) |
 | `DEVKIT_DEV_PROFILE_PATH` | Absolute path for the direnv-mode dev-shell gcroot profile on the runner host; empty (default) => `$RUNNER_TEMP/devkit-dev-profile`. An ephemeral self-hosted runner sets a persistent path outside its work tree so the closure survives the job (see [Keep the dev-shell gcroot across ephemeral self-hosted jobs](#keep-the-dev-shell-gcroot-across-ephemeral-self-hosted-jobs), [#1601](https://github.com/vig-os/devkit/issues/1601)) |
 | `DEVKIT_SYNC_TARGET` | Branch the scaffolded sync-issues job commits to; empty (default) => the workflow-model default (`dev`/`main`). A protected-`main` consumer sets an unprotected mirror branch, e.g. `sync/issue-mirror` (see [Point sync-issues at an unprotected mirror branch](#point-sync-issues-at-an-unprotected-mirror-branch-protected-main), [#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_SYNC_SCHEDULE` | Cron override (5-field) for the sync-issues schedule trigger; empty (default) => the daily `0 2 * * *` ([#1228](https://github.com/vig-os/devkit/issues/1228)) |
@@ -524,10 +568,11 @@ unknown keys:
 | `DEVKIT_FEATURES_DISABLED` | Comma-separated scaffold feature groups this repo opts OUT of; empty (default) => every group is scaffolded. A disabled group is never shipped and a prior scaffold's copy is pruned on upgrade (see [Scaffold feature opt-outs](#scaffold-feature-opt-outs), [#1284](https://github.com/vig-os/devkit/issues/1284)) |
 | `DEVKIT_REFS_POLICY` | Refs-line enforcement policy driving the `validate-commit-msg` hook — scaffolded **and** flake-generated ([#1434](https://github.com/vig-os/devkit/issues/1434)) — and CI's `validate-commit-range`: `chore-optional` (default/empty — only `chore` may omit `Refs:`) \| `optional` (never required) \| `required` (every type needs `Refs:`) ([#1282](https://github.com/vig-os/devkit/issues/1282)). Sugar over `DEVKIT_REFS_OPTIONAL_TYPES`, which wins when both are set ([#1633](https://github.com/vig-os/devkit/issues/1633)) |
 | `DEVKIT_COMMIT_TYPES` | Comma-separated FULL REPLACEMENT of the approved commit types, driving the `validate-commit-msg` hook's `--types` — scaffolded **and** flake-generated ([#1434](https://github.com/vig-os/devkit/issues/1434)) — and CI's `validate-commit-range`; empty (default) => the stock 11 types. Lowercase alphanumerics only; keep `chore`/`build` unless deliberate (bot commits — the scaffold prints a notice). `DEVKIT_REFS_POLICY=optional` mirrors this list ([#1431](https://github.com/vig-os/devkit/issues/1431)) |
-| `DEVKIT_REFS_OPTIONAL_TYPES` | Comma-separated FULL REPLACEMENT list of the commit types whose `Refs:` line is OPTIONAL, driving the `validate-commit-msg` hook — scaffolded **and** flake-generated — and CI's `validate-commit-range`; empty (default) => whatever `DEVKIT_REFS_POLICY` resolves to (`chore`). Entries must be lowercase alphanumerics AND a subset of the resolved `DEVKIT_COMMIT_TYPES`. **Wins over `DEVKIT_REFS_POLICY`** when both are set — the narrower key decides (the scaffold prints a notice); use `DEVKIT_REFS_POLICY=required` to exempt nothing ([#1633](https://github.com/vig-os/devkit/issues/1633)) |
-| `DEVKIT_BRANCH_TYPES` | Comma-separated FULL REPLACEMENT of the issue-numbered `<type>/<issue>-<summary>` branch-type set, driving the local `no-commit-to-branch` guard, the flake-generated consumer surface, and CI's branch-name gate; empty (default) => the stock set (`feature,bugfix,hotfix,release,docs,test,refactor`). The `chore/`, `renovate/`, `worktree/` clauses are never knob-driven. Pre-#1432 direnv consumers hand-port the flake reader (see [Commit and branch policy on the flake surface](#commit-and-branch-policy-on-the-flake-surface-direnv-consumers), [#1432](https://github.com/vig-os/devkit/issues/1432)) |
+| `DEVKIT_REFS_OPTIONAL_TYPES` | Comma-separated FULL REPLACEMENT list of the commit types whose `Refs:` line is OPTIONAL, driving the `validate-commit-msg` hook — scaffolded **and** flake-generated — and CI's `validate-commit-range`; empty (default) => whatever `DEVKIT_REFS_POLICY` resolves to (`chore`). Entries must be lowercase alphanumerics AND a subset of the resolved `DEVKIT_COMMIT_TYPES`. **Wins over `DEVKIT_REFS_POLICY`** when both are set — the narrower key decides (the scaffold prints a notice); use `DEVKIT_REFS_POLICY=required` to exempt nothing ([#1633](https://github.com/vig-os/devkit/issues/1633)). Each exempt type also gets the issue-less `<type>/<summary>` branch form in the local guard, the flake-generated guard and CI's branch-name gate; `chore/<summary>` stays allowed under every policy, so the default is unchanged ([#1767](https://github.com/vig-os/devkit/issues/1767)) |
+| `DEVKIT_BRANCH_TYPES` | Comma-separated FULL REPLACEMENT of the issue-numbered `<type>/<issue>-<summary>` branch-type set, driving the local `validate-branch-name` guard, the flake-generated consumer surface, and CI's branch-name gate — one vig-utils validator behind all three ([#1760](https://github.com/vig-os/devkit/issues/1760)); empty (default) => the stock set (`feature,bugfix,hotfix,release,docs,test,refactor`). The `renovate/`, `worktree/`, `release/X.Y.Z` shapes are never knob-driven; the issue-less `chore/` form extends to every `DEVKIT_REFS_OPTIONAL_TYPES` type ([#1767](https://github.com/vig-os/devkit/issues/1767)). Pre-#1432 direnv consumers hand-port the flake reader (see [Commit and branch policy on the flake surface](#commit-and-branch-policy-on-the-flake-surface-direnv-consumers), [#1432](https://github.com/vig-os/devkit/issues/1432)) |
 | `DEVKIT_AUTO_UPGRADE` | Opt-out for the scaffolded `devkit-upgrade.yml` weekly schedule; empty (default) or any value but `false` keeps the auto-adoption poll on. `false` disables only the schedule — manual `workflow_dispatch` always runs ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
 | `DEVKIT_UPGRADE_EXCLUDE` | Comma-separated (whitespace-tolerant) paths the `devkit-upgrade` workflow resets before the adoption commit, so generated-doc churn never rides along in the upgrade diff; empty (default) => no exclusions ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
+| `DEVKIT_FLAKE_PIN_ADVANCE` | `true` \| `false`; empty (default) or `false` => a pinned devkit flake input is never touched. `true` => an `install.sh --force` upgrade (direnv/`both`) advances a RELEASE pin (`?ref=X` or `/X`, form preserved) to the new `DEVKIT_VERSION`, atomically with `nix flake update <input>`; written back only for a non-empty value (see [`DEVKIT_VERSION` and the pinned flake `ref` move in lockstep](#devkit_version-and-the-pinned-flake-ref-move-in-lockstep), [#1752](https://github.com/vig-os/devkit/issues/1752)) |
 | `DEVKIT_LICENSE` | License the scaffold ships: `apache-2.0` (default/empty) \| `proprietary` \| `none`. `proprietary` renders an all-rights-reserved notice over an untouched Apache scaffold copy; `none` manages no `LICENSE` at all, so a delete sticks. Neither ever deletes an existing file (see [A private consumer: license and changelog](#a-private-consumer-license-and-changelog), [#1651](https://github.com/vig-os/devkit/issues/1651)) |
 | `DEVKIT_LANGUAGES` | Comma-separated (whitespace-tolerant) subset of `python,node,rust,nix` the repo DECLARES. A declaration, not a detection cache: the scaffold seeds it from detection, ADDS a newly detected language, and never removes one (see [Declared project languages](#declared-project-languages), [#1478](https://github.com/vig-os/devkit/issues/1478)) |
 
@@ -590,7 +635,10 @@ The nine groups:
   `just --list` stops offering commands that can only fail — a dispatch to a
   pruned workflow, or a `reset-changelog` against the withheld `CHANGELOG.md`
   ([#1656](https://github.com/vig-os/devkit/issues/1656)). The file is managed,
-  so clearing the key brings the recipes back on the next `--force`.
+  so clearing the key brings the recipes back on the next `--force`. Disabling
+  `release` also removes the `DEVKIT_SYNC_TARGET` mirror's only fold-back to
+  the trunk (a notice is printed,
+  [#1758](https://github.com/vig-os/devkit/issues/1758)).
 - `renovate` — `renovate.json` and `.github/renovate-default.json`.
 - `sync-issues` — `sync-issues.yml` and `.github/label-taxonomy.toml`. With this
   group disabled, `DEVKIT_SYNC_TARGET`/`DEVKIT_SYNC_SCHEDULE` become inert (a
@@ -618,7 +666,8 @@ The nine groups:
 mode-aware workflow.
 
 **Preserved-class caveat.** The consumer-owned extension seams
-`release-extension.yml` and `prepare-release-extension.yml`, `renovate.json`, and
+`release-extension.yml`, `prepare-release-extension.yml` and
+`publish-release-extension.yml`, `renovate.json`, and
 `.github/actionlint.yaml` (all in the upgrade preserve list) are **never pruned**
 when their feature is disabled — an existing one is left in place with a notice, and `--preview`
 reports it as left-in-place rather than under DELETIONS. Delete it by hand if you
@@ -909,7 +958,7 @@ devShells.default = vigos.lib.mkProjectShell {
   hooks = {
     pymarkdown.enable = false;                            # toggle a base hook
     detect-private-keys.excludes = [ "worker/src/index\\.ts" ];
-    "no-commit-to-branch".settings.pattern = [ "^wip/.*$" ];
+    validate-branch-name.args = [ "--types=feature,bugfix,wip" ];  # override an argv
     my-data-check = {                                     # fully custom hook
       enable = true;
       entry = "./scripts/check-dat.sh";
@@ -1001,6 +1050,11 @@ with a floating input and host `nix` is available; otherwise it prints the
 manual step. Review and commit the `flake.lock` change together with the
 scaffold diff. Should the two ever drift anyway (e.g. a raw `podman run`
 upgrade), the dev shell warns on every entry until the lock is advanced.
+A **pinned** input is advanced only when `.vig-os` sets
+`DEVKIT_FLAKE_PIN_ADVANCE=true` — then `flake.nix` changes too, and both files
+are committed with the upgrade; a pin left behind `DEVKIT_VERSION` fails CI (see
+[`DEVKIT_VERSION` and the pinned flake `ref` move in lockstep](#devkit_version-and-the-pinned-flake-ref-move-in-lockstep),
+[#1752](https://github.com/vig-os/devkit/issues/1752)).
 
 - **Toolchain versions / CVEs:** advance the pinned `nixpkgs` revision
   (Renovate's `nix` manager opens the PR); `flake.lock` is the controlling
@@ -1213,6 +1267,22 @@ never delete a license file — removing one is always the consumer's own act. F
 the same reason the switch **back** to `apache-2.0` is a no-op on a repo that
 already has a `LICENSE`: the file is preserved, so delete it by hand and let the
 next `--force` re-add the Apache template.
+
+### Renovate: add `cargo` to a Rust repo's `renovate.json`
+
+The shipped `renovate.json` template now enables the `cargo` manager, so
+Renovate opens vulnerability-fix and update PRs for Cargo dependencies
+([#1763](https://github.com/vig-os/devkit/issues/1763)). `renovate.json` is
+preserved on upgrade, so an existing consumer keeps its old manager list. A Rust
+consumer adds `cargo` by hand:
+
+```json
+"enabledManagers": ["github-actions", "pep621", "npm", "cargo"]
+```
+
+The preset already carries the matching `build(cargo)` rule. See
+[Vulnerability-fix PRs](WORKFLOW_SECURITY.md#vulnerability-fix-prs) for why an
+unlisted manager gets no vulnerability PRs.
 
 ### Migrating a `devcontainer`/`both` repo to `direnv` or `bare`
 
@@ -1535,20 +1605,41 @@ vigos.url = "github:vig-os/devkit"; # was github:vig-os/devcontainer
 ### `DEVKIT_VERSION` and the pinned flake `ref` move in lockstep
 
 If you **pin** the flake input to a release
-(`vigos.url = "github:vig-os/devkit?ref=<tag>"`), the pinned `<tag>` and the
-`DEVKIT_VERSION` written into `.vig-os` by the scaffold must stay on the **same
-version**. They deliver **coupled halves of the same change**: the scaffold
-(keyed to `DEVKIT_VERSION`, delivered by `install.sh --force`) writes files,
-while the pinned flake input (`nix/hooks.nix`) delivers the matching hook
-behavior. For example, the JSONC provenance banner
+(`vigos.url = "github:vig-os/devkit?ref=<tag>"`, or the `/<tag>` path form), the
+pinned `<tag>` and the `DEVKIT_VERSION` written into `.vig-os` by the scaffold
+must stay on the **same version**. They deliver **coupled halves of the same
+change**: the scaffold (keyed to `DEVKIT_VERSION`, delivered by
+`install.sh --force`) writes files, while the pinned flake input (`nix/hooks.nix`)
+delivers the matching hook behavior. For example, the JSONC provenance banner
 ([#1053](https://github.com/vig-os/devkit/issues/1053)) is written by the
 scaffold, but its compensating `check-json` exclude lives in the flake input —
 bump only the scaffold and the strict `check-json` hook rejects the banner,
 failing **every** commit
-([#1093](https://github.com/vig-os/devkit/issues/1093)).
+([#1093](https://github.com/vig-os/devkit/issues/1093)); a hook the new scaffold
+wires may not even exist in the old toolchain and fail to spawn
+([#1756](https://github.com/vig-os/devkit/issues/1756)).
 
-Keep them aligned: whenever a `--force` upgrade advances `DEVKIT_VERSION`, bump
-the pinned `ref` to the same version and re-resolve the input:
+**Let the upgrade move the pin** by setting, in `.vig-os`:
+
+```sh
+DEVKIT_FLAKE_PIN_ADVANCE=true
+```
+
+Every `install.sh --force` upgrade (direnv/`both` mode, with a committed
+`flake.lock` — including the weekly `devkit-upgrade` adoption PR) then rewrites a
+release pin to the new `DEVKIT_VERSION`, keeping its form (`?ref=X` stays
+`?ref=X`, `/X` stays `/X`), and runs `nix flake update <input>` in the same step.
+The two files move atomically: if the lock update fails (or host `nix` is
+missing), `flake.nix` and `flake.lock` are left byte-identical and the upgrade
+continues. Only release pins are advanced — `?ref=main`, `?rev=<sha>` or
+`?ref=refs/tags/X` stay as they are. Every outcome prints one `flake-bump:` line,
+which the adoption PR body carries. Empty (the default) or `false` keeps a pin
+untouched, as before; the key is written back across upgrades
+([#1752](https://github.com/vig-os/devkit/issues/1752)).
+
+Without the knob, keep them aligned by hand: whenever a `--force` upgrade advances
+`DEVKIT_VERSION`, bump the pinned `ref` to the same version and re-resolve the
+input:
 
 ```nix
 vigos.url = "github:vig-os/devkit?ref=<new-DEVKIT_VERSION>";
@@ -1558,8 +1649,25 @@ vigos.url = "github:vig-os/devkit?ref=<new-DEVKIT_VERSION>";
 nix flake update vigos
 ```
 
-A `--force` upgrade whose scaffold version differs from a pinned `vigos` ref now
+A `--force` upgrade whose scaffold version differs from a pinned `vigos` ref
 prints a warning to that effect.
+
+**CI enforces the invariant.** The scaffolded `ci.yml` runs a
+`Check flake pin lockstep` step in its `resolve-toolchain` job (direnv/`both`
+mode): a pinned release ref that differs from `DEVKIT_VERSION` fails the job, so
+every toolchain job is skipped and the summary reports it. Floating inputs,
+non-release pins (a warning), `bare` and `devcontainer` modes are never gated,
+and `DEVKIT_DRIFT_CHECK=false` does not switch it off.
+
+**First adoption of this gate on a pinned consumer.** The adoption PR that ships
+the gate is itself red (its scaffold predates your opt-in). Fix it with ONE
+commit on the adoption branch — bump the pin to the PR's `DEVKIT_VERSION`, run
+`nix flake update <input>`, and set `DEVKIT_FLAKE_PIN_ADVANCE=true` — and merge
+it **before the next Monday 06:00 UTC** `devkit-upgrade` run, which force-updates
+the adoption branch and would discard the commit. Setting the knob on your
+default branch *ahead* of that adoption is safe only with
+`DEVKIT_DRIFT_CHECK=false`: the scaffold-drift job re-scaffolds at your current
+version, which does not know the key yet and drops it, failing the drift gate.
 
 A **floating** input (`vigos.url = "github:vig-os/devkit"`, no `?ref=`) needs no
 manual `ref` bump, but it is **not** exempt from skew: the dev shell runs

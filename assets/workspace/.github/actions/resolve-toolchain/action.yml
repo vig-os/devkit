@@ -62,6 +62,12 @@ outputs:
   tag-prefix:
     description: Release tag prefix from DEVKIT_TAG_PREFIX (empty string => bare tags)
     value: ${{ steps.resolve.outputs.tag-prefix }}
+  prerelease-format:
+    description: >-
+      Candidate pre-release format from DEVKIT_PRERELEASE_FORMAT (e.g. `alpha.{N}`).
+      Empty string when the key is absent => release-version's `rc{N}` default;
+      a release.yml `pre-release-format` dispatch input overrides it (#1746).
+    value: ${{ steps.resolve.outputs.prerelease-format }}
   floating-tags:
     description: Floating tag levels from DEVKIT_FLOATING_TAGS (subset of major,minor; empty => off)
     value: ${{ steps.resolve.outputs.floating-tags }}
@@ -101,6 +107,13 @@ outputs:
       absent/empty (or carries an out-of-charset value — fail-safe, the loud
       guard lives at the scaffold write path).
     value: ${{ steps.resolve.outputs.branch-types }}
+  issueless-branch-types:
+    description: >-
+      Comma-separated branch types admitted in the issue-less
+      `<type>/<summary>` form by the commit-checks branch-name gate: `chore`
+      plus every other type in refs-optional-types (the `none` sentinel
+      dropped). Derived, never its own key (#1767).
+    value: ${{ steps.resolve.outputs.issueless-branch-types }}
   drift-check:
     description: >-
       Scaffold-drift gate toggle from DEVKIT_DRIFT_CHECK: `true` (default/absent)
@@ -130,6 +143,7 @@ runs:
         DEVKIT_VERSION=""
         LEGACY_VERSION=""
         TAG_PREFIX=""
+        PRERELEASE_FORMAT=""
         FLOATING_TAGS=""
         CI_RUNNER=""
         DEV_PROFILE_PATH=""
@@ -150,7 +164,7 @@ runs:
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
 
             case "$line" in
-              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_DEV_PROFILE_PATH=*|DEVKIT_REFS_POLICY=*|DEVKIT_REFS_OPTIONAL_TYPES=*|DEVKIT_COMMIT_TYPES=*|DEVKIT_BRANCH_TYPES=*|DEVKIT_DRIFT_CHECK=*|DEVKIT_LANGUAGES=*)
+              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_PRERELEASE_FORMAT=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_DEV_PROFILE_PATH=*|DEVKIT_REFS_POLICY=*|DEVKIT_REFS_OPTIONAL_TYPES=*|DEVKIT_COMMIT_TYPES=*|DEVKIT_BRANCH_TYPES=*|DEVKIT_DRIFT_CHECK=*|DEVKIT_LANGUAGES=*)
                 key="${line%%=*}"
                 value="${line#*=}"
                 value="${value#"${value%%[![:space:]]*}"}"
@@ -167,6 +181,7 @@ runs:
                   DEVKIT_VERSION) DEVKIT_VERSION="$value" ;;
                   DEVCONTAINER_VERSION) LEGACY_VERSION="$value" ;;
                   DEVKIT_TAG_PREFIX) TAG_PREFIX="$value" ;;
+                  DEVKIT_PRERELEASE_FORMAT) PRERELEASE_FORMAT="$value" ;;
                   DEVKIT_FLOATING_TAGS) FLOATING_TAGS="$value" ;;
                   DEVKIT_CI_RUNNER) CI_RUNNER="$value" ;;
                   DEVKIT_DEV_PROFILE_PATH) DEV_PROFILE_PATH="$value" ;;
@@ -202,6 +217,11 @@ runs:
         # Emitted for every mode; only the release/promote workflows consume it,
         # composing it onto tag names/URLs at the publishing edge.
         echo "tag-prefix=$TAG_PREFIX" >> "$GITHUB_OUTPUT"
+
+        # Candidate pre-release format (#1746): freeform here, empty by default
+        # (= rc{N}); validated loudly by release-version in release-core, the
+        # only consumer. Emitted for every mode.
+        echo "prerelease-format=$PRERELEASE_FORMAT" >> "$GITHUB_OUTPUT"
 
         # Floating tag levels (#1045): comma-separated subset of major,minor;
         # empty by default (= off). Only promote-release consumes it, force-moving
@@ -391,6 +411,23 @@ runs:
           fi
         fi
         echo "refs-optional-types=$REFS_OPTIONAL_TYPES" >> "$GITHUB_OUTPUT"
+
+        # Issue-less branch types (#1767): every Refs-optional type also gets
+        # the issue-less `<type>/<summary>` branch form. DERIVED from the
+        # resolved exemption above (never its own key, so a branch may skip
+        # the issue only where its commits may), with `chore` as a floor —
+        # the sync-main-to-dev and devkit-upgrade bot branches are
+        # `chore/<slug>` — and the `none` sentinel dropped. MIRRORS
+        # render_issueless_branch_types in assets/init-workspace.sh and
+        # issuelessBranchTypesFor in nix/hooks.nix (three renderers, one
+        # derivation — keep in lockstep).
+        ISSUELESS_BRANCH_TYPES="chore"
+        IFS=',' read -ra refs_optional_resolved <<< "$REFS_OPTIONAL_TYPES"
+        for entry in "${refs_optional_resolved[@]}"; do
+          [[ "$entry" == "chore" || "$entry" == "none" ]] && continue
+          ISSUELESS_BRANCH_TYPES+=",$entry"
+        done
+        echo "issueless-branch-types=$ISSUELESS_BRANCH_TYPES" >> "$GITHUB_OUTPUT"
 
         # Scaffold-drift gate (#1295): DEVKIT_DRIFT_CHECK toggles ci.yml's
         # scaffold-drift job. Absent/empty => `true` (enabled), so existing

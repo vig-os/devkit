@@ -26,6 +26,7 @@ uv run check-action-pins --help
 | `validate-commit-msg` | Python | Enforce commit message standard |
 | `check-action-pins` | Python | Ensure GitHub Actions are SHA pinned |
 | `prepare-changelog` | Python | Validate/prepare/finalize/reset/unprepare changelog |
+| `release-version` | Python | Compute the release train's publish version from a pre-release format |
 | `gh-issues` | Python | Rich issue/PR dashboard via `gh` |
 | `prepare-commit-msg-strip-trailers` | Python | Remove blocked trailers from commit messages |
 | `check-agent-identity` | Python | Block commits from agent fingerprints in author identity |
@@ -99,6 +100,22 @@ prepare-changelog finalize 0.3.0 2026-03-04
 prepare-changelog finalize 0.3.0 2026-03-04 CHANGELOG.md --github-repository my-org/my-repo
 prepare-changelog reset
 prepare-changelog unprepare
+```
+
+### `release-version`
+
+Computes the bare publish version (`X.Y.Z` or `X.Y.Z-<pre-release>`) for the
+release train from a pre-release format string (`{N}` counter, `{YYYYMMDD}`
+date; default `rc{N}`), reading existing tags from stdin and printing
+`$GITHUB_OUTPUT` lines. Refuses a format switch that would publish a version
+below an existing tag of the same `X.Y.Z`
+([#1746](https://github.com/vig-os/devkit/issues/1746)).
+
+```bash
+git ls-remote --tags --refs origin "v1.2.3" "v1.2.3-*" | sed 's#.*refs/tags/##' \
+  | release-version --version 1.2.3 --kind candidate --format 'alpha.{N}' --tag-prefix v
+# publish_version=1.2.3-alpha.1
+# next_n=1
 ```
 
 ### `gh-issues`

@@ -80,7 +80,8 @@ filterwarnings = ["ignore::DeprecationWarning:testcontainers"]
 # Discover tests in both root tests/ and vig-utils package tests
 testpaths = ["tests", "packages/vig-utils/tests"]
 # Do not collect tests from tests/tmp (integration-test workspace dirs with template tests)
-norecursedirs = "tmp"
+# nor tests/fixtures (consumer-matrix fixture suites run inside rendered consumers, #1762)
+norecursedirs = ["tmp", "fixtures"]
 
 # ---------------------------------------------------------------------------
 # Coverage (pytest-cov / coverage.py)

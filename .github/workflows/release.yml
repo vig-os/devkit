@@ -572,6 +572,23 @@ jobs:
           set -euo pipefail
           sed -i -E "s/^(DEVKIT_VERSION|DEVCONTAINER_VERSION)=.*/DEVKIT_VERSION=$VERSION/" .vig-os
           echo "✓ Set DEVKIT_VERSION=$VERSION in .vig-os"
+          # The devkit Claude Code plugin is versioned WITH devkit (#1744): its
+          # skills wrap these workflows, so a plugin release that did not move
+          # with the scaffold would let a consumer's skills describe verbs their
+          # pinned devkit does not ship. Bumped here so the two versions cannot
+          # diverge; tests/test_devkit_plugin.py asserts they are equal.
+          PLUGIN_MANIFEST=plugins/devkit/.claude-plugin/plugin.json
+          sed -i -E "s/^(  \"version\": \")[^\"]*(\",)$/\1$VERSION\2/" "$PLUGIN_MANIFEST"
+          # A sed that matches nothing exits 0. Without this check a reformatted
+          # manifest would silently ship a stale plugin version under the final
+          # tag -- exactly the drift the version lock exists to prevent.
+          if ! jq -e --arg v "$VERSION" '.version == $v' "$PLUGIN_MANIFEST" >/dev/null; then
+            echo "ERROR: $PLUGIN_MANIFEST version is not $VERSION after the bump."
+            echo "The sed pattern no longer matches the manifest's formatting."
+            jq -r '.version' "$PLUGIN_MANIFEST"
+            exit 1
+          fi
+          echo "✓ Set version=$VERSION in $PLUGIN_MANIFEST"
 
       - name: Collect finalization files
         if: needs.validate.outputs.release_kind == 'final'
@@ -862,7 +879,7 @@ jobs:
         continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          version: 'v0.74.0'
+          version: 'v0.75.0'
           input: /tmp/image.tar
           format: 'table'
           severity: 'HIGH,CRITICAL'
@@ -1175,7 +1192,7 @@ jobs:
       - name: Generate SBOM (attempt 1)
         id: sbom_generate
         continue-on-error: true
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26  # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c  # v0.24.3
         with:
           image: ghcr.io/vig-os/devcontainer:${{ needs.validate.outputs.publish_version }}
           artifact-name: sbom-${{ needs.validate.outputs.publish_version }}.spdx.json
@@ -1188,7 +1205,7 @@ jobs:
 
       - name: Generate SBOM (retry)
         if: steps.sbom_generate.outcome == 'failure'
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26  # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c  # v0.24.3
         with:
           image: ghcr.io/vig-os/devcontainer:${{ needs.validate.outputs.publish_version }}
           artifact-name: sbom-${{ needs.validate.outputs.publish_version }}.spdx.json

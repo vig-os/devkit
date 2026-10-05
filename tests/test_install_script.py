@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+from .conftest import scaffold_files
+
 
 class TestInstallScriptIntegration:
     """Integration tests for install.sh - full deployment workflow.
@@ -196,16 +198,15 @@ class TestInstallScriptIntegration:
     )
     def test_install_replaces_placeholder(self, install_workspace, placeholder):
         """Test scaffold placeholders are replaced everywhere."""
-        for file_path in install_workspace.rglob("*"):
-            if file_path.is_file():
-                try:
-                    content = file_path.read_text()
-                    assert placeholder not in content, (
-                        f"{placeholder} placeholder not replaced in {file_path}"
-                    )
-                except UnicodeDecodeError:
-                    # Skip binary files
-                    continue
+        for file_path in scaffold_files(install_workspace):
+            try:
+                content = file_path.read_text()
+                assert placeholder not in content, (
+                    f"{placeholder} placeholder not replaced in {file_path}"
+                )
+            except UnicodeDecodeError:
+                # Skip binary files
+                continue
 
     def test_install_does_not_scaffold_src(self, install_workspace):
         """The language-neutral scaffold ships no src/ package dir (#929).
@@ -228,19 +229,6 @@ class TestInstallScriptIntegration:
         """Test .githooks directory is created."""
         githooks_dir = install_workspace / ".githooks"
         assert githooks_dir.exists(), ".githooks directory not created"
-
-    def test_install_replaces_org_name_placeholder(self, install_workspace):
-        """Test {{ORG_NAME}} placeholder is replaced everywhere."""
-        for file_path in install_workspace.rglob("*"):
-            if file_path.is_file():
-                try:
-                    content = file_path.read_text()
-                    assert "{{ORG_NAME}}" not in content, (
-                        f"{{{{ORG_NAME}}}} placeholder not replaced in {file_path}"
-                    )
-                except UnicodeDecodeError:
-                    # Skip binary files
-                    continue
 
     def test_install_creates_pre_commit_config(self, install_workspace):
         """Test .pre-commit-config.yaml is created."""

@@ -11,7 +11,7 @@ on:  # yamllint disable-line rule:truthy
         required: true
         type: string
       release_kind:
-        description: "Release mode: candidate publishes X.Y.Z-rcN, final publishes X.Y.Z"
+        description: "Release mode: candidate publishes X.Y.Z-<pre-release> (default X.Y.Z-rcN), final publishes X.Y.Z"
         required: false
         default: "candidate"
         type: string
@@ -21,7 +21,12 @@ on:  # yamllint disable-line rule:truthy
         default: false
         type: boolean
       rc_number:
-        description: "Candidate RC index (e.g. 21 for X.Y.Z-rc21). Omit to auto-increment from existing tags."
+        description: "Pin the pre-release {N} counter (e.g. 21 for X.Y.Z-rc21). Omit to auto-increment from existing tags."
+        required: false
+        default: ""
+        type: string
+      pre_release_format:
+        description: "Candidate pre-release format ({N} counter, {YYYYMMDD} date); empty => rc{N} (X.Y.Z-rcN)"
         required: false
         default: ""
         type: string
@@ -85,7 +90,7 @@ on:  # yamllint disable-line rule:truthy
         description: "Release kind (candidate or final)"
         value: ${{ jobs.validate.outputs.release_kind }}
       publish_version:
-        description: "Tag to publish (X.Y.Z or X.Y.Z-rcN)"
+        description: "Version to publish (X.Y.Z or X.Y.Z-<pre-release>, e.g. X.Y.Z-rcN)"
         value: ${{ jobs.validate.outputs.publish_version }}
       finalize_sha:
         description: "Release branch SHA after finalization"
@@ -228,58 +233,27 @@ jobs:
           RELEASE_KIND: ${{ steps.vars.outputs.release_kind }}
           INPUT_RC_NUMBER: ${{ inputs.rc_number }}
           TAG_PREFIX: ${{ inputs.tag_prefix }}
+          PRE_RELEASE_FORMAT: ${{ inputs.pre_release_format }}
         run: |
           set -euo pipefail
-          # publish_version stays BARE (X.Y.Z / X.Y.Z-rcN); the tag prefix is
-          # composed only when discovering/emitting a tag NAME (#1044).
-          NEXT_RC=""
-          if [ "$RELEASE_KIND" = "candidate" ]; then
-            if [ -n "${INPUT_RC_NUMBER}" ]; then
-              if ! printf '%s' "${INPUT_RC_NUMBER}" | grep -qE '^[0-9]+$'; then
-                echo "ERROR: rc_number must be a positive integer (got '${INPUT_RC_NUMBER}')"
-                exit 1
-              fi
-              if [ "${INPUT_RC_NUMBER}" -lt 1 ]; then
-                echo "ERROR: rc_number must be >= 1 (got '${INPUT_RC_NUMBER}')"
-                exit 1
-              fi
-              NEXT_RC="${INPUT_RC_NUMBER}"
-              PUBLISH_VERSION="${VERSION}-rc${NEXT_RC}"
-              echo "Using explicit rc_number=$NEXT_RC -> publish_version=$PUBLISH_VERSION"
-            else
-              # Discover existing RC tags under the prefixed tag name, e.g. v1.2.3-rc*.
-              TAG_PATTERN="${TAG_PREFIX}${VERSION}-rc*"
-              EXISTING_TAGS=$(git ls-remote --tags --refs origin "$TAG_PATTERN" | awk '{print $2}' | sed 's#refs/tags/##')
-
-              MAX_RC=0
-              if [ -n "$EXISTING_TAGS" ]; then
-                while IFS= read -r tag; do
-                  [ -z "$tag" ] && continue
-                  if [ "${tag#"${TAG_PREFIX}${VERSION}"-rc}" = "$tag" ]; then
-                    echo "ERROR: Malformed candidate tag detected: $tag"
-                    echo "Expected format: ${TAG_PREFIX}${VERSION}-rcN"
-                    exit 1
-                  fi
-                  rc_num="${tag#"${TAG_PREFIX}${VERSION}"-rc}"
-                  if ! echo "$rc_num" | grep -qE '^[0-9]+$'; then
-                    echo "ERROR: Malformed candidate tag detected: $tag"
-                    echo "Expected format: ${TAG_PREFIX}${VERSION}-rcN"
-                    exit 1
-                  fi
-                  if [ "$rc_num" -gt "$MAX_RC" ]; then
-                    MAX_RC="$rc_num"
-                  fi
-                done <<< "$EXISTING_TAGS"
-              fi
-
-              NEXT_RC=$((MAX_RC + 1))
-              PUBLISH_VERSION="${VERSION}-rc${NEXT_RC}"
-            fi
-          else
-            PUBLISH_VERSION="$VERSION"
-          fi
-          echo "publish_version=$PUBLISH_VERSION" >> "$GITHUB_OUTPUT"
-          echo "next_rc=$NEXT_RC" >> "$GITHUB_OUTPUT"
+          # publish_version stays BARE (X.Y.Z / X.Y.Z-<pre-release>); the tag
+          # prefix is composed only when discovering/emitting a tag NAME (#1044).
+          # The pre-release is built from PRE_RELEASE_FORMAT (empty => `rc{N}`,
+          # byte-identical to the former X.Y.Z-rcN), with {N} auto-incremented
+          # from existing tags of that format or pinned by rc_number; a format
+          # switch that would sort below an existing tag of this X.Y.Z (e.g.
+          # alpha.1 after rc21) is refused (#1746). Listing the bare final tag
+          # too lets that gate see an already-released X.Y.Z.
+          git ls-remote --tags --refs origin \
+              "refs/tags/${TAG_PREFIX}${VERSION}" "refs/tags/${TAG_PREFIX}${VERSION}-*" \
+            | awk '{print $2}' | sed 's#^refs/tags/##' \
+            | release-version \
+                --version "$VERSION" \
+                --kind "$RELEASE_KIND" \
+                --format "$PRE_RELEASE_FORMAT" \
+                --number "$INPUT_RC_NUMBER" \
+                --tag-prefix "$TAG_PREFIX" \
+            >> "$GITHUB_OUTPUT"
 
       # Remote tag vs finalize SHA is validated in the finalize job (tag_state) after finalize_sha is known.
 
@@ -354,7 +328,7 @@ jobs:
           VERSION: ${{ steps.vars.outputs.version }}
           RELEASE_KIND: ${{ steps.vars.outputs.release_kind }}
           PUBLISH_VERSION: ${{ steps.publish_meta.outputs.publish_version }}
-          NEXT_RC: ${{ steps.publish_meta.outputs.next_rc }}
+          NEXT_N: ${{ steps.publish_meta.outputs.next_n }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           RELEASE_DATE: ${{ steps.vars.outputs.release_date }}
           DRY_RUN: ${{ inputs.dry_run }}
@@ -365,8 +339,8 @@ jobs:
           echo "  Version:      $VERSION"
           echo "  Release Kind: $RELEASE_KIND"
           echo "  Publish Tag:  $PUBLISH_VERSION"
-          if [ -n "$NEXT_RC" ]; then
-            echo "  Next RC:      $NEXT_RC"
+          if [ -n "$NEXT_N" ]; then
+            echo "  Pre-release N: $NEXT_N"
           fi
           echo "  Branch:       release/$VERSION"
           echo "  PR:           #$PR_NUMBER"
@@ -476,52 +450,13 @@ jobs:
           # prefix reproduces today's bare heading byte-for-byte (#1044).
           prepare-changelog finalize "$VERSION" "$RELEASE_DATE" CHANGELOG.md --tag-prefix "$TAG_PREFIX"
 
-      # Language-neutral, opt-in release artifact. A repo that ships a committed
-      # build artifact (e.g. a JS Action's @vercel/ncc `dist/`) exposes a
-      # `bundle` just recipe; we detect it via `just --summary` so the step is a
-      # no-op for repos without one (e.g. a pure-Python consumer). No new config
-      # surface — the recipe's presence is the flag (#1029).
-      - name: Detect release bundle recipe
-        id: bundle
-        if: ${{ inputs.release_kind == 'final' }}
-        run: |
-          set -euo pipefail
-          if just --summary 2>/dev/null | grep -qw bundle; then
-            echo "has_bundle=true" >> "$GITHUB_OUTPUT"
-            echo "Bundle recipe detected; will build and commit dist/ in the finalization commit."
-          else
-            echo "has_bundle=false" >> "$GITHUB_OUTPUT"
-            echo "No bundle recipe; skipping artifact build (language-neutral release)."
-          fi
-
+      # Opt-in committed artifact (`bundle` recipe, #1029), built by the action
+      # prepare-release.yml shares (#1745); the finalize re-run is idempotent
+      # and keeps the tag authoritative.
       - name: Build release artifact
         id: artifact
-        if: ${{ inputs.release_kind == 'final' && steps.bundle.outputs.has_bundle == 'true' }}
-        run: |
-          set -euo pipefail
-          # Install project deps (npm ci / uv sync) so the bundler (e.g. ncc, a
-          # devDependency) is on PATH. The toolchain preamble provisions the
-          # dev-shell but not the repo's node_modules, so `just bundle` alone
-          # exits 127; every other build job syncs first (#1130).
-          just sync
-          # Rebuild the committed artifact from the finalized sources so the tag
-          # ships a fresh bundle, not a stale one. Output (dist/) is committed
-          # alongside CHANGELOG.md below.
-          just bundle
-          # Commit only the shipped bundle, not the whole dir. `just bundle`
-          # also emits gitignored tsc/ncc byproducts (dist/src/**, *.tsbuildinfo);
-          # commit-action walks a directory path on disk and force-adds EVERY
-          # file it finds — it never consults .gitignore — so passing bare `dist`
-          # re-tracks those byproducts on every final release (#1159).
-          # `git ls-files -co --exclude-standard` lists tracked + untracked files
-          # that are NOT gitignored (git-add semantics), so only the real bundle
-          # (dist/index.js, dist/licenses.txt) reaches the finalize commit.
-          DIST_PATHS=$(git ls-files -co --exclude-standard -- dist | paste -sd,)
-          if [[ -z "$DIST_PATHS" ]]; then
-            echo "::error::bundle recipe produced no non-ignored files under dist/" >&2
-            exit 1
-          fi
-          echo "dist_paths=$DIST_PATHS" >> "$GITHUB_OUTPUT"
+        if: ${{ inputs.release_kind == 'final' }}
+        uses: ./.github/actions/build-bundle
 
       - name: Commit and push finalization changes via API
         if: ${{ inputs.release_kind == 'final' }}
@@ -542,7 +477,7 @@ jobs:
           # built (#1029), and only its non-ignored files — computed by the
           # build step — not the whole dir, so gitignored tsc/ncc emit stays
           # untracked (#1159).
-          FILE_PATHS: ${{ steps.bundle.outputs.has_bundle == 'true' && format('CHANGELOG.md,{0}', steps.artifact.outputs.dist_paths) || 'CHANGELOG.md' }}
+          FILE_PATHS: ${{ steps.artifact.outputs.has_bundle == 'true' && format('CHANGELOG.md,{0}', steps.artifact.outputs.dist_paths) || 'CHANGELOG.md' }}
 
       - name: Trigger sync-issues workflow
         if: ${{ inputs.release_kind == 'final' }}

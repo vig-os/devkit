@@ -43,7 +43,7 @@ permissions: {}  # restrict default; job declares its own
 jobs:
   resolve-toolchain:
     name: Resolve toolchain
-    runs-on: ubuntu-26.04
+    runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
     timeout-minutes: 2
     permissions:
       contents: read
@@ -52,6 +52,7 @@ jobs:
       mode: ${{ steps.resolve.outputs.mode }}
       image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
+      runner-json: ${{ steps.resolve.outputs.runner-json }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -71,7 +72,7 @@ jobs:
 
   sync:
     needs: [resolve-toolchain]
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
     container:
       image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
@@ -172,7 +173,7 @@ jobs:
 
       - name: Sync Issues and PRs
         id: sync
-        uses: vig-os/sync-issues-action@b62c8eca72f4ee7177caee4f689ee080a5997164  # v0.5.0
+        uses: vig-os/sync-issues-action@476599474d45b95d0d297ef70aabe6eb3418d978  # v0.5.1
         with:
           client-id: ${{ secrets.COMMIT_APP_CLIENT_ID }}
           app-private-key: ${{ secrets.COMMIT_APP_PRIVATE_KEY }}
@@ -197,7 +198,10 @@ jobs:
           FILE_PATHS: ${{ steps.sync.outputs.modified-files }}
 
       - name: Save sync state
-        if: always()
+        # Advance the watermark only once the delta landed (#1757): a failed
+        # push keeps the old cutoff so the next run retries it; a skipped
+        # commit (nothing changed) still saves.
+        if: ${{ steps.sync.outcome == 'success' && steps.commit.outcome != 'failure' }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: .sync-state

@@ -229,12 +229,12 @@ def test_trunk_skill_base_branch_main() -> None:
     assert "chore/sync-main-to-dev" in text
 
 
-def test_trunk_precommit_drops_dev_clause() -> None:
-    """.pre-commit-config drops the `(?!dev$)` protect-clause; main stays."""
+def test_trunk_precommit_renders_the_trunk_branch_guard() -> None:
+    """The branch guard runs with ``--workflow=trunk`` (no ``dev`` branch, #1760)."""
     rendered = cached_tree("trunk")
     text = (rendered / ".pre-commit-config.yaml").read_text(encoding="utf-8")
-    assert "(?!dev$)" not in text
-    assert "(?!main$)" in text
+    assert "          - --workflow=trunk\n" in text
+    assert "--workflow=gitflow" not in text
 
 
 def test_trunk_renovate_preset_targets_main() -> None:
@@ -258,10 +258,10 @@ def test_trunk_flake_forwards_workflow_to_hooks() -> None:
     direnv consumer on flake-generated hooks (#1167) gets its branch guard from
     ``mkProjectShell`` (the ``nix/hooks.nix`` consumer render), not that file.
     So the scaffolded ``flake.nix`` reads ``DEVKIT_WORKFLOW`` from ``.vig-os``
-    and forwards it as ``mkProjectShell``'s ``workflow`` argument, which drops
-    the ``(?!dev$)`` clause for trunk — mirroring the scaffold render. Here we
+    and forwards it as ``mkProjectShell``'s ``workflow`` argument, which sets
+    the guard's ``--workflow=trunk`` — mirroring the scaffold render. Here we
     assert the forwarding wiring is present and the manifest it reads declares
-    trunk; the flake-eval half (the generated guard actually loses the clause)
+    trunk; the flake-eval half (the generated guard actually follows it)
     is covered by ``tests/test_flake_hooks.py::TestWorkflowModelBranchGuard``.
     """
     rendered = cached_tree("trunk")

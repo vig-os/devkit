@@ -58,6 +58,13 @@ chore/<short_summary>
 
 Example: `chore/sync-main-to-dev`, `chore/update-dependencies`
 
+Every other commit type whose `Refs:` line is optional in this repo
+(`DEVKIT_REFS_OPTIONAL_TYPES` in `.vig-os`) gets the same issue-less
+`<type>/<short_summary>` form, e.g. `docs/vendor-quotation` with
+`DEVKIT_REFS_OPTIONAL_TYPES=chore,docs`. A branch may skip the issue only where
+its commits may, and `chore/` is always allowed
+([#1767](https://github.com/vig-os/devkit/issues/1767)).
+
 ## Branch types (reference)
 
 | Type     | Issue Required | Use for                                                                 |
@@ -73,6 +80,12 @@ the local branch guard AND CI's branch-name gate from one key — check that
 file before proposing a type outside the table. The stock issue-numbered set
 is `feature,bugfix,hotfix,release,docs,test,refactor`
 ([#1432](https://github.com/vig-os/devkit/issues/1432)).
+
+Both enforcement points — the local `validate-branch-name` pre-commit hook and
+CI's branch-name gate — run the same vig-utils `validate-branch-name`, which
+also admits `main`, `dev` (gitflow), `worktree/<issue>`, `renovate/*` and
+`release/X.Y.Z` ([#1760](https://github.com/vig-os/devkit/issues/1760)). Check
+the current branch with `prek run validate-branch-name`.
 
 ## One-off branch name only
 

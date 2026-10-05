@@ -48,6 +48,7 @@ import pytest
 
 from tests.workflow_scaffold import (
     INIT_WORKSPACE,
+    SMOKE_WORKFLOWS,
     WORKFLOWS,
     cached_tree,
     jobs,
@@ -80,6 +81,14 @@ TOKEN_MINTING_JOBS = {
 # token. The default render has no such job.
 MIRROR_MINTING_JOB = ("promote-release.yml", "reset-sync-mirror")
 MIRROR = "sync/issue-mirror"
+
+# The smoke-test overlay (--smoke-test) ships repository-dispatch.yml, the
+# cross-repo listener (#1793). Its `deploy` job mints the commit App token the
+# same way the template jobs above do, but the overlay rsync runs BEFORE
+# render_commit_app_environment, so the render list must name it explicitly —
+# the function's own `[[ -f ]]` guard is what keeps every OTHER (non-smoke)
+# scaffold unaffected.
+SMOKE_MINTING_JOB = ("repository-dispatch.yml", "deploy")
 
 # The trunk model copy-excludes sync-main-to-dev.yml (no dev branch) and
 # prepare-hotfix.yml (#1625: every trunk release already cuts from main), so
@@ -323,6 +332,43 @@ def test_default_render_ships_no_mirror_reset_job() -> None:
     """Without the mirror knob there is no such job to bind (hence no binding)."""
     promote = cached_tree(None) / ".github" / "workflows" / "promote-release.yml"
     assert MIRROR_MINTING_JOB[1] not in jobs(load_workflow(promote))
+
+
+# ── smoke-test listener (#1793) ─────────────────────────────────────────────
+
+
+def _render_smoke(tmp_path: Path, *, name: str, environment: str | None) -> Path:
+    """Scaffold with ``--smoke-test`` and the knob set (unless None)."""
+    manifest = (
+        f"DEVKIT_COMMIT_APP_ENVIRONMENT={environment}\n"
+        if environment is not None
+        else ""
+    )
+    seed = _seed(tmp_path, name, manifest) if manifest else None
+    proc = scaffold(tmp_path, seed=seed, name=name, smoke_test=True)
+    assert proc.returncode == 0, proc.stderr
+    return tmp_path / name
+
+
+def test_smoke_set_binds_the_listener_deploy_job(tmp_path: Path) -> None:
+    """A --smoke-test scaffold also binds repository-dispatch.yml's deploy job."""
+    tree = _render_smoke(tmp_path, name="smoke-bound", environment=ENV_NAME)
+    assert _bound_jobs(tree) == TOKEN_MINTING_JOBS | {SMOKE_MINTING_JOB}
+    assert _environment_of(tree, *SMOKE_MINTING_JOB) == ENV_NAME
+    assert _environment_line(tree, *SMOKE_MINTING_JOB) == (
+        f"    environment: '{ENV_NAME}'"
+    )
+
+
+def test_smoke_unset_leaves_the_listener_unbound(tmp_path: Path) -> None:
+    """No knob => the deployed listener is byte-identical to its template copy."""
+    tree = _render_smoke(tmp_path, name="smoke-unset", environment=None)
+    rendered = tree / ".github" / "workflows" / "repository-dispatch.yml"
+    assert (
+        rendered.read_bytes()
+        == (SMOKE_WORKFLOWS / "repository-dispatch.yml").read_bytes()
+    )
+    assert SMOKE_MINTING_JOB not in _bound_jobs(tree)
 
 
 # ── guards (format validation, loud at scaffold time) ────────────────────────

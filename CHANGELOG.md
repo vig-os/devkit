@@ -19,6 +19,330 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [1.18.0](https://github.com/vig-os/devkit/releases/tag/1.18.0) - 2026-10-05
+
+### Added
+
+- **`DEVKIT_CI_RESOLVE_RUNNER` variable for the `resolve-toolchain` jobs**
+  ([#1796](https://github.com/vig-os/devkit/issues/1796))
+  - The `resolve-toolchain` job in all seven scaffolded workflows that declare it
+    takes its runner from the repository or organization variable
+    `DEVKIT_CI_RESOLVE_RUNNER` (one runner label), so a private consumer stops
+    paying a billed hosted minute per workflow run for it
+  - Unset => the hosted `ubuntu-26.04` default, unchanged for every existing
+    consumer; an unmatched label queues rather than failing, as documented in
+    `docs/MIGRATION.md`
+
+- **Consumer matrix in devkit PR CI**
+  ([#1762](https://github.com/vig-os/devkit/issues/1762))
+  - New `Consumer Matrix` job renders consumer variants with the PR's own
+    `init-workspace.sh` and runs each rendered consumer's own gates
+    (`just lint`, `just precommit`, the commit-stage hooks over the staged
+    first commit, actionlint, zizmor, the declared-language guard). Cells: `direnv`, `devcontainer` and `bare` modes, trunk, every
+    feature disabled, a custom `DEVKIT_CI_RUNNER`, `DEVKIT_TAG_PREFIX=v`, and a
+    declared language with no marker file that must fail the guard
+  - `scripts/consumer-matrix/render-cell.sh` holds the cell list and runs any
+    cell locally, as the RC validation recipe
+  - Language cells for python, node and rust adopt a zero-dependency hello
+    world (`tests/fixtures/consumer/`) and run `just sync` and `just test`; the
+    fixture test must prove it ran, so a `just test` that silently skips fails
+  - The `rust` cell is a strict expected-fail on
+    [#1496](https://github.com/vig-os/devkit/issues/1496): it passes only while
+    `just test` silently skips the Rust suite, and fails once that is fixed so
+    the marker gets removed
+  - A `direnv-flake` cell runs `nix flake check` on the rendered flake against
+    the PR's own devkit and runs the direnv cell's gates inside its dev shell,
+    so the flake-generated hooks are exercised too
+  - Devkit CI only: nothing changes in what consumers receive
+- **`packages.<system>.guardrails`: the vendored gates without a `mkProjectShell` migration**
+  ([#1572](https://github.com/vig-os/devkit/issues/1572))
+  - The guardrails gates derivation (previously reachable only through
+    `mkProjectShell`'s `modules = [ "guardrails" ]`) is now exposed directly
+    as `packages.<system>.guardrails`, for a consumer that owns its own dev
+    shell and pre-commit/prek config and only wants the hermetic gate
+    binaries. Composes with #1492: the consumer's hook config stays
+    consumer-owned
+  - Documented in `docs/NIX.md`: `$out/share/guardrails/gates/test-gates.sh`
+    is the supported way for a consumer to assert gate execution in its own
+    flake
+- **`validate-branch-name`: one branch-name rule for every enforcement point**
+  ([#1760](https://github.com/vig-os/devkit/issues/1760))
+  - New vig-utils entry point `validate-branch-name` (`--branch`, `--types`,
+    `--issueless-types`, `--workflow`; pure arguments, no `.vig-os` reads). It
+    accepts `main`, `dev` (gitflow), `<issueless-type>/<summary>`,
+    `<type>/<issue>-<summary>`, `worktree/<issue>`, `renovate/*` and
+    `release/X.Y.Z`; a detached HEAD passes with a note
+  - The scaffolded and devkit CI `Validate branch name` steps now call it
+    instead of hand-kept bash alternations, so the local and CI gates can no
+    longer disagree on shape
+- **CI extension seam so consumer jobs gate CI Summary**
+  ([#1761](https://github.com/vig-os/devkit/issues/1761))
+  - New preserved stub `.github/workflows/ci-extension.yml`, called
+    unconditionally from the managed `ci.yml` as the `extension` job — no
+    opt-in knob, so a consumer's own CI jobs can never be silently skipped.
+    `summary` (`CI Summary`) lists it in `needs:` and fails on `failure` or
+    `cancelled`, exactly like every other lane
+  - Every `workflow_call` input (`mode`, `image`, `image-tag`, `runner-json`)
+    is `required: false`; the stub's `runs-on` resolves from
+    `fromJSON(inputs.runner-json)` rather than a literal label
+  - The smoke-test deploy overlay ships a real, non-empty extension so the
+    seam is live-proven by the release train
+- **Issue-less branch form for every Refs-optional commit type**
+  ([#1767](https://github.com/vig-os/devkit/issues/1767))
+  - Every type in the resolved `DEVKIT_REFS_OPTIONAL_TYPES` set now gets a
+    `<type>/<summary>` branch form, as `chore` already did. With
+    `DEVKIT_REFS_OPTIONAL_TYPES=chore,docs`, `docs/<summary>` is accepted next
+    to `docs/<issue>-<summary>`. There is no new key: a branch may skip the
+    issue only where its commits may
+  - Applies to the scaffolded branch guard, the flake-generated guard and CI's
+    branch-name gate (new `issueless-branch-types` output of
+    `resolve-toolchain`). `chore/<summary>` stays allowed under every policy,
+    `required` included, so the default pattern is unchanged
+  - Consumers on `DEVKIT_REFS_POLICY=optional` exempt every approved type, so
+    every type now gets the issue-less form (e.g. `feat/<summary>`)
+- **DEVKIT_FLAKE_PIN_ADVANCE: advance a pinned devkit flake input on upgrade**
+  ([#1752](https://github.com/vig-os/devkit/issues/1752), [#1756](https://github.com/vig-os/devkit/issues/1756))
+  - New `.vig-os` key `DEVKIT_FLAKE_PIN_ADVANCE`. With `true`, an
+    `install.sh --force` upgrade in direnv or `both` mode rewrites a pinned
+    release ref (`?ref=X` or `/X`, form kept) to the new `DEVKIT_VERSION` and
+    runs `nix flake update <input>` in the same step. If the lock update fails,
+    `flake.nix` and `flake.lock` are both restored. Empty or `false` (default)
+    leaves a pin untouched, and the `flake-bump:` line now names the key
+  - The scaffolded `ci.yml` fails its `resolve-toolchain` job when a pinned
+    release ref differs from `DEVKIT_VERSION`, so an adoption PR can no longer
+    wire hooks the pinned toolchain cannot run. Floating inputs, non-release
+    pins, `bare` and `devcontainer` modes are not gated
+  - Pinned consumers: the adoption PR that ships this gate is red once. Fix it
+    in one commit on that branch (bump the pin, `nix flake update <input>`, set
+    the key) and merge it before the next weekly upgrade run replaces the
+    branch; see `docs/MIGRATION.md`
+- **Release train: pluggable pre-release format, draft-Release-first owner
+  contract, and a standalone publish seam**
+  ([#1746](https://github.com/vig-os/devkit/issues/1746))
+  - Candidates can be tagged in any SemVer pre-release format, e.g. `alpha.{N}`
+    for `v0.1.0-alpha.1` (`{N}` counter, `{YYYYMMDD}` date). Precedence:
+    `release.yml` input `pre-release-format` > `.vig-os`
+    `DEVKIT_PRERELEASE_FORMAT` > `rc{N}`, which keeps today's `X.Y.Z-rcN` tags
+    byte-identical. A format switch that would sort below an existing tag of
+    the same `X.Y.Z` is refused. Computed by the new `release-version`
+    vig-utils CLI
+  - Candidate discovery now lists every `X.Y.Z-*` tag, not only `-rc*`, so a
+    stray pre-release tag that sorts above the next `rcN` (e.g. `1.2.3-test`)
+    now stops a candidate for that version. Delete the stray tag, or release
+    the next version
+  - `release-publish.yml` now creates the draft GitHub Release before the tag
+    ref, so tag-triggered asset workflows always find it (the "pre-publish
+    assets window"); a failed tag push discards the orphan draft.
+    `promote-release.yml` stays the only place a draft is published
+  - New preserved, default no-op seam `publish-release-extension.yml` on
+    `release: published` (plus a `workflow_dispatch` tag retry) for
+    irreversible publishes such as crates.io or PyPI. It is standalone so
+    Trusted Publishing binds to its own path
+  - `docs/DOWNSTREAM_RELEASE.md` documents the contract and a cargo-dist
+    recipe: cargo-dist builds the assets and a tag-push workflow uploads them
+    into the train's draft, because `create-release = false` makes cargo-dist
+    publish the draft itself
+- **`devkit` Claude Code plugin -- state-lookup-first operator skills**
+  ([#1744](https://github.com/vig-os/devkit/issues/1744))
+  - New `plugins/devkit/` plugin with eleven skills covering adoption
+    (`/devkit:adopt`), the read-only state report (`/devkit:status`), every
+    release-train pathway (`/devkit:release-prepare`, `-candidate`,
+    `-finalize`, `-promote`, `-abandon`, `-hotfix`, `-neutral`), consumer
+    upgrades (`/devkit:upgrade`) and the Rust pack audit
+    (`/devkit:pack-rust`).
+  - Every skill starts with a read-only state lookup and carries an explicit
+    refusal table for the states that would foot-gun the verb it wraps --
+    another train in flight ([#1627](https://github.com/vig-os/devkit/issues/1627)),
+    a floating tag that would move backwards
+    ([#1626](https://github.com/vig-os/devkit/issues/1626)), a published
+    Release whose deletion tombstones the tag name
+    ([#1301](https://github.com/vig-os/devkit/issues/1301)), a dirty tree,
+    `dev` behind `main`. Skills wrap the canonical `just` recipes and workflow
+    dispatches; they never re-implement release logic.
+  - Read-only skills are model-invocable; every mutating skill sets
+    `disable-model-invocation: true`, so an agent cannot infer its way into
+    dispatching a release verb.
+  - The plugin is versioned with devkit: `plugin.json`'s version equals
+    `DEVKIT_VERSION`, and `release.yml`'s finalize step bumps and verifies
+    both, so every release tag carries skills matching that release's verbs.
+  - Distributed through a marketplace in this repository, not vendored into
+    the consumer scaffold -- the per-repo copy is the drift model
+    [#927](https://github.com/vig-os/devkit/issues/927) exists to retire.
+    Pin the marketplace to your `DEVKIT_VERSION`
+    (`/plugin marketplace add vig-os/devkit@X.Y.Z --sparse .claude-plugin plugins`
+    then `/plugin install devkit@vigos-devkit`): an unpinned marketplace
+    tracks devkit's default branch, so the skills would be the newest
+    release's whatever the scaffold pins. `/devkit:status` reports the
+    mismatch. Moving to a new version is remove-then-add; a repeat add is a
+    no-op and `marketplace update` keeps the ref it was added with.
+  - Skills that fetch the installer validate the version against
+    `^[0-9]+\.[0-9]+\.[0-9]+$` in the same snippet, before the fetch, and
+    resolve it as `refs/tags/<version>`. The version is read from the
+    inspected repo's manifest and interpolated into a URL that is piped to
+    a shell, and `curl` collapses `..` before sending, so an unvalidated
+    value would reach an arbitrary repository.
+  - `tests/test_devkit_plugin.py` fails when a skill names a `just` recipe or
+    a workflow file that does not exist in devkit or in the scaffold.
+- **Creation runbook for the `vigos-devkit-upgrade` GitHub App**
+  ([#1739](https://github.com/vig-os/devkit/issues/1739))
+  - New `docs/runbooks/devkit-upgrade-app.md` documents the App's grant, its
+    public visibility (linking to the recorded decision in
+    `vig-os/org-config`), its install targets, which org secrets carry its
+    credentials, and the key-rotation procedure, including the mandatory
+    `GET /app/installations` inventory sweep for a public App with no webhook
+  - The scaffolded `devkit-upgrade.yml` grant header now links to the runbook
+    instead of restating the permission set inline
+
+### Changed
+
+- **Promote-release cleanup matches the configured pre-release format**
+  ([#1749](https://github.com/vig-os/devkit/issues/1749))
+  - The scaffolded `promote-release.yml` cleanup job used to prune only
+    `-rc*` candidate tags, so a repo on a non-default
+    `DEVKIT_PRERELEASE_FORMAT` (e.g. `alpha.{N}`, #1746) never got its
+    candidate tags cleaned up. The match is now derived from the resolved
+    format via the new `release-version --list-pattern` CLI mode
+    (`PreReleaseFormat.list_pattern` in vig-utils), reusing the format's
+    existing `re.escape`/placeholder machinery rather than a second parser
+  - A tag from a *previously* configured format (a mid-series switch) is
+    intentionally left alone; the existing "no GitHub Release" guard is
+    unchanged
+  - Scope: the scaffold copy only. Devkit's own
+    `.github/workflows/promote-release.yml` stays on literal `rc{N}` -- it
+    sets no pre-release format and its cleanup also prunes per-arch GHCR
+    `-rcN-<arch>` tags, which a format-generic matcher would not cover
+- **The local branch guard is the `validate-branch-name` hook**
+  ([#1760](https://github.com/vig-os/devkit/issues/1760))
+  - The scaffolded `.pre-commit-config.yaml` and the flake-generated hook set
+    replace pre-commit-hooks' `no-commit-to-branch` regex with a `repo: local`
+    `validate-branch-name` hook; `DEVKIT_BRANCH_TYPES`, the Refs-optional set
+    and `DEVKIT_WORKFLOW` now render its `--types`, `--issueless-types` and
+    `--workflow` args. `release/X.Y.Z` branches now pass locally, as they did
+    in CI
+  - The upgrade folds every rendered shape of the old hook in a preserved
+    config into the new one, reported as
+    `preserved-hook-fold: no-commit-to-branch-pre-1760`. A hand-edited
+    pattern is left in place and reported as
+    `preserved-hook-drift: no-commit-to-branch-pre-1760`
+
+#### Dependencies
+
+- Update `anchore/sbom-action` from `v0.24.2` to `v0.24.3` ([#1812](https://github.com/vig-os/devkit/pull/1812))
+- Update `aquasecurity/trivy` from `v0.74.0` to `v0.75.0` ([#1812](https://github.com/vig-os/devkit/pull/1812))
+- Update `vig-os/sync-issues-action` from `v0.5.0` to `v0.5.1` ([#1812](https://github.com/vig-os/devkit/pull/1812))
+- Lock file maintenance (pip) ([#1813](https://github.com/vig-os/devkit/pull/1813), [#1814](https://github.com/vig-os/devkit/pull/1814))
+
+### Removed
+
+- **Numeric `DEVKIT_UPGRADE_APP_ID` fallback in `devkit-upgrade.yml`**
+  ([#1366](https://github.com/vig-os/devkit/issues/1366))
+  - The workflow now reads only `DEVKIT_UPGRADE_APP_CLIENT_ID`; the legacy
+    numeric secret is no longer read at all, and its deprecation warning is
+    gone. Every consumer org already carries the Client-ID secret (#1365), so
+    no consumer loses its App identity. The org secret can be retired in
+    org-config once this release is adopted
+
+### Fixed
+
+- **Actionlint opt-out left a double blank line that failed yamllint**
+  ([#1800](https://github.com/vig-os/devkit/issues/1800))
+  - `DEVKIT_FEATURES_DISABLED=actionlint` excised the `# >>> devkit:actionlint`
+    … `# <<< devkit:actionlint` block from a rendered `.pre-commit-config.yaml`
+    but left the blank lines flanking it, so the two ends met as two adjacent
+    blank lines — `too many blank lines (2 > 1)` under the scaffold's own
+    `.yamllint` (`empty-lines: max: 1`). The excision now also drops the blank
+    line immediately before the block, scoped to that one seam
+  - A consumer who already hit the bug on a prior render is not repaired by a
+    later upgrade: the excision is sentinel-gated and the sentinels are
+    already gone from an already-excised file, so there is nothing new to
+    trigger on. Fixing the double blank line by hand (or re-adding the hook
+    and re-running the opt-out) clears it
+- **Fresh scaffold's first commit failed `check-added-large-files` on `.devcontainer/CHANGELOG.md`**
+  ([#1801](https://github.com/vig-os/devkit/issues/1801))
+  - The scaffold copies devkit's own, growing `CHANGELOG.md` into
+    `.devcontainer/CHANGELOG.md` (528 KB+ on `dev`), which crossed the hook's
+    500 KB default. `check-added-large-files` now excludes that path; devkit's
+    own repo has no `.devcontainer/` directory, so the exclude is an inert
+    no-op on devkit's own commits
+- **`sync-issues.yml`'s `sync` job ignored `DEVKIT_CI_RUNNER`**
+  ([#1795](https://github.com/vig-os/devkit/issues/1795))
+  - `resolve-toolchain` now re-exports `runner-json`, and the `sync` job routes
+    `runs-on` through it (`${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}`),
+    matching `ci.yml`. A self-hosted consumer's own runner now also carries
+    this daily-cron job instead of paying for it on the hosted default every
+    day regardless of activity. `resolve-toolchain`'s own `runs-on` is
+    unchanged (hosted default, per #1173)
+- **Smoke listener's deploy job unbound from the commit-App environment**
+  ([#1793](https://github.com/vig-os/devkit/issues/1793))
+  - `repository-dispatch.yml`'s `deploy` job mints the commit App token but was
+    missing from `render_commit_app_environment`'s render list, so a
+    `--smoke-test` scaffold with `DEVKIT_COMMIT_APP_ENVIRONMENT` set left it
+    reading `COMMIT_APP_CLIENT_ID`/`COMMIT_APP_PRIVATE_KEY` from org/repo
+    secrets instead of the environment. It is now bound alongside the other
+    token-minting jobs.
+- **Sync watermark advanced past a failed push**
+  ([#1757](https://github.com/vig-os/devkit/issues/1757))
+  - `sync-issues.yml` saved its incremental cutoff with `if: always()`, so a
+    failed `Commit and push` step still advanced it and the next run never
+    regenerated the unpushed issues and PRs. The save now runs only when the
+    sync succeeded and the push did not fail; a skipped push (nothing changed)
+    still saves
+- **Mirror mode without a release feature froze the trunk's archive silently**
+  ([#1758](https://github.com/vig-os/devkit/issues/1758))
+  - The `DEVKIT_SYNC_TARGET` mirror's only fold-back is the release train, so
+    with `release` in `DEVKIT_FEATURES_DISABLED` it was never merged back and
+    the trunk's `docs/issues/` stopped updating, with no output. The scaffold
+    now prints a notice for that combination (it still proceeds)
+  - The `.vig-os` and migration docs no longer claim each sync regenerates full
+    state: the sync is incremental, and only `force-update` rebuilds
+- **Stacked PRs ran no CI or CodeQL**
+  ([#1759](https://github.com/vig-os/devkit/issues/1759))
+  - `ci.yml` and `codeql.yml` filtered `pull_request` to `dev`,
+    `release/**` and `main`, so a PR onto a topic branch showed no checks at
+    all. Both now accept any base (`'**'`); `codeql.yml` gains the same
+    concurrency group as `ci.yml`, cancelling superseded runs except on push
+- **Release train deadlocked on its own Dist Check**
+  ([#1745](https://github.com/vig-os/devkit/issues/1745))
+  - A repo with a `bundle` recipe now rebuilds its committed `dist/` when the
+    release is prepared, and the refreshed bundle rides the CHANGELOG freeze
+    commit, so the release PR opens with a fresh artifact instead of failing
+    Dist Check before the candidate can run. Finalize still rebuilds it. The
+    detect-and-build logic moved into a shared managed action,
+    `.github/actions/build-bundle`, which the `release` feature group prunes
+- **`vigos.multiplexer` re-attached a window to an on-screen session**
+  ([#1753](https://github.com/vig-os/devkit/issues/1753))
+  - `detach-on-destroy` is now `no-detached`: killing a session switches the
+    client to a detached session if one exists and otherwise closes the
+    window, instead of showing a project already attached elsewhere
+- **SHA-anchored release-PR check-wait in the smoke gate**
+  ([#1737](https://github.com/vig-os/devkit/issues/1737))
+  - The smoke listener's `wait-release-pr-ci` job could observe a complete,
+    green required-check set for the release PR's *pre-push* head SHA and let
+    `trigger-promote-release` dispatch `promote-release.yml` while
+    `finalize`'s `sync-issues` push was still re-triggering that PR's CI --
+    a timing race, not a content defect (live on the 1.17.0 train).
+  - The wait now requires both a quiet release branch (no `queued`/
+    `in_progress` workflow run) and a required-check read anchored by a
+    `headRefOid` snapshot taken immediately before and after the query; a
+    head move discards the observation instead of judging it.
+  - The confirmed SHA is exposed as a job output and consumed by a new
+    last-mile guard in `trigger-promote-release` that re-checks the PR head
+    immediately before dispatch and fails with an explicit message on a
+    mismatch, instead of a confusing downstream "checks still in progress"
+    refusal.
+- **Renovate vulnerability-fix coverage for smoke-test Python and Rust
+  consumers** ([#1763](https://github.com/vig-os/devkit/issues/1763))
+  - Renovate is the vulnerability-fix channel, but its alert rules only fire
+    for dependencies an enabled manager extracts. The smoke-test overlay
+    enabled `github-actions` only, and every smoke deploy overwrote a hand
+    fix; it now also enables `pep621`.
+  - The workspace `renovate.json` template now enables `cargo`, and the preset
+    carries a `cargo` rule (`build(cargo)`) so Cargo PRs pass the commit gate.
+    `renovate.json` is preserved on upgrade: existing Rust consumers add
+    `cargo` by hand (see `docs/MIGRATION.md`).
+  - The preset now configures `vulnerabilityAlerts` explicitly and labels
+    vulnerability PRs `security`.
+
 ## [1.17.0](https://github.com/vig-os/devkit/releases/tag/1.17.0) - 2026-09-28
 
 ### Added

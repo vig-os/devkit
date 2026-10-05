@@ -171,6 +171,47 @@ devShells.default = vigos.lib.mkProjectShell {
   C-extension sdist; for `node`, that `node`/`npm` resolve and the versioned
   form pins the major).
 
+### `packages.<system>.guardrails` — the gates without a `mkProjectShell` migration
+
+The `guardrails` capability module (#1488, `nix/modules/guardrails.nix`) wraps
+the org's vendored semantic gates and is normally reached through
+`modules = [ "guardrails" ]`. `packages.<system>.guardrails`
+([#1572](https://github.com/vig-os/devkit/issues/1572)) surfaces that same
+derivation directly, for a consumer that already owns its own dev shell and a
+committed pre-commit/prek config and only wants the gate binaries resolved
+from the Nix store — not a `mkProjectShell` migration:
+
+```nix
+# flake.nix of a consumer that owns its own shell/hooks
+devShells.default = pkgs.mkShell {
+  packages = [ vigos.packages.${system}.guardrails ];
+};
+```
+
+This composes with, rather than reopens,
+[#1492](https://github.com/vig-os/devkit/issues/1492): the consumer's
+`.pre-commit-config.yaml`/prek config stays consumer-owned — only the gate
+binaries' provenance changes from PATH to the Nix store.
+
+**Execution proof.** `$out/share/guardrails/gates/test-gates.sh` (already
+shipped inside the package) is the supported way for a consumer to assert gate
+execution in its own flake — the same script devkit's own
+`checks.guardrails-canary` runs, feeding every gate a known-bad fixture and
+asserting it is rejected:
+
+```nix
+checks.guardrails-canary =
+  let
+    guardrails = vigos.packages.${system}.guardrails;
+  in
+  pkgs.runCommand "guardrails-canary"
+    { nativeBuildInputs = [ guardrails ] ++ guardrails.runtimeInputs; }
+    ''
+      bash ${guardrails}/share/guardrails/gates/test-gates.sh
+      touch "$out"
+    '';
+```
+
 ## Home-manager modules — versioning & release policy
 
 The `vigos.*` home-manager modules ([ADR](rfcs/ADR-home-environment-modules.md),
@@ -455,7 +496,7 @@ enables it for itself.
   render and carry no gate profile in `nix/hooks.nix`: the generators
   `generate-docs`/`sync-manifest`, `pip-licenses` (reads `uv.lock`),
   `check-unreleased-typos` (a repo script over this repo's own `CHANGELOG.md`,
-  #1534), `no-commit-to-branch` and `destroyed-symlinks`
+  #1534), `validate-branch-name` and `destroyed-symlinks`
   (git-state-dependent), `check-agent-identity` (inspects the commit
   author/committer), and the `commit-msg`/`prepare-commit-msg`-stage hooks (never
   run by `--all-files`). `checks.pre-commit` is thus a Nix-verified guarantee that

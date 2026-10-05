@@ -68,6 +68,7 @@ SUMMARY_COPIES: dict[str, tuple[Path, str, set[str]]] = {
             "project-tests",
             "project-bats",
             "project-flake",
+            "consumer-matrix",
             "commit-checks",
             "python-security",
             "security-scan",
@@ -84,6 +85,7 @@ SUMMARY_COPIES: dict[str, tuple[Path, str, set[str]]] = {
             "commit-checks",
             "scaffold-drift",
             "dependency-review",
+            "extension",
         },
     ),
 }

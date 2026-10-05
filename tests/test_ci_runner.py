@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tests.workflow_scaffold import (
+    REPO_ROOT,
     WORKFLOWS,
 )
 from tests.workflow_scaffold import (
@@ -55,16 +56,75 @@ def test_ci_toolchain_jobs_use_runner_json() -> None:
         assert workflow["jobs"][job]["runs-on"] == RUNNER_JSON_EXPR
 
 
-def test_resolve_toolchain_job_stays_hosted() -> None:
-    """The producer job cannot depend on its own output — it stays hosted."""
-    workflow = _load(WORKFLOWS / "ci.yml")
-    assert workflow["jobs"]["resolve-toolchain"]["runs-on"] == HOSTED_DEFAULT
-
-
 def test_dependency_review_stays_hosted() -> None:
     """dependency-review is public-repo-only + toolchain-free, so it stays hosted."""
     workflow = _load(WORKFLOWS / "ci.yml")
     assert workflow["jobs"]["dependency-review"]["runs-on"] == HOSTED_DEFAULT
+
+
+# ── sync-issues.yml's sync job (#1795) ────────────────────────────────────────
+# The daily-cron sync job did its real work on the hosted default regardless of
+# DEVKIT_CI_RUNNER, unlike ci.yml's toolchain jobs. resolve-toolchain now
+# re-exports runner-json here too, and sync routes runs-on through it, exactly
+# like ci.yml's toolchain jobs. Its own resolve-toolchain job is not routed through
+# runner-json, same chicken-and-egg reasoning as ci.yml's (#1173); see #1796 below.
+
+
+def test_sync_issues_resolve_toolchain_reexports_runner_json() -> None:
+    """sync-issues.yml's resolve-toolchain job maps the action output to a job output."""
+    workflow = _load(WORKFLOWS / "sync-issues.yml")
+    outputs = workflow["jobs"]["resolve-toolchain"]["outputs"]
+    assert outputs.get("runner-json") == "${{ steps.resolve.outputs.runner-json }}"
+
+
+def test_sync_job_uses_runner_json() -> None:
+    """The sync job routes runs-on through the resolved runner, like ci.yml's lanes."""
+    workflow = _load(WORKFLOWS / "sync-issues.yml")
+    assert workflow["jobs"]["sync"]["runs-on"] == RUNNER_JSON_EXPR
+
+
+def test_sync_job_needs_resolve_toolchain() -> None:
+    """The sync job must depend on resolve-toolchain to read its runner-json output."""
+    workflow = _load(WORKFLOWS / "sync-issues.yml")
+    needs = workflow["jobs"]["sync"]["needs"]
+    needs = [needs] if isinstance(needs, str) else list(needs)
+    assert "resolve-toolchain" in needs
+
+
+# ── resolve-toolchain's own runner (#1796) ────────────────────────────────────
+# The producer job cannot read its own runner-json (chicken-and-egg), but `vars`
+# resolves server-side before any runner is provisioned, so a repo/org variable
+# selects it with no circularity. Default unchanged => no-op until opted in.
+
+RESOLVE_RUNNER_EXPR = "${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}"
+
+# Every managed workflow that declares a resolve-toolchain job (#1796 table).
+RESOLVE_TOOLCHAIN_WORKFLOWS = (
+    "ci.yml",
+    "sync-issues.yml",
+    "sync-main-to-dev.yml",
+    "abandon-release.yml",
+    "prepare-hotfix.yml",
+    "promote-release.yml",
+    "release.yml",
+)
+
+
+def test_resolve_toolchain_workflow_list_is_complete() -> None:
+    """The pinned list covers every scaffolded workflow declaring the job."""
+    declaring = {
+        path.name
+        for path in WORKFLOWS.glob("*.yml")
+        if "resolve-toolchain" in (_load(path).get("jobs") or {})
+    }
+    assert declaring == set(RESOLVE_TOOLCHAIN_WORKFLOWS)
+
+
+@pytest.mark.parametrize("workflow_name", RESOLVE_TOOLCHAIN_WORKFLOWS)
+def test_resolve_toolchain_runner_is_var_overridable(workflow_name: str) -> None:
+    """resolve-toolchain takes its runner from a repo/org variable, hosted default."""
+    workflow = _load(WORKFLOWS / workflow_name)
+    assert workflow["jobs"]["resolve-toolchain"]["runs-on"] == RESOLVE_RUNNER_EXPR
 
 
 @pytest.mark.parametrize(
@@ -389,7 +449,7 @@ def test_invalid_refs_optional_types_warns_loudly(tmp_path: Path) -> None:
 
 # ── Branch types knob + CI branch-name gate (#1432 / #1430) ───────────────────
 # DEVKIT_BRANCH_TYPES replaces the issue-numbered branch-type set that the
-# local no-commit-to-branch guard renders from, and — because the local hook
+# local validate-branch-name guard renders from, and — because the local hook
 # depends on local git config that a fresh clone does not have (#1430) — the
 # same resolved set drives a CI branch-name gate: a commit-checks step
 # validating the PR head ref. The list->output mapping lives once in
@@ -472,7 +532,48 @@ def test_branch_name_step_precedes_commit_validation() -> None:
     assert names.index(BRANCH_NAME_STEP) < names.index(COMMIT_CHECKS_STEP)
 
 
-def _run_branch_gate(head_ref: str, branch_types: str) -> int:
+# ── One branch-name rule (#1760) ──────────────────────────────────────────────
+# The gate no longer spells the rule as its own bash `ALLOWED` alternation: it
+# calls vig-utils' validate-branch-name, the implementation the local hook runs
+# too, so the accepted shapes cannot drift between the two again. Devkit's own
+# ci.yml (the producer, no .vig-os) calls it with the validator's stock
+# defaults, which test_flake_hooks pins to nix/hooks.nix's defaultBranchTypes.
+DEVKIT_CI = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        pytest.param(WORKFLOWS / "ci.yml", id="scaffold"),
+        pytest.param(DEVKIT_CI, id="devkit"),
+    ],
+)
+def test_branch_name_step_calls_the_shared_validator(path: Path) -> None:
+    run = _branch_name_step(_load(path))["run"]
+    assert "uv run validate-branch-name" in run
+    assert '--branch="${HEAD_REF}"' in run
+    # No second rendering of the rule left behind.
+    assert "ALLOWED" not in run
+    assert "grep" not in run
+    assert "${{" not in run
+
+
+def test_scaffold_branch_name_step_forwards_both_type_sets() -> None:
+    run = _branch_name_step(_load(WORKFLOWS / "ci.yml"))["run"]
+    assert '--types="${BRANCH_TYPES}"' in run
+    assert '--issueless-types="${ISSUELESS_BRANCH_TYPES}"' in run
+
+
+def test_devkit_branch_name_step_restates_no_type_list() -> None:
+    """Devkit's producer CI uses the validator's stock sets, never a copy."""
+    step = _branch_name_step(_load(DEVKIT_CI))
+    assert "--types" not in step["run"]
+    assert "BRANCH_TYPES" not in step.get("env", {})
+
+
+def _run_branch_gate(
+    head_ref: str, branch_types: str, issueless_types: str = "chore"
+) -> int:
     """Execute the gate step's real bash against a head ref; return exit code."""
     workflow = _load(WORKFLOWS / "ci.yml")
     step = _branch_name_step(workflow)
@@ -482,6 +583,7 @@ def _run_branch_gate(head_ref: str, branch_types: str) -> int:
             **os.environ,
             "HEAD_REF": head_ref,
             "BRANCH_TYPES": branch_types,
+            "ISSUELESS_BRANCH_TYPES": issueless_types,
         },
         check=False,
         capture_output=True,
@@ -535,3 +637,97 @@ def test_branch_gate_follows_custom_types() -> None:
     custom = DEFAULT_BRANCH_TYPES + ",record"
     assert _run_branch_gate("record/54-x", custom) == 0
     assert _run_branch_gate("record/no-issue", custom) == 1
+
+
+# ── Issue-less branch form per Refs-optional type (#1767) ─────────────────────
+# Every commit type whose `Refs:` line is optional also gets an issue-less
+# `<type>/<summary>` branch form, generalising the old hardcoded `chore/<slug>`
+# clause. The set is DERIVED from the resolved refs-optional-types (never a
+# second list that could disagree with it), with `chore` as a floor: the
+# sync-main-to-dev and devkit-upgrade bot branches are `chore/<slug>`, so no
+# Refs policy may take that clause away — `required` (the `none` sentinel)
+# included. The default and `required` therefore resolve to plain `chore`, the
+# byte-identical pre-#1767 gate.
+
+
+@pytest.mark.parametrize(
+    ("manifest_extra", "expected"),
+    [
+        pytest.param("", "chore", id="key-absent-defaults-chore"),
+        pytest.param(
+            "DEVKIT_REFS_OPTIONAL_TYPES=chore,docs\n", "chore,docs", id="chore-docs"
+        ),
+        # `chore` is a floor, not a member the consumer must remember to keep.
+        pytest.param(
+            "DEVKIT_REFS_OPTIONAL_TYPES=docs\n", "chore,docs", id="chore-floor"
+        ),
+        pytest.param(
+            "DEVKIT_REFS_OPTIONAL_TYPES=docs,chore\n",
+            "chore,docs",
+            id="chore-not-duplicated",
+        ),
+        # `none` is a sentinel type, never a branch prefix.
+        pytest.param("DEVKIT_REFS_POLICY=required\n", "chore", id="required"),
+        pytest.param(
+            "DEVKIT_REFS_POLICY=optional\n",
+            "chore,feat,fix,docs,refactor,perf,test,ci,build,revert,style",
+            id="optional-every-type",
+        ),
+        # A rejected list falls back to the clamped exemption, so the branch
+        # rule never widens on a typo either.
+        pytest.param(
+            "DEVKIT_REFS_OPTIONAL_TYPES=docs,Bad-Type\n",
+            "chore",
+            id="invalid-falls-back",
+        ),
+    ],
+)
+def test_issueless_branch_types_mapping(
+    tmp_path: Path, manifest_extra: str, expected: str
+) -> None:
+    """The issue-less branch set follows the resolved Refs-optional set (#1767)."""
+    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\n" + manifest_extra)
+    assert outputs["issueless-branch-types"] == expected
+
+
+def test_resolve_toolchain_job_reexports_issueless_branch_types() -> None:
+    """ci.yml's resolve-toolchain job maps the action output to a job output."""
+    workflow = _load(WORKFLOWS / "ci.yml")
+    outputs = workflow["jobs"]["resolve-toolchain"]["outputs"]
+    assert (
+        outputs.get("issueless-branch-types")
+        == "${{ steps.resolve.outputs.issueless-branch-types }}"
+    )
+
+
+def test_branch_name_step_reads_issueless_types_through_env() -> None:
+    """The gate takes the issue-less set from resolve-toolchain via env."""
+    workflow = _load(WORKFLOWS / "ci.yml")
+    step = _branch_name_step(workflow)
+    assert (
+        "${{ needs.resolve-toolchain.outputs.issueless-branch-types }}"
+        in step["env"].values()
+    )
+
+
+def test_branch_gate_admits_issueless_form_of_refs_optional_types() -> None:
+    """A Refs-optional type gets `<type>/<summary>` next to its issue form."""
+    assert _run_branch_gate("docs/vendor-quotation", DEFAULT_BRANCH_TYPES) == 1
+    assert (
+        _run_branch_gate("docs/vendor-quotation", DEFAULT_BRANCH_TYPES, "chore,docs")
+        == 0
+    )
+    # The issue-numbered form stays available alongside it.
+    assert _run_branch_gate("docs/12-x", DEFAULT_BRANCH_TYPES, "chore,docs") == 0
+
+
+def test_branch_gate_issueless_type_outside_branch_types() -> None:
+    """Refs-optional but not a branch type: only the issue-less form, like chore."""
+    assert (
+        _run_branch_gate("record/datasheet", DEFAULT_BRANCH_TYPES, "chore,record") == 0
+    )
+    # `record/54-x` is still admitted — `54-x` is itself a valid summary slug,
+    # exactly as `chore/54-x` always was.
+    assert (
+        _run_branch_gate("record/Bad_Slug", DEFAULT_BRANCH_TYPES, "chore,record") == 1
+    )

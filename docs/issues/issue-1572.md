@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-08-26T15:26:19Z
-updated: 2026-08-26T15:26:19Z
+updated: 2026-10-01T17:46:34Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1572
-comments: 0
+comments: 1
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-08-27T12:42:14.025Z
+synced: 2026-10-02T08:18:26.854Z
 ---
 
 # [Issue 1572]: [guardrails: export the vendored gates as a stable package (consumable without mkProjectShell)](https://github.com/vig-os/devkit/issues/1572)
@@ -39,3 +39,11 @@ That leaves a gap for a consumer that already owns its dev shell and a committed
 - It composes with, rather than reopens, #1492: the config file stays consumer-owned; only the binaries' provenance changes.
 - It keeps the scaffold optional, matching the module header's stance that hook entries belong to the scaffold side.
 - It widens adoption of the hermetic wrapping — the failure it fixes ("hooks resolved from a developer's global profile, worked there, failed in CI") is called out in `nix/guardrails.nix` itself as the motivating incident.
+---
+
+# [Comment #1]() by [c-vigo]()
+
+_Posted on October 1, 2026 at 05:46 PM_
+
+Resolved by #1799 (merged to `dev`, ships with the next release): `packages.<system>.guardrails` is exported on every system, and `docs/NIX.md` documents it as the supported API plus `$out/share/guardrails/gates/test-gates.sh` as the execution proof. The second ask is answered with docs only; no new consumer-facing check.
+

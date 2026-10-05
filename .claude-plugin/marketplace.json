@@ -1,0 +1,21 @@
+{
+  "name": "vigos-devkit",
+  "description": "vigOS devkit's own plugin catalogue. Ships the devkit operator plugin from the same repository as the workflows it drives, so the skills and the release train are released together and cannot drift.",
+  "owner": {
+    "name": "vigOS",
+    "url": "https://github.com/vig-os"
+  },
+  "plugins": [
+    {
+      "name": "devkit",
+      "source": "./plugins/devkit",
+      "category": "release-engineering",
+      "tags": [
+        "release",
+        "scaffold",
+        "adoption",
+        "upgrade"
+      ]
+    }
+  ]
+}

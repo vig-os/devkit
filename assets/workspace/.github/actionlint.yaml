@@ -7,8 +7,9 @@
 # actionlint rejects any LITERAL `runs-on:` label missing from its built-in
 # list, and this file is the only way to teach it one. Expression forms are not
 # affected: `runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}`
-# — how DEVKIT_CI_RUNNER reaches the scaffolded ci.yml — is skipped by actionlint
-# entirely, so a self-hosted runner routed that way needs no entry here.
+# — how DEVKIT_CI_RUNNER reaches the scaffolded ci.yml and sync-issues.yml — is
+# skipped by actionlint entirely, so a self-hosted runner routed that way needs
+# no entry here.
 #
 # Keep this list MINIMAL. Every label added is a label actionlint will no longer
 # flag as a typo, so each earns its place with a reason and is deleted once that

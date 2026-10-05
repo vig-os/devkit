@@ -16,6 +16,7 @@ The downstream template uses a split release architecture:
   - `release-extension.yml` (`workflow_call`, project-owned)
   - `release-publish.yml` (`workflow_call`)
 - `promote-release.yml` (`workflow_dispatch`) runs **after** a successful final `release.yml`: validates draft GitHub Release and release PR state, publishes the release, merges `release/X.Y.Z` to `main`, and best-effort cleans up remote git RC tags without a GitHub Release (no GHCR/cosign; see [Promote release (final)](#promote-release-final)). With floating tags enabled (`DEVKIT_FLOATING_TAGS`), `validate` also refuses a version below the highest published final release of the tag-prefix line, so `<prefix>X` / `<prefix>X.Y` never move backwards ([#1626](https://github.com/vig-os/devkit/issues/1626))
+- `publish-release-extension.yml` (`release: published` + `workflow_dispatch`, project-owned, standalone) runs **after** promote publishes the Release: the home for irreversible outward publishes (crates.io, PyPI, registries) — see [Publish Extension Hook](#publish-extension-hook)
 
 All files are deployed from `assets/workspace/` by `init-workspace.sh`.
 
@@ -25,7 +26,7 @@ On failure, the orchestrator runs a single consolidated rollback that reverts on
 
 `release.yml` supports two release modes via `release_kind`:
 
-- `candidate` (default): computes and publishes the next `X.Y.Z-rcN` git tag; optional workflow input **`create-release`** (default `false`) also creates a **draft** GitHub **pre-release**. Use optional `rc-number` to pin `N` when orchestrating from an upstream dispatch (see `docs/CROSS_REPO_RELEASE_GATE.md`). The smoke-test template passes `create-release=true` when it runs the workspace `release.yml` for a candidate.
+- `candidate` (default): computes and publishes the next `X.Y.Z-<pre-release>` git tag — `X.Y.Z-rcN` by default, or the repo's [pre-release format](#pre-release-format); optional workflow input **`create-release`** (default `false`) also creates a **draft** GitHub **pre-release**. Use optional `rc-number` to pin the `{N}` counter when orchestrating from an upstream dispatch (see `docs/CROSS_REPO_RELEASE_GATE.md`). The smoke-test template passes `create-release=true` when it runs the workspace `release.yml` for a candidate.
 - `final`: publishes `X.Y.Z`, finalizes `CHANGELOG.md` release date, runs `sync-issues`, and creates a **draft** GitHub Release (publish from the UI when review is complete; aligns with GitHub’s [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases) and [draft-first guidance](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases#best-practices-for-publishing-immutable-releases))
 
 Candidate mode keeps release branch content unchanged (no CHANGELOG date finalization). Final mode performs changelog finalization before publish.
@@ -45,11 +46,127 @@ changelog-neutral. Preview the pending block anytime with
 `just changelog-preview` (read-only). Bot PR branches never touch
 `CHANGELOG.md`, so Renovate's own conflict-driven rebase works unassisted.
 
+## Pre-release format
+
+Candidates are tagged `<DEVKIT_TAG_PREFIX>X.Y.Z-<pre-release>`, where the pre-release is built from a **format string** ([#1746](https://github.com/vig-os/devkit/issues/1746)). It is resolved with this precedence — mirroring the CLI-over-manifest convention of the other knobs:
+
+1. `release.yml` dispatch input **`pre-release-format`**
+2. `.vig-os` **`DEVKIT_PRERELEASE_FORMAT`** (the per-repo default)
+3. `rc{N}` — the built-in default, byte-identical to the historical `X.Y.Z-rcN`
+
+A format is literal SemVer pre-release text (`[0-9A-Za-z.-]`) plus two optional placeholders, each at most once:
+
+| Placeholder | Expands to |
+| --- | --- |
+| `{N}` | a counter, auto-incremented from the existing tags **of the same format** for this `X.Y.Z`; `rc-number` pins it |
+| `{YYYYMMDD}` | the UTC date of the run (a `{N}` in a dated format restarts every day) |
+
+| Format | Tags |
+| --- | --- |
+| `rc{N}` (default) | `1.2.3-rc1`, `1.2.3-rc2`, … |
+| `rc.{N}` | `1.2.3-rc.1`, `1.2.3-rc.2`, … |
+| `alpha.{N}` | `v0.1.0-alpha.1`, … (with `DEVKIT_TAG_PREFIX=v`) |
+| `beta` | `1.2.3-beta` (no counter: one candidate per version) |
+| `nightly.{YYYYMMDD}.{N}` | `1.2.3-nightly.20260928.1`, … |
+
+The expansion must be a valid SemVer pre-release (non-empty dot-separated identifiers, no leading zeros), and `{N}` must not touch a digit or `{YYYYMMDD}` (`rc1{N}`, `{YYYYMMDD}{N}` run the counter into another number, so versions stop sorting), or the run fails before anything is written. A format without `{N}` yields **one candidate per version** (per day for a dated format): dispatching it again when that tag exists is refused. Add `{N}` to cut more. From the command line: `just publish-candidate 0.1.0 "" false -f 'pre-release-format=alpha.{N}'`.
+
+**Prefer a dotted counter where SemVer tooling orders your versions** (Cargo/crates.io, PyPI, npm): SemVer compares alphanumeric identifiers lexically, so it ranks `rc10` **below** `rc9`, while `rc.10` sorts correctly above `rc.9`. The train itself orders a format's own tags by their counter, so `rc{N}` keeps working for the train either way.
+
+**Monotonicity gate.** Switching formats mid-version must not publish a version that sorts below one already tagged: the run refuses when any existing `<prefix>X.Y.Z-*` pre-release tag of a *different* format sorts above the new candidate under SemVer precedence. An existing final `<prefix>X.Y.Z` tag only raises a warning: after a failed final run the tag stays and a new candidate of the same version is the documented recovery (a *legacy* tag of that name will still block the final release itself). Example: with `1.2.3-rc21` tagged, dispatching `1.2.3` with `alpha.{N}` fails (`1.2.3-alpha.1` < `1.2.3-rc21`); keep the old format for `1.2.3` or start the new series at the next version. Because every `<prefix>X.Y.Z-*` tag takes part, a stray pre-release tag that sorts above the next candidate (e.g. `1.2.3-test` above `1.2.3-rc3`) also stops the run; delete it or move on to the next version. Promote's candidate-tag cleanup matches only the **currently configured** pre-release format ([#1749](https://github.com/vig-os/devkit/issues/1749)); a tag left over from a *previous* format (mid-series switch) is intentionally left alone — delete it by hand if you want it gone.
+
 ## Immutable releases, tag rulesets, and forward-fix policy (downstream)
 
-- **Candidate (`X.Y.Z-rcN`)**: By default only the git tag is created. With **`create-release: true`**, `release-publish.yml` creates a **draft** GitHub **pre-release** (`gh release create --draft --prerelease`). Promote-time validation uses `gh api .../releases/tags/<tag>` and inspects `.draft` to ensure the expected draft pre-release exists; see [Cross-repo gate](https://github.com/vig-os/devkit/blob/main/docs/CROSS_REPO_RELEASE_GATE.md) for upstream enforcement status. With **immutable releases** enabled, **publishing** a pre-release locks the **linked** tag and assets (see [upstream policy](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#immutable-releases-tag-rulesets-and-forward-fix-policy)); iterate with a **new** RC tag.
+- **Candidate (`X.Y.Z-<pre-release>`, default `X.Y.Z-rcN`)**: By default only the git tag is created. With **`create-release: true`**, `release-publish.yml` creates a **draft** GitHub **pre-release** (`gh release create --draft --prerelease`). Promote-time validation uses `gh api .../releases/tags/<tag>` and inspects `.draft` to ensure the expected draft pre-release exists; see [Cross-repo gate](https://github.com/vig-os/devkit/blob/main/docs/CROSS_REPO_RELEASE_GATE.md) for upstream enforcement status. With **immutable releases** enabled, **publishing** a pre-release locks the **linked** tag and assets (see [upstream policy](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#immutable-releases-tag-rulesets-and-forward-fix-policy)); iterate with a **new** RC tag.
 - **Final (`X.Y.Z`)**: Automation creates a **draft** GitHub Release; **publishing** it (UI or `promote-release.yml`) applies immutable-release lock-in for the linked tag and assets when that setting is enabled. Enable **immutable releases** and **tag rulesets** on each consumer repository (and org policy) as needed; see [Preventing changes to your releases](https://docs.github.com/en/code-security/supply-chain-security/understanding-your-software-supply-chain/preventing-changes-to-your-releases).
 - **Rollback**: The orchestrator reverts only the finalize commit(s) the failed run wrote (never a wholesale branch reset; it refuses when the branch moved mid-run, [#1462](https://github.com/vig-os/devkit/issues/1462)) and does **not** delete tags (forward-fix policy); recover with a new RC or a careful final retry per workflow logs.
+
+## Release owner and the pre-publish assets window
+
+The train owns the GitHub Release object ([#1746](https://github.com/vig-os/devkit/issues/1746)). `release-publish.yml` **always** creates it as a **draft** — for every final release, and for a candidate run with `create-release: true` — and `promote-release.yml` is the **only** step that flips it to published. No other tool may create or publish the Release for a train tag.
+
+**Sequencing.** `release-publish.yml` creates the draft **before** the tag ref exists: `gh release create --draft --target <finalize_sha>`, then `POST /git/refs` for the tag. A draft Release does not create its tag (GitHub materialises it only on publish), so any workflow triggered by the tag push always finds the draft already there. If creating the tag ref fails, the step discards the draft it just created (a draft never burns the tag name); a re-run reuses an existing draft instead of creating a second one.
+
+**Pre-publish assets window** — from the tag push until promote. Any consumer workflow may upload into the draft during this window:
+
+```bash
+gh release upload "$TAG" dist/* --clobber   # --clobber keeps re-runs idempotent
+```
+
+- Assets built within the `release-extension.yml` [permission ceiling](#permission-ceiling) belong there — but that seam runs **before** the tag and the draft exist, so it can build and sign, not upload.
+- Uploading needs `contents: write`, so it lives in a **consumer-owned `push: tags:` workflow** with its own grant (e.g. scitadel's `binaries.yml`): verify `gh release view "$TAG" --json isDraft` is `true`, build, `gh release upload --clobber`. Never publish the draft from there.
+- A tag-only candidate (`create-release: false`, the default) has **no draft and therefore no window**; a tag-push asset workflow should skip when `gh release view` finds no Release.
+
+Once promote publishes the Release it is immutable (when immutable releases are enabled): late uploads fail with `HTTP 422: Cannot upload assets to an immutable release`. Anything that must be *on* the Release goes in the window; anything published *elsewhere* after the Release is public goes in the [publish extension hook](#publish-extension-hook).
+
+### cargo-dist adopter recipe
+
+cargo-dist's generated CI cannot upload into a train-owned draft: with `create-release = false` it uploads into the draft and then **publishes it itself** (`gh release edit <tag> --draft=false`, under `GITHUB_TOKEN`) — see [`config/v1/hosts/github.rs#L18-L20`](https://github.com/axodotdev/cargo-dist/blob/6886366640dd4da83d33ba55cc04aa58423cbad2/cargo-dist/src/config/v1/hosts/github.rs#L18-L20) and [`backend/ci/github.rs#L512-L514`](https://github.com/axodotdev/cargo-dist/blob/6886366640dd4da83d33ba55cc04aa58423cbad2/cargo-dist/src/backend/ci/github.rs#L512-L514). That bypasses promote, makes the Release immutable before late assets land, and — because `GITHUB_TOKEN` events start no workflows — never fires `release: published`. No `github-release` / `dispatch-releases` setting avoids it, and hand-editing the generated `release.yml` fails its `plan` drift check.
+
+Use cargo-dist as an **asset builder** instead, keeping its archives and `curl | sh` installers:
+
+```toml
+# dist-workspace.toml
+[dist]
+cargo-dist-version = "0.32.0"
+hosting = ["github"]      # installers download from the GitHub Release — explicit, since there is no `ci`
+installers = ["shell"]
+targets = ["x86_64-unknown-linux-gnu", "aarch64-apple-darwin"]
+# no `ci = ...`: dist generates no CI of its own (and no .github/workflows/release.yml,
+# which is the train's orchestrator path). Delete a previously generated one.
+```
+
+and a consumer-owned tag-push workflow builds into the train's draft:
+
+```yaml
+name: Release Binaries
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']   # match DEVKIT_TAG_PREFIX
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, target: x86_64-unknown-linux-gnu }
+          - { runner: macos-14, target: aarch64-apple-darwin }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install dist (as dist's own CI does)
+        run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.32.0/cargo-dist-installer.sh | sh
+      - run: dist build --tag "$GITHUB_REF_NAME" --artifacts=local --target ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with: { name: 'dist-${{ matrix.target }}', path: target/distrib/ }
+  upload:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write               # upload into the draft; never publish it
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with: { pattern: 'dist-*', path: target/distrib/, merge-multiple: true }
+      - name: Install dist (as dist's own CI does)
+        run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/axodotdev/cargo-dist/releases/download/v0.32.0/cargo-dist-installer.sh | sh
+      - run: dist build --tag "$TAG" --artifacts=global   # installers + checksums
+      - name: Upload into the train's draft
+        run: |
+          if ! IS_DRAFT=$(gh release view "$TAG" --json isDraft --jq .isDraft); then
+            echo "No Release for $TAG (tag-only candidate): nothing to upload."; exit 0
+          fi
+          [ "$IS_DRAFT" = "true" ] || { echo "::error::$TAG is already published"; exit 1; }
+          # every built file except dist's own manifests (as dist's CI does)
+          find target/distrib -maxdepth 1 -type f ! -name '*dist-manifest.json' -print0 \
+            | xargs -0 gh release upload "$TAG" --clobber
+```
+
+Adjust the target matrix to your `dist` config. Late assets built elsewhere (e.g. a nix-built Python wheel) upload into the same draft the same way. The GitHub Release is then published by `promote-release.yml`, which fires [`publish-release-extension.yml`](#publish-extension-hook) for the crates.io / PyPI half.
 
 ## Promote release (final)
 
@@ -58,7 +175,7 @@ After final `release.yml` has pushed tag `X.Y.Z` and created a **draft** GitHub 
 1. **Validate** — semver, draft release for `X.Y.Z`, release PR not draft / approved (when the base branch requires reviews) / CI green
 2. **Promote** — `gh release edit --draft=false`
 3. **Merge** — merge `release/X.Y.Z` → `main` (triggers `sync-main-to-dev` under the gitflow model — see [Workflow models](#workflow-models))
-4. **Cleanup** (best-effort, does not fail the workflow) — delete remote git tags matching `${VERSION}-rc*` that have **no** GitHub Release
+4. **Cleanup** (best-effort, does not fail the workflow) — delete remote git tags of `${VERSION}` matching the **currently configured** pre-release format that have **no** GitHub Release ([#1749](https://github.com/vig-os/devkit/issues/1749)); a tag left over from a previous format is left alone
 
 **Approve the release PR immediately before dispatching promote** ([#1504](https://github.com/vig-os/devkit/issues/1504)) — this is the release cycle's single human approval; `release.yml` collects none. It happens here, after finalize, because the final `release.yml` run's `finalize` job pushes to `release/X.Y.Z` (CHANGELOG date stamp plus the `sync-issues` commit), and on any repository with stale-review dismissal enabled a push dismisses existing approvals — so an earlier approval could never survive to promote, and any later push to the release branch dismisses this one again:
 
@@ -342,6 +459,41 @@ jobs:
           FILE_PATHS: dist/index.js
 ```
 
+## Publish Extension Hook
+
+Irreversible outward publishes — `cargo publish`, PyPI uploads, container registry pushes, nix cache pushes — belong in `.github/workflows/publish-release-extension.yml` ([#1746](https://github.com/vig-os/devkit/issues/1746)), the third project-owned seam next to `release-extension.yml` and `prepare-release-extension.yml`. Default template behavior is no-op; the file is preserved on upgrades.
+
+It is a **standalone** workflow, not a reusable one:
+
+- **Trigger:** `release: published` — i.e. after `promote-release.yml` publishes the train's draft (promote uses the Release App token, which is what lets the event start this workflow; a `GITHUB_TOKEN` publish would not) — plus `workflow_dispatch` with input `tag` for a manual retry.
+- **Why standalone:** crates.io and PyPI Trusted Publishing bind the OIDC subject to the **concrete workflow file path**. A `workflow_call` indirection would change that subject for every consumer; a retry via `workflow_dispatch` on a standalone file is native.
+- **Contract:** the seeded `resolve` job reads the tag from the `release: published` payload or the `tag` input, checks that the Release exists and is **published** (a retry never publishes from a draft), and exposes `needs.resolve.outputs.tag` and `.prerelease`. Everything after that is yours.
+- **Permissions:** the seam owns its token grant; there is no ceiling from a caller. The default stays `contents: read`. The seed carries the opt-ins as comments: `id-token: write` for Trusted Publishing (e.g. `rust-lang/crates-io-auth-action`, `pypa/gh-action-pypi-publish`) and `environment:`.
+
+Invariants:
+
+- **`release: published` is the point of no return.** Rolling back or editing the GitHub Release does not retract a crates.io or PyPI version that was already published.
+- **Gate each irreversible step** with `environment: <registry>` carrying a required reviewer.
+- **Make every step idempotent:** check whether the registry already has the version and skip it, so a `workflow_dispatch` retry after a transient failure completes the job instead of failing on the first already-published artefact.
+- Pre-release tags (`X.Y.Z-alpha.1`, …) also fire the event when their draft pre-release is published; branch on `needs.resolve.outputs.prerelease` if a registry should only receive finals.
+
+## CI Extension Hook
+
+Project-specific CI checks belong in `.github/workflows/ci-extension.yml` ([#1761](https://github.com/vig-os/devkit/issues/1761)) — a fourth project-owned seam next to the three release-process ones above, but called from the managed `ci.yml` rather than the release orchestrator. Default template behavior is no-op; the file is preserved on upgrades.
+
+`ci.yml` calls it **unconditionally**, as a job named `extension` — there is no opt-in knob. A knob would reintroduce exactly the failure this seam exists to prevent: a consumer writes real jobs into the stub, forgets to flip the flag, and the job is silently skipped while red checks merge. The one hosted no-op runner this costs every PR is the accepted price, and the three release extensions above are always called too.
+
+Contract inputs — every one `required: false`, so devkit can add an input later without breaking a consumer's existing copy:
+
+- `mode` — resolved delivery mode (`devcontainer`/`direnv`/`both`/`bare`)
+- `image` — resolved container image (empty string in the host modes)
+- `image-tag` — resolved devkit image tag
+- `runner-json` — JSON array of runner labels (`DEVKIT_CI_RUNNER`); the stub's own `runs-on: ${{ fromJSON(inputs.runner-json) }}` takes its runner from this input rather than a literal label (actionlint does not know every hosted label, so a literal fails the moment you start editing the stub) and carries a safe default so the job still resolves on a direct call
+
+`summary` (`CI Summary`, the sole required check) lists `extension` in its `needs:` and fails the gate on `failure` or `cancelled`, exactly like every other lane — a failing or cancelled extension blocks the merge.
+
+**Permissions:** `ci.yml`'s caller job grants `contents: read, packages: read` — the same read-only ceiling as the rest of CI; no consumer needs more today. The shipped default no-op stays within it.
+
 ## Cross-Repo Validation Gate
 
 Cross-repository validation gate details are documented in `docs/CROSS_REPO_RELEASE_GATE.md`.
@@ -404,13 +556,13 @@ jobs:
 ## Upgrade Path
 
 1. Upgrade downstream devcontainer version (which redeploys `assets/workspace` templates).
-2. Keep project-owned `release-extension.yml` (preserved on force upgrades).
+2. Keep project-owned `release-extension.yml`, `prepare-release-extension.yml`, and `publish-release-extension.yml` (preserved on force upgrades; a consumer upgrading from before [#1746](https://github.com/vig-os/devkit/issues/1746) receives the no-op `publish-release-extension.yml` seed).
 3. Ensure project-owned `release-extension.yml` matches the current `workflow_call` inputs used by `release.yml`.
 4. Run `prepare-release` / `release` in `--dry-run` mode to validate integration.
 
 ## Pinning and Drift
 
-Release workflow logic is centralized in shipped local reusable workflows (`release-core.yml`, `release-publish.yml`) while extension logic remains project-owned (`release-extension.yml`).
+Release workflow logic is centralized in shipped local reusable workflows (`release-core.yml`, `release-publish.yml`) while extension logic remains project-owned (`release-extension.yml`, `prepare-release-extension.yml`, `publish-release-extension.yml`).
 
 This reduces drift in release safety checks while preserving downstream customization boundaries.
 
@@ -419,4 +571,4 @@ Two independent staleness axes are reported in CI ([#1497](https://github.com/vi
 - **Scaffold drift** (`scaffold-drift` job, gate): the working tree diverges from what the *pinned* `DEVKIT_VERSION` would scaffold. Opt out with `DEVKIT_DRIFT_CHECK=false`.
 - **Pin staleness** (`devkit-staleness` job, warn-only): the pin itself is behind the latest devkit release — invisible to the drift gate by construction, since it compares the pin against itself. The report is a `::warning` annotation plus a step-summary block; it never fails the build and is not silenced by the drift opt-out.
 
-The flake-input axis is reported by the upgrade lane itself: `install.sh --force` prints one `flake-bump:` line per run — advanced (any input name at the floating `github:vig-os/devkit` URL), or skipped with the reason (a pinned ref, in either `?ref=X` or `/X` form, is never auto-bumped) — and `devkit-upgrade.yml` carries that line into the adoption PR body.
+The flake-input axis is reported by the upgrade lane itself: `install.sh --force` prints one `flake-bump:` line per run — advanced (any input name at the floating `github:vig-os/devkit` URL, or a pinned release ref in either `?ref=X` or `/X` form when `.vig-os` sets `DEVKIT_FLAKE_PIN_ADVANCE=true`, [#1752](https://github.com/vig-os/devkit/issues/1752)), already aligned, failed, or skipped with the reason (without the knob a pinned ref is never auto-bumped) — and `devkit-upgrade.yml` carries that line into the adoption PR body. A pinned release ref that lags `DEVKIT_VERSION` fails the `resolve-toolchain` job's `Check flake pin lockstep` step.

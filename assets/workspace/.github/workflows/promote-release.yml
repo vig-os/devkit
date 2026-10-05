@@ -7,7 +7,8 @@
 # 2. promote: publish (undraft) GitHub Release
 # 3. merge: merge release/X.Y.Z PR to main (triggers sync-main-to-dev)
 # 4. cleanup (best-effort): delete RC draft pre-releases for X.Y.Z, then remote git RC tags
-#    matching X.Y.Z-rc* with no (remaining) GitHub Release
+#    matching the CONFIGURED pre-release format (release-version --list-pattern) with no
+#    (remaining) GitHub Release
 #
 # See docs/DOWNSTREAM_RELEASE.md. No GHCR/cosign/smoke-test gate (project-specific).
 name: Promote Release
@@ -31,7 +32,7 @@ permissions:
 jobs:
   resolve-toolchain:
     name: Resolve toolchain
-    runs-on: ubuntu-26.04
+    runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
     timeout-minutes: 2
     outputs:
       mode: ${{ steps.resolve.outputs.mode }}
@@ -39,6 +40,7 @@ jobs:
       image-tag: ${{ steps.resolve.outputs.image-tag }}
       tag-prefix: ${{ steps.resolve.outputs.tag-prefix }}
       floating-tags: ${{ steps.resolve.outputs.floating-tags }}
+      prerelease-format: ${{ steps.resolve.outputs.prerelease-format }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -596,12 +598,21 @@ jobs:
           GH_TOKEN: ${{ steps.release_app_token.outputs.token }}
           VERSION: ${{ needs.validate.outputs.version }}
           TAG_PREFIX: ${{ needs.resolve-toolchain.outputs.tag-prefix }}
+          PRERELEASE_FORMAT: ${{ needs.resolve-toolchain.outputs.prerelease-format }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          # RC tags carry the prefix (#1044): <prefix>X.Y.Z-rcN. Empty prefix
-          # reproduces the bare X.Y.Z-rc* pattern (today's behavior).
+          # Candidate tags carry the prefix (#1044): <prefix>X.Y.Z-<pre-release>.
+          # PATTERN is the anchored regex for tags of the CURRENTLY CONFIGURED
+          # pre-release format only (#1749, release-version --list-pattern). A
+          # tag from a PREVIOUSLY configured format (mid-series switch) is
+          # intentionally left alone — guessing at a retired format risks
+          # deleting something a human cut on purpose.
           RC_BASE="${TAG_PREFIX}${VERSION}"
+          PATTERN=$(release-version --list-pattern \
+            --version "$VERSION" \
+            --format "$PRERELEASE_FORMAT" \
+            --tag-prefix "$TAG_PREFIX")
           TMP=$(mktemp)
           trap 'rm -f "$TMP"' EXIT
 
@@ -611,10 +622,9 @@ jobs:
           # releases — not git tags — reclaims drafts whose RC tag was already
           # removed by an earlier partial run.
           select_rc_draft_releases() {
-            jq -r -s --arg base "$RC_BASE" '
-              ( "^" + ($base | gsub("\\.";"\\.")) + "-rc[0-9]+$" ) as $rc
-              | (add // [])[]
-              | select(.draft == true and .prerelease == true and (.tag_name | test($rc)))
+            jq -r -s --arg pat "$PATTERN" '
+              (add // [])[]
+              | select(.draft == true and .prerelease == true and (.tag_name | test($pat)))
               | "\(.id)\t\(.tag_name)"
             ' "$TMP"
           }
@@ -640,10 +650,12 @@ jobs:
 
           # Pass 2: delete leftover git RC tags for the base version, but keep any
           # tag that still has a GitHub Release attached — a published pre-release,
-          # or a draft whose deletion failed above so it stays discoverable.
+          # or a draft whose deletion failed above so it stays discoverable. The
+          # remote glob lists every pre-release of the base version (git has no
+          # regex match); PATTERN then narrows it to the configured format.
           TAGS=$(retry --retries 3 --backoff 5 --max-backoff 30 -- \
-            git ls-remote --tags --refs "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "${RC_BASE}-rc*" \
-            | awk '{print $2}' | sed 's#refs/tags/##' || true)
+            git ls-remote --tags --refs "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "${RC_BASE}-*" \
+            | awk '{print $2}' | sed 's#refs/tags/##' | grep -E "$PATTERN" || true)
           while IFS= read -r tag; do
             [ -z "$tag" ] && continue
             HAS_RELEASE=$(printf '%s' "$RELEASES_AFTER" | jq -r --arg t "$tag" 'any(.[]; .tag_name == $t)')

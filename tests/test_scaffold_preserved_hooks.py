@@ -34,6 +34,8 @@ import os
 import subprocess
 from typing import TYPE_CHECKING
 
+import pytest
+
 from tests.workflow_scaffold import INIT_WORKSPACE, WORKSPACE, scaffold
 
 if TYPE_CHECKING:
@@ -956,3 +958,276 @@ def test_a_stock_upgrade_reconciles_nothing(tmp_path: Path) -> None:
 
     assert "preserved-hook-fold:" not in again.stdout
     assert "preserved-hook-insert:" not in again.stdout
+
+
+# ── Case 1, relocated: the retired no-commit-to-branch guard (#1760) ──────────
+# The branch-name rule moved into vig-utils' validate-branch-name; the old
+# guard was pre-commit-hooks' no-commit-to-branch with a regex rendered from the
+# knobs. Its block sits INSIDE the pre-commit-hooks repo, while the new hook is a
+# `repo: local` block, so the fold deletes the old entry and inserts the
+# template's block at its template position instead of splicing in place.
+#
+# The pattern line differs per consumer — init-workspace.sh rendered the branch
+# types, the issue-less set and the workflow model into it — so the fold
+# compares both sides with exactly those render slots normalised away. Every
+# other byte must still match the historical template text below.
+
+# Verbatim, per shape the template shipped: 0.3.0 -> 1.7.x, 1.8.0 -> 1.17.x
+# (#1433 added the renovate clause), and the #1767 comment on dev.
+_BRANCH_GUARD_PATTERN_030 = (
+    r'          - "^(?!main$)(?!dev$)(?!^(chore)/[a-z0-9]+(-[a-z0-9]+)*$)'
+    r"(?!^(feature|bugfix|hotfix|release|docs|test|refactor)/[0-9]+-[a-z0-9]+"
+    r'(-[a-z0-9]+)*$)(?!^worktree/[0-9]+$).+$"'
+)
+_BRANCH_GUARD_PATTERN_180 = (
+    r'          - "^(?!main$)(?!dev$)(?!^(chore)/[a-z0-9]+(-[a-z0-9]+)*$)'
+    r"(?!^(feature|bugfix|hotfix|release|docs|test|refactor)/[0-9]+-[a-z0-9]+"
+    r'(-[a-z0-9]+)*$)(?!^renovate/.+$)(?!^worktree/[0-9]+$).+$"'
+)
+_BRANCH_GUARD_ENTRY = """\
+      - id: no-commit-to-branch
+        name: branch-name (enforce <type>/<issue>-<summary>)
+        args:
+          - --branch
+          - __none__  # override default so main/dev are not protected
+          - --pattern
+"""
+RETIRED_BRANCH_GUARD_BLOCKS = {
+    "0.3.0": """\
+      # Enforce topic branch naming:
+      # - chore/<short_summary> (no issue required)
+      # - <type>/<issue_number>-<short_summary> (for feature, bugfix, etc.)
+      # - worktree/<issue_number> (autonomous worktree branches)
+      # Allows main, dev, and branches matching the convention.
+"""
+    + _BRANCH_GUARD_ENTRY
+    + _BRANCH_GUARD_PATTERN_030
+    + "\n",
+    "1.8.0": """\
+      # Enforce topic branch naming:
+      # - chore/<short_summary> (no issue required)
+      # - <type>/<issue_number>-<short_summary> (for feature, bugfix, etc.)
+      # - worktree/<issue_number> (autonomous worktree branches)
+      # - renovate/* (Renovate's branch namespace; maintainer fix-up commits)
+      # Allows main, dev, and branches matching the convention.
+"""
+    + _BRANCH_GUARD_ENTRY
+    + _BRANCH_GUARD_PATTERN_180
+    + "\n",
+    "1767": """\
+      # Enforce topic branch naming:
+      # - chore/<short_summary> (no issue required; likewise every other
+      #   Refs-optional commit type from DEVKIT_REFS_OPTIONAL_TYPES, #1767)
+      # - <type>/<issue_number>-<short_summary> (for feature, bugfix, etc.)
+      # - worktree/<issue_number> (autonomous worktree branches)
+      # - renovate/* (Renovate's branch namespace; maintainer fix-up commits)
+      # Allows main, dev, and branches matching the convention.
+"""
+    + _BRANCH_GUARD_ENTRY
+    + _BRANCH_GUARD_PATTERN_180
+    + "\n",
+}
+BRANCH_GUARD_DRIFT_ID = "no-commit-to-branch-pre-1760"
+
+_GUARD_HEAD = """\
+# SENTINEL-1760 consumer hook config
+exclude: ^docs/generated/
+
+repos:
+  # The consumer's own note above the remote block.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b  # v5.0.0
+    hooks:
+"""
+_GUARD_TAIL = """\
+      - id: check-added-large-files
+      - id: trailing-whitespace
+
+  - repo: local
+    hooks:
+      - id: typos
+        name: typos (source typo checker)
+        entry: typos --force-exclude
+        language: system
+        stages: [pre-commit]
+"""
+
+
+def _render_retired_guard(
+    block: str,
+    *,
+    types: str = "feature,bugfix,hotfix,release,docs,test,refactor",
+    issueless: str = "chore",
+    workflow: str = "gitflow",
+) -> str:
+    """What the pre-#1760 init-workspace.sh renders made of ``block``."""
+    out = block.replace(
+        "(?!^(feature|bugfix|hotfix|release|docs|test|refactor)/[0-9]",
+        f"(?!^({types.replace(',', '|')})/[0-9]",
+    ).replace("(?!^(chore)/[a-z0-9]", f"(?!^({issueless.replace(',', '|')})/[a-z0-9]")
+    if workflow == "trunk":
+        out = (
+            out.replace("(?!dev$)", "")
+            .replace("# Allows main, dev, and", "# Allows main and")
+            .replace("main/dev are not protected", "main is not protected")
+        )
+    return out
+
+
+def _guard_seed(tmp_path: Path, block: str, manifest: str, name: str = "seed") -> Path:
+    seed = tmp_path / name
+    seed.mkdir()
+    (seed / ".pre-commit-config.yaml").write_text(
+        _GUARD_HEAD + block + _GUARD_TAIL, encoding="utf-8"
+    )
+    (seed / ".vig-os").write_text(manifest, encoding="utf-8")
+    return seed
+
+
+def _branch_hook_args(text: str) -> list[str]:
+    """The ``- --flag=value`` args of the validate-branch-name block."""
+    lines = text.splitlines()
+    start = lines.index("      - id: validate-branch-name")
+    args: list[str] = []
+    for line in lines[start + 1 :]:
+        stripped = line.strip()
+        if stripped.startswith(("- id:", "- repo:")):
+            break
+        if stripped.startswith("- --"):
+            args.append(stripped[2:])
+    return args
+
+
+def test_the_retired_guard_table_carries_every_historical_shape() -> None:
+    init = INIT_WORKSPACE.read_text(encoding="utf-8")
+    for variant, block in RETIRED_BRANCH_GUARD_BLOCKS.items():
+        assert block in init, f"retired no-commit-to-branch shape {variant} missing"
+    assert f"{BRANCH_GUARD_DRIFT_ID}|validate-branch-name|" in init
+
+
+_GUARD_RENDERS = [
+    ({}, "", ["feature,bugfix,hotfix,release,docs,test,refactor", "chore", "gitflow"]),
+    (
+        {"workflow": "trunk"},
+        "DEVKIT_WORKFLOW=trunk\n",
+        ["feature,bugfix,hotfix,release,docs,test,refactor", "chore", "trunk"],
+    ),
+    (
+        {"types": "feature,bugfix,record"},
+        "DEVKIT_BRANCH_TYPES=feature,bugfix,record\n",
+        ["feature,bugfix,record", "chore", "gitflow"],
+    ),
+    (
+        {"issueless": "chore,docs", "types": "feature,record", "workflow": "trunk"},
+        "DEVKIT_REFS_OPTIONAL_TYPES=chore,docs\n"
+        "DEVKIT_BRANCH_TYPES=feature,record\n"
+        "DEVKIT_WORKFLOW=trunk\n",
+        ["feature,record", "chore,docs", "trunk"],
+    ),
+]
+
+
+@pytest.mark.parametrize("variant", sorted(RETIRED_BRANCH_GUARD_BLOCKS))
+@pytest.mark.parametrize(
+    ("render", "manifest", "expected"),
+    _GUARD_RENDERS,
+    ids=["stock", "trunk", "types", "all-knobs-trunk"],
+)
+def test_every_rendered_guard_is_folded_into_the_validator(
+    tmp_path: Path,
+    variant: str,
+    render: dict[str, str],
+    manifest: str,
+    expected: list[str],
+) -> None:
+    block = _render_retired_guard(RETIRED_BRANCH_GUARD_BLOCKS[variant], **render)
+    seed = _guard_seed(tmp_path, block, "DEVKIT_VERSION=1.17.0\n" + manifest)
+    proc = _upgrade(tmp_path, seed, name="guard")
+    text = _config(tmp_path, "guard")
+
+    assert "no-commit-to-branch" not in text
+    assert "--pattern" not in text
+    assert _branch_hook_args(text) == [
+        f"--types={expected[0]}",
+        f"--issueless-types={expected[1]}",
+        f"--workflow={expected[2]}",
+    ]
+    assert (
+        f"preserved-hook-fold: {BRANCH_GUARD_DRIFT_ID} in .pre-commit-config.yaml"
+        in proc.stdout
+    )
+    assert "preserved-hook-drift:" not in proc.stdout
+
+
+def test_the_guard_fold_touches_nothing_else_and_lands_at_its_template_position(
+    tmp_path: Path,
+) -> None:
+    block = RETIRED_BRANCH_GUARD_BLOCKS["1.8.0"]
+    seed = _guard_seed(tmp_path, block, "DEVKIT_VERSION=1.17.0\n")
+    before = (seed / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    _upgrade(tmp_path, seed, name="guard-surgical")
+    after = _config(tmp_path, "guard-surgical")
+
+    assert _hook_order(after) == [
+        "check-added-large-files",
+        "trailing-whitespace",
+        "validate-branch-name",
+        "typos",
+    ]
+    added, removed = _line_diff(before, after)
+    assert removed == [line for line in block.splitlines() if line.strip()]
+    # Everything added is the template's block, byte-exact and contiguous.
+    template_block = _template_span("# Enforce topic branch naming", "- --workflow=")
+    assert template_block in after
+    assert added == [line for line in template_block.splitlines() if line.strip()]
+    assert "  # The consumer's own note above the remote block." in after
+
+
+def test_a_customised_guard_is_never_folded_and_surfaces_as_drift(
+    tmp_path: Path,
+) -> None:
+    """A hand-written pattern (tessera's issue-less <type>/<slug>) is theirs."""
+    block = RETIRED_BRANCH_GUARD_BLOCKS["1.8.0"].replace(
+        "(?!^worktree/[0-9]+$)", "(?!^[a-z]+/[a-z0-9-]+$)(?!^worktree/[0-9]+$)"
+    )
+    seed = _guard_seed(tmp_path, block, "DEVKIT_VERSION=1.17.0\n")
+    proc = _upgrade(tmp_path, seed, name="guard-custom")
+    text = _config(tmp_path, "guard-custom")
+
+    assert "(?!^[a-z]+/[a-z0-9-]+$)" in text
+    assert "validate-branch-name" not in text
+    assert "preserved-hook-fold:" not in proc.stdout
+    assert (
+        f"preserved-hook-drift: {BRANCH_GUARD_DRIFT_ID} in .pre-commit-config.yaml"
+        in proc.stdout
+    )
+
+
+def test_the_guard_fold_is_idempotent(tmp_path: Path) -> None:
+    seed = _guard_seed(
+        tmp_path, RETIRED_BRANCH_GUARD_BLOCKS["0.3.0"], "DEVKIT_VERSION=1.4.0\n"
+    )
+    _upgrade(tmp_path, seed, name="guard-twice")
+    first = _config(tmp_path, "guard-twice")
+    again = scaffold(tmp_path, name="guard-twice", check=False)
+    assert again.returncode == 0, again.stderr
+
+    assert _config(tmp_path, "guard-twice") == first
+    assert "preserved-hook-fold:" not in again.stdout
+    assert first.count("- id: validate-branch-name") == 1
+
+
+def test_preview_reports_the_planned_guard_fold_and_writes_nothing(
+    tmp_path: Path,
+) -> None:
+    seed = _guard_seed(
+        tmp_path, RETIRED_BRANCH_GUARD_BLOCKS["1.8.0"], "DEVKIT_VERSION=1.17.0\n"
+    )
+    before = (seed / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    proc = _upgrade(tmp_path, seed, name="guard-preview", preview=True)
+
+    assert BRANCH_GUARD_DRIFT_ID in proc.stdout
+    assert "REPLACED" in proc.stdout
+    assert "preserved-hook-drift:" not in proc.stdout
+    assert "preserved-hook-fold:" not in proc.stdout
+    assert _config(tmp_path, "guard-preview") == before

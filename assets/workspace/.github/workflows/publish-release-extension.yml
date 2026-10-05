@@ -1,0 +1,114 @@
+# Seeded by vigOS devkit — yours to edit; upgrades never overwrite this file.
+# Bugs / missing tools: https://github.com/vig-os/devkit/issues
+
+#
+# Publish seam (#1746): the home for IRREVERSIBLE outward publishes — crates.io,
+# PyPI, container registries, nix caches — that must happen only once the
+# release is public. It runs on `release: published`, i.e. AFTER
+# promote-release.yml flips the train's draft GitHub Release (promote publishes
+# with the Release App token, so this event fires; a GITHUB_TOKEN publish would
+# not start any workflow). Assets that belong ON the Release go in earlier: see
+# "Pre-publish assets window" in docs/DOWNSTREAM_RELEASE.md.
+#
+# Standalone on purpose, NOT a reusable workflow: crates.io and PyPI Trusted
+# Publishing bind the OIDC subject to this file's path, and a retry is a native
+# `workflow_dispatch` with the tag (Actions > Publish Release Extension > Run
+# workflow).
+#
+# This seam owns its own token grant. The default no-op stays read-only; to
+# publish, uncomment what your job needs below — `id-token: write` for Trusted
+# Publishing via OIDC, and `environment:` to gate the irreversible step behind a
+# required reviewer.
+#
+# Invariants (see "Publish Extension Hook" in docs/DOWNSTREAM_RELEASE.md):
+# - `release: published` is the point of no return: a rolled-back GitHub
+#   Release does NOT retract an already-published crates.io / PyPI version.
+# - Make every publish step idempotent (skip a version the registry already
+#   has), so a re-dispatch after a transient failure finishes the job.
+
+name: Publish Release Extension
+
+on:  # yamllint disable-line rule:truthy
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Published release tag to (re)publish, e.g. v1.2.3"
+        required: true
+        type: string
+
+concurrency:
+  group: publish-release-extension-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  resolve:
+    name: Resolve Published Release
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+    steps:
+      # Both triggers resolve through the Release object itself, so a
+      # workflow_dispatch retry reaches exactly the state the release event did
+      # — and a retry can never publish from a draft or a missing Release.
+      - name: Resolve tag and verify the Release is published
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          TAG="${EVENT_TAG:-$INPUT_TAG}"
+          TAG="${TAG//[[:space:]]/}"
+          if [ -z "$TAG" ]; then
+            echo "::error::No release tag in the $EVENT_NAME payload (workflow_dispatch needs the 'tag' input)"
+            exit 1
+          fi
+          # `--` ends gh's flags: a dispatch input like `--repo=x/y` stays a tag name.
+          if ! RELEASE_JSON=$(gh release view --json tagName,isDraft,isPrerelease -- "$TAG"); then
+            echo "::error::No GitHub Release found for tag $TAG"
+            exit 1
+          fi
+          if [ "$(printf '%s' "$RELEASE_JSON" | jq -r '.isDraft')" = "true" ]; then
+            echo "::error::The GitHub Release for $TAG is still a draft; publish it with promote-release first"
+            exit 1
+          fi
+          PRERELEASE=$(printf '%s' "$RELEASE_JSON" | jq -r '.isPrerelease')
+          {
+            echo "tag=$TAG"
+            echo "prerelease=$PRERELEASE"
+          } >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish Extension Hook (Default No-op)
+    needs: resolve
+    runs-on: ubuntu-26.04
+    # Gate the irreversible step behind an environment with a required
+    # reviewer (one per registry, e.g. `crates-io`, `pypi`):
+    # environment: crates-io
+    permissions:
+      contents: read
+      # id-token: write   # Trusted Publishing (crates.io / PyPI) via OIDC
+    steps:
+      - name: Default publish summary
+        env:
+          TAG: ${{ needs.resolve.outputs.tag }}
+          PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
+        run: |
+          echo "No publish extension configured."
+          echo "Tag: $TAG"
+          echo "Pre-release: $PRERELEASE"
+          echo "Replace this job to publish the released artefacts (e.g. crates.io"
+          echo "via rust-lang/crates-io-auth-action, PyPI via"
+          echo "pypa/gh-action-pypi-publish). Check out 'refs/tags/$TAG'."

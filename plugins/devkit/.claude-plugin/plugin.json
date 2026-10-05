@@ -1,0 +1,20 @@
+{
+  "name": "devkit",
+  "displayName": "vigOS Devkit",
+  "version": "1.18.0",
+  "description": "State-lookup-first operator skills for adopting vigOS devkit, running its release train, and keeping a consumer in sync. Every skill reads the live state first, refuses cleanly on a known foot-gun, and then wraps a canonical just recipe or workflow dispatch instead of re-implementing it.",
+  "author": {
+    "name": "vigOS",
+    "url": "https://github.com/vig-os"
+  },
+  "homepage": "https://github.com/vig-os/devkit/blob/main/plugins/devkit/README.md",
+  "repository": "https://github.com/vig-os/devkit",
+  "license": "Apache-2.0",
+  "keywords": [
+    "devkit",
+    "release-train",
+    "scaffold",
+    "gitflow",
+    "vigos"
+  ]
+}

@@ -128,6 +128,15 @@ PRESERVE_FILES=(
     # this no-op with release-branch preparation, so an upgrade must never
     # clobber their implementation — same preserved class as release-extension.
     ".github/workflows/prepare-release-extension.yml"
+    # Standalone publish seam on `release: published` (#1746): consumers replace
+    # the default no-op with crates.io / PyPI / registry publishes, so an upgrade
+    # must never clobber it — same preserved class as the two seams above.
+    ".github/workflows/publish-release-extension.yml"
+    # CI extension seam (#1761): the fourth consumer-owned seam, called
+    # unconditionally from the managed ci.yml as the `extension` job and
+    # aggregated by the CI Summary gate — same preserved class as the three
+    # release-process seams above, but for CI rather than release.
+    ".github/workflows/ci-extension.yml"
     "justfile.project"
     # Personal, gitignored recipes (#1054): the file's own header promises it is
     # preserved on upgrade, but it was absent here — so a re-scaffold silently
@@ -391,6 +400,7 @@ MANIFEST_ORG="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_ORG || true)"
 MANIFEST_REPO="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REPO || true)"
 MANIFEST_MODULES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_MODULES || true)"
 MANIFEST_TAG_PREFIX="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TAG_PREFIX || true)"
+MANIFEST_PRERELEASE_FORMAT="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_PRERELEASE_FORMAT || true)"
 MANIFEST_FLOATING_TAGS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FLOATING_TAGS || true)"
 MANIFEST_CI_RUNNER="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_CI_RUNNER || true)"
 MANIFEST_DEV_PROFILE_PATH="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_DEV_PROFILE_PATH || true)"
@@ -412,6 +422,9 @@ MANIFEST_BRANCH_TYPES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_BRANCH_TY
 MANIFEST_AUTO_UPGRADE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_AUTO_UPGRADE || true)"
 MANIFEST_UPGRADE_EXCLUDE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_UPGRADE_EXCLUDE || true)"
 MANIFEST_DRIFT_CHECK="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_DRIFT_CHECK || true)"
+# Pinned devkit flake-input advance (#1752): runtime-only, consumed host-side by
+# install.sh after the scaffold — read solely to guard and write it back.
+MANIFEST_FLAKE_PIN_ADVANCE="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FLAKE_PIN_ADVANCE || true)"
 
 # Declared project languages (#1478): read before the template overwrite, both to
 # seed the sticky declaration further down and to write it back — the template
@@ -512,14 +525,17 @@ if [[ -n "$MANIFEST_SYNC_SCHEDULE" ]] && ! is_valid_cron "$MANIFEST_SYNC_SCHEDUL
     exit 1
 fi
 
-# Commit-App environment binding (#1710): the value is spliced verbatim into the
-# rendered workflows as an UNQUOTED YAML scalar through a sed replacement, so —
-# exactly as for DEVKIT_SYNC_TARGET above — the LOAD-BEARING guard is a strict
-# charset allowlist. GitHub itself constrains an environment name only to "<= 255
-# characters, case-insensitive, unique within the repository", and therefore
-# accepts names (quotes, `$`, backticks, `&`, `#`, `|`, `/`, inner spaces) that
-# would render invalid YAML or crash/mis-splice the render sed. Pure `.vig-os`
-# key (no CLI flag), so only a format guard.
+# Commit-App environment binding (#1710): the value is rendered into the
+# workflows as a SINGLE-QUOTED YAML scalar (`environment: '<name>'`) via a sed
+# replacement — unlike DEVKIT_SYNC_TARGET's mixed quoted/unquoted splices above,
+# this key is quoted unconditionally (see render_commit_app_environment()
+# below). The LOAD-BEARING guard is still a strict charset allowlist: it refuses
+# `'`, so the quoted splice never needs escaping. GitHub itself constrains an
+# environment name only to "<= 255 characters, case-insensitive, unique within
+# the repository", and therefore accepts names (quotes, `$`, backticks, `&`,
+# `#`, `|`, `/`, inner spaces) that the allowlist alone rules out — without it,
+# such a name could still break the quoting or crash/mis-splice the render sed.
+# Pure `.vig-os` key (no CLI flag), so only a format guard.
 if [[ -n "$MANIFEST_COMMIT_APP_ENVIRONMENT" ]]; then
     if [[ ! "$MANIFEST_COMMIT_APP_ENVIRONMENT" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] \
         || ((${#MANIFEST_COMMIT_APP_ENVIRONMENT} > 255)); then
@@ -592,6 +608,14 @@ trunk_excluded() {
 # is not silently confusing.
 if feature_disabled sync-issues && [[ -n "$MANIFEST_SYNC_TARGET" || -n "$MANIFEST_SYNC_SCHEDULE" ]]; then
     echo "Notice: sync-issues feature disabled (DEVKIT_FEATURES_DISABLED); DEVKIT_SYNC_TARGET/DEVKIT_SYNC_SCHEDULE will have no effect (#1284)." >&2
+fi
+
+# Composition notice (#1758): mirror mode's only fold-back is the release train
+# (#1424), rendered into release-core.yml — which a disabled release group
+# prunes. The mirror then never reaches the trunk and the trunk's archive
+# freezes at the switch. A legitimate interim choice, so warn, never abort.
+if feature_disabled release && ! feature_disabled sync-issues && [[ -n "$MANIFEST_SYNC_TARGET" ]]; then
+    echo "Notice: DEVKIT_SYNC_TARGET mirror has no fold-back — the release feature is disabled (DEVKIT_FEATURES_DISABLED), so the mirror is never merged back and the trunk's issue/PR archive stops updating (#1758)." >&2
 fi
 
 # Refs policy (#1282): scaffold-time knob steering the Refs enforcement of the
@@ -720,11 +744,12 @@ elif [[ -n "$MANIFEST_REFS_POLICY" && "$MANIFEST_REFS_POLICY" != "chore-optional
 fi
 
 # Branch types (#1432): DEVKIT_BRANCH_TYPES is a comma-separated (whitespace-
-# tolerant) FULL REPLACEMENT of the issue-numbered branch-type set in the
-# no-commit-to-branch pattern, steering the local guard, the flake consumer
-# surface (via the template flake.nix reader), and CI's branch-name gate from
-# this one key. The chore/renovate/worktree clauses are never knob-driven. The
-# value lands in a sed replacement AND a regex alternation, so the same strict
+# tolerant) FULL REPLACEMENT of the issue-numbered branch-type set
+# (validate-branch-name's `--types`, #1760), steering the local guard, the
+# flake consumer surface (via the template flake.nix reader), and CI's
+# branch-name gate from this one key. The renovate/worktree/release shapes are
+# never knob-driven; the issue-less `chore` form follows the Refs-optional set
+# (#1767). The value lands in a sed replacement AND a regex alternation, so the same strict
 # per-entry charset allowlist as DEVKIT_COMMIT_TYPES is load-bearing. Resolves
 # into RESOLVED_BRANCH_TYPES (stock set when the key is empty) for
 # render_branch_types.
@@ -762,6 +787,17 @@ case "$MANIFEST_DRIFT_CHECK" in
     ""|true|false) ;;
     *)
         echo "Error: Invalid DEVKIT_DRIFT_CHECK in $VIG_OS_MANIFEST: $MANIFEST_DRIFT_CHECK (expected: true | false)" >&2
+        exit 1
+        ;;
+esac
+
+# Pinned devkit flake-input advance (#1752): pure runtime toggle for install.sh's
+# host-side flake-bump (empty = false). No render here — only a value guard, so
+# a typo refuses loudly instead of silently leaving the pin behind.
+case "$MANIFEST_FLAKE_PIN_ADVANCE" in
+    ""|true|false) ;;
+    *)
+        echo "Error: Invalid DEVKIT_FLAKE_PIN_ADVANCE in $VIG_OS_MANIFEST: $MANIFEST_FLAKE_PIN_ADVANCE (expected: true | false)" >&2
         exit 1
         ;;
 esac
@@ -1083,9 +1119,15 @@ print_preserved_template_diff() {
 # precommit`, markdown commits, and the devkit-upgrade commit step alike. The
 # pattern generalises to any future language:python -> language:system hook
 # migration.
+#
+# Second row, the pre-#1760 no-commit-to-branch guard: the fold below replaces
+# every rendered shape of it, so this only fires for a CUSTOMISED pattern — a
+# second branch rule that drifts from the one CI runs (vig-os/tessera's
+# issue-less `<type>/<slug>` is the incident).
 known_bad_preserved_patterns() {
     printf '%s\n' \
-        'pymarkdown-pre-1170|.pre-commit-config.yaml|repo:[[:space:]]*["'\'']?https://github\.com/jackdewinter/pymarkdown|Replace that block with the repo: local / entry: pymarkdown / language: system hook the template ships (#1170) — see MIGRATION.md, "Fold the #1170 pymarkdown hook into a preserved config".'
+        'pymarkdown-pre-1170|.pre-commit-config.yaml|repo:[[:space:]]*["'\'']?https://github\.com/jackdewinter/pymarkdown|Replace that block with the repo: local / entry: pymarkdown / language: system hook the template ships (#1170) — see MIGRATION.md, "Fold the #1170 pymarkdown hook into a preserved config".' \
+        'no-commit-to-branch-pre-1760|.pre-commit-config.yaml|-[[:space:]]+id:[[:space:]]+no-commit-to-branch[[:space:]]*(#.*)?$|Replace that hook with the repo: local validate-branch-name hook the template ships (#1760) — the one branch-name rule CI enforces too; express a customised pattern through DEVKIT_BRANCH_TYPES / DEVKIT_REFS_OPTIONAL_TYPES in .vig-os instead.'
 }
 
 # Scan the preserved files named in the table above and report every known-bad
@@ -1696,10 +1738,12 @@ feature_paths() {
                 ".github/workflows/release-publish.yml" \
                 ".github/workflows/prepare-release.yml" \
                 ".github/workflows/prepare-release-extension.yml" \
+                ".github/workflows/publish-release-extension.yml" \
                 ".github/workflows/prepare-hotfix.yml" \
                 ".github/workflows/promote-release.yml" \
                 ".github/workflows/abandon-release.yml" \
                 ".github/workflows/sync-main-to-dev.yml" \
+                ".github/actions/build-bundle" \
                 "docs/DOWNSTREAM_RELEASE.md" \
                 "CHANGELOG.md"
             ;;
@@ -1962,26 +2006,17 @@ render_workflow_model() {
         sed -i '/^# Prepare a hotfix release branch/,/^$/d' "$jg"
     fi
 
-    # ci.yml — drop `- dev` from the PR branch filter; retarget the commit-gate
-    # TRUNK anchor used to exclude already-merged history on release PRs. Also
-    # scrub the inert prose: the trigger-header comment and the origin/dev
+    # ci.yml — retarget the commit-gate TRUNK anchor used to exclude
+    # already-merged history on release PRs, and scrub the origin/dev
     # commit-gate rationale so a trunk repo carries no lying `dev` comments
-    # (#1226; no behavior change — comments only).
+    # (#1226; no behavior change — comments only). The PR branch filter is
+    # `'**'` in both models (#1759), so ci.yml and codeql.yml need no filter
+    # edit.
     local ci="$wf/ci.yml"
     if [[ -f "$ci" ]]; then
-        sed -i '/^      - dev$/d' "$ci"
         sed -i 's|TRUNK="dev"|TRUNK="main"|' "$ci"
-        sed -i 's|Pull requests to dev, release/\*\*, and main|Pull requests to release/** and main|' "$ci"
         sed -i 's|origin/dev — a no-op on a dev PR|origin/main — a no-op on a main PR|' "$ci"
         sed -i 's|(its base IS dev)|(its base IS main)|' "$ci"
-    fi
-
-    # codeql.yml — drop `- dev` from the PR branch filter (push is main-only)
-    # and scrub the trigger-header comment prose dev -> main (#1226).
-    local cq="$wf/codeql.yml"
-    if [[ -f "$cq" ]]; then
-        sed -i '/^      - dev$/d' "$cq"
-        sed -i 's|Pull requests to dev, release/\*\*, and main|Pull requests to release/** and main|' "$cq"
     fi
 
     # sync-issues.yml — default target branch + `|| 'dev'` fallbacks dev -> main,
@@ -2040,8 +2075,10 @@ render_workflow_model() {
 # their manifest key is unset, so an unconfigured workspace stays byte-for-byte
 # unchanged. When a custom target is set — a protected-main mirror branch such as
 # sync/issue-mirror (#1227) — the job also gains a bootstrap step that creates the
-# branch from the default branch head if absent; the mirror diverges permanently
-# and is never merged back (each sync regenerates full state).
+# branch from the default branch head if absent. The sync is incremental (only
+# items changed since the last watermark), so the mirror is not self-healing;
+# the release-core fold below is its only path back to the trunk (#1424), and
+# it is absent when the release feature is disabled (notice: #1758).
 render_sync_settings() {
     local si="$WORKSPACE_DIR/.github/workflows/sync-issues.yml"
     [[ -f "$si" ]] || return 0
@@ -2377,7 +2414,8 @@ render_commit_app_environment() {
         "prepare-hotfix.yml:rollback" \
         "release.yml:rollback" \
         "release-core.yml:finalize" \
-        "promote-release.yml:reset-sync-mirror"; do
+        "promote-release.yml:reset-sync-mirror" \
+        "repository-dispatch.yml:deploy"; do
         wf="${pair%%:*}"
         job="${pair##*:}"
         f="$WORKSPACE_DIR/.github/workflows/$wf"
@@ -2402,45 +2440,35 @@ render_commit_app_environment() {
     echo "Rendered commit-App environment binding: ${env_name} (${bound} token-minting job(s))"
 }
 
-# Render the branch guard's dev clause from the workflow model (#1224, #1642).
+# Rewrite one `- --<flag>=<value>` arg of the validate-branch-name hook in $1
+# (#1760). The hook's args are single `--flag=value` lines precisely so each
+# render owns one whole line; the address range scopes the substitution to that
+# hook's entry (its `- id:` line through the next `- id:`/`- repo:`), so a
+# consumer's own hook carrying a same-named flag is never touched. Values are
+# charset-guarded where they resolve (lowercase alphanumerics, commas, the two
+# model names), so they are safe in the `#`-delimited replacement.
+render_branch_guard_arg() {
+    local pc="$1" flag="$2" value="$3"
+    sed -i -E "/^[[:space:]]*-[[:space:]]+id:[[:space:]]+validate-branch-name[[:space:]]*\$/,/^[[:space:]]*-[[:space:]]+(id|repo):/ s#^([[:space:]]*-[[:space:]]+--${flag}=).*\$#\1${value}#" "$pc"
+}
+
+# Render the branch guard's workflow model (#1224, #1642): validate-branch-name's
+# `--workflow` arg (#1760; gitflow also allows the long-lived `dev` branch).
 #
 # Split out of render_workflow_model, which applies the gitflow -> trunk retarget
 # ONE WAY (it early-returns unless the model is trunk). That is harmless for
 # every other file it touches, because they are MANAGED: the template overwrite
 # restores the gitflow shape and the render simply does not re-run. It is NOT
 # harmless for .pre-commit-config.yaml, which is PRESERVED — a consumer switching
-# back to gitflow kept the trunk edits and lost the dev-branch guard silently,
-# on a repo whose manifest says gitflow.
-#
-# So this runs for BOTH models and renders the clause FROM the resolved model.
-# Each direction's anchors stop matching once applied, which makes a re-run a
-# no-op: `(?!dev$)` inserts only between `(?!main$)` and `(?!^(chore)`, and each
-# comment substitution rewrites the phrase it matched on. A default gitflow
-# scaffold is therefore byte-identical to the template, drift baseline included.
-#
-# Anchors are distinct from render_branch_types' alternation and the two arg-value
-# renders below, so all four compose on the same file.
-#
-# Basic-regex sed, where `(`, `)` and `?` are literal but `$` and `^` are NOT
-# reliably so: GNU sed 4.10 still treats a MID-pattern `$` as an end anchor, so
-# `(?!main$)(?!^(chore)` matches nothing (the existing `(?!dev$)` strip only works
-# because its `$)` sits at the very end of the pattern). Both are escaped in the
-# insert pattern for that reason — an escaped `$`/`^` is literal. The
-# REPLACEMENT side needs no escaping: sed gives `$`/`^` no meaning there.
+# back to gitflow kept the trunk edit and lost `dev` silently, on a repo whose
+# manifest says gitflow. So this runs for BOTH models and writes the arg FROM
+# the resolved model: idempotent, and a default gitflow scaffold stays
+# byte-identical to the template, drift baseline included.
 render_branch_guard_model() {
     local model="$1" pc
     pc="$(precommit_render_target)" || return 0
 
-    if [[ "$model" == "trunk" ]]; then
-        # Trunk has no long-lived dev branch to protect; main stays protected.
-        sed -i 's|# Allows main, dev, and|# Allows main and|' "$pc"
-        sed -i 's|main/dev are not protected|main is not protected|' "$pc"
-        sed -i 's|(?!dev$)||' "$pc"
-    else
-        sed -i 's|# Allows main and|# Allows main, dev, and|' "$pc"
-        sed -i 's|main is not protected|main/dev are not protected|' "$pc"
-        sed -i 's|(?!main\$)(?!\^(chore)|(?!main$)(?!dev$)(?!^(chore)|' "$pc"
-    fi
+    render_branch_guard_arg "$pc" workflow "$model"
     echo "Rendered branch guard: workflow model ${model}"
 }
 
@@ -2457,8 +2485,8 @@ render_branch_guard_model() {
 # the default back. A key-shaped early return would leave the previous render in
 # this PRESERVED file while CI, which re-derives from .vig-os every run, resolved
 # the default. The anchored sed targets only the quoted arg value, distinct from
-# render_workflow_model's `(?!dev$)` sed and render_commit_types' `--types` sed
-# on the same file, so the three compose.
+# the branch guard's `- --flag=` arg lines and render_commit_types' `--types`
+# sed on the same file, so all compose.
 # Excise the actionlint hook when the actionlint feature is disabled (#1660).
 # The feature's other half — .github/actionlint.yaml — is a feature_paths entry
 # the copy-exclude and prune handle, but the hook lives INSIDE the preserved
@@ -2482,12 +2510,50 @@ render_branch_guard_model() {
 # consumer who clears the key gets the hook back from the template copy on the
 # next --force. Idempotent either way: a second run finds no sentinels.
 render_actionlint_optout() {
-    local pc
+    local pc tmp
     feature_disabled actionlint || return 0
     pc="$(precommit_render_target)" || return 0
     grep -qE '^[[:space:]]*# >>> devkit:actionlint([[:space:]]|$)' "$pc" || return 0
 
-    sed -i -E '/^[[:space:]]*# >>> devkit:actionlint([[:space:]]|$)/,/^[[:space:]]*# <<< devkit:actionlint([[:space:]]|$)/d' "$pc"
+    # The sentinel range deletion alone (sed range-delete, pre-#1800) left the
+    # blank lines flanking the block in place, so the excision produced two
+    # adjacent blank lines — "too many blank lines (2 > 1)" under the
+    # consumer's own yamllint (empty-lines: max 1, #1800). This awk pass does
+    # the same range delete PLUS drops the one blank line immediately BEFORE
+    # the opening sentinel, by deferring every blank line's print by one line
+    # so it can be dropped instead of printed when the very next line turns
+    # out to start the block. Blank runs anywhere else in the file pass
+    # through unchanged (each deferred blank is flushed before the next
+    # non-matching line), so this is scoped to the one seam the excision
+    # creates, not a file-wide blank-line collapse.
+    #
+    # splice_lines's COPY-not-rename note applies here too: the new content is
+    # written to a temp file and copied back over the original so the
+    # consumer's file keeps its mode and inode.
+    tmp="$(mktemp)"
+    awk '
+        /^[[:space:]]*# >>> devkit:actionlint([[:space:]]|$)/ {
+            pending = 0
+            skip = 1
+            next
+        }
+        skip {
+            if ($0 ~ /^[[:space:]]*# <<< devkit:actionlint([[:space:]]|$)/) skip = 0
+            next
+        }
+        /^[[:space:]]*$/ {
+            if (pending) print ""
+            pending = 1
+            next
+        }
+        {
+            if (pending) { print ""; pending = 0 }
+            print
+        }
+        END { if (pending) print "" }
+    ' "$pc" > "$tmp"
+    cat "$tmp" > "$pc"
+    rm -f "$tmp"
     echo "Excised the actionlint hook (feature disabled via DEVKIT_FEATURES_DISABLED, #1660)."
 }
 
@@ -2675,13 +2741,55 @@ splice_lines() {
     rm -f "$tmp"
 }
 
-# Blocks the template retired BECAUSE they break, one row per historical SHAPE:
+# Rewrite $1 without lines $2..$3 (inclusive). Same copy-back as splice_lines,
+# for the same mode/inode reason.
+delete_lines() {
+    local file="$1" start="$2" end="$3"
+    local tmp
+    tmp="$(mktemp)"
+    {
+        head -n "$((start - 1))" "$file"
+        tail -n +"$((end + 1))" "$file"
+    } > "$tmp"
+    cat "$tmp" > "$file"
+    rm -f "$tmp"
+}
+
+# Print "ANCHOR END" for template hook $2 in file $1: the nearest hook the
+# template places before it that the file carries (#1725), and the last line of
+# that hook's block — the insert goes after END. Returns 1 when the template
+# has no predecessor at all (a template defect, not a consumer one) and 2 when
+# the file carries none of them (no defensible position).
 #
-#   <drift id>|<current hook id>|<variant key>
+# The winning range is whatever hook_block_range prefers for that hook — the
+# SENTINEL range where it has one, so an insert after a bracketed block lands
+# after its closing sentinel rather than inside the range the feature's
+# excision deletes.
+hook_insert_point() {
+    local pc="$1" hook="$2"
+    local anchors candidate range
+    anchors="$(template_hook_anchors "$hook")" || return 1
+    while IFS= read -r candidate; do
+        [[ -n "$candidate" ]] || continue
+        if range="$(hook_block_range "$pc" "$candidate")"; then
+            printf '%s %s\n' "$candidate" "${range##* }"
+            return 0
+        fi
+    done <<< "$anchors"
+    return 2
+}
+
+# Blocks the template retired, one row per historical SHAPE:
+#
+#   <drift id>|<current hook id>|<variant key>[|template]
 #
 # The drift id is #1652's, so a fold reports the closure of the same finding the
 # scan reports open; the hook id names the CURRENT template block that replaces
-# it (same hook, fixed form).
+# it. The optional fourth field is the placement: empty splices the replacement
+# where the retired block was (both are whole repo blocks); `template` deletes
+# the retired block and inserts the replacement at its template position — for
+# a retired hook ENTRY inside another repo's `hooks:` list, where a `repo:
+# local` block cannot go.
 #
 # NOT listed: the two pre-0.3.0 pymarkdown shapes (`rev: v0.9.23` with
 # `args: ["scan"]`, and the same rev with `-c .pymarkdown fix` and no exclude).
@@ -2689,6 +2797,13 @@ splice_lines() {
 # #1652 warning — the safe direction.
 retired_hook_blocks() {
     printf '%s\n' 'pymarkdown-pre-1170|pymarkdown|pymarkdown-0.3.0'
+    # The pre-#1760 branch guard: pre-commit-hooks' no-commit-to-branch with a
+    # regex, replaced by the validate-branch-name local hook — the one rule CI
+    # runs too. Three shapes: 0.3.0 (no renovate clause), 1.8.0 (#1433), and
+    # the #1767 comment that only ever reached dev-pinned scaffolds.
+    printf '%s\n' 'no-commit-to-branch-pre-1760|validate-branch-name|no-commit-to-branch-0.3.0|template'
+    printf '%s\n' 'no-commit-to-branch-pre-1760|validate-branch-name|no-commit-to-branch-1.8.0|template'
+    printf '%s\n' 'no-commit-to-branch-pre-1760|validate-branch-name|no-commit-to-branch-1767|template'
 }
 
 # The verbatim historical template text of variant $1. Byte-for-byte what the
@@ -2710,7 +2825,88 @@ retired_hook_block_text() {
         exclude: ^(README\.md|CONTRIBUTE\.md|TESTING\.md)
 DEVKIT_RETIRED_BLOCK
             ;;
+        # Shipped 0.3.0 -> 1.7.x.
+        no-commit-to-branch-0.3.0)
+            cat <<'DEVKIT_RETIRED_BLOCK'
+      # Enforce topic branch naming:
+      # - chore/<short_summary> (no issue required)
+      # - <type>/<issue_number>-<short_summary> (for feature, bugfix, etc.)
+      # - worktree/<issue_number> (autonomous worktree branches)
+      # Allows main, dev, and branches matching the convention.
+      - id: no-commit-to-branch
+        name: branch-name (enforce <type>/<issue>-<summary>)
+        args:
+          - --branch
+          - __none__  # override default so main/dev are not protected
+          - --pattern
+          - "^(?!main$)(?!dev$)(?!^(chore)/[a-z0-9]+(-[a-z0-9]+)*$)(?!^(feature|bugfix|hotfix|release|docs|test|refactor)/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$)(?!^worktree/[0-9]+$).+$"
+DEVKIT_RETIRED_BLOCK
+            ;;
+        # Shipped 1.8.0 -> 1.17.x (#1433 added the renovate clause).
+        no-commit-to-branch-1.8.0)
+            cat <<'DEVKIT_RETIRED_BLOCK'
+      # Enforce topic branch naming:
+      # - chore/<short_summary> (no issue required)
+      # - <type>/<issue_number>-<short_summary> (for feature, bugfix, etc.)
+      # - worktree/<issue_number> (autonomous worktree branches)
+      # - renovate/* (Renovate's branch namespace; maintainer fix-up commits)
+      # Allows main, dev, and branches matching the convention.
+      - id: no-commit-to-branch
+        name: branch-name (enforce <type>/<issue>-<summary>)
+        args:
+          - --branch
+          - __none__  # override default so main/dev are not protected
+          - --pattern
+          - "^(?!main$)(?!dev$)(?!^(chore)/[a-z0-9]+(-[a-z0-9]+)*$)(?!^(feature|bugfix|hotfix|release|docs|test|refactor)/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$)(?!^renovate/.+$)(?!^worktree/[0-9]+$).+$"
+DEVKIT_RETIRED_BLOCK
+            ;;
+        # Dev only, never released (#1767's comment).
+        no-commit-to-branch-1767)
+            cat <<'DEVKIT_RETIRED_BLOCK'
+      # Enforce topic branch naming:
+      # - chore/<short_summary> (no issue required; likewise every other
+      #   Refs-optional commit type from DEVKIT_REFS_OPTIONAL_TYPES, #1767)
+      # - <type>/<issue_number>-<short_summary> (for feature, bugfix, etc.)
+      # - worktree/<issue_number> (autonomous worktree branches)
+      # - renovate/* (Renovate's branch namespace; maintainer fix-up commits)
+      # Allows main, dev, and branches matching the convention.
+      - id: no-commit-to-branch
+        name: branch-name (enforce <type>/<issue>-<summary>)
+        args:
+          - --branch
+          - __none__  # override default so main/dev are not protected
+          - --pattern
+          - "^(?!main$)(?!dev$)(?!^(chore)/[a-z0-9]+(-[a-z0-9]+)*$)(?!^(feature|bugfix|hotfix|release|docs|test|refactor)/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$)(?!^renovate/.+$)(?!^worktree/[0-9]+$).+$"
+DEVKIT_RETIRED_BLOCK
+            ;;
     esac
+}
+
+# Erase, from stdin, exactly the slots the pre-#1760 knob renders wrote into
+# the no-commit-to-branch block, so one historical text matches EVERY rendered
+# variant of it (types x issue-less types x gitflow/trunk). Applied to BOTH
+# sides of the fold comparison — the historical text and a copy of the
+# consumer's file — and line-preserving, so a match range in the copy is the
+# range in the file itself:
+#
+#   - the two alternations (`(?!^(<types>)/[0-9]` and `(?!^(<types>)/[a-z0-9]`),
+#     in the charset the knob guards admit, become a placeholder;
+#   - the gitflow `(?!dev$)` clause is dropped, and the two comment phrases the
+#     trunk render rewrote are mapped onto their trunk form.
+#
+# Nothing else is normalised: a consumer who edited the pattern's shape, added
+# a clause, or changed a comment line no longer matches, keeps their block, and
+# still hears about it from the #1652 scan. A hand-edited alternation is
+# indistinguishable from a knob render — but the unconditional renders rewrote
+# those on every upgrade anyway (#1640), so no customisation is lost to it.
+# Harmless to the pymarkdown shape, which contains none of these slots.
+retired_block_normalize() {
+    sed -E \
+        -e 's#\(\?!\^\([a-z0-9|]+\)/\[0-9\]#(?!^(@)/[0-9]#g' \
+        -e 's#\(\?!\^\([a-z0-9|]+\)/\[a-z0-9\]#(?!^(@)/[a-z0-9]#g' \
+        -e 's#\(\?!dev\$\)##g' \
+        -e 's|# Allows main, dev, and|# Allows main and|' \
+        -e 's|main/dev are not protected|main is not protected|'
 }
 
 # Hooks the template ships that an older tree never received — the mirror of
@@ -2763,20 +2959,35 @@ reconcile_plan_header() {
 # warning, which is the honest report for a file nobody can prove the intent of.
 fold_retired_hook_blocks() {
     local mode="$1" pc="$2"
-    local drift_id hook_id variant needle range start end replacement
-    while IFS='|' read -r drift_id hook_id variant; do
+    local drift_id hook_id variant placement needle hay range start end replacement
+    local point rc
+    while IFS='|' read -r drift_id hook_id variant placement; do
         [[ -n "$drift_id" && -n "$hook_id" && -n "$variant" ]] || continue
         needle="$(mktemp)"
-        retired_hook_block_text "$variant" > "$needle"
+        hay="$(mktemp)"
+        retired_hook_block_text "$variant" | retired_block_normalize > "$needle"
+        retired_block_normalize < "$pc" > "$hay"
         range=""
         if [[ -s "$needle" ]]; then
-            range="$(verbatim_block_range "$pc" "$needle" || true)"
+            range="$(verbatim_block_range "$hay" "$needle" || true)"
         fi
-        rm -f "$needle"
+        rm -f "$needle" "$hay"
         [[ -n "$range" ]] || continue
         if ! replacement="$(template_hook_block "$hook_id")"; then
             echo "Warning: the template ships no '$hook_id' block to replace the retired $drift_id one (#1654)." >&2
             continue
+        fi
+        # A relocated replacement needs somewhere to go. Without a defensible
+        # position, removing the retired block would leave no guard at all, so
+        # the fold declines and the #1652 scan reports the block instead.
+        if [[ "$placement" == "template" ]] \
+            && ! grep -qE "^[[:space:]]*-[[:space:]]+id:[[:space:]]+${hook_id}[[:space:]]*\$" "$pc"; then
+            rc=0
+            hook_insert_point "$pc" "$hook_id" > /dev/null || rc=$?
+            if [[ "$rc" -ne 0 ]]; then
+                echo "Warning: the preserved .pre-commit-config.yaml carries none of the hooks the template places before '$hook_id', so the retired $drift_id block is left in place (#1760)." >&2
+                continue
+            fi
         fi
         # Recorded in BOTH modes: the #1652 scan skips a drift id this pass
         # repairs, so the preview never tells a consumer to hand-fold a block
@@ -2789,7 +3000,16 @@ fold_retired_hook_blocks() {
             echo "  !  .pre-commit-config.yaml — the retired $drift_id block will be REPLACED by the template's '$hook_id' hook"
             continue
         fi
-        splice_lines "$pc" "$start" "$end" "$replacement"
+        if [[ "$placement" == "template" ]]; then
+            delete_lines "$pc" "$start" "$end"
+            if ! grep -qE "^[[:space:]]*-[[:space:]]+id:[[:space:]]+${hook_id}[[:space:]]*\$" "$pc"; then
+                point="$(hook_insert_point "$pc" "$hook_id")"
+                end="${point##* }"
+                splice_lines "$pc" "$((end + 1))" "$end" "$(printf '\n%s' "$replacement")"
+            fi
+        else
+            splice_lines "$pc" "$start" "$end" "$replacement"
+        fi
         echo "Folded the retired $drift_id block into the template's '$hook_id' hook (#1654)."
         echo "preserved-hook-fold: $drift_id in .pre-commit-config.yaml"
     done < <(retired_hook_blocks)
@@ -2813,7 +3033,7 @@ fold_retired_hook_blocks() {
 #    than guess, and leave the #878 template diff as the fallback.
 insert_missing_hook_blocks() {
     local mode="$1" pc="$2"
-    local ver hook feat block anchors candidate anchor range end
+    local ver hook feat block point rc anchor end
     [[ -n "$PREVIOUS_PIN" ]] || return 0
     [[ "$PREVIOUS_PIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || return 0
     while read -r ver hook feat; do
@@ -2826,28 +3046,18 @@ insert_missing_hook_blocks() {
             continue
         fi
         block="$(template_hook_block "$hook")" || continue
-        # A template with no predecessor at all is a template defect, not a
-        # consumer one — silent, like a missing block above.
-        anchors="$(template_hook_anchors "$hook")" || continue
-        anchor=""
-        range=""
-        while IFS= read -r candidate; do
-            [[ -n "$candidate" ]] || continue
-            # The winning range is whatever hook_block_range prefers for that
-            # hook — the SENTINEL range where it has one, so an insert after a
-            # bracketed block lands after its closing sentinel rather than
-            # inside the range the feature's excision deletes.
-            if range="$(hook_block_range "$pc" "$candidate")"; then
-                anchor="$candidate"
-                break
-            fi
-        done <<< "$anchors"
-        if [[ -z "$anchor" ]]; then
+        # A template with no predecessor at all (rc 1) is a template defect,
+        # not a consumer one — silent, like a missing block above.
+        rc=0
+        point="$(hook_insert_point "$pc" "$hook")" || rc=$?
+        [[ "$rc" -ne 1 ]] || continue
+        if [[ "$rc" -ne 0 ]]; then
             echo "Warning: the preserved .pre-commit-config.yaml carries none of the hooks the template places before '$hook', so the new block has nothing to anchor on (#1654)." >&2
             echo "         Skipping the insert — fold the block in from the template diff above by hand." >&2
             continue
         fi
-        end="${range##* }"
+        anchor="${point%% *}"
+        end="${point##* }"
         if [[ "$mode" == "plan" ]]; then
             reconcile_plan_header
             echo "  +  .pre-commit-config.yaml — the '$hook' hook will be INSERTED after '$anchor' (shipped since $ver; this tree is pinned at $PREVIOUS_PIN)"
@@ -2925,8 +3135,8 @@ render_refs_policy() {
 # byte-identical, and CLEARING the key restores them instead of stranding the
 # previous render in this PRESERVED file. The anchored sed targets only the
 # quoted `--types` value — distinct from render_refs_policy's
-# `--refs-optional-types` anchor and render_workflow_model's `(?!dev$)` sed on
-# the same file — so the three compose.
+# `--refs-optional-types` anchor and the branch guard's `- --types=` arg line
+# (validate-branch-name, #1760) on the same file — so all compose.
 render_commit_types() {
     local pc
     pc="$(precommit_render_target)" || return 0
@@ -2936,28 +3146,46 @@ render_commit_types() {
 }
 
 # Render the branch-types knob (#1432): DEVKIT_BRANCH_TYPES replaces the
-# issue-numbered alternation of the no-commit-to-branch pattern in the
-# scaffolded .pre-commit-config.yaml (guarded + resolved above; the IDENTICAL
-# set drives the flake consumer surface via the template flake.nix reader and
-# CI's branch-name gate via resolve-toolchain's `branch-types` output — keep in
-# lockstep). UNCONDITIONAL and idempotent (#1640), like the two renders above.
-# That REQUIRES a generic anchor: the previous one was the literal STOCK
-# alternation, which by construction stops matching the moment a custom set has
-# been rendered — so clearing the key could never restore the stock set. The
-# anchor is now the `(?!^(` prefix plus the `)/[0-9]` suffix, which together
-# pin this one alternation: `(chore)/[a-z0-9]` has the wrong suffix, and the
-# renovate/worktree clauses have no inner group. Extended regex (the `|` in the
-# REPLACEMENT is literal either way) with a `#` delimiter, since the value
-# contains `/`. Distinct from the other renders' anchors, so all compose — and
-# with the stock literal gone, the ordering constraint against a future render
-# that rewrites this line goes with it.
+# validate-branch-name hook's `--types` arg (#1760) in the scaffolded
+# .pre-commit-config.yaml (guarded + resolved above; the IDENTICAL set drives
+# the flake consumer surface via the template flake.nix reader and CI's
+# branch-name gate via resolve-toolchain's `branch-types` output — keep in
+# lockstep). UNCONDITIONAL and idempotent (#1640), like the two renders above:
+# the anchor is the arg's own line, whatever value a previous render left, so
+# clearing the key restores the stock set.
 render_branch_types() {
     local pc
     pc="$(precommit_render_target)" || return 0
 
-    local alternation="${RESOLVED_BRANCH_TYPES//,/|}"
-    sed -i -E "s#\\(\\?!\\^\\([a-z0-9|]+\\)/\\[0-9\\]#(?!^(${alternation})/[0-9]#" "$pc"
+    render_branch_guard_arg "$pc" types "$RESOLVED_BRANCH_TYPES"
     echo "Rendered branch types: ${RESOLVED_BRANCH_TYPES}"
+}
+
+# Render the issue-less branch form (#1767): every Refs-optional commit type
+# also gets `<type>/<summary>` — validate-branch-name's `--issueless-types` arg
+# (#1760). DERIVED from RESOLVED_REFS_OPTIONAL_TYPES (never its own key, so a
+# branch may skip the issue only where its commits may), with `chore` as a
+# floor — the sync-main-to-dev and devkit-upgrade bot branches are
+# `chore/<slug>`, so no Refs policy may drop them — and the `none` sentinel
+# dropped. The default and DEVKIT_REFS_POLICY=required therefore resolve to
+# plain `chore`: byte-identical to the template. The IDENTICAL derivation drives
+# the flake consumer surface (issuelessBranchTypesFor in nix/hooks.nix) and CI's
+# branch-name gate (resolve-toolchain's `issueless-branch-types` output) — keep
+# in lockstep. UNCONDITIONAL and idempotent (#1640), like render_branch_types.
+# Charset is already guarded where the Refs set resolves above.
+render_issueless_branch_types() {
+    local pc
+    pc="$(precommit_render_target)" || return 0
+
+    local types="chore" _itype
+    IFS=',' read -ra _itypes <<< "$RESOLVED_REFS_OPTIONAL_TYPES"
+    for _itype in "${_itypes[@]}"; do
+        [[ "$_itype" == "chore" || "$_itype" == "none" ]] && continue
+        types+=",$_itype"
+    done
+
+    render_branch_guard_arg "$pc" issueless-types "$types"
+    echo "Rendered issue-less branch types: ${types}"
 }
 
 # Warn if forcing (prompt user) - show which files would be overwritten
@@ -3072,7 +3300,8 @@ if [[ "$FORCE" == "true" ]]; then
     # Feature opt-outs (#1284): a disabled feature's pre-existing paths are
     # pruned on upgrade — list them under DELETIONS (mirrors the trunk
     # sync-main-to-dev entry above). EXCEPT the preserved class
-    # (release-extension.yml, prepare-release-extension.yml, renovate.json),
+    # (release-extension.yml, prepare-release-extension.yml,
+    # publish-release-extension.yml, renovate.json),
     # which carry consumer implementation and are never pruned: report a
     # left-in-place notice instead (preview only — the post-copy prune echoes it
     # on a real --force run). sync-main-to-dev.yml is skipped when trunk already
@@ -3569,7 +3798,8 @@ done
 # Feature opt-outs (#1284): prune a disabled feature's pre-existing paths left
 # by an earlier scaffold (the rsync copy already excludes them via
 # MODE_CONFIG_EXCLUDES; this removes the upgrade leftover). Preserved-class files
-# (release-extension.yml, prepare-release-extension.yml, renovate.json) carry
+# (release-extension.yml, prepare-release-extension.yml,
+# publish-release-extension.yml, renovate.json) carry
 # consumer implementation and are never pruned — print a left-in-place notice
 # instead. Composes with the trunk gitflow-only prune above: those paths are
 # skipped under trunk so each is pruned + echoed exactly once.
@@ -3666,6 +3896,9 @@ if [[ -n "${VIG_OS_VERSION:-}" && -f "$WORKSPACE_DIR/.vig-os" ]]; then
         # either form (?ref=X, or the /X path suffix the field case carried) —
         # the literal-`vigos`/`?ref=`-only match left exactly those consumers
         # with neither a bump nor a warning from any mechanism.
+        # Byte-identical to the regex in ci.yml's `Check flake pin lockstep`
+        # step (#1752) — keep them in sync; install.sh's flake-bump detector is
+        # a different, broader one (it also matches a floating input).
         pinned_line="$(grep -E '^[[:space:]]*(inputs\.)?[A-Za-z0-9_-]+\.url[[:space:]]*=[[:space:]]*"github:vig-os/devkit[/?][^"]+"' \
             "$WORKSPACE_DIR/flake.nix" 2>/dev/null | head -n1 || true)"
         pinned_input=""
@@ -3793,7 +4026,7 @@ render_workflow_model "$WORKFLOW_MODEL"
 # to a template copy — and well before the #1652 scan at the end of the run, which
 # must not report a block this pass just repaired.
 reconcile_preserved_hooks apply
-# Branch guard dev-clause (#1642): rendered from the resolved model in BOTH
+# Branch guard model (#1642): --workflow rendered from the resolved model in BOTH
 # directions, unlike render_workflow_model's one-way retarget above, because
 # .pre-commit-config.yaml is preserved and would otherwise keep the trunk shape
 # after a switch back to gitflow. A no-op for an unchanged model.
@@ -3824,10 +4057,13 @@ render_commit_app_environment
 # anchors) so the renders compose.
 render_refs_policy
 render_commit_types
-# Branch types (#1432): swaps the issue-numbered alternation of the branch
-# guard pattern — a distinct anchor from the three renders above, so all
-# compose. No-op for the default.
+# Branch types (#1432): the branch guard's --types arg (#1760) — a distinct
+# line from the three renders above, so all compose. No-op for the default.
 render_branch_types
+# Issue-less branch form (#1767): the same hook's --issueless-types arg, from
+# the resolved Refs-optional set — its own line, distinct from
+# render_branch_types' and render_branch_guard_model's, so all compose.
+render_issueless_branch_types
 # actionlint opt-out (#1660): a whole-block excision, not a value sed, so it runs
 # LAST of the .pre-commit-config.yaml renders — the anchors above no longer need
 # to exist once the block is gone, and any of them landing inside it is moot.
@@ -3865,6 +4101,12 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     fi
     if [[ -n "$MANIFEST_FLOATING_TAGS" ]]; then
         write_manifest_value DEVKIT_FLOATING_TAGS "$MANIFEST_FLOATING_TAGS"
+    fi
+    # Candidate pre-release format (#1746): same bare tag-scheme shape — read
+    # before the template overwrite, written back so an upgrade never silently
+    # resets a repo's alpha/beta series onto the rc{N} default.
+    if [[ -n "$MANIFEST_PRERELEASE_FORMAT" ]]; then
+        write_manifest_value DEVKIT_PRERELEASE_FORMAT "$MANIFEST_PRERELEASE_FORMAT"
     fi
     # CI runner override (#1173): bare in the template (DEVKIT_CI_RUNNER=), so a
     # self-hosted consumer's label list is read before the overwrite and written
@@ -3961,6 +4203,12 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     # silently re-enables the drift gate the consumer disabled.
     if [[ -n "$MANIFEST_DRIFT_CHECK" ]]; then
         write_manifest_value DEVKIT_DRIFT_CHECK "$MANIFEST_DRIFT_CHECK"
+    fi
+    # Pinned devkit flake-input advance (#1752): bare in the template
+    # (DEVKIT_FLAKE_PIN_ADVANCE=), so a consumer's opt-in is written back — else
+    # the upgrade that should advance the pin would first erase the knob.
+    if [[ -n "$MANIFEST_FLAKE_PIN_ADVANCE" ]]; then
+        write_manifest_value DEVKIT_FLAKE_PIN_ADVANCE "$MANIFEST_FLAKE_PIN_ADVANCE"
     fi
     # Declared languages (#1478): bare in the template (DEVKIT_LANGUAGES=), so
     # the declaration is written back — else an upgrade would erase it and the

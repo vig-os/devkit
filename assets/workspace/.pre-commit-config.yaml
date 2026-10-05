@@ -13,20 +13,11 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b  # v5.0.0
     hooks:
-      # Enforce topic branch naming:
-      # - chore/<short_summary> (no issue required)
-      # - <type>/<issue_number>-<short_summary> (for feature, bugfix, etc.)
-      # - worktree/<issue_number> (autonomous worktree branches)
-      # - renovate/* (Renovate's branch namespace; maintainer fix-up commits)
-      # Allows main, dev, and branches matching the convention.
-      - id: no-commit-to-branch
-        name: branch-name (enforce <type>/<issue>-<summary>)
-        args:
-          - --branch
-          - __none__  # override default so main/dev are not protected
-          - --pattern
-          - "^(?!main$)(?!dev$)(?!^(chore)/[a-z0-9]+(-[a-z0-9]+)*$)(?!^(feature|bugfix|hotfix|release|docs|test|refactor)/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$)(?!^renovate/.+$)(?!^worktree/[0-9]+$).+$"
       - id: check-added-large-files
+        # The scaffold copies devkit's own, growing CHANGELOG.md into
+        # .devcontainer/CHANGELOG.md; a fresh consumer's first commit adds
+        # that file past this hook's 500 KB default (#1801).
+        exclude: ^\.devcontainer/CHANGELOG\.md$
       - id: check-case-conflict
       - id: check-json
         # The three JSONC scaffold files carry a `//` provenance banner (#1053)
@@ -46,6 +37,28 @@ repos:
       - id: end-of-file-fixer
       - id: mixed-line-ending
       - id: trailing-whitespace
+
+  # Enforce topic branch naming with vig-utils' validate-branch-name — the one
+  # implementation of the rule, which CI's branch-name gate runs too (#1760):
+  # - <type>/<issue_number>-<short_summary> (--types: feature, bugfix, etc.)
+  # - chore/<short_summary> (no issue required; likewise every other
+  #   Refs-optional commit type from DEVKIT_REFS_OPTIONAL_TYPES, #1767)
+  # - worktree/<issue_number>, renovate/*, release/X.Y.Z
+  # - main, and dev under the gitflow workflow model (--workflow)
+  # The args are rendered from .vig-os on every devkit upgrade.
+  - repo: local
+    hooks:
+      - id: validate-branch-name
+        name: branch-name (enforce <type>/<issue>-<summary>)
+        entry: uv run validate-branch-name
+        language: system
+        always_run: true
+        pass_filenames: false
+        stages: [pre-commit]
+        args:
+          - --types=feature,bugfix,hotfix,release,docs,test,refactor
+          - --issueless-types=chore
+          - --workflow=gitflow
 
   # Python Linting and Formatting (Ruff, sourced from the flake dev-shell)
   - repo: local

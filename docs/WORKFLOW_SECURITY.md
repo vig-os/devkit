@@ -106,8 +106,9 @@ To stop consumers from opening duplicate pin-bump PRs against files the next
 upgrade clobbers, the shipped preset
 ([`assets/workspace/.github/renovate-default.json`](../assets/workspace/.github/renovate-default.json))
 ends with an `enabled: false` `packageRule` naming exactly the managed set (all
-shipped workflows **minus** the consumer-owned seams `release-extension.yml` and
-`prepare-release-extension.yml`, plus the two managed action directories). The
+shipped workflows **minus** the consumer-owned seams `release-extension.yml`,
+`prepare-release-extension.yml`, `publish-release-extension.yml` and
+`ci-extension.yml`, plus the two managed action directories). The
 enumeration is drift-gated by
 [`tests/test_renovate_preset_managed_exclusion.py`](../tests/test_renovate_preset_managed_exclusion.py)
 so a new or renamed managed workflow cannot silently reopen the gap.
@@ -139,3 +140,27 @@ root `renovate.json` re-enables `.github/workflows/**` and `.github/actions/**`
 to keep advancing the pins it owns (the shipped copies under `assets/workspace/`
 are unaffected — the preset's rooted `matchFileNames` globs do not match nested
 paths).
+
+### Vulnerability-fix PRs
+
+Renovate, not Dependabot security updates, is the org's vulnerability-fix
+channel ([vig-os/org-config#307](https://github.com/vig-os/org-config/issues/307)).
+Renovate turns the repository's GitHub vulnerability alerts into forced
+package rules, so a vulnerability PR targets `baseBranchPatterns`, bypasses the
+schedule, carries a `[SECURITY]` suffix and the `security` label (the preset's
+`vulnerabilityAlerts` block), and inherits the preset's per-manager
+`semanticCommitType`, so it passes the commit gate.
+
+Coverage has two limits
+([#1763](https://github.com/vig-os/devkit/issues/1763)):
+
+- **Only enabled managers are covered.** An alert fires a PR only for a
+  dependency that an `enabledManagers` entry in the root `renovate.json`
+  extracts. The shipped template enables `github-actions`, `pep621`, `npm` and
+  `cargo`; a manager with nothing to extract is a no-op. Every
+  template-enabled manager has a preset rule with an approved commit type,
+  pinned by
+  [`tests/test_renovate_vulnerability_coverage.py`](../tests/test_renovate_vulnerability_coverage.py).
+- **Transitive dependencies rely on `lockFileMaintenance`**, the weekly lockfile
+  regeneration, because alert-driven transitive remediation is unimplemented
+  upstream ([#1041](https://github.com/vig-os/devkit/issues/1041)).

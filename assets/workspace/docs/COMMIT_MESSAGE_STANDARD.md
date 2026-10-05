@@ -92,7 +92,9 @@ Consumer repos may name a different exempt set via the
 `DEVKIT_REFS_OPTIONAL_TYPES` key in `.vig-os` (comma-separated; drives the hook
 and CI's `validate-commit-range` from one key — see the manifest-key table in
 [MIGRATION.md](https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md),
-[#1633](https://github.com/vig-os/devkit/issues/1633)). This section documents
+[#1633](https://github.com/vig-os/devkit/issues/1633)). Each exempt type also
+gets an issue-less `<type>/<summary>` branch form, as `chore/<summary>` has
+([#1767](https://github.com/vig-os/devkit/issues/1767)). This section documents
 the stock default, which applies whenever the key is empty.
 
 Additionally, the CI validator skips two classes of commit outright:
@@ -106,6 +108,8 @@ Additionally, the CI validator skips two classes of commit outright:
 - **In CI** — the `commit-checks` job runs `validate-commit-range`, which re-validates every commit the pull request adds (from the merge-base with the base branch) plus the **pull request title**. The title matters because pull requests merge `--no-ff`, so it becomes the merge commit's subject in the base branch's history.
 
 Because `commit-msg` is a stage-gated hook, `prek run --all-files` does **not** run it — CI enforcement comes from the `commit-checks` job, not from the lint lane.
+
+Branch names follow the same two-gate pattern: the `validate-branch-name` pre-commit hook and the `commit-checks` job's `Validate branch name` step run one vig-utils validator, so the two cannot disagree ([#1760](https://github.com/vig-os/devkit/issues/1760)); the branch-naming skill documents the shapes.
 
 ## Compliance note
 

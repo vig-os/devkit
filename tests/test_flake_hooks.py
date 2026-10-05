@@ -95,25 +95,29 @@ def _normalize(config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _branch_guard(config: dict[str, Any]) -> str:
-    """The no-commit-to-branch entry (carries the ``--pattern`` regex).
+def _branch_hook(config: dict[str, Any]) -> dict[str, Any]:
+    """The validate-branch-name hook entry (#1760).
 
-    git-hooks.nix renders the ``settings.pattern`` into the hook's ``entry``
-    (``… --pattern <regex>``), so the branch-guard regex is read straight off
-    the generated config's no-commit-to-branch entry.
+    The branch-name rule lives in ONE place, vig-utils' ``validate-branch-name``;
+    every render (committed YAMLs, flake consumer surface) only carries its
+    argv, so the knob tests below assert on ``args`` and prove semantics by
+    feeding that argv to the validator itself (``_branch_accepts``).
     """
-    return _normalize(config)["hooks"]["no-commit-to-branch"]["entry"]
+    return _normalize(config)["hooks"]["validate-branch-name"]
 
 
-def _pattern_arg(hook: dict[str, Any]) -> str:
-    """The ``--pattern`` regex from a portable no-commit-to-branch args list.
+def _branch_args(config: dict[str, Any]) -> dict[str, str]:
+    """``{flag: value}`` from the hook's ``--flag=value`` argv."""
+    return dict(arg.partition("=")[::2] for arg in _branch_hook(config)["args"])
 
-    The committed YAML artifacts carry the regex as the value following
-    ``--pattern`` in ``args`` (unlike the consumer surface, where git-hooks.nix
-    bakes it into ``entry`` — see ``_branch_guard``).
-    """
-    args = hook["args"]
-    return args[args.index("--pattern") + 1]
+
+def _branch_accepts(config: dict[str, Any], branch: str) -> bool:
+    """True if the hook's rendered argv admits ``branch`` (runs the validator)."""
+    from vig_utils.validate_branch_name import main as validate_branch_name
+
+    return (
+        validate_branch_name([*_branch_hook(config)["args"], f"--branch={branch}"]) == 0
+    )
 
 
 def _diff_hooks(rendered: dict[str, Any], committed: dict[str, Any]) -> str:
@@ -369,6 +373,26 @@ class TestCheckJsonExcludesJsoncBanners:
             assert "renovate" not in exclude, cfg
 
 
+class TestCheckAddedLargeFilesExcludesScaffoldChangelog:
+    """check-added-large-files excludes the scaffold-rendered CHANGELOG.md (#1801).
+
+    The scaffold renders devkit's own CHANGELOG.md into
+    ``.devcontainer/CHANGELOG.md`` (528 KB+ on dev); a fresh consumer's first
+    commit ADDS that file, which ``check-added-large-files``' 500 KB default
+    rejects. The exclude lives in the one shared ``yaml`` (not a scaffold-only
+    override, unlike ``check-json`` above which genuinely differs by surface):
+    devkit's own repo has no ``.devcontainer/`` directory at all, so the
+    identical exclude on the runner render matches nothing there and is an
+    inert no-op — one render, both committed YAMLs.
+    """
+
+    def test_runner_and_scaffold_exclude_the_rendered_changelog(self) -> None:
+        for cfg in (ROOT_CONFIG, SCAFFOLD_CONFIG):
+            hooks = _normalize(yaml.safe_load(cfg.read_text()))["hooks"]
+            exclude = hooks["check-added-large-files"].get("exclude", "")
+            assert re.search(r"\.devcontainer/CHANGELOG\\?\.md", exclude), cfg
+
+
 class TestCommitMsgHookContract:
     """The commit-message validator's shipped argv (Refs #1019).
 
@@ -612,8 +636,8 @@ def trunk_consumer_config() -> dict[str, Any]:
     """Generated config for a trunk-workflow consumer (#1224).
 
     A ``DEVKIT_WORKFLOW=trunk`` workspace has no long-lived ``dev`` branch, so
-    the flake-generated branch guard must drop the ``(?!dev$)`` clause — exactly
-    what ``render_workflow_model`` does to the scaffolded YAML. Mirrors the
+    the flake-generated branch guard must run with ``--workflow=trunk`` — exactly
+    what ``render_branch_guard_model`` does to the scaffolded YAML. Mirrors the
     ``consumer_config`` fixture but threads ``workflow = "trunk"`` (built in
     the same single derivation set, #1417).
     """
@@ -624,37 +648,33 @@ class TestWorkflowModelBranchGuard:
     """The flake-generated branch guard follows DEVKIT_WORKFLOW (#1224).
 
     The scaffolded ``.pre-commit-config.yaml`` is workflow-model-aware
-    (``render_workflow_model`` drops the ``(?!dev$)`` clause for trunk), but a
-    direnv consumer on flake-generated hooks (#1167) gets its guard from
+    (``render_branch_guard_model`` renders ``--workflow``), but a direnv
+    consumer on flake-generated hooks (#1167) gets its guard from
     ``mkProjectShell``. Passing ``workflow`` makes that generated guard mirror
     the scaffold render, so the two artifacts can no longer disagree.
     """
 
-    def test_gitflow_consumer_guards_dev(self, consumer_config: dict[str, Any]) -> None:
-        """The default (gitflow) consumer keeps the dev-branch protect-clause."""
-        entry = _branch_guard(consumer_config)
-        assert "(?!main$)" in entry
-        assert "(?!dev$)" in entry
+    def test_gitflow_consumer_allows_dev(self, consumer_config: dict[str, Any]) -> None:
+        """The default (gitflow) consumer admits the long-lived dev branch."""
+        assert _branch_args(consumer_config)["--workflow"] == "gitflow"
+        assert _branch_accepts(consumer_config, "main")
+        assert _branch_accepts(consumer_config, "dev")
 
-    def test_trunk_consumer_drops_dev_clause(
+    def test_trunk_consumer_rejects_dev(
         self, trunk_consumer_config: dict[str, Any]
     ) -> None:
-        """A trunk consumer drops the ``(?!dev$)`` clause; main stays protected."""
-        entry = _branch_guard(trunk_consumer_config)
-        assert "(?!main$)" in entry
-        assert "(?!dev$)" not in entry
+        """A trunk consumer has no dev branch to commit on; main stays allowed."""
+        assert _branch_args(trunk_consumer_config)["--workflow"] == "trunk"
+        assert _branch_accepts(trunk_consumer_config, "main")
+        assert not _branch_accepts(trunk_consumer_config, "dev")
 
-    def test_trunk_guard_mirrors_scaffold_trunk_render(
+    def test_trunk_guard_differs_only_in_the_workflow_arg(
         self, consumer_config: dict[str, Any], trunk_consumer_config: dict[str, Any]
     ) -> None:
-        """Trunk guard == gitflow guard minus the ``(?!dev$)`` clause.
-
-        The exact parity ``render_workflow_model`` produces on the scaffolded
-        path (a lone ``s|(?!dev$)||`` deletion), proven here on the flake path.
-        """
-        gitflow = _branch_guard(consumer_config)
-        trunk = _branch_guard(trunk_consumer_config)
-        assert trunk == gitflow.replace("(?!dev$)", "")
+        """Trunk argv == gitflow argv with ``--workflow=trunk``, nothing else."""
+        gitflow = _branch_args(consumer_config)
+        trunk = _branch_args(trunk_consumer_config)
+        assert trunk == {**gitflow, "--workflow": "trunk"}
 
     def test_invalid_workflow_is_rejected(self) -> None:
         """An unknown ``workflow`` value is refused loudly at eval time."""
@@ -675,56 +695,92 @@ class TestWorkflowModelBranchGuard:
         assert "workflow" in result.stderr
 
 
-class TestRenovateBranchAllowance:
-    """The default branch guard admits Renovate's tool-owned namespace (#1433).
+class TestBranchNameHook:
+    """One branch-name rule, called by every enforcement point (#1760).
 
-    The Renovate app commits server-side, where local hooks never run — but
-    maintainer fix-up commits on ``renovate/*`` branches (changelog conflict
-    merges, ``dist/`` rebuilds) are a real flow the guard used to block,
-    forcing a commit-on-a-compliant-branch-then-push-to-ref workaround.
-    Renovate branch names carry no issue number and use a charset outside the
-    slug rule (live example: ``renovate/github-actions-(minor-and-patch)``),
-    so the namespace gets its own lookahead clause next to ``worktree/<n>``
-    rather than a ``DEVKIT_BRANCH_TYPES`` value.
-
-    ``no-commit-to-branch`` BLOCKS a branch whose name matches ``--pattern``,
-    so "allowed" asserts the regex does NOT match.
+    The pre-#1760 guard was pre-commit-hooks' ``no-commit-to-branch`` with a
+    negative-lookahead regex, a second hand-kept rendering of the rule CI
+    spelled as a bash alternation — and the two disagreed on shape
+    (``release/X.Y.Z``). Every render now runs vig-utils'
+    ``validate-branch-name``; the shapes live only in the validator.
     """
 
-    ALLOWED = (
+    ACCEPTED = (
+        "main",
+        "dev",
+        "chore/sync-main-to-dev",
+        "feature/1760-validate-branch-name",
+        "worktree/1760",
+        # Renovate's tool-owned namespace (#1433): free-form names.
         "renovate/lock-file-maintenance",
         "renovate/github-actions-(minor-and-patch)",
+        # Release-train branches — the shape the old local regex rejected.
+        "release/1.18.0",
     )
-    BLOCKED = (
-        # Prefix confusion is not the Renovate namespace.
-        "renovated/x",
-        # The guard still bites outside every allowance clause.
-        "random-branch",
-    )
+    REJECTED = ("renovated/x", "random-branch", "feature/no-issue", "master")
 
-    def test_runner_render_allows_renovate_branches(
+    @pytest.mark.parametrize("render", ["runner", "scaffold"])
+    def test_portable_renders_run_the_validator(
+        self, rendered_portable: dict[str, Any], render: str
+    ) -> None:
+        hooks = _normalize(rendered_portable[render])["hooks"]
+        assert "no-commit-to-branch" not in hooks
+        hook = hooks["validate-branch-name"]
+        assert hook["repo"] == "local"
+        assert hook["entry"] == "uv run validate-branch-name"
+        assert hook["language"] == "system"
+        assert hook["always_run"] is True
+        assert hook["pass_filenames"] is False
+        assert hook["stages"] == ["pre-commit"]
+
+    def test_portable_render_ships_the_stock_argv(
         self, rendered_portable: dict[str, Any]
     ) -> None:
-        """The committed runner/scaffold pattern admits renovate/* only."""
-        pattern = _pattern_arg(
-            _normalize(rendered_portable["runner"])["hooks"]["no-commit-to-branch"]
-        )
-        for branch in self.ALLOWED:
-            assert re.match(pattern, branch) is None, f"{branch} must be allowed"
-        for branch in self.BLOCKED:
-            assert re.match(pattern, branch) is not None, f"{branch} must be blocked"
+        """The committed YAMLs carry the unset-knob default, gitflow."""
+        assert _branch_args(rendered_portable["runner"]) == {
+            "--types": "feature,bugfix,hotfix,release,docs,test,refactor",
+            "--issueless-types": "chore",
+            "--workflow": "gitflow",
+        }
 
-    def test_consumer_surface_carries_renovate_allowance(
+    def test_validator_defaults_are_the_hooks_nix_defaults(
+        self, rendered_portable: dict[str, Any]
+    ) -> None:
+        """Devkit's own CI step passes no type sets and relies on this equality."""
+        from vig_utils.validate_branch_name import (
+            DEFAULT_BRANCH_TYPES,
+            DEFAULT_ISSUELESS_TYPES,
+        )
+
+        args = _branch_args(rendered_portable["runner"])
+        assert args["--types"] == ",".join(DEFAULT_BRANCH_TYPES)
+        assert args["--issueless-types"] == ",".join(DEFAULT_ISSUELESS_TYPES)
+
+    def test_stock_argv_semantics(self, rendered_portable: dict[str, Any]) -> None:
+        for branch in self.ACCEPTED:
+            assert _branch_accepts(rendered_portable["runner"], branch), branch
+        for branch in self.REJECTED:
+            assert not _branch_accepts(rendered_portable["runner"], branch), branch
+
+    def test_consumer_surface_matches_the_portable_argv(
+        self, consumer_config: dict[str, Any], rendered_portable: dict[str, Any]
+    ) -> None:
+        """Unset knobs: the generated guard carries the committed argv exactly."""
+        assert (
+            _branch_hook(consumer_config)["args"]
+            == _branch_hook(rendered_portable["runner"])["args"]
+        )
+
+    def test_consumer_entry_resolves_the_pinned_vig_utils(
         self, consumer_config: dict[str, Any]
     ) -> None:
-        """The flake-generated (gitflow) guard carries the same clause."""
-        assert "(?!^renovate/.+$)" in _branch_guard(consumer_config)
-
-    def test_trunk_consumer_keeps_renovate_allowance(
-        self, trunk_consumer_config: dict[str, Any]
-    ) -> None:
-        """The trunk variant drops only the dev clause, never this one."""
-        assert "(?!^renovate/.+$)" in _branch_guard(trunk_consumer_config)
+        hook = _branch_hook(consumer_config)
+        assert hook["entry"].startswith("/nix/store/")
+        assert hook["entry"].endswith("/bin/validate-branch-name")
+        assert hook["always_run"] is True
+        assert hook["pass_filenames"] is False
+        assert hook["stages"] == ["pre-commit"]
+        assert "no-commit-to-branch" not in _normalize(consumer_config)["hooks"]
 
 
 @pytest.fixture(scope="module")
@@ -751,37 +807,34 @@ class TestBranchTypesKnob:
     stay green.
     """
 
-    STOCK_ALTERNATION = "(feature|bugfix|hotfix|release|docs|test|refactor)"
+    STOCK_TYPES = "feature,bugfix,hotfix,release,docs,test,refactor"
 
-    def test_custom_types_extend_alternation(
+    def test_custom_types_render_into_the_types_arg(
         self, branch_types_config: dict[str, Any]
     ) -> None:
-        """The custom set renders into the issue-numbered alternation."""
-        entry = _branch_guard(branch_types_config)
-        assert "(feature|bugfix|hotfix|release|docs|test|refactor|record)" in entry
+        """The custom set renders into ``--types``."""
+        assert _branch_args(branch_types_config)["--types"] == (
+            "feature,bugfix,hotfix,release,docs,test,refactor,record"
+        )
 
-    def test_custom_types_regex_semantics(
-        self, branch_types_config: dict[str, Any]
-    ) -> None:
+    def test_custom_types_semantics(self, branch_types_config: dict[str, Any]) -> None:
         """``record/<issue>-<slug>`` commits pass; issue-less record stays blocked."""
-        pattern = _branch_guard(branch_types_config).split("--pattern ")[1]
-        assert re.match(pattern, "record/54-supplier-x") is None
-        assert re.match(pattern, "record/no-issue") is not None
+        assert _branch_accepts(branch_types_config, "record/54-supplier-x")
+        assert not _branch_accepts(branch_types_config, "record/no-issue")
 
-    def test_null_default_keeps_stock_alternation(
+    def test_null_default_keeps_stock_types(
         self, consumer_config: dict[str, Any]
     ) -> None:
-        """A consumer not passing ``branchTypes`` keeps the stock pattern."""
-        assert self.STOCK_ALTERNATION in _branch_guard(consumer_config)
+        """A consumer not passing ``branchTypes`` keeps the stock set."""
+        assert _branch_args(consumer_config)["--types"] == self.STOCK_TYPES
 
     def test_composes_with_trunk_workflow(
         self, branch_types_trunk_config: dict[str, Any]
     ) -> None:
-        """Custom types and the trunk dev-clause drop apply together."""
-        entry = _branch_guard(branch_types_trunk_config)
-        assert "(feature|bugfix|record)" in entry
-        assert "(?!dev$)" not in entry
-        assert "(?!main$)" in entry
+        """Custom types and the trunk model apply together."""
+        args = _branch_args(branch_types_trunk_config)
+        assert args["--types"] == "feature,bugfix,record"
+        assert args["--workflow"] == "trunk"
 
     @pytest.mark.parametrize(
         "bad_types",
@@ -1237,6 +1290,45 @@ class TestCommitPolicyKnobsOnTheFlakeSurface:
             )
 
 
+class TestIssuelessBranchFormOnTheFlakeSurface:
+    """The branch guard's issue-less clause follows the Refs-optional set (#1767).
+
+    Each type whose ``Refs:`` line is optional gets ``<type>/<summary>``, the
+    old hardcoded ``(chore)`` clause being the default case. ``chore`` is a
+    floor (the bot branches are ``chore/<slug>``) and the ``none`` sentinel is
+    never a prefix. Must resolve exactly like ``render_issueless_branch_types``
+    in ``assets/init-workspace.sh`` and resolve-toolchain's
+    ``issueless-branch-types`` output.
+    """
+
+    def test_default_keeps_the_chore_clause(
+        self, consumer_config: dict[str, Any]
+    ) -> None:
+        assert _branch_args(consumer_config)["--issueless-types"] == "chore"
+
+    def test_named_refs_optional_types_get_the_issueless_form(
+        self, refs_optional_types_config: dict[str, Any]
+    ) -> None:
+        config = refs_optional_types_config
+        assert _branch_args(config)["--issueless-types"] == "chore,record"
+        assert _branch_accepts(config, "record/vendor-datasheet")
+        assert _branch_accepts(config, "chore/foo")
+        assert not _branch_accepts(config, "fix/no-issue")
+
+    def test_required_keeps_chore_as_a_floor(
+        self, refs_required_config: dict[str, Any]
+    ) -> None:
+        # The `none` sentinel is never a branch prefix.
+        assert _branch_args(refs_required_config)["--issueless-types"] == "chore"
+
+    def test_optional_policy_extends_to_every_resolved_type(
+        self, commit_policy_config: dict[str, Any]
+    ) -> None:
+        assert _branch_args(commit_policy_config)["--issueless-types"] == (
+            "chore,feat,fix,docs,refactor,perf,test,ci,build,revert,style,record"
+        )
+
+
 @pytest.fixture(scope="module")
 def default_shellhook() -> str:
     """The shellHook of the flake's own default dev-shell (``hooks = null``)."""
@@ -1283,7 +1375,7 @@ class TestConsumerHooksSurface:
             "ruff",
             "shellcheck",
             "yamllint",
-            "no-commit-to-branch",
+            "validate-branch-name",
             # pymarkdown joins the consumer generation surface once packaged
             # in the flake (#1170) — direnv/bare consumers regain markdown lint.
             "pymarkdown",

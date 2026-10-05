@@ -1,7 +1,7 @@
 # CI Workflow
 #
 # This workflow runs automated tests and linters to validate code quality.
-# Runs on pull requests to dev, release/**, and main branches as a pre-merge gate.
+# Runs on pull requests to any base branch as a pre-merge gate.
 #
 # Jobs:
 #   1. build-image - Build container image
@@ -9,22 +9,23 @@
 #   3. test-integration - Run integration tests
 #   4. project-lint / project-tests / project-bats / project-flake - the four
 #      parallel project lanes (linters, project tests, BATS, flake gates)
+#   4b. consumer-matrix - render consumer variants and run their own gates
 #   5. commit-checks - Commit message + PR title validation (PRs only)
 #   6. security-scan - Container image vulnerability scanning (Trivy)
 #   7. dependency-review - Dependency vulnerability check (PRs only)
 #
 # Triggers:
-#   - Pull requests to dev, release/**, and main (runs all suites)
+#   - Pull requests to any base branch (runs all suites for stacked PRs)
 #   - Manual workflow_dispatch (select specific test suite to run)
 
 name: CI
 
 on:  # yamllint disable-line rule:truthy
   pull_request:
+    # Any base, so a PR stacked on a topic branch is verified too; the
+    # concurrency group cancels superseded runs (#1759).
     branches:
-      - dev
-      - 'release/**'
-      - main
+      - '**'
   workflow_dispatch:
     inputs:
       test-suite:
@@ -289,6 +290,85 @@ jobs:
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
+  # Consumer matrix (#1762). bats checks the RENDERED FILES; this job renders
+  # consumer variants with this PR's assets/init-workspace.sh and runs each
+  # rendered consumer's OWN gates (just lint, just precommit, actionlint,
+  # zizmor, the #1466 declared-language guard), so a variant that renders the
+  # right files but fails when it runs is caught here instead of at RC time or
+  # in a consumer's adoption PR. scripts/consumer-matrix/render-cell.sh is the
+  # single source of the cells and the gates, and runs the same locally.
+  #
+  # ONE job running the cells, not a matrix job per cell: setup-env costs
+  # ~44 s per job while a cell runs in ~2-40 s, so a per-cell matrix would pay
+  # setup eight times over; the cells run concurrently inside the job instead.
+  # Every cell runs whatever another did (the fail-fast: false equivalent) and
+  # each failing cell is named in the job summary.
+  consumer-matrix:
+    name: Consumer Matrix
+    runs-on: ubuntu-26.04
+    # Cold dev-shell build on a Cachix miss, same headroom as the project lanes.
+    timeout-minutes: 15
+    if: |
+      github.event_name != 'workflow_dispatch' ||
+      inputs.test-suite == 'all' ||
+      inputs.test-suite == 'project'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up environment
+        uses: ./.github/actions/setup-env
+        with:
+          # step_script reads the rendered workflows with the project's PyYAML.
+          sync-dependencies: 'true'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      # The rendered hook config fetches the same two remote hook repos as the
+      # template's; key on the template so a hook bump re-warms the cache.
+      - name: Cache prek hooks
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.cache/prek
+          key: prek-consumer-${{ runner.os }}-${{ hashFiles('assets/workspace/.pre-commit-config.yaml') }}
+          restore-keys: |
+            prek-consumer-${{ runner.os }}-
+
+      - name: Render and gate every consumer cell
+        run: |
+          set -uo pipefail
+          # Cells run concurrently (a serial loop measured 221 s, putting the
+          # job level with the BATS/flake lanes on the critical path); each
+          # writes its own log, printed in list order once all have finished.
+          LOGS="$RUNNER_TEMP/consumer-matrix-logs"
+          mkdir -p "$LOGS"
+          mapfile -t CELLS < <(scripts/consumer-matrix/render-cell.sh list)
+          PIDS=()
+          for cell in "${CELLS[@]}"; do
+            scripts/consumer-matrix/render-cell.sh "$cell" > "$LOGS/$cell.log" 2>&1 &
+            PIDS+=("$!")
+          done
+          FAILED=()
+          for i in "${!CELLS[@]}"; do
+            wait "${PIDS[$i]}" || FAILED+=("${CELLS[$i]}")
+          done
+          for cell in "${CELLS[@]}"; do
+            cat "$LOGS/$cell.log"
+          done
+          if [[ ${#FAILED[@]} -gt 0 ]]; then
+            {
+              echo "## Consumer matrix: ${#FAILED[@]} cell(s) FAILED"
+              echo ""
+              printf -- '- %s\n' "${FAILED[@]}"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::consumer-matrix failing cell(s): ${FAILED[*]}"
+            exit 1
+          fi
+          echo "## Consumer matrix: all cells passed" >> "$GITHUB_STEP_SUMMARY"
+
   # Commit-message validation (#1019). `validate-commit-msg` is a commit-msg
   # stage hook, so `prek run --all-files` (the project-lint lane) never runs
   # it — and the only other enforcement path, the local core.hooksPath shim,
@@ -317,35 +397,29 @@ jobs:
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
 
-      # Branch-name gate (#1432 / #1430): the local no-commit-to-branch guard
+      # Branch-name gate (#1432 / #1430): the local validate-branch-name hook
       # depends on core.hooksPath, which a fresh clone does not have — this
       # step is the enforcement point that survives an un-initialised clone
-      # (the repo that defines the standard enforces it on itself). Devkit is
-      # the producer (no .vig-os), so the stock type set is inline; it must
-      # match nix/hooks.nix defaultBranchTypes. The allowed set is a SUPERSET
-      # of the local guard's: automation branches (release trains, Renovate,
-      # the worktree pipeline) never run local hooks but do open PRs. The head
-      # ref is attacker-controlled text, so it reaches the check via env,
-      # never inline ${{ }}.
+      # (the repo that defines the standard enforces it on itself). It runs the
+      # SAME vig-utils validator as the hook (#1760), so the two cannot drift.
+      # Devkit is the producer (no .vig-os), so it passes no type sets: the
+      # validator's stock defaults ARE nix/hooks.nix defaultBranchTypes and the
+      # `chore` floor (pinned by tests/test_flake_hooks.py). The head ref is
+      # attacker-controlled text, so it reaches the check via env, never inline
+      # ${{ }}.
       - name: Validate branch name
         env:
           HEAD_REF: ${{ github.head_ref }}
-          BRANCH_TYPES: feature,bugfix,hotfix,release,docs,test,refactor
         run: |
           set -euo pipefail
-          TYPES_ALTERNATION="${BRANCH_TYPES//,/|}"
-          ALLOWED="^(main|dev)$"
-          ALLOWED+="|^chore/[a-z0-9]+(-[a-z0-9]+)*$"
-          ALLOWED+="|^(${TYPES_ALTERNATION})/[0-9]+-[a-z0-9]+(-[a-z0-9]+)*$"
-          ALLOWED+="|^worktree/[0-9]+$"
-          ALLOWED+="|^renovate/.+$"
-          ALLOWED+="|^release/[0-9]+\.[0-9]+\.[0-9]+$"
-          if printf '%s' "${HEAD_REF}" | grep -qE "${ALLOWED}"; then
-            echo "Branch name OK: ${HEAD_REF}"
-          else
-            echo "::error::Branch name '${HEAD_REF}' does not follow the convention <type>/<issue>-<summary> (types: ${BRANCH_TYPES}) or chore/<summary>. See docs/COMMIT_MESSAGE_STANDARD.md and the branch-naming skill."
+          # The validator's last stderr line is its verdict; surface it as the
+          # step's annotation.
+          if ! err="$(uv run validate-branch-name --branch="${HEAD_REF}" 2>&1 >/dev/null)"; then
+            printf '%s\n' "${err}" >&2
+            echo "::error::${err##*$'\n'}"
             exit 1
           fi
+          echo "Branch name OK: ${HEAD_REF}"
 
       # The PR title is attacker-controlled text, so it reaches the validator as
       # an environment variable — never interpolated into the shell command.
@@ -483,7 +557,7 @@ jobs:
       - name: Generate container SBOM (CycloneDX)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          version: 'v0.74.0'
+          version: 'v0.75.0'
           input: /tmp/image.tar
           format: 'cyclonedx'
           output: 'sbom-cyclonedx.json'
@@ -503,7 +577,7 @@ jobs:
         continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
-          version: 'v0.74.0'
+          version: 'v0.75.0'
           scan-type: 'sbom'
           scan-ref: 'sbom-cyclonedx.json'
           format: 'table'
@@ -585,6 +659,7 @@ jobs:
       - project-tests
       - project-bats
       - project-flake
+      - consumer-matrix
       - commit-checks
       - python-security
       - security-scan
@@ -604,6 +679,7 @@ jobs:
           echo "Project Tests: ${{ needs.project-tests.result }}"
           echo "Project BATS: ${{ needs.project-bats.result }}"
           echo "Project Flake Gates: ${{ needs.project-flake.result }}"
+          echo "Consumer Matrix: ${{ needs.consumer-matrix.result }}"
           echo "Commit Messages: ${{ needs.commit-checks.result }}"
           echo "Python Security: ${{ needs.python-security.result }}"
           echo "Security Scan: ${{ needs.security-scan.result }}"
@@ -651,6 +727,11 @@ jobs:
 
           if [ "${{ needs.project-flake.result }}" = "failure" ] || [ "${{ needs.project-flake.result }}" = "cancelled" ]; then
             echo "ERROR: Project flake gates failed or were cancelled"
+            FAILED=true
+          fi
+
+          if [ "${{ needs.consumer-matrix.result }}" = "failure" ] || [ "${{ needs.consumer-matrix.result }}" = "cancelled" ]; then
+            echo "ERROR: Consumer matrix failed or was cancelled"
             FAILED=true
           fi
 
