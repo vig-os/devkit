@@ -43,6 +43,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Rust adopters are pointed at the Rust pack, not a bare compiler**
+  ([#1831](https://github.com/vig-os/devkit/issues/1831))
+  - `docs/MIGRATION.md` no longer calls `rust` an unshipped candidate module or
+    recommends `extraPackages = [ pkgs.cargo pkgs.rustc ]`; a new "Rust projects:
+    the Rust pack" section covers the new-repo path, porting a repo scaffolded
+    before it was Rust, toolchain pinning, `sandboxExcludes` and the base tool
+    configs. `README.md` and `docs/SOLO_ADOPTION.md` link to it
+  - The scaffold prints a notice when a Rust repo keeps a preserved `flake.nix`
+    that does not use `mkRustProject`, or a `justfile.project` that never runs
+    cargo, naming the doc section that fixes it
+
 ### Deprecated
 
 ### Removed

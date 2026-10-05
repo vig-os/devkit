@@ -1440,6 +1440,33 @@ lang_static_present() {
     return 1
 }
 
+# Name the gap when a Rust repo keeps PRESERVED files that bypass the Rust pack
+# (#1831). flake.nix and justfile.project are only seeded on a first scaffold
+# (seed_language_variant), so a repo that gained its Cargo.toml later, or was
+# scaffolded before #1496, keeps a flake that never reaches lib.mkRustProject
+# (no fmt/clippy/nextest/deny checks) and recipes that never run cargo (`just
+# test` skips, CI stays green). The scaffold must not rewrite either file, so it
+# says what is missing and where the fix is documented. Silent on a fresh
+# scaffold, where the seeds already landed.
+notice_rust_pack_bypass() {
+    local lang is_rust=false
+    for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
+        [[ "$lang" == "rust" ]] && is_rust=true
+    done
+    [[ "$is_rust" == "true" ]] || return 0
+    # Absolute: the consumer repo has no docs/MIGRATION.md of its own.
+    local doc="https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md#rust-projects-the-rust-pack"
+    local flake="$WORKSPACE_DIR/flake.nix" recipes="$WORKSPACE_DIR/justfile.project"
+    if [[ "$FLAKE_PREEXISTED" == "true" && -f "$flake" ]] \
+        && ! grep -q 'mkRustProject' "$flake"; then
+        echo "Notice: this is a Rust repo (Cargo.toml) but flake.nix does not use vigos.lib.mkRustProject, so the Rust pack's checks (fmt, clippy, nextest, doctests, cargo-deny) are not wired. flake.nix is preserved; port it by hand: $doc (#1831)." >&2
+    fi
+    if [[ "$JUSTFILE_PROJECT_PREEXISTED" == "true" && -f "$recipes" ]] \
+        && ! grep -Eq '^[[:space:]]+[^#[:space:]].*\bcargo\b' "$recipes"; then
+        echo "Notice: this is a Rust repo (Cargo.toml) but justfile.project never runs cargo, so \`just lint\` / \`just test\` do not compile or test the crate. justfile.project is preserved; take the cargo recipes by hand: $doc (#1831)." >&2
+    fi
+}
+
 # Render the managed .gitignore as the language-neutral base (already copied
 # from the template) plus one appended fragment per detected language (#1024).
 # The fragments live beside init-workspace.sh in the image ($SCRIPT_DIR), never
@@ -4044,6 +4071,7 @@ fi
 seed_language_variant justfile.d .justfile.project justfile.project "$JUSTFILE_PROJECT_PREEXISTED"
 seed_language_variant flake.d .flake.nix flake.nix "$FLAKE_PREEXISTED"
 seed_language_statics
+notice_rust_pack_bypass
 
 # Render the proprietary LICENSE before the same substitution pass (#1651): the
 # file lands at a template-shipped path, so its {{ORG_NAME}} resolves exactly

@@ -4702,6 +4702,54 @@ _RELEASE_RESOLVERS_991=(
     assert_output '{ outputs = _: { }; }'
 }
 
+# ── a Rust repo whose preserved files bypass the pack is told so (#1831) ─────
+# flake.nix and justfile.project are PRESERVE_FILES, so a repo that was
+# scaffolded before it had a Cargo.toml (or before #1496) keeps a flake that
+# never reaches lib.mkRustProject and recipes that never run cargo. The scaffold
+# cannot rewrite them; it names the gap and the doc section that closes it.
+
+@test "a Rust repo with a preserved non-pack flake.nix is pointed at mkRustProject (#1831)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1831-flake-notice"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf '{ outputs = _: { }; }\n' >"$ws/flake.nix"
+    run _scaffold direnv "$ws"
+    assert_success
+    assert_output --partial 'flake.nix does not use vigos.lib.mkRustProject'
+    assert_output --partial 'docs/MIGRATION.md#rust-projects-the-rust-pack'
+}
+
+@test "a Rust repo with a preserved non-cargo justfile.project is told its recipes skip Rust (#1831)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1831-justfile-notice"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf '# consumer-owned recipes\ntest:\n\t@echo none\n' >"$ws/justfile.project"
+    run _scaffold both "$ws"
+    assert_success
+    assert_output --partial 'justfile.project never runs cargo'
+    assert_output --partial 'docs/MIGRATION.md#rust-projects-the-rust-pack'
+}
+
+@test "a justfile.project that mentions cargo only in a comment still gets the notice (#1831)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1831-justfile-comment"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf '# TODO: switch these to cargo\ntest:\n\t@echo none\n' >"$ws/justfile.project"
+    run _scaffold both "$ws"
+    assert_success
+    assert_output --partial 'justfile.project never runs cargo'
+}
+
+@test "a fresh Rust scaffold gets no bypass notice (#1831)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1831-no-notice"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    run _scaffold direnv "$ws"
+    assert_success
+    refute_output --partial 'does not use vigos.lib.mkRustProject'
+    refute_output --partial 'never runs cargo'
+}
+
 @test "a fresh direnv scaffold of a non-Rust consumer keeps the mkProjectShell flake (#1496)" {
     ws="$BATS_TEST_TMPDIR/e2e-1496-neutral-flake"
     mkdir -p "$ws"
