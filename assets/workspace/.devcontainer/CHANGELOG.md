@@ -21,8 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     dev shell, the `nix flake check` suite (fmt, clippy, nextest, doctests,
     rustdoc, cargo-deny, the package builds) and `packages`, and forwards the
     `.vig-os` hook settings
-  - Base `rustfmt.toml`, `clippy.toml` and `deny.toml` are seeded where the
-    repo has none; they are consumer-owned from then on and never overwritten
+  - Base `rustfmt.toml`, `clippy.toml` and `deny.toml` are seeded when the
+    scaffold adopts Rust (never on an existing Rust consumer's upgrade, where a
+    new `deny.toml` would switch on a check nobody asked for), and never beside
+    an equivalent such as `.rustfmt.toml` or `.cargo/deny.toml`; they are
+    consumer-owned from then on and never overwritten
   - New `nix flake init -t github:vig-os/devkit#rust` starter crate that passes
     the pack's whole check suite as shipped
   - The consumer matrix's `rust` cell now passes, and a new `rust-flake` cell

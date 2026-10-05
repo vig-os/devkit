@@ -40,6 +40,11 @@ _EXTRA_PACKAGES_BLOCK = re.compile(
     r"^ *# ─+\n *# Your project tools go here\..*?^ *\];\n",
     re.DOTALL | re.MULTILINE,
 )
+# The commented hooks opt-in block (#1167's inserted comment refers to it).
+_HOOKS_BLOCK = re.compile(
+    r"^ *# Opt-in: let the flake GENERATE.*?hooksExcludes = \[.*?\n",
+    re.DOTALL | re.MULTILINE,
+)
 # init-workspace.sh's activate_flake_hooks_default anchors on this exact line.
 _HOOKS_ANCHOR = "            extraPackages = extraPackages pkgs;\n"
 _KNOBS = ("workflow", "branchTypes", "commitTypes", "refsPolicy", "refsOptionalTypes")
@@ -67,6 +72,13 @@ class TestRustFlakeLockstep:
         base, rust = BASE_FLAKE.read_text(), RUST_FLAKE.read_text()
         assert _block(_EXTRA_PACKAGES_BLOCK, rust, "rust.flake.nix") == _block(
             _EXTRA_PACKAGES_BLOCK, base, "flake.nix"
+        )
+
+    def test_hooks_opt_in_block_is_identical(self) -> None:
+        """activate_flake_hooks_default's comment says "like the opt-in block below"."""
+        base, rust = BASE_FLAKE.read_text(), RUST_FLAKE.read_text()
+        assert _block(_HOOKS_BLOCK, rust, "rust.flake.nix") == _block(
+            _HOOKS_BLOCK, base, "flake.nix"
         )
 
     def test_carries_the_flake_hooks_anchor_exactly_once(self) -> None:

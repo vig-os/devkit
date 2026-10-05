@@ -16,23 +16,33 @@ yanked = "deny"
 
 [licenses]
 version = 2
-# Permissive licences only. Add a copyleft licence here deliberately, with the
-# reason in a comment, never to make the check pass.
+# The licences common across crates.io that put no copyleft obligation on a
+# binary you ship. MPL-2.0 is file-level copyleft: it obliges you to publish
+# changes to MPL files, not your own code, so it is allowed. Add a strong
+# copyleft licence (GPL, AGPL, LGPL) deliberately, with the reason in a
+# comment, never to make the check pass.
 allow = [
+  "0BSD",
   "Apache-2.0",
   "Apache-2.0 WITH LLVM-exception",
   "BSD-2-Clause",
   "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
   "ISC",
   "MIT",
+  "MIT-0",
+  "MPL-2.0",
   "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "Unlicense",
   "Zlib",
 ]
 confidence-threshold = 0.9
 
 [licenses.private]
 # Workspace crates with `publish = false` are not distributed, so their own
-# licence field is not policed.
+# licence field is not policed. A crate you DO publish needs a `license` field.
 ignore = true
 
 [bans]
@@ -42,5 +52,7 @@ allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"
-unknown-git = "deny"
+# A git dependency is legitimate but unpinned by any registry: surfaced, not
+# fatal. Turn this to "deny" once the repo has none.
+unknown-git = "warn"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]

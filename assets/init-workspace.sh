@@ -847,6 +847,11 @@ if [[ -n "$MANIFEST_LANGUAGES" ]]; then
     done
 fi
 
+# The languages the manifest declared BEFORE this run (#1496): a language not in
+# here is being adopted by this scaffold, which is when its pack's base tool
+# configs are seeded (seed_language_statics).
+MANIFEST_DECLARED_LANGUAGES=(${DECLARED_LANGUAGES[@]+"${DECLARED_LANGUAGES[@]}"})
+
 # Get SHORT_NAME - from env var, manifest, or prompt (#885)
 if [[ -z "${SHORT_NAME:-}" && -n "$MANIFEST_PROJECT" ]]; then
     SHORT_NAME="$MANIFEST_PROJECT"
@@ -1368,26 +1373,61 @@ seed_language_variant() {
     done
 }
 
-# Seed the Rust pack's base tool configs (#1496 L1): every file under
-# $SCRIPT_DIR/lang.d/<lang>/ for each detected language, at the same relative
-# path, ONLY where the workspace has nothing there yet. Scaffold-once: the files
-# are consumer-owned from then on (they are PRESERVE_FILES too, so no later copy
-# reaches them), and #1400 assigns their ownership to the pack, so a
-# guardrails-era deny.toml already in the repo is simply kept. Runs on every
-# (re)scaffold, so a language added later still receives its configs.
+# Seed a language pack's base tool configs (#1496 L1): every file under
+# $SCRIPT_DIR/lang.d/<lang>/, at the same relative path, for each language this
+# run ADOPTS — detected now, not declared in .vig-os before (#1478 has persisted
+# the declaration since 1.9.0, the release the Rust pack shipped in). An
+# existing Rust consumer therefore never receives them on an upgrade: it owns
+# its policy, and a deny.toml dropped into it would silently switch on
+# mkRustProject's `deny` check, which keys on the file's presence. A repo that
+# gains a Cargo.toml later is adopting rust, and does get them.
+#
+# Scaffold-once and never over an equivalent: a file is skipped when the repo
+# already has it under any name the tool reads (lang_static_present). They are
+# PRESERVE_FILES too, so no later copy reaches them, and #1400 assigns their
+# ownership to the pack, so a guardrails-era deny.toml is simply kept.
 seed_language_statics() {
     local lang root src rel
     for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
         root="$SCRIPT_DIR/lang.d/$lang"
         [[ -d "$root" ]] || continue
+        _in_list "$lang" ${MANIFEST_DECLARED_LANGUAGES[@]+"${MANIFEST_DECLARED_LANGUAGES[@]}"} && continue
         while IFS= read -r -d '' src; do
             rel="${src#"$root"/}"
-            path_present "$WORKSPACE_DIR/$rel" && continue
+            lang_static_present "$rel" && continue
             mkdir -p "$(dirname "$WORKSPACE_DIR/$rel")"
             cp "$src" "$WORKSPACE_DIR/$rel"
             echo "Seeding $rel ($lang pack base config, #1496)"
         done < <(find "$root" -type f -print0 | sort -z)
     done
+}
+
+# True when $1 is one of the remaining arguments.
+_in_list() {
+    local needle="$1" item
+    shift
+    for item in "$@"; do
+        [[ "$item" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+# True when the workspace already has tool config $1 (a lang.d relative path)
+# under any name its tool reads: the path itself, its dot-prefixed twin
+# (rustfmt and clippy read .rustfmt.toml / .clippy.toml too), or for deny.toml
+# the .cargo/ location cargo-deny also searches. Seeding beside one of those
+# would leave two configs to disagree.
+lang_static_present() {
+    local rel="$1" dir base
+    dir="$(dirname "$rel")"
+    base="$(basename "$rel")"
+    if [[ "$dir" == "." ]]; then dir=""; else dir="$dir/"; fi
+    path_present "$WORKSPACE_DIR/$rel" && return 0
+    path_present "$WORKSPACE_DIR/$dir.$base" && return 0
+    if [[ "$rel" == "deny.toml" ]] && path_present "$WORKSPACE_DIR/.cargo/deny.toml"; then
+        return 0
+    fi
+    return 1
 }
 
 # Render the managed .gitignore as the language-neutral base (already copied
