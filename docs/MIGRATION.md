@@ -604,7 +604,8 @@ this key a repo that lost its whole Python project still reported a green
   older devkit has it seeded from detection on the adoption scaffold, and a
   language-neutral repo declares nothing and stays green.
 - The declaration drives the gate ONLY. `.gitignore` fragments, the `codeql.yml`
-  language matrix and the Node `justfile.project` seed keep rendering from live
+  language matrix, the Node and Rust `justfile.project` seeds, the Rust
+  `flake.nix` seed and the Rust tool configs keep rendering from live
   detection — divergence between declared and detected is exactly the signal the
   gate exists to surface.
 
@@ -791,19 +792,24 @@ The image stays deliberately minimal — it ships build automation, git/gh,
 language toolchains like Rust, Go, or a C/C++ compiler. Source extra tools
 **on-demand** rather than growing the base image:
 
-- **Per-project flake (preferred, reproducible).** In a `direnv`-mode project,
-  add them to `mkProjectShell`'s `extraPackages` (a plain list):
+- **A shipped language pack, when there is one.** For **Rust**, do not
+  hand-roll `cargo`/`rustc`: use the Rust pack (`vigos.lib.mkRustProject`),
+  which brings the pinned toolchain *and* the check suite. See
+  [Rust projects: the Rust pack](#rust-projects-the-rust-pack). For a C/C++
+  toolchain, enable the `native` module
+  ([The native-build contract](#the-native-build-contract)).
+- **Per-project flake (preferred, reproducible) for ad-hoc tools.** In a
+  `direnv`-mode project, add them to `mkProjectShell`'s `extraPackages` (a
+  plain list):
 
   ```nix
   vigos.lib.mkProjectShell {
     inherit pkgs;
-    extraPackages = [ pkgs.cargo pkgs.rustc pkgs.pkg-config pkgs.openssl ];
+    extraPackages = [ pkgs.protobuf pkgs.pkg-config pkgs.openssl ];
   };
   ```
 
-  or bring your own pinned toolchain (e.g. a `rust-overlay`) in the project
-  `flake.nix`. This is pinned, reproducible, and shared by `direnv`, `nix
-  develop`, and CI.
+  This is pinned, reproducible, and shared by `direnv`, `nix develop`, and CI.
 - **Ad-hoc inside the image.** The baked Nix has `nix-command`/`flakes` enabled,
   so `nix shell nixpkgs#<pkg> -c …` and `nix develop` work out of the box,
   including local builds. Good for one-offs; not a substitute for a pinned
@@ -849,8 +855,10 @@ tiered contract:
 
    Capability modules are a **dev-shell / direnv-mode feature only**: enabling
    one changes nothing about the published image, which stays base-only.
-   `native` is the only module shipped today; `geant4`, `rust`,
-   `fortran`/`f2py`, and `root` are named candidates gated on a concrete
+   Shipped today: `native`, `node`, `docs`, `guardrails` and `rust`. `rust` is
+   meant to be used through `lib.mkRustProject`, not bare
+   ([Rust projects: the Rust pack](#rust-projects-the-rust-pack)). `geant4`,
+   `fortran`/`f2py` and `root` are named candidates gated on a concrete
    consumer ask.
 
 3. **Native deps, `devcontainer` mode (middle path).** No direnv migration
@@ -934,6 +942,125 @@ The published image will **not** ship gcc/cmake:
 The in-image behavior when no toolchain is provided is tracked in
 [#879](https://github.com/vig-os/devkit/issues/879); the toolchain
 itself always comes from one of the tiers above.
+
+## Rust projects: the Rust pack
+
+The Rust pack is devkit's supported way to build a Rust repo
+([#1400](https://github.com/vig-os/devkit/issues/1400),
+[#1496](https://github.com/vig-os/devkit/issues/1496)). One call,
+`vigos.lib.mkRustProject`, returns the dev shell, the `nix flake check` suite
+and the `packages` together:
+
+| `checks.<system>.*` | what it runs |
+| --- | --- |
+| `fmt` | `cargo fmt --check` |
+| `clippy` | `cargo clippy --all-targets` with warnings denied |
+| `nextest` | `cargo nextest run` (minus `sandboxExcludes`, below) |
+| `doctest` | `cargo test --doc` (nextest cannot run doctests) |
+| `doc` | `cargo doc` with warnings denied (broken intra-doc links) |
+| `deny` | `cargo deny check bans licenses sources`, when `deny.toml` exists |
+| `<crate>` / `workspace` | the package build itself, `cargo auditable` by default |
+
+Hand-adding `pkgs.cargo`/`pkgs.rustc` to `extraPackages` gives you a compiler
+and none of that: CI then compiles nothing and reports success.
+
+### A new Rust repo
+
+Start from the template, then scaffold devkit on top:
+
+```bash
+mkdir my-crate && cd my-crate && git init
+nix flake init -t github:vig-os/devkit#rust
+curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --mode direnv .
+```
+
+The order matters: the scaffold detects `Cargo.toml` and then seeds
+
+- a `flake.nix` on `mkRustProject` (direnv and `both` modes), forwarding the
+  `.vig-os` hook settings like the stock flake does;
+- a cargo `justfile.project`: `just lint` is rustfmt plus clippy with warnings
+  denied, `just test` is `cargo test --workspace` (doctests included), and
+  `just sync` is `cargo fetch`;
+- base `rustfmt.toml`, `clippy.toml` and `deny.toml`.
+
+An existing Rust repo adopting devkit gets the same three on its first
+scaffold, because its `Cargo.toml` is already there (the flake only when the
+repo has no `flake.nix` of its own yet). The template
+is just a starter crate that already passes the whole suite.
+
+### A repo that was scaffolded before it was Rust
+
+`flake.nix` and `justfile.project` are preserved files, so they are only
+seeded on the **first** scaffold. A repo that gained its `Cargo.toml` later, or
+was scaffolded before devkit shipped the seeds, keeps its old ones, and the
+scaffold prints a notice naming each. The base tool configs are still seeded
+on the next `install.sh --force`, wherever the repo has none.
+
+Port the two files by hand:
+
+- **`flake.nix`**: take
+  [`assets/flake.d/rust.flake.nix`](../assets/flake.d/rust.flake.nix) and
+  carry over your `extraPackages` and `hooks`. Its `.vig-os` reader block is
+  identical to the stock flake's, so only the `outputs` change: a
+  `rust = vigos.lib.mkRustProject { … };` binding, then
+  `devShells.default = rust.devShell;` and `inherit (rust) checks packages;`.
+- **`justfile.project`**: take the recipes from
+  [`assets/justfile.d/rust.justfile.project`](../assets/justfile.d/rust.justfile.project)
+  (`lint`, `test`, `sync` at least; `ci.yml` calls them in every mode).
+
+### Pinning the toolchain
+
+Without a `rust-toolchain.toml` the pack builds with the pinned nixpkgs Rust.
+Once you add one, `mkRustProject` builds with exactly that toolchain (dev shell
+and checks alike) and needs its content hash:
+
+```nix
+rust = vigos.lib.mkRustProject {
+  inherit pkgs;
+  src = ./.;
+  toolchainHash = pkgs.lib.fakeHash; # build once; use the `got:` hash it prints
+};
+```
+
+The evaluation error spells out the same steps. The hash changes whenever the
+channel or the component list in `rust-toolchain.toml` does, and the same error
+tells you.
+
+### Tests the Nix sandbox cannot run
+
+`checks.nextest` runs inside the Nix build sandbox: no PTY, no process-group or
+signal control, no network, no writable `$HOME`, and on darwin stricter still.
+Exclude such tests from the sandboxed check with nextest filter expressions
+([#1834](https://github.com/vig-os/devkit/issues/1834)):
+
+```nix
+rust = vigos.lib.mkRustProject {
+  inherit pkgs;
+  src = ./.;
+  sandboxExcludes = [ "test(pty_)" "binary(supervisor)" ];
+};
+```
+
+They are skipped by `checks.nextest` only. `just test` runs `cargo test
+--workspace` outside the sandbox, and CI runs `just test`, so the excluded
+tests still gate every PR. Prefer this to `nextest = false`, which also drops
+every test the sandbox *can* run.
+
+### The base tool configs
+
+The seeded `rustfmt.toml`, `clippy.toml` and `deny.toml` are a starting point,
+yours from the first commit: an upgrade never overwrites them. `deny.toml`
+turns the `deny` check on; its licence allow-list is permissive-only and
+ignores `publish = false` crates. Advisories are not in the sandboxed check
+(they need the network), so run `cargo deny check advisories` in CI or by hand.
+Lint *levels* belong in `Cargo.toml`'s `[lints]` / `[workspace.lints]` (the
+template shows the shape); `clippy.toml` only tunes how lints behave.
+
+Every `mkRustProject` argument (`crates`, `cargoExtraArgs`, `tools`,
+`crateOverrides`, the performance ratchet, …) is documented at the top of
+[`nix/mk-rust-project.nix`](../nix/mk-rust-project.nix). For Renovate, add
+`cargo` to a preserved `renovate.json`
+([below](#renovate-add-cargo-to-a-rust-repos-renovatejson)).
 
 ## Customizing pre-commit hooks from the project flake (opt-in)
 

@@ -239,6 +239,10 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 
 > The image provides Python + uv, but the scaffold is **language-neutral** and ships no `pyproject.toml`. Add a Python package layout on demand with `nix flake init -t github:vig-os/devcontainer#python`.
 
+### **Rust**
+
+> A repo with a `Cargo.toml` gets the **Rust pack** on its first scaffold: a `flake.nix` on `vigos.lib.mkRustProject` (dev shell plus a `nix flake check` suite of fmt, clippy, nextest, doctests, rustdoc and cargo-deny), cargo `just lint` / `just test` recipes, and base `rustfmt.toml` / `clippy.toml` / `deny.toml`. Start a new crate with `nix flake init -t github:vig-os/devkit#rust`. See [Rust projects: the Rust pack](docs/MIGRATION.md#rust-projects-the-rust-pack).
+
 ### **Development Tools**
 
 - **pre-commit** - Git hook framework for code quality
