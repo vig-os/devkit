@@ -835,8 +835,7 @@
       #     crates = [ "my-cli" ];
       #   };
       #   devShells.default = rust.devShell;
-      #   checks = rust.checks;
-      #   packages = rust.packages;
+      #   inherit (rust) checks packages;
       # ---------------------------------------------------------------------
       mkRustProject = import ./nix/mk-rust-project.nix {
         inherit mkProjectShell crane fenix;
@@ -1897,23 +1896,37 @@
         ];
       };
 
-      # `nix flake init -t github:vig-os/devcontainer#personal` scaffolds a
-      # ~40-line personal flake importing the vigos.* modules. NOT in the
-      # deadnix/statix scope: like the workspace scaffold, the template keeps
-      # idiomatic possibly-unused args. Refs #827.
-      templates.personal = {
-        path = ./templates/personal;
-        description = "Personal home-manager flake importing the vigOS home modules";
-      };
+      templates = {
+        # `nix flake init -t github:vig-os/devcontainer#personal` scaffolds a
+        # ~40-line personal flake importing the vigos.* modules. NOT in the
+        # deadnix/statix scope: like the workspace scaffold, the template keeps
+        # idiomatic possibly-unused args. Refs #827.
+        personal = {
+          path = ./templates/personal;
+          description = "Personal home-manager flake importing the vigOS home modules";
+        };
 
-      # `nix flake init -t github:vig-os/devcontainer#python` restores an opt-in
-      # Python package layout (pyproject + src/ + pytest) onto the now
-      # language-neutral scaffold (#929). `nix flake init -t` does no token
-      # substitution, so the template uses a concrete `example_pkg` the user
-      # renames (see templates/python/README.md). Refs #930.
-      templates.python = {
-        path = ./templates/python;
-        description = "Opt-in Python project starter (pyproject + src/ + pytest)";
+        # `nix flake init -t github:vig-os/devcontainer#python` restores an opt-in
+        # Python package layout (pyproject + src/ + pytest) onto the now
+        # language-neutral scaffold (#929). `nix flake init -t` does no token
+        # substitution, so the template uses a concrete `example_pkg` the user
+        # renames (see templates/python/README.md). Refs #930.
+        python = {
+          path = ./templates/python;
+          description = "Opt-in Python project starter (pyproject + src/ + pytest)";
+        };
+
+        # `nix flake init -t github:vig-os/devkit#rust` is the Rust pack's entry
+        # point (#1496, L7): a crate that passes mkRustProject's whole check
+        # suite as shipped (tests/test_rust_scaffold.py builds it). Run it
+        # BEFORE install.sh: the scaffold then detects Cargo.toml and seeds the
+        # mkRustProject flake.nix, the cargo justfile.project and the base
+        # rustfmt/clippy/deny configs. Same no-substitution rule as #python, so
+        # the crate is named `example` (see templates/rust/README.md).
+        rust = {
+          path = ./templates/rust;
+          description = "Rust crate starter for the vigOS Rust pack (Cargo.toml + lockfile + lib/bin + tests)";
+        };
       };
     };
 }

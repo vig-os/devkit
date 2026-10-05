@@ -1,5 +1,5 @@
 {
-  description = "Project development environment (vigOS toolchain).";
+  description = "Rust project: development environment, checks and packages (vigOS toolchain).";
 
   # Downstream repos consume the shared toolchain as a flake INPUT, so updating
   # the dev environment means bumping that input — it never overwrites your
@@ -115,14 +115,31 @@
         # Absent/blank forwards null (= the policy decides); a value outside
         # the approved types fails eval loudly in mkProjectShell.
         refsOptionalTypes = vigOsList "DEVKIT_REFS_OPTIONAL_TYPES";
-      in
-      {
-        # The dev shell = the shared vigOS toolchain + your extras.
-        # `direnv allow` (via .envrc) or `nix develop` enters it.
-        devShells.default = vigos.lib.mkProjectShell (
+
+        # The Rust pack (#1400, #1496): ONE call builds the dev shell, the
+        # check suite and the packages from this repo's Cargo workspace.
+        # Seeded on the first direnv scaffold of a repo with a Cargo.toml;
+        # like the rest of this file it is yours, and upgrades never overwrite
+        # it. Every argument mkRustProject takes is documented at the top of
+        # https://github.com/vig-os/devkit/blob/main/nix/mk-rust-project.nix
+        rust = vigos.lib.mkRustProject (
           {
             inherit pkgs;
+            src = ./.;
             extraPackages = extraPackages pkgs;
+
+            # Common knobs, all optional:
+            #
+            #   crates = [ "my-cli" ];         # one package/check per crate;
+            #                                  # null builds the workspace default
+            #   toolchainHash = "sha256-…";    # required once you add a
+            #                                  # rust-toolchain.toml (the eval
+            #                                  # error says how to get it)
+            #   cargoExtraArgs = "--all-features";
+            #   sandboxExcludes = [ "test(pty_)" ]; # tests the Nix sandbox
+            #                                  # cannot run; `just test` still
+            #                                  # runs them (#1834)
+            #   tools = [ "nextest" "deny" "llvm-cov" "@perf" ];
 
             # Opt-in: let the flake GENERATE .pre-commit-config.yaml from the
             # shared base hook set instead of hand-managing the scaffolded
@@ -151,28 +168,35 @@
           }
           # Forwarded only when the resolved devkit accepts it (#1249): the vigos
           # input floats to main, which may predate the argument; older builders
-          # then fall back to their gitflow default instead of failing eval.
-          // nixpkgs.lib.optionalAttrs (builtins.functionArgs vigos.lib.mkProjectShell ? workflow) {
+          # then fall back to their defaults instead of failing eval.
+          // nixpkgs.lib.optionalAttrs (builtins.functionArgs vigos.lib.mkRustProject ? workflow) {
             # Branch guard follows the workspace workflow model (#1224).
             inherit workflow;
           }
-          // nixpkgs.lib.optionalAttrs (builtins.functionArgs vigos.lib.mkProjectShell ? branchTypes) {
-            # Branch guard follows the workspace branch-type set (#1432).
+          // nixpkgs.lib.optionalAttrs (builtins.functionArgs vigos.lib.mkRustProject ? branchTypes) {
+            # Branch guard follows the workspace branch-type set (#1432, #1810).
             inherit branchTypes;
           }
-          // nixpkgs.lib.optionalAttrs (builtins.functionArgs vigos.lib.mkProjectShell ? commitTypes) {
-            # validate-commit-msg follows the workspace commit-type set (#1431).
+          // nixpkgs.lib.optionalAttrs (builtins.functionArgs vigos.lib.mkRustProject ? commitTypes) {
+            # validate-commit-msg follows the workspace commit-type set (#1431, #1810).
             inherit commitTypes;
           }
-          // nixpkgs.lib.optionalAttrs (builtins.functionArgs vigos.lib.mkProjectShell ? refsPolicy) {
-            # validate-commit-msg follows the workspace Refs policy (#1282).
+          // nixpkgs.lib.optionalAttrs (builtins.functionArgs vigos.lib.mkRustProject ? refsPolicy) {
+            # validate-commit-msg follows the workspace Refs policy (#1282, #1810).
             inherit refsPolicy;
           }
-          // nixpkgs.lib.optionalAttrs (builtins.functionArgs vigos.lib.mkProjectShell ? refsOptionalTypes) {
-            # validate-commit-msg follows the workspace exempt set (#1633).
+          // nixpkgs.lib.optionalAttrs (builtins.functionArgs vigos.lib.mkRustProject ? refsOptionalTypes) {
+            # validate-commit-msg follows the workspace exempt set (#1633, #1810).
             inherit refsOptionalTypes;
           }
         );
+      in
+      {
+        # `direnv allow` (via .envrc) or `nix develop` enters the shell;
+        # `nix flake check` runs fmt, clippy, nextest, doctests, rustdoc,
+        # cargo-deny (when deny.toml exists) and the package builds.
+        devShells.default = rust.devShell;
+        inherit (rust) checks packages;
 
         # Opt-in local dev services (#795): a daemonless process-compose stack
         # (Postgres, SeaweedFS/S3, Redis, …) with service versions from the

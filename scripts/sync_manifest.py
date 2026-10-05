@@ -266,7 +266,29 @@ _SEED_BANNERS: dict[str, tuple[str, str]] = {
     # justfile.project (a PRESERVE_FILE), replacing the uv template that already
     # carries the preserved banner — so this seed must carry it too (#1055).
     "assets/justfile.d/node.justfile.project": ("justfile.project", "hash"),
+    # The Rust variant of the same seed (#1496).
+    "assets/justfile.d/rust.justfile.project": ("justfile.project", "hash"),
 }
+
+# Per-language tool configs (#1496 L1): every file under assets/lang.d/<lang>/
+# seeds the same relative path in a consumer, so the target is derived from the
+# layout rather than listed — a new config file is covered by adding it.
+_LANG_D = "assets/lang.d"
+
+
+def _seed_targets(project_root: Path) -> dict[str, tuple[str, str]]:
+    """``_SEED_BANNERS`` plus one entry per bannerable lang.d file."""
+    targets = dict(_SEED_BANNERS)
+    lang_d = project_root / _LANG_D
+    if lang_d.is_dir():
+        for path in sorted(lang_d.glob("*/**/*")):
+            if not path.is_file():
+                continue
+            target = path.relative_to(lang_d).as_posix().split("/", 1)[1]
+            style = _banner_style(target)
+            if style is not None:
+                targets[path.relative_to(project_root).as_posix()] = (target, style)
+    return targets
 
 
 def apply_seed_banners(project_root: Path, preserve_files: set[str]) -> None:
@@ -277,7 +299,7 @@ def apply_seed_banners(project_root: Path, preserve_files: set[str]) -> None:
     the repo (the seed is a committed install-time input) and idempotent, so the
     sync-manifest hook regenerates it and fails on any hand-edit or omission.
     """
-    for rel, (target, style) in _SEED_BANNERS.items():
+    for rel, (target, style) in _seed_targets(project_root).items():
         path = project_root / rel
         if not path.is_file():
             continue

@@ -153,6 +153,13 @@ PRESERVE_FILES=(
     # ships none (#929); a Python consumer brings their own (e.g. via the opt-in
     # `nix flake init -t ...#python` template, #930), and it is preserved here.
     "pyproject.toml"
+    # The Rust pack's base tool configs (#1496 L1): seeded once from
+    # lang.d/rust/ by seed_language_statics, consumer-owned from then on —
+    # rustfmt/clippy/deny policy is per-repo (#1400's ~30% deliberate
+    # divergence), so an upgrade must never reset it.
+    "rustfmt.toml"
+    "clippy.toml"
+    "deny.toml"
     # The consumer owns its hook configuration (#878): repos carry repo-specific
     # global/per-hook `exclude:` patterns (data tables, generated files, PEM
     # marker literals) that a template overwrite silently destroyed — the hook
@@ -840,6 +847,11 @@ if [[ -n "$MANIFEST_LANGUAGES" ]]; then
     done
 fi
 
+# The languages the manifest declared BEFORE this run (#1496): a language not in
+# here is being adopted by this scaffold, which is when its pack's base tool
+# configs are seeded (seed_language_statics).
+MANIFEST_DECLARED_LANGUAGES=(${DECLARED_LANGUAGES[@]+"${DECLARED_LANGUAGES[@]}"})
+
 # Get SHORT_NAME - from env var, manifest, or prompt (#885)
 if [[ -z "${SHORT_NAME:-}" && -n "$MANIFEST_PROJECT" ]]; then
     SHORT_NAME="$MANIFEST_PROJECT"
@@ -926,7 +938,7 @@ infer_legacy_mode() {
     if [[ "$has_devc" == "true" && "$has_direnv" == "true" ]]; then
         MODE="both"
         if [[ -f "$WORKSPACE_DIR/flake.nix" ]] \
-            && ! grep -q 'vigos.lib.mkProjectShell' "$WORKSPACE_DIR/flake.nix" 2>/dev/null; then
+            && ! grep -Eq 'vigos\.lib\.mk(ProjectShell|RustProject)' "$WORKSPACE_DIR/flake.nix" 2>/dev/null; then
             echo "Note: flake.nix does not look like the scaffold stub (consumer-authored?);"
             echo "      resolving the ambiguity to the wider mode. Your flake.nix/.envrc are"
             echo "      preserved files and stay untouched (#859)."
@@ -1272,6 +1284,86 @@ if find "$WORKSPACE_DIR" \
     DETECTED_LANGUAGES+=("nix")
 fi
 
+# The rules render_gitignore appends to the template base, printed: one
+# fragment per detected language (#1024), then the consumer's .gitignore.project.
+# Shared with preflight_untracked_guard (#1826), which must judge untracked
+# paths against exactly the .gitignore this run writes.
+#
+# Consumer-owned durable root ignores (#1092): .gitignore.project is a
+# PRESERVE_FILE — the only committed home git honors for repo-ROOT ignores,
+# since git reads root ignores solely from this regenerated root .gitignore.
+# It goes LAST so consumer entries survive every regeneration.
+emit_gitignore_additions() {
+    local lang frag proj="$WORKSPACE_DIR/.gitignore.project"
+    for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
+        frag="$SCRIPT_DIR/gitignore.d/$lang.gitignore"
+        if [[ -f "$frag" ]]; then
+            printf '\n'
+            cat "$frag"
+        fi
+    done
+    if [[ -f "$proj" ]]; then
+        printf '\n'
+        cat "$proj"
+    fi
+}
+
+# True when the generated .pre-commit-config.yaml must be ignored (#1092): it is
+# already a /nix/store symlink, or this run defaults to / keeps flake-generated
+# hooks (FLAKE_HOOKS_DEFAULT #1167, FLAKE_HOOKS_CONSUMER #1255).
+flake_hooks_ignore_wanted() {
+    local pcc="$WORKSPACE_DIR/.pre-commit-config.yaml"
+    { [[ -L "$pcc" ]] && readlink "$pcc" | grep -q '/nix/store/'; } \
+        || [[ "${FLAKE_HOOKS_DEFAULT:-false}" == "true" ]] \
+        || [[ "${FLAKE_HOOKS_CONSUMER:-false}" == "true" ]]
+}
+
+# ── upgrade preflight, untracked half (#1826) ──────────────────────────────────
+# install.sh refuses tracked changes host-side, but forwards UNTRACKED paths
+# here (DEVKIT_PREFLIGHT_UNTRACKED, one per line, directories with a trailing
+# slash). Build output such as a Rust repo's target/ is often untracked only
+# because the fragment that ignores it arrives WITH this upgrade, and only this
+# side knows the fragments and the detected languages. Each path is matched
+# against the root .gitignore this run will write — the template base, the
+# detected languages' gitignore.d fragments and .gitignore.project, exactly as
+# render_gitignore assembles it, via the same helpers — using git's own matcher
+# in a scratch repo
+# (the workspace's .git may be an unmounted worktree pointer). Covered paths
+# are named and left in place; any other path refuses the upgrade here, before
+# the first file is written. Unset (fresh install, CI, --skip-preflight): no-op.
+preflight_untracked_guard() {
+    [[ -n "${DEVKIT_PREFLIGHT_UNTRACKED:-}" ]] || return 0
+    local probe path
+    local -a covered=() uncovered=()
+    probe="$(mktemp -d)"
+    git -C "$probe" init -q
+    {
+        if [[ -f "$TEMPLATE_DIR/.gitignore" ]]; then cat "$TEMPLATE_DIR/.gitignore"; fi
+        emit_gitignore_additions
+        if flake_hooks_ignore_wanted; then printf '\n.pre-commit-config.yaml\n'; fi
+    } >"$probe/.gitignore"
+    while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        if git -C "$probe" check-ignore -q --no-index -- "$path"; then
+            covered+=("$path")
+        else
+            uncovered+=("$path")
+        fi
+    done <<<"$DEVKIT_PREFLIGHT_UNTRACKED"
+    rm -rf "$probe"
+    if ((${#uncovered[@]} > 0)); then
+        echo "Error: preflight: refusing to upgrade on a dirty tree." >&2
+        echo "  These untracked paths are not ignored by the upgraded .gitignore either, so they would end up in the upgrade's diff. Commit, remove or ignore them first (.gitignore.project is the durable home for repo ignores):" >&2
+        printf '    %s\n' "${uncovered[@]}" >&2
+        echo "  Re-run install.sh with --allow-untracked to leave them as they are, or --skip-preflight to bypass the guard." >&2
+        exit 1
+    fi
+    if ((${#covered[@]} > 0)); then
+        echo "preflight: untracked build output the upgraded .gitignore will ignore, left in place: ${covered[*]}"
+    fi
+}
+preflight_untracked_guard
+
 # ── declared languages: seed from detection, never narrow (#1478) ─────────────
 # DETECTED_LANGUAGES above is live truth and keeps driving every scaffold render
 # (.gitignore fragments, codeql.yml's language matrix, the Node justfile.project
@@ -1320,33 +1412,139 @@ for lang in ${DECLARED_LANGUAGES[@]+"${DECLARED_LANGUAGES[@]}"}; do
     fi
 done
 
-# Seed npm-mapped justfile.project recipes on the FIRST scaffold of a Node
-# consumer (#1027). justfile.project is a PRESERVE_FILE: the stock template
-# ships uv/pyproject recipes, so a Node repo's `just sync` / `just test` (which
-# ci.yml calls in every mode) would no-op against `uv`. When `node` is detected
-# AND the consumer had no justfile.project before this scaffold (the template
-# copy above just placed the default), replace that fresh default with the Node
-# seed — `sync` = `npm ci`, plus lint/test/build (tsc)/bundle (ncc). Guarded on
-# JUSTFILE_PROJECT_PREEXISTED so an EXISTING consumer-owned justfile.project is
-# NEVER touched (same preserve semantics as the #877 repair path). The seed
-# lives beside init-workspace.sh in the image ($SCRIPT_DIR), so it is an
-# install-time input; it carries the same {{SHORT_NAME}} token the template
-# does and is placed BEFORE the substitution pass so that pass resolves it. A
-# full replacement (not an append like the .gitignore fragments): appending npm
-# recipes onto the uv template would redeclare recipe names and break `just`.
-seed_node_justfile_project() {
-    local seed="$SCRIPT_DIR/justfile.d/node.justfile.project"
-    local dst="$WORKSPACE_DIR/justfile.project"
-    # Only on a first scaffold (never over a consumer-owned file) of a Node repo.
-    [[ "$JUSTFILE_PROJECT_PREEXISTED" == "true" ]] && return 0
-    [[ -f "$seed" && -f "$dst" ]] || return 0
-    local lang is_node=false
+# Replace a freshly-copied template file with a per-language variant on a FIRST
+# scaffold (#1027 Node justfile.project, #1496 Rust justfile.project and
+# flake.nix). Both targets are PRESERVE_FILES whose stock template is shaped for
+# another language: the uv/pyproject justfile.project no-ops `just lint|test` in
+# a Node or Rust repo (CI then goes green on nothing), and the mkProjectShell
+# flake.nix never reaches the Rust pack's checks. When a detected language
+# ships a variant AND the consumer had no file before this scaffold (the copy
+# above just placed the default), the variant replaces that fresh default.
+# Guarded on the PREEXISTED flag, so an EXISTING consumer-owned file is NEVER
+# touched (same preserve semantics as the #877 repair path).
+#
+#   $1  fragment dir beside this script ($SCRIPT_DIR/$1, an install-time input)
+#   $2  variant suffix: the variant is $SCRIPT_DIR/$1/<lang>$2
+#   $3  workspace-relative target path
+#   $4  "true" when the target existed before this scaffold
+#
+# Languages are tried in DETECTED_LANGUAGES order (VALID_LANGUAGES: python,
+# node, rust, nix), so Node keeps winning over Rust exactly as before #1496.
+# Only one variant can win; a second detected language that also ships one is
+# named, never silently dropped. A full replacement, not an append: appending
+# recipes onto the template would redeclare recipe names and break `just`.
+# Runs BEFORE the substitution pass, so a variant's {{SHORT_NAME}} token is
+# resolved like every other managed file (it sits at a template-shipped path).
+seed_language_variant() {
+    local dir="$1" suffix="$2" rel="$3" preexisted="$4"
+    local dst="$WORKSPACE_DIR/$rel" lang seed chosen=""
+    [[ "$preexisted" == "true" ]] && return 0
+    [[ -f "$dst" ]] || return 0
     for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
-        [[ "$lang" == "node" ]] && is_node=true
+        seed="$SCRIPT_DIR/$dir/$lang$suffix"
+        [[ -f "$seed" ]] || continue
+        if [[ -z "$chosen" ]]; then
+            chosen="$lang"
+            echo "Seeding the $lang $rel for this first scaffold (#1027, #1496)..."
+            cp "$seed" "$dst"
+        else
+            echo "Notice: $lang also ships a $rel variant; the $chosen one was seeded. Merge the $lang parts in by hand." >&2
+        fi
     done
-    [[ "$is_node" == "true" ]] || return 0
-    echo "Seeding npm-mapped justfile.project recipes for the Node consumer (#1027)..."
-    cp "$seed" "$dst"
+}
+
+# Seed a language pack's base tool configs (#1496 L1): every file under
+# $SCRIPT_DIR/lang.d/<lang>/, at the same relative path, for each language this
+# run ADOPTS — detected now, not declared in .vig-os before (#1478 has persisted
+# the declaration since 1.9.0, the release the Rust pack shipped in). An
+# existing Rust consumer therefore never receives them on an upgrade: it owns
+# its policy, and a deny.toml dropped into it would silently switch on
+# mkRustProject's `deny` check, which keys on the file's presence. A repo that
+# gains a Cargo.toml later is adopting rust, and does get them.
+#
+# Scaffold-once and never over an equivalent: a file is skipped when the repo
+# already has it under any name the tool reads (lang_static_present). They are
+# PRESERVE_FILES too, so no later copy reaches them, and #1400 assigns their
+# ownership to the pack, so a guardrails-era deny.toml is simply kept.
+seed_language_statics() {
+    local lang src rel
+    while IFS= read -r -d '' lang && IFS= read -r -d '' src && IFS= read -r -d '' rel; do
+        mkdir -p "$(dirname "$WORKSPACE_DIR/$rel")"
+        cp "$src" "$WORKSPACE_DIR/$rel"
+        echo "Seeding $rel ($lang pack base config, #1496)"
+    done < <(emit_language_statics)
+}
+
+# The configs seed_language_statics will write, as NUL-separated
+# <lang> <source> <relative path> triples: the one decision, shared with the
+# --preview report so the preview never promises (or hides) a different set.
+emit_language_statics() {
+    local lang root src rel
+    for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
+        root="$SCRIPT_DIR/lang.d/$lang"
+        [[ -d "$root" ]] || continue
+        _in_list "$lang" ${MANIFEST_DECLARED_LANGUAGES[@]+"${MANIFEST_DECLARED_LANGUAGES[@]}"} && continue
+        while IFS= read -r -d '' src; do
+            rel="${src#"$root"/}"
+            lang_static_present "$rel" && continue
+            printf '%s\0%s\0%s\0' "$lang" "$src" "$rel"
+        done < <(find "$root" -type f -print0 | sort -z)
+    done
+}
+
+# True when $1 is one of the remaining arguments.
+_in_list() {
+    local needle="$1" item
+    shift
+    for item in "$@"; do
+        [[ "$item" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+# True when the workspace already has tool config $1 (a lang.d relative path)
+# under any name its tool reads: the path itself, its dot-prefixed twin
+# (rustfmt and clippy read .rustfmt.toml / .clippy.toml too), or for deny.toml
+# the .cargo/ location cargo-deny also searches. Seeding beside one of those
+# would leave two configs to disagree.
+lang_static_present() {
+    local rel="$1" dir base
+    dir="$(dirname "$rel")"
+    base="$(basename "$rel")"
+    if [[ "$dir" == "." ]]; then dir=""; else dir="$dir/"; fi
+    path_present "$WORKSPACE_DIR/$rel" && return 0
+    path_present "$WORKSPACE_DIR/$dir.$base" && return 0
+    if [[ "$rel" == "deny.toml" ]] && path_present "$WORKSPACE_DIR/.cargo/deny.toml"; then
+        return 0
+    fi
+    return 1
+}
+
+# Name the gap when a Rust repo keeps PRESERVED files that bypass the Rust pack
+# (#1831). flake.nix and justfile.project are only seeded on a first scaffold
+# (seed_language_variant), so a repo that gained its Cargo.toml later, or was
+# scaffolded before #1496, keeps a flake that never reaches lib.mkRustProject
+# (no fmt/clippy/nextest/deny checks) and recipes that never run cargo (`just
+# test` skips, CI stays green). The scaffold must not rewrite either file, so it
+# says what is missing and where the fix is documented. Silent on a fresh
+# scaffold, where the seeds already landed.
+notice_rust_pack_bypass() {
+    local lang is_rust=false
+    for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
+        [[ "$lang" == "rust" ]] && is_rust=true
+    done
+    [[ "$is_rust" == "true" ]] || return 0
+    # Absolute: the consumer repo has no docs/MIGRATION.md of its own.
+    local doc="https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md#rust-projects-the-rust-pack"
+    local flake="$WORKSPACE_DIR/flake.nix" recipes="$WORKSPACE_DIR/justfile.project"
+    if [[ "$FLAKE_PREEXISTED" == "true" && -f "$flake" ]] \
+        && ! grep -q 'mkRustProject' "$flake"; then
+        echo "Notice: this is a Rust repo (Cargo.toml) but flake.nix does not use vigos.lib.mkRustProject, so the Rust pack's checks (fmt, clippy, nextest, doctests, cargo-deny) are not wired. flake.nix is preserved; port it by hand: $doc (#1831)." >&2
+    fi
+    if [[ "$JUSTFILE_PROJECT_PREEXISTED" == "true" && -f "$recipes" ]] \
+        && ! grep -Eq '^[[:space:]]+[^#[:space:]].*\bcargo\b' "$recipes"; then
+        echo "Notice: this is a Rust repo (Cargo.toml) but justfile.project never runs cargo, so \`just lint\` / \`just test\` do not compile or test the crate. justfile.project is preserved; take the cargo recipes by hand: $doc (#1831)." >&2
+    fi
 }
 
 # Render the managed .gitignore as the language-neutral base (already copied
@@ -1357,24 +1555,7 @@ seed_node_justfile_project() {
 render_gitignore() {
     local gi="$WORKSPACE_DIR/.gitignore"
     [[ -f "$gi" ]] || return 0
-    local lang frag
-    for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
-        frag="$SCRIPT_DIR/gitignore.d/$lang.gitignore"
-        if [[ -f "$frag" ]]; then
-            printf '\n' >>"$gi"
-            cat "$frag" >>"$gi"
-        fi
-    done
-
-    # Consumer-owned durable root ignores (#1092): .gitignore.project is a
-    # PRESERVE_FILE — the only committed home git honors for repo-ROOT ignores,
-    # since git reads root ignores solely from this regenerated root .gitignore.
-    # Append its contents LAST so consumer entries survive every regeneration.
-    local proj="$WORKSPACE_DIR/.gitignore.project"
-    if [[ -f "$proj" ]]; then
-        printf '\n' >>"$gi"
-        cat "$proj" >>"$gi"
-    fi
+    emit_gitignore_additions >>"$gi"
 
     # flake-hooks opt-in seed (#1092): a consumer that opts into flake-generated
     # hooks (hooks = { } in flake.nix) gets .pre-commit-config.yaml installed as
@@ -1390,10 +1571,7 @@ render_gitignore() {
     # shell entry would leave the store symlink dirtying git status.
     # Idempotent: skip when the assembled ignore (incl. .gitignore.project)
     # already lists it.
-    local pcc="$WORKSPACE_DIR/.pre-commit-config.yaml"
-    if { [[ -L "$pcc" ]] && readlink "$pcc" | grep -q '/nix/store/'; } \
-        || [[ "${FLAKE_HOOKS_DEFAULT:-false}" == "true" ]] \
-        || [[ "${FLAKE_HOOKS_CONSUMER:-false}" == "true" ]]; then
+    if flake_hooks_ignore_wanted; then
         if ! grep -qxF '.pre-commit-config.yaml' "$gi"; then
             {
                 printf '\n# flake-hooks opt-in (#1092): the generated'
@@ -1673,7 +1851,7 @@ license_is_stock_apache() {
 }
 
 # Render the proprietary LICENSE when DEVKIT_LICENSE=proprietary (#1651). Called
-# BEFORE the placeholder substitution pass, exactly like seed_node_justfile_project
+# BEFORE the placeholder substitution pass, exactly like seed_language_variant
 # (#1027): the file lands at a template-shipped path, which is exactly the set
 # that pass walks, so {{ORG_NAME}} is resolved alongside every other managed
 # file — no second substitution site.
@@ -3383,6 +3561,21 @@ if [[ "$FORCE" == "true" ]]; then
             done
             echo "─────────────────────────────────────────────────────────────"
         fi
+        # Language pack base configs (#1496) live outside the template, so the
+        # ADDED listing above cannot see them; report them from the same
+        # decision seed_language_statics acts on.
+        _statics_report=""
+        while IFS= read -r -d '' _s_lang && IFS= read -r -d '' _s_src \
+            && IFS= read -r -d '' _s_rel; do
+            _statics_report+="  +  $_s_rel ($_s_lang pack base config)"$'\n'
+        done < <(emit_language_statics)
+        if [[ -n "$_statics_report" ]]; then
+            echo ""
+            echo "Language pack configs that will be SEEDED (yours from then on):"
+            echo "─────────────────────────────────────────────────────────────"
+            printf '%s' "$_statics_report"
+            echo "─────────────────────────────────────────────────────────────"
+        fi
         # Feature opt-outs (#1284): surface the disabled set so the preview is
         # self-explaining — the skipped paths are absent from ADDED above.
         if [[ ${#DISABLED_FEATURES[@]} -gt 0 ]]; then
@@ -3928,12 +4121,17 @@ if [[ "$NO_PROMPTS" != "true" ]]; then
     resolve_github_repository
 fi
 
-# Seed the Node justfile.project on a first scaffold BEFORE the substitution
-# pass below, so the seed's {{SHORT_NAME}} token is resolved like every other
-# managed file (the seed replaces the freshly-copied template at the same path,
-# so it is in the template-derived candidate set the pass walks). No-op for non-Node
-# consumers and for an existing (preserved) justfile.project. Refs #1027.
-seed_node_justfile_project
+# Seed the per-language justfile.project and flake.nix on a first scaffold
+# BEFORE the substitution pass below, so a seed's {{SHORT_NAME}} token is
+# resolved like every other managed file (each seed replaces the freshly-copied
+# template at the same path, so it is in the template-derived candidate set the
+# pass walks). No-op without a variant for the detected languages and for an
+# existing (preserved) file. The flake variant must also land before
+# activate_flake_hooks_default below, which edits it. Refs #1027, #1496.
+seed_language_variant justfile.d .justfile.project justfile.project "$JUSTFILE_PROJECT_PREEXISTED"
+seed_language_variant flake.d .flake.nix flake.nix "$FLAKE_PREEXISTED"
+seed_language_statics
+notice_rust_pack_bypass
 
 # Render the proprietary LICENSE before the same substitution pass (#1651): the
 # file lands at a template-shipped path, so its {{ORG_NAME}} resolves exactly

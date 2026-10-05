@@ -138,6 +138,15 @@ Apache-2.0 `LICENSE`. Set `DEVKIT_LICENSE=none` (devkit manages no license) or
   "no tests collected" (exit 5); "nothing to test" is treated as success, the
   same no-op as a non-Python consumer.
 
+- **Rust repos get the Rust pack, not a bare compiler** ([#1831](https://github.com/vig-os/devkit/issues/1831)).
+  With a `Cargo.toml` present before the first scaffold, the installer seeds a
+  `flake.nix` on `vigos.lib.mkRustProject`, cargo `just lint` / `just test`
+  recipes and base `rustfmt.toml` / `clippy.toml` / `deny.toml`. Do not add
+  `pkgs.cargo` / `pkgs.rustc` to `extraPackages` instead: that gives you a
+  compiler without the check suite, and CI compiles nothing. See [Rust projects:
+  the Rust pack](./MIGRATION.md#rust-projects-the-rust-pack), including how to
+  port a repo that was scaffolded before it had a `Cargo.toml`.
+
 ## Out of scope: a `--profile solo` installer flag
 
 A one-shot installer flag (`--profile solo`) that writes these same manifest

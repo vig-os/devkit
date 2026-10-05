@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-10-03T18:26:43Z
+updated: 2026-10-05T07:30:05Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,20 +13,18 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-10-04T08:17:15.465Z
+synced: 2026-10-05T08:48:22.547Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.<br>[View this repository on the Mend.io Web Portal](https://developer.mend.io/github/vig-os/devkit).
 
-## Awaiting Schedule
+## Other Branches
 
-The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
+The following updates are pending. To force the creation of a PR, click on a checkbox below.
 
- - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update github-actions (minor and patch) (`anchore/sbom-action`, `aquasecurity/trivy`, `vig-os/sync-issues-action`)
- - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
- - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
+ - [ ] <!-- other-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
 
 ## Detected Dependencies
 
@@ -105,8 +103,8 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `ubuntu 26.04`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
- - `aquasecurity/trivy v0.74.0` → [Updates: `v0.75.0`]
- - `aquasecurity/trivy v0.74.0` → [Updates: `v0.75.0`]
+ - `aquasecurity/trivy v0.75.0`
+ - `aquasecurity/trivy v0.75.0`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
 
@@ -257,8 +255,8 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `sigstore/cosign-installer v4.1.2@6f9f17788090df1f26f669e9d70d6ae9567deba6`
  - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
  - `actions/download-artifact v8.0.1@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`
- - `anchore/sbom-action v0.24.2@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26` → [Updates: `v0.24.3`]
- - `anchore/sbom-action v0.24.2@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26` → [Updates: `v0.24.3`]
+ - `anchore/sbom-action v0.24.3@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c`
+ - `anchore/sbom-action v0.24.3@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `actions/attest-build-provenance v4.2.2@4d101475d8b20a2381f78447822ac1eab6504dd8`
  - `actions/attest-build-provenance v4.2.2@4d101475d8b20a2381f78447822ac1eab6504dd8`
@@ -273,7 +271,7 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/github-script v9.0.0@3a2844b7e9c422d3c10d287c895573f7108da1b3`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
- - `aquasecurity/trivy v0.74.0` → [Updates: `v0.75.0`]
+ - `aquasecurity/trivy v0.75.0`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
@@ -307,8 +305,8 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `aquasecurity/trivy-action v0.36.0@ed142fd0673e97e23eac54620cfb913e5ce36c25`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`
  - `ubuntu 26.04`
- - `aquasecurity/trivy v0.74.0` → [Updates: `v0.75.0`]
- - `aquasecurity/trivy v0.74.0` → [Updates: `v0.75.0`]
+ - `aquasecurity/trivy v0.75.0`
+ - `aquasecurity/trivy v0.75.0`
 
 </details>
 
@@ -317,7 +315,7 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
- - `vig-os/sync-issues-action v0.5.0@b62c8eca72f4ee7177caee4f689ee080a5997164` → [Updates: `v0.5.1`]
+ - `vig-os/sync-issues-action v0.5.1@476599474d45b95d0d297ef70aabe6eb3418d978`
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
  - `ubuntu 26.04`
@@ -568,7 +566,7 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
- - `vig-os/sync-issues-action v0.5.0@b62c8eca72f4ee7177caee4f689ee080a5997164` → [Updates: `v0.5.1`]
+ - `vig-os/sync-issues-action v0.5.1@476599474d45b95d0d297ef70aabe6eb3418d978`
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
  - `actions/cache v6.1.0@55cc8345863c7cc4c66a329aec7e433d2d1c52a9`
 

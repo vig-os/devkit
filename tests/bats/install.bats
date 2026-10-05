@@ -433,14 +433,110 @@ _make_repo() {
     assert_output --partial "--skip-preflight"
 }
 
-@test "preflight: --force refuses on an untracked-unignored file (#886)" {
+# Untracked paths are judged INSIDE the container (#1826): build output such as
+# target/ is often untracked only because the ignore fragment that covers it
+# arrives with this very upgrade, and only the image knows the fragments and the
+# detected languages. The host forwards the paths; init-workspace.sh refuses any
+# the upgraded .gitignore will not cover (tests/bats/init-workspace.bats).
+@test "preflight: untracked paths are forwarded to the scaffold's check, not refused host-side (#1826)" {
     repo="$BATS_TEST_TMPDIR/dirty-untracked"
     _make_repo "$repo"
     echo "wip" > "$repo/untracked.txt"
+    mkdir -p "$repo/target/debug"
+    echo "x" > "$repo/target/debug/build"
+    run bash "$INSTALL_SH" --dry-run --force "$repo" </dev/null
+    assert_success
+    assert_output --partial "Would execute:"
+    assert_output --partial "DEVKIT_PREFLIGHT_UNTRACKED="
+    assert_output --partial "untracked.txt"
+    assert_output --partial "target/"
+}
+
+@test "preflight: a tracked change still refuses when untracked build output is present (#1826)" {
+    repo="$BATS_TEST_TMPDIR/dirty-mixed"
+    _make_repo "$repo"
+    echo "v1" > "$repo/file.txt"
+    _git -C "$repo" add file.txt
+    _git -C "$repo" commit -q -m "chore: add file"
+    echo "v2" >> "$repo/file.txt"
+    mkdir -p "$repo/target"
+    echo "x" > "$repo/target/out"
     run bash "$INSTALL_SH" --dry-run --force "$repo" </dev/null
     assert_failure
     assert_output --partial "dirty"
-    assert_output --partial "--skip-preflight"
+    assert_output --partial "file.txt"
+}
+
+@test "preflight: --allow-untracked proceeds and forwards nothing (#1826)" {
+    repo="$BATS_TEST_TMPDIR/allow-untracked"
+    _make_repo "$repo"
+    echo "wip" > "$repo/untracked.txt"
+    run bash "$INSTALL_SH" --dry-run --force --allow-untracked "$repo" </dev/null
+    assert_success
+    assert_output --partial "Would execute:"
+    assert_output --partial "untracked.txt"
+    refute_output --partial "DEVKIT_PREFLIGHT_UNTRACKED="
+}
+
+@test "preflight: --allow-untracked does not excuse a tracked change (#1826)" {
+    repo="$BATS_TEST_TMPDIR/allow-untracked-tracked"
+    _make_repo "$repo"
+    echo "v1" > "$repo/file.txt"
+    _git -C "$repo" add file.txt
+    _git -C "$repo" commit -q -m "chore: add file"
+    echo "v2" >> "$repo/file.txt"
+    run bash "$INSTALL_SH" --dry-run --force --allow-untracked "$repo" </dev/null
+    assert_failure
+    assert_output --partial "dirty"
+}
+
+@test "preflight: an empty untracked directory is not a change (#1826)" {
+    repo="$BATS_TEST_TMPDIR/empty-untracked-dir"
+    _make_repo "$repo"
+    mkdir -p "$repo/data"
+    run bash "$INSTALL_SH" --dry-run --force "$repo" </dev/null
+    assert_success
+    refute_output --partial "DEVKIT_PREFLIGHT_UNTRACKED="
+}
+
+@test "preflight: non-ASCII untracked paths are forwarded verbatim, not C-quoted (#1826)" {
+    repo="$BATS_TEST_TMPDIR/non-ascii-untracked"
+    _make_repo "$repo"
+    echo x >"$repo/café.log"
+    run bash "$INSTALL_SH" --dry-run --force "$repo" </dev/null
+    assert_success
+    # The shown command is printf %q-escaped, so assert on the info line that
+    # lists the forwarded paths: git C-quotes the name as octal escapes.
+    assert_output --partial "    café.log"
+}
+
+@test "preflight: an image that predates the untracked check refuses untracked paths (#1826)" {
+    # A new install.sh pulling an OLD image (--version <old>) must not lose the
+    # #886 untracked guard: the old init-workspace.sh ignores the forwarded list.
+    repo="$BATS_TEST_TMPDIR/old-image"
+    _make_repo "$repo"
+    echo wip >"$repo/notes.txt"
+    local stub="$BATS_TEST_TMPDIR/stub-old-image"
+    mkdir -p "$stub"
+    # `run ... grep -q DEVKIT_PREFLIGHT_UNTRACKED ...` is the capability probe:
+    # fail it, succeed everything else (info, image inspect, the scaffold run).
+    # shellcheck disable=SC2016  # literal stub script
+    printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = DEVKIT_PREFLIGHT_UNTRACKED ] && exit 1; done\nexit 0\n' >"$stub/docker"
+    chmod +x "$stub/docker"
+    run env PATH="$stub:$PATH" bash "$INSTALL_SH" \
+        --docker --skip-pull --force "$repo" </dev/null
+    assert_failure
+    assert_output --partial "predates"
+    assert_output --partial "notes.txt"
+    assert_output --partial "--allow-untracked"
+}
+
+@test "preflight: a clean tree forwards no untracked list (#1826)" {
+    repo="$BATS_TEST_TMPDIR/clean-no-forward"
+    _make_repo "$repo"
+    run bash "$INSTALL_SH" --dry-run --force "$repo" </dev/null
+    assert_success
+    refute_output --partial "DEVKIT_PREFLIGHT_UNTRACKED="
 }
 
 @test "preflight: gitignored clutter does not count as dirty (#886)" {

@@ -19,6 +19,90 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [1.19.0] - TBD
+
+### Added
+
+- **Rust cold adoption: a Cargo repo gets a working Rust setup from the scaffold**
+  ([#1496](https://github.com/vig-os/devkit/issues/1496))
+  - The first scaffold of a repo with a `Cargo.toml` seeds a cargo
+    `justfile.project`: `just lint` runs `cargo fmt --check` and clippy with
+    warnings denied, and `just test` runs `cargo test --workspace`. It used to
+    get the Python recipes, which skip without a `pyproject.toml`, so CI went
+    green without compiling anything
+  - A fresh direnv scaffold of a Rust repo gets a `flake.nix` on
+    `vigos.lib.mkRustProject` instead of `mkProjectShell`: one call wires the
+    dev shell, the `nix flake check` suite (fmt, clippy, nextest, doctests,
+    rustdoc, cargo-deny, the package builds) and `packages`, and forwards the
+    `.vig-os` hook settings
+  - Base `rustfmt.toml`, `clippy.toml` and `deny.toml` are seeded when the
+    scaffold adopts Rust (never on an existing Rust consumer's upgrade, where a
+    new `deny.toml` would switch on a check nobody asked for), and never beside
+    an equivalent such as `.rustfmt.toml` or `.cargo/deny.toml`; they are
+    consumer-owned from then on and never overwritten
+  - New `nix flake init -t github:vig-os/devkit#rust` starter crate that passes
+    the pack's whole check suite as shipped
+  - The consumer matrix's `rust` cell now passes, and a new `rust-flake` cell
+    runs the whole direnv path (`nix flake check`, hooks, `just lint`/`just
+    test` in the flake's shell) on every PR
+
+- **`mkRustProject` `sandboxExcludes` for tests the Nix sandbox cannot run**
+  ([#1834](https://github.com/vig-os/devkit/issues/1834))
+  - A list of nextest filterset expressions (e.g. `[ "test(pty_)" "binary(supervisor)" ]`)
+    that `checks.nextest` skips, for suites that need a PTY, process groups,
+    signals or the network
+  - The excluded tests stay in `just test` and CI; only the sandboxed flake
+    check skips them, so a repo no longer has to choose between
+    `nextest = false` and a red `nix flake check`
+
+### Changed
+
+- **Documented, tested stanza for flakes that consume a devkit project's packages**
+  ([#1832](https://github.com/vig-os/devkit/issues/1832))
+  - New `docs/MIGRATION.md` section "Projects that ship packages to other
+    flakes": the consuming flake builds the package with its own nixpkgs and
+    drops the devkit inputs a package build never reads (`follows = ""`), so
+    its lock shrinks from devkit's whole input tree to `nixpkgs`, `crane`,
+    `fenix` and `flake-utils`
+  - CI builds a Rust project's package through that exact block, and fails if
+    devkit adds an input the stanza does not cover or starts reading one it
+    drops. The scaffolded `flake.nix` keeps following devkit's nixpkgs, and
+    points at the section
+
+- **Rust adopters are pointed at the Rust pack, not a bare compiler**
+  ([#1831](https://github.com/vig-os/devkit/issues/1831))
+  - `docs/MIGRATION.md` no longer calls `rust` an unshipped candidate module or
+    recommends `extraPackages = [ pkgs.cargo pkgs.rustc ]`; a new "Rust projects:
+    the Rust pack" section covers the new-repo path, porting a repo scaffolded
+    before it was Rust, toolchain pinning, `sandboxExcludes` and the base tool
+    configs. `README.md` and `docs/SOLO_ADOPTION.md` link to it
+  - The scaffold prints a notice when a Rust repo keeps a preserved `flake.nix`
+    that does not use `mkRustProject`, or a `justfile.project` that never runs
+    cargo, naming the doc section that fixes it
+
+### Fixed
+
+- **Untracked build output no longer blocks the upgrade that ignores it**
+  ([#1826](https://github.com/vig-os/devkit/issues/1826))
+  - The `install.sh --force` preflight refused any untracked file, so a repo
+    that had just gained a language (a Rust repo with `target/`) could not take
+    the very upgrade that adds its `.gitignore` fragment. Untracked paths are
+    now matched against the `.gitignore` the upgrade will write; covered ones
+    are named and left in place, any other one still refuses, by name
+  - New `--allow-untracked` flag runs the upgrade with untracked files present;
+    tracked changes still refuse
+
+- **`mkRustProject` forwards the `.vig-os` hook settings**
+  ([#1810](https://github.com/vig-os/devkit/issues/1810))
+  - `lib.mkRustProject` accepts `branchTypes`, `commitTypes`, `refsPolicy` and
+    `refsOptionalTypes` and passes them to `mkProjectShell`, so a Rust repo's
+    `DEVKIT_BRANCH_TYPES` / `DEVKIT_COMMIT_TYPES` / `DEVKIT_REFS_POLICY` /
+    `DEVKIT_REFS_OPTIONAL_TYPES` reach the flake-generated branch guard and
+    commit-message hook instead of being silently ignored
+  - A Rust flake no longer has to drop or `# deadnix: skip` the manifest
+    bindings it reads, which made the first commit touching `flake.nix` fail
+    deadnix
+
 ## [1.18.0](https://github.com/vig-os/devkit/releases/tag/1.18.0) - 2026-10-05
 
 ### Added
