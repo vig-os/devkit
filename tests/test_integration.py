@@ -17,7 +17,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-from .conftest import _build_podman_cmd, _load_jsonc, _run_noninteractive_init, dc_exec
+from .conftest import (
+    _build_podman_cmd,
+    _load_jsonc,
+    _run_noninteractive_init,
+    dc_exec,
+    scaffold_files,
+)
 
 # Scaffold sources for content-only assertions (TestVersionCheckScaffold):
 # deployment of these files into a workspace is covered by the structure and
@@ -578,20 +584,8 @@ class TestPlaceholders:
 
     def test_placeholders_replaced(self, initialized_workspace):
         """Test that placeholders are replaced in all asset files."""
-        # Hard-coded list of paths to exclude
-        excluded_paths = [
-            ".pre-commit-cache",
-            ".ruff_cache",
-        ]
-
-        # Find all files recursively, excluding specified paths at iteration level
-        files = (
-            file_path
-            for file_path in initialized_workspace.rglob("*")
-            if file_path.is_file()
-            and not any(
-                excluded_path in file_path.parts for excluded_path in excluded_paths
-            )
+        files = scaffold_files(
+            initialized_workspace, excluded_dirs=(".pre-commit-cache", ".ruff_cache")
         )
 
         # Check each file for placeholders
