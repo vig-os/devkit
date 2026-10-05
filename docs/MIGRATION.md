@@ -1066,6 +1066,64 @@ Every `mkRustProject` argument (`crates`, `cargoExtraArgs`, `tools`,
 `cargo` to a preserved `renovate.json`
 ([below](#renovate-add-cargo-to-a-rust-repos-renovatejson)).
 
+## Projects that ship packages to other flakes
+
+The scaffolded `flake.nix` follows devkit's pinned nixpkgs
+(`nixpkgs.follows = "vigos/nixpkgs"`). That is deliberate: the dev shell, the
+hooks and the image then resolve one tested nixpkgs. A project that also
+exposes `packages` (a Rust CLI built by `mkRustProject`, say) is a flake other
+flakes take as an input, and their lock then carries devkit's whole input
+tree: home-manager twice, the hook generator, the services stack and a second
+nixpkgs, none of which a package build reads
+([#1832](https://github.com/vig-os/devkit/issues/1832)).
+
+The project does not have to change anything. The consuming flake decides,
+with this stanza (replace `my-tool` with the project's input name):
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    my-tool.url = "github:my-org/my-tool";
+
+    # Build my-tool's packages with THIS flake's nixpkgs: one nixpkgs in the
+    # lock, and the package hits the same binary cache as everything else.
+    my-tool.inputs.nixpkgs.follows = "nixpkgs";
+    my-tool.inputs.vigos.inputs.nixpkgs.follows = "nixpkgs";
+
+    # Drop the devkit inputs a package build never reads. `follows = ""` is
+    # Nix's way to empty an input: it is neither locked nor fetched.
+    my-tool.inputs.vigos.inputs.nixpkgs-unstable.follows = "";
+    my-tool.inputs.vigos.inputs.home-manager.follows = "";
+    my-tool.inputs.vigos.inputs.home-manager-unstable.follows = "";
+    my-tool.inputs.vigos.inputs.git-hooks-nix.follows = "";
+    my-tool.inputs.vigos.inputs.treefmt-nix.follows = "";
+    my-tool.inputs.vigos.inputs.process-compose-flake.follows = "";
+    my-tool.inputs.vigos.inputs.services-flake.follows = "";
+  };
+
+  outputs =
+    { my-tool, ... }:
+    {
+      packages.x86_64-linux.default = my-tool.packages.x86_64-linux.default;
+    };
+}
+```
+
+The lock shrinks from devkit's full tree to `nixpkgs`, `crane`, `fenix` and
+`flake-utils`, the four inputs a package build uses, and the package is the
+same derivation either way. This is a contract devkit keeps:
+`tests/test_flake_package_consumers.py` builds a Rust project's package through
+this exact block on every PR, and fails if devkit ever adds an input the stanza
+does not cover, or starts reading one it drops.
+
+Why the scaffold does not flip the direction instead (`vigos` following the
+project's `nixpkgs`): devkit's tools, overlay and image are built and cached
+against its own pin, so a project that re-pinned them would rebuild the dev
+shell from source and test a toolchain devkit never tested. Keeping that choice
+with the consumer of the *package* scopes it to the one output that does not
+care.
+
 ## Customizing pre-commit hooks from the project flake (opt-in)
 
 Since [#883](https://github.com/vig-os/devkit/issues/883) the shared

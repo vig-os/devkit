@@ -43,6 +43,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Documented, tested stanza for flakes that consume a devkit project's packages**
+  ([#1832](https://github.com/vig-os/devkit/issues/1832))
+  - New `docs/MIGRATION.md` section "Projects that ship packages to other
+    flakes": the consuming flake builds the package with its own nixpkgs and
+    drops the devkit inputs a package build never reads (`follows = ""`), so
+    its lock shrinks from devkit's whole input tree to `nixpkgs`, `crane`,
+    `fenix` and `flake-utils`
+  - CI builds a Rust project's package through that exact block, and fails if
+    devkit adds an input the stanza does not cover or starts reading one it
+    drops. The scaffolded `flake.nix` keeps following devkit's nixpkgs, and
+    points at the section
+
 - **Rust adopters are pointed at the Rust pack, not a bare compiler**
   ([#1831](https://github.com/vig-os/devkit/issues/1831))
   - `docs/MIGRATION.md` no longer calls `rust` an unshipped candidate module or
