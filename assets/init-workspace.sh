@@ -1284,6 +1284,86 @@ if find "$WORKSPACE_DIR" \
     DETECTED_LANGUAGES+=("nix")
 fi
 
+# The rules render_gitignore appends to the template base, printed: one
+# fragment per detected language (#1024), then the consumer's .gitignore.project.
+# Shared with preflight_untracked_guard (#1826), which must judge untracked
+# paths against exactly the .gitignore this run writes.
+#
+# Consumer-owned durable root ignores (#1092): .gitignore.project is a
+# PRESERVE_FILE — the only committed home git honors for repo-ROOT ignores,
+# since git reads root ignores solely from this regenerated root .gitignore.
+# It goes LAST so consumer entries survive every regeneration.
+emit_gitignore_additions() {
+    local lang frag proj="$WORKSPACE_DIR/.gitignore.project"
+    for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
+        frag="$SCRIPT_DIR/gitignore.d/$lang.gitignore"
+        if [[ -f "$frag" ]]; then
+            printf '\n'
+            cat "$frag"
+        fi
+    done
+    if [[ -f "$proj" ]]; then
+        printf '\n'
+        cat "$proj"
+    fi
+}
+
+# True when the generated .pre-commit-config.yaml must be ignored (#1092): it is
+# already a /nix/store symlink, or this run defaults to / keeps flake-generated
+# hooks (FLAKE_HOOKS_DEFAULT #1167, FLAKE_HOOKS_CONSUMER #1255).
+flake_hooks_ignore_wanted() {
+    local pcc="$WORKSPACE_DIR/.pre-commit-config.yaml"
+    { [[ -L "$pcc" ]] && readlink "$pcc" | grep -q '/nix/store/'; } \
+        || [[ "${FLAKE_HOOKS_DEFAULT:-false}" == "true" ]] \
+        || [[ "${FLAKE_HOOKS_CONSUMER:-false}" == "true" ]]
+}
+
+# ── upgrade preflight, untracked half (#1826) ──────────────────────────────────
+# install.sh refuses tracked changes host-side, but forwards UNTRACKED paths
+# here (DEVKIT_PREFLIGHT_UNTRACKED, one per line, directories with a trailing
+# slash). Build output such as a Rust repo's target/ is often untracked only
+# because the fragment that ignores it arrives WITH this upgrade, and only this
+# side knows the fragments and the detected languages. Each path is matched
+# against the root .gitignore this run will write — the template base, the
+# detected languages' gitignore.d fragments and .gitignore.project, exactly as
+# render_gitignore assembles it, via the same helpers — using git's own matcher
+# in a scratch repo
+# (the workspace's .git may be an unmounted worktree pointer). Covered paths
+# are named and left in place; any other path refuses the upgrade here, before
+# the first file is written. Unset (fresh install, CI, --skip-preflight): no-op.
+preflight_untracked_guard() {
+    [[ -n "${DEVKIT_PREFLIGHT_UNTRACKED:-}" ]] || return 0
+    local probe path
+    local -a covered=() uncovered=()
+    probe="$(mktemp -d)"
+    git -C "$probe" init -q
+    {
+        if [[ -f "$TEMPLATE_DIR/.gitignore" ]]; then cat "$TEMPLATE_DIR/.gitignore"; fi
+        emit_gitignore_additions
+        if flake_hooks_ignore_wanted; then printf '\n.pre-commit-config.yaml\n'; fi
+    } >"$probe/.gitignore"
+    while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        if git -C "$probe" check-ignore -q --no-index -- "$path"; then
+            covered+=("$path")
+        else
+            uncovered+=("$path")
+        fi
+    done <<<"$DEVKIT_PREFLIGHT_UNTRACKED"
+    rm -rf "$probe"
+    if ((${#uncovered[@]} > 0)); then
+        echo "Error: preflight: refusing to upgrade on a dirty tree." >&2
+        echo "  These untracked paths are not ignored by the upgraded .gitignore either, so they would end up in the upgrade's diff. Commit, remove or ignore them first (.gitignore.project is the durable home for repo ignores):" >&2
+        printf '    %s\n' "${uncovered[@]}" >&2
+        echo "  Re-run install.sh with --allow-untracked to leave them as they are, or --skip-preflight to bypass the guard." >&2
+        exit 1
+    fi
+    if ((${#covered[@]} > 0)); then
+        echo "preflight: untracked build output the upgraded .gitignore will ignore, left in place: ${covered[*]}"
+    fi
+}
+preflight_untracked_guard
+
 # ── declared languages: seed from detection, never narrow (#1478) ─────────────
 # DETECTED_LANGUAGES above is live truth and keeps driving every scaffold render
 # (.gitignore fragments, codeql.yml's language matrix, the Node justfile.project
@@ -1475,24 +1555,7 @@ notice_rust_pack_bypass() {
 render_gitignore() {
     local gi="$WORKSPACE_DIR/.gitignore"
     [[ -f "$gi" ]] || return 0
-    local lang frag
-    for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
-        frag="$SCRIPT_DIR/gitignore.d/$lang.gitignore"
-        if [[ -f "$frag" ]]; then
-            printf '\n' >>"$gi"
-            cat "$frag" >>"$gi"
-        fi
-    done
-
-    # Consumer-owned durable root ignores (#1092): .gitignore.project is a
-    # PRESERVE_FILE — the only committed home git honors for repo-ROOT ignores,
-    # since git reads root ignores solely from this regenerated root .gitignore.
-    # Append its contents LAST so consumer entries survive every regeneration.
-    local proj="$WORKSPACE_DIR/.gitignore.project"
-    if [[ -f "$proj" ]]; then
-        printf '\n' >>"$gi"
-        cat "$proj" >>"$gi"
-    fi
+    emit_gitignore_additions >>"$gi"
 
     # flake-hooks opt-in seed (#1092): a consumer that opts into flake-generated
     # hooks (hooks = { } in flake.nix) gets .pre-commit-config.yaml installed as
@@ -1508,10 +1571,7 @@ render_gitignore() {
     # shell entry would leave the store symlink dirtying git status.
     # Idempotent: skip when the assembled ignore (incl. .gitignore.project)
     # already lists it.
-    local pcc="$WORKSPACE_DIR/.pre-commit-config.yaml"
-    if { [[ -L "$pcc" ]] && readlink "$pcc" | grep -q '/nix/store/'; } \
-        || [[ "${FLAKE_HOOKS_DEFAULT:-false}" == "true" ]] \
-        || [[ "${FLAKE_HOOKS_CONSUMER:-false}" == "true" ]]; then
+    if flake_hooks_ignore_wanted; then
         if ! grep -qxF '.pre-commit-config.yaml' "$gi"; then
             {
                 printf '\n# flake-hooks opt-in (#1092): the generated'

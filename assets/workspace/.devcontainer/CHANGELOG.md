@@ -60,6 +60,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Untracked build output no longer blocks the upgrade that ignores it**
+  ([#1826](https://github.com/vig-os/devkit/issues/1826))
+  - The `install.sh --force` preflight refused any untracked file, so a repo
+    that had just gained a language (a Rust repo with `target/`) could not take
+    the very upgrade that adds its `.gitignore` fragment. Untracked paths are
+    now matched against the `.gitignore` the upgrade will write; covered ones
+    are named and left in place, any other one still refuses, by name
+  - New `--allow-untracked` flag runs the upgrade with untracked files present;
+    tracked changes still refuse
+
 - **`mkRustProject` forwards the `.vig-os` hook settings**
   ([#1810](https://github.com/vig-os/devkit/issues/1810))
   - `lib.mkRustProject` accepts `branchTypes`, `commitTypes`, `refsPolicy` and

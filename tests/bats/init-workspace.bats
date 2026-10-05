@@ -4702,6 +4702,76 @@ _RELEASE_RESOLVERS_991=(
     assert_output '{ outputs = _: { }; }'
 }
 
+# ── upgrade preflight: untracked build output the upgrade will ignore (#1826) ─
+# install.sh forwards the tree's untracked paths as DEVKIT_PREFLIGHT_UNTRACKED.
+# A path the UPGRADED root .gitignore covers (template base + the detected
+# languages' fragments + .gitignore.project) is left in place; anything else
+# refuses the upgrade before a single file is written.
+
+@test "preflight: a Rust repo's untracked target/ does not block the upgrade (#1826)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1826-target"
+    mkdir -p "$ws/target/debug"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    DEVKIT_PREFLIGHT_UNTRACKED=$'Cargo.toml\ntarget/' run _scaffold both "$ws"
+    assert_failure
+    # Cargo.toml is a real untracked change: it is named, target/ is not.
+    assert_output --partial 'refusing to upgrade on a dirty tree'
+    assert_output --partial '    Cargo.toml'
+    refute_output --partial '    target/'
+
+    ws="$BATS_TEST_TMPDIR/e2e-1826-target-only"
+    mkdir -p "$ws/target/debug"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    DEVKIT_PREFLIGHT_UNTRACKED='target/' run _scaffold both "$ws"
+    assert_success
+    assert_output --partial 'left in place: target/'
+    assert_file_exists "$ws/.vig-os"
+}
+
+@test "preflight: an untracked path the upgrade will not ignore refuses before writing anything (#1826)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1826-refuse"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf 'wip\n' >"$ws/notes.txt"
+    DEVKIT_PREFLIGHT_UNTRACKED=$'notes.txt\ntarget/' run _scaffold both "$ws"
+    assert_failure
+    assert_output --partial '    notes.txt'
+    assert_output --partial '--allow-untracked'
+    assert_output --partial '--skip-preflight'
+    assert_file_not_exists "$ws/.vig-os"
+    assert_file_not_exists "$ws/justfile"
+}
+
+@test "preflight: build output of an undetected language is not excused (#1826)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1826-undetected"
+    mkdir -p "$ws/node_modules/x"
+    # No package.json: the Node fragment will not be in the upgraded
+    # .gitignore, so node_modules/ would land in the upgrade's diff.
+    DEVKIT_PREFLIGHT_UNTRACKED='node_modules/' run _scaffold both "$ws"
+    assert_failure
+    assert_output --partial '    node_modules/'
+}
+
+@test "preflight: a flake-hooks consumer's untracked store symlink counts as covered (#1826)" {
+    # render_gitignore adds `.pre-commit-config.yaml` for a /nix/store symlink
+    # (#1092); the guard must assemble the same rules, not a hand-copied subset.
+    ws="$BATS_TEST_TMPDIR/e2e-1826-store-symlink"
+    mkdir -p "$ws"
+    ln -s /nix/store/00000000000000000000000000000000-pre-commit-config.json "$ws/.pre-commit-config.yaml"
+    DEVKIT_PREFLIGHT_UNTRACKED='.pre-commit-config.yaml' run _scaffold direnv "$ws"
+    assert_success
+    assert_output --partial 'left in place: .pre-commit-config.yaml'
+}
+
+@test "preflight: .gitignore.project entries count as covered (#1826)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1826-project-ignore"
+    mkdir -p "$ws/scratch"
+    printf 'scratch/\n' >"$ws/.gitignore.project"
+    DEVKIT_PREFLIGHT_UNTRACKED='scratch/' run _scaffold both "$ws"
+    assert_success
+    assert_output --partial 'left in place: scratch/'
+}
+
 # ── a Rust repo whose preserved files bypass the pack is told so (#1831) ─────
 # flake.nix and justfile.project are PRESERVE_FILES, so a repo that was
 # scaffolded before it had a Cargo.toml (or before #1496) keeps a flake that
