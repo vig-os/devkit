@@ -1454,7 +1454,8 @@ notice_rust_pack_bypass() {
         [[ "$lang" == "rust" ]] && is_rust=true
     done
     [[ "$is_rust" == "true" ]] || return 0
-    local doc="docs/MIGRATION.md#rust-projects-the-rust-pack"
+    # Absolute: the consumer repo has no docs/MIGRATION.md of its own.
+    local doc="https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md#rust-projects-the-rust-pack"
     local flake="$WORKSPACE_DIR/flake.nix" recipes="$WORKSPACE_DIR/justfile.project"
     if [[ "$FLAKE_PREEXISTED" == "true" && -f "$flake" ]] \
         && ! grep -q 'mkRustProject' "$flake"; then
