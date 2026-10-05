@@ -17,6 +17,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`mkRustProject` forwards the `.vig-os` hook settings**
+  ([#1810](https://github.com/vig-os/devkit/issues/1810))
+  - `lib.mkRustProject` accepts `branchTypes`, `commitTypes`, `refsPolicy` and
+    `refsOptionalTypes` and passes them to `mkProjectShell`, so a Rust repo's
+    `DEVKIT_BRANCH_TYPES` / `DEVKIT_COMMIT_TYPES` / `DEVKIT_REFS_POLICY` /
+    `DEVKIT_REFS_OPTIONAL_TYPES` reach the flake-generated branch guard and
+    commit-message hook instead of being silently ignored
+  - A Rust flake no longer has to drop or `# deadnix: skip` the manifest
+    bindings it reads, which made the first commit touching `flake.nix` fail
+    deadnix
+
 ### Security
 
 ## [1.18.0](https://github.com/vig-os/devkit/releases/tag/1.18.0) - 2026-10-05

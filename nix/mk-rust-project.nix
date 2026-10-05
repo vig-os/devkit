@@ -41,8 +41,7 @@
 #     in
 #     {
 #       devShells.default = rust.devShell;
-#       checks = rust.checks;
-#       packages = rust.packages;
+#       inherit (rust) checks packages;
 #     };
 {
   mkProjectShell,
@@ -161,6 +160,16 @@
   hooks ? null,
   hooksExcludes ? [ ],
   workflow ? "gitflow",
+  # The `.vig-os` hook knobs (#1810), forwarded verbatim to mkProjectShell,
+  # which documents and validates them. The scaffolded flake reads them from
+  # the workspace manifest; without these arguments a Rust repo had nowhere
+  # to pass them, so its DEVKIT_BRANCH_TYPES / DEVKIT_COMMIT_TYPES /
+  # DEVKIT_REFS_POLICY / DEVKIT_REFS_OPTIONAL_TYPES were silently ignored by
+  # the generated branch guard and commit-message hook.
+  branchTypes ? null,
+  commitTypes ? null,
+  refsPolicy ? null,
+  refsOptionalTypes ? null,
   shellHook ? null,
   # Extra dev-shell environment. Distinct from `craneArgs`, which goes to the
   # build derivations.
@@ -682,6 +691,10 @@ let
             hooks
             hooksExcludes
             workflow
+            branchTypes
+            commitTypes
+            refsPolicy
+            refsOptionalTypes
             ;
           modules = [ rustModuleEntry ] ++ modules;
         }

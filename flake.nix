@@ -835,8 +835,7 @@
       #     crates = [ "my-cli" ];
       #   };
       #   devShells.default = rust.devShell;
-      #   checks = rust.checks;
-      #   packages = rust.packages;
+      #   inherit (rust) checks packages;
       # ---------------------------------------------------------------------
       mkRustProject = import ./nix/mk-rust-project.nix {
         inherit mkProjectShell crane fenix;
