@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.18.0] - TBD
+
+### Added
+
 - **`DEVKIT_CI_RESOLVE_RUNNER` variable for the `resolve-toolchain` jobs**
   ([#1796](https://github.com/vig-os/devkit/issues/1796))
   - The `resolve-toolchain` job in all seven scaffolded workflows that declare it
@@ -211,7 +225,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     pattern is left in place and reported as
     `preserved-hook-drift: no-commit-to-branch-pre-1760`
 
-### Deprecated
+#### Dependencies
+
+- Update `anchore/sbom-action` from `v0.24.2` to `v0.24.3` ([#1812](https://github.com/vig-os/devkit/pull/1812))
+- Update `aquasecurity/trivy` from `v0.74.0` to `v0.75.0` ([#1812](https://github.com/vig-os/devkit/pull/1812))
+- Update `vig-os/sync-issues-action` from `v0.5.0` to `v0.5.1` ([#1812](https://github.com/vig-os/devkit/pull/1812))
+- Lock file maintenance (pip) ([#1813](https://github.com/vig-os/devkit/pull/1813), [#1814](https://github.com/vig-os/devkit/pull/1814))
 
 ### Removed
 
@@ -323,8 +342,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `cargo` by hand (see `docs/MIGRATION.md`).
   - The preset now configures `vulnerabilityAlerts` explicitly and labels
     vulnerability PRs `security`.
-
-### Security
 
 ## [1.17.0](https://github.com/vig-os/devkit/releases/tag/1.17.0) - 2026-09-28
 
