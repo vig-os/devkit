@@ -4592,7 +4592,7 @@ _RELEASE_RESOLVERS_991=(
     done
     # deny.toml is what turns on mkRustProject's `deny` check; it must not fail
     # an unpublished crate (the consumer-matrix fixture has no license field).
-    run grep -A2 '^\[licenses\.private\]' "$ws/deny.toml"
+    run grep -A4 '^\[licenses\.private\]' "$ws/deny.toml"
     assert_output --partial 'ignore = true'
 }
 

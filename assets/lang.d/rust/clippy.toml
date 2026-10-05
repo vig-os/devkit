@@ -1,0 +1,11 @@
+# Seeded by vigOS devkit — yours to edit; upgrades never overwrite this file.
+# Bugs / missing tools: https://github.com/vig-os/devkit/issues
+
+# clippy: the Rust pack's base (devkit #1496), scaffold-once. Lint LEVELS live
+# in Cargo.toml's `[lints]` / `[workspace.lints]` table; this file only tunes
+# how lints behave. mkRustProject's clippy check runs with warnings denied.
+# Reference: https://doc.rust-lang.org/clippy/lint_configuration.html
+
+# Tests may unwrap: a panic there IS the failure report.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true

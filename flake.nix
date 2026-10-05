@@ -1914,5 +1914,17 @@
         path = ./templates/python;
         description = "Opt-in Python project starter (pyproject + src/ + pytest)";
       };
+
+      # `nix flake init -t github:vig-os/devkit#rust` is the Rust pack's entry
+      # point (#1496, L7): a crate that passes mkRustProject's whole check
+      # suite as shipped (tests/test_rust_scaffold.py builds it). Run it
+      # BEFORE install.sh: the scaffold then detects Cargo.toml and seeds the
+      # mkRustProject flake.nix, the cargo justfile.project and the base
+      # rustfmt/clippy/deny configs. Same no-substitution rule as #python, so
+      # the crate is named `example` (see templates/rust/README.md).
+      templates.rust = {
+        path = ./templates/rust;
+        description = "Rust crate starter for the vigOS Rust pack (Cargo.toml + lockfile + lib/bin + tests)";
+      };
     };
 }
