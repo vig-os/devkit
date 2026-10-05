@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`mkRustProject` `sandboxExcludes` for tests the Nix sandbox cannot run**
+  ([#1834](https://github.com/vig-os/devkit/issues/1834))
+  - A list of nextest filterset expressions (e.g. `[ "test(pty_)" "binary(supervisor)" ]`)
+    that `checks.nextest` skips, for suites that need a PTY, process groups,
+    signals or the network
+  - The excluded tests stay in `just test` and CI; only the sandboxed flake
+    check skips them, so a repo no longer has to choose between
+    `nextest = false` and a red `nix flake check`
+
 ### Changed
 
 ### Deprecated

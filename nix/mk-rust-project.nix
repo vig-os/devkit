@@ -117,6 +117,18 @@
   doc ? true,
   # `cargo nextest run`. Process-per-test, so an aborting test is reported.
   nextest ? true,
+  # Nextest filterset expressions for tests the Nix build sandbox cannot run
+  # (#1834): a PTY, process groups or signals (CLI wrappers, supervisors),
+  # the network, a writable $HOME. darwin's sandbox is stricter still. e.g.
+  #
+  #   sandboxExcludes = [ "test(pty_)" "binary(supervisor)" ];
+  #
+  # They are skipped by `checks.nextest` ONLY. They stay first-class
+  # outside the sandbox: the seeded Rust justfile.project runs the full suite
+  # with `cargo nextest run`, so `just test` and CI still execute them. That
+  # is why this is a list of exclusions and not `nextest = false`, which
+  # would also drop every test the sandbox can run.
+  sandboxExcludes ? [ ],
   clippy ? true,
   # Extra args for the clippy check. `--deny warnings` is already applied.
   clippyExtraArgs ? "--all-targets",
@@ -351,6 +363,19 @@ let
 
   denyEnabled = if deny != null then deny else builtins.pathExists (src + "/deny.toml");
 
+  # One `-E` filter for all exclusions. Nextest UNIONS repeated `-E` flags,
+  # so `-E 'not a' -E 'not b'` would still run both; each exclusion has to be
+  # its own `not (…)` term, joined with `and` inside a single expression.
+  sandboxExcludesValid =
+    builtins.isList sandboxExcludes && builtins.all (e: builtins.isString e && e != "") sandboxExcludes;
+  sandboxFilterArgs =
+    if !sandboxExcludesValid then
+      throw "mkRustProject: sandboxExcludes must be a list of non-empty nextest filterset expressions (e.g. [ \"test(pty_)\" ]), got ${builtins.toJSON sandboxExcludes}"
+    else if sandboxExcludes == [ ] then
+      ""
+    else
+      "-E ${lib.escapeShellArg (lib.concatMapStringsSep " and " (e: "not (${e})") sandboxExcludes)}";
+
   # ---------------------------------------------------------------------------
   # Build
   # ---------------------------------------------------------------------------
@@ -476,6 +501,14 @@ let
           inherit cargoArtifacts;
           partitions = 1;
           partitionType = "count";
+          # Composed, not assigned: a consumer's own nextest args arrive
+          # through `craneArgs` and must survive the exclusion filter.
+          cargoNextestExtraArgs = lib.concatStringsSep " " (
+            lib.filter (a: a != "") [
+              (commonArgs.cargoNextestExtraArgs or "")
+              sandboxFilterArgs
+            ]
+          );
         }
       );
     }

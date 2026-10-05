@@ -1171,6 +1171,10 @@ def test_mk_rust_project_sandbox_excludes_skip_tests_in_the_nextest_check(
         "the fixture's needs_a_pty test must fail without an exclusion, or the "
         "excluded run below proves nothing"
     )
+    assert "needs_a_pty" in control.stderr, (
+        "the control run must fail ON the hostile test, not on something "
+        f"unrelated; got: {control.stderr[-1500:]}"
+    )
 
     excluded = _build_nextest(src, extra='sandboxExcludes = [ "test(needs_a_pty)" ];')
     assert excluded.returncode == 0, (
@@ -1191,7 +1195,7 @@ def test_mk_rust_project_sandbox_excludes_compose_with_crane_args(
     result = _nix_eval_expr(
         _mk_rust_project_expr(
             src,
-            "rust.checks.nextest.buildPhaseCargoCommand",
+            "rust.checks.nextest.drvAttrs.checkPhase",
             extra=(
                 'sandboxExcludes = [ "test(needs_a_pty)" "binary(supervisor)" ];\n'
                 'craneArgs = { cargoNextestExtraArgs = "--no-fail-fast"; };'
