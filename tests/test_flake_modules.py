@@ -31,12 +31,9 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 from . import nix_helpers
 from .nix_helpers import REPO_ROOT
@@ -981,6 +978,67 @@ def test_mk_rust_project_accepts_crane_args_and_the_deprecated_alias(
         assert result.returncode == 0, (
             f"`{arg}` must be accepted by mkRustProject; got: {result.stderr[-500:]}"
         )
+
+
+def test_mk_rust_project_forwards_the_vig_os_hook_knobs(tmp_path: Path) -> None:
+    """The ``.vig-os`` hook knobs reach the Rust dev shell's hooks (#1810).
+
+    The scaffolded flake reads ``branchTypes`` / ``commitTypes`` /
+    ``refsPolicy`` / ``refsOptionalTypes`` from ``.vig-os`` and hands them to
+    ``mkProjectShell``. ``mkRustProject`` builds its shell through
+    ``mkProjectShell`` but did not accept them, so a Rust repo had to drop
+    them. Its ``DEVKIT_*`` settings then silently stopped reaching the branch
+    guard and the commit-message hook, and the unused bindings failed
+    deadnix on the first commit.
+
+    Asserted on the RENDERED config, not on argument acceptance: an argument
+    that is accepted but never forwarded is exactly the silent drop this
+    guards against.
+    """
+    src = _minimal_crate(tmp_path)
+    expr = _mk_rust_project_expr(
+        src,
+        "rust.devShell.hooksConfigFile",
+        extra="""
+        hooks = { };
+        branchTypes = [ "feature" "bugfix" "record" ];
+        commitTypes = [
+          "feat" "fix" "docs" "chore" "refactor" "perf" "test" "ci" "build"
+          "revert" "style" "record"
+        ];
+        refsPolicy = "required";
+        refsOptionalTypes = [ "chore" "record" ];
+        """,
+    )
+    result = subprocess.run(
+        ["nix", "build", "--impure", "--no-link", "--print-out-paths", "--expr", expr],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=1800,
+    )
+    assert result.returncode == 0, result.stderr[-1500:]
+    config_text = Path(result.stdout.strip()).read_text()
+    # JSON preceded by "# …" comment lines (see test_flake_hooks.py).
+    config = json.loads(
+        "\n".join(ln for ln in config_text.splitlines() if not ln.startswith("#"))
+    )
+    hooks = {h["id"]: h for repo in config["repos"] for h in repo["hooks"]}
+
+    def arg(hook_id: str, flag: str) -> str:
+        args = hooks[hook_id]["args"]
+        return args[args.index(flag) + 1]
+
+    assert arg("validate-commit-msg", "--types").endswith(",record"), (
+        "commitTypes must reach validate-commit-msg"
+    )
+    assert arg("validate-commit-msg", "--refs-optional-types") == "chore,record", (
+        "refsOptionalTypes (over refsPolicy) must reach validate-commit-msg"
+    )
+    branch_hook = next(h for i, h in hooks.items() if "branch" in i)
+    assert "record" in " ".join(branch_hook["args"]), (
+        "branchTypes must reach the branch guard"
+    )
 
 
 # ---------------------------------------------------------------------------
