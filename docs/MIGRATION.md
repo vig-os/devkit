@@ -1202,13 +1202,23 @@ dedicated working branch as a single reviewable, revertible diff
   detached `HEAD`. On a protected branch with a clean tree the installer
   offers to create and switch to `chore/devkit-upgrade-<version>` for you;
   non-interactively it refuses with that command as the hint.
-- **Dirty trees refuse** — `git status --porcelain` must be empty (staged,
-  unstaged, or untracked-unignored changes all count; gitignored clutter such
-  as `.venv/` does not). Commit or stash first.
+- **Dirty trees refuse** — staged or unstaged changes to tracked files always
+  refuse. Commit or stash first.
+- **Untracked paths pass only if the upgrade will ignore them**
+  ([#1826](https://github.com/vig-os/devkit/issues/1826)). Build output is often
+  untracked only because its ignore rule arrives with the upgrade: a repo that
+  just gained a `Cargo.toml` has a `target/`, and the Rust `.gitignore` fragment
+  comes with the upgrade that detects it. The scaffold matches every untracked
+  path against the root `.gitignore` it is about to write (template base,
+  fragments for the detected languages, your `.gitignore.project`). It names
+  the covered paths and leaves them in place; any other untracked path refuses
+  the upgrade, by name, before a file is written. Already-gitignored clutter
+  (`.venv/`) never counts. `--allow-untracked` lets the upgrade run with
+  untracked paths regardless; tracked changes still refuse.
 - **Non-git directories warn** — there is no VCS safety net, so the installer
   asks for explicit confirmation before continuing.
-- **`--skip-preflight` bypasses** both checks; `--smoke-test` runs and fresh
-  installs (no `--force`) are exempt.
+- **`--skip-preflight` bypasses** all of these checks; `--smoke-test` runs and
+  fresh installs (no `--force`) are exempt.
 
 To see what an upgrade would change before running it, use `--preview`:
 

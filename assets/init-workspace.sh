@@ -1284,6 +1284,55 @@ if find "$WORKSPACE_DIR" \
     DETECTED_LANGUAGES+=("nix")
 fi
 
+# ── upgrade preflight, untracked half (#1826) ──────────────────────────────────
+# install.sh refuses tracked changes host-side, but forwards UNTRACKED paths
+# here (DEVKIT_PREFLIGHT_UNTRACKED, one per line, directories with a trailing
+# slash). Build output such as a Rust repo's target/ is often untracked only
+# because the fragment that ignores it arrives WITH this upgrade, and only this
+# side knows the fragments and the detected languages. Each path is matched
+# against the root .gitignore this run will write — the template base, the
+# detected languages' gitignore.d fragments and .gitignore.project, exactly as
+# render_gitignore assembles it — using git's own matcher in a scratch repo
+# (the workspace's .git may be an unmounted worktree pointer). Covered paths
+# are named and left in place; any other path refuses the upgrade here, before
+# the first file is written. Unset (fresh install, CI, --skip-preflight): no-op.
+preflight_untracked_guard() {
+    [[ -n "${DEVKIT_PREFLIGHT_UNTRACKED:-}" ]] || return 0
+    local probe path lang
+    local -a covered=() uncovered=()
+    probe="$(mktemp -d)"
+    git -C "$probe" init -q
+    {
+        [[ -f "$TEMPLATE_DIR/.gitignore" ]] && cat "$TEMPLATE_DIR/.gitignore"
+        for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
+            [[ -f "$SCRIPT_DIR/gitignore.d/$lang.gitignore" ]] \
+                && cat "$SCRIPT_DIR/gitignore.d/$lang.gitignore"
+        done
+        [[ -f "$WORKSPACE_DIR/.gitignore.project" ]] && cat "$WORKSPACE_DIR/.gitignore.project"
+        true
+    } >"$probe/.gitignore"
+    while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        if git -C "$probe" check-ignore -q --no-index -- "$path"; then
+            covered+=("$path")
+        else
+            uncovered+=("$path")
+        fi
+    done <<<"$DEVKIT_PREFLIGHT_UNTRACKED"
+    rm -rf "$probe"
+    if ((${#uncovered[@]} > 0)); then
+        echo "Error: preflight: refusing to upgrade on a dirty tree." >&2
+        echo "  These untracked paths are not ignored by the upgraded .gitignore either, so they would end up in the upgrade's diff. Commit, remove or ignore them first (.gitignore.project is the durable home for repo ignores):" >&2
+        printf '    %s\n' "${uncovered[@]}" >&2
+        echo "  Re-run install.sh with --allow-untracked to leave them as they are, or --skip-preflight to bypass the guard." >&2
+        exit 1
+    fi
+    if ((${#covered[@]} > 0)); then
+        echo "preflight: untracked build output the upgraded .gitignore will ignore, left in place: ${covered[*]}"
+    fi
+}
+preflight_untracked_guard
+
 # ── declared languages: seed from detection, never narrow (#1478) ─────────────
 # DETECTED_LANGUAGES above is live truth and keeps driving every scaffold render
 # (.gitignore fragments, codeql.yml's language matrix, the Node justfile.project

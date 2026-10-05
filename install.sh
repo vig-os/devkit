@@ -21,6 +21,9 @@
 #   --prune-devcontainer  In direnv/bare mode, remove a pre-existing .devcontainer/
 #                     (container->direnv/bare migration cleanup; default keeps it)
 #   --skip-preflight  Bypass the upgrade preflight guard (branch + clean-tree checks)
+#   --allow-untracked Let the upgrade run with untracked files present (tracked
+#                     changes still refuse); by default untracked paths must be
+#                     covered by the upgraded .gitignore (e.g. target/)
 #   --skip-pull       Use the already-present local image for --version (skip the
 #                     registry pull); e.g. a locally built :dev tag
 #   --dry-run         Show the container command that would run without executing
@@ -52,6 +55,10 @@ SMOKE_TEST=""
 PREVIEW=""
 PRUNE_DEVCONTAINER=""
 SKIP_PREFLIGHT=false
+ALLOW_UNTRACKED=false
+# Untracked paths (one per line) forwarded to init-workspace.sh, which checks
+# them against the upgraded .gitignore (#1826). Set by run_preflight_guard.
+PREFLIGHT_UNTRACKED=""
 
 # Colors (disabled if not a tty)
 if [ -t 1 ]; then
@@ -100,6 +107,11 @@ OPTIONS:
                       The default is non-destructive and keeps it (#738).
     --skip-preflight  Bypass the upgrade preflight guard (--force refuses on
                       main/dev/release/*/detached HEAD and on a dirty tree)
+    --allow-untracked Let --force run with untracked files present. Tracked
+                      changes still refuse. Without it, untracked paths pass
+                      only when the upgraded .gitignore will ignore them (build
+                      output such as target/ or node_modules/ whose ignore rule
+                      arrives with the upgrade)
     --skip-pull       Use the already-present local image for --version (skip the
                       registry pull); e.g. a locally built :dev tag
     --dry-run         Show the container command that would run (unlike
@@ -360,7 +372,7 @@ preflight_confirm() {
 run_preflight_guard() {
     local path="$1"
     local skip_hint="Re-run with --skip-preflight to bypass the upgrade preflight guard."
-    local branch upgrade_branch dirty
+    local branch upgrade_branch dirty tracked untracked
 
     if ! command -v git >/dev/null 2>&1 \
         || ! git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
@@ -375,13 +387,30 @@ run_preflight_guard() {
         exit 1
     fi
 
+    # Tracked changes always refuse. Untracked paths are judged by what the
+    # upgrade itself will ignore (#1826): a Rust repo's target/ is untracked
+    # only because the fragment that ignores it arrives with this upgrade, and
+    # only the image knows the fragments and the detected languages — so the
+    # paths are forwarded to init-workspace.sh, which refuses any the upgraded
+    # .gitignore will not cover, before it writes a file.
     dirty="$(git -C "$path" status --porcelain 2>/dev/null || true)"
-    if [ -n "$dirty" ]; then
+    tracked="$(printf '%s\n' "$dirty" | grep -v '^??' | grep -v '^$' || true)"
+    if [ -n "$tracked" ]; then
         err "preflight: refusing to upgrade on a dirty tree."
         echo "  An upgrade must be the only change in its diff — commit or stash this first:"
         printf '%s\n' "$dirty" | head -10 | sed 's/^/    /'
         echo "  $skip_hint"
         exit 1
+    fi
+    untracked="$(git -C "$path" ls-files --others --exclude-standard --directory 2>/dev/null || true)"
+    if [ -n "$untracked" ]; then
+        if [ "$ALLOW_UNTRACKED" = true ]; then
+            warn "preflight: --allow-untracked: leaving these untracked paths out of the check:"
+            printf '%s\n' "$untracked" | head -10 | sed 's/^/    /'
+        else
+            info "preflight: untracked paths found; the scaffold checks them against the upgraded .gitignore (#1826)."
+            PREFLIGHT_UNTRACKED="$untracked"
+        fi
     fi
 
     upgrade_branch="chore/devkit-upgrade-$VERSION"
@@ -559,6 +588,10 @@ while [ $# -gt 0 ]; do
             ;;
         --skip-preflight)
             SKIP_PREFLIGHT=true
+            shift
+            ;;
+        --allow-untracked)
+            ALLOW_UNTRACKED=true
             shift
             ;;
         --skip-pull)
@@ -843,6 +876,7 @@ declare -a CMD=(
     -e "ORG_NAME=$ORG_NAME"
     -e "GITHUB_REPOSITORY=$GITHUB_REPOSITORY"
     ${VERSION_ENV[@]+"${VERSION_ENV[@]}"}
+    ${PREFLIGHT_UNTRACKED:+-e "DEVKIT_PREFLIGHT_UNTRACKED=$PREFLIGHT_UNTRACKED"}
     -v "$PROJECT_PATH:/workspace"
     "$IMAGE"
     /root/assets/init-workspace.sh --no-prompts
