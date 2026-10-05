@@ -4638,6 +4638,21 @@ _RELEASE_RESOLVERS_991=(
     assert_file_exists "$ws/clippy.toml"
 }
 
+@test "--preview lists the Rust tool configs it would seed, and seeds nothing (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-preview-statics"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf 'max_width = 100\n' >"$ws/.rustfmt.toml"
+    printf 'DEVKIT_MODE=both\n' >"$ws/.vig-os"
+    run _preview "$ws" --force
+    assert_success
+    assert_output --partial '+  deny.toml (rust pack base config)'
+    assert_output --partial '+  clippy.toml (rust pack base config)'
+    # .rustfmt.toml is an equivalent: not offered.
+    refute_output --partial 'rustfmt.toml (rust pack base config)'
+    assert_file_not_exists "$ws/deny.toml"
+}
+
 @test "a non-Rust consumer gets none of the Rust tool configs (#1496)" {
     ws="$BATS_TEST_TMPDIR/e2e-1496-neutral-no-statics"
     mkdir -p "$ws"
