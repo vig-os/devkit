@@ -4730,6 +4730,16 @@ _RELEASE_RESOLVERS_991=(
     assert_output --partial 'docs/MIGRATION.md#rust-projects-the-rust-pack'
 }
 
+@test "a justfile.project that mentions cargo only in a comment still gets the notice (#1831)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1831-justfile-comment"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf '# TODO: switch these to cargo\ntest:\n\t@echo none\n' >"$ws/justfile.project"
+    run _scaffold both "$ws"
+    assert_success
+    assert_output --partial 'justfile.project never runs cargo'
+}
+
 @test "a fresh Rust scaffold gets no bypass notice (#1831)" {
     ws="$BATS_TEST_TMPDIR/e2e-1831-no-notice"
     mkdir -p "$ws"
