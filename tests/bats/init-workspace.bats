@@ -4610,6 +4610,34 @@ _RELEASE_RESOLVERS_991=(
     assert_file_exists "$ws/clippy.toml"
 }
 
+@test "an existing Rust consumer's upgrade seeds no tool configs (#1496)" {
+    # rust is already DECLARED: the repo owns its Rust policy. Dropping a
+    # deny.toml into it would silently switch on mkRustProject's `deny` check
+    # (it keys on the file's presence) and turn the upgrade PR red.
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-upgrade-no-statics"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf 'DEVKIT_LANGUAGES=rust\n' >"$ws/.vig-os"
+    run _scaffold both "$ws"
+    assert_success
+    assert_file_not_exists "$ws/deny.toml"
+    assert_file_not_exists "$ws/rustfmt.toml"
+    assert_file_not_exists "$ws/clippy.toml"
+}
+
+@test "a dot-prefixed or .cargo/ tool config counts as present (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-alias-configs"
+    mkdir -p "$ws/.cargo"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf 'max_width = 100\n' >"$ws/.rustfmt.toml"
+    printf '[bans]\n' >"$ws/.cargo/deny.toml"
+    run _scaffold both "$ws"
+    assert_success
+    assert_file_not_exists "$ws/rustfmt.toml"
+    assert_file_not_exists "$ws/deny.toml"
+    assert_file_exists "$ws/clippy.toml"
+}
+
 @test "a non-Rust consumer gets none of the Rust tool configs (#1496)" {
     ws="$BATS_TEST_TMPDIR/e2e-1496-neutral-no-statics"
     mkdir -p "$ws"
