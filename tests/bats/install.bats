@@ -490,6 +490,47 @@ _make_repo() {
     assert_output --partial "dirty"
 }
 
+@test "preflight: an empty untracked directory is not a change (#1826)" {
+    repo="$BATS_TEST_TMPDIR/empty-untracked-dir"
+    _make_repo "$repo"
+    mkdir -p "$repo/data"
+    run bash "$INSTALL_SH" --dry-run --force "$repo" </dev/null
+    assert_success
+    refute_output --partial "DEVKIT_PREFLIGHT_UNTRACKED="
+}
+
+@test "preflight: non-ASCII untracked paths are forwarded verbatim, not C-quoted (#1826)" {
+    repo="$BATS_TEST_TMPDIR/non-ascii-untracked"
+    _make_repo "$repo"
+    echo x >"$repo/café.log"
+    run bash "$INSTALL_SH" --dry-run --force "$repo" </dev/null
+    assert_success
+    # The shown command is printf %q-escaped, so assert on the info line that
+    # lists the forwarded paths: git C-quotes the name as octal escapes.
+    assert_output --partial "    café.log"
+}
+
+@test "preflight: an image that predates the untracked check refuses untracked paths (#1826)" {
+    # A new install.sh pulling an OLD image (--version <old>) must not lose the
+    # #886 untracked guard: the old init-workspace.sh ignores the forwarded list.
+    repo="$BATS_TEST_TMPDIR/old-image"
+    _make_repo "$repo"
+    echo wip >"$repo/notes.txt"
+    local stub="$BATS_TEST_TMPDIR/stub-old-image"
+    mkdir -p "$stub"
+    # `run ... grep -q DEVKIT_PREFLIGHT_UNTRACKED ...` is the capability probe:
+    # fail it, succeed everything else (info, image inspect, the scaffold run).
+    # shellcheck disable=SC2016  # literal stub script
+    printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = DEVKIT_PREFLIGHT_UNTRACKED ] && exit 1; done\nexit 0\n' >"$stub/docker"
+    chmod +x "$stub/docker"
+    run env PATH="$stub:$PATH" bash "$INSTALL_SH" \
+        --docker --skip-pull --force "$repo" </dev/null
+    assert_failure
+    assert_output --partial "predates"
+    assert_output --partial "notes.txt"
+    assert_output --partial "--allow-untracked"
+}
+
 @test "preflight: a clean tree forwards no untracked list (#1826)" {
     repo="$BATS_TEST_TMPDIR/clean-no-forward"
     _make_repo "$repo"

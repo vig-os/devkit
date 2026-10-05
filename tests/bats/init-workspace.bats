@@ -4752,6 +4752,17 @@ _RELEASE_RESOLVERS_991=(
     assert_output --partial '    node_modules/'
 }
 
+@test "preflight: a flake-hooks consumer's untracked store symlink counts as covered (#1826)" {
+    # render_gitignore adds `.pre-commit-config.yaml` for a /nix/store symlink
+    # (#1092); the guard must assemble the same rules, not a hand-copied subset.
+    ws="$BATS_TEST_TMPDIR/e2e-1826-store-symlink"
+    mkdir -p "$ws"
+    ln -s /nix/store/00000000000000000000000000000000-pre-commit-config.json "$ws/.pre-commit-config.yaml"
+    DEVKIT_PREFLIGHT_UNTRACKED='.pre-commit-config.yaml' run _scaffold direnv "$ws"
+    assert_success
+    assert_output --partial 'left in place: .pre-commit-config.yaml'
+}
+
 @test "preflight: .gitignore.project entries count as covered (#1826)" {
     ws="$BATS_TEST_TMPDIR/e2e-1826-project-ignore"
     mkdir -p "$ws/scratch"
