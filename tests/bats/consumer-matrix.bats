@@ -27,7 +27,7 @@ _manifest() {
     assert_success
     assert_output "$(printf '%s\n' direnv devcontainer bare trunk \
         features-disabled ci-runner tag-prefix language-guard \
-        python node rust direnv-flake)"
+        python node rust direnv-flake rust-flake)"
 }
 
 @test "an unknown cell is refused, naming the known cells" {
@@ -39,7 +39,7 @@ _manifest() {
 
 @test "mode and workflow cells pre-seed nothing" {
     local cell
-    for cell in direnv devcontainer bare trunk python node rust direnv-flake; do
+    for cell in direnv devcontainer bare trunk python node rust direnv-flake rust-flake; do
         run "$RENDER_CELL" seed "$cell"
         assert_success
         assert_output ""
@@ -139,6 +139,25 @@ _manifest() {
     assert_success
 }
 
+@test "the rust cell gets the cargo justfile.project (#1496)" {
+    local ws="$BATS_TEST_TMPDIR/rust"
+    PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render rust "$ws"
+    assert_success
+    run grep -q 'cargo test --workspace' "$ws/justfile.project"
+    assert_success
+}
+
+@test "rust-flake renders the rust fixture in direnv mode on the mkRustProject flake (#1496)" {
+    local ws="$BATS_TEST_TMPDIR/rust-flake"
+    PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render rust-flake "$ws"
+    assert_success
+    assert_equal "$(_manifest "$ws" DEVKIT_MODE)" direnv
+    assert_equal "$(_manifest "$ws" DEVKIT_LANGUAGES)" rust
+    assert_file_exists "$ws/Cargo.lock"
+    run grep -q 'vigos.lib.mkRustProject' "$ws/flake.nix"
+    assert_success
+}
+
 @test "every language fixture test can prove it ran" {
     local lang
     for lang in python node rust; do
@@ -165,40 +184,44 @@ _source_render_cell() {
     source "$RENDER_CELL"
 }
 
-@test "the rust cell carries the #1496 expected-fail marker, and only it" {
+# No cell carries a marker today (#1496 removed the last); the mechanism is
+# exercised through a synthetic one so it stays tested for the next defect.
+_mark_demo() {
     _source_render_cell
-    run expected_fail_spec rust
-    assert_success
-    assert_output "test #1496"
+    # shellcheck disable=SC2034 # read by cell_verdict, sourced above
+    EXPECTED_FAIL["demo"]="test #0"
+}
+
+@test "no cell carries an expected-fail marker once #1496 is fixed" {
+    _source_render_cell
     local cell
     for cell in $("$RENDER_CELL" list); do
-        [[ "$cell" == rust ]] && continue
         run expected_fail_spec "$cell"
         assert_output ""
     done
 }
 
 @test "expected-fail holds only for the exact silent-no-op failure" {
-    _source_render_cell
-    run cell_verdict rust true test
+    _mark_demo
+    run cell_verdict demo true test
     assert_success
-    assert_output --partial "expected-fail (#1496)"
+    assert_output --partial "expected-fail (#0)"
 }
 
 @test "an expected-fail cell that passes fails, asking to drop the marker" {
-    _source_render_cell
-    run cell_verdict rust false
+    _mark_demo
+    run cell_verdict demo false
     assert_failure
-    assert_output --partial "rust now passes — remove the #1496 expected-fail marker"
+    assert_output --partial "demo now passes — remove the #0 expected-fail marker"
 }
 
 @test "an expected-fail cell failing any other way is still a failure" {
-    _source_render_cell
-    run cell_verdict rust false test
+    _mark_demo
+    run cell_verdict demo false test
     assert_failure
-    run cell_verdict rust true test lint
+    run cell_verdict demo true test lint
     assert_failure
-    run cell_verdict rust false lint
+    run cell_verdict demo false lint
     assert_failure
 }
 

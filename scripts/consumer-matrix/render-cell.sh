@@ -26,7 +26,7 @@
 # names every broken gate at once):
 #   seed       every pre-seeded knob survived the render into .vig-os, and a
 #              fixture cell's language was detected into DEVKIT_LANGUAGES
-#   flake-check  (direnv-flake only) `nix flake check` of the rendered flake
+#   flake-check  (flake cells only) `nix flake check` of the rendered flake
 #              against THIS checkout (--override-input vigos), then its dev
 #              shell is built; every later gate of the cell runs inside it, so
 #              the flake-generated direnv hooks are the ones exercised
@@ -53,7 +53,8 @@
 #              language-guard cell — when it FIRES (#1466)
 #
 # Requires just, uv, prek, actionlint, git and jq on PATH (the devkit dev shell
-# provides them), npm for the node cell and nix for direnv-flake; zizmor runs
+# provides them), npm for the node cell, cargo for the rust cell and nix for
+# the flake cells; zizmor runs
 # through `uvx` unless ZIZMOR names a binary.
 #
 # Sourcing the script (bats does) defines its functions without running it.
@@ -78,6 +79,7 @@ CELLS=(
     node
     rust
     direnv-flake
+    rust-flake
 )
 
 # Known defects a cell must reproduce EXACTLY: <cell> -> "<gate> <issue>". The
@@ -85,9 +87,7 @@ CELLS=(
 # sole failure AND failed with the silent-no-op signal. Passing fails the cell
 # (the marker is stale), and so does failing any other way. Remove an entry in
 # the PR that fixes its issue.
-declare -gA EXPECTED_FAIL=(
-    [rust]="test #1496" # Rust consumers get the Python justfile.project
-)
+declare -gA EXPECTED_FAIL=()
 
 # Print the expected-fail spec ("<gate> <issue>") of cell $1, or nothing.
 expected_fail_spec() {
@@ -151,6 +151,15 @@ cell_spec() {
             ;;
         direnv-flake)
             CELL_MODE=direnv
+            CELL_FLAKE=true
+            ;;
+        rust-flake)
+            # Rust cold adoption end to end (#1496): a fresh direnv scaffold of
+            # a Cargo repo gets the mkRustProject flake, whose `nix flake check`
+            # builds fmt/clippy/nextest/doctest/doc/deny, and whose dev shell
+            # runs every later gate — including the seeded cargo recipes.
+            CELL_MODE=direnv
+            CELL_FIXTURE=rust
             CELL_FLAKE=true
             ;;
         trunk)

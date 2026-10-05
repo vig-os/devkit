@@ -1,0 +1,58 @@
+# Seeded by vigOS devkit — yours to edit; upgrades never overwrite this file.
+# Bugs / missing tools: https://github.com/vig-os/devkit/issues
+
+# cargo-deny policy: the Rust pack's base (devkit #1496), scaffold-once. Its
+# presence turns on mkRustProject's `deny` check, which runs `bans licenses
+# sources` in the Nix sandbox. Advisories need the network, so they run outside
+# it: `cargo deny check advisories` in CI or by hand.
+# Reference: https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+# The licences common across crates.io that put no copyleft obligation on a
+# binary you ship. MPL-2.0 is file-level copyleft: it obliges you to publish
+# changes to MPL files, not your own code, so it is allowed. Add a strong
+# copyleft licence (GPL, AGPL, LGPL) deliberately, with the reason in a
+# comment, never to make the check pass.
+allow = [
+  "0BSD",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "ISC",
+  "MIT",
+  "MIT-0",
+  "MPL-2.0",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "Unlicense",
+  "Zlib",
+]
+confidence-threshold = 0.9
+
+[licenses.private]
+# Workspace crates with `publish = false` are not distributed, so their own
+# licence field is not policed. A crate you DO publish needs a `license` field.
+ignore = true
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+# A git dependency is legitimate but unpinned by any registry: surfaced, not
+# fatal. Turn this to "deny" once the repo has none.
+unknown-git = "warn"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

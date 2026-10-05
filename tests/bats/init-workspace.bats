@@ -57,6 +57,7 @@ setup_file() {
     _seed_shared node-both package.json '{ "name": "probe" }'
     _seed_shared python-both pyproject.toml $'[project]\nname = "probe"'
     _seed_shared cargo-both Cargo.toml $'[package]\nname = "probe"'
+    _seed_shared cargo-direnv Cargo.toml $'[package]\nname = "probe"'
     _seed_shared nix-module-both nix/module.nix '{ }'
 
     # One line per fixture: <name> <mode> [extra args…]. Keep it declarative —
@@ -71,6 +72,7 @@ setup_file() {
         'python-both both'
         'trunk-both both --workflow trunk'
         'cargo-both both'
+        'cargo-direnv direnv'
         'nix-module-both both'
     )
 
@@ -102,7 +104,7 @@ setup_file() {
 # Path of the shared read-only scaffold fixture $1 (#1417). Fixture names are
 # the four delivery modes plus the seeded/flagged variants rendered by
 # setup_file above (node-both, python-both, trunk-both, cargo-both,
-# nix-module-both).
+# cargo-direnv, nix-module-both).
 _shared_tree() { printf '%s/shared-%s' "$BATS_FILE_TMPDIR" "$1"; }
 
 # Copy the setup_file-rendered fixture $1 into the absent-or-empty workspace $2
@@ -4526,6 +4528,188 @@ _RELEASE_RESOLVERS_991=(
     run head -1 "$ws/justfile.project"
     assert_success
     assert_output --partial 'Seeded by vigOS devkit'
+}
+
+# ── Rust cold adoption: justfile, tool configs, flake (#1496, #1810) ──────────
+# A Rust repo used to get the Python justfile.project, whose recipes skip
+# without a pyproject.toml, so `just lint` / `just test` compiled nothing and
+# CI went green on a build of nothing. The first scaffold of a Rust consumer
+# now seeds cargo recipes (L4), the pack's base tool configs (L1) and, on a
+# fresh direnv scaffold, a flake on lib.mkRustProject.
+
+@test "first scaffold of a Rust consumer seeds cargo justfile.project recipes (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-seed"
+    mkdir -p "$ws"
+    run _clone_shared cargo-both "$ws"
+    assert_success
+    run cat "$ws/justfile.project"
+    assert_success
+    assert_output --partial 'cargo test --workspace'
+    assert_output --partial 'cargo clippy --workspace --all-targets'
+    assert_output --partial 'cargo fmt --all --check'
+    assert_output --partial 'cargo fetch'
+    # The Python template must NOT have been used: its recipes skip without a
+    # pyproject.toml, which is the silent no-op this seed exists to end.
+    refute_output --partial 'uv sync'
+    refute_output --partial 'npm ci'
+    # Placeholder resolved like every other managed file.
+    assert_output --partial 'testproj'
+    refute_output --partial '{{SHORT_NAME}}'
+}
+
+@test "the Rust justfile.project seed carries the preserved banner (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-banner"
+    mkdir -p "$ws"
+    run _clone_shared cargo-both "$ws"
+    assert_success
+    run head -1 "$ws/justfile.project"
+    assert_output --partial 'Seeded by vigOS devkit'
+}
+
+@test "an existing justfile.project is never replaced by the Rust seed (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-preserve"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf '# consumer-owned recipes\nmy-custom-recipe:\n\t@echo mine\n' \
+        >"$ws/justfile.project"
+    run _scaffold both "$ws"
+    assert_success
+    run cat "$ws/justfile.project"
+    assert_output --partial 'my-custom-recipe'
+    refute_output --partial 'cargo test'
+}
+
+@test "a Rust consumer gets the pack's base tool configs (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-statics"
+    mkdir -p "$ws"
+    run _clone_shared cargo-both "$ws"
+    assert_success
+    local f
+    for f in rustfmt.toml clippy.toml deny.toml; do
+        assert_file_exists "$ws/$f"
+        run head -1 "$ws/$f"
+        assert_output --partial 'Seeded by vigOS devkit'
+    done
+    # deny.toml is what turns on mkRustProject's `deny` check; it must not fail
+    # an unpublished crate (the consumer-matrix fixture has no license field).
+    run grep -A4 '^\[licenses\.private\]' "$ws/deny.toml"
+    assert_output --partial 'ignore = true'
+}
+
+@test "the Rust tool configs are scaffold-once: an existing one is never replaced (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-statics-preserve"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf '# mine\n[bans]\nmultiple-versions = "deny"\n' >"$ws/deny.toml"
+    run _scaffold both "$ws"
+    assert_success
+    run cat "$ws/deny.toml"
+    assert_output $'# mine\n[bans]\nmultiple-versions = "deny"'
+    # The configs it did not have are still seeded.
+    assert_file_exists "$ws/rustfmt.toml"
+    assert_file_exists "$ws/clippy.toml"
+}
+
+@test "an existing Rust consumer's upgrade seeds no tool configs (#1496)" {
+    # rust is already DECLARED: the repo owns its Rust policy. Dropping a
+    # deny.toml into it would silently switch on mkRustProject's `deny` check
+    # (it keys on the file's presence) and turn the upgrade PR red.
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-upgrade-no-statics"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf 'DEVKIT_LANGUAGES=rust\n' >"$ws/.vig-os"
+    run _scaffold both "$ws"
+    assert_success
+    assert_file_not_exists "$ws/deny.toml"
+    assert_file_not_exists "$ws/rustfmt.toml"
+    assert_file_not_exists "$ws/clippy.toml"
+}
+
+@test "a dot-prefixed or .cargo/ tool config counts as present (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-alias-configs"
+    mkdir -p "$ws/.cargo"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf 'max_width = 100\n' >"$ws/.rustfmt.toml"
+    printf '[bans]\n' >"$ws/.cargo/deny.toml"
+    run _scaffold both "$ws"
+    assert_success
+    assert_file_not_exists "$ws/rustfmt.toml"
+    assert_file_not_exists "$ws/deny.toml"
+    assert_file_exists "$ws/clippy.toml"
+}
+
+@test "--preview lists the Rust tool configs it would seed, and seeds nothing (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-preview-statics"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf 'max_width = 100\n' >"$ws/.rustfmt.toml"
+    printf 'DEVKIT_MODE=both\n' >"$ws/.vig-os"
+    run _preview "$ws" --force
+    assert_success
+    assert_output --partial '+  deny.toml (rust pack base config)'
+    assert_output --partial '+  clippy.toml (rust pack base config)'
+    # .rustfmt.toml is an equivalent: not offered.
+    refute_output --partial 'rustfmt.toml (rust pack base config)'
+    assert_file_not_exists "$ws/deny.toml"
+}
+
+@test "a non-Rust consumer gets none of the Rust tool configs (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-neutral-no-statics"
+    mkdir -p "$ws"
+    run _clone_shared both "$ws"
+    assert_success
+    assert_file_not_exists "$ws/rustfmt.toml"
+    assert_file_not_exists "$ws/clippy.toml"
+    assert_file_not_exists "$ws/deny.toml"
+}
+
+@test "a fresh direnv scaffold of a Rust consumer seeds the mkRustProject flake (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-flake"
+    mkdir -p "$ws"
+    run _clone_shared cargo-direnv "$ws"
+    assert_success
+    run cat "$ws/flake.nix"
+    assert_success
+    assert_output --partial 'vigos.lib.mkRustProject'
+    refute_output --partial 'vigos.lib.mkProjectShell'
+    # statix-clean output wiring (#1810).
+    assert_output --partial 'inherit (rust) checks packages;'
+    # The #1167 flake-hooks default still lands: its anchor line exists in the
+    # Rust flake too, so `hooks = { };` was inserted.
+    assert_output --partial 'hooks = { };'
+}
+
+@test "the Rust flake forwards every .vig-os hook setting (#1810)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1810-rust-flake-knobs"
+    mkdir -p "$ws"
+    run _clone_shared cargo-direnv "$ws"
+    assert_success
+    local arg
+    for arg in workflow branchTypes commitTypes refsPolicy refsOptionalTypes; do
+        run grep -c "builtins.functionArgs vigos.lib.mkRustProject ? $arg" "$ws/flake.nix"
+        assert_output 1
+    done
+}
+
+@test "an existing flake.nix is never replaced by the Rust flake (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-flake-preserve"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf '{ outputs = _: { }; }\n' >"$ws/flake.nix"
+    run _scaffold direnv "$ws"
+    assert_success
+    run cat "$ws/flake.nix"
+    assert_output '{ outputs = _: { }; }'
+}
+
+@test "a fresh direnv scaffold of a non-Rust consumer keeps the mkProjectShell flake (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-neutral-flake"
+    mkdir -p "$ws"
+    run _clone_shared direnv "$ws"
+    assert_success
+    run cat "$ws/flake.nix"
+    assert_output --partial 'vigos.lib.mkProjectShell'
+    refute_output --partial 'mkRustProject'
 }
 
 # ── consumer-owned durable root ignores: .gitignore.project (#1092) ────────────

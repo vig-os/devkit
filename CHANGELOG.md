@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Rust cold adoption: a Cargo repo gets a working Rust setup from the scaffold**
+  ([#1496](https://github.com/vig-os/devkit/issues/1496))
+  - The first scaffold of a repo with a `Cargo.toml` seeds a cargo
+    `justfile.project`: `just lint` runs `cargo fmt --check` and clippy with
+    warnings denied, and `just test` runs `cargo test --workspace`. It used to
+    get the Python recipes, which skip without a `pyproject.toml`, so CI went
+    green without compiling anything
+  - A fresh direnv scaffold of a Rust repo gets a `flake.nix` on
+    `vigos.lib.mkRustProject` instead of `mkProjectShell`: one call wires the
+    dev shell, the `nix flake check` suite (fmt, clippy, nextest, doctests,
+    rustdoc, cargo-deny, the package builds) and `packages`, and forwards the
+    `.vig-os` hook settings
+  - Base `rustfmt.toml`, `clippy.toml` and `deny.toml` are seeded when the
+    scaffold adopts Rust (never on an existing Rust consumer's upgrade, where a
+    new `deny.toml` would switch on a check nobody asked for), and never beside
+    an equivalent such as `.rustfmt.toml` or `.cargo/deny.toml`; they are
+    consumer-owned from then on and never overwritten
+  - New `nix flake init -t github:vig-os/devkit#rust` starter crate that passes
+    the pack's whole check suite as shipped
+  - The consumer matrix's `rust` cell now passes, and a new `rust-flake` cell
+    runs the whole direnv path (`nix flake check`, hooks, `just lint`/`just
+    test` in the flake's shell) on every PR
+
 - **`mkRustProject` `sandboxExcludes` for tests the Nix sandbox cannot run**
   ([#1834](https://github.com/vig-os/devkit/issues/1834))
   - A list of nextest filterset expressions (e.g. `[ "test(pty_)" "binary(supervisor)" ]`)
