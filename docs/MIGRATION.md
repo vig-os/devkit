@@ -1213,8 +1213,10 @@ dedicated working branch as a single reviewable, revertible diff
   fragments for the detected languages, your `.gitignore.project`). It names
   the covered paths and leaves them in place; any other untracked path refuses
   the upgrade, by name, before a file is written. Already-gitignored clutter
-  (`.venv/`) never counts. `--allow-untracked` lets the upgrade run with
-  untracked paths regardless; tracked changes still refuse.
+  (`.venv/`) never counts, nor does an empty directory. `--allow-untracked`
+  lets the upgrade run with untracked paths regardless; tracked changes still
+  refuse. Upgrading to an image older than this check (`--version <old>`)
+  refuses untracked paths outright, as before.
 - **Non-git directories warn** — there is no VCS safety net, so the installer
   asks for explicit confirmation before continuing.
 - **`--skip-preflight` bypasses** all of these checks; `--smoke-test` runs and

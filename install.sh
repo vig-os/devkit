@@ -402,13 +402,18 @@ run_preflight_guard() {
         echo "  $skip_hint"
         exit 1
     fi
-    untracked="$(git -C "$path" ls-files --others --exclude-standard --directory 2>/dev/null || true)"
+    # --no-empty-directory: git status never counted an empty dir, so neither
+    # does this. core.quotePath=false: a non-ASCII name must reach the
+    # container verbatim, or its C-quoted form matches no ignore pattern.
+    untracked="$(git -c core.quotePath=false -C "$path" ls-files --others \
+        --exclude-standard --directory --no-empty-directory 2>/dev/null || true)"
     if [ -n "$untracked" ]; then
         if [ "$ALLOW_UNTRACKED" = true ]; then
             warn "preflight: --allow-untracked: leaving these untracked paths out of the check:"
             printf '%s\n' "$untracked" | head -10 | sed 's/^/    /'
         else
-            info "preflight: untracked paths found; the scaffold checks them against the upgraded .gitignore (#1826)."
+            info "preflight: untracked paths found; the scaffold checks them against the upgraded .gitignore (#1826):"
+            printf '%s\n' "$untracked" | head -10 | sed 's/^/    /'
             PREFLIGHT_UNTRACKED="$untracked"
         fi
     fi
@@ -956,6 +961,21 @@ else
         exit 1
     fi
     info "Using local image $IMAGE (skipping pull)"
+fi
+
+# An image older than #1826 ignores DEVKIT_PREFLIGHT_UNTRACKED, so with `--version
+# <old>` the forwarded paths would go unchecked and the #886 untracked guard would
+# be lost. Ask the image whether its init-workspace.sh knows the variable, and if
+# not, refuse here exactly as the host-side guard used to.
+if [ -n "$PREFLIGHT_UNTRACKED" ] \
+    && ! $RUNTIME run --rm "$IMAGE" grep -q DEVKIT_PREFLIGHT_UNTRACKED \
+        /root/assets/init-workspace.sh >/dev/null 2>&1; then
+    err "preflight: refusing to upgrade on a dirty tree."
+    echo "  Image $IMAGE predates the untracked-path check (#1826), so these untracked"
+    echo "  paths cannot be matched against the upgraded .gitignore:"
+    printf '%s\n' "$PREFLIGHT_UNTRACKED" | head -10 | sed 's/^/    /'
+    echo "  Commit, remove or ignore them, or re-run with --allow-untracked or --skip-preflight."
+    exit 1
 fi
 
 # Run the initialization
