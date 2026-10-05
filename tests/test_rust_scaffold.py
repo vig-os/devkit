@@ -158,3 +158,25 @@ class TestRustTemplate:
         """
         result = _nix("build", "--impure", "--no-link", "--expr", expr)
         assert result.returncode == 0, result.stderr[-3000:]
+
+
+def _github_slug(heading: str) -> str:
+    """GitHub's heading anchor: lowercase, punctuation dropped, spaces to dashes."""
+    slug = re.sub(r"[^\w\- ]", "", heading.strip().lower())
+    return slug.replace(" ", "-")
+
+
+def test_bypass_notice_links_to_a_real_migration_heading() -> None:
+    """init-workspace.sh's Rust-pack notice points at an existing section (#1831)."""
+    script = (REPO_ROOT / "assets" / "init-workspace.sh").read_text()
+    anchors = set(re.findall(r"docs/MIGRATION\.md#([\w-]+)", script))
+    assert "rust-projects-the-rust-pack" in anchors
+    headings = {
+        _github_slug(line.lstrip("#"))
+        for line in (REPO_ROOT / "docs" / "MIGRATION.md").read_text().splitlines()
+        if line.startswith("#")
+    }
+    missing = anchors - headings
+    assert not missing, (
+        f"init-workspace.sh links to missing MIGRATION.md anchors: {missing}"
+    )
