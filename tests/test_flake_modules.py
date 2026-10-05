@@ -1116,3 +1116,109 @@ def test_guardrails_rejects_an_unknown_option() -> None:
     assert "frobnicate" in result.stderr and "guardrails module" in result.stderr, (
         f"error must name the option and the module; got: {result.stderr[-500:]}"
     )
+
+
+def _crate_with_a_sandbox_hostile_test(root: Path) -> Path:
+    """A crate whose ``needs_a_pty`` test always fails, standing in for one
+    the Nix sandbox cannot run (PTY, signals, process groups)."""
+    _minimal_crate(root)
+    (root / "src" / "lib.rs").write_text(
+        "pub fn answer() -> u8 { 42 }\n\n"
+        "#[cfg(test)]\nmod tests {\n"
+        "    #[test]\n    fn answers() { assert_eq!(super::answer(), 42); }\n"
+        '    #[test]\n    fn needs_a_pty() { panic!("no PTY in the sandbox"); }\n'
+        "}\n"
+    )
+    return root
+
+
+def _build_nextest(src: Path, extra: str = "") -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "nix",
+            "build",
+            "--impure",
+            "--no-link",
+            "--expr",
+            _mk_rust_project_expr(src, "rust.checks.nextest", extra=extra),
+        ],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=1800,
+    )
+
+
+def test_mk_rust_project_sandbox_excludes_skip_tests_in_the_nextest_check(
+    tmp_path: Path,
+) -> None:
+    """``sandboxExcludes`` keeps sandbox-hostile tests out of ``checks.nextest`` (#1834).
+
+    Suites that need a PTY, process groups or signals cannot pass inside the
+    Nix build sandbox. Before the seam, the only ways out were
+    ``nextest = false`` (which also drops every test that would have run) or an
+    undocumented ``craneArgs`` patch.
+
+    Built, not just evaluated: the exclusion is a nextest filterset, and only
+    nextest itself can say whether the expression actually matches. The
+    control run without the exclusion must FAIL, otherwise the passing run
+    proves nothing about the filter.
+    """
+    src = _crate_with_a_sandbox_hostile_test(tmp_path)
+
+    control = _build_nextest(src)
+    assert control.returncode != 0, (
+        "the fixture's needs_a_pty test must fail without an exclusion, or the "
+        "excluded run below proves nothing"
+    )
+
+    excluded = _build_nextest(src, extra='sandboxExcludes = [ "test(needs_a_pty)" ];')
+    assert excluded.returncode == 0, (
+        "checks.nextest must skip tests matched by sandboxExcludes; got: "
+        f"{excluded.stderr[-1500:]}"
+    )
+
+
+def test_mk_rust_project_sandbox_excludes_compose_with_crane_args(
+    tmp_path: Path,
+) -> None:
+    """A consumer's own ``cargoNextestExtraArgs`` survives ``sandboxExcludes`` (#1834).
+
+    ``craneArgs`` is the documented escape hatch, so the exclusion filter must
+    be appended to whatever nextest args it carries, never assigned over them.
+    """
+    src = _minimal_crate(tmp_path)
+    result = _nix_eval_expr(
+        _mk_rust_project_expr(
+            src,
+            "rust.checks.nextest.buildPhaseCargoCommand",
+            extra=(
+                'sandboxExcludes = [ "test(needs_a_pty)" "binary(supervisor)" ];\n'
+                'craneArgs = { cargoNextestExtraArgs = "--no-fail-fast"; };'
+            ),
+        )
+    )
+    assert result.returncode == 0, result.stderr[-1500:]
+    command = result.stdout
+    assert "--no-fail-fast" in command, (
+        f"the consumer's own nextest args must survive; got {command!r}"
+    )
+    assert "not (test(needs_a_pty)) and not (binary(supervisor))" in command, (
+        f"every exclusion must reach the nextest filter; got {command!r}"
+    )
+
+
+def test_mk_rust_project_rejects_a_malformed_sandbox_excludes(tmp_path: Path) -> None:
+    """A non-list or an empty entry fails eval with the argument named (#1834)."""
+    src = _minimal_crate(tmp_path)
+    for bad in ('"test(needs_a_pty)"', '[ "" ]'):
+        result = _nix_eval_expr(
+            _mk_rust_project_expr(
+                src, "rust.checks.nextest.drvPath", extra=f"sandboxExcludes = {bad};"
+            )
+        )
+        assert result.returncode != 0, f"sandboxExcludes = {bad} must be refused"
+        assert "sandboxExcludes must be" in result.stderr, (
+            "the error must name the argument and say what it takes; "
+            f"got: {result.stderr[-800:]}"
+        )
