@@ -521,3 +521,55 @@ STUB
     run bash -lc "grep -Fq -- 'bats -j \"\$(nproc)\" tests/bats/' '$PROJECT_ROOT/.github/actions/test-project/action.yml'"
     assert_success
 }
+
+# ── clean-test-containers covers every fixture's naming (#1817) ───────────────
+# The devcontainer fixtures name containers `workspace-devcontainer-*`, the
+# image-test fixture `test_container` names them `test-devcontainer-<epoch>`.
+# A killed run leaves either kind behind; the recipe must remove both. Runs the
+# real recipe against a `podman` stub that applies `--filter name=` as a regex
+# over STUB_CONTAINERS ("name:id" lines) and logs every `rm`.
+
+_stub_podman_containers() {
+    STUB_DIR="$BATS_TEST_TMPDIR/stub-bin"
+    STUB_LOG="$BATS_TEST_TMPDIR/podman.log"
+    mkdir -p "$STUB_DIR"
+    cat >"$STUB_DIR/podman" <<'STUB'
+#!/usr/bin/env bash
+case "$1" in
+ps)
+    pattern=""
+    while [ $# -gt 0 ]; do
+        case "$1" in --filter) shift; [[ "$1" == name=* ]] && pattern="${1#name=}" ;; esac
+        shift
+    done
+    while IFS=: read -r name id; do
+        [ -n "$name" ] && [[ "$name" =~ $pattern ]] && printf '%s\n' "$id"
+    done <<<"${STUB_CONTAINERS:-}"
+    ;;
+rm) printf '%s\n' "$*" >>"$STUB_LOG" ;;
+esac
+exit 0
+STUB
+    chmod +x "$STUB_DIR/podman"
+}
+
+@test "clean-test-containers removes image-test test-devcontainer-* leftovers (#1817)" {
+    _stub_podman_containers
+    run env PATH="$STUB_DIR:$PATH" STUB_LOG="$STUB_LOG" \
+        STUB_CONTAINERS=$'test-devcontainer-1784009471:aaa111\nunrelated-app:zzz999' \
+        just -f "$PROJECT_ROOT/justfile" -d "$PROJECT_ROOT" clean-test-containers
+    assert_success
+    run cat "$STUB_LOG"
+    assert_output --partial "aaa111"
+    refute_output --partial "zzz999"
+}
+
+@test "clean-test-containers still removes workspace-devcontainer-* leftovers (#1817)" {
+    _stub_podman_containers
+    run env PATH="$STUB_DIR:$PATH" STUB_LOG="$STUB_LOG" \
+        STUB_CONTAINERS=$'workspace-devcontainer-abc_devcontainer_1:bbb222' \
+        just -f "$PROJECT_ROOT/justfile" -d "$PROJECT_ROOT" clean-test-containers
+    assert_success
+    run cat "$STUB_LOG"
+    assert_output --partial "bbb222"
+}
