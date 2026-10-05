@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.19.0] - TBD
+
+### Added
+
 - **Rust cold adoption: a Cargo repo gets a working Rust setup from the scaffold**
   ([#1496](https://github.com/vig-os/devkit/issues/1496))
   - The first scaffold of a repo with a `Cargo.toml` seeds a cargo
@@ -66,10 +80,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     that does not use `mkRustProject`, or a `justfile.project` that never runs
     cargo, naming the doc section that fixes it
 
-### Deprecated
-
-### Removed
-
 ### Fixed
 
 - **Untracked build output no longer blocks the upgrade that ignores it**
@@ -92,8 +102,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A Rust flake no longer has to drop or `# deadnix: skip` the manifest
     bindings it reads, which made the first commit touching `flake.nix` fail
     deadnix
-
-### Security
 
 ## [1.18.0](https://github.com/vig-os/devkit/releases/tag/1.18.0) - 2026-10-05
 
