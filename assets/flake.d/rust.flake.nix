@@ -17,8 +17,9 @@
     # Follow vigos's pinned nixpkgs + flake-utils so your tools match the
     # toolchain exactly (one resolved nixpkgs, no drift). If other flakes
     # consume this project's `packages`, THEY choose the nixpkgs and drop the
-    # devkit inputs a package never reads — the stanza is in docs/MIGRATION.md,
-    # "Projects that ship packages to other flakes" (#1832).
+    # devkit inputs a package never reads — the stanza is in
+    # https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md
+    # ("Projects that ship packages to other flakes", #1832).
     nixpkgs.follows = "vigos/nixpkgs";
     flake-utils.follows = "vigos/flake-utils";
   };
