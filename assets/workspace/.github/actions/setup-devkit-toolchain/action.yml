@@ -258,9 +258,8 @@ runs:
         # toolchain: raw gcc then shadows gcc-wrapper (likewise binutils) and
         # every C build fails with `cannot find Scrt1.o` / `cannot find -lc`
         # while the same build is green locally under `nix develop` (#1351,
-        # vig-os/h5v#2). `tac` makes the per-line prepend rebuild the dev-shell
-        # order verbatim.
-        printf '%s\n' "$STORE_BINS" | tac >> "$GITHUB_PATH"
+        # vig-os/h5v#2). POSIX awk reverses the lines on BSD and GNU hosts.
+        printf '%s\n' "$STORE_BINS" | awk '{ lines[NR] = $0 } END { for (i = NR; i > 0; i--) print lines[i] }' >> "$GITHUB_PATH"
 
         # Forward the dev-shell's uv Python-download metadata URL (GITHUB_PATH
         # carries PATH only): `uv sync` needs it to fetch the project's pinned
@@ -287,13 +286,32 @@ runs:
         # (already in the runner env, unchanged inside the shell) out of
         # GITHUB_ENV. Null-delimited dumps + a random GITHUB_ENV heredoc
         # delimiter keep multi-line and special-character values intact.
-        env -0 > "$RUNNER_TEMP/devkit-host-env"
+        # Bash builtins work on the macOS host too (bash 3.2 / BSD env).
+        # Run in a subshell so the iterator cannot alter the caller's env.
+        devkit_dump_env() (
+          while IFS= read -r devkit_export_record; do
+            if [[ "$devkit_export_record" =~ ^declare\ -[a-zA-Z]*x[a-zA-Z]*\ ([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+              devkit_export_name="${BASH_REMATCH[1]}"
+              # A multiline value on older Bash can resemble a declaration.
+              # Confirm the candidate is genuinely exported before reading it.
+              devkit_export_decl="$(declare -p "$devkit_export_name" 2>/dev/null)" || continue
+              # Shell arrays (even marked export) are not process env vars.
+              if [[ "$devkit_export_decl" =~ ^declare\ -[a-zA-Z]*[aA][a-zA-Z]*\  ]]; then
+                continue
+              fi
+              if [[ "$devkit_export_decl" =~ ^declare\ -[a-zA-Z]*x[a-zA-Z]*\  ]]; then
+                printf '%s=%s\0' "$devkit_export_name" "${!devkit_export_name}"
+              fi
+            fi
+          done < <(export -p)
+        )
+        devkit_dump_env > "$RUNNER_TEMP/devkit-host-env"
         # Dump the dev-shell env to a file INSIDE the shell command: capturing
         # `nix develop` stdout would also capture shellHook output (the
         # scaffolded flake echoes a banner), gluing it onto the first NUL
         # record and corrupting GITHUB_ENV (#1189).
         nix develop --profile "$DEVKIT_DEV_PROFILE" \
-          --command bash -c 'env -0 > "$1"' _ "$RUNNER_TEMP/devkit-devshell-env"
+          --command bash -c "$(declare -f devkit_dump_env); devkit_dump_env > \"\$1\"" _ "$RUNNER_TEMP/devkit-devshell-env"
 
         # Denylist: shell session state (must never override the CI shell) and
         # Nix/stdenv build machinery (PATH is already handled via GITHUB_PATH).
@@ -333,22 +351,28 @@ runs:
                 return 1
               fi
               return 0 ;;
-            NIX_*|IN_NIX_SHELL) return 0 ;;
+            # Reserve Nix's stdenv internal namespace, including new Darwin
+            # internals introduced by future nixpkgs updates. Project shellHook
+            # exports remain open outside these build/session namespaces.
+            NIX_*|IN_NIX_SHELL|__*) return 0 ;;
+            # Darwin stdenv SDK/toolchain selection and reproducible builds.
+            # Host tools must retain the runner's SDK, as with CC/LD below.
+            DEVELOPER_DIR|SDKROOT|MACOSX_*|LD_DYLD_PATH|ZERO_AR_DATE|PATH_LOCALE) return 0 ;;
             out|outputs|src|stdenv|system|builder|name|pname|version|shell|shellHook) return 0 ;;
             buildInputs|nativeBuildInputs|propagatedBuildInputs|propagatedNativeBuildInputs) return 0 ;;
             deps*|*Phase|phases|dont*|do[A-Z]*) return 0 ;;
             configureFlags|cmakeFlags|mesonFlags|makeFlags|patches|strictDeps|enableParallelBuilding) return 0 ;;
-            SOURCE_DATE_EPOCH|HOST_PATH|__structuredAttrs|outputHash*|preferLocalBuild|allowSubstitutes|cmakeDir) return 0 ;;
+            SOURCE_DATE_EPOCH|HOST_PATH|outputHash*|preferLocalBuild|allowSubstitutes|cmakeDir) return 0 ;;
             _PYTHON_HOST_PLATFORM|_PYTHON_SYSCONFIGDATA_NAME|DETERMINISTIC_BUILD|CONFIG_SHELL) return 0 ;;
             AR|AS|CC|CXX|LD|NM|OBJCOPY|OBJDUMP|RANLIB|READELF|SIZE|STRINGS|STRIP) return 0 ;;
             *) return 1 ;;
           esac
         }
 
-        # Ambient environment, keyed by name, to detect unchanged vars.
-        declare -A DEVKIT_HOST_ENV=()
+        # Indexed records avoid associative arrays (bash 3.2 on macOS).
+        DEVKIT_HOST_ENV=()
         while IFS= read -r -d '' devkit_kv; do
-          DEVKIT_HOST_ENV["${devkit_kv%%=*}"]="${devkit_kv#*=}"
+          DEVKIT_HOST_ENV+=("$devkit_kv")
         done < "$RUNNER_TEMP/devkit-host-env"
 
         devkit_env_forwarded=0
@@ -364,8 +388,14 @@ runs:
           fi
           # Skip vars unchanged from the ambient environment (already present in
           # the CI env; forwarding them would needlessly re-emit host secrets).
-          if [[ -n "${DEVKIT_HOST_ENV[$devkit_name]+x}" \
-                && "${DEVKIT_HOST_ENV[$devkit_name]}" == "$devkit_value" ]]; then
+          devkit_unchanged=false
+          for devkit_host_kv in ${DEVKIT_HOST_ENV[@]+"${DEVKIT_HOST_ENV[@]}"}; do
+            if [[ "$devkit_host_kv" == "$devkit_kv" ]]; then
+              devkit_unchanged=true
+              break
+            fi
+          done
+          if [[ "$devkit_unchanged" == true ]]; then
             continue
           fi
           if devkit_env_denied "$devkit_name"; then
@@ -384,7 +414,7 @@ runs:
           if [[ "$devkit_name" == PYTHONPATH ]]; then
             devkit_kept=()
             IFS=':' read -r -a devkit_parts <<< "$devkit_value"
-            for devkit_part in "${devkit_parts[@]}"; do
+            for devkit_part in ${devkit_parts[@]+"${devkit_parts[@]}"}; do
               if [[ "$devkit_part" != /nix/store/* ]]; then
                 devkit_kept+=("$devkit_part")
               fi

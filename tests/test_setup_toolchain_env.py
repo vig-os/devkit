@@ -171,7 +171,7 @@ def _write_nix_stub(
     - `nix develop … --command true`                  -> exit 0 (profile build)
     - `nix develop … --command bash -c 'printf … PATH'`-> a fake store PATH
     - `nix develop … --command bash -c '… UV_… '`      -> the uv-download URL
-    - `nix develop … --command bash -c 'env -0 > …'`   -> env dump to the file
+    - `nix develop … --command bash -c '… devkit_dump_env > …'` -> env file
     - `nix develop … --command env …`                  -> env dump on stdout
 
     With ``banner=True`` the stub echoes the shellHook banner to stdout on
@@ -214,7 +214,7 @@ def _write_nix_stub(
         'if [ "${cmd[0]:-}" = "true" ]; then exit 0; fi',
         "# In-shell file dump: write the records to the target file, keeping",
         "# stdout (the banner) out of the dump — the shape the action relies on.",
-        'if [[ "$joined" == *"env -0 >"* ]]; then',
+        'if [[ "$joined" == *"devkit_dump_env >"* ]]; then',
         '  target="${cmd[-1]}"',
         '  : > "$target"',
     ]
@@ -311,6 +311,7 @@ def _execute_devshell_step(
     pyproject: bool = False,
     nixos: bool = False,
     dev_profile_path: str | None = None,
+    portable_host: bool = False,
 ) -> _StepRun:
     """Execute the devshell step; return the process, its GITHUB_ENV and gcroots.
 
@@ -322,6 +323,21 @@ def _execute_devshell_step(
     the default every hosted consumer runs today.
     """
     script = _devshell_step_script()
+    if portable_host:
+        script = (
+            r"""
+        tac() { echo "tac unavailable" >&2; return 127; }
+        env() {
+          if [[ "${1:-}" == -0 ]]; then return 64; fi
+          command env "$@"
+        }
+        declare() {
+          if [[ "${1:-}" == -A ]]; then return 2; fi
+          builtin declare "$@"
+        }
+        """
+            + script
+        )
 
     bin_dir = tmp_path / "stub-bin"
     _write_nix_stub(bin_dir, banner=banner, devshell_env=devshell_env)
@@ -373,7 +389,7 @@ def _execute_devshell_step(
         env.pop(ambient_var, None)
 
     proc = subprocess.run(
-        ["bash", "-c", script],
+        [os.environ.get("DEVKIT_TEST_BASH", "bash"), "-c", script],
         cwd=tmp_path,  # pyproject.toml here (or not) picks the consumer path
         env=env,
         capture_output=True,
@@ -1011,3 +1027,146 @@ def test_unwritable_gcroot_parent_fails_loudly(tmp_path: Path) -> None:
     assert run.proc.returncode != 0, "an unwritable profile parent must fail the step"
     assert "::error::" in run.proc.stdout + run.proc.stderr
     assert not run.profiles, "the step must not realise a dev-shell after rejecting"
+
+
+def test_direnv_on_host_without_gnu_tools_or_associative_arrays(tmp_path: Path) -> None:
+    """The host preamble must work with macOS bash 3.2 and BSD tools (#1857)."""
+    run = _execute_devshell_step(tmp_path, portable_host=True, banner=True)
+    assert run.proc.returncode == 0, run.proc.stderr
+    assert run.env["MULTILINE_VAR"] == "line-one\nline-two\nline-three"
+    assert "AMBIENT_SHARED" not in run.env
+    paths = _runner_path((tmp_path / "github_path").read_text())
+    expected = STORE_BINS_IN_ORDER
+    assert paths[:-1] == expected
+
+
+DARWIN_BUILD_VARS = (
+    "DEVELOPER_DIR",
+    "SDKROOT",
+    "MACOSX_DEPLOYMENT_TARGET",
+    "LD_DYLD_PATH",
+    "ZERO_AR_DATE",
+    "__impureHostDeps",
+    "__sandboxProfile",
+)
+
+
+@pytest.mark.parametrize("name", DARWIN_BUILD_VARS)
+def test_darwin_build_environment_is_not_forwarded(tmp_path: Path, name: str) -> None:
+    env = _run_devshell_step(tmp_path, devshell_env=[(name, "/nix/store/sdk")])
+    assert name not in env
+
+
+def _real_dump_script() -> str:
+    script = _devshell_step_script()
+    return script[
+        script.index("devkit_dump_env() (") : script.index(
+            'devkit_dump_env > "$RUNNER_TEMP/devkit-host-env"'
+        )
+    ]
+
+
+@pytest.mark.parametrize("flags", ["x", "rx", "ix", "irx"])
+def test_real_env_dump_export_attributes(flags: str) -> None:
+    script = (
+        _real_dump_script()
+        + f"\ndeclare -{flags} DEVKIT_PARSE_TEST=42\ndevkit_dump_env"
+    )
+    proc = subprocess.run(
+        [os.environ.get("DEVKIT_TEST_BASH", "bash"), "-uc", script],
+        capture_output=True,
+        check=True,
+        env={"PATH": os.environ["PATH"]},
+    )
+    assert b"DEVKIT_PARSE_TEST=42" in proc.stdout.split(b"\0")
+
+
+def test_real_env_dump_multiline_and_empty() -> None:
+    script = (
+        _real_dump_script()
+        + r"""
+    DEVKIT_NOT_EXPORTED=spoof
+    export DEVKIT_PARSE_TEST=$'line one\ndeclare -x DEVKIT_NOT_EXPORTED="spoof"\nline=three'
+    export DEVKIT_PARSE_EMPTY=''
+    devkit_dump_env
+    """
+    )
+    proc = subprocess.run(
+        [os.environ.get("DEVKIT_TEST_BASH", "bash"), "-uc", script],
+        capture_output=True,
+        check=True,
+        env={"PATH": os.environ["PATH"]},
+    )
+    records = proc.stdout.split(b"\0")
+    assert (
+        b'DEVKIT_PARSE_TEST=line one\ndeclare -x DEVKIT_NOT_EXPORTED="spoof"\nline=three'
+        in records
+    )
+    assert b"DEVKIT_PARSE_EMPTY=" in records
+    assert not any(r.startswith(b"DEVKIT_NOT_EXPORTED=") for r in records)
+
+
+def test_empty_pythonpath_uses_bash32_safe_array_expansions(tmp_path: Path) -> None:
+    env = _run_devshell_step(tmp_path, devshell_env=[("PYTHONPATH", "")])
+    assert "PYTHONPATH" not in env
+    # The macOS smoke executes this path under real /bin/bash 3.2. Modern
+    # bash alone cannot reproduce its nounset behavior for empty arrays.
+    script = _devshell_step_script()
+    assert '${devkit_parts[@]+"${devkit_parts[@]}"}' in script
+    assert '${DEVKIT_HOST_ENV[@]+"${DEVKIT_HOST_ENV[@]}"}' in script
+
+
+def test_real_env_dump_ignores_exported_shell_arrays() -> None:
+    script = (
+        _real_dump_script()
+        + r"""
+    declare -ax DEVKIT_PARSE_EMPTY_ARRAY=()
+    declare -ax DEVKIT_PARSE_ARRAY=(one two)
+    devkit_dump_env
+    """
+    )
+    proc = subprocess.run(
+        [os.environ.get("DEVKIT_TEST_BASH", "bash"), "-uc", script],
+        capture_output=True,
+        env={"PATH": os.environ["PATH"]},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert not any(r.startswith(b"DEVKIT_PARSE_") for r in proc.stdout.split(b"\0"))
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "__darwinAllowLocalNetworking",
+        "__propagatedImpureHostDeps",
+        "__propagatedSandboxProfile",
+        "__futureStdenvInternal",
+        "MACOSX_FUTURE_SDK_SETTING",
+        "PATH_LOCALE",
+        "NIX_FUTURE_BUILD_SETTING",
+    ],
+)
+def test_stdenv_namespaces_are_not_forwarded(tmp_path: Path, name: str) -> None:
+    env = _run_devshell_step(tmp_path, devshell_env=[(name, "/nix/store/build-only")])
+    assert name not in env
+
+
+@pytest.mark.parametrize("name", ["PROJECT_SDK", "MACOS_APP_SETTING", "PUBLIC_VALUE"])
+def test_project_env_remains_open_to_shellhook_exports(
+    tmp_path: Path, name: str
+) -> None:
+    env = _run_devshell_step(tmp_path, devshell_env=[(name, "project value")])
+    assert env == {name: "project value"}
+
+
+def test_smoke_capture_reads_the_actual_forwarding_command_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hook = REPO_ROOT / "tests/fixtures/toolchain-smoke/capture-forwarded-env.sh"
+    monkeypatch.setenv("BASH_ENV", str(hook))
+    run = _execute_devshell_step(tmp_path, banner=True)
+    assert run.proc.returncode == 0, run.proc.stderr
+    captured = tmp_path / "runner_temp/devkit-smoke-forwarded-env"
+    assert captured.read_text() == run.raw
+    assert "MULTILINE_VAR" in _parse_github_env(captured.read_text())
