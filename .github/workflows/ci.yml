@@ -81,6 +81,8 @@ jobs:
           cp devkit/flake.lock .
           # Exercise the host preamble with Apple's bash and BSD tools first.
           echo /bin >> "$GITHUB_PATH"
+          # Capture only the forwarding step's real GITHUB_ENV at shell exit.
+          echo "BASH_ENV=$GITHUB_WORKSPACE/devkit/tests/fixtures/toolchain-smoke/capture-forwarded-env.sh" >> "$GITHUB_ENV"
           for var in DEVELOPER_DIR SDKROOT MACOSX_DEPLOYMENT_TARGET LD_DYLD_PATH ZERO_AR_DATE __impureHostDeps __sandboxProfile; do
             printf '%s=%s\0' "$var" "${!var}"
           done > "$RUNNER_TEMP/devkit-smoke-host-sdk"
@@ -116,6 +118,21 @@ jobs:
           if [[ "$RUNNER_OS" == macOS ]]; then
             [[ "$BASH_VERSION" == 3.2.* ]]
           fi
+          python - <<'PYENV'
+          import os
+          from pathlib import Path
+          from tests.test_setup_toolchain_env import _parse_github_env
+
+          actual = set(_parse_github_env(
+              (Path(os.environ["RUNNER_TEMP"]) / "devkit-smoke-forwarded-env").read_text()
+          ))
+          expected = {
+              "DEVKIT_SMOKE_CHANGED", "DEVKIT_SMOKE_EMPTY",
+              "DEVKIT_SMOKE_VALUE", "XDG_DATA_DIRS",
+          }
+          print(f"Forwarded names on {os.environ['RUNNER_OS']}: {sorted(actual)}")
+          assert actual == expected, f"extra: {actual - expected}; missing: {expected - actual}"
+          PYENV
           python -m pytest --noconftest -c /dev/null --rootdir . -p no:cacheprovider tests/test_setup_toolchain_env.py -q
 
   build-image:

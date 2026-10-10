@@ -351,16 +351,18 @@ runs:
                 return 1
               fi
               return 0 ;;
-            NIX_*|IN_NIX_SHELL) return 0 ;;
+            # Reserve Nix's stdenv internal namespace, including new Darwin
+            # internals introduced by future nixpkgs updates. Project shellHook
+            # exports remain open outside these build/session namespaces.
+            NIX_*|IN_NIX_SHELL|__*) return 0 ;;
             # Darwin stdenv SDK/toolchain selection and reproducible builds.
             # Host tools must retain the runner's SDK, as with CC/LD below.
-            DEVELOPER_DIR|SDKROOT|MACOSX_DEPLOYMENT_TARGET|LD_DYLD_PATH|ZERO_AR_DATE) return 0 ;;
-            __impureHostDeps|__sandboxProfile) return 0 ;;
+            DEVELOPER_DIR|SDKROOT|MACOSX_*|LD_DYLD_PATH|ZERO_AR_DATE|PATH_LOCALE) return 0 ;;
             out|outputs|src|stdenv|system|builder|name|pname|version|shell|shellHook) return 0 ;;
             buildInputs|nativeBuildInputs|propagatedBuildInputs|propagatedNativeBuildInputs) return 0 ;;
             deps*|*Phase|phases|dont*|do[A-Z]*) return 0 ;;
             configureFlags|cmakeFlags|mesonFlags|makeFlags|patches|strictDeps|enableParallelBuilding) return 0 ;;
-            SOURCE_DATE_EPOCH|HOST_PATH|__structuredAttrs|outputHash*|preferLocalBuild|allowSubstitutes|cmakeDir) return 0 ;;
+            SOURCE_DATE_EPOCH|HOST_PATH|outputHash*|preferLocalBuild|allowSubstitutes|cmakeDir) return 0 ;;
             _PYTHON_HOST_PLATFORM|_PYTHON_SYSCONFIGDATA_NAME|DETERMINISTIC_BUILD|CONFIG_SHELL) return 0 ;;
             AR|AS|CC|CXX|LD|NM|OBJCOPY|OBJDUMP|RANLIB|READELF|SIZE|STRINGS|STRIP) return 0 ;;
             *) return 1 ;;

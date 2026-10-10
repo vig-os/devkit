@@ -1157,3 +1157,16 @@ def test_project_env_remains_open_to_shellhook_exports(
 ) -> None:
     env = _run_devshell_step(tmp_path, devshell_env=[(name, "project value")])
     assert env == {name: "project value"}
+
+
+def test_smoke_capture_reads_the_actual_forwarding_command_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    hook = REPO_ROOT / "tests/fixtures/toolchain-smoke/capture-forwarded-env.sh"
+    monkeypatch.setenv("BASH_ENV", str(hook))
+    run = _execute_devshell_step(tmp_path, banner=True)
+    assert run.proc.returncode == 0, run.proc.stderr
+    captured = tmp_path / "runner_temp/devkit-smoke-forwarded-env"
+    assert captured.read_text() == run.raw
+    assert "MULTILINE_VAR" in _parse_github_env(captured.read_text())
