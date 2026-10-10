@@ -1132,3 +1132,28 @@ def test_real_env_dump_ignores_exported_shell_arrays() -> None:
     )
     assert proc.returncode == 0, proc.stderr
     assert not any(r.startswith(b"DEVKIT_PARSE_") for r in proc.stdout.split(b"\0"))
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "__darwinAllowLocalNetworking",
+        "__propagatedImpureHostDeps",
+        "__propagatedSandboxProfile",
+        "__futureStdenvInternal",
+        "MACOSX_FUTURE_SDK_SETTING",
+        "PATH_LOCALE",
+        "NIX_FUTURE_BUILD_SETTING",
+    ],
+)
+def test_stdenv_namespaces_are_not_forwarded(tmp_path: Path, name: str) -> None:
+    env = _run_devshell_step(tmp_path, devshell_env=[(name, "/nix/store/build-only")])
+    assert name not in env
+
+
+@pytest.mark.parametrize("name", ["PROJECT_SDK", "MACOS_APP_SETTING", "PUBLIC_VALUE"])
+def test_project_env_remains_open_to_shellhook_exports(
+    tmp_path: Path, name: str
+) -> None:
+    env = _run_devshell_step(tmp_path, devshell_env=[(name, "project value")])
+    assert env == {name: "project value"}
