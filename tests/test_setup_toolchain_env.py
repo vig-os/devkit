@@ -1114,3 +1114,21 @@ def test_empty_pythonpath_uses_bash32_safe_array_expansions(tmp_path: Path) -> N
     script = _devshell_step_script()
     assert '${devkit_parts[@]+"${devkit_parts[@]}"}' in script
     assert '${DEVKIT_HOST_ENV[@]+"${DEVKIT_HOST_ENV[@]}"}' in script
+
+
+def test_real_env_dump_ignores_exported_shell_arrays() -> None:
+    script = (
+        _real_dump_script()
+        + r"""
+    declare -ax DEVKIT_PARSE_EMPTY_ARRAY=()
+    declare -ax DEVKIT_PARSE_ARRAY=(one two)
+    devkit_dump_env
+    """
+    )
+    proc = subprocess.run(
+        [os.environ.get("DEVKIT_TEST_BASH", "bash"), "-uc", script],
+        capture_output=True,
+        env={"PATH": os.environ["PATH"]},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert not any(r.startswith(b"DEVKIT_PARSE_") for r in proc.stdout.split(b"\0"))
