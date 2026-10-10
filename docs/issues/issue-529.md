@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-10-08T16:48:34Z
+updated: 2026-10-10T00:57:18Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-10-09T08:49:30.108Z
+synced: 2026-10-10T08:21:26.692Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -25,7 +25,7 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
  - [ ] <!-- unschedule-branch=renovate/github-codeql-action-digest -->chore(deps): update github/codeql-action digest to 24c5418
- - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update github-actions (minor and patch) (`actions/download-artifact`, `actions/setup-node`, `actions/upload-artifact`)
+ - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update github-actions (minor and patch) (`actions/download-artifact`, `actions/setup-node`, `actions/upload-artifact`, `astral-sh/setup-uv`)
  - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
  - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
 
@@ -400,7 +400,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
- - `astral-sh/setup-uv v10.2.0@c18668ad3cf93ea998bef934396af7bb5c839dc7`
+ - `astral-sh/setup-uv v10.2.0@c18668ad3cf93ea998bef934396af7bb5c839dc7` → [Updates: `v10.3.0`]
 
 </details>
 
