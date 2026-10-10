@@ -295,6 +295,10 @@ runs:
               # A multiline value on older Bash can resemble a declaration.
               # Confirm the candidate is genuinely exported before reading it.
               devkit_export_decl="$(declare -p "$devkit_export_name" 2>/dev/null)" || continue
+              # Shell arrays (even marked export) are not process env vars.
+              if [[ "$devkit_export_decl" =~ ^declare\ -[a-zA-Z]*[aA][a-zA-Z]*\  ]]; then
+                continue
+              fi
               if [[ "$devkit_export_decl" =~ ^declare\ -[a-zA-Z]*x[a-zA-Z]*\  ]]; then
                 printf '%s=%s\0' "$devkit_export_name" "${!devkit_export_name}"
               fi
