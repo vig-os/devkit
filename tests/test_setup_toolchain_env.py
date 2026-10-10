@@ -389,7 +389,7 @@ def _execute_devshell_step(
         env.pop(ambient_var, None)
 
     proc = subprocess.run(
-        ["bash", "-c", script],
+        [os.environ.get("DEVKIT_TEST_BASH", "bash"), "-c", script],
         cwd=tmp_path,  # pyproject.toml here (or not) picks the consumer path
         env=env,
         capture_output=True,
@@ -1038,3 +1038,79 @@ def test_direnv_on_host_without_gnu_tools_or_associative_arrays(tmp_path: Path) 
     paths = _runner_path((tmp_path / "github_path").read_text())
     expected = STORE_BINS_IN_ORDER
     assert paths[:-1] == expected
+
+
+DARWIN_BUILD_VARS = (
+    "DEVELOPER_DIR",
+    "SDKROOT",
+    "MACOSX_DEPLOYMENT_TARGET",
+    "LD_DYLD_PATH",
+    "ZERO_AR_DATE",
+    "__impureHostDeps",
+    "__sandboxProfile",
+)
+
+
+@pytest.mark.parametrize("name", DARWIN_BUILD_VARS)
+def test_darwin_build_environment_is_not_forwarded(tmp_path: Path, name: str) -> None:
+    env = _run_devshell_step(tmp_path, devshell_env=[(name, "/nix/store/sdk")])
+    assert name not in env
+
+
+def _real_dump_script() -> str:
+    script = _devshell_step_script()
+    return script[
+        script.index("devkit_dump_env() (") : script.index(
+            'devkit_dump_env > "$RUNNER_TEMP/devkit-host-env"'
+        )
+    ]
+
+
+@pytest.mark.parametrize("flags", ["x", "rx", "ix", "irx"])
+def test_real_env_dump_export_attributes(flags: str) -> None:
+    script = (
+        _real_dump_script()
+        + f"\ndeclare -{flags} DEVKIT_PARSE_TEST=42\ndevkit_dump_env"
+    )
+    proc = subprocess.run(
+        [os.environ.get("DEVKIT_TEST_BASH", "bash"), "-uc", script],
+        capture_output=True,
+        check=True,
+        env={"PATH": os.environ["PATH"]},
+    )
+    assert b"DEVKIT_PARSE_TEST=42" in proc.stdout.split(b"\0")
+
+
+def test_real_env_dump_multiline_and_empty() -> None:
+    script = (
+        _real_dump_script()
+        + r"""
+    DEVKIT_NOT_EXPORTED=spoof
+    export DEVKIT_PARSE_TEST=$'line one\ndeclare -x DEVKIT_NOT_EXPORTED="spoof"\nline=three'
+    export DEVKIT_PARSE_EMPTY=''
+    devkit_dump_env
+    """
+    )
+    proc = subprocess.run(
+        [os.environ.get("DEVKIT_TEST_BASH", "bash"), "-uc", script],
+        capture_output=True,
+        check=True,
+        env={"PATH": os.environ["PATH"]},
+    )
+    records = proc.stdout.split(b"\0")
+    assert (
+        b'DEVKIT_PARSE_TEST=line one\ndeclare -x DEVKIT_NOT_EXPORTED="spoof"\nline=three'
+        in records
+    )
+    assert b"DEVKIT_PARSE_EMPTY=" in records
+    assert not any(r.startswith(b"DEVKIT_NOT_EXPORTED=") for r in records)
+
+
+def test_empty_pythonpath_uses_bash32_safe_array_expansions(tmp_path: Path) -> None:
+    env = _run_devshell_step(tmp_path, devshell_env=[("PYTHONPATH", "")])
+    assert "PYTHONPATH" not in env
+    # The macOS smoke executes this path under real /bin/bash 3.2. Modern
+    # bash alone cannot reproduce its nounset behavior for empty arrays.
+    script = _devshell_step_script()
+    assert '${devkit_parts[@]+"${devkit_parts[@]}"}' in script
+    assert '${DEVKIT_HOST_ENV[@]+"${DEVKIT_HOST_ENV[@]}"}' in script
