@@ -11,11 +11,19 @@
         in
         {
           default = pkgs.mkShell {
-            packages = [ pkgs.prek ];
+            packages = [
+              pkgs.prek
+              pkgs.just
+              (pkgs.python3.withPackages (ps: [
+                ps.pytest
+                ps.pyyaml
+              ]))
+            ];
             shellHook = ''
               echo "toolchain smoke shellHook loaded"
               export DEVKIT_SMOKE_VALUE='first line
               second line with = and $literal'
+              export PYTHONPATH=""
               export DEVKIT_SMOKE_EMPTY=""
               export DEVKIT_SMOKE_CHANGED="from shellHook"
             '';

@@ -81,6 +81,9 @@ jobs:
           cp devkit/flake.lock .
           # Exercise the host preamble with Apple's bash and BSD tools first.
           echo /bin >> "$GITHUB_PATH"
+          for var in DEVELOPER_DIR SDKROOT MACOSX_DEPLOYMENT_TARGET LD_DYLD_PATH ZERO_AR_DATE __impureHostDeps __sandboxProfile; do
+            printf '%s=%s\0' "$var" "${!var}"
+          done > "$RUNNER_TEMP/devkit-smoke-host-sdk"
       - name: Set up direnv toolchain
         uses: ./devkit/assets/workspace/.github/actions/setup-devkit-toolchain
         with:
@@ -89,12 +92,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test -e "$RUNNER_TEMP/devkit-dev-profile"
+          nix --version
+          just --version
           prek --version
+          for var in DEVELOPER_DIR SDKROOT MACOSX_DEPLOYMENT_TARGET LD_DYLD_PATH ZERO_AR_DATE __impureHostDeps __sandboxProfile; do
+            printf '%s=%s\0' "$var" "${!var-}"
+          done > "$RUNNER_TEMP/devkit-smoke-after-sdk"
+          cmp "$RUNNER_TEMP/devkit-smoke-host-sdk" "$RUNNER_TEMP/devkit-smoke-after-sdk"
           retry -- true
           [[ "$DEVKIT_SMOKE_VALUE" == $'first line\nsecond line with = and $literal' ]]
           [[ "${DEVKIT_SMOKE_EMPTY+x}" == x && -z "$DEVKIT_SMOKE_EMPTY" ]]
           [[ "$DEVKIT_SMOKE_CHANGED" == 'from shellHook' ]]
           [[ "$DEVKIT_SMOKE_AMBIENT" == 'unchanged host value' ]]
+
+      - name: Exercise environment parsing and empty arrays with the host Bash
+        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+        working-directory: devkit
+        env:
+          DEVKIT_TEST_BASH: /bin/bash
+        run: |
+          echo "Host Bash: $BASH_VERSION"
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            [[ "$BASH_VERSION" == 3.2.* ]]
+          fi
+          python -m pytest --noconftest -c /dev/null --rootdir . -p no:cacheprovider tests/test_setup_toolchain_env.py -q
 
   build-image:
     name: Build Container Image

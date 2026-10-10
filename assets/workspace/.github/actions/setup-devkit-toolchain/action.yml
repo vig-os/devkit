@@ -290,9 +290,14 @@ runs:
         # Run in a subshell so the iterator cannot alter the caller's env.
         devkit_dump_env() (
           while IFS= read -r devkit_export_record; do
-            if [[ "$devkit_export_record" =~ ^declare\ -x\ ([A-Za-z_][A-Za-z0-9_]*)= ]]; then
+            if [[ "$devkit_export_record" =~ ^declare\ -[a-zA-Z]*x[a-zA-Z]*\ ([A-Za-z_][A-Za-z0-9_]*)= ]]; then
               devkit_export_name="${BASH_REMATCH[1]}"
-              printf '%s=%s\0' "$devkit_export_name" "${!devkit_export_name}"
+              # A multiline value on older Bash can resemble a declaration.
+              # Confirm the candidate is genuinely exported before reading it.
+              devkit_export_decl="$(declare -p "$devkit_export_name" 2>/dev/null)" || continue
+              if [[ "$devkit_export_decl" =~ ^declare\ -[a-zA-Z]*x[a-zA-Z]*\  ]]; then
+                printf '%s=%s\0' "$devkit_export_name" "${!devkit_export_name}"
+              fi
             fi
           done < <(export -p)
         )
@@ -343,6 +348,10 @@ runs:
               fi
               return 0 ;;
             NIX_*|IN_NIX_SHELL) return 0 ;;
+            # Darwin stdenv SDK/toolchain selection and reproducible builds.
+            # Host tools must retain the runner's SDK, as with CC/LD below.
+            DEVELOPER_DIR|SDKROOT|MACOSX_DEPLOYMENT_TARGET|LD_DYLD_PATH|ZERO_AR_DATE) return 0 ;;
+            __impureHostDeps|__sandboxProfile) return 0 ;;
             out|outputs|src|stdenv|system|builder|name|pname|version|shell|shellHook) return 0 ;;
             buildInputs|nativeBuildInputs|propagatedBuildInputs|propagatedNativeBuildInputs) return 0 ;;
             deps*|*Phase|phases|dont*|do[A-Z]*) return 0 ;;
@@ -374,7 +383,7 @@ runs:
           # Skip vars unchanged from the ambient environment (already present in
           # the CI env; forwarding them would needlessly re-emit host secrets).
           devkit_unchanged=false
-          for devkit_host_kv in "${DEVKIT_HOST_ENV[@]}"; do
+          for devkit_host_kv in ${DEVKIT_HOST_ENV[@]+"${DEVKIT_HOST_ENV[@]}"}; do
             if [[ "$devkit_host_kv" == "$devkit_kv" ]]; then
               devkit_unchanged=true
               break
@@ -399,7 +408,7 @@ runs:
           if [[ "$devkit_name" == PYTHONPATH ]]; then
             devkit_kept=()
             IFS=':' read -r -a devkit_parts <<< "$devkit_value"
-            for devkit_part in "${devkit_parts[@]}"; do
+            for devkit_part in ${devkit_parts[@]+"${devkit_parts[@]}"}; do
               if [[ "$devkit_part" != /nix/store/* ]]; then
                 devkit_kept+=("$devkit_part")
               fi
