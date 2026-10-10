@@ -311,6 +311,7 @@ def _execute_devshell_step(
     pyproject: bool = False,
     nixos: bool = False,
     dev_profile_path: str | None = None,
+    portable_host: bool = False,
 ) -> _StepRun:
     """Execute the devshell step; return the process, its GITHUB_ENV and gcroots.
 
@@ -322,6 +323,21 @@ def _execute_devshell_step(
     the default every hosted consumer runs today.
     """
     script = _devshell_step_script()
+    if portable_host:
+        script = (
+            r"""
+        tac() { echo "tac unavailable" >&2; return 127; }
+        env() {
+          if [[ "${1:-}" == -0 ]]; then return 64; fi
+          command env "$@"
+        }
+        declare() {
+          if [[ "${1:-}" == -A ]]; then return 2; fi
+          builtin declare "$@"
+        }
+        """
+            + script
+        )
 
     bin_dir = tmp_path / "stub-bin"
     _write_nix_stub(bin_dir, banner=banner, devshell_env=devshell_env)
@@ -1011,3 +1027,14 @@ def test_unwritable_gcroot_parent_fails_loudly(tmp_path: Path) -> None:
     assert run.proc.returncode != 0, "an unwritable profile parent must fail the step"
     assert "::error::" in run.proc.stdout + run.proc.stderr
     assert not run.profiles, "the step must not realise a dev-shell after rejecting"
+
+
+def test_direnv_on_host_without_gnu_tools_or_associative_arrays(tmp_path: Path) -> None:
+    """The host preamble must work with macOS bash 3.2 and BSD tools (#1857)."""
+    run = _execute_devshell_step(tmp_path, portable_host=True, banner=True)
+    assert run.proc.returncode == 0, run.proc.stderr
+    assert run.env["MULTILINE_VAR"] == "line-one\nline-two\nline-three"
+    assert "AMBIENT_SHARED" not in run.env
+    paths = _runner_path((tmp_path / "github_path").read_text())
+    expected = [p for p in DEVSHELL_PATH.split(":") if "podman" not in p]
+    assert paths[:-1] == expected
