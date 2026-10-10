@@ -58,6 +58,44 @@ permissions:
   contents: read
 
 jobs:
+  toolchain-smoke:
+    name: Toolchain Smoke (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-26.04, macos-15]
+    env:
+      DEVKIT_SMOKE_AMBIENT: unchanged host value
+      DEVKIT_SMOKE_CHANGED: from host
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          path: devkit
+      - name: Prepare minimal consumer with the repository's locked nixpkgs
+        shell: /bin/bash --noprofile --norc -e -o pipefail {0}
+        run: |
+          cp devkit/tests/fixtures/toolchain-smoke/flake.nix .
+          cp devkit/flake.lock .
+          # Exercise the host preamble with Apple's bash and BSD tools first.
+          echo /bin >> "$GITHUB_PATH"
+      - name: Set up direnv toolchain
+        uses: ./devkit/assets/workspace/.github/actions/setup-devkit-toolchain
+        with:
+          mode: direnv
+      - name: Verify toolchain and shellHook environment in a subsequent step
+        shell: bash
+        run: |
+          set -euo pipefail
+          prek --version
+          retry -- true
+          [[ "$DEVKIT_SMOKE_VALUE" == $'first line\nsecond line with = and $literal' ]]
+          [[ "${DEVKIT_SMOKE_EMPTY+x}" == x && -z "$DEVKIT_SMOKE_EMPTY" ]]
+          [[ "$DEVKIT_SMOKE_CHANGED" == 'from shellHook' ]]
+          [[ "$DEVKIT_SMOKE_AMBIENT" == 'unchanged host value' ]]
+
   build-image:
     name: Build Container Image
     runs-on: ubuntu-26.04
@@ -660,6 +698,7 @@ jobs:
       - project-bats
       - project-flake
       - consumer-matrix
+      - toolchain-smoke
       - commit-checks
       - python-security
       - security-scan
@@ -694,6 +733,11 @@ jobs:
           # subset input every job is gated on, and commit-checks /
           # dependency-review are pull-request only.
           FAILED=false
+
+          if [ "${{ needs.toolchain-smoke.result }}" = "failure" ] || [ "${{ needs.toolchain-smoke.result }}" = "cancelled" ]; then
+            echo "ERROR: Toolchain smoke tests did not pass"
+            FAILED=true
+          fi
 
           if [ "${{ needs.build-image.result }}" = "failure" ] || [ "${{ needs.build-image.result }}" = "cancelled" ]; then
             echo "ERROR: Build image failed or was cancelled"

@@ -171,7 +171,7 @@ def _write_nix_stub(
     - `nix develop … --command true`                  -> exit 0 (profile build)
     - `nix develop … --command bash -c 'printf … PATH'`-> a fake store PATH
     - `nix develop … --command bash -c '… UV_… '`      -> the uv-download URL
-    - `nix develop … --command bash -c 'env -0 > …'`   -> env dump to the file
+    - `nix develop … --command bash -c '… devkit_dump_env > …'` -> env file
     - `nix develop … --command env …`                  -> env dump on stdout
 
     With ``banner=True`` the stub echoes the shellHook banner to stdout on
@@ -214,7 +214,7 @@ def _write_nix_stub(
         'if [ "${cmd[0]:-}" = "true" ]; then exit 0; fi',
         "# In-shell file dump: write the records to the target file, keeping",
         "# stdout (the banner) out of the dump — the shape the action relies on.",
-        'if [[ "$joined" == *"env -0 >"* ]]; then',
+        'if [[ "$joined" == *"devkit_dump_env >"* ]]; then',
         '  target="${cmd[-1]}"',
         '  : > "$target"',
     ]
@@ -1036,5 +1036,5 @@ def test_direnv_on_host_without_gnu_tools_or_associative_arrays(tmp_path: Path) 
     assert run.env["MULTILINE_VAR"] == "line-one\nline-two\nline-three"
     assert "AMBIENT_SHARED" not in run.env
     paths = _runner_path((tmp_path / "github_path").read_text())
-    expected = [p for p in DEVSHELL_PATH.split(":") if "podman" not in p]
+    expected = STORE_BINS_IN_ORDER
     assert paths[:-1] == expected
