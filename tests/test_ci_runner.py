@@ -749,3 +749,13 @@ def test_branch_gate_issueless_type_outside_branch_types() -> None:
     assert (
         _run_branch_gate("record/Bad_Slug", DEFAULT_BRANCH_TYPES, "chore,record") == 1
     )
+
+
+@pytest.mark.parametrize(
+    "step_name", ["Check declared languages", "Check flake pin lockstep"]
+)
+def test_ci_gate_steps_run_in_resolve_checkout(step_name: str) -> None:
+    """The marker/flake.nix gates read the sparse clone, not the workspace root (#1860)."""
+    job = _load(WORKFLOWS / "ci.yml")["jobs"]["resolve-toolchain"]
+    step = next(s for s in job["steps"] if s.get("name") == step_name)
+    assert step["working-directory"] == ".devkit-resolve"
