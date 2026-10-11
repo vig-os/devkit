@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-10-06T11:10:34Z
-updated: 2026-10-08T09:26:58Z
+updated: 2026-10-10T21:24:06Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1843
-comments: 1
+comments: 2
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-10-09T08:49:29.024Z
+synced: 2026-10-11T08:37:37.702Z
 ---
 
 # [Issue 1843]: [release-core finalize dispatches sync-issues.yml even when the sync-issues feature is disabled (final release impossible)](https://github.com/vig-os/devkit/issues/1843)
@@ -46,4 +46,12 @@ Either render the three sync-issues steps only when the feature is enabled (or g
 _Posted on October 8, 2026 at 09:26 AM_
 
 Hit this on 1.18.0 in a downstream consumer (trunk, `sync-issues` disabled). Interim workaround while the drift gate is off: guard **Trigger** and **Wait** on `hashFiles('.github/workflows/sync-issues.yml') != ''`. Keep **Pull sync-issues changes** unconditional: it is also what brings the API-pushed finalize commit into the checkout before `finalize_sha` is read. Skipping it would tag the pre-finalize commit.
+
+---
+
+# [Comment #2]() by [gerchowl]()
+
+_Posted on October 10, 2026 at 09:24 PM_
+
+One more trap for consumers who fix this by enabling `sync-issues`: GitHub only dispatches a workflow that already exists on the **default** branch. After the re-render merges into `dev`, `gh workflow run sync-issues.yml --ref release/X.Y.Z` still returns `HTTP 404: workflow sync-issues.yml not found on the default branch` until a release has carried the file to `main`. So the first release after enabling the feature still fails finalize. A runtime guard (skip when the workflow isn't registered) would cover both cases. Seen in gerchowl/claude-config#80.
 
