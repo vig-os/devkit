@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **resolve-toolchain sparse checkout no longer poisons a persistent runner's workspace** ([#1860](https://github.com/vig-os/devkit/issues/1860))
+  - The sparse `actions/checkout` in every managed `resolve-toolchain` job now uses `path: .devkit-resolve`, so later jobs sharing `_work/<repo>/<repo>` get a fully materialized tree
+  - `resolve-toolchain` action gains a `working-directory` input (default `.`); `ci.yml` gate steps run from the new path
+
 ### Security
 
 ## [1.19.0] - TBD

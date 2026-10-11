@@ -141,11 +141,15 @@ jobs:
             Cargo.toml
             flake.nix
           sparse-checkout-cone-mode: false
+          # Own path: on a persistent runner the sparse clone must not occupy the
+          # shared workspace root later jobs reuse (#1860).
+          path: .devkit-resolve
 
       - name: Resolve toolchain
         id: resolve
-        uses: ./.github/actions/resolve-toolchain
+        uses: ./.devkit-resolve/.github/actions/resolve-toolchain
         with:
+          working-directory: .devkit-resolve
           registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
           registry-username: ${{ github.actor }}
           image-tag: ${{ inputs.image-tag }}
@@ -171,6 +175,7 @@ jobs:
       # The declared list reaches the shell via env, never inline `${{ }}` (the
       # zizmor template-injection gate / #1279 env-routing pattern).
       - name: Check declared languages
+        working-directory: .devkit-resolve
         env:
           LANGUAGES: ${{ steps.resolve.outputs.languages }}
         run: |
@@ -222,6 +227,7 @@ jobs:
       # A dispatch that reroutes the image makes image-tag diverge from .vig-os;
       # PR runs never set it.
       - name: Check flake pin lockstep
+        working-directory: .devkit-resolve
         if: ${{ !inputs.image-tag }}
         env:
           MODE: ${{ steps.resolve.outputs.mode }}

@@ -127,6 +127,24 @@ def test_resolve_toolchain_runner_is_var_overridable(workflow_name: str) -> None
     assert workflow["jobs"]["resolve-toolchain"]["runs-on"] == RESOLVE_RUNNER_EXPR
 
 
+@pytest.mark.parametrize("workflow_name", RESOLVE_TOOLCHAIN_WORKFLOWS)
+def test_resolve_toolchain_sparse_checkout_has_own_path(workflow_name: str) -> None:
+    """The sparse clone lives in its own path, never the shared workspace root (#1860).
+
+    On a persistent self-hosted runner later jobs reuse ``_work/<repo>/<repo>``;
+    a sparse clone at the root leaves it unmaterialized for them.
+    """
+    job = _load(WORKFLOWS / workflow_name)["jobs"]["resolve-toolchain"]
+    checkout = next(
+        s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout")
+    )
+    resolve = next(s for s in job["steps"] if s.get("id") == "resolve")
+    path = checkout["with"]["path"]
+    assert path == ".devkit-resolve"
+    assert resolve["uses"] == f"./{path}/.github/actions/resolve-toolchain"
+    assert resolve["with"]["working-directory"] == path
+
+
 @pytest.mark.parametrize(
     ("runner_value", "expected"),
     [
