@@ -204,7 +204,7 @@ jobs:
             if [[ -f "$marker" ]]; then
               echo "Declared language '$lang': $marker present."
             else
-              echo "::error::Declared language '$lang' but $marker is missing from the repository root."
+              echo "::error::Declared language '$lang' but $marker is missing from the resolved checkout (.devkit-resolve)."
               MISSING+=("$lang ($marker)")
             fi
           done
