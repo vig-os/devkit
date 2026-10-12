@@ -621,3 +621,30 @@ def test_valid_feature_group_default_ships_the_workflow() -> None:
     """With no opt-out, the workflow is scaffolded."""
     tree = cached_tree(None)
     assert (tree / REL).is_file()
+
+
+def test_direnv_upgrade_passes_no_container_runtime_flag() -> None:
+    """direnv mode runs install.sh without --docker (#1871); other modes keep it.
+
+    install.sh's direnv path scaffolds on the runner from the pinned flake
+    source, so no docker/podman is needed or selected. The mode is read from the
+    checked-out ``.vig-os``; container modes still pin ``--docker`` (#1305).
+    """
+    step = step_by_id(
+        _jobs(TEMPLATE.read_text(encoding="utf-8"))["upgrade"]["steps"], "upgrade"
+    )
+    run = str(step["run"])
+    assert "RUNTIME_FLAG=(--docker)" in run
+    assert "DEVKIT_MODE=direnv" in run and "RUNTIME_FLAG=()" in run
+    assert '${RUNTIME_FLAG[@]+"${RUNTIME_FLAG[@]}"}' in run
+    # No hard-coded runtime flag on the install.sh command line itself.
+    cmdline = next(line for line in run.splitlines() if "bash -s --" in line)
+    assert "--docker" not in cmdline
+
+
+def test_github_flake_fetch_steps_carry_the_job_token() -> None:
+    """Steps that fetch github: flakes authenticate nix with the job token (#1871)."""
+    steps = _jobs(TEMPLATE.read_text(encoding="utf-8"))["upgrade"]["steps"]
+    for sid in ("upgrade", "commit"):
+        nix_config = str(step_by_id(steps, sid)["env"]["NIX_CONFIG"])
+        assert "access-tokens = github.com=${{ github.token }}" in nix_config
