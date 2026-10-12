@@ -476,6 +476,14 @@ jobs:
   # .vig-os DEVKIT_VERSION line stable (the image's baked full version would
   # otherwise rewrite a floating pin and read as spurious drift).
   #
+  # direnv mode is Docker-free (#1861): there the pinned scaffold runs straight
+  # from the devkit flake source (`nix flake metadata` -> its `assets/`) in a
+  # scratch clone under RUNNER_TEMP, with the image's two bake-time steps
+  # (`{{IMAGE_TAG}}` -> pin, the VERSION file) replayed, so no container runtime
+  # is needed on the runner. `install.sh` / `nix run ...#install` cannot be used
+  # for this: they `docker|podman run` the image themselves. The container path
+  # above stays as-is for devcontainer / both / bare.
+  #
   # Cost control: PRs only (the ~1.5 GiB image pull). A single workflow cannot
   # apply a per-job `paths` filter, so the job rides the same pull_request-only
   # gate as commit-checks/dependency-review; the DEVKIT_DRIFT_CHECK knob
@@ -495,10 +503,74 @@ jobs:
         with:
           persist-credentials: false
 
+      # direnv mode: Nix (plus git/jq/rsync from the repo dev-shell) comes from
+      # the shared preamble; the other modes need no host toolchain here.
+      - name: Set up devkit toolchain
+        if: needs.resolve-toolchain.outputs.mode == 'direnv'
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: ${{ needs.resolve-toolchain.outputs.mode }}
+          devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          dev-profile-path: ${{ needs.resolve-toolchain.outputs.dev-profile-path }}
+
+      # Same diff, no container (#1861). The pin's flake source is fetched by
+      # nix (read-only store path), its assets copied writable into a scratch
+      # dir, and init-workspace.sh run against a scratch CLONE of the checkout
+      # (never the workspace itself, so a persistent runner's tree is untouched
+      # and nothing is root-owned). The scratch dir is removed on exit.
+      - name: Check for scaffold drift (nix)
+        if: needs.resolve-toolchain.outputs.mode == 'direnv'
+        env:
+          IMAGE_TAG: ${{ needs.resolve-toolchain.outputs.image-tag }}
+          CONSUMER_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$IMAGE_TAG" ]]; then
+            echo "::error::Could not resolve DEVKIT_VERSION from .vig-os — cannot run the scaffold-drift check."
+            exit 1
+          fi
+
+          scratch="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/devkit-drift.XXXXXX")"
+          trap 'chmod -R u+w "$scratch" 2>/dev/null || true; rm -rf "$scratch"' EXIT
+
+          echo "Fetching devkit ${IMAGE_TAG} via nix"
+          src="$(nix flake metadata --json "github:vig-os/devkit/${IMAGE_TAG}" | jq -er .path)"
+          cp -R "$src/assets" "$scratch/assets"
+          chmod -R u+w "$scratch/assets"
+          # Replay the image's bake steps (flake.nix `bootstrap`): stamp the pin
+          # into the scaffolded .vig-os and record the built tag.
+          sed "s/{{IMAGE_TAG}}/${IMAGE_TAG}/g" "$scratch/assets/workspace/.vig-os" > "$scratch/vig-os.stamped"
+          mv "$scratch/vig-os.stamped" "$scratch/assets/workspace/.vig-os"
+          printf '%s\n' "$IMAGE_TAG" > "$scratch/assets/VERSION"
+
+          git clone --quiet "$GITHUB_WORKSPACE" "$scratch/workspace"
+
+          # `bash <script>`, not the shebang: it is /bin/bash, absent on NixOS runners
+          # and bash 3.2 on macOS, while PATH's bash (dev-shell) is current.
+          VIG_OS_VERSION="$IMAGE_TAG" \
+          GITHUB_REPOSITORY="$CONSUMER_REPOSITORY" \
+          TEMPLATE_DIR="$scratch/assets/workspace" \
+          VERSION_FILE="$scratch/assets/VERSION" \
+          WORKSPACE_DIR="$scratch/workspace" \
+            bash "$scratch/assets/init-workspace.sh" --force --no-prompts
+
+          cd "$scratch/workspace"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No scaffold drift detected — managed files match devkit ${IMAGE_TAG}."
+            exit 0
+          fi
+          echo "::error::Scaffold drift detected: the working tree diverges from what devkit ${IMAGE_TAG} would scaffold. Re-run the devkit upgrade (install.sh --force) and commit the result, or set DEVKIT_DRIFT_CHECK=false in .vig-os to opt out."
+          git --no-pager diff --cached
+          exit 1
+
       # All ${{ }} values reach the shell via env (never inline in run:), per the
       # zizmor template-injection gate. The inner `docker run` script is a
       # single-quoted literal — it reads only the -e env it is handed.
       - name: Check for scaffold drift
+        if: needs.resolve-toolchain.outputs.mode != 'direnv'
         env:
           IMAGE: ${{ needs.resolve-toolchain.outputs.drift-image }}
           IMAGE_TAG: ${{ needs.resolve-toolchain.outputs.image-tag }}
