@@ -525,10 +525,20 @@ jobs:
         env:
           IMAGE_TAG: ${{ needs.resolve-toolchain.outputs.image-tag }}
           CONSUMER_REPOSITORY: ${{ github.repository }}
+          # Authenticated fetch of the pin's flake source: an anonymous
+          # github: fetch on a self-hosted runner shares one IP's API rate limit.
+          NIX_CONFIG: |
+            access-tokens = github.com=${{ github.token }}
         run: |
           set -euo pipefail
           if [[ -z "$IMAGE_TAG" ]]; then
             echo "::error::Could not resolve DEVKIT_VERSION from .vig-os — cannot run the scaffold-drift check."
+            exit 1
+          fi
+          # The tag reaches a flake ref and a sed replacement: allow only the
+          # release-tag charset so it can neither break the substitution nor the ref.
+          if [[ ! "$IMAGE_TAG" =~ ^[0-9A-Za-z._-]+$ ]]; then
+            echo "::error::DEVKIT_VERSION '$IMAGE_TAG' is not a release tag (expected [0-9A-Za-z._-]+) — cannot run the scaffold-drift check."
             exit 1
           fi
 

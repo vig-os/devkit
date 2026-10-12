@@ -183,6 +183,13 @@ def test_nix_drift_step_is_direnv_only_and_container_free() -> None:
     # scratch lives under RUNNER_TEMP and is removed on exit
     assert "RUNNER_TEMP" in nix_step["run"]
     assert "trap " in nix_step["run"]
+    # authenticated fetch, token only via step env; tag charset validated
+    assert (
+        "access-tokens = github.com=${{ github.token }}"
+        in nix_step["env"]["NIX_CONFIG"]
+    )
+    assert "[0-9A-Za-z._-]+" in nix_step["run"]
+    assert "NIX_CONFIG" not in nix_step["run"]
 
 
 def test_direnv_drift_job_provisions_nix_before_the_scaffold() -> None:
