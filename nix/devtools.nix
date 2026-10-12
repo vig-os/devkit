@@ -44,6 +44,7 @@ with pkgs;
 
   # Shell & JSON utilities
   jq
+  rsync # the scaffold (init-workspace.sh) copies with it; direnv-mode drift CI runs it on the host (#1861)
   tmux
   shellcheck
 

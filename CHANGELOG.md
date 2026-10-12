@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Scaffold Drift no longer needs Docker in direnv mode** ([#1861](https://github.com/vig-os/devkit/issues/1861))
+  - With `DEVKIT_MODE=direnv`, ci.yml's `scaffold-drift` job runs the pinned scaffold from the devkit flake source via nix in a scratch clone under `RUNNER_TEMP` (removed afterwards) instead of `docker login/pull/run`; devcontainer, both and bare modes keep the container path
+  - `rsync` joins the dev-shell tools, which the host-side scaffold needs
+  - Still container-dependent in direnv mode: `devkit-upgrade.yml` (runs `install.sh --docker`; not changed here)
+
 - **resolve-toolchain sparse checkout no longer poisons a persistent runner's workspace** ([#1860](https://github.com/vig-os/devkit/issues/1860))
   - The sparse `actions/checkout` in every managed `resolve-toolchain` job now uses `path: .devkit-resolve`, so later jobs sharing `_work/<repo>/<repo>` get a fully materialized tree
   - `resolve-toolchain` action gains a `working-directory` input (default `.`); `ci.yml` gate steps run from the new path

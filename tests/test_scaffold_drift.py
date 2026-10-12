@@ -20,13 +20,21 @@ Refs: #1295
 
 from __future__ import annotations
 
+import json
+import os
+import re
+import shutil
+import subprocess
 from typing import TYPE_CHECKING
 
 import pytest
 import yaml
 
 from tests.workflow_scaffold import (
+    REPO_ROOT,
     WORKFLOWS,
+    scaffold_tree,
+    step_by_name,
 )
 from tests.workflow_scaffold import (
     load_workflow as _load,
@@ -142,3 +150,133 @@ def test_summary_gates_on_scaffold_drift() -> None:
     assert DRIFT_JOB in workflow["jobs"]["summary"]["needs"]
     run = workflow["jobs"]["summary"]["steps"][0]["run"]
     assert "needs.scaffold-drift.result" in run
+
+
+# ── direnv mode: Docker-free drift via nix (#1861) ────────────────────────────
+
+CONTAINER_STEP = "Check for scaffold drift"
+NIX_STEP = "Check for scaffold drift (nix)"
+CONTAINER_RUNTIMES = re.compile(r"\b(docker|podman)\b")
+
+
+def _drift_steps() -> list[dict]:
+    return _load(WORKFLOWS / "ci.yml")["jobs"][DRIFT_JOB]["steps"]
+
+
+def test_container_drift_step_is_skipped_in_direnv_mode() -> None:
+    """Container/both/bare modes keep the docker path; direnv never reaches it."""
+    step = next(x for x in _drift_steps() if x.get("name") == CONTAINER_STEP)
+    assert step["if"] == "needs.resolve-toolchain.outputs.mode != 'direnv'"
+    assert "docker run" in step["run"]
+
+
+def test_nix_drift_step_is_direnv_only_and_container_free() -> None:
+    """direnv mode runs the pinned scaffold through nix: no docker/podman anywhere."""
+    steps = _drift_steps()
+    nix_step = next(x for x in steps if x.get("name") == NIX_STEP)
+    assert nix_step["if"] == "needs.resolve-toolchain.outputs.mode == 'direnv'"
+    assert not CONTAINER_RUNTIMES.search(nix_step["run"])
+    assert "nix flake metadata" in nix_step["run"]
+    assert "github:vig-os/devkit/${IMAGE_TAG}" in nix_step["run"]
+    # the scaffold must not execute via its /bin/bash shebang (absent on NixOS)
+    assert 'bash "$scratch/assets/init-workspace.sh"' in nix_step["run"]
+    # scratch lives under RUNNER_TEMP and is removed on exit
+    assert "RUNNER_TEMP" in nix_step["run"]
+    assert "trap " in nix_step["run"]
+    # authenticated fetch, token only via step env; tag charset validated
+    assert (
+        "access-tokens = github.com=${{ github.token }}"
+        in nix_step["env"]["NIX_CONFIG"]
+    )
+    assert "[0-9A-Za-z._-]+" in nix_step["run"]
+    assert "NIX_CONFIG" not in nix_step["run"]
+
+
+def test_direnv_drift_job_provisions_nix_before_the_scaffold() -> None:
+    """The shared toolchain preamble (nix) runs first, direnv mode only."""
+    steps = _drift_steps()
+    names = [str(x.get("name")) for x in steps]
+    setup = step_by_name(steps, "Set up devkit toolchain")
+    assert setup["if"] == "needs.resolve-toolchain.outputs.mode == 'direnv'"
+    assert names.index("Set up devkit toolchain") < names.index(NIX_STEP)
+
+
+def test_no_container_runtime_outside_the_container_step() -> None:
+    """Only the non-direnv container step may name docker/podman in this job."""
+    for step in _drift_steps():
+        if step.get("name") != CONTAINER_STEP:
+            assert not CONTAINER_RUNTIMES.search(step.get("run", "")), step.get("name")
+
+
+def _gnu_sed() -> bool:
+    out = subprocess.run(["sed", "--version"], capture_output=True, text=True)
+    return out.returncode == 0 and "GNU" in out.stdout
+
+
+def _run_nix_drift(
+    tmp_path: Path, workspace: Path, tag: str
+) -> subprocess.CompletedProcess[str]:
+    """Execute the nix drift step's real bash, with `nix` stubbed to this repo."""
+    step = step_by_name(_drift_steps(), NIX_STEP)
+    stub = tmp_path / "bin"
+    stub.mkdir(exist_ok=True)
+    nix = stub / "nix"
+    nix.write_text(
+        f"#!/usr/bin/env bash\nprintf '%s' '{json.dumps({'path': str(REPO_ROOT)})}'\n",
+        encoding="utf-8",
+    )
+    nix.chmod(0o755)
+    runner_temp = tmp_path / "runner-temp"
+    runner_temp.mkdir(exist_ok=True)
+    env = {
+        **os.environ,
+        "PATH": f"{stub}{os.pathsep}{os.environ['PATH']}",
+        "GITHUB_WORKSPACE": str(workspace),
+        "RUNNER_TEMP": str(runner_temp),
+        "IMAGE_TAG": tag,
+        "CONSUMER_REPOSITORY": "test/repo",
+    }
+    proc = subprocess.run(
+        ["bash", "-c", step["run"]],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert list(runner_temp.iterdir()) == [], "scratch dir was not removed"
+    return proc
+
+
+@pytest.mark.skipif(
+    not (_gnu_sed() and shutil.which("rsync") and shutil.which("jq")),
+    reason="the scaffold needs GNU sed, rsync and jq on PATH (Linux CI / dev shell)",
+)
+def test_nix_drift_reports_clean_then_drift(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Parity with the container path: no drift on a fresh scaffold, drift after an edit."""
+    tag = "1.2.3"
+    monkeypatch.setenv("VIG_OS_VERSION", tag)
+    ws = scaffold_tree(tmp_path)
+    git = [
+        "git",
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "commit.gpgsign=false",
+    ]
+    subprocess.run(["git", "init", "-q"], cwd=ws, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=ws, check=True)
+    subprocess.run([*git, "commit", "-qm", "scaffold"], cwd=ws, check=True)
+
+    clean = _run_nix_drift(tmp_path, ws, tag)
+    assert clean.returncode == 0, clean.stdout + clean.stderr
+    assert "No scaffold drift detected" in clean.stdout
+
+    (ws / "SECURITY.md").write_text("hand edit\n", encoding="utf-8")
+    subprocess.run([*git, "commit", "-qam", "edit"], cwd=ws, check=True)
+    drift = _run_nix_drift(tmp_path, ws, tag)
+    assert drift.returncode == 1, drift.stdout + drift.stderr
+    assert "Scaffold drift detected" in drift.stdout + drift.stderr
