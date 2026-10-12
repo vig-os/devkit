@@ -56,6 +56,7 @@ jobs:
       mode: ${{ steps.resolve.outputs.mode }}
       image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
+      runner-json: ${{ steps.resolve.outputs.runner-json }}
       tag-prefix: ${{ steps.resolve.outputs.tag-prefix }}
       prerelease-format: ${{ steps.resolve.outputs.prerelease-format }}
     steps:
@@ -98,12 +99,13 @@ jobs:
       toolchain_mode: ${{ needs.resolve-toolchain.outputs.mode }}
       toolchain_image: ${{ needs.resolve-toolchain.outputs.image }}
       devkit_version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+      runner-json: ${{ needs.resolve-toolchain.outputs.runner-json }}
       tag_prefix: ${{ needs.resolve-toolchain.outputs.tag-prefix }}
     secrets: inherit
 
   extension:
     name: Release Extension
-    needs: core
+    needs: [resolve-toolchain, core]
     if: ${{ inputs.dry-run != true }}
     uses: ./.github/workflows/release-extension.yml
     # Token ceiling for the consumer seam (#1144). A called reusable workflow can
@@ -125,6 +127,7 @@ jobs:
       release_date: ${{ needs.core.outputs.release_date }}
       release_kind: ${{ needs.core.outputs.release_kind }}
       publish_version: ${{ needs.core.outputs.publish_version }}
+      runner-json: ${{ needs.resolve-toolchain.outputs.runner-json }}
     secrets: inherit
 
   publish:
@@ -146,13 +149,14 @@ jobs:
       toolchain_mode: ${{ needs.resolve-toolchain.outputs.mode }}
       toolchain_image: ${{ needs.resolve-toolchain.outputs.image }}
       devkit_version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+      runner-json: ${{ needs.resolve-toolchain.outputs.runner-json }}
       tag_prefix: ${{ needs.resolve-toolchain.outputs.tag-prefix }}
     secrets: inherit
 
   rollback:
     name: Rollback on Failure
     needs: [resolve-toolchain, core, extension, publish]
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
     container:
       image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:

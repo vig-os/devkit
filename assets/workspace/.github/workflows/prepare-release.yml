@@ -23,7 +23,7 @@ permissions:
 jobs:
   validate:
     name: Validate Release Preparation
-    runs-on: ubuntu-26.04
+    runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
     timeout-minutes: 10
     outputs:
       version: ${{ steps.vars.outputs.version }}
@@ -31,6 +31,7 @@ jobs:
       mode: ${{ steps.resolve.outputs.mode }}
       image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
+      runner-json: ${{ steps.resolve.outputs.runner-json }}
       tag-prefix: ${{ steps.resolve.outputs.tag-prefix }}
 
     steps:
@@ -179,7 +180,7 @@ jobs:
   prepare:
     name: Prepare Release Branch
     needs: validate
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(needs.validate.outputs.runner-json) }}
     container:
       image: ${{ needs.validate.outputs.image }}
       credentials:
@@ -434,12 +435,13 @@ jobs:
       release_branch: ${{ needs.validate.outputs.release_branch }}
       branch_sha: ${{ needs.prepare.outputs.freeze_sha }}
       dry_run: ${{ inputs.dry-run }}
+      runner-json: ${{ needs.validate.outputs.runner-json }}
     secrets: inherit
 
   open-pr:
     name: Open Draft Release PR
     needs: [validate, prepare, extension]
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(needs.validate.outputs.runner-json) }}
     container:
       image: ${{ needs.validate.outputs.image }}
       credentials:
@@ -544,7 +546,7 @@ jobs:
   rollback:
     name: Roll Back Prepare Release on Failure or Cancellation
     needs: [validate, prepare, extension, open-pr]
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(needs.validate.outputs.runner-json) }}
     container:
       image: ${{ needs.validate.outputs.image }}
       credentials:

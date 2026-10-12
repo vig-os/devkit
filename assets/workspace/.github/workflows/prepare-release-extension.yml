@@ -23,6 +23,11 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: false
         type: boolean
+      runner-json:
+        description: "JSON array of runner labels (DEVKIT_CI_RUNNER) for this workflow's jobs"
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
 
 # The orchestrator calls this workflow with `secrets: inherit`, so a real
 # extension can mint the COMMIT_APP token to push to the write-protected release
@@ -33,7 +38,7 @@ permissions:
 jobs:
   extension:
     name: Prepare Extension Hook (Default No-op)
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(inputs.runner-json) }}
     steps:
       - name: Default extension summary
         env:
