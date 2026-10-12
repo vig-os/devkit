@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-10-10T00:57:18Z
+updated: 2026-10-12T06:33:05Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,25 +13,25 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-10-10T08:21:26.692Z
+synced: 2026-10-12T08:59:46.423Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.<br>[View this repository on the Mend.io Web Portal](https://developer.mend.io/github/vig-os/devkit).
 
-## Awaiting Schedule
+## Open
 
-The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
+The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
 
- - [ ] <!-- unschedule-branch=renovate/github-codeql-action-digest -->chore(deps): update github/codeql-action digest to 24c5418
- - [ ] <!-- unschedule-branch=renovate/github-actions-(minor-and-patch) -->ci(actions): update github-actions (minor and patch) (`actions/download-artifact`, `actions/setup-node`, `actions/upload-artifact`, `astral-sh/setup-uv`)
- - [ ] <!-- unschedule-branch=renovate/lock-file-maintenance -->build(pip): lock file maintenance
- - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
+ - [ ] <!-- rebase-branch=renovate/github-codeql-action-digest -->[chore(deps): update github/codeql-action digest to 24c5418](../pull/1867)
+ - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch)](../pull/1868) (`actions/download-artifact`, `actions/setup-node`, `actions/upload-artifact`, `astral-sh/setup-uv`, `ossf/scorecard-action`)
+ - [ ] <!-- rebase-branch=renovate/lock-file-maintenance -->[build(pip): lock file maintenance](../pull/1872)
+ - [ ] <!-- rebase-all-open-prs -->**Click on this checkbox to rebase all open PRs at once**
 
 ## Detected Dependencies
 
-<details><summary>github-actions (44)</summary>
+<details><summary>github-actions (41)</summary>
 <blockquote>
 
 <details><summary>.github/actions/setup-env/action.yml (3)</summary>
@@ -294,7 +294,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 <details><summary>.github/workflows/scorecard.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
+ - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc` → [Updates: `v2.5.0`]
  - `github/codeql-action v4@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2` → [Updates: `v4`]
  - `ubuntu 26.04`
 
@@ -404,12 +404,10 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/abandon-release.yml (4)</summary>
+<details><summary>assets/workspace/.github/workflows/abandon-release.yml (2)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `ubuntu 26.04`
- - `ubuntu 26.04`
 
 </details>
 
@@ -444,7 +442,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/prepare-hotfix.yml (13)</summary>
+<details><summary>assets/workspace/.github/workflows/prepare-hotfix.yml (9)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
@@ -455,20 +453,10 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `ubuntu 26.04`
- - `ubuntu 26.04`
- - `ubuntu 26.04`
- - `ubuntu 26.04`
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/prepare-release-extension.yml (1)</summary>
-
- - `ubuntu 26.04`
-
-</details>
-
-<details><summary>assets/workspace/.github/workflows/prepare-release.yml (13)</summary>
+<details><summary>assets/workspace/.github/workflows/prepare-release.yml (9)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
@@ -479,14 +467,10 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
- - `ubuntu 26.04`
- - `ubuntu 26.04`
- - `ubuntu 26.04`
- - `ubuntu 26.04`
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/promote-release.yml (16)</summary>
+<details><summary>assets/workspace/.github/workflows/promote-release.yml (11)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
@@ -499,22 +483,10 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `ubuntu 26.04`
- - `ubuntu 26.04`
- - `ubuntu 26.04`
- - `ubuntu 26.04`
- - `ubuntu 26.04`
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/publish-release-extension.yml (2)</summary>
-
- - `ubuntu 26.04`
- - `ubuntu 26.04`
-
-</details>
-
-<details><summary>assets/workspace/.github/workflows/release-core.yml (11)</summary>
+<details><summary>assets/workspace/.github/workflows/release-core.yml (8)</summary>
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
@@ -524,40 +496,29 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `ubuntu 26.04`
- - `ubuntu 26.04`
- - `ubuntu 26.04`
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/release-extension.yml (1)</summary>
-
- - `ubuntu 26.04`
-
-</details>
-
-<details><summary>assets/workspace/.github/workflows/release-publish.yml (3)</summary>
+<details><summary>assets/workspace/.github/workflows/release-publish.yml (2)</summary>
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `ubuntu 26.04`
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/release.yml (5)</summary>
+<details><summary>assets/workspace/.github/workflows/release.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
- - `ubuntu 26.04`
 
 </details>
 
 <details><summary>assets/workspace/.github/workflows/scorecard.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc`
+ - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc` → [Updates: `v2.5.0`]
  - `github/codeql-action v4@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2` → [Updates: `v4`]
  - `ubuntu 26.04`
 
@@ -575,7 +536,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/sync-main-to-dev.yml (8)</summary>
+<details><summary>assets/workspace/.github/workflows/sync-main-to-dev.yml (6)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
@@ -583,8 +544,6 @@ The following updates are awaiting their schedule. To get an update now, click o
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1`
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
- - `ubuntu 26.04`
- - `ubuntu 26.04`
 
 </details>
 
