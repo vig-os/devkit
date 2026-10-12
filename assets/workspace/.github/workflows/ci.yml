@@ -479,7 +479,7 @@ jobs:
   # direnv mode is Docker-free (#1861): there the pinned scaffold runs straight
   # from the devkit flake source (`nix flake metadata` -> its `assets/`) in a
   # scratch clone under RUNNER_TEMP, with the image's two bake-time steps
-  # (`{{IMAGE_TAG}}` -> pin, the VERSION file) replayed, so no container runtime
+  # (the image-tag placeholder -> pin, the VERSION file) replayed, so no container runtime
   # is needed on the runner. `install.sh` / `nix run ...#install` cannot be used
   # for this: they `docker|podman run` the image themselves. The container path
   # above stays as-is for devcontainer / both / bare.
@@ -541,7 +541,7 @@ jobs:
           chmod -R u+w "$scratch/assets"
           # Replay the image's bake steps (flake.nix `bootstrap`): stamp the pin
           # into the scaffolded .vig-os and record the built tag.
-          sed "s/{{IMAGE_TAG}}/${IMAGE_TAG}/g" "$scratch/assets/workspace/.vig-os" > "$scratch/vig-os.stamped"
+          sed "s/[{][{]IMAGE_TAG[}][}]/${IMAGE_TAG}/g" "$scratch/assets/workspace/.vig-os" > "$scratch/vig-os.stamped"
           mv "$scratch/vig-os.stamped" "$scratch/assets/workspace/.vig-os"
           printf '%s\n' "$IMAGE_TAG" > "$scratch/assets/VERSION"
 
