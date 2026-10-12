@@ -59,6 +59,9 @@ curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bas
 curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --org MyOrg ~/my-project
 
 # Choose the delivery mode: devcontainer | direnv | both (default: both)
+# direnv runs without Docker/Podman: it needs nix, jq and rsync, and scaffolds from the
+# devkit flake source at the .vig-os pin (upgrade) or the newest release (fresh install);
+# a direnv --force without --version keeps the .vig-os pin (container mode moves to latest)
 curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --mode direnv ~/my-project
 
 # Preview without executing
