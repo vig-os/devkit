@@ -91,12 +91,16 @@ jobs:
             .vig-os
             .github/actions/resolve-toolchain
           sparse-checkout-cone-mode: false
+          # Own path: on a persistent runner the sparse clone must not occupy the
+          # shared workspace root later jobs reuse (#1860).
+          path: .devkit-resolve
           persist-credentials: false
 
       - name: Resolve toolchain
         id: resolve
-        uses: ./.github/actions/resolve-toolchain
+        uses: ./.devkit-resolve/.github/actions/resolve-toolchain
         with:
+          working-directory: .devkit-resolve
           registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
           registry-username: ${{ github.actor }}
 

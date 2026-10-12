@@ -127,6 +127,24 @@ def test_resolve_toolchain_runner_is_var_overridable(workflow_name: str) -> None
     assert workflow["jobs"]["resolve-toolchain"]["runs-on"] == RESOLVE_RUNNER_EXPR
 
 
+@pytest.mark.parametrize("workflow_name", RESOLVE_TOOLCHAIN_WORKFLOWS)
+def test_resolve_toolchain_sparse_checkout_has_own_path(workflow_name: str) -> None:
+    """The sparse clone lives in its own path, never the shared workspace root (#1860).
+
+    On a persistent self-hosted runner later jobs reuse ``_work/<repo>/<repo>``;
+    a sparse clone at the root leaves it unmaterialized for them.
+    """
+    job = _load(WORKFLOWS / workflow_name)["jobs"]["resolve-toolchain"]
+    checkout = next(
+        s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout")
+    )
+    resolve = next(s for s in job["steps"] if s.get("id") == "resolve")
+    path = checkout["with"]["path"]
+    assert path == ".devkit-resolve"
+    assert resolve["uses"] == f"./{path}/.github/actions/resolve-toolchain"
+    assert resolve["with"]["working-directory"] == path
+
+
 @pytest.mark.parametrize(
     ("runner_value", "expected"),
     [
@@ -731,3 +749,13 @@ def test_branch_gate_issueless_type_outside_branch_types() -> None:
     assert (
         _run_branch_gate("record/Bad_Slug", DEFAULT_BRANCH_TYPES, "chore,record") == 1
     )
+
+
+@pytest.mark.parametrize(
+    "step_name", ["Check declared languages", "Check flake pin lockstep"]
+)
+def test_ci_gate_steps_run_in_resolve_checkout(step_name: str) -> None:
+    """The marker/flake.nix gates read the sparse clone, not the workspace root (#1860)."""
+    job = _load(WORKFLOWS / "ci.yml")["jobs"]["resolve-toolchain"]
+    step = next(s for s in job["steps"] if s.get("name") == step_name)
+    assert step["working-directory"] == ".devkit-resolve"

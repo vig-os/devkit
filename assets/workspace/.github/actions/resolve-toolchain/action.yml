@@ -27,6 +27,14 @@ name: Resolve devkit toolchain
 description: Resolve the delivery mode + devcontainer image tag from .vig-os for mode-aware CI jobs
 
 inputs:
+  working-directory:
+    description: >-
+      Directory holding the checkout whose `.vig-os` is read (default: the
+      workspace root). Callers that sparse-check-out into their own `path:`
+      pass it so the sparse clone never occupies the shared workspace root of
+      a persistent runner (#1860).
+    required: false
+    default: '.'
   image-tag:
     description: Optional image tag override
     required: false
@@ -134,6 +142,7 @@ runs:
     - name: Resolve mode + image tag
       id: resolve
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       env:
         INPUT_IMAGE_TAG: ${{ inputs.image-tag }}
       run: |
@@ -505,6 +514,7 @@ runs:
       # probe entirely (no image needed).
       if: steps.resolve.outputs.image != ''
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       env:
         IMAGE: ${{ steps.resolve.outputs.image }}
         REGISTRY_TOKEN: ${{ inputs.registry-token }}

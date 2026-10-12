@@ -4085,7 +4085,7 @@ _RELEASE_RESOLVERS_991=(
 
 @test "release/automation resolvers use the resolve-toolchain composite (#991)" {
     for wf in "${_RELEASE_RESOLVERS_991[@]}"; do
-        run grep -q 'uses: ./.github/actions/resolve-toolchain' "$TEMPLATE_DIR/.github/workflows/$wf"
+        run grep -Eq 'uses: ./(.devkit-resolve/)?.github/actions/resolve-toolchain' "$TEMPLATE_DIR/.github/workflows/$wf"
         assert_success
     done
 }
@@ -4107,7 +4107,7 @@ _RELEASE_RESOLVERS_991=(
 
 @test "release orchestrator threads toolchain_* into the reusable calls (#991)" {
     f="$TEMPLATE_DIR/.github/workflows/release.yml"
-    run grep -q 'uses: ./.github/actions/resolve-toolchain' "$f"
+    run grep -q 'uses: ./.devkit-resolve/.github/actions/resolve-toolchain' "$f"
     assert_success
     for input in 'toolchain_mode:' 'toolchain_image:' 'devkit_version:'; do
         run grep -q "$input" "$f"
