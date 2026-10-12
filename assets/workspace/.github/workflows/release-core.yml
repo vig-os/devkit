@@ -49,6 +49,11 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: ""
         type: string
+      runner-json:
+        description: "JSON array of runner labels (DEVKIT_CI_RUNNER) for this workflow's jobs"
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
     secrets:
       token:
         required: false
@@ -122,7 +127,7 @@ permissions:
 jobs:
   validate:
     name: Validate Release Core
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(inputs.runner-json) }}
     permissions:
       contents: read
       pull-requests: read
@@ -351,7 +356,7 @@ jobs:
   finalize:
     name: Finalize Release Core
     needs: validate
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(inputs.runner-json) }}
     permissions:
       actions: read
       contents: read
@@ -607,7 +612,7 @@ jobs:
   test:
     name: Test Finalized Release
     needs: [validate, finalize]
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(inputs.runner-json) }}
     container:
       image: ${{ inputs.toolchain_image }}
       credentials:

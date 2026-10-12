@@ -759,3 +759,149 @@ def test_ci_gate_steps_run_in_resolve_checkout(step_name: str) -> None:
     job = _load(WORKFLOWS / "ci.yml")["jobs"]["resolve-toolchain"]
     step = next(s for s in job["steps"] if s.get("name") == step_name)
     assert step["working-directory"] == ".devkit-resolve"
+
+
+# ── release-train routing (#1863) ─────────────────────────────────────────────
+# Every release-train job takes its runner from DEVKIT_CI_RUNNER (runner-json)
+# or, before a runner-json exists, the resolve variable. Hosted-only by design:
+# codeql / scorecard / devkit-upgrade (not release train, no .vig-os access).
+
+_RESOLVER_JSON = "${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}"
+_VALIDATE_JSON = "${{ fromJSON(needs.validate.outputs.runner-json) }}"
+_INPUT_JSON = "${{ fromJSON(inputs.runner-json) }}"
+
+# workflow -> expected routing expression for every job that is not the resolver
+RELEASE_TRAIN_ROUTING = {
+    "prepare-release.yml": _VALIDATE_JSON,
+    "prepare-hotfix.yml": _RESOLVER_JSON,
+    "release.yml": _RESOLVER_JSON,
+    "promote-release.yml": _RESOLVER_JSON,
+    "abandon-release.yml": _RESOLVER_JSON,
+    "sync-main-to-dev.yml": _RESOLVER_JSON,
+    "release-core.yml": _INPUT_JSON,
+    "release-publish.yml": _INPUT_JSON,
+}
+# Seeded, consumer-owned hooks: callers pass them no new input (see the compat
+# guard below), so they take the resolve variable like the standalone publish seam.
+SEEDED_HOOKS = (
+    "release-extension.yml",
+    "prepare-release-extension.yml",
+    "publish-release-extension.yml",
+)
+
+
+@pytest.mark.parametrize("workflow_name", sorted(RELEASE_TRAIN_ROUTING))
+def test_release_train_jobs_route_via_runner_json(workflow_name: str) -> None:
+    """No release-train job hard-codes a hosted label (#1863)."""
+    expected = RELEASE_TRAIN_ROUTING[workflow_name]
+    jobs = _load(WORKFLOWS / workflow_name)["jobs"]
+    for name, job in jobs.items():
+        if "uses" in job:  # reusable-workflow call: runner chosen inside
+            continue
+        runs_on = job["runs-on"]
+        if runs_on == RESOLVE_RUNNER_EXPR:
+            assert name == "resolve-toolchain" or (
+                workflow_name == "prepare-release.yml" and name == "validate"
+            )
+            continue
+        assert runs_on == expected, f"{workflow_name}:{name}"
+
+
+def test_prepare_release_validate_is_the_resolver() -> None:
+    """prepare-release has no resolve-toolchain job; `validate` resolves inline."""
+    validate = _load(WORKFLOWS / "prepare-release.yml")["jobs"]["validate"]
+    assert validate["runs-on"] == RESOLVE_RUNNER_EXPR
+    assert (
+        validate["outputs"]["runner-json"] == "${{ steps.resolve.outputs.runner-json }}"
+    )
+
+
+@pytest.mark.parametrize(
+    "workflow_name",
+    [n for n, e in RELEASE_TRAIN_ROUTING.items() if e == _RESOLVER_JSON],
+)
+def test_release_train_resolver_exports_runner_json(workflow_name: str) -> None:
+    """Jobs read runner-json from needs.resolve-toolchain, so it must export it."""
+    jobs = _load(WORKFLOWS / workflow_name)["jobs"]
+    outputs = jobs["resolve-toolchain"]["outputs"]
+    assert outputs["runner-json"] == "${{ steps.resolve.outputs.runner-json }}"
+    for name, job in jobs.items():
+        if str(job.get("uses", "")).rsplit("/", 1)[-1] in SEEDED_HOOKS:
+            continue  # seeded hooks take no runner-json from the caller
+        if name != "resolve-toolchain":
+            assert "resolve-toolchain" in _needs(job), f"{workflow_name}:{name}"
+
+
+def _needs(job: dict) -> list[str]:
+    needs = job.get("needs", [])
+    return [needs] if isinstance(needs, str) else list(needs)
+
+
+@pytest.mark.parametrize(
+    "workflow_name",
+    [n for n, e in RELEASE_TRAIN_ROUTING.items() if e == _INPUT_JSON],
+)
+def test_reusable_release_workflows_declare_runner_json_input(
+    workflow_name: str,
+) -> None:
+    """Reusable release workflows take an optional runner-json, hosted default."""
+    workflow = _load(WORKFLOWS / workflow_name)
+    on = workflow.get("on", workflow.get(True))
+    spec = on["workflow_call"]["inputs"]["runner-json"]
+    assert spec["required"] is False
+    assert spec["default"] == '["ubuntu-26.04"]'
+
+
+@pytest.mark.parametrize(
+    ("caller", "job", "source"),
+    [
+        ("release.yml", "core", "needs.resolve-toolchain.outputs.runner-json"),
+        ("release.yml", "publish", "needs.resolve-toolchain.outputs.runner-json"),
+    ],
+)
+def test_release_callers_pass_runner_json(caller: str, job: str, source: str) -> None:
+    """Callers hand their resolved runner-json to the managed reusable workflows."""
+    spec = _load(WORKFLOWS / caller)["jobs"][job]
+    assert spec["with"]["runner-json"] == "${{ " + source + " }}"
+    assert source.split(".")[1] in _needs(spec)
+
+
+# Inputs the seeded hooks declared BEFORE #1863 (the oldest supported template).
+# Seeded files are never overwritten on upgrade, so an existing consumer's copy
+# declares exactly these; a caller passing anything else fails with "Invalid
+# input" for every existing consumer.
+OLDEST_SEEDED_INPUTS = {
+    "release-extension.yml": {
+        "version",
+        "finalize_sha",
+        "release_date",
+        "release_kind",
+        "publish_version",
+    },
+    "prepare-release-extension.yml": {
+        "version",
+        "release_branch",
+        "branch_sha",
+        "dry_run",
+    },
+}
+
+
+def test_callers_pass_only_inputs_the_oldest_seeded_hook_declares() -> None:
+    """Managed callers must stay compatible with preserved seeded hook copies."""
+    seen = set()
+    for path in WORKFLOWS.glob("*.yml"):
+        for name, job in (_load(path).get("jobs") or {}).items():
+            hook = str(job.get("uses", "")).rsplit("/", 1)[-1]
+            if hook in OLDEST_SEEDED_INPUTS:
+                seen.add(hook)
+                extra = set(job.get("with") or {}) - OLDEST_SEEDED_INPUTS[hook]
+                assert not extra, f"{path.name}:{name} passes {extra} to {hook}"
+    assert seen == set(OLDEST_SEEDED_INPUTS)
+
+
+@pytest.mark.parametrize("hook", SEEDED_HOOKS)
+def test_seeded_hooks_use_resolve_variable(hook: str) -> None:
+    """Seeded hooks take the resolve variable, not a caller-passed runner-json."""
+    jobs = _load(WORKFLOWS / hook)["jobs"]
+    assert {j["runs-on"] for j in jobs.values()} == {RESOLVE_RUNNER_EXPR}

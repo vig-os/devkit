@@ -82,6 +82,7 @@ jobs:
       mode: ${{ steps.resolve.outputs.mode }}
       image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
+      runner-json: ${{ steps.resolve.outputs.runner-json }}
       tag-prefix: ${{ steps.resolve.outputs.tag-prefix }}
     steps:
       - name: Checkout repository
@@ -107,7 +108,7 @@ jobs:
   validate:
     name: Validate Hotfix Preparation
     needs: [resolve-toolchain]
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
     container:
       image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
@@ -276,7 +277,7 @@ jobs:
   prepare:
     name: Prepare Hotfix Branch
     needs: [resolve-toolchain, validate]
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
     container:
       image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
@@ -444,7 +445,7 @@ jobs:
   open-pr:
     name: Open Draft Hotfix PR
     needs: [resolve-toolchain, validate, prepare, extension]
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
     container:
       image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
@@ -564,7 +565,7 @@ jobs:
   rollback:
     name: Roll Back Prepare Hotfix on Failure or Cancellation
     needs: [resolve-toolchain, validate, prepare, extension, open-pr]
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
     container:
       image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:

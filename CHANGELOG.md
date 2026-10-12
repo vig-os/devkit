@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Release train honours `DEVKIT_CI_RUNNER`** ([#1863](https://github.com/vig-os/devkit/issues/1863))
+  - `prepare-release`, `prepare-hotfix`, `release`, `release-core`, `release-publish`, `promote-release`, `abandon-release` and `sync-main-to-dev` route their jobs through resolve-toolchain's `runner-json`, defaulting to hosted `ubuntu-26.04`
+  - The seeded extension hooks (`prepare-release-extension`, `release-extension`, `publish-release-extension`) run on `DEVKIT_CI_RESOLVE_RUNNER`; callers pass them no new input, so existing consumer-owned copies keep working unchanged
+
 ### Changed
 
 ### Deprecated

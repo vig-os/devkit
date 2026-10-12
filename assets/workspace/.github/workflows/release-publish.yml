@@ -59,6 +59,11 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: ""
         type: string
+      runner-json:
+        description: "JSON array of runner labels (DEVKIT_CI_RUNNER) for this workflow's jobs"
+        required: false
+        default: '["ubuntu-26.04"]'
+        type: string
     secrets:
       token:
         required: false
@@ -88,7 +93,7 @@ permissions:
 jobs:
   publish:
     name: Publish Release
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(inputs.runner-json) }}
     # Conditional container (ADR Option A): empty image => host runner; the GHCR
     # credentials block is inert on an empty image.
     container:

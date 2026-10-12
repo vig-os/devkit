@@ -33,7 +33,7 @@ permissions:
 jobs:
   extension:
     name: Prepare Extension Hook (Default No-op)
-    runs-on: ubuntu-26.04
+    runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
     steps:
       - name: Default extension summary
         env:

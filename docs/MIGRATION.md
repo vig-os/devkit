@@ -295,6 +295,18 @@ the other manifest keys, so an upgrade preserves it with no flags. Absent =>
 unchanged behavior for every existing consumer
 ([#1173](https://github.com/vig-os/devkit/issues/1173)).
 
+The release train routes the same way ([#1863](https://github.com/vig-os/devkit/issues/1863)):
+`prepare-release`, `prepare-hotfix`, `release` (and its reusable `release-core` /
+`release-publish`), `promote-release`, `abandon-release` and `sync-main-to-dev`
+take every job after their resolve step from `runner-json`. The seeded,
+consumer-owned hooks (`prepare-release-extension.yml`, `release-extension.yml`,
+`publish-release-extension.yml`) get no input from the callers, so an upgrade
+never changes what an existing copy accepts; new scaffolds run them on
+`${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}`. To move an existing
+copy onto self-hosted runners, edit its `runs-on` to that expression and set
+the variable. `codeql`, `scorecard` and `devkit-upgrade` stay hosted (outside
+the release train).
+
 **The `resolve-toolchain` jobs take a repository variable, not this key.**
 Every `resolve-toolchain` job *produces* `runner-json` (a job cannot depend on
 its own output — chicken-and-egg), and `.vig-os` cannot be read before a runner
