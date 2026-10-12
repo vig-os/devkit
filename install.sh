@@ -885,7 +885,9 @@ host_scaffold() {
     # `env -i` gives it the clean environment the container run had: only the
     # variables below (PATH is the dev-shell's, expanded inside it, host's appended).
     # shellcheck disable=SC2016  # $PATH must expand inside the dev-shell, not here
-    nix --extra-experimental-features "nix-command flakes" develop "path:$src" -c \
+    # Started from the scratch dir, never the caller's cwd: the dev-shell hooks
+    # (core.hooksPath, the version-skew warning) act on the repo they start in.
+    (cd "$scratch" && nix --extra-experimental-features "nix-command flakes" develop "path:$src" -c \
         sh -c 'exec env -i PATH="$PATH" "$@"' sh HOME="$HOME" TERM="${TERM:-dumb}" \
         ${LANG:+LANG="$LANG"} ${TMPDIR:+TMPDIR="$TMPDIR"} \
         SHORT_NAME="$PROJECT_NAME" ORG_NAME="$ORG_NAME" \
@@ -893,7 +895,7 @@ host_scaffold() {
         DEVKIT_PREFLIGHT_UNTRACKED="$PREFLIGHT_UNTRACKED" \
         TEMPLATE_DIR="$scratch/assets/workspace" VERSION_FILE="$scratch/assets/VERSION" \
         WORKSPACE_DIR="$PROJECT_PATH" \
-        bash "$scratch/assets/init-workspace.sh" "${INIT_ARGS[@]}" || rc=$?
+        bash "$scratch/assets/init-workspace.sh" "${INIT_ARGS[@]}") || rc=$?
     chmod -R u+w "$scratch" 2>/dev/null || true
     rm -rf "$scratch"
     return "$rc"

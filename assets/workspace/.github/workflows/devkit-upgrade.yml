@@ -226,6 +226,10 @@ jobs:
         if: steps.resolve.outputs.proceed == 'true'
         env:
           TARGET: ${{ steps.resolve.outputs.target }}
+          # Authenticated github: flake fetches (an anonymous fetch shares the
+          # runner IP's API rate limit); never echoed.
+          NIX_CONFIG: |
+            access-tokens = github.com=${{ github.token }}
         run: |
           set -euo pipefail
           # docker is present on ubuntu-latest (install.sh auto-detects it); nix
@@ -319,6 +323,10 @@ jobs:
         if: steps.resolve.outputs.proceed == 'true'
         env:
           TARGET: ${{ steps.resolve.outputs.target }}
+          # Authenticated github: flake fetches (an anonymous fetch shares the
+          # runner IP's API rate limit); never echoed.
+          NIX_CONFIG: |
+            access-tokens = github.com=${{ github.token }}
           # Commit identity (configurable via repo variables). Must not match
           # .github/agent-blocklist.toml — the default avoids github-actions[bot]
           # and any AI-agent fingerprint.

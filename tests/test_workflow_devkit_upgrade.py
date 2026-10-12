@@ -640,3 +640,11 @@ def test_direnv_upgrade_passes_no_container_runtime_flag() -> None:
     # No hard-coded runtime flag on the install.sh command line itself.
     cmdline = next(line for line in run.splitlines() if "bash -s --" in line)
     assert "--docker" not in cmdline
+
+
+def test_github_flake_fetch_steps_carry_the_job_token() -> None:
+    """Steps that fetch github: flakes authenticate nix with the job token (#1871)."""
+    steps = _jobs(TEMPLATE.read_text(encoding="utf-8"))["upgrade"]["steps"]
+    for sid in ("upgrade", "commit"):
+        nix_config = str(step_by_id(steps, sid)["env"]["NIX_CONFIG"])
+        assert "access-tokens = github.com=${{ github.token }}" in nix_config

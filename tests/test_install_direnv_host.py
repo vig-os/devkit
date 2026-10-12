@@ -53,6 +53,9 @@ def _nix_stub(bindir: Path) -> None:
 case "$args" in
   *" flake metadata "*) printf '%s' '{json.dumps({"path": str(REPO_ROOT)})}' ;;
   *" develop "*)
+    # Like the real dev-shell hook: configure whatever repo it starts in.
+    pwd > "{bindir}/develop.cwd"
+    git rev-parse --git-dir >/dev/null 2>&1 && git config core.hooksPath devkit-hooks
     while [ "$1" != "-c" ]; do shift; done; shift; exec "$@" ;;
   *) echo "$*" >> "{log}" ;;
 esac""",
@@ -361,3 +364,35 @@ def test_smoke_lane_installs_nix_and_drops_the_container_workarounds() -> None:
     assert text.index("name: Install Nix") < text.index(
         "name: Scaffold a throwaway direnv workspace"
     )
+
+
+@pytest.mark.skipif(
+    not (_gnu_sed() and shutil.which("rsync") and shutil.which("jq")),
+    reason="the scaffold needs GNU sed, rsync and jq on PATH (Linux CI / dev shell)",
+)
+def test_dev_shell_never_starts_in_the_callers_repo(tmp_path: Path) -> None:
+    """The dev-shell hooks act on their cwd: it must be the scratch dir, not the caller's."""
+    bindir, _ = _runtime_stubs(tmp_path, working=False)
+    _nix_stub(bindir)
+    caller = tmp_path / "caller"
+    caller.mkdir()
+    subprocess.run(["git", "init", "-q", str(caller)], check=True)
+    project = _project(tmp_path, "direnv")
+    proc = subprocess.run(
+        ["bash", str(INSTALL), "--skip-preflight", "--version", "1.2.3", str(project)],
+        env=_env(bindir),
+        cwd=caller,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    started_in = Path((bindir / "develop.cwd").read_text(encoding="utf-8").strip())
+    assert started_in.resolve() != caller.resolve()
+    hooks = subprocess.run(
+        ["git", "-C", str(caller), "config", "core.hooksPath"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert hooks.stdout == "", "the caller's repo config was modified"
