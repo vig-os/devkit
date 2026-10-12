@@ -435,7 +435,6 @@ jobs:
       release_branch: ${{ needs.validate.outputs.release_branch }}
       branch_sha: ${{ needs.prepare.outputs.freeze_sha }}
       dry_run: ${{ inputs.dry-run }}
-      runner-json: ${{ needs.validate.outputs.runner-json }}
     secrets: inherit
 
   open-pr:

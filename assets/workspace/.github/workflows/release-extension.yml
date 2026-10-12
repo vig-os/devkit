@@ -35,11 +35,6 @@ on:  # yamllint disable-line rule:truthy
         description: "Version tag that will be published (X.Y.Z or X.Y.Z-rcN)"
         required: true
         type: string
-      runner-json:
-        description: "JSON array of runner labels (DEVKIT_CI_RUNNER) for this workflow's jobs"
-        required: false
-        default: '["ubuntu-26.04"]'
-        type: string
 
 permissions:
   contents: read
@@ -47,7 +42,7 @@ permissions:
 jobs:
   extension:
     name: Extension Hook (Default No-op)
-    runs-on: ${{ fromJSON(inputs.runner-json) }}
+    runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
     steps:
       - name: Default extension summary
         env:

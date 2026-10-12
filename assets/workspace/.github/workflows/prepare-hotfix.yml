@@ -432,7 +432,7 @@ jobs:
   # the branch the rollback job deletes.
   extension:
     name: Prepare Release Extension
-    needs: [resolve-toolchain, validate, prepare]
+    needs: [validate, prepare]
     if: ${{ inputs.dry-run != true }}
     uses: ./.github/workflows/prepare-release-extension.yml
     with:
@@ -440,7 +440,6 @@ jobs:
       release_branch: ${{ needs.validate.outputs.release_branch }}
       branch_sha: ${{ needs.prepare.outputs.branch_sha }}
       dry_run: ${{ inputs.dry-run }}
-      runner-json: ${{ needs.resolve-toolchain.outputs.runner-json }}
     secrets: inherit
 
   open-pr:

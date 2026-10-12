@@ -105,7 +105,7 @@ jobs:
 
   extension:
     name: Release Extension
-    needs: [resolve-toolchain, core]
+    needs: core
     if: ${{ inputs.dry-run != true }}
     uses: ./.github/workflows/release-extension.yml
     # Token ceiling for the consumer seam (#1144). A called reusable workflow can
@@ -127,7 +127,6 @@ jobs:
       release_date: ${{ needs.core.outputs.release_date }}
       release_kind: ${{ needs.core.outputs.release_kind }}
       publish_version: ${{ needs.core.outputs.publish_version }}
-      runner-json: ${{ needs.resolve-toolchain.outputs.runner-json }}
     secrets: inherit
 
   publish:

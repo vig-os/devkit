@@ -298,13 +298,14 @@ unchanged behavior for every existing consumer
 The release train routes the same way ([#1863](https://github.com/vig-os/devkit/issues/1863)):
 `prepare-release`, `prepare-hotfix`, `release` (and its reusable `release-core` /
 `release-publish`), `promote-release`, `abandon-release` and `sync-main-to-dev`
-take every job after their resolve step from `runner-json`, and pass it to the
-seeded `prepare-release-extension.yml` / `release-extension.yml` hooks through a
-new optional `runner-json` input (default `["ubuntu-26.04"]`). A preserved copy
-of either hook that predates the input must declare it, or the call is rejected
-as an undefined input. The standalone `publish-release-extension.yml` has no
-`.vig-os` access, so both its jobs take `DEVKIT_CI_RESOLVE_RUNNER`. `codeql`,
-`scorecard` and `devkit-upgrade` stay hosted (outside the release train).
+take every job after their resolve step from `runner-json`. The seeded,
+consumer-owned hooks (`prepare-release-extension.yml`, `release-extension.yml`,
+`publish-release-extension.yml`) get no input from the callers, so an upgrade
+never changes what an existing copy accepts; new scaffolds run them on
+`${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}`. To move an existing
+copy onto self-hosted runners, edit its `runs-on` to that expression and set
+the variable. `codeql`, `scorecard` and `devkit-upgrade` stay hosted (outside
+the release train).
 
 **The `resolve-toolchain` jobs take a repository variable, not this key.**
 Every `resolve-toolchain` job *produces* `runner-json` (a job cannot depend on
