@@ -803,61 +803,141 @@ if [ -n "$FORCE" ] && [ -z "$SMOKE_TEST" ] && [ -z "$PREVIEW" ] \
     run_preflight_guard "$PROJECT_PATH"
 fi
 
-# Detect container runtime
-RUNTIME=$(detect_runtime)
-if [ -z "$RUNTIME" ]; then
-    err "No container runtime found!"
-    OS=$(detect_os)
-    show_install_instructions "$OS"
-    exit 1
+# Container-free scaffold (#1871). Fetch the devkit flake source at $VERSION via
+# nix (read-only store path), copy its assets/ writable into a scratch dir, replay
+# the image's bake steps (flake.nix `bootstrap`: stamp the pin into the template
+# .vig-os, record the built tag in VERSION), and run init-workspace.sh on the
+# host against $PROJECT_PATH. `bash <script>`, not the shebang: it is /bin/bash,
+# absent on NixOS and bash 3.2 on macOS. Same approach as ci.yml's drift check
+# (#1861); keep the two in step.
+host_scaffold() {
+    local tag="$VERSION" src scratch tool rc=0
+    if [ "$tag" = "latest" ]; then
+        err "direnv mode scaffolds from the flake source at an exact release: pass --version <tag>"
+        return 1
+    fi
+    # The tag reaches a flake ref and a sed replacement: release-tag charset only.
+    if ! [[ "$tag" =~ ^[0-9A-Za-z._-]+$ ]]; then
+        err "Invalid --version '$tag' (expected a release tag: [0-9A-Za-z._-]+)"
+        return 1
+    fi
+    for tool in nix jq rsync; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            err "direnv mode needs '$tool' on PATH to scaffold without a container"
+            return 1
+        fi
+    done
+    scratch="$(mktemp -d "${TMPDIR:-/tmp}/devkit-scaffold.XXXXXX")" || return 1
+    info "Fetching devkit $tag via nix..."
+    if ! src="$(nix --extra-experimental-features "nix-command flakes" \
+        flake metadata --json "github:vig-os/devkit/$tag" | jq -er .path)"; then
+        err "Could not fetch github:vig-os/devkit/$tag via nix"
+        rm -rf "$scratch"
+        return 1
+    fi
+    if ! { cp -R "$src/assets" "$scratch/assets" \
+        && chmod -R u+w "$scratch/assets" \
+        && sed "s/[{][{]IMAGE_TAG[}][}]/$tag/g" "$scratch/assets/workspace/.vig-os" \
+            >"$scratch/vig-os.stamped" \
+        && mv "$scratch/vig-os.stamped" "$scratch/assets/workspace/.vig-os" \
+        && printf '%s\n' "$tag" >"$scratch/assets/VERSION"; }; then
+        err "Could not prepare the devkit assets from the flake source"
+        rm -rf "$scratch"
+        return 1
+    fi
+    # A pin older than #1826 ignores DEVKIT_PREFLIGHT_UNTRACKED: refuse as the
+    # image path does rather than lose the untracked-path guard.
+    if [ -n "$PREFLIGHT_UNTRACKED" ] \
+        && ! grep -q DEVKIT_PREFLIGHT_UNTRACKED "$scratch/assets/init-workspace.sh"; then
+        err "preflight: refusing to upgrade on a dirty tree."
+        echo "  devkit $tag predates the untracked-path check (#1826), so these untracked"
+        echo "  paths cannot be matched against the upgraded .gitignore:"
+        printf '%s\n' "$PREFLIGHT_UNTRACKED" | head -10 | sed 's/^/    /'
+        echo "  Commit, remove or ignore them, or re-run with --allow-untracked or --skip-preflight."
+        rm -rf "$scratch"
+        return 1
+    fi
+    SHORT_NAME="$PROJECT_NAME" ORG_NAME="$ORG_NAME" \
+        GITHUB_REPOSITORY="$GITHUB_REPOSITORY" VIG_OS_VERSION="$tag" \
+        DEVKIT_PREFLIGHT_UNTRACKED="$PREFLIGHT_UNTRACKED" \
+        TEMPLATE_DIR="$scratch/assets/workspace" VERSION_FILE="$scratch/assets/VERSION" \
+        WORKSPACE_DIR="$PROJECT_PATH" \
+        bash "$scratch/assets/init-workspace.sh" "${INIT_ARGS[@]}" || rc=$?
+    chmod -R u+w "$scratch" 2>/dev/null || true
+    rm -rf "$scratch"
+    return "$rc"
+}
+
+# direnv mode is container-free (#1871): the pinned scaffold runs on the host
+# straight from the devkit flake source (same replay as the CI drift check,
+# #1861), so no docker/podman is detected, required or touched. Every other mode
+# keeps the image path below.
+HOST_SCAFFOLD=false
+if [ "$MODE" = "direnv" ]; then
+    HOST_SCAFFOLD=true
 fi
 
-# Verify runtime is actually working
-if ! $RUNTIME info >/dev/null 2>&1; then
-    OS=$(detect_os)
-    err "$RUNTIME is installed but not running!"
-    echo ""
-    case "$OS" in
-        macos)
-            if [ "$RUNTIME" = "podman" ]; then
-                echo "Start the Podman machine:"
-                echo "  podman machine start"
-                echo ""
-                echo "If no machine exists, create one first:"
-                echo "  podman machine init"
-                echo "  podman machine start"
-            else
-                echo "Start Docker Desktop from your Applications folder,"
-                echo "or run: open -a Docker"
-            fi
-            ;;
-        windows)
-            echo "Make sure Docker Desktop or Podman Desktop is running."
-            echo "Check the system tray for the container icon."
-            ;;
-        *)
-            if [ "$RUNTIME" = "docker" ]; then
-                echo "Start the Docker daemon:"
-                echo "  sudo systemctl start docker"
-                echo ""
-                echo "To enable on boot:"
-                echo "  sudo systemctl enable docker"
-            else
-                echo "Podman should work without a daemon on Linux."
-                echo "Try running: podman info"
-                echo ""
-                echo "If using rootless podman, ensure your user session is set up:"
-                echo "  podman system migrate"
-            fi
-            ;;
-    esac
-    echo ""
-    exit 1
+# Detect container runtime
+if [ "$HOST_SCAFFOLD" = false ]; then
+    RUNTIME=$(detect_runtime)
+    if [ -z "$RUNTIME" ]; then
+        err "No container runtime found!"
+        OS=$(detect_os)
+        show_install_instructions "$OS"
+        exit 1
+    fi
+
+    # Verify runtime is actually working
+    if ! $RUNTIME info >/dev/null 2>&1; then
+        OS=$(detect_os)
+        err "$RUNTIME is installed but not running!"
+        echo ""
+        case "$OS" in
+            macos)
+                if [ "$RUNTIME" = "podman" ]; then
+                    echo "Start the Podman machine:"
+                    echo "  podman machine start"
+                    echo ""
+                    echo "If no machine exists, create one first:"
+                    echo "  podman machine init"
+                    echo "  podman machine start"
+                else
+                    echo "Start Docker Desktop from your Applications folder,"
+                    echo "or run: open -a Docker"
+                fi
+                ;;
+            windows)
+                echo "Make sure Docker Desktop or Podman Desktop is running."
+                echo "Check the system tray for the container icon."
+                ;;
+            *)
+                if [ "$RUNTIME" = "docker" ]; then
+                    echo "Start the Docker daemon:"
+                    echo "  sudo systemctl start docker"
+                    echo ""
+                    echo "To enable on boot:"
+                    echo "  sudo systemctl enable docker"
+                else
+                    echo "Podman should work without a daemon on Linux."
+                    echo "Try running: podman info"
+                    echo ""
+                    echo "If using rootless podman, ensure your user session is set up:"
+                    echo "  podman system migrate"
+                fi
+                ;;
+        esac
+        echo ""
+        exit 1
+    fi
 fi
 
 IMAGE="$REGISTRY:$VERSION"
 
-info "Using $RUNTIME with image $IMAGE"
+if [ "$HOST_SCAFFOLD" = true ]; then
+    info "direnv mode: scaffolding on the host from the devkit flake source (no container runtime)"
+else
+    info "Using $RUNTIME with image $IMAGE"
+fi
 info "Target directory: $PROJECT_PATH"
 info "Project name: $PROJECT_NAME"
 
@@ -872,9 +952,38 @@ if [ "$VERSION" != "latest" ]; then
     VERSION_ENV=(-e "VIG_OS_VERSION=$VERSION")
 fi
 
-# Build the command using an array for safe execution
-# Use --rm to cleanup container after run; no -it since we use --no-prompts (non-interactive)
-# Pass SHORT_NAME and ORG_NAME as environment variables to the container
+# Flags shared by both scaffold paths, as an array for safe execution.
+# --no-prompts: non-interactive, since the container run has no tty (-it) and the
+# host path must behave identically.
+declare -a INIT_ARGS=(--no-prompts)
+
+if [ -n "$FORCE" ]; then
+    INIT_ARGS+=(--force)
+fi
+
+if [ -n "$SMOKE_TEST" ]; then
+    INIT_ARGS+=(--smoke-test)
+fi
+
+if [ -n "$PREVIEW" ]; then
+    INIT_ARGS+=(--preview)
+fi
+
+if [ -n "$MODE" ]; then
+    INIT_ARGS+=(--mode "$MODE")
+fi
+
+if [ -n "$WORKFLOW_MODEL" ]; then
+    INIT_ARGS+=(--workflow "$WORKFLOW_MODEL")
+fi
+
+if [ -n "$PRUNE_DEVCONTAINER" ]; then
+    INIT_ARGS+=(--prune-devcontainer)
+fi
+
+# Container path: use --rm to cleanup container after run; no -it since we use
+# --no-prompts (non-interactive). Pass SHORT_NAME and ORG_NAME as environment
+# variables to the container.
 declare -a CMD=(
     "$RUNTIME" run --rm
     -e "SHORT_NAME=$PROJECT_NAME"
@@ -884,35 +993,22 @@ declare -a CMD=(
     ${PREFLIGHT_UNTRACKED:+-e "DEVKIT_PREFLIGHT_UNTRACKED=$PREFLIGHT_UNTRACKED"}
     -v "$PROJECT_PATH:/workspace"
     "$IMAGE"
-    /root/assets/init-workspace.sh --no-prompts
+    /root/assets/init-workspace.sh "${INIT_ARGS[@]}"
 )
-
-if [ -n "$FORCE" ]; then
-    CMD+=(--force)
-fi
-
-if [ -n "$SMOKE_TEST" ]; then
-    CMD+=(--smoke-test)
-fi
-
-if [ -n "$PREVIEW" ]; then
-    CMD+=(--preview)
-fi
-
-if [ -n "$MODE" ]; then
-    CMD+=(--mode "$MODE")
-fi
-
-if [ -n "$WORKFLOW_MODEL" ]; then
-    CMD+=(--workflow "$WORKFLOW_MODEL")
-fi
-
-if [ -n "$PRUNE_DEVCONTAINER" ]; then
-    CMD+=(--prune-devcontainer)
-fi
 
 if [ "$DRY_RUN" = true ]; then
     info "Would execute:"
+    if [ "$HOST_SCAFFOLD" = true ]; then
+        # Host path: nix fetches the pinned flake source; init-workspace.sh runs
+        # from its assets/ against the target. No container runtime involved.
+        printf '  nix flake metadata --json github:vig-os/devkit/%s\n' "$VERSION"
+        printf '  SHORT_NAME=%q ORG_NAME=%q GITHUB_REPOSITORY=%q VIG_OS_VERSION=%q ' \
+            "$PROJECT_NAME" "$ORG_NAME" "$GITHUB_REPOSITORY" "$VERSION"
+        printf 'WORKSPACE_DIR=%q bash <flake-source>/assets/init-workspace.sh' "$PROJECT_PATH"
+        printf ' %q' "${INIT_ARGS[@]}"
+        printf '\n'
+        exit 0
+    fi
     # Derive the shown command from the real CMD array (built above, including
     # --force/--smoke-test/--mode) via printf '%q' so it is shell-safe and stays
     # in sync with what would actually run — no hand-maintained duplicate string.
@@ -944,38 +1040,40 @@ if [ ! -t 0 ]; then
     fi
 fi
 
-# Pull image first (better UX - shows progress separately)
-if [ "$SKIP_PULL" = false ]; then
-    info "Pulling image $IMAGE..."
-    if ! $RUNTIME pull "$IMAGE" >/dev/null 2>&1; then
-        err "Failed to pull image $IMAGE"
-        echo ""
-        echo "Check your internet connection and that the image exists:"
-        echo "  $REGISTRY:$VERSION"
-        exit 1
+if [ "$HOST_SCAFFOLD" = false ]; then
+    # Pull image first (better UX - shows progress separately)
+    if [ "$SKIP_PULL" = false ]; then
+        info "Pulling image $IMAGE..."
+        if ! $RUNTIME pull "$IMAGE" >/dev/null 2>&1; then
+            err "Failed to pull image $IMAGE"
+            echo ""
+            echo "Check your internet connection and that the image exists:"
+            echo "  $REGISTRY:$VERSION"
+            exit 1
+        fi
+    else
+        # Verify image exists locally when skipping pull
+        if ! $RUNTIME image inspect "$IMAGE" >/dev/null 2>&1; then
+            err "Image $IMAGE not found locally (--skip-pull was specified)"
+            exit 1
+        fi
+        info "Using local image $IMAGE (skipping pull)"
     fi
-else
-    # Verify image exists locally when skipping pull
-    if ! $RUNTIME image inspect "$IMAGE" >/dev/null 2>&1; then
-        err "Image $IMAGE not found locally (--skip-pull was specified)"
-        exit 1
-    fi
-    info "Using local image $IMAGE (skipping pull)"
-fi
 
-# An image older than #1826 ignores DEVKIT_PREFLIGHT_UNTRACKED, so with `--version
-# <old>` the forwarded paths would go unchecked and the #886 untracked guard would
-# be lost. Ask the image whether its init-workspace.sh knows the variable, and if
-# not, refuse here exactly as the host-side guard used to.
-if [ -n "$PREFLIGHT_UNTRACKED" ] \
-    && ! $RUNTIME run --rm "$IMAGE" grep -q DEVKIT_PREFLIGHT_UNTRACKED \
-        /root/assets/init-workspace.sh >/dev/null 2>&1; then
-    err "preflight: refusing to upgrade on a dirty tree."
-    echo "  Image $IMAGE predates the untracked-path check (#1826), so these untracked"
-    echo "  paths cannot be matched against the upgraded .gitignore:"
-    printf '%s\n' "$PREFLIGHT_UNTRACKED" | head -10 | sed 's/^/    /'
-    echo "  Commit, remove or ignore them, or re-run with --allow-untracked or --skip-preflight."
-    exit 1
+    # An image older than #1826 ignores DEVKIT_PREFLIGHT_UNTRACKED, so with `--version
+    # <old>` the forwarded paths would go unchecked and the #886 untracked guard would
+    # be lost. Ask the image whether its init-workspace.sh knows the variable, and if
+    # not, refuse here exactly as the host-side guard used to.
+    if [ -n "$PREFLIGHT_UNTRACKED" ] \
+        && ! $RUNTIME run --rm "$IMAGE" grep -q DEVKIT_PREFLIGHT_UNTRACKED \
+            /root/assets/init-workspace.sh >/dev/null 2>&1; then
+        err "preflight: refusing to upgrade on a dirty tree."
+        echo "  Image $IMAGE predates the untracked-path check (#1826), so these untracked"
+        echo "  paths cannot be matched against the upgraded .gitignore:"
+        printf '%s\n' "$PREFLIGHT_UNTRACKED" | head -10 | sed 's/^/    /'
+        echo "  Commit, remove or ignore them, or re-run with --allow-untracked or --skip-preflight."
+        exit 1
+    fi
 fi
 
 # Run the initialization
@@ -986,10 +1084,15 @@ else
 fi
 echo ""
 
-# Execute the container using array expansion (safe from shell injection)
-if ! "${CMD[@]}"; then
-    err "Failed to initialize workspace"
-    exit 1
+if [ "$HOST_SCAFFOLD" = true ]; then
+    # Container-free scaffold (#1871): files are created as the invoking user.
+    host_scaffold || { err "Failed to initialize workspace"; exit 1; }
+else
+    # Execute the container using array expansion (safe from shell injection)
+    if ! "${CMD[@]}"; then
+        err "Failed to initialize workspace"
+        exit 1
+    fi
 fi
 
 # Preview mode: init-workspace.sh printed the file report and exited before
@@ -1014,7 +1117,8 @@ fi
 # probe uses find(1) primaries portable across GNU and BSD (macOS bash 3.2 must
 # work — no GNU-only `stat -c`). Warn-not-fail to match the git phase's
 # CI/fresh-machine-friendly posture.
-if [ -n "$(find "$PROJECT_PATH" ! -user "$(id -un)" -print -quit)" ]; then
+if [ "$HOST_SCAFFOLD" = false ] \
+    && [ -n "$(find "$PROJECT_PATH" ! -user "$(id -un)" -print -quit)" ]; then
     HOST_UID="$(id -u)"
     HOST_GID="$(id -g)"
     info "Restoring ownership of scaffolded files to ${HOST_UID}:${HOST_GID}..."

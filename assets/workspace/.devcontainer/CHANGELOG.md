@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **install.sh and devkit-upgrade no longer need Docker in direnv mode** ([#1871](https://github.com/vig-os/devkit/issues/1871))
+  - With `DEVKIT_MODE=direnv` (persisted, or `--mode direnv`), `install.sh` skips container-runtime detection and runs `init-workspace.sh` on the host from the pinned devkit flake source (`nix flake metadata` -> `assets/`, image bake steps replayed), so scaffold and `--force` upgrade need only nix, jq and rsync; it requires an exact `--version <tag>`
+  - `devkit-upgrade.yml` drops `--docker` for direnv repos; devcontainer, both and bare modes keep the image path unchanged
+  - A repo's upgrade picks this up once its target release ships the new `install.sh` (the installer comes from the target tag)
+
 - **Scaffold Drift no longer needs Docker in direnv mode** ([#1861](https://github.com/vig-os/devkit/issues/1861))
   - With `DEVKIT_MODE=direnv`, ci.yml's `scaffold-drift` job runs the pinned scaffold from the devkit flake source via nix in a scratch clone under `RUNNER_TEMP` (removed afterwards) instead of `docker login/pull/run`; devcontainer, both and bare modes keep the container path
   - `rsync` joins the dev-shell tools, which the host-side scaffold needs

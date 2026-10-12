@@ -244,8 +244,18 @@ jobs:
           # main changes code executing here with contents: write. No main
           # fallback: the resolve step above admits only X.Y.Z[-pre] versions,
           # and every devkit tag of that shape carries a root-level install.sh.
+          #
+          # direnv mode is container-free (#1871): the runtime flag is dropped and
+          # the target's install.sh runs the scaffold on the runner from the
+          # pinned flake source via the nix installed above. The mode comes from
+          # the checked-out manifest (install.sh resolves the same value). A
+          # target older than #1871 still insists on a container runtime.
+          RUNTIME_FLAG=(--docker)
+          if grep -qE '^DEVKIT_MODE=direnv[[:space:]]*$' .vig-os; then
+            RUNTIME_FLAG=()
+          fi
           curl -sSfL "https://raw.githubusercontent.com/vig-os/devkit/refs/tags/${TARGET}/install.sh" \
-            | bash -s -- --force --version "$TARGET" --skip-preflight --docker . \
+            | bash -s -- --force --version "$TARGET" --skip-preflight ${RUNTIME_FLAG[@]+"${RUNTIME_FLAG[@]}"} . \
             | tee "$RUNNER_TEMP/install.log"
           # Surface the flake-input advance outcome (#1497): install.sh prints
           # exactly one plain `flake-bump:` line per run — advanced, or skipped
