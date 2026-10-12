@@ -944,7 +944,13 @@ _run_install_stubbed() {
     fi
     local stub="$BATS_TEST_TMPDIR/stub-nix" dir="$BATS_TEST_TMPDIR/next-direnv"
     mkdir -p "$stub"
-    printf '#!/usr/bin/env bash\nprintf %%s '"'"'{"path":"%s"}'"'"'\n' "$PROJECT_ROOT" >"$stub/nix"
+    cat >"$stub/nix" <<STUB
+#!/usr/bin/env bash
+case " \$* " in
+    *" flake metadata "*) printf '%s' '{"path":"$PROJECT_ROOT"}' ;;
+    *" develop "*) while [ "\$1" != "-c" ]; do shift; done; shift; exec "\$@" ;;
+esac
+STUB
     chmod +x "$stub/nix"
     _make_repo "$dir"
     run env PATH="$stub:$PATH" bash "$INSTALL_SH" \

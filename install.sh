@@ -803,6 +803,37 @@ if [ -n "$FORCE" ] && [ -z "$SMOKE_TEST" ] && [ -z "$PREVIEW" ] \
     run_preflight_guard "$PROJECT_PATH"
 fi
 
+# Resolve the release the host scaffold runs (#1871): an explicit --version wins;
+# otherwise an existing .vig-os pin (an upgrade re-applies the repo's own pin),
+# otherwise the newest X.Y.Z release tag on the devkit remote. The result reaches
+# a flake ref and a sed replacement, so it is held to the release-tag charset.
+# Runs before --dry-run so the plan shows the real version.
+resolve_host_version() {
+    local tag="$VERSION" pinned
+    if [ "$tag" = "latest" ]; then
+        pinned="$(read_manifest_value "$PROJECT_PATH/.vig-os" DEVKIT_VERSION || true)"
+        if [ -n "$pinned" ] && [ "$pinned" != "latest" ]; then
+            tag="$pinned"
+            info "Devkit version from .vig-os manifest: $tag"
+        else
+            tag="$(git ls-remote --tags --refs https://github.com/vig-os/devkit 2>/dev/null \
+                | sed -n 's|.*refs/tags/||p' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+                | sort -t. -k1,1n -k2,2n -k3,3n | tail -n1 || true)"
+            if [ -z "$tag" ]; then
+                err "Could not resolve the latest devkit release (git ls-remote github.com/vig-os/devkit failed or listed no X.Y.Z tag)"
+                echo "  Pass an exact release: --version <tag>"
+                exit 1
+            fi
+            info "Latest devkit release: $tag"
+        fi
+    fi
+    if ! [[ "$tag" =~ ^[0-9A-Za-z._-]+$ ]]; then
+        err "Invalid devkit version '$tag' (expected a release tag: [0-9A-Za-z._-]+)"
+        exit 1
+    fi
+    VERSION="$tag"
+}
+
 # Container-free scaffold (#1871). Fetch the devkit flake source at $VERSION via
 # nix (read-only store path), copy its assets/ writable into a scratch dir, replay
 # the image's bake steps (flake.nix `bootstrap`: stamp the pin into the template
@@ -812,15 +843,6 @@ fi
 # (#1861); keep the two in step.
 host_scaffold() {
     local tag="$VERSION" src scratch tool rc=0
-    if [ "$tag" = "latest" ]; then
-        err "direnv mode scaffolds from the flake source at an exact release: pass --version <tag>"
-        return 1
-    fi
-    # The tag reaches a flake ref and a sed replacement: release-tag charset only.
-    if ! [[ "$tag" =~ ^[0-9A-Za-z._-]+$ ]]; then
-        err "Invalid --version '$tag' (expected a release tag: [0-9A-Za-z._-]+)"
-        return 1
-    fi
     for tool in nix jq rsync; do
         if ! command -v "$tool" >/dev/null 2>&1; then
             err "direnv mode needs '$tool' on PATH to scaffold without a container"
@@ -857,7 +879,16 @@ host_scaffold() {
         rm -rf "$scratch"
         return 1
     fi
-    SHORT_NAME="$PROJECT_NAME" ORG_NAME="$ORG_NAME" \
+    # Run inside the pinned release's own dev-shell (GNU sed, bash >= 4, ...):
+    # init-workspace.sh needs them, and a macOS host (BSD sed, bash 3.2) would
+    # otherwise fail half-way after writing files, which the container never did.
+    # `env -i` gives it the clean environment the container run had: only the
+    # variables below (PATH is the dev-shell's, expanded inside it, host's appended).
+    # shellcheck disable=SC2016  # $PATH must expand inside the dev-shell, not here
+    nix --extra-experimental-features "nix-command flakes" develop "path:$src" -c \
+        sh -c 'exec env -i PATH="$PATH" "$@"' sh HOME="$HOME" TERM="${TERM:-dumb}" \
+        ${LANG:+LANG="$LANG"} ${TMPDIR:+TMPDIR="$TMPDIR"} \
+        SHORT_NAME="$PROJECT_NAME" ORG_NAME="$ORG_NAME" \
         GITHUB_REPOSITORY="$GITHUB_REPOSITORY" VIG_OS_VERSION="$tag" \
         DEVKIT_PREFLIGHT_UNTRACKED="$PREFLIGHT_UNTRACKED" \
         TEMPLATE_DIR="$scratch/assets/workspace" VERSION_FILE="$scratch/assets/VERSION" \
@@ -875,6 +906,10 @@ host_scaffold() {
 HOST_SCAFFOLD=false
 if [ "$MODE" = "direnv" ]; then
     HOST_SCAFFOLD=true
+    if [ -n "$RUNTIME" ]; then
+        warn "--$RUNTIME is ignored in direnv mode (no container runtime is used)"
+    fi
+    resolve_host_version
 fi
 
 # Detect container runtime
