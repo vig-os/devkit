@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-10-11T14:02:38Z
-updated: 2026-10-11T14:02:38Z
+updated: 2026-10-12T11:24:08Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1861
-comments: 0
+comments: 1
 labels: bug
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-10-12T08:59:45.312Z
+synced: 2026-10-13T09:14:42.969Z
 ---
 
 # [Issue 1861]: [direnv mode still needs Docker: ci.yml's Scaffold Drift job re-scaffolds inside ghcr.io/vig-os/devcontainer via docker](https://github.com/vig-os/devkit/issues/1861)
@@ -36,3 +36,11 @@ A repo must be able to use devkit **strictly direnv-only**: no Docker or Podman 
 The consumer's Linux self-hosted runners get podman with docker compatibility (fleet-side). It's acceptable there, but not a substitute for a Docker-free direnv mode, and darwin runners have no container runtime.
 
 Related: #1860 (self-hosted runners: resolve-toolchain's sparse checkout leaves the shared workspace unmaterialized), #1173, #1796.
+---
+
+# [Comment #1]() by [gerchowl]()
+
+_Posted on October 12, 2026 at 11:24 AM_
+
+Fixed in #1870 (merged into dev): in direnv mode, Scaffold Drift re-scaffolds by running the pinned version's init-workspace.sh from its flake source in a scratch clone under RUNNER_TEMP. No container is involved, and container modes are unchanged. The remaining Docker dependency in direnv mode (install.sh and devkit-upgrade.yml) is tracked in #1871.
+
