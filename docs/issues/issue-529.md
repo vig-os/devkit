@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-10-13T02:46:08Z
+updated: 2026-10-14T19:06:41Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-10-13T09:14:45.075Z
+synced: 2026-10-15T07:15:49.302Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -31,7 +31,7 @@ The following updates are awaiting their schedule. To get an update now, click o
 The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
 
  - [ ] <!-- rebase-branch=renovate/github-codeql-action-digest -->[chore(deps): update github/codeql-action digest to 24c5418](../pull/1867)
- - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch)](../pull/1868) (`actions/download-artifact`, `actions/setup-node`, `actions/upload-artifact`, `astral-sh/setup-uv`, `ossf/scorecard-action`)
+ - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch)](../pull/1868) (`actions/download-artifact`, `actions/setup-node`, `actions/upload-artifact`, `aquasecurity/trivy`, `astral-sh/setup-uv`, `cachix/install-nix-action`, `ossf/scorecard-action`)
  - [ ] <!-- rebase-branch=renovate/lock-file-maintenance -->[build(pip): lock file maintenance](../pull/1872)
  - [ ] <!-- rebase-all-open-prs -->**Click on this checkbox to rebase all open PRs at once**
 
@@ -42,7 +42,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 <details><summary>.github/actions/setup-env/action.yml (3)</summary>
 
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.2`]
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
  - `actions/setup-node v7.0.0@820762786026740c76f36085b0efc47a31fe5020` → [Updates: `v7.1.0`]
 
@@ -112,8 +112,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `ubuntu 26.04`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
- - `aquasecurity/trivy v0.75.0`
- - `aquasecurity/trivy v0.75.0`
+ - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.0`]
+ - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.0`]
  - `ubuntu 26.04`
  - `ubuntu 26.04`
 
@@ -138,10 +138,10 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>.github/workflows/home-matrix.yml (7)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.2`]
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.2`]
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
  - `ubuntu 26.04-arm`
 
@@ -150,7 +150,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>.github/workflows/nix-cachix.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.2`]
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
  - `ubuntu 26.04`
 
@@ -159,7 +159,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>.github/workflows/nix-image.yml (6)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.2`]
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
  - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
  - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
@@ -280,7 +280,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/github-script v9.0.0@3a2844b7e9c422d3c10d287c895573f7108da1b3`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
- - `aquasecurity/trivy v0.75.0`
+ - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.0`]
  - `ubuntu 26.04`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
@@ -314,8 +314,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `aquasecurity/trivy-action v0.36.0@ed142fd0673e97e23eac54620cfb913e5ce36c25`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` → [Updates: `v7.0.2`]
  - `ubuntu 26.04`
- - `aquasecurity/trivy v0.75.0`
- - `aquasecurity/trivy v0.75.0`
+ - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.0`]
+ - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.0`]
 
 </details>
 
@@ -347,7 +347,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.2`]
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `ubuntu 26.04`
@@ -358,7 +358,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.2`]
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `ubuntu 26.04`
@@ -368,7 +368,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>assets/smoke-test/.github/workflows/direnv-smoke.yml (5)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.2`]
  - `ubuntu 26.04`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
@@ -404,7 +404,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 <details><summary>assets/workspace/.github/actions/setup-devkit-toolchain/action.yml (3)</summary>
 
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.2`]
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
  - `astral-sh/setup-uv v10.2.0@c18668ad3cf93ea998bef934396af7bb5c839dc7` → [Updates: `v10.3.0`]
 
@@ -443,7 +443,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24`
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.2`]
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
 
 </details>

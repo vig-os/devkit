@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-09-29T15:45:33Z
-updated: 2026-10-01T01:57:06Z
+updated: 2026-10-14T19:40:25Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1784
-comments: 1
+comments: 2
 labels: feature, area:workspace, area:workflow, semver:minor
 assignees: none
 milestone: none
 projects: none
 parent: 1776
 children: none
-synced: 2026-10-01T08:40:52.662Z
+synced: 2026-10-15T07:15:48.794Z
 ---
 
 # [Issue 1784]: [[FEATURE] Nix: seeded CI cache + opt-in trusted release-cache push](https://github.com/vig-os/devkit/issues/1784)
@@ -58,4 +58,16 @@ Refs: #1769, #1776
 _Posted on October 1, 2026 at 01:57 AM_
 
 Hey! You might want to look into Gradient: https://wavelens.github.io/gradient/ :)
+
+---
+
+# [Comment #2]() by [gerchowl]()
+
+_Posted on October 14, 2026 at 07:40 PM_
+
+Two points for this design, from running crane-based Rust repos with self-hosted runners:
+
+1. **Push the crane intermediates, not just the dev shell.** The expensive, reusable paths are `cargoArtifacts` (the `buildDepsOnly` output) and the check derivations. If only the dev-shell closure reaches the cache, every runner still rebuilds the dependency graph. Pushing `buildDepsOnly` outputs from trusted branches (main/dev) gives PR builds a warm start without ever giving them a token, which fits #1881.
+2. **Leave room for a self-hosted backend.** Teams with their own build hosts often run Attic, with server-side signing and LRU GC. If the push step is written against a small interface (substituter URL + public key + a push command from secrets), a non-Cachix backend becomes configuration rather than a fork. One operational note on Attic: with the default SQLite backend, highly parallel pushes contend on the write lock. Push with low parallelism (`-j 2`) or use Postgres.
+
 
