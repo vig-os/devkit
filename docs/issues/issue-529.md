@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-10-16T05:37:27Z
+updated: 2026-10-16T13:03:40Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,35 +13,20 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-10-16T06:58:52.335Z
+synced: 2026-10-17T06:49:14.291Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.<br>[View this repository on the Mend.io Web Portal](https://developer.mend.io/github/vig-os/devkit).
 
-## Repository Problems
-
-These problems occurred while renovating this repository. [View logs](https://developer.mend.io//github/vig-os/devkit).
-
- - ⚠️ WARN: Package lookup failures
-
 ## Awaiting Schedule
 
 The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
 
  - [ ] <!-- unschedule-branch=renovate/actions-create-github-app-token-digest -->chore(deps): update actions/create-github-app-token digest to 64ab729
-
-
----
-
-> [!WARNING]
-> Renovate failed to look up the following dependencies: `Failed to look up github-tags package aquasecurity/trivy-action: no-result`.
-> 
-> Files affected: `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/workflows/security-scan.yml`
-
----
-
+ - [ ] <!-- unschedule-branch=renovate/python-(minor-and-patch) -->build(pip): update dependency pytest-docker to v3.2.6
+ - [ ] <!-- create-all-awaiting-schedule-prs -->🔐 **Create all awaiting schedule PRs at once** 🔐
 
 ## Open
 
@@ -609,7 +594,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `pytest ==9.1.1`
  - `pytest-cov ==7.1.0`
  - `pytest-testinfra ==10.2.2`
- - `pytest-docker ==3.2.5`
+ - `pytest-docker ==3.2.5` → [Updates: `==3.2.6`]
  - `pexpect ==4.9.0`
  - `testcontainers ==4.15.0`
  - `bcrypt ==5.0.0`
