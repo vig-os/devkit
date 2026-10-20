@@ -28,7 +28,7 @@ test = [
   "pytest==9.1.1",
   "pytest-cov==7.1.0",
   "pytest-testinfra==10.2.2",
-  "pytest-docker==3.2.5",
+  "pytest-docker==3.2.6",
   "pexpect==4.9.0",
   "testcontainers==4.15.0",
   "bcrypt==5.0.0",

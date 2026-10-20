@@ -267,7 +267,7 @@ dev = [
     { name = "pip-licenses", specifier = "==5.5.5" },
     { name = "pytest", specifier = "==9.1.1" },
     { name = "pytest-cov", specifier = "==7.1.0" },
-    { name = "pytest-docker", specifier = "==3.2.5" },
+    { name = "pytest-docker", specifier = "==3.2.6" },
     { name = "pytest-testinfra", specifier = "==10.2.2" },
     { name = "rich", specifier = "==15.0.0" },
     { name = "testcontainers", specifier = "==4.15.0" },
@@ -287,7 +287,7 @@ test = [
     { name = "pexpect", specifier = "==4.9.0" },
     { name = "pytest", specifier = "==9.1.1" },
     { name = "pytest-cov", specifier = "==7.1.0" },
-    { name = "pytest-docker", specifier = "==3.2.5" },
+    { name = "pytest-docker", specifier = "==3.2.6" },
     { name = "pytest-testinfra", specifier = "==10.2.2" },
     { name = "testcontainers", specifier = "==4.15.0" },
 ]
@@ -513,15 +513,15 @@ wheels = [
 
 [[package]]
 name = "pytest-docker"
-version = "3.2.5"
+version = "3.2.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
     { name = "pytest" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/66/05/b7e47dc3e01b505838372e296bd780180b3b699a9a134bb8d6be85f3d567/pytest_docker-3.2.5.tar.gz", hash = "sha256:c9662567522911280b394af4da2edd57facaf644494601fac962ff1e396d7ab6", size = 13717, upload-time = "2025-11-12T13:42:19.641Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/22/98/5c5eb1de2919ebbc02bd6c9311326c40148607935ed314608145752d316f/pytest_docker-3.2.6.tar.gz", hash = "sha256:0b86f48e7f728e5171f0278fbf0ea358090ea76fbec2c5f9b25c7ba931fc3097", size = 13832, upload-time = "2026-10-16T12:00:09.557Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9f/e4/3a76a393f808edb0ee08ecc25e5c00bce0522a45b8fcf8693ec9441739c8/pytest_docker-3.2.5-py3-none-any.whl", hash = "sha256:79f3d209f928f45d4385cb825944861bc8a8cccd309804d9c9cd63bcef03edba", size = 8724, upload-time = "2025-11-12T13:42:18.631Z" },
+    { url = "https://files.pythonhosted.org/packages/6b/74/c0514e67030241670ef3b61a18281c1b442c6f4918e62541b6c674ce6470/pytest_docker-3.2.6-py3-none-any.whl", hash = "sha256:aeabb385eeb4898bbab46fe13b7762df31da6a5cf446d0a6746cb00b69cea0b2", size = 8752, upload-time = "2026-10-16T12:00:08.288Z" },
 ]
 
 [[package]]
