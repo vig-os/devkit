@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-10-19T01:01:39Z
+updated: 2026-10-21T23:48:37Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-10-19T07:36:16.805Z
+synced: 2026-10-22T07:24:36.914Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -25,7 +25,7 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
 
  - [ ] <!-- rebase-branch=renovate/actions-create-github-app-token-digest -->[chore(deps): update actions/create-github-app-token digest to 64ab729](../pull/1903)
- - [ ] <!-- rebase-branch=renovate/github-codeql-action-digest -->[chore(deps): update github/codeql-action digest to 6f2ac81](../pull/1867)
+ - [ ] <!-- rebase-branch=renovate/github-codeql-action-digest -->[chore(deps): update github/codeql-action digest to 9b32540](../pull/1867)
  - [ ] <!-- rebase-branch=renovate/python-(minor-and-patch) -->[build(pip): update dependency pytest-docker to v3.2.6](../pull/1904)
  - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch)](../pull/1868) (`actions/download-artifact`, `actions/setup-node`, `actions/upload-artifact`, `aquasecurity/trivy`, `astral-sh/setup-uv`, `cachix/install-nix-action`, `ossf/scorecard-action`)
  - [ ] <!-- rebase-branch=renovate/lock-file-maintenance -->[build(pip): lock file maintenance](../pull/1872)
@@ -108,8 +108,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `ubuntu 26.04`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
- - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.0`]
- - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.0`]
+ - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.1`]
+ - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.1`]
  - `ubuntu 26.04`
  - `ubuntu 26.04`
 
@@ -276,7 +276,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/github-script v9.0.0@3a2844b7e9c422d3c10d287c895573f7108da1b3`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
- - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.0`]
+ - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.1`]
  - `ubuntu 26.04`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
@@ -310,8 +310,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `aquasecurity/trivy-action v0.36.0@ed142fd0673e97e23eac54620cfb913e5ce36c25`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` → [Updates: `v7.0.2`]
  - `ubuntu 26.04`
- - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.0`]
- - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.0`]
+ - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.1`]
+ - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.1`]
 
 </details>
 
@@ -402,7 +402,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.2`]
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
- - `astral-sh/setup-uv v10.2.0@c18668ad3cf93ea998bef934396af7bb5c839dc7` → [Updates: `v10.3.0`]
+ - `astral-sh/setup-uv v10.2.0@c18668ad3cf93ea998bef934396af7bb5c839dc7` → [Updates: `v10.3.1`]
 
 </details>
 
