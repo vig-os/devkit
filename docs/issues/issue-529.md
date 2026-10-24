@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-10-22T22:50:30Z
+updated: 2026-10-23T16:03:45Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-10-23T07:18:49.769Z
+synced: 2026-10-24T07:07:22.130Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -27,7 +27,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - [ ] <!-- rebase-branch=renovate/actions-create-github-app-token-digest -->[chore(deps): update actions/create-github-app-token digest to 64ab729](../pull/1903)
  - [ ] <!-- rebase-branch=renovate/github-codeql-action-digest -->[chore(deps): update github/codeql-action digest to 9b32540](../pull/1867)
  - [ ] <!-- rebase-branch=renovate/python-(minor-and-patch) -->[build(pip): update dependency pytest-docker to v3.2.6](../pull/1904)
- - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch)](../pull/1868) (`actions/download-artifact`, `actions/setup-node`, `actions/upload-artifact`, `aquasecurity/trivy`, `astral-sh/setup-uv`, `cachix/install-nix-action`, `ossf/scorecard-action`)
+ - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch)](../pull/1868) (`actions/download-artifact`, `actions/setup-node`, `actions/upload-artifact`, `aquasecurity/trivy`, `astral-sh/setup-uv`, `cachix/install-nix-action`, `docker/login-action`, `ossf/scorecard-action`)
  - [ ] <!-- rebase-branch=renovate/lock-file-maintenance -->[build(pip): lock file maintenance](../pull/1872)
  - [ ] <!-- rebase-all-open-prs -->**Click on this checkbox to rebase all open PRs at once**
 
@@ -157,8 +157,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `31.11.3`]
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
- - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
- - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
+ - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.7.0`]
+ - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.7.0`]
  - `ubuntu 26.04`
 
 </details>
@@ -211,13 +211,13 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>.github/workflows/promote-release.yml (16)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
+ - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.7.0`]
  - `sigstore/cosign-installer v4.1.2@6f9f17788090df1f26f669e9d70d6ae9567deba6`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
- - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
+ - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.7.0`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
@@ -258,7 +258,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `sigstore/cosign-installer v4.1.2@6f9f17788090df1f26f669e9d70d6ae9567deba6`
- - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f`
+ - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.7.0`]
  - `actions/download-artifact v8.0.1@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` → [Updates: `v8.0.2`]
  - `anchore/sbom-action v0.24.3@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c`
  - `anchore/sbom-action v0.24.3@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c`
