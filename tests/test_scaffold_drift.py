@@ -293,29 +293,38 @@ def test_nix_drift_reports_clean_then_drift(
 
 @pytest.mark.parametrize("scanning", [True, False])
 @pytest.mark.parametrize(
-    ("policy", "exempt", "expected"),
+    ("policy", "exempt", "expected", "types"),
     [
-        ("", "", "chore"),
-        ("required", "", "none"),
-        ("optional", "", "all"),
-        ("required", "docs,test", "docs,test"),
+        ("", "", "chore", ""),
+        ("required", "", "none", ""),
+        ("optional", "", "all", ""),
+        ("optional", "", "all", "chore,record"),
+        ("required", "record,chore", "all", "chore,record"),
+        ("optional", "", "all", "chore"),
+        ("required", "docs,test", "docs,test", ""),
     ],
 )
 def test_managed_docs_follow_manifest(
-    tmp_path: Path, scanning: bool, policy: str, exempt: str, expected: str
+    tmp_path: Path, scanning: bool, policy: str, exempt: str, expected: str, types: str
 ) -> None:
     """Managed documentation must describe the same settings as the validators."""
     ws = tmp_path / "gitflow"
     ws.mkdir()
     (ws / ".vig-os").write_text(
         f"DEVKIT_FEATURES_DISABLED={'' if scanning else 'scanning'}\n"
-        f"DEVKIT_REFS_POLICY={policy}\nDEVKIT_REFS_OPTIONAL_TYPES={exempt}\n",
+        f"DEVKIT_REFS_POLICY={policy}\nDEVKIT_REFS_OPTIONAL_TYPES={exempt}\n"
+        f"DEVKIT_COMMIT_TYPES={types}\n",
         encoding="utf-8",
     )
     scaffold_tree(tmp_path)
     security = (ws / "SECURITY.md").read_text()
     assert ("CodeQL" in security) == scanning
     assert ("Scorecard" in security) == scanning
+    if scanning:
+        template = REPO_ROOT / "assets/workspace/SECURITY.md"
+        assert security == template.read_text().replace(
+            "{{GITHUB_REPOSITORY}}", "test/repo"
+        )
     standard = (ws / "docs/COMMIT_MESSAGE_STANDARD.md").read_text()
     if expected == "all":
         assert "Optional for all approved types" in standard
@@ -329,6 +338,8 @@ def test_managed_docs_follow_manifest(
     elif expected == "chore":
         assert "Mandatory for most types" in standard
         assert "**`chore`**" in standard
+        template = REPO_ROOT / "assets/workspace/docs/COMMIT_MESSAGE_STANDARD.md"
+        assert standard == template.read_text()
     else:
         assert "**`docs`**" in standard and "**`test`**" in standard
         assert "**`chore`**" not in standard

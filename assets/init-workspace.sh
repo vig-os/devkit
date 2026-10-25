@@ -3295,6 +3295,66 @@ render_release_optout() {
     echo "Dropped the release recipes from .devcontainer/justfile.gh (feature disabled via DEVKIT_FEATURES_DISABLED, #1656)."
 }
 
+# Managed docs are rendered after the template copy, just like workflow knobs.
+# Keep the default text byte-identical; use the validator's resolved exemption
+# list so explicit DEVKIT_REFS_OPTIONAL_TYPES overrides the policy here too.
+render_commit_standard() {
+    local doc="$WORKSPACE_DIR/docs/COMMIT_MESSAGE_STANDARD.md" mode=some type exemptions start end
+    local -a _doc_types
+    [[ -f "$doc" ]] || return 0
+    [[ "$RESOLVED_REFS_OPTIONAL_TYPES" == chore && "$RESOLVED_COMMIT_TYPES" != chore ]] && return 0
+    if [[ "$RESOLVED_REFS_OPTIONAL_TYPES" == none ]]; then
+        mode=none
+        exemptions="No commit types are exempt from the Refs requirement."
+    else
+        mode=all
+        IFS=',' read -ra _doc_types <<< "$RESOLVED_COMMIT_TYPES"
+        for type in "${_doc_types[@]}"; do
+            if [[ ",$RESOLVED_REFS_OPTIONAL_TYPES," != *",$type,"* ]]; then
+                mode=some
+            fi
+        done
+        exemptions="The following commit types may omit the \`Refs:\` line:"
+        exemptions+=$'\n'
+        IFS=',' read -ra _doc_types <<< "$RESOLVED_REFS_OPTIONAL_TYPES"
+        for type in "${_doc_types[@]}"; do
+            exemptions+=$'\n'"- **\`$type\`** — The Refs line is optional."
+        done
+    fi
+    start="$(grep -n '^The following commit types have a relaxed' "$doc" | cut -d: -f1)"
+    end="$(grep -n '^Additionally, the CI validator' "$doc" | cut -d: -f1)"
+    splice_lines "$doc" "$start" "$((end - 1))" "$exemptions"$'\n'
+    case "$mode" in
+        all)
+            # Markdown backticks below are literal, not shell substitutions.
+            # shellcheck disable=SC2016
+            sed -i \
+                -e 's/Mandatory for most types. Exactly one line/Optional for all approved types. When present, use exactly one line/' \
+                -e 's/provides mandatory traceability/provides optional traceability/' \
+                -e 's/Only one `Refs:` line is allowed/When present, only one `Refs:` line is allowed/' \
+                -e 's/^At least one reference to a GitHub issue must be present/When a Refs line is present, at least one reference to a GitHub issue must be present/' "$doc"
+            ;;
+        none)
+            sed -i 's/Mandatory for most types/Mandatory for all approved types/' "$doc"
+            ;;
+        some)
+            sed -i 's/Mandatory for most types/Required unless the type is listed under Exemptions/' "$doc"
+            ;;
+    esac
+}
+
+render_security_practices() {
+    local doc="$WORKSPACE_DIR/SECURITY.md"
+    [[ -f "$doc" ]] || return 0
+    feature_disabled scanning || return 0
+    sed -i \
+        -e '/^- OpenSSF Scorecard runs weekly/d' \
+        -e '/^- CodeQL static analysis scans/d' \
+        -e '/^### OpenSSF Scorecard accepted findings/,$d' "$doc"
+    # Removing the final section leaves its separating blank line behind.
+    sed -i '${/^$/d}' "$doc"
+}
+
 render_refs_policy() {
     local pc
     pc="$(precommit_render_target)" || return 0
@@ -4254,6 +4314,8 @@ render_commit_app_environment
 # render_workflow_model (all three sed .pre-commit-config.yaml on distinct
 # anchors) so the renders compose.
 render_refs_policy
+render_commit_standard
+render_security_practices
 render_commit_types
 # Branch types (#1432): the branch guard's --types arg (#1760) — a distinct
 # line from the three renders above, so all compose. No-op for the default.
