@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.18.1] - TBD
 
+### Security
+
+- **Reconcile expired Nix image exceptions against rebuilt closures** ([#1847](https://github.com/vig-os/devkit/issues/1847))
+  - Advance the stable and unstable Nix inputs to ship available security fixes, including libmicrohttpd 1.0.10 and Unbound 1.26.1; remove their five cleared exceptions
+  - Re-verify all six glibc exceptions against the applied nixpkgs backports, replace deployment assumptions with per-CVE fix links, and schedule the next review for Wednesday 2026-11-25
+
 ## [1.18.0](https://github.com/vig-os/devkit/releases/tag/1.18.0) - 2026-10-05
 
 ### Added
