@@ -140,8 +140,8 @@ CVE-2026-27820
 #   vulnix matches the upstream version, not the fixes in 2.42-master.patch.
 #   The pinned nixpkgs derivation applies that patch unconditionally:
 #   https://github.com/NixOS/nixpkgs/blob/1f607aa79b6356ed45d3cd3c8079c196e79efa2c/pkgs/development/libraries/glibc/common.nix
-#   All six fix commits below occur in the applied patch (including their
-#   regression tests), verified from the locked nixpkgs source:
+#   All six fix commits below occur in the applied patch, verified directly
+#   from the locked nixpkgs source:
 #   https://github.com/NixOS/nixpkgs/blob/1f607aa79b6356ed45d3cd3c8079c196e79efa2c/pkgs/development/libraries/glibc/2.42-master.patch
 #   This supersedes the former single-user/UTF-8 risk acceptance: these are
 #   fixed defects, not accepted exposure. The old pin's 2.42-84 patch also
