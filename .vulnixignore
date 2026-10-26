@@ -163,7 +163,14 @@ CVE-2026-4437
 #   the locked 2.44 source tarball: NEWS lists BZ 34033 as fixed, and
 #   resolv/ns_print.c has no TSIG handler (it uses the bounded default path).
 #   https://ftp.gnu.org/gnu/glibc/glibc-2.44.tar.xz
-#   Its source hash and applied patch are pinned here:
+#   Verified flat SHA-256 (nix hash file --sri):
+#   sha256-N/YA8r7zxegwAUcFlWiyouQKetbMxlzpQlVtSUKcxmc=
+#   Closure output: pqyiidz5mi73wv5f91d48s9plcqyj5bz-glibc-2.44-57;
+#   derivation: 9914bijg139hajpnv60z66b8sdv9ac3s-glibc-2.44-57.drv.
+#   Applied all 11 patches from that derivation's structuredAttrs.patches;
+#   patched resolv/ns_print.c:503-530 retains the bounded default/hexify path
+#   and no case ns_t_tsig. NEWS:160 records BZ 34033 in the base tarball.
+#   Exact source hash and patch list at the locked nixpkgs revision:
 #   https://github.com/NixOS/nixpkgs/blob/674a2028661e550a97400c1cc992b9cca9a668a1/pkgs/development/libraries/glibc/common.nix
 #   https://sourceware.org/git/?p=glibc.git;a=commit;h=299e1d25c32c5f9ef78ddd6cbfd0c6a09a1f4227
 CVE-2026-5435
