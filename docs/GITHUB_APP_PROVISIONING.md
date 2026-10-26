@@ -15,9 +15,13 @@ see [`WORKFLOW_SECURITY.md`](WORKFLOW_SECURITY.md#where-the-credentials-live-dev
 
 | Credential | Expires | Pushes trigger downstream workflows | Tied to a person |
 |---|---|---|---|
-| `GITHUB_TOKEN` | per job | no (GitHub's anti-recursion rule) | no |
-| Personal access token | yes (at most one year), then CI fails with `Bad credentials` | yes | yes |
-| GitHub App installation token | no: minted per job from a long-lived key | yes | no |
+| `GITHUB_TOKEN` | at the end of the job | no (GitHub's anti-recursion rule) | no |
+| Fine-grained personal access token | yes, always (at most one year); CI then fails with `Bad credentials` | yes | yes |
+| Classic personal access token | only if an expiry was set; it can be created without one, but is then a standing credential tied to a person | yes | yes |
+| GitHub App installation token | after about 1 hour; `actions/create-github-app-token` mints a fresh one on every run | yes | no |
+
+What persists for an App is its private key, stored as a repository secret. The key does not expire on its own,
+but you can rotate or revoke it in the App's settings.
 
 Use an App when a workflow must push a tag or commit that triggers another
 workflow (release-please, semantic-release, changeset bots), when a PAT has
@@ -50,15 +54,25 @@ with a browser driver.
    `<PREFIX>_ID` and `<PREFIX>_PRIVATE_KEY` as repository Actions secrets. The
    PEM is piped into `gh secret set` and is never printed or logged.
 4. The success page links to the install page. Click **Install** and select the
-   repository. GitHub calls the tool's `/installed` endpoint, which the tool
-   detects.
+   repository. GitHub then redirects your browser to the manifest's `setup_url`,
+   which points at the tool's local `/installed` endpoint; the tool detects that
+   request.
 5. The tool prints the `actions/create-github-app-token` snippet and exits. The
    server closes on success, failure, timeout or interruption.
 
+   **Exit `0` does not mean the Install click happened.** After creation the tool
+   waits up to `min(timeout, 300)` seconds for the install redirect. If it never
+   arrives, the tool prints `install: not yet confirmed — finish it at the URL
+   above.`, still prints the snippet and still exits `0`. The App exists and the
+   secrets are already stored, so do not rerun the tool: open the printed
+   `.../installations/new` URL and install the App on the repository yourself.
+   Without an installation the token step in the workflow fails.
+
 `--timeout` (default 900 s) bounds the wait for creation; installation then gets
 up to `min(timeout, 300)` seconds. Requires an authenticated `gh` on `PATH`.
-Exit codes: `0` success or preview, `1` provisioning/startup failure, `2` timeout
-or invalid usage, `130` interrupted.
+Exit codes: `0` App created and secrets stored (or a `--dry-run` preview; see
+the Install caveat above), `1` provisioning/startup failure, `2` timeout or
+invalid usage, `130` interrupted.
 
 ## Binding modes
 
