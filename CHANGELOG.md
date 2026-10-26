@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Preserve runner Nix configuration in the toolchain action** ([#1907](https://github.com/vig-os/devkit/issues/1907))
   - With preinstalled host Nix in direnv mode, preserve valid ambient `NIX_CONFIG`, including runner caches and CPU limits, and add devkit's features and cache settings; `extra-experimental-features` extends the host `nix.conf` feature list instead of replacing it
+  - Mask ambient access tokens and URL values containing userinfo or queries before export so later step environment headers do not expose credentials
   - Validate with the command supported by host Nix (including `show-config` before Nix 2.20); fail explicitly if neither command is available. Drop malformed ambient configuration with a warning that redacts diagnostic values; keep the exported configuration valid and the environment delimiter collision-safe
 
 - **install.sh and devkit-upgrade no longer need Docker in direnv mode** ([#1871](https://github.com/vig-os/devkit/issues/1871))

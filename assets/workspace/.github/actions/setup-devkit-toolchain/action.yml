@@ -135,8 +135,8 @@ runs:
           extra-substituters = https://vig-os.cachix.org
           extra-trusted-public-keys = vig-os.cachix.org-1:yoOYRi3bvnM6ThxO0joLt7vtzhTfkq3r6jykeUMg7Bk=
 
-    # Preinstalled host Nix: export the same settings via a well-formed
-    # multi-line NIX_CONFIG instead of installing. On a multi-user host Nix
+    # Preinstalled host Nix: check and keep ambient NIX_CONFIG, then add
+    # devkit settings via a well-formed multi-line export instead of installing. On a multi-user host Nix
     # the substituter entries may be ignored for non-trusted users — Cachix is
     # an optimization, correctness does not depend on it. Keep the settings in
     # lockstep with extra_nix_config above, except host experimental features use
@@ -146,6 +146,36 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        mask_host_nix_credentials() {
+          # Per the Nix settings reference, access-tokens holds inline secrets;
+          # netrc-file and secret-key-files hold paths, not credential contents.
+          # Also mask URL values with userinfo or queries (possible credentials).
+          local line key entry secret
+          local -a values
+          while IFS= read -r line; do
+            line="${line%%#*}"
+            [[ "$line" == *"="* ]] || continue
+            key="${line%%=*}"
+            key="${key//[[:space:]]/}"
+            IFS=$' \t\r' read -r -a values <<< "${line#*=}"
+            for entry in "${values[@]}"; do
+              secret=""
+              case "$key" in
+                access-tokens|extra-access-tokens) secret="${entry#*=}" ;;
+                *)
+                  case "$entry" in
+                    *://*@*|*://*\?*) secret="$entry" ;;
+                  esac ;;
+              esac
+              if [ -n "$secret" ]; then
+                secret="${secret//'%'/'%25'}"
+                secret="${secret//$'\r'/'%0D'}"
+                secret="${secret//$'\n'/'%0A'}"
+                echo "::add-mask::$secret"
+              fi
+            done
+          done <<< "$host_nix_config"
+        }
         host_nix_config="${NIX_CONFIG:-}"
         if [ -n "$host_nix_config" ]; then
           # Probe with ambient config removed: older Nix calls this show-config.
@@ -163,6 +193,8 @@ runs:
             host_nix_config=""
           fi
         fi
+        # Register masks before GITHUB_ENV exposes values in later step headers.
+        mask_host_nix_credentials
         delimiter=DEVKIT_NIX_CONFIG_EOF
         while [[ $'\n'"$host_nix_config"$'\n' == *$'\n'"$delimiter"$'\n'* ]]; do
           delimiter+="_"
