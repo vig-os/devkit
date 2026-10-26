@@ -810,8 +810,8 @@ def test_host_nix_preserves_runner_settings(tmp_path: Path) -> None:
     config = exported["NIX_CONFIG"]
     assert config.startswith(ambient + "\n")
     values = _nix_config_values(config)
-    assert "http://cache.example" in values["substituters"]
-    assert "https://vig-os.cachix.org" in values["substituters"]
+    assert "http://cache.example" in set(values["substituters"])
+    assert "https://vig-os.cachix.org" in set(values["substituters"])
     assert (
         "cache.example-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
         in values["trusted-public-keys"]
@@ -841,7 +841,7 @@ def test_host_nix_without_runner_config(tmp_path: Path, ambient: str | None) -> 
     values = _nix_config_values(exported["NIX_CONFIG"])
     assert {"nix-command", "flakes"} <= set(values["experimental-features"])
     assert values["accept-flake-config"] is True
-    assert "https://vig-os.cachix.org" in values["substituters"]
+    assert "https://vig-os.cachix.org" in set(values["substituters"])
     assert NIX_SETTINGS["extra-trusted-public-keys"] in values["trusted-public-keys"]
     assert "::warning::" not in proc.stdout
 
