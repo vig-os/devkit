@@ -107,9 +107,11 @@ def exchange_code(code: str) -> dict:
     return json.loads(response.stdout)
 
 
-def secret_names(prefix: str) -> dict[str, str]:
-    """The three secrets stored for a provisioned App: the client id (the JWT
-    ``iss`` that ``client-id:`` expects), the numeric App id, and the PEM."""
+def credential_slot_names(prefix: str) -> dict[str, str]:
+    """Return public Actions slot names, never credential values.
+
+    These labels identify where the client id, numeric App id and PEM are stored.
+    """
     return {
         "client_id": f"{prefix}_CLIENT_ID",
         "id": f"{prefix}_ID",
@@ -121,7 +123,7 @@ def wiring_snippet(prefix: str, client_id_stored: bool = True) -> str:
     """The create-github-app-token step for the consuming workflow. When the
     client id was not stored, the snippet says so instead of silently pointing
     at an unset secret (the step would get an empty ``client-id``)."""
-    names = secret_names(prefix)
+    names = credential_slot_names(prefix)
     warn = (
         ""
         if client_id_stored
@@ -206,7 +208,7 @@ class Provisioner:
             write_private(self.args.pem_out, conversion["pem"])
         if getattr(self.args, "no_secrets", False):
             return []
-        names = secret_names(self.args.secret_prefix)
+        names = credential_slot_names(self.args.slot_prefix)
         set_secret(self.args.repo, names["id"], str(conversion["id"]))
         set_secret(self.args.repo, names["private_key"], conversion["pem"])
         stored = [names["id"], names["private_key"]]
@@ -262,7 +264,7 @@ class Provisioner:
             summary = f"App created — secrets set: {', '.join(self.result['stored'])}."
             missing = [
                 name
-                for name in secret_names(self.args.secret_prefix).values()
+                for name in credential_slot_names(self.args.slot_prefix).values()
                 if name not in self.result["stored"]
             ]
             warning = (
@@ -349,8 +351,9 @@ class Provisioner:
         print("\n=== Wiring snippet (paste into the consuming workflow) ===")
         print(
             wiring_snippet(
-                self.args.secret_prefix,
-                secret_names(self.args.secret_prefix)["client_id"] in result["stored"],
+                self.args.slot_prefix,
+                credential_slot_names(self.args.slot_prefix)["client_id"]
+                in result["stored"],
             )
         )
         return 0
@@ -374,6 +377,7 @@ def argument_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument(
         "--secret-prefix",
+        dest="slot_prefix",
         default="RP_APP",
         help="secrets become <prefix>_CLIENT_ID / <prefix>_ID / <prefix>_PRIVATE_KEY",
     )

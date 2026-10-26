@@ -20,7 +20,7 @@ from vig_utils import gh_app_provision as mod
 class SecretNames(unittest.TestCase):
     def test_names(self):
         self.assertEqual(
-            mod.secret_names("RP_APP"),
+            mod.credential_slot_names("RP_APP"),
             {
                 "client_id": "RP_APP_CLIENT_ID",
                 "id": "RP_APP_ID",
@@ -30,7 +30,7 @@ class SecretNames(unittest.TestCase):
 
     def test_custom_prefix(self):
         self.assertEqual(
-            mod.secret_names("COMMIT_APP")["client_id"], "COMMIT_APP_CLIENT_ID"
+            mod.credential_slot_names("COMMIT_APP")["client_id"], "COMMIT_APP_CLIENT_ID"
         )
 
 
@@ -58,7 +58,7 @@ class Callback(unittest.TestCase):
 
     def run_callback(self, conv):
         args = types.SimpleNamespace(
-            owner_type="user", owner="o", repo="o/r", secret_prefix="RP_APP"
+            owner_type="user", owner="o", repo="o/r", slot_prefix="RP_APP"
         )
         p = mod.Provisioner(args)
         set_names = []
@@ -100,9 +100,9 @@ class Callback(unittest.TestCase):
         self.assertIn("Not set:</b> RP_APP_CLIENT_ID", page)
         self.assertIn("WARNING", err)
 
-    def test_success_page_escapes_secret_names(self):
+    def test_success_page_escapes_credential_slot_names(self):
         args = types.SimpleNamespace(
-            owner_type="user", owner="o", repo="o/r", secret_prefix="<b>X"
+            owner_type="user", owner="o", repo="o/r", slot_prefix="<b>X"
         )
         p = mod.Provisioner(args)
         with (
@@ -123,7 +123,7 @@ def args():
         owner_type="org",
         repo="example/repo",
         perms="contents=write,issues=read",
-        secret_prefix="BOT",
+        slot_prefix="BOT",
         public=False,
         host="127.0.0.1",
         port=0,
