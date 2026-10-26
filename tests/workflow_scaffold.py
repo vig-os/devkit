@@ -52,13 +52,25 @@ ACTION_PIN_RE = re.compile(r"^[\w.-]+/[\w.-]+@[0-9a-f]{40}$")
 # paths, and devkit-upgrade.yml's own installer step. `accept-flake-config` lets
 # the consumer's OWN repo flake contribute the substituters it declares — this
 # is not the baked-image trapdoor #773 removed, which trusted any FOREIGN flake.
-NIX_SETTINGS = {
-    "experimental-features": "nix-command flakes",
+_NIX_EXPERIMENTAL_FEATURES = "nix-command flakes"
+_NIX_SHARED_SETTINGS = {
     "accept-flake-config": "true",
     "extra-substituters": "https://vig-os.cachix.org",
     "extra-trusted-public-keys": (
         "vig-os.cachix.org-1:yoOYRi3bvnM6ThxO0joLt7vtzhTfkq3r6jykeUMg7Bk="
     ),
+}
+
+
+# Fresh installation sets the required features; preinstalled hosts must add
+# them so runner nix.conf and ambient feature lists both survive (#1907).
+NIX_SETTINGS = {
+    "experimental-features": _NIX_EXPERIMENTAL_FEATURES,
+    **_NIX_SHARED_SETTINGS,
+}
+HOST_NIX_SETTINGS = {
+    "extra-experimental-features": _NIX_EXPERIMENTAL_FEATURES,
+    **_NIX_SHARED_SETTINGS,
 }
 
 
