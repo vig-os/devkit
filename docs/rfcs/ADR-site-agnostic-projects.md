@@ -2,7 +2,7 @@
 rfc: ADR-site-agnostic-projects
 date: 2026-10-26
 title: Site-agnostic projects — fork-safe CI runner selection via variables, gitignored site config
-status: proposed
+status: accepted
 authors:
   - Lars Gerchow (gerchowl)
 ---
@@ -42,8 +42,9 @@ and by a gitignored `.site/` directory for everything else.
 Proposed in [#1908](https://github.com/vig-os/devkit/issues/1908). The CI part
 rests on the owner's empirical test of 2026-10-25
 ([comment on #1908](https://github.com/vig-os/devkit/issues/1908)), summarised
-in [Evidence](#evidence-the-2026-10-25-variable-tests). Six decisions are left
-to the owner in [Open decisions](#open-decisions-for-the-owner).
+in [Evidence](#evidence-the-2026-10-25-variable-tests). The owner took six
+decisions on 2026-10-26, choosing a1, b1, c1, d1, e1 and f1; see
+[Decisions](#decisions).
 
 ## Problem statement
 
@@ -211,7 +212,7 @@ These are the `resolve-toolchain` jobs (SMALL), which produce the outputs and
 cannot consume them, and the seeded extension hooks (LARGE, §5), whose callers
 pass them no runner input.
 
-Compatibility releases N and N+1, under Recommended decision (a):
+Compatibility releases N and N+1, per decision (a)-1:
 
 ```yaml
 runs-on: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
@@ -232,9 +233,6 @@ so an empty variable falls through. A whitespace-only value is truthy there
 and requests a blank label (§1). The resolve job cannot report that for its
 own runner (the §1 known limit). For a whitespace-only LARGE, it warns before
 any seeded hook runs, and the runner-json lanes treat the value as unset.
-
-If decision (a) goes to the legacy-wins option, the compatibility-release
-expression swaps the two `vars.` terms. Nothing else changes.
 
 #### runner-json lanes
 
@@ -261,11 +259,11 @@ elif L != []:           runners[S] = L;    source[S] = "legacy-key"     # releas
 else:                   runners[S] = [H];  source[S] = "default"
 ```
 
-The precedence shown is the Recommended option of decision (a): the variable
-wins over the legacy key. The legacy-wins option swaps the `V` and `L` arms.
+The precedence shown is decision (a)-1: the variable wins over the legacy
+key.
 
 Lane entries are then resolved from the lane → class map: built-in defaults
-(§5), plus the `.vig-os` `DEVKIT_CI_LANE_SIZES` override if decision (b) adopts
+(§5), plus the `.vig-os` `DEVKIT_CI_LANE_SIZES` override (decision (b)-1),
 it. Each lane gets `runners[<lane>] = runners[<class>]`.
 
 **Outputs:**
@@ -293,8 +291,10 @@ it. Each lane gets `runners[<lane>] = runners[<class>]`.
   - which required classes have no visible variable, and that they should be
     set, at repository level on a private GitHub Free repo
     (`gh variable set CI_RUNNER_<S> --body <label>`);
-  - once every required class is set, the key decides nothing (under
-    (a)-Recommended) and should be deleted from `.vig-os`;
+  - each class whose variable already overrides the key, which per
+    decision (a)-1 the key no longer decides;
+  - once every required class is set, the key decides nothing and should be
+    deleted from `.vig-os`;
   - the `MIGRATION.md` anchor.
 
   It never prints the label.
@@ -341,15 +341,13 @@ it. Each lane gets `runners[<lane>] = runners[<class>]`.
     carrying the same full migration text as the N/N+1 warning. CI goes red.
     It never silently moves to hosted runners.
   - **The key is inert.** Every required class has a visible variable, so
-    under (a)-Recommended the key already decided nothing during the window.
+    per decision (a)-1 the key already decided nothing during the window.
     That is a `::warning::` asking to delete the key. Removing the legacy arm
     changes no runner here, so failing the run would be noise.
   - **Foreign runs.** Variables are hidden there, so inertness cannot be
     judged. The result is a `::warning::`, and the base repository's own runs
     give the verdict.
 
-  If decision (a) goes to legacy-wins, the key was never inert during the
-  window. Then the error fires whenever the key is non-empty.
 - A non-empty `legacy-resolve-runner` with an empty `runner-small`, on a run
   that is not foreign, is an `::error::`. The consumer clearly meant
   self-hosted runners, and the resolve job still runs on the legacy variable's
@@ -402,7 +400,7 @@ hosted uses the fork predicate.
 | `prepare-release-extension.yml` (workflow_call, seeded) | `extension` | resolve var | new scaffolds: L, direct expression; existing copies: decision (d) |
 | `release-extension.yml` (workflow_call, seeded) | `extension` | resolve var | same as above |
 | `publish-release-extension.yml` (release, workflow_dispatch; seeded) | `resolve`, `publish` | resolve var | same as above |
-| `devkit-upgrade.yml` (schedule, workflow_dispatch) | `upgrade`, `report` | `ubuntu-latest` | decision (e): S (Recommended), or hosted `ubuntu-26.04` |
+| `devkit-upgrade.yml` (schedule, workflow_dispatch) | `upgrade`, `report` | `ubuntu-latest` | S, with the fork predicate (decision (e)-1) |
 | `codeql.yml` (pull_request, push, schedule) | `analyze` | hosted | hosted (public repos only) |
 | `assets/smoke-test/.github/workflows/ci-extension.yml` (workflow_call; the smoke-test fixture's hook) | `extension` | `fromJSON(inputs.runner-json)` | unchanged; receives the `extension` lane from the caller |
 | `assets/smoke-test/.github/workflows/direnv-smoke.yml`, `repository-dispatch.yml` | all jobs | hosted | hosted (devkit's own smoke-test fixture) |
@@ -445,7 +443,7 @@ literal label. **None adopts the variables.**
 
 ### 5. Lane classes
 
-Default map, subject to decision (b):
+Default map, with the per-lane override of decision (b)-1:
 
 | Class | Lanes |
 |---|---|
@@ -495,8 +493,9 @@ Rejected alternatives:
 #### The chosen mechanism
 
 1. **The per-run warning is the primary channel.** From N on, the scaffolded
-   `ci.yml` (which runs on `dev` PRs right after the N adoption merges) emits
-   the full actionable migration text on every run (§3 diagnostics). No
+   `ci.yml` emits the full actionable migration text on every run (§3
+   diagnostics), starting with the N adoption PR's own CI, which already runs
+   N's `ci.yml` and N's resolve action. No
    consumer depends on an adoption PR body to learn what to do.
 2. **The N+2 tombstone is gated on the consumer's own state** (§3): an error
    only when the key would still decide a runner, and a warning when every
@@ -522,7 +521,7 @@ The PR-body text a ≥N workflow shows, per case:
 
 | Legacy key | Visible variables | PR body says |
 |---|---|---|
-| set | every required class (§3) | key removed under (c)-1, or kept under (c)-2; runners now come from the variables; nothing to do |
+| set | every required class (§3) | key removed (decision (c)-1); runners now come from the variables; nothing to do |
 | set | some required classes or none | which `CI_RUNNER_*` to set, at **repository level** if the repo is private on GitHub Free; the example command `gh variable set CI_RUNNER_LARGE --body <label>`; until N+2 the key keeps working, and after that CI fails until the variables are set |
 | unset, `vars.DEVKIT_CI_RESOLVE_RUNNER` visible | n/a | rename the variable to `CI_RUNNER_SMALL`, then delete the old one after decision (d)'s hook migration |
 | unset, repo private, no `CI_RUNNER_*` visible | none | one informational line: CI runs hosted; organization variables do not reach private repos on GitHub Free; set repository variables, or set them to `ubuntu-26.04` to declare hosted on purpose (§3) |
@@ -760,33 +759,35 @@ silent move would turn into queued or rejected jobs that point at nothing.
   7. **If anything is found: rotate first.** A history rewrite does not
      unpublish what a clone or cache already holds. Then rewrite and re-scan.
 
-## Open decisions for the owner
+## Decisions
 
-Each option names its honest cost. The Recommended option is the one this ADR
-considers correct in the long term.
+Decided by the owner on 2026-10-26, on PR
+[#1917](https://github.com/vig-os/devkit/pull/1917): **a1, b1, c1, d1, e1, f1**.
+Each option chosen was the one this ADR considers correct in the long term.
+The rejected options are kept with the costs that ruled them out.
 
 **(a) Precedence during the compatibility window (releases N and N+1) when both
 the legacy `.vig-os` key and `CI_RUNNER_*` are set.**
 
-1. **Variable wins; the key is reported as overridden (Recommended).** Setting
+1. **Variable wins; the key is reported as overridden.** **Chosen** (owner, 2026-10-26). Setting
    the variable is the migration act, and the end state takes effect at once.
    The key, which is the thing being removed, cannot override it. *Cost:* a
    consumer whose org already sets `CI_RUNNER_*` (Team plan, or repository
    level) moves runners when it adopts release N, if the variable names a
-   different label than its key. The adoption PR body and the
-   `runner-sources` summary name every overridden class.
-2. **Legacy key wins** (the owner's emulated order). Release N changes nothing
+   different label than its key. The per-run legacy-key warning (§3) and the
+   `runner-sources` step summary name every overridden class.
+2. Rejected: **Legacy key wins** (the owner's emulated order). Release N changes nothing
    for an existing self-hosted consumer. *Cost:* setting a variable has no
    visible effect until the key is deleted, which is the confusing state the
    migration is meant to end. Decision (c) can then never strip the key safely
    during the window, because stripping changes behaviour.
-3. **Both set is an error.** *Cost:* CI turns red for every such consumer on
+3. Rejected: **Both set is an error.** *Cost:* CI turns red for every such consumer on
    adoption, in exactly the population that already did half the migration.
 
 **(b) Size class per lane, and whether a consumer can override it.**
 
 1. **Defaults as in §5, plus a per-lane override in `.vig-os`:
-   `DEVKIT_CI_LANE_SIZES=test=xlarge,lint=large` (Recommended).** It covers the
+   `DEVKIT_CI_LANE_SIZES=test=xlarge,lint=large`.** **Chosen** (owner, 2026-10-26). It covers the
    lanes `lint`, `test`, `extension` and `release-test`, and the sizes
    `small`, `large` and `xlarge`. Anything else is an error at the write path
    (`init-workspace.sh`) and in `resolve-toolchain`. How heavy a project's
@@ -795,10 +796,10 @@ the legacy `.vig-os` key and `CI_RUNNER_*` are set.**
    change sizes, never labels, and foreign runs go hosted anyway. *Cost:* one
    more manifest key (template comment, persistence, two validators), and the
    `runners` object grows lane keys.
-2. **Fixed classes, no override.** It is the least surface. *Cost:* a project
+2. Rejected: **Fixed classes, no override.** It is the least surface. *Cost:* a project
    whose tests need XLARGE cannot get there without a devkit change. XLARGE
    exists but is unreachable.
-3. **Per-lane variables** (`CI_RUNNER_TEST`, …). *Cost:* it puts a project
+3. Rejected: **Per-lane variables** (`CI_RUNNER_TEST`, …). *Cost:* it puts a project
    property into org or repo settings, makes the variables sprawl, and an
    org-level per-lane variable applies to every repo.
 
@@ -810,8 +811,7 @@ consumer's own next release under gitflow, possibly after N+2. The per-run
 warnings and the consumer-state tombstone (§3) make the outcome correct
 whenever it happens.
 
-1. **Strip it when it is inert, otherwise keep it and explain
-   (Recommended).** Inert means the variable of every required class (§3:
+1. **Strip it when it is inert, otherwise keep it and explain.** **Chosen** (owner, 2026-10-26). Inert means the variable of every required class (§3:
    SMALL and LARGE always, plus XLARGE if the lane map uses it) is visible to the
    upgrade job, so under (a)-1 the key decides nothing. Then removing it
    changes no runner, and the repo reaches the end state at the migrating
@@ -822,10 +822,10 @@ whenever it happens.
    be stripped before the migrating adoption. A gitflow consumer that does not
    release before N+2 keeps the key until it deletes it by hand, or until a
    later migrating adoption strips it (inert means a warning, not red, §3).
-2. **Explain only; never strip automatically.** *Cost:* every self-hosted
+2. Rejected: **Explain only; never strip automatically.** *Cost:* every self-hosted
    consumer has to delete a dead key by hand. It is still safe, because an
    inert key only warns after N+2.
-3. **Always strip at the migrating adoption**, writing the needed settings into the
+3. Rejected: **Always strip at the migrating adoption**, writing the needed settings into the
    PR body. *Cost:* a consumer that merges before setting the variables
    silently moves to hosted runners. That is the one outcome this design
    forbids, so this option is rejected unless (a) changes.
@@ -834,7 +834,7 @@ whenever it happens.
 `release-extension`, `publish-release-extension`), which are consumer-owned
 and never overwritten.
 
-1. **Reconcile the exact stock line (Recommended).** The upgrade checks each
+1. **Reconcile the exact stock line.** **Chosen** (owner, 2026-10-26). The upgrade checks each
    job's `runs-on` line separately. Where a line is byte-identical to the stock
    `${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}`, it rewrites that
    line to the new LARGE direct expression (§3, the same for every seeded job)
@@ -845,21 +845,21 @@ and never overwritten.
    a known-stock block may be folded, nothing else. *Cost:* a second
    reconcile implementation for workflow files, and a consumer-owned file
    changes in an adoption PR.
-2. **Notice only.** *Cost:* existing copies keep reading
+2. Rejected: **Notice only.** *Cost:* existing copies keep reading
    `DEVKIT_CI_RESOLVE_RUNNER` forever, without the fork predicate. They run
    only on `workflow_call` from dispatch-only trains or on `release`, so there
    is no fork exposure, but the legacy variable can never be deleted.
 
 **(e) `devkit-upgrade.yml`'s runner.**
 
-1. **SMALL with the predicate (Recommended).** The job that delivers the
+1. **SMALL with the predicate.** **Chosen** (owner, 2026-10-26). The job that delivers the
    migration should run where the org runs CI. A billing-blocked private org
    otherwise never adopts. Container-mode consumers' runners already have a
    container runtime (§5). *Cost:* the job mints the upgrade App token on a
    self-hosted runner, as the release train already does. Splitting
    secret-bearing jobs from build-only pools is
    [#1876](https://github.com/vig-os/devkit/issues/1876)'s job.
-2. **Stay hosted, normalised to `ubuntu-26.04`.** *Cost:* the job keeps paying
+2. Rejected: **Stay hosted, normalised to `ubuntu-26.04`.** *Cost:* the job keeps paying
    hosted minutes on private repos, and fails outright in an org that cannot
    run hosted jobs.
 
@@ -867,7 +867,7 @@ and never overwritten.
 too, and they are created by people with read access (org members or outside
 collaborators). The §2 predicate treats them as foreign, so they run hosted.
 
-1. **Strict: every fork PR is foreign, private or not (Recommended).** The
+1. **Strict: every fork PR is foreign, private or not.** **Chosen** (owner, 2026-10-26). The
    predicate stays as tested, and read access never buys code execution on a
    self-hosted runner. *Cost:* in a private org that cannot run hosted jobs at
    all, PRs from internal forks get **no CI**: the jobs are rejected, the
@@ -875,7 +875,7 @@ collaborators). The §2 predicate treats them as foreign, so they run hosted.
    `MIGRATION.md` (S7): contributors push branches to the base repo (writers
    can), and the org turns off "Allow forking of private repositories" so such
    PRs cannot be opened.
-2. **Trust forks of private repos:** the predicate gains
+2. Rejected: **Trust forks of private repos:** the predicate gains
    `&& !github.event.repository.private`. *Cost:* anyone with read access to a
    private repo, including outside collaborators, can run code on the
    self-hosted pool by opening a PR from a fork. It also drops the explicit
@@ -926,8 +926,8 @@ collaborators). The §2 predicate treats them as foreign, so they run hosted.
 Ordered sub-issues. The architect files them; this ADR does not. Each is under
 about 400 diff lines.
 
-**Merge order for release N:** S1 → S1d → S1b → S2 → S3. S1b is included only
-if decision (b)-1. S4, S5 and S6 are independent of that chain and of each
+**Merge order for release N:** S1 → S1d → S1b → S2 → S3. S1b implements
+decision (b)-1. S4, S5 and S6 are independent of that chain and of each
 other. S7 and S7b (docs) follow S1–S6, S8 gates release N, and S9 is release
 N+2.
 
@@ -1021,7 +1021,7 @@ rebases onto the earlier one:
     foreign run;
   - the whitespace-only warning names `CI_RUNNER_LARGE`.
 
-**S1b — Per-lane size override `DEVKIT_CI_LANE_SIZES`** (only if (b)-1).
+**S1b — Per-lane size override `DEVKIT_CI_LANE_SIZES`** (decision (b)-1).
 
 - *Scope:*
   - parse `DEVKIT_CI_LANE_SIZES` in `resolve-toolchain`, with an `::error::`
@@ -1064,8 +1064,8 @@ rebases onto the earlier one:
 
 **S3 — `devkit-upgrade` migration.**
 
-- *Scope:* §6. It ships in release N and **acts from the N+1 adoption on**
-  (§6, two steps):
+- *Scope:* §6. It ships in release N and **acts from the migrating adoption**
+  (§6):
   - N's `devkit-upgrade.yml` passes `vars.CI_RUNNER_*` into the install step
     and lifts the `ci-runner-migration:` lines into a "CI runner migration"
     PR-body section;
