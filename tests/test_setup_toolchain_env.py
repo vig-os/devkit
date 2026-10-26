@@ -22,6 +22,7 @@ Refs: #1180
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -750,7 +751,7 @@ def test_host_nix_config_step_writes_wellformed_nix_config(tmp_path: Path) -> No
     github_env.touch()
     proc = subprocess.run(
         ["bash", "-c", step["run"]],
-        env={**os.environ, "GITHUB_ENV": str(github_env)},
+        env={**os.environ, "NIX_CONFIG": "", "GITHUB_ENV": str(github_env)},
         capture_output=True,
         text=True,
     )
@@ -759,6 +760,102 @@ def test_host_nix_config_step_writes_wellformed_nix_config(tmp_path: Path) -> No
     nix_config = parsed.get("NIX_CONFIG")
     assert nix_config, "NIX_CONFIG not written to GITHUB_ENV"
     assert parse_nix_settings(nix_config) == NIX_SETTINGS
+
+
+def _run_host_config(
+    tmp_path: Path, ambient: str | None, **overrides: str
+) -> tuple[subprocess.CompletedProcess[str], dict[str, str]]:
+    github_env = tmp_path / "github_env"
+    env = {**os.environ, "GITHUB_ENV": str(github_env), **overrides}
+    env.pop("NIX_CONFIG", None)
+    if ambient is not None:
+        env["NIX_CONFIG"] = ambient
+    proc = subprocess.run(
+        ["bash", "-c", _step_by_name(HOST_NIX_STEP_NAME)["run"]],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return proc, _parse_github_env(github_env.read_text(encoding="utf-8"))
+
+
+def _nix_config_values(config: str) -> dict:
+    proc = subprocess.run(
+        [
+            "nix",
+            "--extra-experimental-features",
+            "nix-command",
+            "config",
+            "show",
+            "--json",
+        ],
+        env={**os.environ, "NIX_CONFIG": config},
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return {key: setting["value"] for key, setting in json.loads(proc.stdout).items()}
+
+
+def test_host_nix_preserves_runner_settings(tmp_path: Path) -> None:
+    ambient = (
+        "extra-substituters = http://cache.example\n"
+        "extra-trusted-public-keys = cache.example-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\n"
+        "cores = 2\nmax-jobs = 3\nexperimental-features = ca-derivations"
+    )
+    proc, exported = _run_host_config(tmp_path, ambient)
+    config = exported["NIX_CONFIG"]
+    assert config.startswith(ambient + "\n")
+    values = _nix_config_values(config)
+    assert "http://cache.example" in values["substituters"]
+    assert "https://vig-os.cachix.org" in values["substituters"]
+    assert (
+        "cache.example-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+        in values["trusted-public-keys"]
+    )
+    assert NIX_SETTINGS["extra-trusted-public-keys"] in values["trusted-public-keys"]
+    assert values["cores"] == 2
+    assert values["max-jobs"] == 3
+    assert {"ca-derivations", "nix-command", "flakes"} <= set(
+        values["experimental-features"]
+    )
+    assert values["accept-flake-config"] is True
+    assert "::warning::" not in proc.stdout
+
+
+def test_host_nix_drops_malformed_runner_config_with_warning(tmp_path: Path) -> None:
+    proc, exported = _run_host_config(tmp_path, "experimental-features")
+    assert "::warning::" in proc.stdout
+    assert "NIX_CONFIG" in proc.stdout
+    assert "syntax error" in proc.stdout
+    assert _nix_config_values(exported["NIX_CONFIG"])["accept-flake-config"] is True
+    assert "experimental-features\n" not in exported["NIX_CONFIG"]
+
+
+@pytest.mark.parametrize("ambient", [None, ""])
+def test_host_nix_without_runner_config(tmp_path: Path, ambient: str | None) -> None:
+    proc, exported = _run_host_config(tmp_path, ambient)
+    values = _nix_config_values(exported["NIX_CONFIG"])
+    assert {"nix-command", "flakes"} <= set(values["experimental-features"])
+    assert values["accept-flake-config"] is True
+    assert "https://vig-os.cachix.org" in values["substituters"]
+    assert NIX_SETTINGS["extra-trusted-public-keys"] in values["trusted-public-keys"]
+    assert "::warning::" not in proc.stdout
+
+
+def test_host_nix_heredoc_delimiter_collision(tmp_path: Path) -> None:
+    # Isolate serialization from Nix validation: even an accepted value containing
+    # delimiter lines must never inject additional GitHub environment variables.
+    stub = tmp_path / "nix"
+    stub.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    stub.chmod(0o755)
+    ambient = "DEVKIT_NIX_CONFIG_EOF\nDEVKIT_NIX_CONFIG_EOF_\nINJECTED=value"
+    _, exported = _run_host_config(
+        tmp_path, ambient, PATH=f"{tmp_path}:{os.environ['PATH']}"
+    )
+    assert set(exported) == {"NIX_CONFIG"}
+    assert exported["NIX_CONFIG"].startswith(ambient + "\n")
 
 
 def test_install_and_host_paths_carry_identical_settings() -> None:
