@@ -15,7 +15,7 @@ disable-model-invocation: true
 
 Creates a GitHub App, installs it, stores `<PREFIX>_CLIENT_ID`, `<PREFIX>_ID` and `<PREFIX>_PRIVATE_KEY` as
 repository secrets, and prints the workflow snippet. The background, flow and known limits are in
-[`docs/GITHUB_APP_PROVISIONING.md`](../../../../docs/GITHUB_APP_PROVISIONING.md); `gh-app-provision --help` is the
+[`docs/GITHUB_APP_PROVISIONING.md`](../../../../docs/GITHUB_APP_PROVISIONING.md); the tool's `--help` output is the
 source of truth for flags. If this skill and either disagree, they win and this skill is a bug.
 
 GitHub has no API to create an App. The two browser clicks (**Create GitHub App**, **Install**) are the only human
