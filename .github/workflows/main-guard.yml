@@ -1,0 +1,141 @@
+---
+# Soft main guard (#1892) — reusable, alert-only.
+#
+# Flags commits that reach a protected branch without belonging to a merged
+# pull request, for repos that cannot enforce branch protection (private repos
+# on the GitHub Free plan). It opens (or comments on) ONE tracking issue and
+# never reverts, force-pushes or fails the caller. See docs/MAIN_GUARD.md.
+#
+# Caller (push trigger is required: the commit range comes from the push event):
+#
+#   on: { push: { branches: [main] } }
+#   permissions: {}
+#   jobs:
+#     guard:
+#       permissions: { contents: read, issues: write, pull-requests: read }
+#       uses: vig-os/devkit/.github/workflows/main-guard.yml@<tag>
+#
+# Pinned by tests/test_main_guard.py, which executes the `run:` script below.
+
+name: Main Guard
+
+on:  # yamllint disable-line rule:truthy
+  workflow_call:
+    inputs:
+      branch:
+        description: "Branch to guard (default: the repository default branch)"
+        required: false
+        default: ""
+        type: string
+      label:
+        description: "Label of the tracking issue (created if missing)"
+        required: false
+        default: "main-guard"
+        type: string
+      ignore-authors:
+        description: "Comma-separated author logins never flagged (e.g. release bots)"
+        required: false
+        default: ""
+        type: string
+      runner:
+        description: "runs-on label list as a JSON array"
+        required: false
+        default: '["ubuntu-latest"]'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Flag commits without a merged PR
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Check commits for an associated merged PR
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          BRANCH_INPUT: ${{ inputs.branch }}
+          LABEL: ${{ inputs.label }}
+          IGNORE_AUTHORS: ${{ inputs.ignore-authors }}
+          SERVER_URL: ${{ github.server_url }}
+          RUN_ID: ${{ github.run_id }}
+          RETRIES: "4"
+          RETRY_SLEEP: "5"
+        run: |
+          set -euo pipefail
+          BRANCH="${BRANCH_INPUT:-$DEFAULT_BRANCH}"
+          if [ "$REF_NAME" != "$BRANCH" ]; then
+            echo "Push to '$REF_NAME', guarding '$BRANCH' only; nothing to do."
+            exit 0
+          fi
+
+          # Commit range: before..after, or just the head for a new branch or a
+          # force-push whose old head is no longer an ancestor.
+          SHAS=""
+          if [[ "$BEFORE" =~ ^0+$ ]] || ! SHAS=$(gh api --paginate \
+              "repos/$REPO/compare/$BEFORE...$AFTER" -q '.commits[].sha' 2>/dev/null); then
+            SHAS="$AFTER"
+          fi
+          [ -n "$SHAS" ] || SHAS="$AFTER"
+
+          has_merged_pr() {
+            local sha="$1" n=0 count
+            while :; do
+              count=$(gh api "repos/$REPO/commits/$sha/pulls" \
+                -q "[.[] | select(.merged_at != null and .base.ref == \"$BRANCH\")] | length")
+              [ "$count" -gt 0 ] && return 0
+              n=$((n + 1))
+              [ "$n" -ge "$RETRIES" ] && return 1
+              sleep "$RETRY_SLEEP"   # the commit->pulls index lags right after a merge
+            done
+          }
+
+          flagged=""
+          for sha in $SHAS; do
+            info=$(gh api "repos/$REPO/commits/$sha" \
+              -q '[(.author.login // .commit.author.name), (.commit.message | split("\n")[0])] | @tsv')
+            author="${info%%$'\t'*}"
+            subject="${info#*$'\t'}"
+            if [[ ",${IGNORE_AUTHORS// /}," == *",$author,"* ]]; then
+              continue
+            fi
+            if ! has_merged_pr "$sha"; then
+              flagged+="- \`${sha:0:12}\` ${subject:0:120} (@${author})"$'\n'
+            fi
+          done
+
+          if [ -z "$flagged" ]; then
+            echo "All commits on '$BRANCH' belong to a merged PR."
+            exit 0
+          fi
+
+          run_url="$SERVER_URL/$REPO/actions/runs/$RUN_ID"
+          body=$(printf '%s\n\n%s\n%s\n\n%s\n' \
+            "These commits reached \`$BRANCH\` without belonging to a merged pull request (run: $run_url):" \
+            "$flagged" \
+            "If intended (hotfix, bot), no action needed beyond closing this issue; add the author to \`ignore-authors\` to stop flagging bots. Otherwise review the change and, if it should not stand, revert it through a PR. This guard only alerts; it never reverts." \
+            "_Opened by the soft main guard (vig-os/devkit#1892)._")
+          echo "::warning title=Unreviewed commits on $BRANCH::see the $LABEL issue"
+          printf '%s\n' "$body" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+
+          gh label create "$LABEL" --force --color B60205 \
+            --description "Commits that reached the protected branch without a PR" -R "$REPO" >/dev/null
+          existing=$(gh issue list -R "$REPO" --label "$LABEL" --state open \
+            --json number -q '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" -R "$REPO" --body "$body"
+          else
+            gh issue create -R "$REPO" --label "$LABEL" \
+              --title "main-guard: commits on $BRANCH without a merged PR" --body "$body"
+          fi
