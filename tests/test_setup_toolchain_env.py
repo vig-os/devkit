@@ -834,6 +834,56 @@ def test_host_nix_drops_malformed_runner_config_with_warning(tmp_path: Path) -> 
     assert "experimental-features\n" not in exported["NIX_CONFIG"]
 
 
+@pytest.mark.parametrize(
+    ("ambient", "secrets"),
+    [
+        (
+            "access-tokens = github.com=FIRST_TOKEN gitlab.com=PAT:SECOND_TOKEN\n"
+            " access-tokens = example.com=THIRD_TOKEN%25 # comment\ncores = 2",
+            ["FIRST_TOKEN", "PAT:SECOND_TOKEN", "THIRD_TOKEN%25"],
+        ),
+        (
+            "extra-substituters = https://user:PASSWORD@cache.example\n"
+            "store = https://cache.example?token=QUERY_TOKEN",
+            [
+                "https://user:PASSWORD@cache.example",
+                "https://cache.example?token=QUERY_TOKEN",
+            ],
+        ),
+    ],
+    ids=["access-tokens", "credential-urls"],
+)
+def test_host_nix_masks_credentials_before_export(
+    tmp_path: Path, ambient: str, secrets: list[str]
+) -> None:
+    _nix_config_values(ambient)  # This regression exercises accepted config.
+    # Observe the first GITHUB_ENV write as well as stdout mask commands.
+    # The hook delegates every echo unchanged to Bash's builtin.
+    hook = tmp_path / "bash_env"
+    events = tmp_path / "events"
+    hook.write_text(
+        "echo() {\n"
+        '  if [[ "${1:-}" == ::add-mask::* || "${1:-}" == "NIX_CONFIG<<"* ]]; then\n'
+        '    printf "%s\\n" "$1" >> "$EVENT_LOG"\n'
+        "  fi\n"
+        '  builtin echo "$@"\n'
+        "}\n",
+        encoding="utf-8",
+    )
+    proc, exported = _run_host_config(
+        tmp_path, ambient, BASH_ENV=str(hook), EVENT_LOG=str(events)
+    )
+    masks = ["::add-mask::" + value.replace("%", "%25") for value in secrets]
+    assert proc.stdout.splitlines()[: len(masks)] == masks
+    trace = events.read_text(encoding="utf-8").splitlines()
+    assert trace[: len(masks)] == masks
+    assert trace[len(masks)].startswith("NIX_CONFIG<<")
+    other_output = "\n".join(proc.stdout.splitlines()[len(masks) :]) + proc.stderr
+    assert all(value not in other_output for value in secrets)
+    assert exported["NIX_CONFIG"].startswith(ambient + "\n")
+    _nix_config_values(exported["NIX_CONFIG"])
+
+
 def _write_config_validation_nix_stub(tmp_path: Path, *, legacy: bool) -> Path:
     stub = tmp_path / "nix"
     stub.write_text(
