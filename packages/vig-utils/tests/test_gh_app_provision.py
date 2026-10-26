@@ -3,6 +3,7 @@
 import io
 import json
 import logging
+import socket
 import subprocess
 import sys
 import types
@@ -199,15 +200,14 @@ def test_dry_run_has_no_external_effects(monkeypatch, capsys, tmp_path, extra):
         ],
     )
     with (
-        mock.patch.object(mod, "detect_host") as detect,
         mock.patch.object(mod.http.server, "ThreadingHTTPServer") as server,
         mock.patch.object(mod.subprocess, "run") as run,
         mock.patch.object(mod.subprocess, "check_output") as check_output,
-        mock.patch.object(mod.urllib.request, "urlopen") as urlopen,
-        mock.patch.object(mod.socket, "socket") as socket,
+        mock.patch.object(urllib.request, "urlopen") as urlopen,
+        mock.patch.object(socket, "socket") as network_socket,
     ):
         assert mod.main() == 0
-    for operation in (detect, server, run, check_output, urlopen, socket):
+    for operation in (server, run, check_output, urlopen, network_socket):
         operation.assert_not_called()
     captured = capsys.readouterr()
     manifest = json.loads(captured.out)
@@ -256,7 +256,7 @@ def test_callback_persists_pem_before_secrets(args, conversion, tmp_path):
     assert provisioner.code_done.is_set()
 
 
-def test_no_secrets_never_calls_gh(args, conversion, tmp_path, capsys):
+def test_no_secrets_never_sets_gh_secrets(args, conversion, tmp_path, capsys):
     args.no_secrets = True
     args.pem_out = str(tmp_path / "key.pem")
     provisioner = mod.Provisioner(args)
@@ -293,6 +293,7 @@ def test_missing_code_never_exchanges(args):
 
 def test_base_url_binds_loopback_and_preserves_proxy_prefix(args):
     args.base_url = "https://proxy.example/provision/"
+    args.host = "192.0.2.1"
     provisioner = mod.Provisioner(args)
     with (
         mock.patch.object(mod.http.server, "ThreadingHTTPServer") as server,
@@ -307,17 +308,51 @@ def test_base_url_binds_loopback_and_preserves_proxy_prefix(args):
     assert provisioner.manifest(base)["setup_url"] == f"{base}/installed"
 
 
-def test_host_advertises_address_with_original_wildcard_binding(args):
-    args.host = "192.0.2.1"
+@pytest.mark.parametrize("host", ["127.0.0.1", "192.0.2.1"])
+def test_server_binds_and_advertises_only_chosen_address(args, host):
+    args.host = host
     provisioner = mod.Provisioner(args)
     with (
         mock.patch.object(mod.http.server, "ThreadingHTTPServer") as server,
         mock.patch.object(mod.threading, "Thread"),
     ):
-        server.return_value.server_address = ("0.0.0.0", 8123)
+        server.return_value.server_address = (host, 8123)
         provisioner.serve()
-    assert server.call_args.args[0] == ("0.0.0.0", 0)
-    assert provisioner.base() == f"http://192.0.2.1:8123/{provisioner.path}"
+    assert server.call_args.args[0] == (host, 0)
+    assert server.call_args.args[0][0] not in ("0.0.0.0", "::", "")
+    assert provisioner.base() == f"http://{host}:8123/{provisioner.path}"
+
+
+def test_default_host_is_loopback():
+    args = mod.argument_parser().parse_args(
+        [
+            "--name",
+            "example-bot",
+            "--owner",
+            "example",
+            "--repo",
+            "example/repo",
+        ]
+    )
+    assert args.host == "127.0.0.1"
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "::"])
+def test_wildcard_host_is_rejected(host):
+    with pytest.raises(SystemExit) as error:
+        mod.argument_parser().parse_args(
+            [
+                "--name",
+                "example-bot",
+                "--owner",
+                "example",
+                "--repo",
+                "example/repo",
+                "--host",
+                host,
+            ]
+        )
+    assert error.value.code == 2
 
 
 @pytest.mark.parametrize("failure", [None, "exchange", "secret"])
@@ -455,18 +490,25 @@ def test_existing_pem_aborts_before_secret_writes(args, conversion, tmp_path):
     assert path.read_text() == "original"
 
 
-def test_exchange_code_posts_to_manifest_conversion():
-    response = mock.MagicMock()
-    response.__enter__.return_value = io.StringIO('{"id": 42}')
-    with mock.patch.object(
-        mod.urllib.request, "urlopen", return_value=response
-    ) as urlopen:
-        assert mod.exchange_code("example-code") == {"id": 42}
-    request = urlopen.call_args.args[0]
-    assert (
-        request.full_url
-        == "https://api.github.com/app-manifests/example-code/conversions"
+def test_exchange_code_posts_to_manifest_conversion(conversion, capsys):
+    response = subprocess.CompletedProcess(
+        [], 0, stdout=json.dumps(conversion), stderr=""
     )
-    assert request.method == "POST"
-    assert request.get_header("Accept") == "application/vnd.github+json"
-    assert urlopen.call_args.kwargs["timeout"] == 30
+    with (
+        mock.patch.object(mod.subprocess, "run", return_value=response) as run,
+        mock.patch.object(
+            urllib.request,
+            "urlopen",
+            side_effect=AssertionError("unexpected network call"),
+        ),
+    ):
+        assert mod.exchange_code("example-code") == conversion
+    assert run.call_args.args == (
+        ["gh", "api", "-X", "POST", "/app-manifests/example-code/conversions"],
+    )
+    assert run.call_args.kwargs["capture_output"] is True
+    assert run.call_args.kwargs["text"] is True
+    assert run.call_args.kwargs["check"] is True
+    assert run.call_args.kwargs["timeout"] == 30
+    output = capsys.readouterr()
+    assert output.out == output.err == ""
