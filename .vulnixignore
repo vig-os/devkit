@@ -136,61 +136,49 @@ CVE-2026-27820
 #     FORCE near-term re-review with proper CVE data rather than to certify
 #     safety. ---
 
-# glibc 2.42 — the base C library. Loaded by essentially every process in the
-#   closure, so unconditionally present; most glibc CVEs need a specific local
-#   vector (crafted input/locale/regex), mitigated by the single-user model.
-#
-#   RE-VERIFIED 2026-08-13 (#1481) against the last green nightly scan on the
-#   current pin 531670d871c0 (run 31569093850, findings of 2026-08-12). All six
-#   entries are STILL live findings against glibc-2.42-67 — none became
-#   droppable the way the gawk block did after its rev advance (#1328) — so this
-#   is a renewed risk acceptance, not a date bump. The "advance the rev" lever
-#   has nowhere to land: the advisories scope the defects to "2.34 to 2.43" and
-#   "2.7 to 2.43", so 2.43 is itself affected and only backported patches can
-#   clear them. Renewed onto the shared 2026-09-02 grid date so the whole
-#   register is reviewed in one pass (#1337).
-#
-#   The same scan reports two further glibc CVEs deliberately absent from this
-#   register: CVE-2026-4438 (5.4) and CVE-2026-6238 (6.5) are below the gate's
-#   CVSS 7.0 threshold and need no exception.
-#
-#   The per-CVE notes below now carry the NVD CVSS and the advisory's own
-#   description of the required vector, which the 2026-06-23 HONESTY NOTE above
-#   could not (that triage had no CVE data offline). The reachability lines are
-#   an assessment of those vectors against this deployment model — they are NOT
-#   an audit of which closure members call the affected functions.
-#
-#   Re-dated 2026-08-20 (#1553): 2026-09-02 -> 2026-10-14, the longest window
-#   of the vulnix blocks. The 2026-08-13 renewal above already established that
-#   the "advance the rev" lever has nowhere to land — the advisories scope the
-#   defects through 2.43 — so an earlier re-review would have no new evidence
-#   to act on. Extension is a scheduling adjustment; the assessment stands.
-Expiration: 2026-10-14
-# CVE-2025-15281 (7.5) — wordexp() with WRDE_REUSE|WRDE_APPEND returns
-#   uninitialized we_wordv, aborting on a later wordfree(). Needs a program using
-#   that flag pair; not a pattern in the image's own tooling.
+# glibc 2.42-100 — patched-in-nixpkgs; re-verified 2026-10-26 (#1847).
+#   vulnix matches the upstream version, not the fixes in 2.42-master.patch.
+#   The pinned nixpkgs derivation applies that patch unconditionally:
+#   https://github.com/NixOS/nixpkgs/blob/1f607aa79b6356ed45d3cd3c8079c196e79efa2c/pkgs/development/libraries/glibc/common.nix
+#   All six fix commits below occur in the applied patch, verified directly
+#   from the locked nixpkgs source:
+#   https://github.com/NixOS/nixpkgs/blob/1f607aa79b6356ed45d3cd3c8079c196e79efa2c/pkgs/development/libraries/glibc/2.42-master.patch
+#   This supersedes the former single-user/UTF-8 risk acceptance: these are
+#   fixed defects, not accepted exposure. The old pin's 2.42-84 patch also
+#   contains all six fixes; the pin advance additionally clears other packages.
+#   Review again on its own Wednesday, 2026-11-25; delete if the NVD ranges
+#   stop matching or vulnix learns to recognize the aggregate patch.
+Expiration: 2026-11-25
+# CVE-2025-15281 — reset wordexp_t fields with WRDE_REUSE.
+#   https://sourceware.org/git/?p=glibc.git;a=commit;h=cbf39c26b25801e9bc88499b4fd361ac172d4125
 CVE-2025-15281
-# CVE-2026-4046 (7.5) — iconv() assertion failure (crash/DoS) converting from the
-#   IBM1390/IBM1399 charsets. Reachable only where untrusted input is converted
-#   from those two charsets; the container's locales are UTF-8.
+# CVE-2026-4046 — use pending character state in IBM1390/IBM1399 codecs.
+#   https://sourceware.org/git/?p=glibc.git;a=commit;h=f13c1bb0f97fbc12a6ba1ab5669ce561ea32b80a
 CVE-2026-4046
-# CVE-2026-4437 (7.5) — gethostbyaddr(_r) via the DNS backend can accept a
-#   non-answer section as a valid answer, given a crafted response. Needs a
-#   hostile or compromised resolver, and the legacy resolver API.
+# CVE-2026-4437 — enforce DNS answer-section record counts.
+#   https://sourceware.org/git/?p=glibc.git;a=commit;h=8e863fb1c92360520704a69dc948be6bb4a17cb3
 CVE-2026-4437
-# CVE-2026-5435 (7.3) — deprecated ns_printrrf/ns_printrr/fp_nquery ignore the
-#   caller's buffer length: out-of-bounds write when printing TSIG records. Needs
-#   a caller of those deprecated resolver-printing functions.
+# CVE-2026-5435 — remove buggy TSIG printing implementation.
+#   Also matched against unstable glibc 2.44-57 in the final scan. Verified
+#   the locked 2.44 source tarball: NEWS lists BZ 34033 as fixed, and
+#   resolv/ns_print.c has no TSIG handler (it uses the bounded default path).
+#   https://ftp.gnu.org/gnu/glibc/glibc-2.44.tar.xz
+#   Verified flat SHA-256 (nix hash file --sri):
+#   sha256-N/YA8r7zxegwAUcFlWiyouQKetbMxlzpQlVtSUKcxmc=
+#   Closure output: pqyiidz5mi73wv5f91d48s9plcqyj5bz-glibc-2.44-57;
+#   derivation: 9914bijg139hajpnv60z66b8sdv9ac3s-glibc-2.44-57.drv.
+#   Applied all 11 patches from that derivation's structuredAttrs.patches;
+#   patched resolv/ns_print.c:503-530 retains the bounded default/hexify path
+#   and no case ns_t_tsig. NEWS:160 records BZ 34033 in the base tarball.
+#   Exact source hash and patch list at the locked nixpkgs revision:
+#   https://github.com/NixOS/nixpkgs/blob/674a2028661e550a97400c1cc992b9cca9a668a1/pkgs/development/libraries/glibc/common.nix
+#   https://sourceware.org/git/?p=glibc.git;a=commit;h=299e1d25c32c5f9ef78ddd6cbfd0c6a09a1f4227
 CVE-2026-5435
-# CVE-2026-5450 (9.8) — scanf-family %mc with an explicit field width > 1024
-#   overflows the heap by one byte. The highest-scored entry here; needs a
-#   program parsing attacker-controlled input with that specific %mc + width
-#   construct, which is a rare pattern.
+# CVE-2026-5450 — fix scanf %mc/%mC buffer allocation.
+#   https://sourceware.org/git/?p=glibc.git;a=commit;h=4ebd33dd77eabe8d4c45232bed4b42a31d2f9edc
 CVE-2026-5450
-# CVE-2026-5928 (7.5) — ungetwc() operates on the byte read pointer instead of
-#   the wide one, allowing a read before the buffer (heap disclosure or crash).
-#   The advisory states the spurious-match case "is not possible in the standard
-#   Unicode character sets"; this image runs UTF-8 locales throughout.
+# CVE-2026-5928 — use the wide stream pointer in ungetwc.
+#   https://sourceware.org/git/?p=glibc.git;a=commit;h=b4bca35ab9e76890504c4dbdd5eaf15a93514580
 CVE-2026-5928
 
 # ============================================================================
@@ -218,32 +206,9 @@ CVE-2026-5928
 # (ldns CVE-2026-10846 removed 2026-08-04 (#1327): the #1273 pin advance took
 #   ldns 1.9.0 -> 1.9.2, which carries the fix; vulnix no longer reports it.)
 
-# --- libmicrohttpd 1.0.2. Both entries are the SAME defect double-assigned: a
-#     NULL-pointer dereference fixed in commit ff13abc on master after the
-#     v1.0.2 tag, reported by JPCERT, with identical NVD descriptions. Both
-#     score 7.5 as CVSS:3.0/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H — pure
-#     AVAILABILITY impact, i.e. remote DoS of an HTTP server, with no
-#     confidentiality or integrity component.
-#
-#     Provenance: in-closure via podman -> systemd. The container does not run
-#     systemd as PID 1 and podman is used as a rootless CLI, so this embedded
-#     HTTP server is never started — there is no listener for a crafted packet
-#     to reach. Lowest reachability in the register, and the impact ceiling is
-#     a crash of a process that does not run.
-#
-#     Lever: CLOSEST of the remaining blocks. libmicrohttpd 1.0.2 -> 1.0.10
-#     (NixOS/nixpkgs#563547) merged to staging-26.05 on 2026-09-15, one branch
-#     hop from release-26.05 and the pinned nixos-26.05; the 2026-09-21 advance
-#     did not carry it yet. 2026-10-21 gives that hop four weeks and two
-#     further weekly advances. DELETE on the advance that ships 1.0.10. ---
-Expiration: 2026-10-21
-# CVE-2025-59777 (7.5, A:H only) — NULL-pointer dereference reachable by a
-#   crafted packet; needs a running libmicrohttpd listener, and this image
-#   starts none.
-CVE-2025-59777
-# CVE-2025-62689 (7.5, A:H only) — same defect and same fix commit as
-#   CVE-2025-59777; see that note.
-CVE-2025-62689
+# libmicrohttpd CVE-2025-59777 and CVE-2025-62689 removed 2026-10-26
+# (#1847): the stable pin advance cf5e7650 -> 1f607aa7 ships 1.0.10.
+# Both findings are absent from the local scan of the rebuilt closure.
 
 # --- sqlite 3.51.2. Both entries are FTS5 memory-corruption defects fixed in
 #     SQLite 3.53.2, reported by VulnCheck (no NIST analyst score). Both are
@@ -424,113 +389,8 @@ CVE-2026-53433
 # ============================================================================
 
 # ============================================================================
-# Triage 2026-09-23 — the unbound 1.26.0 DNSSEC-validator advisory (#1668 dev /
-# #1669 main). A feed event, not a closure change: the 2026-09-22 nightly (run
-# 35711419780) was green on BOTH lanes against the same closures this run
-# scans — the 2026-09-21 pin advance (#1662) had already merged and been
-# scanned green — and the findings delta across the two runs is 1 added,
-# 0 removed, against exactly ONE package on each ref. No exception expired
-# either (the next grid date is 2026-09-30), so nothing in this repo caused it.
-#
-# Real product match, no CPE collision: NLnet Labs unbound, CVE-2026-81642
-# (NVD 9.8 CRITICAL, CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H). A DNSKEY
-# whose owner name is a compression pointer into its own RDATA overflows the
-# digest buffer in the DNSSEC validator — denial of service and possibly RCE
-# through attacker-controlled data. Affects "up to and including 1.26.0";
-# fixed upstream in 1.26.1 (2026-09-16).
-#
-# Provenance RE-VERIFIED 2026-09-23 against the built closure rather than
-# carried over from the 2026-07-26 unbound block's note. `nix why-depends` on
-# the runtime closure of `.#devkitImageEnv`:
-#
-#   devcontainer-image-env -> podman 5.8.6 -> gpgme 2.0.1 -> gnupg 2.4.9
-#     -> gnutls 3.8.13 -> unbound-1.26.0-lib
-#
-# Only the `lib` output is present: `nix path-info -r` reports
-# unbound-1.26.0-lib and nothing else, and the env exposes no unbound
-# executable at all. The sole consumer is libgnutls-dane.so — the only gnutls
-# library that references libunbound — i.e. DANE certificate verification.
-#
-# Reachability: the advisory's vector is an unbound RESOLVER digesting DNSKEYs
-# from a zone the attacker controls. This image ships no resolver — no daemon,
-# no unbound binary, no service — so the vulnerable path is reached only if
-# something calls gnutls' DANE API, which nothing in the closure does by
-# default. Same shape as the 2026-07-26 unbound 1.25.1 block, with the
-# provenance verified this time rather than asserted.
-#
-# Remediation lever: exists, but has nowhere to land today. nixos-26.05,
-# staging-26.05 and master ALL still ship 1.26.0 with no CVE-named patch. The
-# bump (NixOS/nixpkgs#564725) merged to `staging` on 2026-09-22 and the
-# staging-26.05 backport (NixOS/nixpkgs#565869) opened the same day and is
-# still open, so the fix is two branch hops from the pinned channel. 2026-11-04
-# gives it six weeks and keeps this block on its own Wednesday; it dies on the
-# advance that ships unbound 1.26.1 and should be DELETED then, not renewed.
-#
-# ---------------------------------------------------------------------------
-# AMENDED 2026-09-24 (#1668 dev / #1669 main) — the SAME upstream release, one
-# NVD analysis cycle later. The 2026-09-24 nightly (run 35982816399) went red
-# on both lanes again, on the same package, with two CVEs this block did not
-# yet carry: CVE-2026-82717 and CVE-2026-81634.
-#
-# They are not new upstream work and not a closure change. All THREE CVEs —
-# -81642 above plus the two added below — were published 2026-09-16 and are
-# fixed by the same unbound 1.26.1 release. The reason they arrived a day
-# apart is NVD CPE analysis lag, and vulnix matches on CPE: -81642 was
-# analysed in time for the 09-23 scan, while -82717 and -81634 were still
-# unanalysed then and were given `cpe:2.3:a:nlnetlabs:unbound` with
-# versionEndExcluding 1.26.1 at lastModified 2026-09-23T19:50Z / 19:51Z —
-# after the 09-23 09:43Z scan ran and before the 09-24 09:42Z one. So the
-# 2026-09-23 triage was not incomplete: it excepted every member of the batch
-# that existed as a CPE match at the time.
-#
-# Re-confirmed as a feed event on the same evidence shape as above: flake.lock
-# is unchanged since the 2026-09-21 pin advance (#1662) and byte-identical on
-# both refs, this register is byte-identical on both refs, the 09-21 and 09-22
-# scans were green against these same closures, and the nearest grid date is
-# 2026-10-07 so nothing expired.
-#
-# Real product match for both, no CPE collision: the descriptions name "NLnet
-# Labs Unbound up to and including 1.26.0" and the CPE is nlnetlabs:unbound.
-#
-# Reachability is UNCHANGED from the block above and covers both additions:
-# each is a RESOLVER path — -81634 in RRSet canonicalisation of a response,
-# -82717 in CNAME synthesis during an upstream response — and this closure
-# still carries libunbound only (gnutls DANE), with no daemon and no unbound
-# binary. The `nix why-depends` provenance verified 2026-09-23 holds: the pin
-# has not moved since.
-#
-# The lever MOVED in our favour since 2026-09-23 and the paragraph above is
-# now out of date on one point: the staging-26.05 backport
-# (NixOS/nixpkgs#565869) has MERGED, so staging-26.05 and staging both carry
-# 1.26.1. nixos-26.05 (the pinned channel) and master still ship 1.26.0, which
-# leaves the fix ONE staging->nixos-26.05 cycle away rather than two branch
-# hops. nixpkgs tracking issue NixOS/nixpkgs#564154 ("unbound: security issues
-# < 1.26.1") covers the whole batch and is still open.
-#
-# The 2026-11-04 date is DELIBERATELY UNCHANGED. The shorter lever path is a
-# reason to expect this block dies early, not a reason to re-date it: the date
-# holds this block's own Wednesday in the stagger grid, and all three CVEs
-# share one death condition — the pin advance that ships unbound 1.26.1 —
-# so they must be DELETED together, not renewed.
+# Unbound CVE-2026-81642, CVE-2026-82717 and CVE-2026-81634 removed
+# 2026-10-26 (#1847): the stable pin advance cf5e7650 -> 1f607aa7 ships
+# libunbound 1.26.1. All three are absent from the local rebuilt-closure scan;
+# the staging-26.05 backport NixOS/nixpkgs#565869 reached the pinned channel.
 # ============================================================================
-
-Expiration: 2026-11-04
-# CVE-2026-81642 (9.8) — DNSKEY owner-name compression pointer into its own
-#   RDATA overflows the digest buffer in the DNSSEC validator. Needs a running
-#   unbound resolver querying an attacker-controlled zone; this closure carries
-#   libunbound only (gnutls DANE), with no daemon and no unbound binary.
-CVE-2026-81642
-# CVE-2026-82717 (9.8) — CNAME synthesis rewriting a max TTL in the packet
-#   buffer, coupled with a compression pointer into the overwritten value,
-#   takes an error path that fails to advance the buffer position and
-#   progressively corrupts the heap; crash, and RCE under some systems and
-#   compilation options. Needs a resolver processing an upstream response;
-#   this closure carries libunbound only (gnutls DANE), no daemon, no binary.
-CVE-2026-82717
-# CVE-2026-81634 (7.5) — a 255-length query name with a large TCP response
-#   overflows the heap during RRSet canonicalisation, the first owner name
-#   being missing from the buffer length check. Canonicalisation happens
-#   BEFORE DNSSEC validation, so a malicious or tampered-with nameserver
-#   response reaches it — but only for a running resolver, which this closure
-#   does not ship.
-CVE-2026-81634
