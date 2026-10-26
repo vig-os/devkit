@@ -386,7 +386,7 @@ Default map, subject to decision (b):
 | Class | Lanes |
 |---|---|
 | LARGE | `lint`, `test`, `extension` (`ci-extension`), `release-test` (`release-core` `test`), seeded release hooks |
-| SMALL | everything else that routes: resolve jobs, `commit-checks`, `scaffold-drift`, `devkit-staleness`, `summary`, `sync-*`, release-train orchestration, `devkit-upgrade` (decision (e)) |
+| SMALL | everything else that routes: `resolve-toolchain` jobs and resolvers (`prepare-release` `validate`), `commit-checks`, `scaffold-drift`, `devkit-staleness`, `summary`, `sync-*`, release-train orchestration, `devkit-upgrade` (decision (e)) |
 | XLARGE | no default lane; reachable through the decision (b) override |
 
 `lint` and `test` both realise the dev-shell, which is the dominant cost, so
@@ -814,7 +814,9 @@ S7 (docs) follows S1–S6, S8 gates release N, and S9 is release N+1.
 - *Scope:* `sync-issues`, `sync-main-to-dev`, `prepare-release`,
   `prepare-hotfix`, `release`, `release-core`, `release-publish`,
   `promote-release`, `abandon-release` and their resolvers per §4; the
-  `runner-json` → `runners` input on the managed reusables; new-scaffold seeded
+  `runner-json` → `runners` input on the managed reusables; the
+  `ci-extension.yml` header comment for new scaffolds (`runner-json` is now the
+  `extension` lane, not `DEVKIT_CI_RUNNER`-derived); new-scaffold seeded
   hooks on the LARGE direct expression; `devkit-upgrade.yml` per (e).
 - *Files:* those workflow files under `assets/workspace/.github/workflows/`,
   and the release-train and hook tests in `tests/test_ci_runner.py`. Not
@@ -906,7 +908,10 @@ S7 (docs) follows S1–S6, S8 gates release N, and S9 is release N+1.
   Other org and repo names elsewhere are out of S7's scope. A `git grep` for
   that label returns nothing outside `docs/issues/`, `docs/pull-requests/` and the **released**
   sections of `CHANGELOG.md` and `assets/workspace/.devcontainer/CHANGELOG.md`.
-  Released entries are never edited, per the changelog rules. Docs lint
+  Released entries are never edited, per the changelog rules. The names next
+  to the label are checked by running S6's `site-leak-check` over the tree
+  with the owner's site pattern file, so the names never appear in devkit.
+  Docs lint
   passes, and the CHANGELOG has a `### Deprecated` entry for both legacy
   knobs.
 
@@ -923,12 +928,13 @@ S7 (docs) follows S1–S6, S8 gates release N, and S9 is release N+1.
 **S9 — Removal (release N+1).**
 
 - *Scope:* §6 N+1: delete the legacy arms, keep the tombstones, remove the
-  `runner-json` alias, and drop the template key. The resolve jobs' direct
-  expression is unchanged (§3: the legacy-variable term carries the tombstone).
+  `runner-json` alias, and drop the template key. The direct expression of the
+  `resolve-toolchain` jobs and resolvers is unchanged (§3: the legacy-variable term carries the tombstone).
 - *Files:* `resolve-toolchain`, the scaffolded workflows, `.vig-os`,
   `init-workspace.sh`, tests, `MIGRATION.md`, and CHANGELOG `### Removed`.
 - *Acceptance:*
   - tombstone errors are tested for the key and for the variable;
   - `DEVKIT_CI_RESOLVE_RUNNER` appears in `runs-on` only as the term before
-    the hosted default in the resolve jobs.
+    the hosted default in the `resolve-toolchain` jobs and resolvers, never
+    in a seeded hook.
 - Blocked by release N shipping.
