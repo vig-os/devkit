@@ -75,6 +75,7 @@ WORKFLOW_DIRS = (
 EXPECTED_SKILLS = frozenset(
     {
         "adopt",
+        "app-provision",
         "pack-rust",
         "release-abandon",
         "release-candidate",

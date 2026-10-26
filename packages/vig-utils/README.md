@@ -27,6 +27,7 @@ uv run check-action-pins --help
 | `check-action-pins` | Python | Ensure GitHub Actions are SHA pinned |
 | `prepare-changelog` | Python | Validate/prepare/finalize/reset/unprepare changelog |
 | `release-version` | Python | Compute the release train's publish version from a pre-release format |
+| `gh-app-provision` | Python | Create a GitHub App from a manifest and store its credentials as secrets ([guide](../../docs/GITHUB_APP_PROVISIONING.md)) |
 | `gh-issues` | Python | Rich issue/PR dashboard via `gh` |
 | `prepare-commit-msg-strip-trailers` | Python | Remove blocked trailers from commit messages |
 | `check-agent-identity` | Python | Block commits from agent fingerprints in author identity |

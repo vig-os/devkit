@@ -71,6 +71,9 @@ who may create those refs. Setup, the branch policy (including `dev` under
 gitflow), the no-required-reviewers rule and the reusable-callee detail are in
 [`MIGRATION.md`](MIGRATION.md#bind-the-commit-app-token-minting-jobs-to-a-deployment-environment).
 
+Replacing an expiring PAT with a GitHub App for your own CI bots is covered in
+[`GITHUB_APP_PROVISIONING.md`](GITHUB_APP_PROVISIONING.md).
+
 ## Regression gate
 
 Devkit's own CI (`.github/workflows/ci.yml`, `project-flake` job) runs
