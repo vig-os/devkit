@@ -835,6 +835,95 @@ def test_host_nix_drops_malformed_runner_config_with_warning(tmp_path: Path) -> 
     assert "experimental-features\n" not in exported["NIX_CONFIG"]
 
 
+def _write_config_validation_nix_stub(tmp_path: Path, *, legacy: bool) -> Path:
+    stub = tmp_path / "nix"
+    stub.write_text(
+        "#!/usr/bin/env bash\n"
+        "shift 2  # --extra-experimental-features nix-command\n"
+        + (
+            'if [ "$*" = "config show" ]; then\n'
+            '  echo "error: config is not a recognised command" >&2\n'
+            "  exit 1\n"
+            "fi\n"
+            if legacy
+            else ""
+        )
+        + 'if [ -n "${NIX_CONFIG:-}" ] && [ "${REJECT_CONFIG:-}" = true ]; then\n'
+        '  echo "error: syntax error in configuration line: $NIX_CONFIG" >&2\n'
+        "  exit 1\n"
+        "fi\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    stub.chmod(0o755)
+    return stub
+
+
+@pytest.mark.parametrize("legacy", [False, True], ids=["modern", "nix-2.18"])
+def test_host_nix_validation_uses_available_command(
+    tmp_path: Path, legacy: bool
+) -> None:
+    _write_config_validation_nix_stub(tmp_path, legacy=legacy)
+    ambient = "cores = 2\nextra-substituters = http://cache.example"
+    proc, exported = _run_host_config(
+        tmp_path, ambient, PATH=f"{tmp_path}:{os.environ['PATH']}"
+    )
+    assert exported["NIX_CONFIG"].startswith(ambient + "\n")
+    assert "::warning::" not in proc.stdout
+
+
+@pytest.mark.parametrize("legacy", [False, True], ids=["modern", "nix-2.18"])
+def test_host_nix_validation_rejection_redacts_values(
+    tmp_path: Path, legacy: bool
+) -> None:
+    _write_config_validation_nix_stub(tmp_path, legacy=legacy)
+    proc, exported = _run_host_config(
+        tmp_path,
+        "access-tokens = github.com=SECRET",
+        PATH=f"{tmp_path}:{os.environ['PATH']}",
+        REJECT_CONFIG="true",
+    )
+    assert "::warning::" in proc.stdout
+    assert "NIX_CONFIG" in proc.stdout
+    assert "SECRET" not in proc.stdout + proc.stderr
+    assert "access-tokens" not in exported["NIX_CONFIG"]
+    _nix_config_values(exported["NIX_CONFIG"])
+
+
+def test_host_nix_malformed_token_config_never_logs_values(tmp_path: Path) -> None:
+    proc, exported = _run_host_config(
+        tmp_path,
+        "access-tokens = github.com=SECRET\naccess-tokens github.com=SECRET",
+    )
+    assert "::warning::" in proc.stdout
+    assert "SECRET" not in proc.stdout + proc.stderr
+    assert "access-tokens" not in exported["NIX_CONFIG"]
+    _nix_config_values(exported["NIX_CONFIG"])
+
+
+def test_host_nix_validation_unavailable_is_not_malformed(tmp_path: Path) -> None:
+    stub = tmp_path / "nix"
+    stub.write_text("#!/usr/bin/env bash\nexit 1\n", encoding="utf-8")
+    stub.chmod(0o755)
+    github_env = tmp_path / "github_env"
+    proc = subprocess.run(
+        ["bash", "-c", _step_by_name(HOST_NIX_STEP_NAME)["run"]],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "GITHUB_ENV": str(github_env),
+            "NIX_CONFIG": "cores = 2",
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode != 0
+    assert "::error::" in proc.stdout
+    assert "validation command unavailable" in proc.stdout
+    assert "malformed" not in proc.stdout
+    assert not github_env.exists()
+
+
 @pytest.mark.parametrize("ambient", [None, ""])
 def test_host_nix_without_runner_config(tmp_path: Path, ambient: str | None) -> None:
     proc, exported = _run_host_config(tmp_path, ambient)
