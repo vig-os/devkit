@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Validate with the command supported by host Nix (including `show-config` before Nix 2.20); fail explicitly if neither command is available. Drop malformed ambient configuration with a warning that redacts diagnostic values; keep the exported configuration valid and the environment delimiter collision-safe
 
 - **Managed security and commit documentation follows the consumer manifest** ([#1910](https://github.com/vig-os/devkit/issues/1910))
-  - Disabling `scanning` removes CodeQL and Scorecard claims and accepted findings from `SECURITY.md`
+  - Disabling `scanning` removes CodeQL and Scorecard claims and accepted findings from `SECURITY.md`; disabling `renovate` removes its monitoring claim
   - The commit standard describes the resolved Refs policy, including custom exempt types; re-scaffolding remains drift-free without local edits or disabling Scaffold Drift
 
 - **install.sh and devkit-upgrade no longer need Docker in direnv mode** ([#1871](https://github.com/vig-os/devkit/issues/1871))

@@ -3318,11 +3318,17 @@ render_commit_standard() {
         exemptions+=$'\n'
         IFS=',' read -ra _doc_types <<< "$RESOLVED_REFS_OPTIONAL_TYPES"
         for type in "${_doc_types[@]}"; do
-            exemptions+=$'\n'"- **\`$type\`** — The Refs line is optional."
+            exemptions+=$'\n'"- **\`$type\`** — The \`Refs:\` line is optional."
         done
     fi
-    start="$(grep -n '^The following commit types have a relaxed' "$doc" | cut -d: -f1)"
-    end="$(grep -n '^Additionally, the CI validator' "$doc" | cut -d: -f1)"
+    start="$(grep -n '^The following commit types have a relaxed' "$doc" | cut -d: -f1)" || true
+    end="$(grep -n '^Additionally, the CI validator' "$doc" | cut -d: -f1)" || true
+    if [[ ! "$start" =~ ^[0-9]+$ || ! "$end" =~ ^[0-9]+$ ]] || ((start >= end)); then
+        echo "Error: $doc: missing or invalid Exemptions anchors" >&2
+        return 1
+    fi
+    # shellcheck disable=SC2016
+    exemptions+=$'\n\n''Each exempt type also gets an issue-less `<type>/<summary>` branch form, as `chore/<summary>` has ([#1767](https://github.com/vig-os/devkit/issues/1767)).'
     splice_lines "$doc" "$start" "$((end - 1))" "$exemptions"$'\n'
     case "$mode" in
         all)
@@ -3335,7 +3341,10 @@ render_commit_standard() {
                 -e 's/^At least one reference to a GitHub issue must be present/When a Refs line is present, at least one reference to a GitHub issue must be present/' "$doc"
             ;;
         none)
-            sed -i 's/Mandatory for most types/Mandatory for all approved types/' "$doc"
+            # shellcheck disable=SC2016
+            sed -i \
+                -e 's/Mandatory for most types/Mandatory for all approved types/' \
+                -e 's/ See \[Exemptions\](#exemptions) for types where `Refs:` is optional\.//' "$doc"
             ;;
         some)
             sed -i 's/Mandatory for most types/Required unless the type is listed under Exemptions/' "$doc"
@@ -3346,6 +3355,9 @@ render_commit_standard() {
 render_security_practices() {
     local doc="$WORKSPACE_DIR/SECURITY.md"
     [[ -f "$doc" ]] || return 0
+    if feature_disabled renovate; then
+        sed -i '/^- Renovate monitors dependencies/d' "$doc"
+    fi
     feature_disabled scanning || return 0
     sed -i \
         -e '/^- OpenSSF Scorecard runs weekly/d' \
@@ -4314,9 +4326,11 @@ render_commit_app_environment
 # render_workflow_model (all three sed .pre-commit-config.yaml on distinct
 # anchors) so the renders compose.
 render_refs_policy
+render_commit_types
+# Managed documentation (#1910): render resolved Refs exemptions and optional
+# security practices after copying their canonical templates.
 render_commit_standard
 render_security_practices
-render_commit_types
 # Branch types (#1432): the branch guard's --types arg (#1760) — a distinct
 # line from the three renders above, so all compose. No-op for the default.
 render_branch_types
