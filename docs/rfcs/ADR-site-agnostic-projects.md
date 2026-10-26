@@ -134,6 +134,10 @@ Findings this ADR builds on:
   `resolve-toolchain` (§3), because the direct expressions would request a
   label no runner carries and queue forever. A pool that needs several labels
   gets one unique custom label. Runner scale sets already work that way.
+  **Known limit:** `CI_RUNNER_SMALL` also selects the resolve job's own runner,
+  so a malformed SMALL value is never validated. The resolve job queues on the
+  bogus label instead, exactly like today's `DEVKIT_CI_RESOLVE_RUNNER`. The
+  docs state this, and deleting the variable recovers with no commit.
 - **The classes are independent. There is no cross-class fallback.** A lane
   whose class variable is unset runs hosted, even when another class is set.
   Falling back to a smaller pool would put a heavy lane on a runner sized for
@@ -191,18 +195,20 @@ Compatibility release N, under Recommended decision (a):
 runs-on: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
 ```
 
-Release N+1 and later:
+Release N+1 and later: **unchanged**. The legacy term stays as the last term
+before the hosted default, **only** to carry the tombstone (below). A consumer
+left with only `DEVKIT_CI_RESOLVE_RUNNER` gets a resolve job on its own runner,
+which then fails with an explanation. Dropping the term would send that
+consumer's resolve job to a hosted runner. A billing-blocked org cannot run it
+there, so the job would fail before any step and the explanation would never
+print. The term never selects a runner when `CI_RUNNER_SMALL` is set.
 
-```yaml
-runs-on: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || 'ubuntu-26.04' }}
-```
-
-New seeded hooks use the same expression with `CI_RUNNER_LARGE` and never
+New seeded hooks use
+`${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_LARGE || 'ubuntu-26.04' }}` and never
 reference `DEVKIT_CI_RESOLVE_RUNNER`. GitHub expressions treat `''` as false,
 so an empty variable falls through. A whitespace-only value is truthy and
-requests a bogus label. The resolve job cannot catch that for its own runner,
-because it is not scheduled. It catches it for every other class (below), and
-the docs state the limit.
+requests a bogus label. The resolve job cannot catch that for its own runner
+(the §1 known limit). It catches it for every other class (below).
 
 If decision (a) goes to the legacy-wins option, the compatibility-release
 expression swaps the two `vars.` terms. Nothing else changes.
@@ -220,11 +226,12 @@ Algorithm for each class `S` in `small`, `large`, `xlarge`:
 ```text
 H = "ubuntu-26.04"
 F = fork predicate (§2)
-V = trim(input runner-<S>)                       # from vars.CI_RUNNER_<S>
+raw = input runner-<S>                           # from vars.CI_RUNNER_<S>
+V = trim(raw)
 L = labels(.vig-os DEVKIT_CI_RUNNER)             # release N only: comma-split,
                                                  # each label trimmed, empties dropped
 if   F:                 runners[S] = [H];  source[S] = "fork"
-elif V != "":           validate V (one label, no comma, no surrounding whitespace) else ::error:: + exit 1
+elif V != "":           if "," in raw or raw != V: ::error:: + exit 1     # validate the RAW value
                         runners[S] = [V];  source[S] = "variable"
 elif L != []:           runners[S] = L;    source[S] = "legacy-key"     # release N only
 else:                   runners[S] = [H];  source[S] = "default"
@@ -261,9 +268,13 @@ it. Each lane gets `runners[<lane>] = runners[<class>]`.
   `DEVKIT_CI_RESOLVE_RUNNER` is deprecated in favour of `CI_RUNNER_SMALL`.
 - If a variable is malformed: `::error::` and exit 1, before any lane is
   scheduled.
-- If the run is not foreign, at least one class came from `variable` and
-  another came from `default`: `::notice::` naming the unset classes. This is
-  the partial-setup case.
+- If the run is not foreign, at least one **required class** came from
+  `variable` and another required class came from `default`: `::notice::`
+  naming the unset classes. This is the partial-setup case. The required
+  classes are SMALL plus every class in the effective lane map (§5): SMALL and
+  LARGE by default, and XLARGE only when a `DEVKIT_CI_LANE_SIZES` override
+  uses it. A consumer that sets only SMALL and LARGE is fully set up and sees
+  no notice.
 - If the repo is private and every class came from `default`: a step-summary
   line, not an annotation, saying that on GitHub Free organization variables do
   not reach private repos and repository-level variables are needed. It is a
@@ -278,9 +289,10 @@ it. Each lane gets `runners[<lane>] = runners[<class>]`.
   base repository's own runs fail the same way.
 - A non-empty `legacy-resolve-runner` with an empty `runner-small`, on a run
   that is not foreign, is an `::error::`. The consumer clearly meant
-  self-hosted resolve jobs, which now run hosted. With `CI_RUNNER_SMALL` set,
-  it is only a `::warning::`, because the variable may still serve pre-N
-  seeded hook copies (decision (d)).
+  self-hosted runners, and the resolve job still runs on the legacy variable's
+  label (see the N+1 expression), so the error is reachable. With
+  `CI_RUNNER_SMALL` set, it is only a `::warning::`, because the variable may
+  still serve pre-N seeded hook copies (decision (d)).
 
 The tombstones are a few lines each and are never removed, so a repo that
 skips the compatibility release still gets a loud failure, not a silent
@@ -314,7 +326,9 @@ hosted uses the fork predicate.
 | | `prepare`, `open-pr`, `rollback` | `needs.validate` runner-json | S |
 | | `extension` → `prepare-release-extension.yml` | (no input) | (no input) |
 | `prepare-hotfix.yml` (workflow_dispatch) | `resolve-toolchain` / `validate`, `prepare`, `open-pr`, `rollback` | resolve var / runner-json | S / S |
+| | `extension` → `prepare-release-extension.yml` | (no input) | (no input) |
 | `release.yml` (workflow_dispatch) | `resolve-toolchain` / `rollback` | resolve var / runner-json | S / S |
+| | `extension` → `release-extension.yml` | (no input) | (no input) |
 | | `core` → `release-core.yml`, `publish` → `release-publish.yml` | pass `runner-json` | pass `runners` |
 | `release-core.yml` (workflow_call, managed) | `validate`, `finalize` | `fromJSON(inputs.runner-json)` | S from `fromJSON(inputs.runners)` |
 | | `test` | `fromJSON(inputs.runner-json)` | L, lane `release-test` |
@@ -323,7 +337,8 @@ hosted uses the fork predicate.
 | `abandon-release.yml` (workflow_dispatch) | `resolve-toolchain` / `validate`, `abandon` | resolve var / runner-json | S / S |
 | `prepare-release-extension.yml` (workflow_call, seeded) | `extension` | resolve var | new scaffolds: L, direct expression; existing copies: decision (d) |
 | `release-extension.yml` (workflow_call, seeded) | `extension` | resolve var | same as above |
-| `publish-release-extension.yml` (release, workflow_dispatch; seeded) | `resolve`, `publish` | resolve var | same as above |
+| `publish-release-extension.yml` (release, workflow_dispatch; seeded) | `resolve` | resolve var | new scaffolds: S, direct expression (orchestration only); existing copies: decision (d) |
+| | `publish` | resolve var | new scaffolds: L, direct expression (may build artefacts); existing copies: decision (d) |
 | `devkit-upgrade.yml` (schedule, workflow_dispatch) | `upgrade`, `report` | `ubuntu-latest` | decision (e): S (Recommended), or hosted `ubuntu-26.04` |
 | `codeql.yml` (pull_request, push, schedule) | `analyze` | hosted | hosted (public repos only) |
 | `scorecard.yml` (schedule, push) | `analysis` | hosted | hosted (public repos only) |
@@ -394,8 +409,8 @@ The PR-body text, per case:
 
 | Legacy key | Visible variables | PR body says |
 |---|---|---|
-| set | all three | key removed, or kept under (c)-warn-only; runners now come from the variables; nothing to do |
-| set | some or none | which `CI_RUNNER_*` to set, at **repository level** if the repo is private on GitHub Free; the example command `gh variable set CI_RUNNER_LARGE --body <label>`; the key keeps working until N+1 |
+| set | every required class (§3) | key removed, or kept under (c)-warn-only; runners now come from the variables; nothing to do |
+| set | some required classes or none | which `CI_RUNNER_*` to set, at **repository level** if the repo is private on GitHub Free; the example command `gh variable set CI_RUNNER_LARGE --body <label>`; the key keeps working until N+1 |
 | unset, `vars.DEVKIT_CI_RESOLVE_RUNNER` visible | n/a | rename the variable to `CI_RUNNER_SMALL`, then delete the old one after decision (d)'s hook migration |
 | unset | n/a | nothing (no line printed) |
 
@@ -412,7 +427,7 @@ the label further.
 - **Release N+1 (removal):** the legacy arms are deleted, the tombstones (§3)
   stay, the `runner-json` alias output is removed, and the template `.vig-os`
   drops the `DEVKIT_CI_RUNNER=` line. `init-workspace.sh` still recognises a
-  leftover key: it strips it when all three variables are visible, and
+  leftover key: it strips it when every required class's variable is visible, and
   otherwise keeps it and prints the migration line, so the adoption PR's own CI
   goes red with the tombstone error next to an explanation. CHANGELOG
   `### Removed`.
@@ -430,6 +445,14 @@ A repo still holding `DEVKIT_CI_RUNNER` in N+1 with no variables gets a red
 ```text
 ::error::DEVKIT_CI_RUNNER in .vig-os was removed in devkit <N+1>; CI runners now come from the variables CI_RUNNER_SMALL/LARGE/XLARGE (repository level on private GitHub Free repos). Set them, delete the key, and re-run. See MIGRATION.md#run-ci-on-self-hosted-runners.
 ```
+
+**Limit:** the error comes from the resolve job. A repo that set **only** the
+`.vig-os` key, with neither `CI_RUNNER_SMALL` nor `DEVKIT_CI_RESOLVE_RUNNER`,
+has always resolved on hosted runners. If its org cannot run hosted jobs at
+all, that job fails before any step in N+1, exactly as it did before, and the
+message cannot print. For that population, the guarantee is release N's
+warnings and the adoption PR body, which keeps the key and names the variables
+to set. In either case the run is red, never green.
 
 It is never a silent move to hosted runners. For a billing-blocked org, a
 silent move would turn into queued or rejected jobs that point at nothing.
@@ -653,7 +676,8 @@ considers correct in the long term.
 **(c) In release N, does `devkit-upgrade` strip the legacy key or only warn?**
 
 1. **Strip it when it is inert, otherwise keep it and explain
-   (Recommended).** Inert means all three `CI_RUNNER_*` are visible to the
+   (Recommended).** Inert means the variable of every required class (§3:
+   SMALL and LARGE by default, plus XLARGE if the lane map uses it) is visible to the
    upgrade job, so under (a)-1 the key decides nothing. Then removing it
    changes no runner, and the repo reaches the end state one release early.
    Otherwise the key stays, and the PR body names the variables to set.
@@ -760,8 +784,8 @@ S7 (docs) follows S1–S6, S8 gates release N, and S9 is release N+1.
   `assets/workspace/.github/workflows/ci.yml`, `assets/workspace/.vig-os`,
   `assets/workspace/.github/actionlint.yaml` (comment),
   `assets/init-workspace.sh` (lane-sizes guard only),
-  `tests/test_ci_runner.py`, `tests/bats/init-workspace.bats` (lane-sizes
-  cases).
+  `tests/test_ci_runner.py` (including scrubbing its site-specific label
+  fixture), `tests/bats/init-workspace.bats` (lane-sizes cases).
 - *Acceptance:*
   - executed-bash tests for each class and source: fork, variable,
     legacy-key, default;
@@ -859,12 +883,19 @@ S7 (docs) follows S1–S6, S8 gates release N, and S9 is release N+1.
   - `docs/WORKFLOW_SECURITY.md`: the predicate and the trigger rules;
   - a new `docs/GOING_PUBLIC.md` (§10 checklist);
   - `.site/` and site-init docs in `docs/SOLO_ADOPTION.md`;
-  - scrub the site-specific label from the `tests/bats/init-workspace.bats`
-    fixtures. The S1 `.vig-os` scrub lands there.
-- *Files:* the docs named above and the bats fixture strings.
-- *Acceptance:* a `git grep` for the site label scrubbed in S1 and S7 returns
-  nothing outside `docs/issues/` and `docs/pull-requests/`; docs lint passes;
-  the CHANGELOG `### Deprecated` entry for both legacy knobs.
+  - scrub the site-specific label and site names from the
+    `tests/bats/init-workspace.bats` fixtures and the
+    `tests/test_setup_toolchain_env.py` comments and docstrings. The `.vig-os`
+    and `tests/test_ci_runner.py` fixture scrubs land in S1, which owns those
+    files.
+- *Files:* the docs named above, the bats fixture strings and
+  `tests/test_setup_toolchain_env.py`.
+- *Acceptance:* a `git grep` for the scrubbed site label and names returns
+  nothing outside `docs/issues/`, `docs/pull-requests/` and the **released**
+  sections of `CHANGELOG.md` and `assets/workspace/.devcontainer/CHANGELOG.md`.
+  Released entries are never edited, per the changelog rules. Docs lint
+  passes, and the CHANGELOG has a `### Deprecated` entry for both legacy
+  knobs.
 
 **S8 — Release N gate.**
 
@@ -879,10 +910,12 @@ S7 (docs) follows S1–S6, S8 gates release N, and S9 is release N+1.
 **S9 — Removal (release N+1).**
 
 - *Scope:* §6 N+1: delete the legacy arms, keep the tombstones, remove the
-  `runner-json` alias, drop the template key, and switch the direct expressions
-  to the N+1 form.
+  `runner-json` alias, and drop the template key. The resolve jobs' direct
+  expression is unchanged (§3: the legacy-variable term carries the tombstone).
 - *Files:* `resolve-toolchain`, the scaffolded workflows, `.vig-os`,
   `init-workspace.sh`, tests, `MIGRATION.md`, and CHANGELOG `### Removed`.
-- *Acceptance:* tombstone errors are tested for the key and for the variable;
-  no managed file references `DEVKIT_CI_RESOLVE_RUNNER` in `runs-on`.
+- *Acceptance:*
+  - tombstone errors are tested for the key and for the variable;
+  - `DEVKIT_CI_RESOLVE_RUNNER` appears in `runs-on` only as the term before
+    the hosted default in the resolve jobs.
 - Blocked by release N shipping.
