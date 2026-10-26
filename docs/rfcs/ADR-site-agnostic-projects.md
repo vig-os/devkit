@@ -271,9 +271,11 @@ it. Each lane gets `runners[<lane>] = runners[<class>]`.
 - If the run is not foreign, at least one **required class** came from
   `variable` and another required class came from `default`: `::notice::`
   naming the unset classes. This is the partial-setup case. The required
-  classes are SMALL plus every class in the effective lane map (§5): SMALL and
-  LARGE by default, and XLARGE only when a `DEVKIT_CI_LANE_SIZES` override
-  uses it. A consumer that sets only SMALL and LARGE is fully set up and sees
+  classes are **SMALL and LARGE always**, plus every other class in the
+  effective lane map (§5). XLARGE is required only when a
+  `DEVKIT_CI_LANE_SIZES` override uses it. LARGE is always required because
+  the seeded hooks and the N `runner-json` alias read it whatever the lane
+  map says. A consumer that sets only SMALL and LARGE is fully set up and sees
   no notice.
 - If the repo is private and every class came from `default`: a step-summary
   line, not an annotation, saying that on GitHub Free organization variables do
@@ -337,8 +339,7 @@ hosted uses the fork predicate.
 | `abandon-release.yml` (workflow_dispatch) | `resolve-toolchain` / `validate`, `abandon` | resolve var / runner-json | S / S |
 | `prepare-release-extension.yml` (workflow_call, seeded) | `extension` | resolve var | new scaffolds: L, direct expression; existing copies: decision (d) |
 | `release-extension.yml` (workflow_call, seeded) | `extension` | resolve var | same as above |
-| `publish-release-extension.yml` (release, workflow_dispatch; seeded) | `resolve` | resolve var | new scaffolds: S, direct expression (orchestration only); existing copies: decision (d) |
-| | `publish` | resolve var | new scaffolds: L, direct expression (may build artefacts); existing copies: decision (d) |
+| `publish-release-extension.yml` (release, workflow_dispatch; seeded) | `resolve`, `publish` | resolve var | same as above |
 | `devkit-upgrade.yml` (schedule, workflow_dispatch) | `upgrade`, `report` | `ubuntu-latest` | decision (e): S (Recommended), or hosted `ubuntu-26.04` |
 | `codeql.yml` (pull_request, push, schedule) | `analyze` | hosted | hosted (public repos only) |
 | `scorecard.yml` (schedule, push) | `analysis` | hosted | hosted (public repos only) |
@@ -347,6 +348,12 @@ The `release-core` and `release-publish` input changes from `runner-json` to
 `runners`. Both files are managed, so caller and callee always ship together.
 The seeded hooks' inputs do **not** change: the
 `test_callers_pass_only_inputs_the_oldest_seeded_hook_declares` contract holds.
+
+**Every seeded-hook job is L, including `publish-release-extension`'s short
+`resolve` job.** One stock expression for every seeded job keeps the (d)
+reconcile a byte-exact, per-line match with a single replacement. The files
+are consumer-owned, so a consumer that wants `resolve` on SMALL edits its own
+copy.
 
 **Public-only jobs stay hosted.** `dependency-review`, `codeql` and `scorecard`
 skip on private repos. Public repos get hosted minutes free, and public repos
@@ -677,7 +684,7 @@ considers correct in the long term.
 
 1. **Strip it when it is inert, otherwise keep it and explain
    (Recommended).** Inert means the variable of every required class (§3:
-   SMALL and LARGE by default, plus XLARGE if the lane map uses it) is visible to the
+   SMALL and LARGE always, plus XLARGE if the lane map uses it) is visible to the
    upgrade job, so under (a)-1 the key decides nothing. Then removing it
    changes no runner, and the repo reaches the end state one release early.
    Otherwise the key stays, and the PR body names the variables to set.
@@ -696,10 +703,11 @@ considers correct in the long term.
 `release-extension`, `publish-release-extension`), which are consumer-owned
 and never overwritten.
 
-1. **Reconcile the exact stock line (Recommended).** When a copy's `runs-on`
-   is byte-identical to the stock
-   `${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}`, the upgrade
-   rewrites that line to the new LARGE direct expression and prints a
+1. **Reconcile the exact stock line (Recommended).** The upgrade checks each
+   job's `runs-on` line separately. Where a line is byte-identical to the stock
+   `${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}`, it rewrites that
+   line to the new LARGE direct expression (§3, the same for every seeded job)
+   and prints a
    `preserved-hook`-style reconcile line into the PR body. Any other content is
    left alone and reported as drift. This is the same precedent as the
    pre-commit reconcile ([#1654](https://github.com/vig-os/devkit/issues/1654)):
@@ -797,6 +805,8 @@ S7 (docs) follows S1–S6, S8 gates release N, and S9 is release N+1.
   - a shape test that every non-literal `runs-on` in scaffolded workflows
     contains the predicate;
   - a test that no scaffolded workflow declares `workflow_run`;
+  - the partial-setup notice: SMALL and LARGE set → no notice; only SMALL set →
+    a notice naming LARGE; an XLARGE override with XLARGE unset → a notice;
   - `ci.yml` lanes reference `runners` per §4.
 
 **S2 — Remaining scaffolded workflows.**
@@ -890,8 +900,11 @@ S7 (docs) follows S1–S6, S8 gates release N, and S9 is release N+1.
     files.
 - *Files:* the docs named above, the bats fixture strings and
   `tests/test_setup_toolchain_env.py`.
-- *Acceptance:* a `git grep` for the scrubbed site label and names returns
-  nothing outside `docs/issues/`, `docs/pull-requests/` and the **released**
+- *Acceptance:* the scrub target is the **site-specific runner label** used as
+  today's example in the `MIGRATION.md` self-hosted section, plus the site,
+  org and repo names in the comments next to it in the files listed above.
+  Other org and repo names elsewhere are out of S7's scope. A `git grep` for
+  that label returns nothing outside `docs/issues/`, `docs/pull-requests/` and the **released**
   sections of `CHANGELOG.md` and `assets/workspace/.devcontainer/CHANGELOG.md`.
   Released entries are never edited, per the changelog rules. Docs lint
   passes, and the CHANGELOG has a `### Deprecated` entry for both legacy
