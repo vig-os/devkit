@@ -297,11 +297,15 @@ unchanged behavior for every existing consumer
 
 In direnv mode with preinstalled host Nix, `setup-devkit-toolchain` preserves
 valid runner `NIX_CONFIG` settings, including local caches, trusted public keys,
-`cores` and `max-jobs`, in later steps. Devkit adds its experimental features
-and public cache settings; it sets `accept-flake-config = true` so the consumer
-repository's flake can supply its own cache configuration. The action validates
-ambient `NIX_CONFIG` with `nix config show`. If malformed, it drops that value
-with a warning containing the Nix diagnostic and exports devkit's valid settings
+`cores` and `max-jobs`, in later steps. Devkit uses
+`extra-experimental-features` to add to the host `nix.conf` and ambient feature
+lists, and adds its public cache settings; it sets `accept-flake-config = true`
+so the consumer repository's flake can supply its own cache configuration.
+The action validates
+ambient `NIX_CONFIG` with `nix config show`, or `nix show-config` on older Nix.
+If neither validation command is available, the step fails explicitly. If the
+configuration is rejected, it drops that value with a warning and exports
+devkit's valid settings. Diagnostic values are redacted to protect access tokens
 ([#1907](https://github.com/vig-os/devkit/issues/1907)).
 
 The release train routes the same way ([#1863](https://github.com/vig-os/devkit/issues/1863)):

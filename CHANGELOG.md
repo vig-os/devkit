@@ -25,8 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Preserve runner Nix configuration in the toolchain action** ([#1907](https://github.com/vig-os/devkit/issues/1907))
-  - With preinstalled host Nix in direnv mode, preserve valid ambient `NIX_CONFIG`, including runner caches and CPU limits, and add devkit's features and cache settings
-  - Drop malformed ambient configuration with a warning containing the Nix diagnostic; keep the exported configuration valid and the environment delimiter collision-safe
+  - With preinstalled host Nix in direnv mode, preserve valid ambient `NIX_CONFIG`, including runner caches and CPU limits, and add devkit's features and cache settings; `extra-experimental-features` extends the host `nix.conf` feature list instead of replacing it
+  - Validate with the command supported by host Nix (including `show-config` before Nix 2.20); fail explicitly if neither command is available. Drop malformed ambient configuration with a warning that redacts diagnostic values; keep the exported configuration valid and the environment delimiter collision-safe
 
 - **install.sh and devkit-upgrade no longer need Docker in direnv mode** ([#1871](https://github.com/vig-os/devkit/issues/1871))
   - With `DEVKIT_MODE=direnv` (persisted, or `--mode direnv`), `install.sh` skips container-runtime detection and runs `init-workspace.sh` on the host from the pinned devkit flake source (`nix flake metadata` -> `assets/`, image bake steps replayed), so scaffold and `--force` upgrade need only nix, jq and rsync; the version defaults to the `.vig-os` `DEVKIT_VERSION` pin (upgrade) or the newest `X.Y.Z` release tag (fresh install), and the scaffold runs inside the release's own dev-shell with a clean environment so macOS hosts (BSD sed, bash 3.2) work; `--docker`/`--podman` are ignored with a warning

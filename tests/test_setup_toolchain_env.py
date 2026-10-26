@@ -31,7 +31,7 @@ from typing import NamedTuple
 import pytest
 import yaml
 
-from tests.workflow_scaffold import NIX_SETTINGS, parse_nix_settings
+from tests.workflow_scaffold import HOST_NIX_SETTINGS, NIX_SETTINGS, parse_nix_settings
 
 # Repository root (tests/ -> repo root).
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -759,9 +759,7 @@ def test_host_nix_config_step_writes_wellformed_nix_config(tmp_path: Path) -> No
     parsed = _parse_github_env(github_env.read_text(encoding="utf-8"))
     nix_config = parsed.get("NIX_CONFIG")
     assert nix_config, "NIX_CONFIG not written to GITHUB_ENV"
-    expected = {**NIX_SETTINGS}
-    expected["extra-experimental-features"] = expected.pop("experimental-features")
-    assert parse_nix_settings(nix_config) == expected
+    assert parse_nix_settings(nix_config) == HOST_NIX_SETTINGS
 
 
 def _run_host_config(
@@ -810,8 +808,9 @@ def test_host_nix_preserves_runner_settings(tmp_path: Path) -> None:
     config = exported["NIX_CONFIG"]
     assert config.startswith(ambient + "\n")
     values = _nix_config_values(config)
-    assert "http://cache.example" in set(values["substituters"])
-    assert "https://vig-os.cachix.org" in set(values["substituters"])
+    assert {"http://cache.example", "https://vig-os.cachix.org"} <= set(
+        values["substituters"]
+    )
     assert (
         "cache.example-1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
         in values["trusted-public-keys"]
@@ -830,7 +829,7 @@ def test_host_nix_drops_malformed_runner_config_with_warning(tmp_path: Path) -> 
     proc, exported = _run_host_config(tmp_path, "experimental-features")
     assert "::warning::" in proc.stdout
     assert "NIX_CONFIG" in proc.stdout
-    assert "syntax error" in proc.stdout
+    assert "rejected configuration" in proc.stdout
     assert _nix_config_values(exported["NIX_CONFIG"])["accept-flake-config"] is True
     assert "experimental-features\n" not in exported["NIX_CONFIG"]
 
@@ -930,7 +929,7 @@ def test_host_nix_without_runner_config(tmp_path: Path, ambient: str | None) -> 
     values = _nix_config_values(exported["NIX_CONFIG"])
     assert {"nix-command", "flakes"} <= set(values["experimental-features"])
     assert values["accept-flake-config"] is True
-    assert "https://vig-os.cachix.org" in set(values["substituters"])
+    assert {"https://vig-os.cachix.org"} <= set(values["substituters"])
     assert NIX_SETTINGS["extra-trusted-public-keys"] in values["trusted-public-keys"]
     assert "::warning::" not in proc.stdout
 
@@ -949,10 +948,11 @@ def test_host_nix_heredoc_delimiter_collision(tmp_path: Path) -> None:
     assert exported["NIX_CONFIG"].startswith(ambient + "\n")
 
 
-def test_install_and_host_paths_carry_identical_settings() -> None:
-    """The fresh-install extra_nix_config and the test's expected host-path
-    settings must stay in lockstep — drift would give the two runner classes
-    different Nix behavior."""
+def test_install_path_carries_expected_settings() -> None:
+    """Pin fresh-install settings; the host export test pins HOST_NIX_SETTINGS.
+
+    Both share values, with additive host features explicit in workflow_scaffold.
+    """
     install = _step_by_name(INSTALL_STEP_NAME)
     assert parse_nix_settings(install["with"]["extra_nix_config"]) == NIX_SETTINGS
 

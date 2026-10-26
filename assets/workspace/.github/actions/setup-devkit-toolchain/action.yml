@@ -139,7 +139,8 @@ runs:
     # multi-line NIX_CONFIG instead of installing. On a multi-user host Nix
     # the substituter entries may be ignored for non-trusted users — Cachix is
     # an optimization, correctness does not depend on it. Keep the settings in
-    # lockstep with extra_nix_config above (enforced by test).
+    # lockstep with extra_nix_config above, except host experimental features use
+    # extra-experimental-features to extend nix.conf (enforced by test).
     - name: Configure host Nix
       if: inputs.mode == 'direnv' && steps.detect-nix.outputs.has-nix == 'true'
       shell: bash
@@ -147,12 +148,18 @@ runs:
         set -euo pipefail
         host_nix_config="${NIX_CONFIG:-}"
         if [ -n "$host_nix_config" ]; then
-          if ! config_error=$(NIX_CONFIG="$host_nix_config" nix --extra-experimental-features nix-command config show 2>&1 >/dev/null); then
-            # Escape workflow-command data so a diagnostic cannot inject commands.
-            config_error="${config_error//'%'/'%25'}"
-            config_error="${config_error//$'\r'/'%0D'}"
-            config_error="${config_error//$'\n'/'%0A'}"
-            echo "::warning::Dropping malformed ambient NIX_CONFIG: $config_error"
+          # Probe with ambient config removed: older Nix calls this show-config.
+          config_command=(config show)
+          if ! env -u NIX_CONFIG nix --extra-experimental-features nix-command "${config_command[@]}" >/dev/null 2>&1; then
+            config_command=(show-config)
+            if ! env -u NIX_CONFIG nix --extra-experimental-features nix-command "${config_command[@]}" >/dev/null 2>&1; then
+              echo "::error::Host Nix configuration validation command unavailable; cannot validate ambient NIX_CONFIG."
+              exit 1
+            fi
+          fi
+          if ! NIX_CONFIG="$host_nix_config" nix --extra-experimental-features nix-command "${config_command[@]}" >/dev/null 2>&1; then
+            # Nix diagnostics can quote access-tokens: never log their values.
+            echo "::warning::Dropping malformed ambient NIX_CONFIG: host Nix rejected configuration (diagnostic values redacted)."
             host_nix_config=""
           fi
         fi
