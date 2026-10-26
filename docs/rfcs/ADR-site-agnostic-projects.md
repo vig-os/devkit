@@ -21,11 +21,13 @@ and by a gitignored `.site/` directory for everything else.
   requests a self-hosted label. This holds for the variables, for the legacy
   `.vig-os` key and for the legacy resolve variable. The check is explicit even
   though GitHub gives fork PRs no variables.
-- **One compatibility release:** `.vig-os` `DEVKIT_CI_RUNNER` and
-  `vars.DEVKIT_CI_RESOLVE_RUNNER` keep working in release N with a
-  `::warning::`. `devkit-upgrade` migrates scaffolded repos and says what to
-  set. Release N+1 removes both. A leftover key then **fails CI loudly**; it
-  never degrades silently to hosted runners.
+- **A two-release compatibility window:** `.vig-os` `DEVKIT_CI_RUNNER` and
+  `vars.DEVKIT_CI_RESOLVE_RUNNER` keep working in releases N and N+1 with a
+  `::warning::`. Release N ships a `devkit-upgrade.yml` that can see the
+  variables. The adoption of N+1, the first one run by that workflow, migrates
+  scaffolded repos and says what to set. Release N+2 removes both legacy knobs.
+  A leftover key then **fails CI loudly**; it never degrades silently to hosted
+  runners.
 - **`.site/`** (gitignored, with `.aws/`) holds per-clone site bindings: the
   site name, logical dataset → location bindings, the output location and
   optional hints. It never holds credentials. `just site-init` runs a
@@ -39,7 +41,7 @@ and by a gitignored `.site/` directory for everything else.
 Proposed in [#1908](https://github.com/vig-os/devkit/issues/1908). The CI part
 rests on the owner's empirical test of 2026-10-25
 ([comment on #1908](https://github.com/vig-os/devkit/issues/1908)), summarised
-in [Evidence](#evidence-the-2026-10-25-variable-tests). Five decisions are left
+in [Evidence](#evidence-the-2026-10-25-variable-tests). Six decisions are left
 to the owner in [Open decisions](#open-decisions-for-the-owner).
 
 ## Problem statement
@@ -129,10 +131,19 @@ Findings this ADR builds on:
   repos must use repository-level variables (Evidence, finding 1).
 - **The value is exactly one label.** The direct `runs-on` expression reads a
   variable as a single label, so the `runner-json` path must not read it any
-  other way. A value that is empty after trimming means **unset**. A value with
-  a comma or with leading or trailing whitespace is an **error** in
-  `resolve-toolchain` (§3), because the direct expressions would request a
-  label no runner carries and queue forever. A pool that needs several labels
+  other way. One whitespace rule applies everywhere, and a blank label is never
+  emitted:
+  - **empty** means unset;
+  - **whitespace-only** means unset plus a `::warning::` (§3);
+  - a **comma**, or a label with **leading or trailing whitespace**, is an
+    `::error::` in `resolve-toolchain` (§3). A direct expression would request
+    a label no runner carries and queue forever.
+
+  GitHub's own expressions are the one exception to the "never blank" rule:
+  they treat a whitespace-only string as truthy. That affects only the
+  direct-expression jobs reading the class, which are the resolve jobs for
+  SMALL and the seeded hooks for LARGE. The resolve job's warning names the
+  variable to delete. A pool that needs several labels
   gets one unique custom label. Runner scale sets already work that way.
   **Known limit:** `CI_RUNNER_SMALL` also selects the resolve job's own runner,
   so a malformed SMALL value is never validated. The resolve job queues on the
@@ -173,10 +184,17 @@ github.event.pull_request && (github.event.pull_request.head.repo.fork || github
   predicate. Without it, `null != github.repository` would be true.
 
 The predicate covers `pull_request` and `pull_request_target`, which carry the
-same `pull_request` payload. It does **not** cover `workflow_run`, whose
-payload has no `pull_request` object. No managed workflow uses `workflow_run`
-today, and a test forbids it in scaffolded workflows until the predicate is
-extended (sub-issue S1).
+same `pull_request` payload. It does **not** cover two triggers:
+
+- **`workflow_run`:** the payload has no `pull_request` object.
+- **`merge_group`:** a queued fork PR runs in the base context, with
+  variables, on a `gh-readonly-queue/...` ref of the base repository. The
+  payload has no head-repository field from which the predicate could tell a
+  fork apart.
+
+No managed workflow uses either trigger today. A test forbids both in
+scaffolded workflows (S1). Adding either one is a design change: it needs its
+own predicate clause and evidence first, not just a trigger line.
 
 ### 3. Resolution order per job class
 
@@ -189,13 +207,13 @@ These are the `resolve-toolchain` jobs (SMALL), which produce the outputs and
 cannot consume them, and the seeded extension hooks (LARGE, §5), whose callers
 pass them no runner input.
 
-Compatibility release N, under Recommended decision (a):
+Compatibility releases N and N+1, under Recommended decision (a):
 
 ```yaml
 runs-on: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
 ```
 
-Release N+1 and later: **unchanged**. The legacy term stays as the last term
+Release N+2 and later: **unchanged**. The legacy term stays as the last term
 before the hosted default, **only** to carry the tombstone (below). A consumer
 left with only `DEVKIT_CI_RESOLVE_RUNNER` gets a resolve job on its own runner,
 which then fails with an explanation. Dropping the term would send that
@@ -206,9 +224,10 @@ print. The term never selects a runner when `CI_RUNNER_SMALL` is set.
 New seeded hooks use
 `${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_LARGE || 'ubuntu-26.04' }}` and never
 reference `DEVKIT_CI_RESOLVE_RUNNER`. GitHub expressions treat `''` as false,
-so an empty variable falls through. A whitespace-only value is truthy and
-requests a bogus label. The resolve job cannot catch that for its own runner
-(the §1 known limit). It catches it for every other class (below).
+so an empty variable falls through. A whitespace-only value is truthy there
+and requests a blank label (§1). The resolve job cannot report that for its
+own runner (the §1 known limit). For a whitespace-only LARGE, it warns before
+any seeded hook runs, and the runner-json lanes treat the value as unset.
 
 If decision (a) goes to the legacy-wins option, the compatibility-release
 expression swaps the two `vars.` terms. Nothing else changes.
@@ -228,12 +247,13 @@ H = "ubuntu-26.04"
 F = fork predicate (§2)
 raw = input runner-<S>                           # from vars.CI_RUNNER_<S>
 V = trim(raw)
-L = labels(.vig-os DEVKIT_CI_RUNNER)             # release N only: comma-split,
+if raw != "" and V == "":  ::warning:: whitespace-only CI_RUNNER_<S>, treated as unset
+if V != "" and ("," in raw or raw != V):  ::error:: + exit 1   # validate the RAW value
+L = labels(.vig-os DEVKIT_CI_RUNNER)             # releases N, N+1 only: comma-split,
                                                  # each label trimmed, empties dropped
 if   F:                 runners[S] = [H];  source[S] = "fork"
-elif V != "":           if "," in raw or raw != V: ::error:: + exit 1     # validate the RAW value
-                        runners[S] = [V];  source[S] = "variable"
-elif L != []:           runners[S] = L;    source[S] = "legacy-key"     # release N only
+elif V != "":           runners[S] = [V];  source[S] = "variable"
+elif L != []:           runners[S] = L;    source[S] = "legacy-key"     # releases N, N+1 only
 else:                   runners[S] = [H];  source[S] = "default"
 ```
 
@@ -255,14 +275,14 @@ it. Each lane gets `runners[<lane>] = runners[<class>]`.
   `legacy-key` or `default`. It is printed as a table in the step summary. It
   is also the signal [#1891](https://github.com/vig-os/devkit/issues/1891)'s
   cache profile reads instead of `DEVKIT_CI_RUNNER`.
-- `runner-json` is kept in release N as a **deprecated alias** of
+- `runner-json` is kept in releases N and N+1 as a **deprecated alias** of
   `runners.large`, for consumer-written jobs that reference it. It is removed
-  in N+1. A removed output reaches `fromJSON('')`, which fails the job loudly.
+  in N+2. A removed output reaches `fromJSON('')`, which fails the job loudly.
 
 **Diagnostics.** None of them can be silenced:
 
 - If `L` is non-empty: `::warning::` that `DEVKIT_CI_RUNNER` is deprecated,
-  will be removed in N+1, and which variables to set. Under (a)-Recommended,
+  will be removed in N+2, and which variables to set. Under (a)-Recommended,
   the warning also names each class whose variable already overrides the key.
 - If `legacy-resolve-runner` is non-empty: `::warning::` that
   `DEVKIT_CI_RESOLVE_RUNNER` is deprecated in favour of `CI_RUNNER_SMALL`.
@@ -277,13 +297,18 @@ it. Each lane gets `runners[<lane>] = runners[<class>]`.
   the seeded hooks and the N `runner-json` alias read it whatever the lane
   map says. A consumer that sets only SMALL and LARGE is fully set up and sees
   no notice.
-- If the repo is private and every class came from `default`: a step-summary
-  line, not an annotation, saying that on GitHub Free organization variables do
-  not reach private repos and repository-level variables are needed. It is a
-  summary line because every hosted-only private consumer would otherwise see a
-  warning on every run.
+- If the repo is private, the run is not foreign, and **no** `CI_RUNNER_*`
+  variable is visible: a `::notice::` annotation on the run, plus a
+  step-summary line. It says that CI runs on hosted runners, that on GitHub
+  Free organization variables do not reach private repos, and that the fix is
+  repository-level variables. This is the near-silent case of Evidence finding
+  1, so it needs an annotation and not just a summary line. A private repo that
+  runs hosted **on purpose** silences it by setting the variables to
+  `ubuntu-26.04`. That is an explicit statement and not an opt-out knob, and it
+  is never silenced by default. Only a private-and-unconfigured repo sees it,
+  because a public repo has free hosted minutes.
 
-**Release N+1** deletes the `L` arm and keeps two **permanent tombstones**:
+**Release N+2** deletes the `L` arm and keeps two **permanent tombstones**:
 
 - A non-empty `DEVKIT_CI_RUNNER` in `.vig-os` is an `::error::` that names the
   removal release and the variables to set. CI goes red. It never silently
@@ -292,7 +317,7 @@ it. Each lane gets `runners[<lane>] = runners[<class>]`.
 - A non-empty `legacy-resolve-runner` with an empty `runner-small`, on a run
   that is not foreign, is an `::error::`. The consumer clearly meant
   self-hosted runners, and the resolve job still runs on the legacy variable's
-  label (see the N+1 expression), so the error is reachable. With
+  label (see the N+2 expression), so the error is reachable. With
   `CI_RUNNER_SMALL` set, it is only a `::warning::`, because the variable may
   still serve pre-N seeded hook copies (decision (d)).
 
@@ -342,6 +367,8 @@ hosted uses the fork predicate.
 | `publish-release-extension.yml` (release, workflow_dispatch; seeded) | `resolve`, `publish` | resolve var | same as above |
 | `devkit-upgrade.yml` (schedule, workflow_dispatch) | `upgrade`, `report` | `ubuntu-latest` | decision (e): S (Recommended), or hosted `ubuntu-26.04` |
 | `codeql.yml` (pull_request, push, schedule) | `analyze` | hosted | hosted (public repos only) |
+| `assets/smoke-test/.github/workflows/ci-extension.yml` (workflow_call; the smoke-test fixture's hook) | `extension` | `fromJSON(inputs.runner-json)` | unchanged; receives the `extension` lane from the caller |
+| `assets/smoke-test/.github/workflows/direnv-smoke.yml`, `repository-dispatch.yml` | all jobs | hosted | hosted (devkit's own smoke-test fixture) |
 | `scorecard.yml` (schedule, push) | `analysis` | hosted | hosted (public repos only) |
 
 The `release-core` and `release-publish` input changes from `runner-json` to
@@ -395,31 +422,58 @@ runtime for the `container:` lanes, so any class it routes is container-capable.
 
 ### 6. Migration
 
-#### What `devkit-upgrade` does (release N)
+#### Why the migration needs two steps
 
-`init-workspace.sh` already reads `DEVKIT_CI_RUNNER` before the template
-overwrite and writes it back (#1173). In release N it also:
+`devkit-upgrade` runs the consumer's **own, already-installed**
+`devkit-upgrade.yml`. Only `install.sh` comes from the target tag. The pre-N
+workflow passes no `vars.CI_RUNNER_*` into the install step, and it lifts only
+`flake-bump:` and `preserved-hook-*:` lines into the PR body. So the adoption
+**of** release N cannot see the variables or report a migration, whatever
+release N's `install.sh` does. The adoption PR of N replaces
+`devkit-upgrade.yml` (a managed file) with N's version. The **next** adoption,
+of N+1, is the first one that runs a workflow able to migrate.
 
-1. Reads `CI_RUNNER_SMALL`, `CI_RUNNER_LARGE` and `CI_RUNNER_XLARGE` from its
-   **environment**. `devkit-upgrade.yml` passes `${{ vars.CI_RUNNER_* }}` into
-   the install step, so the values are what CI will see. On GitHub Free, org
-   variables are invisible there too, which is correct. A local
-   `install.sh --force` sees nothing unless the maintainer exports the
-   variables.
-2. Applies decision (c) to a non-empty legacy key.
-3. Prints exactly one `ci-runner-migration:` line per finding. This uses the
-   established install-log channel (`flake-bump:`, `preserved-hook-*:`), and
-   `devkit-upgrade.yml` lifts the lines into the step summary and the adoption
-   PR body under a **"CI runner migration"** heading.
+Rejected alternatives:
+
+- **`install.sh` reads the variables through the API.** The pre-N install step
+  exports no `GH_TOKEN`; its token appears only inside `NIX_CONFIG`. Reading
+  variables also needs a token scope devkit cannot grant retroactively.
+- **Emit the migration through a channel the old workflow already lifts.**
+  `flake-bump:` keeps only one line, and the `preserved-hook-*:` lines land
+  under headings that say "hook block". Smuggling a runner migration through
+  them would put the wrong instruction in front of the maintainer.
+
+#### What each adoption does
+
+- **Adoption of N (run by the pre-N workflow).** N's `install.sh` scaffolds
+  N's managed files, including the new `devkit-upgrade.yml`, and keeps a
+  non-empty `DEVKIT_CI_RUNNER` unconditionally, because no variables are
+  visible. Nothing is stripped, and nothing changes at runtime except the new
+  resolution (§3). From then on, every CI run's `resolve-toolchain` emits the
+  deprecation `::warning::`, so the maintainer is told on every run even
+  before the migration PR.
+- **Adoption of N+1 and later (run by an N-or-later workflow).**
+  `init-workspace.sh`:
+  1. reads `CI_RUNNER_SMALL`, `CI_RUNNER_LARGE` and `CI_RUNNER_XLARGE` from its
+     **environment**. N's `devkit-upgrade.yml` passes `${{ vars.CI_RUNNER_* }}`
+     into the install step, so the values are what CI will see. On GitHub
+     Free, org variables are invisible there too, which is correct. A local
+     `install.sh --force` sees nothing unless the maintainer exports the
+     variables;
+  2. applies decision (c) to a non-empty legacy key;
+  3. prints exactly one `ci-runner-migration:` line per finding, which N's
+     `devkit-upgrade.yml` lifts into the step summary and the adoption PR body
+     under a **"CI runner migration"** heading.
 
 The PR-body text, per case:
 
 | Legacy key | Visible variables | PR body says |
 |---|---|---|
-| set | every required class (§3) | key removed, or kept under (c)-warn-only; runners now come from the variables; nothing to do |
-| set | some required classes or none | which `CI_RUNNER_*` to set, at **repository level** if the repo is private on GitHub Free; the example command `gh variable set CI_RUNNER_LARGE --body <label>`; the key keeps working until N+1 |
+| set | every required class (§3) | key removed under (c)-1, or kept under (c)-2; runners now come from the variables; nothing to do |
+| set | some required classes or none | which `CI_RUNNER_*` to set, at **repository level** if the repo is private on GitHub Free; the example command `gh variable set CI_RUNNER_LARGE --body <label>`; the key keeps working until N+2 |
 | unset, `vars.DEVKIT_CI_RESOLVE_RUNNER` visible | n/a | rename the variable to `CI_RUNNER_SMALL`, then delete the old one after decision (d)'s hook migration |
-| unset | n/a | nothing (no line printed) |
+| unset, repo private, no `CI_RUNNER_*` visible | none | one informational line: CI runs hosted; organization variables do not reach private repos on GitHub Free; set repository variables, or set them to `ubuntu-26.04` to declare hosted on purpose (§3) |
+| unset, any other case | n/a | nothing (no line printed) |
 
 The PR body never repeats the label itself. It names variables, not values,
 even though the value is already in git, so the adoption PR does not spread
@@ -427,38 +481,45 @@ the label further.
 
 #### Deprecation timeline
 
-- **Release N (compatibility):** variables plus the fork predicate everywhere.
-  Legacy key and legacy variable keep working with warnings. The migration
-  runs. `MIGRATION.md` gets the new section, and CHANGELOG `### Deprecated`
-  names both legacy knobs.
-- **Release N+1 (removal):** the legacy arms are deleted, the tombstones (§3)
+- **Release N (compatibility, part 1):** variables plus the fork predicate
+  everywhere, and the new `devkit-upgrade.yml`. The legacy key and legacy
+  variable keep working, with warnings on every run. `MIGRATION.md` gets the
+  new section, and CHANGELOG `### Deprecated` names both legacy knobs and the
+  removal release N+2.
+- **Release N+1 (compatibility, part 2):** no new runner semantics. Its
+  adoption is the migration run described above. A consumer that skipped N
+  adopts N+1 through its pre-N workflow, which behaves like the adoption of N
+  above. That consumer migrates on its next adoption, and it still gets the
+  per-run warnings and, at N+2, the tombstone.
+- **Release N+2 (removal):** the legacy arms are deleted, the tombstones (§3)
   stay, the `runner-json` alias output is removed, and the template `.vig-os`
   drops the `DEVKIT_CI_RUNNER=` line. `init-workspace.sh` still recognises a
-  leftover key: it strips it when every required class's variable is visible, and
-  otherwise keeps it and prints the migration line, so the adoption PR's own CI
-  goes red with the tombstone error next to an explanation. CHANGELOG
-  `### Removed`.
+  leftover key: it strips it when every required class's variable is visible.
+  Otherwise it keeps the key and prints the migration line, so the adoption
+  PR's own CI goes red with the tombstone error next to an explanation.
+  CHANGELOG `### Removed`.
 
-This follows the existing precedent of deprecating in one minor and removing
-in the next (`DEVKIT_UPGRADE_APP_ID`,
-[#1366](https://github.com/vig-os/devkit/issues/1366)). The tombstones keep
-the removal from ever being silent.
+*Cost:* the window is two releases instead of one, so the compat code lives
+one release longer than in the `DEVKIT_UPGRADE_APP_ID` precedent
+([#1366](https://github.com/vig-os/devkit/issues/1366)), which deprecated in
+one minor and removed in the next. That precedent needed no workflow-side
+migration. The tombstones keep the removal from ever being silent.
 
 #### Failure mode after removal
 
-A repo still holding `DEVKIT_CI_RUNNER` in N+1 with no variables gets a red
+A repo still holding `DEVKIT_CI_RUNNER` in N+2 with no variables gets a red
 `Resolve toolchain` job with:
 
 ```text
-::error::DEVKIT_CI_RUNNER in .vig-os was removed in devkit <N+1>; CI runners now come from the variables CI_RUNNER_SMALL/LARGE/XLARGE (repository level on private GitHub Free repos). Set them, delete the key, and re-run. See MIGRATION.md#run-ci-on-self-hosted-runners.
+::error::DEVKIT_CI_RUNNER in .vig-os was removed in devkit <N+2>; CI runners now come from the variables CI_RUNNER_SMALL/LARGE/XLARGE (repository level on private GitHub Free repos). Set them, delete the key, and re-run. See MIGRATION.md#run-ci-on-self-hosted-runners.
 ```
 
 **Limit:** the error comes from the resolve job. A repo that set **only** the
 `.vig-os` key, with neither `CI_RUNNER_SMALL` nor `DEVKIT_CI_RESOLVE_RUNNER`,
 has always resolved on hosted runners. If its org cannot run hosted jobs at
-all, that job fails before any step in N+1, exactly as it did before, and the
-message cannot print. For that population, the guarantee is release N's
-warnings and the adoption PR body, which keeps the key and names the variables
+all, that job fails before any step in N+2, exactly as it did before, and the
+message cannot print. For that population, the guarantee is the per-run
+warnings of releases N and N+1 and the N+1 adoption PR body, which keeps the key and names the variables
 to set. In either case the run is red, never green.
 
 It is never a silent move to hosted runners. For a billing-blocked org, a
@@ -497,7 +558,10 @@ silent move would turn into queued or rejected jobs that point at nothing.
   3. it does not depend on a platform behaviour that is not a documented
      security guarantee;
   4. the legacy key comes from repo content, which a fork controls, so the
-     variables' behaviour does nothing for it in release N.
+     variables' behaviour does nothing for it in releases N and N+1.
+- **Forks of private repos** are foreign too, so they run hosted. In a
+  billing-blocked private org they get no CI. That cost, and its remedy, is
+  decision (f).
 - **Out of scope here:** trusted same-repo PRs. Writers are trusted by repo
   permission. Separating trusted main-branch runs from PR runs is
   [#1876](https://github.com/vig-os/devkit/issues/1876). Its event-scoped
@@ -643,8 +707,8 @@ silent move would turn into queued or rejected jobs that point at nothing.
 Each option names its honest cost. The Recommended option is the one this ADR
 considers correct in the long term.
 
-**(a) Precedence in release N when both the legacy `.vig-os` key and
-`CI_RUNNER_*` are set.**
+**(a) Precedence during the compatibility window (releases N and N+1) when both
+the legacy `.vig-os` key and `CI_RUNNER_*` are set.**
 
 1. **Variable wins; the key is reported as overridden (Recommended).** Setting
    the variable is the migration act, and the end state takes effect at once.
@@ -657,7 +721,7 @@ considers correct in the long term.
    for an existing self-hosted consumer. *Cost:* setting a variable has no
    visible effect until the key is deleted, which is the confusing state the
    migration is meant to end. Decision (c) can then never strip the key safely
-   in N, because stripping changes behaviour.
+   during the window, because stripping changes behaviour.
 3. **Both set is an error.** *Cost:* CI turns red for every such consumer on
    adoption, in exactly the population that already did half the migration.
 
@@ -680,24 +744,29 @@ considers correct in the long term.
    property into org or repo settings, makes the variables sprawl, and an
    org-level per-lane variable applies to every repo.
 
-**(c) In release N, does `devkit-upgrade` strip the legacy key or only warn?**
+**(c) During the compatibility window, does `devkit-upgrade` strip the legacy
+key or only warn?** Either way, the first adoption that can act is N+1's
+(§6): the adoption of N runs the pre-N workflow, which cannot see the
+variables.
 
 1. **Strip it when it is inert, otherwise keep it and explain
    (Recommended).** Inert means the variable of every required class (§3:
    SMALL and LARGE always, plus XLARGE if the lane map uses it) is visible to the
    upgrade job, so under (a)-1 the key decides nothing. Then removing it
-   changes no runner, and the repo reaches the end state one release early.
-   Otherwise the key stays, and the PR body names the variables to set.
-   *Cost:* the upgrade's behaviour depends on variables the maintainer may not
-   know are set. It is reported in the PR body. A local `install.sh --force`
-   never strips, because it sees no variables.
-2. **Warn only in N, strip in N+1.** *Cost:* every self-hosted consumer
-   carries a dead key through N, and N+1's adoption PR must do the strip and
-   explain it in one step.
-3. **Always strip in N**, writing the needed settings into the PR body.
-   *Cost:* a consumer that merges before setting the variables silently moves
-   to hosted runners, the one outcome the design forbids. Rejected unless (a)
-   changes.
+   changes no runner, and the repo reaches the end state at the N+1 adoption,
+   one release before removal. Otherwise the key stays, and the PR body names
+   the variables to set. *Cost:* the upgrade's behaviour depends on variables
+   the maintainer may not know are set. It is reported in the PR body. A local
+   `install.sh --force` never strips, because it sees no variables. Nothing can
+   be stripped before the N+1 adoption.
+2. **Explain only during the window; strip at the N+2 adoption.** *Cost:* every
+   self-hosted consumer carries a dead key through N and N+1, and the N+2
+   adoption PR has to strip it and explain the change in the same step as the
+   removal.
+3. **Always strip at the N+1 adoption**, writing the needed settings into the
+   PR body. *Cost:* a consumer that merges before setting the variables
+   silently moves to hosted runners. That is the one outcome this design
+   forbids, so this option is rejected unless (a) changes.
 
 **(d) Existing copies of the seeded release hooks** (`prepare-release-extension`,
 `release-extension`, `publish-release-extension`), which are consumer-owned
@@ -732,6 +801,24 @@ and never overwritten.
    hosted minutes on private repos, and fails outright in an org that cannot
    run hosted jobs.
 
+**(f) PRs from forks of a private repo.** Forks of a private repo are private
+too, and they are created by people with read access (org members or outside
+collaborators). The §2 predicate treats them as foreign, so they run hosted.
+
+1. **Strict: every fork PR is foreign, private or not (Recommended).** The
+   predicate stays as tested, and read access never buys code execution on a
+   self-hosted runner. *Cost:* in a private org that cannot run hosted jobs at
+   all, PRs from internal forks get **no CI**: the jobs are rejected, the
+   checks stay red, and nothing reports green. *Remedy*, documented in
+   `MIGRATION.md` (S7): contributors push branches to the base repo (writers
+   can), and the org turns off "Allow forking of private repositories" so such
+   PRs cannot be opened.
+2. **Trust forks of private repos:** the predicate gains
+   `&& !github.event.repository.private`. *Cost:* anyone with read access to a
+   private repo, including outside collaborators, can run code on the
+   self-hosted pool by opening a PR from a fork. It also drops the explicit
+   check exactly where `pull_request_target` would be most dangerous.
+
 ## Alternatives considered
 
 - **Keep labels in `.vig-os` and add only the fork check.** This fixes the fork
@@ -758,7 +845,7 @@ and never overwritten.
 - Consumers that already set `CI_RUNNER_*` at org level adopt with no repo
   change. GitHub Free private repos need repository-level variables, and the
   docs, the step summary and the adoption PR say so.
-- The `runner-json` action output and both legacy knobs disappear in N+1. The
+- The `runner-json` action output and both legacy knobs disappear in N+2. The
   tombstones stay permanently.
 - `DEVKIT_DEV_PROFILE_PATH` ([#1601](https://github.com/vig-os/devkit/issues/1601))
   is still a runner-host path in `.vig-os`, which is the same class of site
@@ -775,39 +862,87 @@ and never overwritten.
 ## Implementation
 
 Ordered sub-issues. The architect files them; this ADR does not. Each is under
-about 400 diff lines. Files are disjoint except where noted. S1 → S2 → S3 must
-land in the same release N. S4–S6 are independent of S1–S3 and of each other.
-S7 (docs) follows S1–S6, S8 gates release N, and S9 is release N+1.
+about 400 diff lines. Files are disjoint except where noted. S1 → S1b → S2 → S3
+must land in the same release N (S1b only if decision (b)-1). S4–S6 are
+independent of S1–S3 and of each other. S7 (docs) follows S1–S6, S8 gates
+release N, and S9 is release N+2.
 
 **S1 — Runner selection core: `resolve-toolchain` and `ci.yml`.**
 
-- *Scope:* the §3 algorithm; the inputs `runner-small`, `runner-large`,
-  `runner-xlarge` and `legacy-resolve-runner`; the outputs `runners`,
-  `runner-sources` and the deprecated `runner-json` alias; the predicate
-  evaluated in-action; diagnostics; `DEVKIT_CI_LANE_SIZES` parsing if (b)-1;
-  `ci.yml` wiring per §4; the `.vig-os` template comments, replacing the
-  site-specific example label with `<label>`; init-workspace write-path guard
-  and persistence for `DEVKIT_CI_LANE_SIZES`.
+- *Scope:*
+  - the §3 algorithm for the three classes, with the built-in lane defaults of
+    §5 and no override key (that is S1b);
+  - the inputs `runner-small`, `runner-large`, `runner-xlarge` and
+    `legacy-resolve-runner`. All default to `''`, so a caller that S2 has not
+    migrated yet keeps today's behaviour: its `runner-json` alias resolves
+    from the legacy key or the default, and it is already fork-safe because
+    the action evaluates the predicate;
+  - the outputs `runners`, `runner-sources` and the deprecated `runner-json`
+    alias;
+  - the predicate evaluated in-action, and all diagnostics;
+  - the `ci.yml` wiring per §4;
+  - the `.vig-os` template comments, replacing the site-specific example label
+    with `<label>`.
 - *Files:* `assets/workspace/.github/actions/resolve-toolchain/action.yml`,
   `assets/workspace/.github/workflows/ci.yml`, `assets/workspace/.vig-os`,
   `assets/workspace/.github/actionlint.yaml` (comment),
-  `assets/init-workspace.sh` (lane-sizes guard only),
   `tests/test_ci_runner.py` (including scrubbing its site-specific label
-  fixture), `tests/bats/init-workspace.bats` (lane-sizes cases).
+  fixture), and the two tests that pin today's `ci.yml` wiring:
+  `tests/test_scaffold_drift.py` (`test_scaffold_drift_honors_runner_override`)
+  and `tests/test_workflow_ci_extension.py`
+  (`test_extension_job_passes_the_resolved_toolchain_context`).
+- *Shape-test rule* (`tests/test_ci_runner.py`). A `runs-on` value is one of
+  three things:
+  1. a **literal hosted label**;
+  2. a **direct expression**, which must contain the §2 predicate;
+  3. a **`fromJSON(...)` lane**, which may read only
+     `needs.<resolver>.outputs.runners` or `needs.<resolver>.outputs.runner-json`
+     (the resolver's job runs the action, so the action supplies the fork
+     safety) or `inputs.runners` or `inputs.runner-json` of a reusable
+     workflow whose every caller passes one of those outputs.
+
+  At S1 the test is parametrized over `ci.yml` and `ci-extension.yml` only.
+  `test_resolve_toolchain_runner_is_var_overridable` is split: `ci.yml`
+  expects the new direct expression, and the other six resolvers keep
+  `RESOLVE_RUNNER_EXPR` until S2. **S2 widens both** to every scaffolded
+  workflow. That way S1 lands green while S2's workflows still carry the
+  legacy expression.
 - *Acceptance:*
   - executed-bash tests for each class and source: fork, variable,
     legacy-key, default;
   - variable wins over the key, per (a);
-  - a malformed variable fails (comma, surrounding whitespace);
+  - a malformed variable fails: a comma, or a label with surrounding
+    whitespace;
+  - a whitespace-only variable is unset with a `::warning::` (§3);
   - no variables and no key gives `ubuntu-26.04` everywhere;
   - deprecation warnings appear;
-  - the private-and-all-default step-summary line appears;
-  - a shape test that every non-literal `runs-on` in scaffolded workflows
-    contains the predicate;
-  - a test that no scaffolded workflow declares `workflow_run`;
+  - the private no-variables `::notice::` (§3) fires, and is silenced by
+    variables set to `ubuntu-26.04`;
   - the partial-setup notice: SMALL and LARGE set → no notice; only SMALL set →
-    a notice naming LARGE; an XLARGE override with XLARGE unset → a notice;
-  - `ci.yml` lanes reference `runners` per §4.
+    a notice naming LARGE;
+  - the shape test above;
+  - a test that no scaffolded workflow declares `workflow_run` or
+    `merge_group` (all workflows from S1 on: true today);
+  - `ci.yml` lanes reference `runners` per §4;
+  - a caller that passes none of the new inputs keeps today's `runner-json`.
+
+**S1b — Per-lane size override `DEVKIT_CI_LANE_SIZES`** (only if (b)-1).
+
+- *Scope:*
+  - parse `DEVKIT_CI_LANE_SIZES` in `resolve-toolchain`, with an `::error::`
+    on an unknown lane or size;
+  - the init-workspace write-path guard and persistence;
+  - the template comment;
+  - XLARGE joining the required classes when the map uses it.
+- *Files:* `resolve-toolchain/action.yml` (its parser section),
+  `assets/init-workspace.sh` (guard and persistence),
+  `assets/workspace/.vig-os` (the key and its comment), and the lane-size
+  cases in `tests/test_ci_runner.py` and `tests/bats/init-workspace.bats`.
+- *Acceptance:*
+  - an override moves a lane's `runners` entry;
+  - invalid values fail at both the write path and resolve;
+  - persisted across `--force`;
+  - an XLARGE override with XLARGE unset gives the partial-setup notice.
 
 **S2 — Remaining scaffolded workflows.**
 
@@ -826,21 +961,34 @@ S7 (docs) follows S1–S6, S8 gates release N, and S9 is release N+1.
   - each job's class matches §4;
   - managed reusables declare `runners`;
   - the seeded-hook input contract is unchanged;
-  - seeded hooks use the new expression.
+  - seeded hooks use the new expression;
+  - S1's shape test and resolver-expression test are widened to every
+    scaffolded workflow, including `assets/smoke-test/.github/workflows/ci-extension.yml`.
 
 **S3 — `devkit-upgrade` migration.**
 
-- *Scope:* §6: the variable-visible environment into `install.sh`; the legacy
-  key handling per (c); the `ci-runner-migration:` lines; the "CI runner
-  migration" PR-body section; the seeded-hook reconcile per (d).
+- *Scope:* §6. It ships in release N and **acts from the N+1 adoption on**
+  (§6, two steps):
+  - N's `devkit-upgrade.yml` passes `vars.CI_RUNNER_*` into the install step
+    and lifts the `ci-runner-migration:` lines into a "CI runner migration"
+    PR-body section;
+  - `init-workspace.sh` handles the legacy key per (c), keeps it when no
+    variables are visible (which is always the case in the adoption of N),
+    prints the lines, and adds the private no-variables hint row;
+  - the seeded-hook reconcile per (d).
 - *Files:* `assets/init-workspace.sh` (the persistence block, not S1's
   section), `assets/workspace/.github/workflows/devkit-upgrade.yml` (the
   install and PR-body steps; S2 touches only `runs-on`),
   `tests/bats/init-workspace.bats` (migration cases), and the devkit-upgrade
   workflow tests.
-- *Acceptance:* bats cases for every row of the §6 table, the strip/keep
-  outcome per (c), the reconcile/drift lines per (d), and the PR body
-  containing the lines.
+- *Acceptance:*
+  - bats cases for every row of the §6 table;
+  - the strip/keep outcome per (c);
+  - with no `CI_RUNNER_*` in the environment (the pre-N workflow), the key is
+    always kept;
+  - the reconcile/drift lines per (d);
+  - a workflow test that the install step's `env` carries all three
+    variables and that the PR-body step lifts the lines.
 
 **S4 — `.site/` convention and site-init hook.**
 
@@ -925,9 +1073,9 @@ S7 (docs) follows S1–S6, S8 gates release N, and S9 is release N+1.
 - *Acceptance:* the matrix is green with the key only (warning path) and with
   variables only.
 
-**S9 — Removal (release N+1).**
+**S9 — Removal (release N+2).**
 
-- *Scope:* §6 N+1: delete the legacy arms, keep the tombstones, remove the
+- *Scope:* §6 N+2: delete the legacy arms, keep the tombstones, remove the
   `runner-json` alias, and drop the template key. The direct expression of the
   `resolve-toolchain` jobs and resolvers is unchanged (§3: the legacy-variable term carries the tombstone).
 - *Files:* `resolve-toolchain`, the scaffolded workflows, `.vig-os`,
@@ -937,4 +1085,4 @@ S7 (docs) follows S1–S6, S8 gates release N, and S9 is release N+1.
   - `DEVKIT_CI_RESOLVE_RUNNER` appears in `runs-on` only as the term before
     the hosted default in the `resolve-toolchain` jobs and resolvers, never
     in a seeded hook.
-- Blocked by release N shipping.
+- Blocked by release N+1 shipping.
