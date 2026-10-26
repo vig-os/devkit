@@ -3299,13 +3299,15 @@ render_release_optout() {
 # Keep the default text byte-identical; use the validator's resolved exemption
 # list so explicit DEVKIT_REFS_OPTIONAL_TYPES overrides the policy here too.
 render_commit_standard() {
-    local doc="$WORKSPACE_DIR/docs/COMMIT_MESSAGE_STANDARD.md" mode=some type exemptions start end
+    local doc="$WORKSPACE_DIR/docs/COMMIT_MESSAGE_STANDARD.md" mode=some type exemptions branch_note start end
     local -a _doc_types
     [[ -f "$doc" ]] || return 0
     [[ "$RESOLVED_REFS_OPTIONAL_TYPES" == chore && "$RESOLVED_COMMIT_TYPES" != chore ]] && return 0
     if [[ "$RESOLVED_REFS_OPTIONAL_TYPES" == none ]]; then
         mode=none
         exemptions="No commit types are exempt from the Refs requirement."
+        # shellcheck disable=SC2016
+        branch_note='The issue-less `chore/<summary>` branch form ([#1767](https://github.com/vig-os/devkit/issues/1767)) remains allowed under every policy.'
     else
         mode=all
         IFS=',' read -ra _doc_types <<< "$RESOLVED_COMMIT_TYPES"
@@ -3314,11 +3316,17 @@ render_commit_standard() {
                 mode=some
             fi
         done
+        # shellcheck disable=SC2016
+        branch_note='Each exempt type also gets an issue-less `<type>/<summary>` branch form, as `chore/<summary>` has ([#1767](https://github.com/vig-os/devkit/issues/1767)).'
         exemptions="The following commit types may omit the \`Refs:\` line:"
         exemptions+=$'\n'
         IFS=',' read -ra _doc_types <<< "$RESOLVED_REFS_OPTIONAL_TYPES"
         for type in "${_doc_types[@]}"; do
-            exemptions+=$'\n'"- **\`$type\`** — The \`Refs:\` line is optional."
+            if [[ "$type" == chore ]]; then
+                exemptions+=$'\n'"- **\`chore\`** — The \`Refs:\` line is **optional**. Maintenance commits (e.g. dependency bumps, sync operations, tooling updates) may not relate to a specific issue. When a related issue or PR exists, including \`Refs:\` is still recommended."
+            else
+                exemptions+=$'\n'"- **\`$type\`** — The \`Refs:\` line is optional."
+            fi
         done
     fi
     start="$(grep -n '^The following commit types have a relaxed' "$doc" | cut -d: -f1)" || true
@@ -3327,8 +3335,7 @@ render_commit_standard() {
         echo "Error: $doc: missing or invalid Exemptions anchors" >&2
         return 1
     fi
-    # shellcheck disable=SC2016
-    exemptions+=$'\n\n''Each exempt type also gets an issue-less `<type>/<summary>` branch form, as `chore/<summary>` has ([#1767](https://github.com/vig-os/devkit/issues/1767)).'
+    exemptions+=$'\n\n'"$branch_note"
     splice_lines "$doc" "$start" "$((end - 1))" "$exemptions"$'\n'
     case "$mode" in
         all)
@@ -4327,10 +4334,6 @@ render_commit_app_environment
 # anchors) so the renders compose.
 render_refs_policy
 render_commit_types
-# Managed documentation (#1910): render resolved Refs exemptions and optional
-# security practices after copying their canonical templates.
-render_commit_standard
-render_security_practices
 # Branch types (#1432): the branch guard's --types arg (#1760) — a distinct
 # line from the three renders above, so all compose. No-op for the default.
 render_branch_types
@@ -4338,6 +4341,10 @@ render_branch_types
 # the resolved Refs-optional set — its own line, distinct from
 # render_branch_types' and render_branch_guard_model's, so all compose.
 render_issueless_branch_types
+# Managed documentation (#1910): render resolved Refs exemptions and optional
+# security practices after copying their canonical templates.
+render_commit_standard
+render_security_practices
 # actionlint opt-out (#1660): a whole-block excision, not a value sed, so it runs
 # LAST of the .pre-commit-config.yaml renders — the anchors above no longer need
 # to exist once the block is gone, and any of them landing inside it is moot.

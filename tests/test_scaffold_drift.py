@@ -209,7 +209,9 @@ def test_no_container_runtime_outside_the_container_step() -> None:
 
 
 def _gnu_sed() -> bool:
-    out = subprocess.run(["sed", "--version"], capture_output=True, text=True)
+    out = subprocess.run(
+        ["sed", "--version"], check=False, capture_output=True, text=True
+    )
     return out.returncode == 0 and "GNU" in out.stdout
 
 
@@ -342,6 +344,7 @@ def test_managed_docs_follow_manifest(
     standard = (ws / "docs/COMMIT_MESSAGE_STANDARD.md").read_text()
     if expected != "chore":
         assert "The Refs line is optional" not in standard
+    if expected not in ("chore", "none"):
         assert (
             "Each exempt type also gets an issue-less `<type>/<summary>` branch form"
             in standard
@@ -355,6 +358,9 @@ def test_managed_docs_follow_manifest(
     elif expected == "none":
         assert "Mandatory for all approved types" in standard
         assert "No commit types are exempt" in standard
+        assert "Each exempt type also gets" not in standard
+        assert "`chore/<summary>` branch form" in standard
+        assert "remains allowed under every policy" in standard
         assert "for types where `Refs:` is optional" not in standard
     elif expected == "chore":
         assert "Mandatory for most types" in standard
@@ -364,6 +370,8 @@ def test_managed_docs_follow_manifest(
     else:
         assert "**`docs`**" in standard and "**`test`**" in standard
         assert "**`chore`**" not in standard
+    if "chore" in exempt.split(",") or (policy == "optional" and expected == "all"):
+        assert "Maintenance commits" in standard
 
 
 @pytest.mark.parametrize(

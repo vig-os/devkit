@@ -46,7 +46,9 @@ a regression test for the document wording.
 ## Feature audit
 
 The security policy names scanning and Renovate as optional practices; both
-are rendered independently. Dependency review remains in core CI, and the
+are rendered independently. Dependency review remains in core CI but runs only for
+public repositories (`ci.yml` gates it on `!github.event.repository.private`), so
+the `SECURITY.md` claim is false for private consumers ([#1913](https://github.com/vig-os/devkit/issues/1913)). The
 remaining practices do not depend on optional feature groups. The commit
 standard’s Refs wording follows the resolved exemption list and retains the
 issue-less branch rule even when the skills feature is disabled: branch guards

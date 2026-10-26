@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Managed security and commit documentation follows the consumer manifest** ([#1910](https://github.com/vig-os/devkit/issues/1910))
   - Disabling `scanning` removes CodeQL and Scorecard claims and accepted findings from `SECURITY.md`; disabling `renovate` removes its monitoring claim
   - The commit standard describes the resolved Refs policy, including custom exempt types; re-scaffolding remains drift-free without local edits or disabling Scaffold Drift
+  - Known gaps tracked separately: `SECURITY.md` dependency-review claim for private repos ([#1913](https://github.com/vig-os/devkit/issues/1913)); approved-types table for custom `DEVKIT_COMMIT_TYPES` ([#1914](https://github.com/vig-os/devkit/issues/1914))
 
 - **install.sh and devkit-upgrade no longer need Docker in direnv mode** ([#1871](https://github.com/vig-os/devkit/issues/1871))
   - With `DEVKIT_MODE=direnv` (persisted, or `--mode direnv`), `install.sh` skips container-runtime detection and runs `init-workspace.sh` on the host from the pinned devkit flake source (`nix flake metadata` -> `assets/`, image bake steps replayed), so scaffold and `--force` upgrade need only nix, jq and rsync; the version defaults to the `.vig-os` `DEVKIT_VERSION` pin (upgrade) or the newest `X.Y.Z` release tag (fresh install), and the scaffold runs inside the release's own dev-shell with a clean environment so macOS hosts (BSD sed, bash 3.2) work; `--docker`/`--podman` are ignored with a warning
