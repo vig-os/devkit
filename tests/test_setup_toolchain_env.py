@@ -759,7 +759,9 @@ def test_host_nix_config_step_writes_wellformed_nix_config(tmp_path: Path) -> No
     parsed = _parse_github_env(github_env.read_text(encoding="utf-8"))
     nix_config = parsed.get("NIX_CONFIG")
     assert nix_config, "NIX_CONFIG not written to GITHUB_ENV"
-    assert parse_nix_settings(nix_config) == NIX_SETTINGS
+    expected = {**NIX_SETTINGS}
+    expected["extra-experimental-features"] = expected.pop("experimental-features")
+    assert parse_nix_settings(nix_config) == expected
 
 
 def _run_host_config(

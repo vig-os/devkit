@@ -295,6 +295,15 @@ the other manifest keys, so an upgrade preserves it with no flags. Absent =>
 unchanged behavior for every existing consumer
 ([#1173](https://github.com/vig-os/devkit/issues/1173)).
 
+In direnv mode with preinstalled host Nix, `setup-devkit-toolchain` preserves
+valid runner `NIX_CONFIG` settings, including local caches, trusted public keys,
+`cores` and `max-jobs`, in later steps. Devkit adds its experimental features
+and public cache settings; it sets `accept-flake-config = true` so the consumer
+repository's flake can supply its own cache configuration. The action validates
+ambient `NIX_CONFIG` with `nix config show`. If malformed, it drops that value
+with a warning containing the Nix diagnostic and exports devkit's valid settings
+([#1907](https://github.com/vig-os/devkit/issues/1907)).
+
 The release train routes the same way ([#1863](https://github.com/vig-os/devkit/issues/1863)):
 `prepare-release`, `prepare-hotfix`, `release` (and its reusable `release-core` /
 `release-publish`), `promote-release`, `abandon-release` and `sync-main-to-dev`

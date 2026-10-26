@@ -145,13 +145,32 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
+        host_nix_config="${NIX_CONFIG:-}"
+        if [ -n "$host_nix_config" ]; then
+          if ! config_error=$(NIX_CONFIG="$host_nix_config" nix --extra-experimental-features nix-command config show 2>&1 >/dev/null); then
+            # Escape workflow-command data so a diagnostic cannot inject commands.
+            config_error="${config_error//'%'/'%25'}"
+            config_error="${config_error//$'\r'/'%0D'}"
+            config_error="${config_error//$'\n'/'%0A'}"
+            echo "::warning::Dropping malformed ambient NIX_CONFIG: $config_error"
+            host_nix_config=""
+          fi
+        fi
+        delimiter=DEVKIT_NIX_CONFIG_EOF
+        while [[ $'\n'"$host_nix_config"$'\n' == *$'\n'"$delimiter"$'\n'* ]]; do
+          delimiter+="_"
+        done
         {
-          echo 'NIX_CONFIG<<DEVKIT_NIX_CONFIG_EOF'
-          echo 'experimental-features = nix-command flakes'
+          echo "NIX_CONFIG<<$delimiter"
+          if [ -n "$host_nix_config" ]; then
+            printf '%s\n' "$host_nix_config"
+          fi
+          echo 'extra-experimental-features = nix-command flakes'
+          # Required to accept the consumer repo flake's own cache configuration.
           echo 'accept-flake-config = true'
           echo 'extra-substituters = https://vig-os.cachix.org'
           echo 'extra-trusted-public-keys = vig-os.cachix.org-1:yoOYRi3bvnM6ThxO0joLt7vtzhTfkq3r6jykeUMg7Bk='
-          echo 'DEVKIT_NIX_CONFIG_EOF'
+          echo "$delimiter"
         } >> "$GITHUB_ENV"
         echo "Configured preinstalled host Nix via NIX_CONFIG."
 
