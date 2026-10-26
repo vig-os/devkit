@@ -75,6 +75,7 @@ WORKFLOW_DIRS = (
 EXPECTED_SKILLS = frozenset(
     {
         "adopt",
+        "app-provision",
         "pack-rust",
         "release-abandon",
         "release-candidate",
@@ -93,6 +94,7 @@ EXPECTED_SKILLS = frozenset(
 # never infer its way into cutting a release train.
 MUTATING_SKILLS = frozenset(
     {
+        "app-provision",
         "release-abandon",
         "release-candidate",
         "release-finalize",
@@ -498,7 +500,7 @@ def test_readme_lists_every_command():
 # ---------------------------------------------------------------------------- #
 
 _DISPATCH_RE = re.compile(
-    r"just\s+(?:prepare|publish|finalize|promote|abandon)[a-z-]*|gh workflow run|install\.sh"
+    r"just\s+(?:prepare|publish|finalize|promote|abandon)[a-z-]*|gh workflow run|install\.sh|gh-app-provision\s+--"
 )
 
 
