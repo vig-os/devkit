@@ -76,10 +76,25 @@ def copy_inputs(root: Path, target: Path, files: list[str]) -> None:
         shutil.copyfile(source, destination)
 
 
-def scan_command(root: Path, temporary: Path, args: argparse.Namespace):
-    """Select the staged diff or a snapshot of the requested working files."""
+def staged_environment(root: Path) -> dict[str, str]:
+    """Keep Git's real index while gitleaks runs in an empty source directory."""
+    return {
+        **os.environ,
+        "GIT_DIR": os.fsdecode(git(root, "rev-parse", "--absolute-git-dir")).strip(),
+        "GIT_WORK_TREE": str(root),
+        "GIT_INDEX_FILE": os.fsdecode(
+            git(root, "rev-parse", "--path-format=absolute", "--git-path", "index")
+        ).strip(),
+    }
+
+
+def scan_commands(root: Path, temporary: Path, args: argparse.Namespace):
+    """Isolate scanner config without excluding repository ignore-file content."""
+    tree = temporary / "tree"
+    tree.mkdir()
     if not args.all_files and not args.files:
-        return root, ["git", "--pre-commit", "--staged", str(root)]
+        yield tree, ["git", "--pre-commit", "--staged", "."], staged_environment(root)
+        return
     files = args.files
     if args.all_files:
         files = [
@@ -89,10 +104,16 @@ def scan_command(root: Path, temporary: Path, args: argparse.Namespace):
             ).split(b"\0")
             if name
         ]
-    tree = temporary / "tree"
-    tree.mkdir()
     copy_inputs(root, tree, files)
-    return tree, ["dir", "."]
+    # 8.30.1 also loads <source>/.gitleaksignore despite the explicit flag.
+    # Scan this file separately as data, so neither pass can load it as config.
+    ignore_input = tree / ".gitleaksignore"
+    if ignore_input.exists():
+        separate = temporary / "ignore-input"
+        separate.mkdir()
+        ignore_input.rename(separate / ".gitleaksignore")
+        yield separate, ["dir", ".gitleaksignore"], None
+    yield tree, ["dir", "."], None
 
 
 def publish_findings(report: Path, tree: Path) -> int:
@@ -114,29 +135,38 @@ def scan(root: Path, config: Path, args: argparse.Namespace) -> int:
     with tempfile.TemporaryDirectory(prefix="site-leak-check-") as directory:
         temporary = Path(directory)
         report = temporary / "report.json"
-        tree, command = scan_command(root, temporary, args)
-        result = subprocess.run(
-            [
-                args.gitleaks,
-                *command,
-                "--config",
-                str(config),
-                "--redact",
-                "--no-banner",
-                "--exit-code",
-                "42",
-                "--report-format",
-                "json",
-                "--report-path",
-                str(report),
-            ],
-            cwd=tree,
-            capture_output=True,
-            check=False,
-        )
-        if result.returncode not in {0, 42}:
-            raise ValueError("scanner failed; check the private configuration locally")
-        return publish_findings(report, tree)
+        ignore = temporary / ".gitleaksignore"
+        ignore.write_text("")
+        failed = False
+        for tree, command, environment in scan_commands(root, temporary, args):
+            result = subprocess.run(
+                [
+                    args.gitleaks,
+                    *command,
+                    "--config",
+                    str(config),
+                    "--gitleaks-ignore-path",
+                    str(ignore),
+                    "--redact",
+                    "--no-banner",
+                    "--exit-code",
+                    "42",
+                    "--report-format",
+                    "json",
+                    "--report-path",
+                    str(report),
+                ],
+                cwd=tree,
+                env=environment,
+                capture_output=True,
+                check=False,
+            )
+            if result.returncode not in {0, 42}:
+                raise ValueError(
+                    "scanner failed; check the private configuration locally"
+                )
+            failed = bool(publish_findings(report, tree)) or failed
+        return int(failed)
 
 
 def main() -> int:
