@@ -20,7 +20,7 @@ see [`WORKFLOW_SECURITY.md`](WORKFLOW_SECURITY.md#where-the-credentials-live-dev
 | Classic personal access token | only if an expiry was set; it can be created without one, but is then a standing credential tied to a person | yes | yes |
 | GitHub App installation token | after about 1 hour; `actions/create-github-app-token` mints a fresh one on every run | yes | no |
 
-What persists for an App is its private key, stored as a repository secret. The key does not expire on its own,
+What persists for an App is its private key, stored as an Actions secret. The key does not expire on its own,
 but you can rotate or revoke it in the App's settings.
 
 Use an App when a workflow must push a tag or commit that triggers another
@@ -54,8 +54,9 @@ with a browser driver.
    `<PREFIX>_ID` and `<PREFIX>_PRIVATE_KEY` as repository Actions secrets. The
    PEM is piped into `gh secret set` and is never printed or logged.
    The callback is claimed before processing starts. Later requests, including
-   concurrent requests and browser reloads, receive HTTP `200` with a fixed
-   "Callback already accepted" page. They never repeat the exchange or change
+   concurrent requests and browser reloads, receive HTTP `200`. After a rejected
+   or failed callback the page says "This provisioning run has ended"; otherwise
+   it says "Callback already accepted". They never repeat the exchange or change
    the first callback's result or error.
 4. The success page links to the install page. Click **Install** and select the
    repository. GitHub then redirects your browser to the manifest's `setup_url`,
@@ -77,6 +78,42 @@ up to `min(timeout, 300)` seconds. Requires an authenticated `gh` on `PATH`.
 Exit codes: `0` App created and secrets stored (or a `--dry-run` preview; see
 the Install caveat above), `1` provisioning/startup failure, `2` timeout or
 invalid usage, `130` interrupted.
+
+## Run without installing vig-utils
+
+The flake app exposes the same console script and accepts the same flags:
+
+```bash
+nix run .#app-provision -- --dry-run \
+  --name my-release-bot --owner my-org --repo my-org/my-repo
+```
+
+Outside a checkout, use `nix run github:vig-os/devkit#app-provision -- ...`.
+An authenticated `gh` must still be on `PATH` for a real provisioning run.
+
+## Organization secrets for selected repositories
+
+Add `--org-secret --repos my-repo,other-repo` to store all three credentials as
+organization Actions secrets under `--owner`, visible only to those repositories:
+
+```bash
+gh-app-provision --name my-release-bot --owner my-org --owner-type org \
+  --repo my-org/my-repo --org-secret --repos my-repo,other-repo
+```
+
+`--org-secret` requires `--owner-type org` and a non-empty repository list, and
+is mutually exclusive with `--no-secrets`. `--repos` requires `--org-secret`;
+whitespace around repository names is stripped and empty entries are rejected.
+Invalid combinations exit `2` before
+starting the server. `--repo` remains required for the manifest's project URL;
+`--repos` controls secret visibility, not App installation or permissions.
+Install the App on every repository that needs an installation token.
+The authenticated `gh` account needs permission to manage organization Actions
+secrets; organization plan and policy restrictions still apply. Verify names
+with `gh secret list --org my-org`. Writes use
+`gh secret set NAME --org my-org --visibility selected --repos my-repo,other-repo`,
+with values passed only on stdin. The recovery-key and partial-write behavior
+below also applies to organization secrets.
 
 ## Binding modes
 
@@ -133,11 +170,47 @@ The tool prints the action by tag; replace it with the pinned form:
 Use the SHA currently in `.github/workflows/` rather than the one above if it has
 moved; Renovate keeps the pins fresh.
 
+## Use the minted token with Nix
+
+For private GitHub flake inputs, give the App read access to their contents and
+install it on the input repositories. Mint a token scoped to those repositories,
+mask it before exporting, and append the Nix setting to the existing `NIX_CONFIG`
+so runner cache, feature and other settings survive. Run this after any toolchain
+setup that exports `NIX_CONFIG`, before the Nix command that fetches private inputs:
+
+```yaml
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
+        id: app-token
+        with:
+          client-id: ${{ secrets.RP_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RP_APP_PRIVATE_KEY }}
+          owner: my-org
+          repositories: my-repo,other-repo
+      - name: Configure Nix GitHub access
+        shell: bash
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          echo "::add-mask::$APP_TOKEN"
+          delimiter="NIX_CONFIG_$(openssl rand -hex 16)"
+          {
+            printf 'NIX_CONFIG<<%s\n' "$delimiter"
+            printf '%s\n' "${NIX_CONFIG:-}"
+            printf 'access-tokens = github.com=%s\n' "$APP_TOKEN"
+            printf '%s\n' "$delimiter"
+          } >> "$GITHUB_ENV"
+      - run: nix flake metadata
+```
+
+The appended `access-tokens` setting takes precedence over any earlier setting
+of that name; include any required non-GitHub host tokens in the appended value.
+Never print `NIX_CONFIG` or enable shell tracing around credentials. The token
+expires, so mint it within each job rather than persisting it as a long-lived
+secret. The existing credential slots work with either secret storage mode.
+
 ## Known limits
 
 - The conversion `code` is single-use and expires about an hour after creation.
-- The secrets are repository secrets. Organization secrets with selected-repository
-  visibility, a Nix `access-tokens` recipe and a flake app are tracked in
-  [#1915](https://github.com/vig-os/devkit/issues/1915).
 - Error messages omit upstream details on purpose, because they can contain
   secrets; rerun with `--dry-run` or check the App's settings page to diagnose.

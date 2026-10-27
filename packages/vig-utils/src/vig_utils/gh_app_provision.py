@@ -29,7 +29,9 @@ Example:
         --secret-prefix RP_APP
 
 Stdlib only. Requires an authenticated ``gh`` on PATH for code exchange and
-repo secret writes. The default binds and advertises 127.0.0.1. A browser on
+secret writes. --org-secret --repos a,b stores organization secrets with selected
+repository visibility instead (requires --owner-type org, excludes --no-secrets).
+The default binds and advertises 127.0.0.1. A browser on
 another machine cannot reach that listener: choose an explicit IPv4 --host
 on a reachable LAN/VPN interface, or --base-url for a reverse proxy. --host
 binds exactly the chosen address; wildcard listeners are rejected and there
@@ -37,7 +39,8 @@ is no address autodetection. With --base-url it binds loopback; configure it to
 forward to a fixed --port and strip any base URL path prefix. Proxy access logs
 must omit query strings, which contain the single-use conversion code.
 --base-url requires an HTTP(S) URL with a host and is mutually exclusive with
---host. Later callbacks return HTTP 200 "Callback already accepted", including
+--host. After a failed callback, later requests return HTTP 200 "This provisioning
+run has ended". Otherwise later callbacks return "Callback already accepted", including
 while the first callback is running, without exchanging again or changing state.
 
 --pem-out writes an exclusive 0600 recovery key before secret writes. Existing
@@ -62,6 +65,7 @@ import secrets
 import subprocess
 import sys
 import threading
+from functools import partial
 from html import escape
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
@@ -159,11 +163,18 @@ def wiring_snippet(prefix: str, client_id_stored: bool = True) -> str:
     )
 
 
-def set_secret(repo: str, name: str, value: str) -> None:
-    """Write a repo Actions secret via gh, passing the value on stdin so it never
+def set_secret(
+    repo: str, name: str, value: str, *, org_repos: str | None = None
+) -> None:
+    """Write an Actions secret via gh, passing the value on stdin so it never
     appears in argv / process listings / logs."""
+    target = (
+        ["--org", repo, "--visibility", "selected", "--repos", org_repos]
+        if org_repos is not None
+        else ["--repo", repo]
+    )
     subprocess.run(
-        ["gh", "secret", "set", name, "--repo", repo],
+        ["gh", "secret", "set", name, *target],
         input=value,
         text=True,
         check=True,
@@ -221,17 +232,22 @@ class Provisioner:
 </form><script>document.getElementById('f').submit()</script></body>"""
 
     def store_credentials(self, conversion: dict) -> list[str]:
-        """Save the optional recovery key before attempting repo secret writes."""
+        """Save the optional recovery key before attempting secret writes."""
         if getattr(self.args, "pem_out", None):
             write_private(self.args.pem_out, conversion["pem"])
         if getattr(self.args, "no_secrets", False):
             return []
         names = credential_slot_names(self.args.slot_prefix)
-        set_secret(self.args.repo, names["id"], str(conversion["id"]))
-        set_secret(self.args.repo, names["private_key"], conversion["pem"])
+        store = (
+            partial(set_secret, self.args.owner, org_repos=self.args.repos)
+            if getattr(self.args, "org_secret", False)
+            else partial(set_secret, self.args.repo)
+        )
+        store(names["id"], str(conversion["id"]))
+        store(names["private_key"], conversion["pem"])
         stored = [names["id"], names["private_key"]]
         if conversion.get("client_id"):
-            set_secret(self.args.repo, names["client_id"], str(conversion["client_id"]))
+            store(names["client_id"], str(conversion["client_id"]))
             stored.insert(0, names["client_id"])
         else:
             print(
@@ -244,6 +260,8 @@ class Provisioner:
     def handle_callback(self, qs: dict) -> tuple[int, str]:
         """Claim the callback once; later requests get a fixed HTTP 200 page."""
         with self._callback_lock:
+            if self.code_done.is_set() and self.error:
+                return 200, "<h2>This provisioning run has ended.</h2>"
             if self._callback_started or self.code_done.is_set():
                 return 200, "<h2>Callback already accepted.</h2>"
             self._callback_started = True
@@ -365,7 +383,12 @@ class Provisioner:
         if getattr(self.args, "no_secrets", False):
             print("Repository secrets were not written (--no-secrets).")
         else:
-            print(f"secrets set on {self.args.repo}: {', '.join(result['stored'])}")
+            target = (
+                f"organization {self.args.owner} (selected repos: {self.args.repos})"
+                if getattr(self.args, "org_secret", False)
+                else self.args.repo
+            )
+            print(f"secrets set on {target}: {', '.join(result['stored'])}")
         print(f"install: {result['html_url']}/installations/new")
         if self.installed.wait(timeout=min(self.args.timeout, 300)):
             print("install: confirmed ✓")
@@ -392,12 +415,26 @@ def argument_parser() -> argparse.ArgumentParser:
         "--owner", required=True, help="org (or user) that will own the App"
     )
     ap.add_argument("--owner-type", choices=["org", "user"], default="org")
-    ap.add_argument("--repo", required=True, help="OWNER/REPO to write the secrets to")
+    ap.add_argument(
+        "--repo",
+        required=True,
+        help="OWNER/REPO for the manifest URL and default secret destination",
+    )
     ap.add_argument(
         "--perms",
         default="contents=write,pull_requests=write",
         help="comma list, e.g. contents=write,pull_requests=write",
     )
+    ap.add_argument(
+        "--public", action="store_true", help="make the App public (default private)"
+    )
+    add_secret_arguments(ap)
+    add_server_arguments(ap)
+    return ap
+
+
+def add_secret_arguments(ap: argparse.ArgumentParser) -> None:
+    """Add credential destination and recovery options."""
     ap.add_argument(
         "--secret-prefix",
         dest="slot_prefix",
@@ -405,20 +442,24 @@ def argument_parser() -> argparse.ArgumentParser:
         help="secrets become <prefix>_CLIENT_ID / <prefix>_ID / <prefix>_PRIVATE_KEY",
     )
     ap.add_argument(
-        "--public", action="store_true", help="make the App public (default private)"
-    )
-    ap.add_argument(
         "--pem-out",
         default=None,
         help="also write the App private key to this path (0600, must not exist)",
     )
+    storage = ap.add_mutually_exclusive_group()
+    storage.add_argument(
+        "--org-secret",
+        action="store_true",
+        help="write organization secrets with selected-repo visibility (requires --owner-type org and --repos)",
+    )
     ap.add_argument(
+        "--repos", help="comma-separated repositories allowed to read org secrets"
+    )
+    storage.add_argument(
         "--no-secrets",
         action="store_true",
         help="do not write repo secrets (use with --pem-out)",
     )
-    add_server_arguments(ap)
-    return ap
 
 
 def add_server_arguments(ap: argparse.ArgumentParser) -> None:
@@ -456,7 +497,17 @@ def add_server_arguments(ap: argparse.ArgumentParser) -> None:
 
 
 def main() -> int:
-    args = argument_parser().parse_args()
+    parser = argument_parser()
+    args = parser.parse_args()
+    if args.repos is not None:
+        if not args.org_secret:
+            parser.error("--repos requires --org-secret")
+        repos = [repo.strip() for repo in args.repos.split(",")]
+        if not all(repos):
+            parser.error("--org-secret requires non-empty --repos")
+        args.repos = ",".join(repos)
+    if args.org_secret and (args.owner_type != "org" or args.repos is None):
+        parser.error("--org-secret requires --owner-type org and non-empty --repos")
     if args.dry_run:
         provisioner = Provisioner(args)
         provisioner.port = args.port

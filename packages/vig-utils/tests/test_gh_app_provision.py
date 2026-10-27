@@ -634,3 +634,165 @@ def test_host_and_base_url_are_mutually_exclusive(capsys):
         )
     assert error.value.code == 2
     assert "not allowed with argument" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_org_secrets_selected_repos(args, conversion, capsys, failure):
+    args.org_secret = True
+    args.repos = "repo,other"
+    provisioner = mod.Provisioner(args)
+    provisioner.port = 8123
+    provisioner.installed.set()
+    with (
+        mock.patch.object(mod, "exchange_code", return_value=conversion),
+        mock.patch.object(mod.subprocess, "run") as run,
+    ):
+        if failure:
+            run.side_effect = subprocess.CalledProcessError(
+                1, ["gh"], output=conversion["pem"], stderr=conversion["pem"]
+            )
+        status, page = provisioner.handle_callback(
+            {"state": [provisioner.state], "code": ["code"]}
+        )
+        assert status == (500 if failure else 200)
+        assert provisioner.wait_for_provisioning() == (1 if failure else 0)
+    expected = [
+        mock.call(
+            [
+                "gh",
+                "secret",
+                "set",
+                name,
+                "--org",
+                "example",
+                "--visibility",
+                "selected",
+                "--repos",
+                "repo,other",
+            ],
+            input=value,
+            text=True,
+            check=True,
+            capture_output=True,
+        )
+        for name, value in [
+            ("BOT_ID", "42"),
+            ("BOT_PRIVATE_KEY", conversion["pem"]),
+            ("BOT_CLIENT_ID", conversion["client_id"]),
+        ]
+    ]
+    assert run.call_args_list == (expected[:1] if failure else expected)
+    output = capsys.readouterr()
+    for key in ("pem", "client_secret", "webhook_secret", "client_id"):
+        assert conversion[key] not in output.out + output.err + page
+    if not failure:
+        assert "secrets set on organization example" in output.out
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--owner-type", "user", "--repos", "repo"],
+        [],
+        ["--repos", ""],
+        ["--repos", " , "],
+        ["--repos", "repo", "--no-secrets"],
+    ],
+)
+def test_invalid_org_secret_options(extra, monkeypatch, capsys):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "gh-app-provision",
+            "--name",
+            "bot",
+            "--owner",
+            "example",
+            "--repo",
+            "example/repo",
+            "--dry-run",
+            "--org-secret",
+            *extra,
+        ],
+    )
+    with pytest.raises(SystemExit) as error:
+        mod.main()
+    assert error.value.code == 2
+    message = capsys.readouterr().err
+    assert "--org-secret" in message
+    assert "unrecognized arguments" not in message
+
+
+@pytest.mark.parametrize("rejection", ["state", "code", "exchange"])
+def test_callback_after_rejection_shows_terminal_state(args, rejection):
+    provisioner = mod.Provisioner(args)
+    query = {"state": [provisioner.state], "code": ["code"]}
+    first = {**query}
+    if rejection == "state":
+        first["state"] = ["wrong"]
+    elif rejection == "code":
+        del first["code"]
+    with mock.patch.object(mod, "exchange_code", side_effect=RuntimeError) as exchange:
+        assert provisioner.handle_callback(first)[0] == (
+            500 if rejection == "exchange" else 400
+        )
+        error = provisioner.error
+        assert provisioner.handle_callback(query) == (
+            200,
+            "<h2>This provisioning run has ended.</h2>",
+        )
+    assert exchange.call_count == (1 if rejection == "exchange" else 0)
+    assert provisioner.error == error
+    assert provisioner.result == {}
+
+
+@pytest.mark.parametrize("repos", ["a,b", " a , b "])
+def test_cli_normalizes_repos_before_secret_writes(monkeypatch, conversion, repos):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "gh-app-provision",
+            "--name=bot",
+            "--owner=example",
+            "--repo=example/a",
+            "--org-secret",
+            "--repos",
+            repos,
+        ],
+    )
+
+    def provision(provisioner):
+        provisioner.store_credentials(conversion)
+        return 0
+
+    with (
+        mock.patch.object(mod.Provisioner, "run", provision),
+        mock.patch.object(mod.subprocess, "run") as run,
+    ):
+        assert mod.main() == 0
+    assert len(run.call_args_list) == 3
+    for call in run.call_args_list:
+        assert call.args[0][-2:] == ["--repos", "a,b"]
+
+
+@pytest.mark.parametrize("repos", ["a,b", ""])
+def test_repos_requires_org_secret(monkeypatch, capsys, repos):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "gh-app-provision",
+            "--name=bot",
+            "--owner=example",
+            "--repo=example/a",
+            "--repos",
+            repos,
+            "--dry-run",
+        ],
+    )
+    with pytest.raises(SystemExit) as error:
+        mod.main()
+    assert error.value.code == 2
+    assert "--repos requires --org-secret" in capsys.readouterr().err
