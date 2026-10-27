@@ -512,3 +512,125 @@ def test_exchange_code_posts_to_manifest_conversion(conversion, capsys):
     assert run.call_args.kwargs["timeout"] == 30
     output = capsys.readouterr()
     assert output.out == output.err == ""
+
+
+@pytest.mark.parametrize("replay", ["valid", "wrong-state", "missing-code"])
+def test_callback_replay_preserves_success(args, conversion, replay):
+    args.no_secrets = True
+    provisioner = mod.Provisioner(args)
+    query = {"state": [provisioner.state], "code": ["code"]}
+    response = subprocess.CompletedProcess([], 0, stdout=json.dumps(conversion))
+    with mock.patch.object(mod.subprocess, "run", return_value=response) as run:
+        assert provisioner.handle_callback(query)[0] == 200
+        result = provisioner.result.copy()
+        later = {
+            "valid": query,
+            "wrong-state": {},
+            "missing-code": {"state": [provisioner.state]},
+        }[replay]
+        assert provisioner.handle_callback(later) == (
+            200,
+            "<h2>Callback already accepted.</h2>",
+        )
+    run.assert_called_once()
+    assert provisioner.result == result
+    assert provisioner.error is None
+
+
+def test_concurrent_callback_cannot_repeat_exchange(args, conversion):
+    args.no_secrets = True
+    provisioner = mod.Provisioner(args)
+    query = {"state": [provisioner.state], "code": ["code"]}
+    entered = mod.threading.Event()
+    release = mod.threading.Event()
+
+    def exchange(_):
+        entered.set()
+        assert release.wait(5)
+        return conversion
+
+    with mock.patch.object(mod, "exchange_code", side_effect=exchange) as exchange_mock:
+        worker = mod.threading.Thread(target=provisioner.handle_callback, args=(query,))
+        worker.start()
+        try:
+            assert entered.wait(5)
+            assert provisioner.handle_callback(query) == (
+                200,
+                "<h2>Callback already accepted.</h2>",
+            )
+            assert not provisioner.code_done.is_set()
+        finally:
+            release.set()
+            worker.join(5)
+        assert not worker.is_alive()
+    exchange_mock.assert_called_once_with("code")
+    assert provisioner.code_done.is_set()
+    assert provisioner.error is None
+
+
+@pytest.mark.parametrize("failure", ["timeout", "json"])
+def test_exchange_failure_is_sanitized(args, conversion, failure, capsys):
+    provisioner = mod.Provisioner(args)
+    provisioner.port = 8123
+    secret = json.dumps(conversion)
+    response = subprocess.CompletedProcess([], 0, stdout=secret + "invalid")
+    with mock.patch.object(mod.subprocess, "run", return_value=response) as run:
+        if failure == "timeout":
+            run.side_effect = subprocess.TimeoutExpired(
+                ["gh", "sensitive-code"], 30, output=secret, stderr=secret
+            )
+        status, page = provisioner.handle_callback(
+            {"state": [provisioner.state], "code": ["sensitive-code"]}
+        )
+        assert provisioner.wait_for_provisioning() == 1
+    expected = "conversion or credential storage failed; check connectivity and output permissions"
+    assert status == 500
+    assert provisioner.error == expected
+    assert expected in page
+    output = capsys.readouterr()
+    assert output.err == f"ERROR: {expected}\n"
+    for value in ["sensitive-code", *conversion.values()]:
+        if isinstance(value, str):
+            assert value not in output.out + output.err + page
+    run.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "url", ["proxy.example", "ftp://proxy.example", "https://", "http:///path"]
+)
+def test_invalid_base_url_is_rejected(url, capsys):
+    with pytest.raises(SystemExit) as error:
+        mod.argument_parser().parse_args(
+            [
+                "--name",
+                "bot",
+                "--owner",
+                "example",
+                "--repo",
+                "example/repo",
+                "--base-url",
+                url,
+            ]
+        )
+    assert error.value.code == 2
+    assert "--base-url must be an HTTP(S) URL with a host" in capsys.readouterr().err
+
+
+def test_host_and_base_url_are_mutually_exclusive(capsys):
+    with pytest.raises(SystemExit) as error:
+        mod.argument_parser().parse_args(
+            [
+                "--name",
+                "bot",
+                "--owner",
+                "example",
+                "--repo",
+                "example/repo",
+                "--host",
+                "127.0.0.1",
+                "--base-url",
+                "https://proxy.example",
+            ]
+        )
+    assert error.value.code == 2
+    assert "not allowed with argument" in capsys.readouterr().err
