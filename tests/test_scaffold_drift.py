@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING
 import pytest
 import yaml
 
+from tests.conftest import disable_git_auto_maintenance
 from tests.workflow_scaffold import (
     REPO_ROOT,
     WORKFLOWS,
@@ -279,6 +280,16 @@ def test_nix_drift_reports_clean_then_drift(
         "commit.gpgsign=false",
     ]
     subprocess.run(["git", "init", "-q"], cwd=ws, check=True)
+    disable_git_auto_maintenance(ws)
+    for key, expected in (("maintenance.auto", "false"), ("gc.auto", "0")):
+        config = subprocess.run(
+            ["git", "config", "--get", key],
+            cwd=ws,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert config.stdout.strip() == expected, f"{key} must be {expected}"
     subprocess.run(["git", "add", "-A"], cwd=ws, check=True)
     subprocess.run([*git, "commit", "-qm", "scaffold"], cwd=ws, check=True)
 
