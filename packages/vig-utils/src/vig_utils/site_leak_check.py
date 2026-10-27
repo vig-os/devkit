@@ -92,7 +92,7 @@ def scan_command(root: Path, temporary: Path, args: argparse.Namespace):
     tree = temporary / "tree"
     tree.mkdir()
     copy_inputs(root, tree, files)
-    return tree, ["dir", str(tree)]
+    return tree, ["dir", "."]
 
 
 def publish_findings(report: Path, tree: Path) -> int:
@@ -130,7 +130,7 @@ def scan(root: Path, config: Path, args: argparse.Namespace) -> int:
                 "--report-path",
                 str(report),
             ],
-            cwd=root,
+            cwd=tree,
             capture_output=True,
             check=False,
         )
