@@ -171,6 +171,7 @@ runs:
         HEAD_REPO_FORK: ${{ github.event.pull_request.head.repo.fork }}
         HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
         BASE_REPOSITORY: ${{ github.repository }}
+        REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
         INPUT_IMAGE_TAG: ${{ inputs.image-tag }}
       run: |
         set -euo pipefail
@@ -285,6 +286,9 @@ runs:
           raw="${!input_name:-}"
           trimmed="${raw#"${raw%%[![:space:]]*}"}"
           trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+          if [[ -n "$raw" && -z "$trimmed" ]]; then
+            echo "::warning::Whitespace-only CI_RUNNER_${size^^}, treated as unset; delete the variable or set one runner label."
+          fi
           if [[ -n "$trimmed" ]] && ! valid_runner_label "$raw"; then
             echo "::error::Invalid CI_RUNNER_${size^^}: expected one runner label matching ^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
             exit 1
@@ -303,8 +307,69 @@ runs:
           RUNNERS=$(jq -c --arg size "$size" --argjson labels "$labels" '.[$size] = $labels' <<< "$RUNNERS")
           SOURCES=$(jq -c --arg size "$size" --arg source "$source" '.[$size] = $source' <<< "$SOURCES")
         done
-        # Built-in lane map (§5); overrides are introduced separately in S1b.
-        RUNNERS=$(jq -c '. + {lint: .small, test: .small, extension: .small, "release-test": .small}' <<< "$RUNNERS")
+        # Built-in effective lane map (§5); S1b feeds its parsed override here.
+        LANE_SIZES='{"lint":"small","test":"small","extension":"small","release-test":"small"}'
+        RUNNERS=$(jq -c --argjson lanes "$LANE_SIZES" '. as $r | reduce ($lanes | to_entries[]) as $lane (. ; .[$lane.key] = $r[$lane.value])' <<< "$RUNNERS")
+
+        # Diagnostics use only class/source names, never input label values.
+        required=$(jq -cn --argjson lanes "$LANE_SIZES" '$lanes | [.[], "small"] | unique')
+        missing=()
+        configured=()
+        overrides=()
+        visible=0
+        for size in small large xlarge; do
+          source=$(jq -r --arg size "$size" '.[$size]' <<< "$SOURCES")
+          input_name="RUNNER_${size^^}"
+          raw="${!input_name:-}"
+          if [[ "$raw" == *[![:space:]]* ]]; then
+            visible=$((visible + 1))
+            overrides+=("CI_RUNNER_${size^^}")
+          fi
+          if jq -e --arg size "$size" 'index($size) != null' <<< "$required" > /dev/null; then
+            if [[ "$raw" != *[![:space:]]* ]]; then
+              missing+=("CI_RUNNER_${size^^}")
+            fi
+            case "$source" in
+              variable) configured+=("CI_RUNNER_${size^^}") ;;
+              default)
+                if [[ "$size" != small && "$FOREIGN" == false ]]; then
+                  lanes=$(jq -r --arg size "$size" 'to_entries | map(select(.value == $size) | .key) | join(", ")' <<< "$LANE_SIZES")
+                  echo "::warning::CI_RUNNER_${size^^} is not visible; lanes $lanes run on the hosted default ubuntu-26.04 until the variable is set."
+                fi
+                ;;
+            esac
+          fi
+        done
+        if [[ "$LEGACY_LABELS" != '[]' ]]; then
+          migration="DEVKIT_CI_RUNNER is deprecated and stops selecting runners in N+2."
+          for variable in "${missing[@]}"; do
+            migration+=" Unset required class: $variable; set it with gh variable set $variable --body <label>."
+          done
+          for variable in "${overrides[@]}"; do
+            migration+=" $variable already overrides the key; the key no longer decides that class."
+          done
+          echo "::warning::$migration Use repository-level variables on a private GitHub Free repo. Once every required class is set, the key decides nothing; delete DEVKIT_CI_RUNNER from .vig-os. See MIGRATION.md#run-ci-on-self-hosted-runners."
+        fi
+        if [[ -n "${LEGACY_RESOLVE_RUNNER:-}" ]]; then
+          echo "::warning::DEVKIT_CI_RESOLVE_RUNNER is deprecated in favour of CI_RUNNER_SMALL."
+        fi
+        if [[ "$FOREIGN" == false && ${#configured[@]} -gt 0 && ${#missing[@]} -gt 0 && "$LEGACY_LABELS" == '[]' ]]; then
+          echo "::notice::Partial CI runner setup; unset required classes: ${missing[*]}. Set their repository-level variables."
+        fi
+        if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+          {
+            echo '| Runner class | Source |'
+            echo '| --- | --- |'
+            jq -r 'to_entries[] | "| \(.key) | \(.value) |"' <<< "$SOURCES"
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
+        if [[ "${REPOSITORY_PRIVATE:-false}" == true && "$FOREIGN" == false && "$visible" == 0 ]]; then
+          notice='CI runs on hosted runners. On GitHub Free organization variables do not reach private repos; set repository-level variables CI_RUNNER_SMALL/LARGE/XLARGE.'
+          echo "::notice::$notice"
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            echo "$notice" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        fi
         echo "runners=$RUNNERS" >> "$GITHUB_OUTPUT"
         echo "runner-sources=$SOURCES" >> "$GITHUB_OUTPUT"
         echo "runner-json=$(jq -c '.small' <<< "$RUNNERS")" >> "$GITHUB_OUTPUT"

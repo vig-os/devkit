@@ -1070,6 +1070,9 @@ def _runner_event(monkeypatch, pr, base="example/project"):
         ).lower(),
         "github.event.pull_request.head.repo.full_name": repo.get("full_name", ""),
         "github.repository": base,
+        "github.event.repository.private": os.environ.get(
+            "REPOSITORY_PRIVATE", "false"
+        ),
     }
     action = _load(WORKFLOWS.parent / "actions/resolve-toolchain/action.yml")
     for name, expression in action["runs"]["steps"][0]["env"].items():
@@ -1239,3 +1242,23 @@ def test_runner_diagnostics_private_notice(
     if expected:
         assert "repository-level variables" in log
         assert "private repos" in log
+
+
+def test_runner_diagnostics_legacy_required_classes(tmp_path, monkeypatch):
+    log, _, _ = _runner_diagnostics(
+        tmp_path, monkeypatch, "DEVKIT_CI_RUNNER=private-label\n", "large"
+    )
+    for size in ("SMALL", "LARGE"):
+        assert f"gh variable set CI_RUNNER_{size} --body <label>" in log
+    assert "CI_RUNNER_XLARGE" not in log
+    assert "private-label" not in log
+
+
+def test_runner_diagnostics_whitespace_opted_in(tmp_path, monkeypatch):
+    monkeypatch.setenv("RUNNER_SMALL", "pool-s")
+    monkeypatch.setenv("RUNNER_LARGE", " \t\n")
+    log, _, outputs = _runner_diagnostics(tmp_path, monkeypatch, lane_class="large")
+    assert "::warning::Whitespace-only CI_RUNNER_LARGE" in log
+    assert "::warning::CI_RUNNER_LARGE is not visible; lanes test" in log
+    assert "::notice::Partial" in log
+    assert json.loads(outputs["runners"])["test"] == [HOSTED_DEFAULT]

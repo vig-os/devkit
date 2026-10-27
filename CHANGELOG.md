@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Actionable CI runner diagnostics** ([#1926](https://github.com/vig-os/devkit/issues/1926))
+  - Warn about legacy runner settings, whitespace-only variables and missing opted-in classes; report private-repository configuration gaps and class sources without printing labels
+
 - **GitHub App organization secrets and Nix entry point** ([#1915](https://github.com/vig-os/devkit/issues/1915))
   - Store App credentials as organization secrets with selected-repository visibility using `--org-secret --repos`
   - Run provisioning through `nix run .#app-provision` and document masked App tokens appended to existing Nix configuration
