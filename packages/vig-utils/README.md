@@ -268,7 +268,7 @@ The `no-hardcoded-endpoints` hook is enabled by default in consumer and devkit
 configurations. Supply tracked files to scan a tree. Violations and input errors
 exit 1 and report file/line diagnostics without assigned values; clean input exits 0.
 Python fixtures and docstrings are parsed as data, and JSON comments are supported.
-Shell/dotenv and TOML assignments are checked one line at a time. Local and
+Shell/dotenv and TOML literal assignments include multiline strings. Local and
 specified RFC 2606 hosts, variable references, and a same-line
 `devkit: allow-endpoint` pragma are exempt. Broader patterns belong to the
 separate site leak check; this lint is not a full-history secret scanner.

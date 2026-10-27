@@ -3,7 +3,7 @@
 Usage: check-hardcoded-endpoints FILE [FILE ...]
 Exit 1 reports violations or unreadable files; exit 0 means clean input.
 Python uses syntax trees so documentation strings and test fixtures stay inert.
-Other text uses line-oriented assignments (shell/dotenv, YAML, TOML and JSON).
+Other text uses literal assignments (shell/dotenv, YAML, TOML and JSON).
 References, local/RFC 2606 hosts, and lines carrying
 ``devkit: allow-endpoint`` are exempt. Broader patterns belong to site-leak-check.
 Diagnostics never echo assigned values.
@@ -22,7 +22,8 @@ ENDPOINT_KEYS = {"endpoint_url", "endpoint-url", "endpointUrl"}
 AWS_KEY = r"AWS_(?:ENDPOINT_URL\w*|ACCESS_KEY_ID|SECRET_ACCESS_KEY|SESSION_TOKEN)"
 ASSIGNMENT = re.compile(
     rf"(?<![\w-])(?P<key>endpoint_url|endpoint-url|endpointUrl|{AWS_KEY})"
-    r"""["']?\s*(?:\]\s*)?[:=]\s*(?P<value>"[^"\n]*"|'[^'\n]*'|[^\s,;}]+)"""
+    r"[\"']?\s*(?:\]\s*)?[:=]\s*"
+    r"(?P<value>\"{3}[\s\S]*?\"{3}|'{3}[\s\S]*?'{3}|\"[^\"]*\"|'[^']*'|[^\s,;}]+)"
 )
 REFERENCE = re.compile(r"\$(?:\w+|\{)")
 
@@ -119,18 +120,23 @@ def check_file(path: Path) -> list[tuple[int, str]]:
                 if forbidden(key, value):
                     findings.append((number, key))
     else:
-        for number, line in enumerate(lines, 1):
-            if line.lstrip().startswith(("#", "//")):
+        for match in ASSIGNMENT.finditer(source):
+            number = source.count("\n", 0, match.start()) + 1
+            if lines[number - 1].lstrip().startswith(("#", "//")):
                 continue
-            for match in ASSIGNMENT.finditer(line):
-                key, value = match.group("key", "value")
-                quoted = value.startswith(('"', "'"))
-                if key in ENDPOINT_KEYS and not quoted:
-                    continue
-                if not quoted and ("(" in value or value in {"null", "None"}):
-                    continue
-                if forbidden(key, value[1:-1] if quoted else value):
-                    findings.append((number, key))
+            key, value = match.group("key", "value")
+            quoted = value.startswith(('"', "'"))
+            if key in ENDPOINT_KEYS and not quoted:
+                continue
+            if not quoted and ("(" in value or value in {"null", "None"}):
+                continue
+            if quoted:
+                width = 3 if value.startswith(('"' * 3, "'" * 3)) else 1
+                value = value[width:-width]
+                if width == 3:
+                    value = value.removeprefix("\n")
+            if forbidden(key, value):
+                findings.append((number, key))
     return [
         (number, key)
         for number, key in findings
