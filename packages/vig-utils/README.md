@@ -267,11 +267,12 @@ The wrappers forward argv/stdin/stdout/stderr so they behave like native shell c
 The default-on `no-hardcoded-endpoints` hook scans shell (extension or shebang),
 Python, YAML, TOML and JSON. Its companion `no-hardcoded-endpoints-dotenv` selects
 `.env`, `.env.*` and `*.env` by path. Other text, including Markdown, is ignored.
-Only findings exit 1; parsing/encoding failures emit one notice and scan each
-line for assignments. Unreadable inputs emit a notice. Diagnostics omit values.
-Variable/command references, empty values, local hosts, and RFC 2606 reserved
-names and subdomains are exempt. Python fixtures/docstrings remain inert when
-parseable; JSON comments and multiline literals are supported.
+Shell/dotenv scan physical assignment lines without parse notices. Other parse/
+encoding failures emit one notice and scan each line. Only findings exit 1;
+unreadable inputs emit a notice. Diagnostics omit values. Variable/command and
+`{{ ... }}` / `{% ... %}` references, empty values and reserved hosts/subdomains
+are exempt. Parseable Python fixtures/docstrings stay inert; JSON comments and
+TOML multiline literals are supported.
 
 For an intentional literal, add `# devkit: allow-endpoint` on its assignment line.
 For a whole path, override the hook in the consumer's preserved `flake.nix`:

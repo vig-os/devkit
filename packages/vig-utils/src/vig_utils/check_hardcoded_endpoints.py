@@ -10,7 +10,6 @@ are exempt. Diagnostics never echo assigned values.
 import argparse
 import ast
 import re
-import shlex
 import sys
 import tomllib
 from pathlib import Path
@@ -25,7 +24,13 @@ ASSIGNMENT = re.compile(
     r"[\"']?\s*(?:\]\s*)?[:=]\s*"
     r"(?P<value>\"{3}[\s\S]*?\"{3}|'{3}[\s\S]*?'{3}|\"[^\"]*\"|'[^']*'|[^\s,;}]+)"
 )
-REFERENCE = re.compile(r"\$(?:\w+|\{|\()|`")
+REFERENCE = re.compile(r"\$(?:\w+|\{|\()|`|\{\{|\{%")
+# Quoted words and substitutions stay whole, so their separators are inert.
+SHELL_WORD = re.compile(
+    r"(?P<comment>\#.*)|(?P<separator>;|&&|\|\||[&|])|"
+    r"(?P<word>(?:\{\{.*?\}\}|\{%.*?%\}|\$\([^)]*\)|`[^`]*`|"
+    r"\"(?:\\.|[^\"\\])*\"|'[^']*'|\\.|[^\s;&|\"'`\\])+)"
+)
 RESERVED = {
     "localhost",
     "example.com",
@@ -147,27 +152,29 @@ def literal_assignments(source: str):
         yield number, key, value
 
 
-def shell_assignments(source: str):
-    """Inspect assignment words before commands, never quoted echo arguments."""
-    lexer = shlex.shlex(source, posix=True, punctuation_chars=";&|\n")
-    lexer.whitespace = " \t\r"
-    lexer.whitespace_split = True
-    assigning = True
-    while True:
-        number = lexer.lineno
-        token = lexer.get_token()
-        if token is None:
-            return
-        if token and all(c in ";&|\n" for c in token):
-            assigning = True
-        elif assigning and token == "export":
-            continue
-        elif assigning and re.match(r"[A-Za-z_]\w*=", token):
-            key, value = token.split("=", 1)
-            if key in ENDPOINT_KEYS or re.fullmatch(AWS_KEY, key):
+def line_assignments(source: str, *, shell_syntax: bool = False):
+    """Scan physical lines, restricting shell matches to assignment words."""
+    for number, line in enumerate(source.splitlines(), 1):
+        if not shell_syntax:
+            for _, key, value in literal_assignments(line):
                 yield number, key, value
-        else:
-            assigning = False
+            continue
+        assigning = True
+        for token in SHELL_WORD.finditer(line):
+            word = token[0]
+            if token.lastgroup == "comment":
+                break
+            if token.lastgroup == "separator":
+                assigning = True
+            elif assigning and word in {"export", "env"}:
+                continue
+            elif assigning and re.match(r"[A-Za-z_]\w*=", word):
+                key = word.split("=", 1)[0]
+                if key in ENDPOINT_KEYS or re.fullmatch(AWS_KEY, key):
+                    for _, key, value in literal_assignments(word):
+                        yield number, key, value
+            else:
+                assigning = False
 
 
 def parsed_assignments(source: str, kind: str):
@@ -191,7 +198,7 @@ def parsed_assignments(source: str, kind: str):
         tomllib.loads(source)
         yield from literal_assignments(source)
     else:
-        yield from shell_assignments(source)
+        yield from line_assignments(source, shell_syntax=True)
 
 
 def check_file(path: Path) -> list[tuple[int, str]]:
@@ -202,18 +209,15 @@ def check_file(path: Path) -> list[tuple[int, str]]:
         return []
     source = raw.decode("utf-8", errors="replace")
     try:
-        raw.decode("utf-8")
+        if kind not in {"shell", "dotenv"}:
+            raw.decode("utf-8")
         assignments = list(parsed_assignments(source, kind))
     except UnicodeError, SyntaxError, ValueError, yaml.YAMLError:
         print(
             f"env-only-lint: {path}: not parseable as {kind}, scanned line-by-line",
             file=sys.stderr,
         )
-        assignments = [
-            (number, key, value)
-            for number, line in enumerate(source.splitlines(), 1)
-            for _, key, value in literal_assignments(line)
-        ]
+        assignments = list(line_assignments(source))
     lines = source.splitlines()
     return [
         (number, key)
