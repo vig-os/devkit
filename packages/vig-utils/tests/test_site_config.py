@@ -87,7 +87,7 @@ def test_lookup(tmp_path, monkeypatch):
 
 
 def initializer(tmp_path, monkeypatch, name="fixture", body=None):
-    bindir = tmp_path / "bin"
+    bindir = tmp_path.parent / (tmp_path.name + "-bin")
     bindir.mkdir(exist_ok=True)
     script = bindir / f"devkit-site-init-{name}"
     script.write_text(
@@ -132,7 +132,7 @@ def test_failed_initializer_cleans_up(tmp_path, monkeypatch, body, code):
     initializer(tmp_path, monkeypatch, body=body)
     result = cli(tmp_path, "site-init")
     assert result.returncode == code, result.stderr
-    assert not list((tmp_path / ".site").iterdir())
+    assert not (tmp_path / ".site").exists()
 
 
 def test_non_tty_fallback_round_trip(tmp_path, monkeypatch):
@@ -164,3 +164,158 @@ def test_scaffold_integration(tmp_path):
     scripts = (ROOT / "packages/vig-utils/pyproject.toml").read_text()
     assert 'check-site-config = "vig_utils.site_config:main"' in scripts
     assert 'site-init = "vig_utils.site_config:site_init"' in scripts
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "localhost:9000/x",
+        "foo:bar",
+        "s3:",
+        "s3://",
+        "https://",
+        "file:",
+    ],
+)
+def test_unknown_or_empty_uri_forms(tmp_path, location):
+    config(tmp_path, extra=f'[datasets.raw]\nlocation = "{location}"\n')
+    result = cli(tmp_path, "check-site-config")
+    assert result.returncode == 1, result.stderr
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "gs://bucket/data",
+        "az://container/data",
+        "abfs://container/data",
+        "http://example.com/data",
+        "https://example.com/data",
+        "file:///srv/data",
+    ],
+)
+def test_supported_uri_forms(tmp_path, location):
+    config(tmp_path, extra=f'[datasets.raw]\nlocation = "{location}"\n')
+    assert cli(tmp_path, "check-site-config").returncode == 0
+
+
+def test_realistic_leak_patterns(tmp_path, monkeypatch):
+    initializer(
+        tmp_path,
+        monkeypatch,
+        body=(
+            'printf \'schema = 1\\nsite = "fixture"\\n\' > "$DEVKIT_SITE_DIR/fixture.toml"\n'
+            "cat > \"$DEVKIT_SITE_DIR/leak-patterns.toml\" <<'TOML'\n"
+            "[[rules]]\nid = \"userinfo\"\nregex = 's3://[^/]*@'\nsecretGroup = 1\n"
+            "[[rules]]\nid = \"fixture-pattern\"\nregex = '(fixture)'\nsecretGroup = 1\n"
+            "[allowlist]\npaths = ['tests/']\nTOML\n"
+        ),
+    )
+    result = cli(tmp_path, "site-init")
+    assert result.returncode == 0, result.stderr
+    assert "secretGroup = 1" in (tmp_path / ".site/leak-patterns.toml").read_text()
+
+
+@pytest.mark.parametrize(
+    "patterns",
+    [
+        'rules = "bad"',
+        '[[rules]]\nid = "missing-regex"',
+        '[[rules]]\nid = 1\nregex = "x"',
+        '[[rules]]\nid = "x"\nregex = 1',
+    ],
+)
+def test_invalid_leak_pattern_shape(tmp_path, monkeypatch, patterns):
+    initializer(
+        tmp_path,
+        monkeypatch,
+        body=(
+            'printf \'schema = 1\\nsite = "fixture"\\n\' > "$DEVKIT_SITE_DIR/fixture.toml"\n'
+            "cat > \"$DEVKIT_SITE_DIR/leak-patterns.toml\" <<'TOML'\n"
+            + patterns
+            + "\nTOML\n"
+        ),
+    )
+    result = cli(tmp_path, "site-init")
+    assert result.returncode == 1, result.stderr
+    assert "leak-patterns.toml" in result.stderr
+    assert not (tmp_path / ".site").exists()
+
+
+@pytest.mark.parametrize(
+    "entry",
+    ["", ".", "bin", "absolute-root", "absolute-bin", "symlink-dir", "symlink-binary"],
+)
+def test_repo_cannot_supply_initializer(tmp_path, monkeypatch, entry):
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    script = tmp_path / "devkit-site-init-evil"
+    script.write_text("#!/bin/sh\nprintf ran > marker\nexit 17\n")
+    script.chmod(0o755)
+    (bindir / script.name).symlink_to(script)
+    if entry == "absolute-root":
+        entry = str(tmp_path)
+    elif entry == "absolute-bin":
+        entry = str(bindir)
+    elif entry.startswith("symlink-"):
+        external = tmp_path.parent / (tmp_path.name + "-external")
+        if entry == "symlink-dir":
+            external.symlink_to(bindir, target_is_directory=True)
+        else:
+            external.mkdir()
+            (external / script.name).symlink_to(script)
+        entry = str(external)
+    monkeypatch.setenv("PATH", entry)
+    result = cli(tmp_path, "site-init")
+    assert result.returncode == 0, result.stderr
+    assert not (tmp_path / "marker").exists()
+    assert (tmp_path / ".site/local.toml").exists()
+
+
+def test_detect_unstaged_output(tmp_path, monkeypatch):
+    initializer(
+        tmp_path,
+        monkeypatch,
+        body=(
+            'printf \'schema = 1\\nsite = "fixture"\\n\' > "$DEVKIT_SITE_DIR/fixture.toml"\n'
+            "printf 'schema = 1\\nsite = \"sneaky\"\\n' > .site/sneaky.toml\n"
+        ),
+    )
+    result = cli(tmp_path, "site-init")
+    assert result.returncode == 1, result.stderr
+    assert "sneaky.toml" in result.stderr
+    assert not (tmp_path / ".site/fixture.toml").exists()
+    assert not list((tmp_path / ".site").glob(".staging-*"))
+
+
+def test_keep_existing_site_directory_on_failure(tmp_path, monkeypatch):
+    (tmp_path / ".site").mkdir()
+    initializer(tmp_path, monkeypatch, body="exit 7\n")
+    assert cli(tmp_path, "site-init").returncode == 7
+    assert (tmp_path / ".site").is_dir()
+
+
+def test_module_without_arguments(tmp_path):
+    result = subprocess.run(
+        [sys.executable, "-m", "vig_utils.site_config"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "usage:" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_default_recipe_is_help(tmp_path):
+    import shutil
+
+    just = shutil.which("just")
+    assert just is not None, "just must be available in the development environment"
+    (tmp_path / "justfile").write_text((ROOT / "assets/workspace/justfile").read_text())
+    result = subprocess.run(
+        [just, "--dry-run"], cwd=tmp_path, capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stderr.strip() == "just --list"
