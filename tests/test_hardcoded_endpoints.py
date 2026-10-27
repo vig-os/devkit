@@ -249,3 +249,129 @@ def test_hook_file_types():
             assert re.search(dotenv["files"], filename)
         for filename in ("README.md", "notes.txt", "other.conf"):
             assert not re.search(dotenv["files"], filename)
+
+
+@pytest.mark.parametrize("name", ["config.sh", ".env"])
+@pytest.mark.parametrize("pragma_line", [None, 2, 3, 4])
+def test_shell_physical_lines_and_pragmas(tmp_path, name, pragma_line):
+    lines = [
+        "echo hi",
+        "# preceding line",
+        "export AWS_ENDPOINT_URL=http://192.0.2.10",
+        "# following line",
+    ]
+    if pragma_line:
+        lines[pragma_line - 1] += " # devkit: allow-endpoint"
+    path = tmp_path / name
+    path.write_text("\n".join(lines) + "\n")
+    result = lint(path)
+    assert result.returncode == (0 if pragma_line == 3 else 1), result.stderr
+    assert "not parseable" not in result.stderr
+    assert "Traceback" not in result.stderr
+    if pragma_line != 3:
+        assert f"{path}:3:" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "AWS_ACCESS_KEY_ID=literal cmd",
+        "export AWS_ACCESS_KEY_ID=literal",
+        "true; AWS_ACCESS_KEY_ID=literal cmd",
+        "true && AWS_ACCESS_KEY_ID=literal cmd",
+        "env AWS_ACCESS_KEY_ID=literal cmd",
+        "X=ok AWS_ACCESS_KEY_ID=literal cmd",
+        "env X=ok AWS_ACCESS_KEY_ID=literal cmd",
+        "AWS_SESSION_TOKEN=$TOKEN AWS_ACCESS_KEY_ID=literal cmd",
+    ],
+)
+def test_shell_assignment_positions(tmp_path, statement):
+    path = tmp_path / "config.sh"
+    path.write_text("# header\necho hi\n" + statement + "\n")
+    result = lint(path)
+    assert result.returncode == 1
+    assert (
+        result.stderr
+        == f"{path}:3: hard-coded AWS_ACCESS_KEY_ID; use the environment\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        'echo ";" AWS_ACCESS_KEY_ID=example',
+        'echo "message; AWS_ACCESS_KEY_ID=example"',
+        'echo "message && AWS_ACCESS_KEY_ID=example"',
+    ],
+)
+def test_shell_quoted_separators_are_not_statements(tmp_path, statement):
+    path = tmp_path / "config.sh"
+    path.write_text(statement + "\n")
+    result = lint(path)
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "install.sh",
+        "scripts/init.sh",
+        "assets/guardrails/tools/guardrails.sh",
+        "assets/guardrails/tools/diffpack.sh",
+    ],
+)
+def test_repository_shell_scripts_are_silent(name):
+    result = lint(ROOT / name)
+    assert result.returncode == 0, result.stderr
+    assert result.stderr == ""
+
+
+@pytest.mark.parametrize("reference", ["{{ .Values.s3.endpoint }}", "{% endpoint %}"])
+@pytest.mark.parametrize(
+    "name,pattern",
+    [
+        ("config.py", 'os.environ["AWS_ACCESS_KEY_ID"] = "REF"'),
+        ("config.yaml", 'AWS_ENDPOINT_URL: "REF"'),
+        ("config.json", '{"AWS_ACCESS_KEY_ID": "REF"}'),
+        ("config.toml", 'AWS_ACCESS_KEY_ID = "REF"'),
+        ("config.sh", 'AWS_ACCESS_KEY_ID="REF" cmd'),
+        (".env", 'AWS_ACCESS_KEY_ID="REF"'),
+    ],
+)
+def test_template_references_in_every_type(tmp_path, name, pattern, reference):
+    path = tmp_path / name
+    path.write_text(pattern.replace("REF", reference) + "\n")
+    result = lint(path)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "assignment",
+    [
+        "AWS_ENDPOINT_URL: {{ .Values.foo }}",
+        "AWS_ACCESS_KEY_ID: {{ aws_key }}",
+        'AWS_ENDPOINT_URL: "{{ .Values.s3.endpoint }}"',
+        "AWS_ACCESS_KEY_ID: {% aws_key %}",
+    ],
+)
+@pytest.mark.parametrize("planted", [False, True])
+def test_templated_yaml_fallback_keeps_literal_findings(tmp_path, assignment, planted):
+    path = tmp_path / "config.yaml"
+    source = assignment + "\n"
+    if planted:
+        source += "AWS_ENDPOINT_URL: http://192.0.2.10\n"
+    path.write_text(source)
+    result = lint(path)
+    assert result.returncode == int(planted), result.stderr
+    assert "Traceback" not in result.stderr
+    if planted:
+        assert f"{path}:2:" in result.stderr
+        assert f"{path}:1: hard-coded" not in result.stderr
+
+
+def test_shell_does_not_use_shlex():
+    source = (
+        ROOT / "packages/vig-utils/src/vig_utils/check_hardcoded_endpoints.py"
+    ).read_text()
+    assert "shlex" not in source
