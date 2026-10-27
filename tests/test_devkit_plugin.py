@@ -973,3 +973,12 @@ def test_release_neutral_title_cannot_execute():
         "a double-quoted TITLE executes command substitution in issue-sourced text"
     )
     assert "<<'" in runnable, "use a quoted heredoc so the title stays literal"
+
+
+def test_app_provision_checks_chosen_secret_prefix_before_dispatch():
+    text = (
+        Path(__file__).resolve().parents[1]
+        / "plugins/devkit/skills/app-provision/SKILL.md"
+    ).read_text()
+    step_one = text.split("## 1. State lookup", 1)[1].split("## 2.", 1)[0]
+    assert "gh secret list -R <repo> | grep '^<PREFIX>_'" in step_one

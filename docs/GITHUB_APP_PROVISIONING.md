@@ -53,6 +53,10 @@ with a browser driver.
    tool exchanges it through `gh` and stores `<PREFIX>_CLIENT_ID`,
    `<PREFIX>_ID` and `<PREFIX>_PRIVATE_KEY` as repository Actions secrets. The
    PEM is piped into `gh secret set` and is never printed or logged.
+   The callback is claimed before processing starts. Later requests, including
+   concurrent requests and browser reloads, receive HTTP `200` with a fixed
+   "Callback already accepted" page. They never repeat the exchange or change
+   the first callback's result or error.
 4. The success page links to the install page. Click **Install** and select the
    repository. GitHub then redirects your browser to the manifest's `setup_url`,
    which points at the tool's local `/installed` endpoint; the tool detects that
@@ -87,7 +91,9 @@ The tool never listens on a wildcard address and never guesses an address.
 **Failure mode:** with the default, a browser on another machine cannot reach the
 server; the URL the tool prints simply does not load. Choose `--host` with an
 address that is reachable from the browser, or `--base-url`. A wildcard
-`--host` (`0.0.0.0`) is rejected.
+`--host` (`0.0.0.0`) is rejected. `--host` and `--base-url` are mutually
+exclusive, even if `--host` explicitly selects loopback. `--base-url` requires
+an `http` or `https` scheme and a host; invalid options exit with code `2`.
 
 Behind a reverse proxy, configure it to forward to the fixed `--port`, strip any
 path prefix from the base URL, and omit query strings from its access logs: the
@@ -133,8 +139,5 @@ moved; Renovate keeps the pins fresh.
 - The secrets are repository secrets. Organization secrets with selected-repository
   visibility, a Nix `access-tokens` recipe and a flake app are tracked in
   [#1915](https://github.com/vig-os/devkit/issues/1915).
-- The callback is not yet strictly single-use, the failure paths lack dedicated
-  tests, and `--base-url` is not yet validated. Tracked in
-  [#1919](https://github.com/vig-os/devkit/issues/1919).
 - Error messages omit upstream details on purpose, because they can contain
   secrets; rerun with `--dry-run` or check the App's settings page to diagnose.

@@ -36,6 +36,9 @@ binds exactly the chosen address; wildcard listeners are rejected and there
 is no address autodetection. With --base-url it binds loopback; configure it to
 forward to a fixed --port and strip any base URL path prefix. Proxy access logs
 must omit query strings, which contain the single-use conversion code.
+--base-url requires an HTTP(S) URL with a host and is mutually exclusive with
+--host. Later callbacks return HTTP 200 "Callback already accepted", including
+while the first callback is running, without exchanging again or changing state.
 
 --pem-out writes an exclusive 0600 recovery key before secret writes. Existing
 files are never replaced. Secret writes are sequential, so failure may leave
@@ -75,6 +78,19 @@ def listener_address(value: str) -> str:
     if address.is_unspecified:
         raise argparse.ArgumentTypeError("--host must not be a wildcard address")
     return str(address)
+
+
+def proxy_base_url(value: str) -> str:
+    """Require an HTTP(S) scheme and host for the reverse proxy."""
+    message = "--base-url must be an HTTP(S) URL with a host"
+    try:
+        parsed = urlparse(value)
+        valid = parsed.scheme in ("http", "https") and bool(parsed.hostname)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(message) from error
+    if not valid:
+        raise argparse.ArgumentTypeError(message)
+    return value
 
 
 def parse_perms(spec: str) -> dict[str, str]:
@@ -171,6 +187,8 @@ class Provisioner:
         self.result: dict = {}
         self.error: str | None = None
         self.code_done = threading.Event()
+        self._callback_lock = threading.Lock()
+        self._callback_started = False
         self.installed = threading.Event()
         if args.owner_type == "org":
             self.new_app_url = (
@@ -224,6 +242,11 @@ class Provisioner:
         return stored
 
     def handle_callback(self, qs: dict) -> tuple[int, str]:
+        """Claim the callback once; later requests get a fixed HTTP 200 page."""
+        with self._callback_lock:
+            if self._callback_started or self.code_done.is_set():
+                return 200, "<h2>Callback already accepted.</h2>"
+            self._callback_started = True
         if qs.get("state", [""])[0] != self.state:
             self.error = "state mismatch (possible CSRF) — aborting"
             self.code_done.set()
@@ -400,7 +423,8 @@ def argument_parser() -> argparse.ArgumentParser:
 
 def add_server_arguments(ap: argparse.ArgumentParser) -> None:
     """Add listener, proxy and preview options."""
-    ap.add_argument(
+    binding = ap.add_mutually_exclusive_group()
+    binding.add_argument(
         "--host",
         default="127.0.0.1",
         type=listener_address,
@@ -412,9 +436,10 @@ def add_server_arguments(ap: argparse.ArgumentParser) -> None:
         default=0,
         help="bind port (default 0 = ephemeral free port)",
     )
-    ap.add_argument(
+    binding.add_argument(
         "--base-url",
         default=None,
+        type=proxy_base_url,
         help="public HTTP(S) base URL of a reverse proxy in front of --port; binds 127.0.0.1; use a fixed --port for proxy configuration",
     )
     ap.add_argument(
