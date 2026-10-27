@@ -934,13 +934,8 @@ LANES = ("lint", "test", "extension", "release-test")
 @pytest.mark.parametrize("size", CLASSES)
 @pytest.mark.parametrize("source", ("fork", "variable", "legacy-key", "default"))
 def test_runner_class_sources(tmp_path, monkeypatch, size, source):
-    monkeypatch.setenv("BASE_REPOSITORY", "example/project")
-    monkeypatch.setenv(
-        "PR_CONTEXT",
-        json.dumps({"head": {"repo": {"fork": True, "full_name": "example/fork"}}})
-        if source == "fork"
-        else "null",
-    )
+    repo = {"fork": True, "full_name": "example/fork"}
+    _runner_event(monkeypatch, {"head": {"repo": repo}} if source == "fork" else None)
     for cls in CLASSES:
         monkeypatch.setenv(
             "RUNNER_" + cls.upper(),
@@ -976,8 +971,7 @@ def test_runner_class_sources(tmp_path, monkeypatch, size, source):
     ],
 )
 def test_runner_fork_predicate(tmp_path, monkeypatch, repo, foreign):
-    monkeypatch.setenv("BASE_REPOSITORY", "example/project")
-    monkeypatch.setenv("PR_CONTEXT", json.dumps({"head": {"repo": repo}}))
+    _runner_event(monkeypatch, {"head": {"repo": repo}})
     outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_CI_RUNNER=pool\n")
     assert set(json.loads(outputs["runner-sources"]).values()) == {
         "fork" if foreign else "legacy-key"
@@ -1063,3 +1057,52 @@ def test_ci_runner_inputs_and_outputs():
     assert (
         step["with"]["legacy-resolve-runner"] == "${{ vars.DEVKIT_CI_RESOLVE_RUNNER }}"
     )
+
+
+def _runner_event(monkeypatch, pr, base="example/project"):
+    """Render the action's actual context env bindings before executing its Bash."""
+    repo = ((pr or {}).get("head") or {}).get("repo") or {}
+    values = {
+        "toJSON(github.event.pull_request)": json.dumps(pr, ensure_ascii=False),
+        "github.event.pull_request != null": str(pr is not None).lower(),
+        "github.event.pull_request.head.repo.fork": str(
+            repo.get("fork", False)
+        ).lower(),
+        "github.event.pull_request.head.repo.full_name": repo.get("full_name", ""),
+        "github.repository": base,
+    }
+    action = _load(WORKFLOWS.parent / "actions/resolve-toolchain/action.yml")
+    for name, expression in action["runs"]["steps"][0]["env"].items():
+        if "github." in expression:
+            monkeypatch.setenv(
+                name, values[expression.removeprefix("${{ ").removesuffix(" }}")]
+            )
+
+
+def test_runner_large_pr_body(tmp_path, monkeypatch):
+    pr = {
+        "body": "漢" * 50000,
+        "head": {"repo": {"fork": False, "full_name": "example/project"}},
+    }
+    assert len(pr["body"].encode()) > 128 * 1024
+    _runner_event(monkeypatch, pr)
+    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_CI_RUNNER=pool\n")
+    assert set(json.loads(outputs["runner-sources"]).values()) == {"legacy-key"}
+
+
+def test_runner_ascii_label_under_utf8_locale(tmp_path, monkeypatch):
+    monkeypatch.setenv("LC_ALL", "en_US.UTF-8")
+    monkeypatch.setenv("RUNNER_LARGE", "pöol")
+    proc, _ = _exec_resolve(tmp_path, "DEVKIT_MODE=direnv\n")
+    assert proc.returncode == 1
+    assert "::error::Invalid CI_RUNNER_LARGE" in proc.stdout
+
+
+def test_runner_repository_name_case(tmp_path, monkeypatch):
+    _runner_event(
+        monkeypatch,
+        {"head": {"repo": {"fork": False, "full_name": "org/proj"}}},
+        "Org/Proj",
+    )
+    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_CI_RUNNER=pool\n")
+    assert set(json.loads(outputs["runner-sources"]).values()) == {"legacy-key"}
