@@ -3,7 +3,8 @@ name: app-provision
 description: >-
   Create a GitHub App from a manifest and wire its credentials into a repository's Actions secrets with the
   `gh-app-provision` tool, so CI bots mint a fresh short-lived installation token on every run from a private key
-  that does not expire, and pushes made with it trigger downstream workflows (unlike GITHUB_TOKEN). Use when a workflow fails with "Bad credentials" from an expired PAT,
+  that does not expire, and pushes made with it trigger downstream workflows (unlike GITHUB_TOKEN). Use when
+  a workflow fails with "Bad credentials" from an expired PAT,
   when setting up release-please, semantic-release or changeset bots, when a tag or commit pushed by CI must
   trigger another workflow, or when asked to replace a personal access token with a GitHub App. The human only
   clicks Create and Install on GitHub; the private key is never printed.
@@ -34,6 +35,16 @@ gh auth status
 Stop if either fails. Confirm with the user: the target `OWNER/REPO`, the App owner and whether it is an org or a
 user, the App name (globally unique), the permissions the bot needs (least privilege), and the secret prefix.
 
+Before provisioning, check the chosen prefix as well: `/devkit:status` only reports the standard App prefixes.
+Substitute the confirmed repository and prefix:
+
+```bash
+gh secret list -R <repo> | grep '^<PREFIX>_'
+```
+
+If any matching secrets exist, inspect the existing App setup before creating another App. If listing secrets
+fails, stop and resolve repository access first. No matches means the chosen prefix has no stored secrets.
+
 ## 2. Refuse
 
 | State | Why | What to do |
@@ -57,7 +68,9 @@ their go before the real run: it creates an App under their account and writes s
 
 - Browser on the same machine: no flag (binds and advertises `127.0.0.1`).
 - Browser on another machine over a VPN or LAN: `--host <ADDR>`, an IPv4 address reachable from that browser.
-- Behind a TLS reverse proxy: `--base-url <URL>` with a fixed `--port`.
+- Behind a TLS reverse proxy: `--base-url <URL>` with a fixed `--port`; URL must have an HTTP(S) scheme and host.
+
+`--host` and `--base-url` are mutually exclusive.
 
 With the default, a remote browser cannot reach the server and the printed URL will not load. Wildcard addresses
 are rejected. Never invent an address; ask the user which interface they reach this machine on.
@@ -79,7 +92,7 @@ partial run can leave some secrets set (see the docs page).
 ## 6. Verify
 
 ```bash
-gh secret list --repo <owner>/<repo> | grep <PREFIX>_
+gh secret list -R <repo> | grep '^<PREFIX>_'
 ```
 
 Expect `<PREFIX>_CLIENT_ID`, `<PREFIX>_ID` and `<PREFIX>_PRIVATE_KEY`. Names only; never print values.

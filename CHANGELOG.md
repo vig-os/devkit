@@ -25,6 +25,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Harden GitHub App provisioning callbacks and inputs** ([#1919](https://github.com/vig-os/devkit/issues/1919))
+  - Accept callbacks only once, including concurrent requests, and preserve the original result on replay
+  - Validate reverse-proxy URLs and reject combining `--host` with `--base-url`; cover exchange timeout and malformed JSON errors without exposing secrets
+  - Check the chosen secret prefix before the provisioning skill creates another App
+
 - **Preserve runner Nix configuration in the toolchain action** ([#1907](https://github.com/vig-os/devkit/issues/1907))
   - With preinstalled host Nix in direnv mode, preserve valid ambient `NIX_CONFIG`, including runner caches and CPU limits, and add devkit's features and cache settings; `extra-experimental-features` extends the host `nix.conf` feature list instead of replacing it
   - Mask ambient access tokens and URL values containing userinfo or queries before export so later step environment headers do not expose credentials
