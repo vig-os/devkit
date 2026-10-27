@@ -7,8 +7,8 @@
 # the merge exactly like lint/test/commit-checks. Every input is
 # `required: false`: this file is a preserved, consumer-owned contract, so a
 # later devkit release can add an input without breaking an existing copy.
-# `runs-on` resolves from `runner-json` (the same DEVKIT_CI_RUNNER-derived
-# value the rest of ci.yml uses) rather than a literal label, so a self-hosted
+# `runs-on` resolves from `runner-json` (the resolved `extension` lane passed
+# by ci.yml, SMALL by default) rather than a literal label, so a self-hosted
 # consumer's own runners pick this job up too, and so actionlint keeps linting
 # clean once you start editing below (it does not know every hosted label).
 # See "CI Extension Hook" in docs/DOWNSTREAM_RELEASE.md.

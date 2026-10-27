@@ -48,7 +48,7 @@ concurrency:
 jobs:
   upgrade:
     name: Adopt newer devkit
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || 'ubuntu-26.04' }}
     timeout-minutes: 30
     permissions:
       # The branch and PR are created with the minted App token (a dedicated
@@ -483,7 +483,7 @@ jobs:
     # function gets an implicit success() gate, which would skip this job on
     # exactly the failed runs it exists to report.
     if: ${{ !cancelled() && (needs.upgrade.result == 'failure' || needs.upgrade.result == 'success') }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || 'ubuntu-26.04' }}
     timeout-minutes: 10
     permissions:
       # Reads this run's own step conclusions to name the failing step; the

@@ -42,7 +42,7 @@ permissions:
 jobs:
   extension:
     name: Extension Hook (Default No-op)
-    runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
+    runs-on: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || 'ubuntu-26.04' }}
     steps:
       - name: Default extension summary
         env:
