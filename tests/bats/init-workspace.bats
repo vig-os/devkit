@@ -6279,3 +6279,47 @@ _assert_consumer_tokens_intact_1693() {
             actionlint
     )
 }
+
+
+@test "lane sizes persist across force upgrades (#1927)" {
+    ws="$BATS_TEST_TMPDIR/lane-sizes"
+    mkdir -p "$ws"
+    run _clone_shared direnv "$ws"
+    assert_success
+    printf '\nDEVKIT_CI_LANE_SIZES=test=xlarge, lint=large\n' >>"$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -x 'DEVKIT_CI_LANE_SIZES=test=xlarge, lint=large' "$ws/.vig-os"
+    assert_success
+}
+
+@test "lane sizes reject invalid values before writing (#1927)" {
+    ws="$BATS_TEST_TMPDIR/lane-sizes-invalid"
+    mkdir -p "$ws"
+    run _clone_shared direnv "$ws"
+    assert_success
+    cp "$ws/.vig-os" "$BATS_TEST_TMPDIR/original-manifest"
+    local value
+    for value in unknown=large test=huge small=large Test=large test=LARGE \
+        test =large test= test==large 'test=large,' ,test=large \
+        test=large,,lint=large 'test =large' 'test= large' \
+        test=large,test=xlarge test=large,test=large; do
+        cp "$BATS_TEST_TMPDIR/original-manifest" "$ws/.vig-os"
+        printf '\nDEVKIT_CI_LANE_SIZES=%s\n' "$value" >>"$ws/.vig-os"
+        cp "$ws/.vig-os" "$BATS_TEST_TMPDIR/before"
+        run _upgrade_no_flags "$ws"
+        assert_failure
+        assert_output --partial 'DEVKIT_CI_LANE_SIZES'
+        if [[ "$value" == test=large,test=* ]]; then
+            assert_output --partial 'Duplicate'
+            assert_output --partial 'test'
+        fi
+        run cmp "$BATS_TEST_TMPDIR/before" "$ws/.vig-os"
+        assert_success
+    done
+}
+
+@test "lane sizes template is empty and documented (#1927)" {
+    run grep -x 'DEVKIT_CI_LANE_SIZES=' "$TEMPLATE_DIR/.vig-os"
+    assert_success
+}

@@ -1262,3 +1262,81 @@ def test_runner_diagnostics_whitespace_opted_in(tmp_path, monkeypatch):
     assert "::warning::CI_RUNNER_LARGE is not visible; lanes test" in log
     assert "::notice::Partial" in log
     assert json.loads(outputs["runners"])["test"] == [HOSTED_DEFAULT]
+
+
+@pytest.mark.parametrize("lane", LANES)
+@pytest.mark.parametrize("size", CLASSES)
+def test_lane_size_override_moves_lane(tmp_path, monkeypatch, lane, size):
+    for cls in CLASSES:
+        monkeypatch.setenv(f"RUNNER_{cls.upper()}", f"pool-{cls}")
+    outputs = _run_resolve(
+        tmp_path, f"DEVKIT_MODE=direnv\nDEVKIT_CI_LANE_SIZES= {lane}={size} \n"
+    )
+    runners = json.loads(outputs["runners"])
+    assert runners[lane] == [f"pool-{size}"]
+    assert all(runners[other] == ["pool-small"] for other in LANES if other != lane)
+
+
+INVALID_LANE_SIZES = (
+    "unknown=large",
+    "test=huge",
+    "small=large",
+    "Test=large",
+    "test=LARGE",
+    "test",
+    "=large",
+    "test=",
+    "test==large",
+    "test=large,",
+    ",test=large",
+    "test=large,,lint=large",
+    "test =large",
+    "test= large",
+    "test=large,test=xlarge",
+    "test=large,test=large",
+)
+
+
+@pytest.mark.parametrize("value", INVALID_LANE_SIZES)
+def test_lane_size_override_rejects_invalid(tmp_path, value):
+    proc, _ = _exec_resolve(
+        tmp_path, f"DEVKIT_MODE=direnv\nDEVKIT_CI_LANE_SIZES={value}\n"
+    )
+    assert proc.returncode != 0
+    assert "::error::" in proc.stdout
+    assert "DEVKIT_CI_LANE_SIZES" in proc.stdout
+    if value.count("test=") > 1:
+        assert "duplicate" in proc.stdout.lower()
+        assert "test" in proc.stdout
+
+
+@pytest.mark.parametrize("size", ("large", "xlarge"))
+def test_lane_size_override_required_classes(tmp_path, monkeypatch, size):
+    monkeypatch.setenv("RUNNER_SMALL", "pool-small")
+    proc, outputs = _exec_resolve(
+        tmp_path, f"DEVKIT_MODE=direnv\nDEVKIT_CI_LANE_SIZES=test={size}\n"
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(outputs["runners"])["test"] == [HOSTED_DEFAULT]
+    assert (
+        f"::warning::CI_RUNNER_{size.upper()} is not visible; lanes test" in proc.stdout
+    )
+    assert "::notice::Partial CI runner setup" in proc.stdout
+    other = "XLARGE" if size == "large" else "LARGE"
+    assert f"CI_RUNNER_{other}" not in proc.stdout
+
+
+@pytest.mark.parametrize("value", ("", "test=small", "test=large, lint=xlarge"))
+def test_lane_size_override_defaults_and_multiple(tmp_path, monkeypatch, value):
+    for size in CLASSES:
+        monkeypatch.setenv(f"RUNNER_{size.upper()}", f"pool-{size}")
+    proc, outputs = _exec_resolve(
+        tmp_path, f"DEVKIT_MODE=direnv\nDEVKIT_CI_LANE_SIZES={value}\n"
+    )
+    assert proc.returncode == 0, proc.stderr
+    runners = json.loads(outputs["runners"])
+    assert runners["test"] == ["pool-large" if "," in value else "pool-small"]
+    assert runners["lint"] == ["pool-xlarge" if "," in value else "pool-small"]
+    assert runners["extension"] == runners["release-test"] == ["pool-small"]
+    assert "::notice::" not in proc.stdout
+    assert "::warning::" not in proc.stdout
