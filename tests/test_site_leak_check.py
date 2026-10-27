@@ -153,3 +153,45 @@ def test_default_hook_on_runner_and_scaffold():
     )[0]
     assert block.count("enable = true;") == 2
     assert "pkgs.gitleaks" in block
+
+
+def test_no_patterns_outside_git_is_silent(tmp_path):
+    result = scan(tmp_path, "--all-files", "--gitleaks", "/nonexistent/gitleaks")
+    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+
+
+def test_external_tracked_patterns_are_rejected(repo, tmp_path):
+    private = tmp_path / "config-repo"
+    private.mkdir()
+    git(private, "init")
+    path = private / "patterns.toml"
+    path.write_text(PATTERNS)
+    git(private, "add", "patterns.toml")
+    result = scan(repo, DEVKIT_LEAK_PATTERNS=str(path))
+    assert result.returncode == 2
+
+
+@pytest.mark.parametrize("mode", [(), ("--all-files",), ("config.txt",)])
+def test_gitleaks_pragma_is_an_escape_hatch(repo, mode):
+    patterns(repo)
+    (repo / "config.txt").write_text("storage.example # gitleaks:allow\n")
+    git(repo, "add", "config.txt")
+    assert scan(repo, *mode).returncode == 0
+
+
+def test_gitleaks_allowlist_is_an_escape_hatch(repo):
+    patterns(repo).write_text(PATTERNS + '\n[allowlist]\npaths = ["config.txt"]\n')
+    (repo / "config.txt").write_text("storage.example\n")
+    git(repo, "add", "config.txt")
+    assert scan(repo).returncode == 0
+    assert scan(repo, "--all-files").returncode == 0
+
+
+def test_pattern_lookup_from_subdirectory(repo):
+    patterns(repo)
+    subdirectory = repo / "nested"
+    subdirectory.mkdir()
+    (subdirectory / "config.txt").write_text("storage.example\n")
+    result = scan(subdirectory, "config.txt")
+    assert result.returncode == 1
+    assert "nested/config.txt:1: fixture-host" in result.stderr
