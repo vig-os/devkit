@@ -262,3 +262,22 @@ def test_repository_scanner_settings_cannot_suppress_site_rules(installed_hook, 
     assert result.returncode == 1, result.stdout + result.stderr
     assert "d.txt:1: fixture-host" in result.stdout + result.stderr
     assert "storage.example" not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "mode", [(), (".site/bindings.toml",), ("--all-files",), "commit"]
+)
+def test_tracked_site_bindings_are_scanned(installed_hook, mode):
+    repo = installed_hook
+    patterns(repo)
+    (repo / ".site/bindings.toml").write_text('location = "storage.example"\n')
+    git(repo, "add", "-f", ".site/bindings.toml")
+    result = commit(repo) if mode == "commit" else scan(repo, *mode)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert ".site/bindings.toml:1: fixture-host" in result.stdout + result.stderr
+    assert "storage.example" not in result.stdout + result.stderr
+
+
+def test_active_untracked_patterns_are_not_scanned_as_input(repo):
+    path = patterns(repo)
+    assert scan(repo, str(path)).returncode == 0
