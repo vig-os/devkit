@@ -1,0 +1,155 @@
+"""ADR §10 site-private gitleaks hook contract."""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+import yaml
+
+ROOT = Path(__file__).resolve().parents[1]
+PATTERNS = """[[rules]]
+id = "fixture-host"
+description = "Private description: storage.example"
+regex = 'storage\\.example'
+"""
+
+
+def git(repo, *args):
+    return subprocess.run(
+        ["git", "-C", str(repo), *args], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+@pytest.fixture
+def repo(tmp_path, monkeypatch):
+    path = tmp_path / "repo"
+    path.mkdir()
+    git(path, "init")
+    git(path, "config", "user.email", "test@example.com")
+    git(path, "config", "user.name", "Test")
+    (path / ".gitignore").write_text(".site/\n")
+    git(path, "add", ".gitignore")
+    git(path, "-c", "core.hooksPath=/dev/null", "commit", "-m", "initial")
+    monkeypatch.delenv("DEVKIT_LEAK_PATTERNS", raising=False)
+    return path
+
+
+def patterns(repo):
+    path = repo / ".site" / "leak-patterns.toml"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(PATTERNS)
+    return path
+
+
+def scan(repo, *args, **env):
+    return subprocess.run(
+        [sys.executable, "-m", "vig_utils.site_leak_check", *args],
+        cwd=repo,
+        env={**os.environ, **env},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_no_patterns_is_silent(repo):
+    result = scan(repo)
+    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+
+
+def test_staged_match_is_redacted_and_uses_index(repo):
+    patterns(repo)
+    source = repo / "config.txt"
+    source.write_text("storage.example\n")
+    git(repo, "add", "config.txt")
+    source.write_text("clean\n")
+    result = scan(repo)
+    assert result.returncode == 1, result.stderr
+    assert "config.txt:1: fixture-host" in result.stderr
+    assert "storage.example" not in result.stdout + result.stderr
+    assert "Private description" not in result.stdout + result.stderr
+    assert scan(repo, "--all-files").returncode == 0
+
+
+def test_environment_overrides_site_patterns(repo, tmp_path):
+    patterns(repo).write_text("invalid private config")
+    external = tmp_path / "patterns.toml"
+    external.write_text(PATTERNS)
+    (repo / "config.txt").write_text("storage.example\n")
+    git(repo, "add", "config.txt")
+    result = scan(repo, DEVKIT_LEAK_PATTERNS=str(external))
+    assert result.returncode == 1
+    assert "config.txt:1: fixture-host" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "location,tracked", [("patterns.toml", False), (".site/leak-patterns.toml", True)]
+)
+def test_unsafe_pattern_location_fails(repo, location, tracked):
+    path = repo / location
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(PATTERNS)
+    if tracked:
+        git(repo, "add", "-f", location)
+    result = scan(repo, DEVKIT_LEAK_PATTERNS=str(path))
+    assert result.returncode == 2
+    assert "pattern file" in result.stderr
+    assert "storage.example" not in result.stderr
+
+
+def test_symlink_cannot_hide_in_tree_patterns(repo):
+    outside_site = repo / "patterns.toml"
+    outside_site.write_text(PATTERNS)
+    path = repo / ".site" / "leak-patterns.toml"
+    path.parent.mkdir()
+    path.symlink_to(outside_site)
+    assert scan(repo).returncode == 2
+
+
+def test_all_files_and_precommit_filenames_scan_working_tree(repo):
+    patterns(repo)
+    (repo / "notes.md").write_text("storage.example\n")
+    assert scan(repo).returncode == 0
+    for args in [("--all-files",), ("notes.md",)]:
+        result = scan(repo, *args)
+        assert result.returncode == 1
+        assert "notes.md:1: fixture-host" in result.stderr
+        assert "storage.example" not in result.stderr + result.stdout
+
+
+@pytest.mark.parametrize("value", ["relative.toml", "/nonexistent/patterns.toml"])
+def test_explicit_invalid_path_does_not_fall_back(repo, value):
+    patterns(repo)
+    assert scan(repo, DEVKIT_LEAK_PATTERNS=value).returncode == 2
+
+
+def test_scanner_errors_do_not_disclose_private_config(repo):
+    patterns(repo).write_text("invalid storage.example")
+    result = scan(repo, "--all-files")
+    assert result.returncode == 2
+    assert "storage.example" not in result.stdout + result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_default_hook_on_runner_and_scaffold():
+    for path in [
+        ROOT / ".pre-commit-config.yaml",
+        ROOT / "assets/workspace/.pre-commit-config.yaml",
+    ]:
+        config = yaml.safe_load(path.read_text())
+        hook = next(
+            h
+            for r in config["repos"]
+            for h in r["hooks"]
+            if h["id"] == "site-leak-check"
+        )
+        assert hook["entry"] == "uv run site-leak-check"
+        assert hook["types"] == ["text"]
+    source = (ROOT / "nix/hooks.nix").read_text()
+    block = source.split("    site-leak-check = {", 1)[1].split(
+        "    no-hardcoded-endpoints = {", 1
+    )[0]
+    assert block.count("enable = true;") == 2
+    assert "pkgs.gitleaks" in block
