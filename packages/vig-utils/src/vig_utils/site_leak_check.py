@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 from pathlib import Path
 
 
@@ -55,6 +56,17 @@ def pattern_file(root: Path) -> Path | None:
     if not resolved.is_file():
         raise ValueError("pattern file is missing or unreadable")
     return resolved
+
+
+def has_usable_rules(config: Path) -> bool:
+    """Require at least one explicit gitleaks rule at the point of use."""
+    with config.open("rb") as stream:
+        rules = tomllib.load(stream).get("rules")
+    return isinstance(rules, list) and any(
+        isinstance(rule, dict)
+        and all(isinstance(rule.get(key), str) and rule[key] for key in ("id", "regex"))
+        for rule in rules
+    )
 
 
 def copy_inputs(root: Path, target: Path, files: list[str], config: Path) -> None:
@@ -181,6 +193,7 @@ def main() -> int:
         "files", nargs="*", help="pre-commit's selected working-tree files"
     )
     args = parser.parse_args()
+    config = None
     try:
         try:
             root = Path(
@@ -193,11 +206,17 @@ def main() -> int:
         config = pattern_file(root)
         if config is None:
             return 0
+        if not has_usable_rules(config):
+            print(
+                f"site-leak-check: {config}: no usable [[rules]]; require a nonempty id and regex",
+                file=sys.stderr,
+            )
+            return 2
         return scan(root, config, args)
     except OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError:
         # Even parser/scanner errors can contain private regexes or matches.
         print(
-            "site-leak-check: invalid pattern file or scan failed; check private configuration locally",
+            f"site-leak-check: {config or 'pattern file'}: invalid pattern file or scan failed; check private configuration locally",
             file=sys.stderr,
         )
         return 2
