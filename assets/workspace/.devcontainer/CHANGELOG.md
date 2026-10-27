@@ -9,11 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Env-only endpoint lint** ([#1931](https://github.com/vig-os/devkit/issues/1931))
+  - Enable the ADR §10 endpoint and credential assignment checks by default in
+    devkit and consumer hooks.
+
 - **Per-lane CI runner size overrides** ([#1927](https://github.com/vig-os/devkit/issues/1927))
   - Add `DEVKIT_CI_LANE_SIZES` for project lanes opting into LARGE or XLARGE;
     validate entries and duplicate lanes in CI and at scaffold time, and preserve
     overrides across forced upgrades. Every lane defaults to SMALL.
-
 
 - **Actionable CI runner diagnostics** ([#1926](https://github.com/vig-os/devkit/issues/1926))
   - Warn about legacy runner settings, whitespace-only variables and missing opted-in classes; report private-repository configuration gaps and class sources without printing labels

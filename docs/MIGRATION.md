@@ -1156,6 +1156,33 @@ shell from source and test a toolchain devkit never tested. Keeping that choice
 with the consumer of the *package* scopes it to the one output that does not
 care.
 
+## Env-only endpoint lint
+
+The next upgrade that advances the flake pin to a release containing #1931
+installs the default-on endpoint lint when hooks are flake-generated. It scans
+shell, dotenv, Python, YAML, TOML and JSON; documentation files are outside its
+scope. Parse failures emit a notice and scan line-by-line, and only findings fail.
+
+For an intentional literal, put `# devkit: allow-endpoint` on the assignment line.
+To exclude a path, customize the preserved project `flake.nix`:
+
+```nix
+devShells.default = vigos.lib.mkProjectShell {
+  inherit pkgs;
+  hooks.no-hardcoded-endpoints.excludes = [ "^tests/fixtures/legacy\\.py$" ];
+};
+```
+
+Dotenv files use the companion `no-hardcoded-endpoints-dotenv` hook; set its
+`excludes` the same way for dotenv paths. These overrides survive upgrades.
+A preserved, committed `.pre-commit-config.yaml` is not replaced by an upgrade:
+copy both endpoint hook blocks from the updated template when adopting this
+lint, and use the hook's YAML `exclude` regex for path exceptions. Existing
+copies also need the updated language/path filters; upgrading the CLI alone
+does not change a preserved hook block. Generated configs pick up these changes
+on the next pin update and shell entry. See the
+[tool README](../packages/vig-utils/README.md#endpoint-lint) for CLI behavior.
+
 ## Customizing pre-commit hooks from the project flake (opt-in)
 
 Since [#883](https://github.com/vig-os/devkit/issues/883) the shared

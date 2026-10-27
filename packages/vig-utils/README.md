@@ -260,6 +260,32 @@ The wrappers forward argv/stdin/stdout/stderr so they behave like native shell c
 | `DERIVE_BRANCH_TIMEOUT` | `derive-branch-summary` | Timeout seconds |
 | `CI` / `GITHUB_ACTIONS` | `check-agent-identity` | Skip local identity checks in CI |
 
+## Endpoint lint
+
+`check-hardcoded-endpoints FILE [FILE ...]` enforces the two narrow rules in
+[ADR §10](../../docs/rfcs/ADR-site-agnostic-projects.md#10-env-only-runtime-config-lint-and-leak-check-hook-point).
+The default-on `no-hardcoded-endpoints` hook scans shell (extension or shebang),
+Python, YAML, TOML and JSON. Its companion `no-hardcoded-endpoints-dotenv` selects
+`.env`, `.env.*` and `*.env` by path. Other text, including Markdown, is ignored.
+Shell/dotenv scan physical assignment lines without parse notices. Other parse/
+encoding failures emit one notice and scan each line. Only findings exit 1;
+unreadable inputs emit a notice. Diagnostics omit values. Variable/command and
+`{{ ... }}` / `{% ... %}` references, empty values and reserved hosts/subdomains
+are exempt. Parseable Python fixtures/docstrings stay inert; JSON comments and
+TOML multiline literals are supported.
+
+For an intentional literal, add `# devkit: allow-endpoint` on its assignment line.
+For a whole path, override the hook in the consumer's preserved `flake.nix`:
+
+```nix
+hooks.no-hardcoded-endpoints.excludes = [ "^tests/fixtures/legacy\\.py$" ];
+```
+
+Use `hooks.no-hardcoded-endpoints-dotenv.excludes` for dotenv paths. See the
+[upgrade guidance](../../docs/MIGRATION.md#env-only-endpoint-lint) for generated
+versus preserved hook configs. Broader patterns belong to the separate site
+leak check; this lint is not a full-history secret scanner.
+
 ## Development and tests
 
 Run package tests from repository root:

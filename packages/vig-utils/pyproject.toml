@@ -16,6 +16,7 @@ authors = [
 ]
 
 [project.scripts]
+check-hardcoded-endpoints = "vig_utils.check_hardcoded_endpoints:main"
 validate-commit-msg = "vig_utils.validate_commit_msg:main"
 validate-commit-range = "vig_utils.validate_commit_range:main"
 validate-branch-name = "vig_utils.validate_branch_name:main"
