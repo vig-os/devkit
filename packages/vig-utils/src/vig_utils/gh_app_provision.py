@@ -499,11 +499,14 @@ def add_server_arguments(ap: argparse.ArgumentParser) -> None:
 def main() -> int:
     parser = argument_parser()
     args = parser.parse_args()
-    if args.org_secret and (
-        args.owner_type != "org"
-        or not args.repos
-        or not all(repo.strip() for repo in args.repos.split(","))
-    ):
+    if args.repos is not None:
+        if not args.org_secret:
+            parser.error("--repos requires --org-secret")
+        repos = [repo.strip() for repo in args.repos.split(",")]
+        if not all(repos):
+            parser.error("--org-secret requires non-empty --repos")
+        args.repos = ",".join(repos)
+    if args.org_secret and (args.owner_type != "org" or args.repos is None):
         parser.error("--org-secret requires --owner-type org and non-empty --repos")
     if args.dry_run:
         provisioner = Provisioner(args)

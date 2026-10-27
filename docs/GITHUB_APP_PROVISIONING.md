@@ -102,7 +102,9 @@ gh-app-provision --name my-release-bot --owner my-org --owner-type org \
 ```
 
 `--org-secret` requires `--owner-type org` and a non-empty repository list, and
-is mutually exclusive with `--no-secrets`. Invalid combinations exit `2` before
+is mutually exclusive with `--no-secrets`. `--repos` requires `--org-secret`;
+whitespace around repository names is stripped and empty entries are rejected.
+Invalid combinations exit `2` before
 starting the server. `--repo` remains required for the manifest's project URL;
 `--repos` controls secret visibility, not App installation or permissions.
 Install the App on every repository that needs an installation token.
@@ -189,6 +191,7 @@ setup that exports `NIX_CONFIG`, before the Nix command that fetches private inp
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
+          set -euo pipefail
           echo "::add-mask::$APP_TOKEN"
           delimiter="NIX_CONFIG_$(openssl rand -hex 16)"
           {
