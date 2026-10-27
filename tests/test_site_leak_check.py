@@ -464,7 +464,9 @@ def test_path_only_gitleaks_rules_are_usable(installed_hook, mode):
     assert "fixture-path" in result.stdout + result.stderr
 
 
-@pytest.mark.parametrize("extension", ["useDefault = true", 'path = ".gitleaks.toml"'])
+@pytest.mark.parametrize(
+    "extension", ["", "useDefault = true", 'path = ".gitleaks.toml"']
+)
 @pytest.mark.parametrize("mode", [(), ("--all-files",), "commit"])
 def test_pattern_files_must_be_self_contained(installed_hook, extension, mode):
     repo = installed_hook
