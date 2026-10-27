@@ -61,7 +61,7 @@ def pattern_error(config: Path) -> str | None:
     """Require self-contained rules; let gitleaks validate regex syntax."""
     with config.open("rb") as stream:
         document = tomllib.load(stream)
-    if "extend" in document:
+    if any(key.casefold() == "extend" for key in document):
         return "pattern file must be self-contained; [extend] is not supported"
     rules = document.get("rules")
     if not isinstance(rules, list) or not any(
