@@ -57,17 +57,19 @@ def pattern_file(root: Path) -> Path | None:
     return resolved
 
 
-def copy_inputs(root: Path, target: Path, files: list[str]) -> None:
-    """Snapshot selected files, excluding site bindings and symlinks."""
+def copy_inputs(root: Path, target: Path, files: list[str], config: Path) -> None:
+    """Snapshot selected files, excluding active patterns and symlinks."""
     for name in files:
         source = Path(name)
         if source.is_symlink():
             continue
         source = source.resolve()
+        if source == config:
+            continue
         if not source.is_relative_to(root):
             raise ValueError("input file must be inside the worktree")
         relative = source.relative_to(root)
-        if relative.parts[0] in {".site", ".git"}:
+        if relative.parts[0] == ".git":
             continue
         if not source.is_file():
             continue  # Deleted files and submodules have no working-tree text.
@@ -88,7 +90,7 @@ def staged_environment(root: Path) -> dict[str, str]:
     }
 
 
-def scan_commands(root: Path, temporary: Path, args: argparse.Namespace):
+def scan_commands(root: Path, temporary: Path, args: argparse.Namespace, config: Path):
     """Isolate scanner config without excluding repository ignore-file content."""
     tree = temporary / "tree"
     tree.mkdir()
@@ -104,7 +106,7 @@ def scan_commands(root: Path, temporary: Path, args: argparse.Namespace):
             ).split(b"\0")
             if name
         ]
-    copy_inputs(root, tree, files)
+    copy_inputs(root, tree, files, config)
     # 8.30.1 also loads <source>/.gitleaksignore despite the explicit flag.
     # Scan this file separately as data, so neither pass can load it as config.
     ignore_input = tree / ".gitleaksignore"
@@ -138,7 +140,7 @@ def scan(root: Path, config: Path, args: argparse.Namespace) -> int:
         ignore = temporary / ".gitleaksignore"
         ignore.write_text("")
         failed = False
-        for tree, command, environment in scan_commands(root, temporary, args):
+        for tree, command, environment in scan_commands(root, temporary, args, config):
             result = subprocess.run(
                 [
                     args.gitleaks,
