@@ -706,7 +706,7 @@ silent move would turn into queued or rejected jobs that point at nothing.
   site = "example"               # required; [a-z0-9][a-z0-9-]*; equals the file stem
 
   [datasets.raw-scans]           # one table per logical dataset; names match data.toml
-  location = "s3://bucket/prefix/raw"   # required: URI or absolute path
+  location = "s3://bucket/prefix/raw"   # required: empty (unbound), URI or absolute path
 
   [output]
   location = "/srv/project/out"        # optional
@@ -716,6 +716,11 @@ silent move would turn into queued or rejected jobs that point at nothing.
   scheduler = "slurm"
   ```
 
+- **Unbound locations.** Schema v1 accepts an empty location as unbound.
+  Validation reports a notice listing unbound dataset names and exits 0;
+  malformed bound locations (including relative paths) are errors. Consumers
+  must refuse an unbound location with an actionable error naming the dataset
+  key (future data recipes: #1921). S4 has no binding consumer.
 - **`data.toml`** is repo-owned. devkit reads only the **names**: the keys of
   its top-level `[datasets]` table. A binding for a name absent from
   `data.toml` is a warning, because a site file may outlive a renamed dataset.
@@ -760,7 +765,7 @@ silent move would turn into queued or rejected jobs that point at nothing.
     is left half-written.
 - **Fallback (no initialiser):** on a TTY, prompt for the site name (default
   `local`), one location per `data.toml` dataset and the output location. Off a
-  TTY, write `.site/local.toml` with empty locations and comments, and print
+  TTY, write `.site/local.toml` with every declared dataset present, empty locations and comments, and print
   the path. Both paths are validated the same way.
 - devkit **ships no site initialiser** and names none in code, docs or tests.
   Tests use a fixture initialiser on a temporary `PATH`.
@@ -829,6 +834,10 @@ The rejected options are kept with the costs that ruled them out.
 
 - **2026-10-27, architect clarification found while implementing S1b:**
   duplicate lanes are an error; no change to accepted decisions.
+
+- **2026-10-27, architect clarification:** resolve the §8/§9 contradiction
+  found while implementing S4: empty locations are valid unbound bindings,
+  reported as notices. No change to accepted decisions.
 
 - **2026-10-26, owner: the default lane map puts every lane on SMALL**
   (§5, decision (b)-1). The map had `lint`, `test`, `extension`,

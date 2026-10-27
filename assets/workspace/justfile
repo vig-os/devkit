@@ -11,6 +11,11 @@
 # recipes must still get pipefail (#854).
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
+# Initialize per-clone site bindings (ADR §8–§9)
+[group('helpers')]
+site-init *args:
+    @site-init {{ args }}
+
 # Show available commands
 [group('info')]
 help:

@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Fork-safe CI runner classes** ([#1925](https://github.com/vig-os/devkit/issues/1925))
   - Resolve independent runner variables and route CI lanes through validated class outputs.
 
+- **Per-clone site bindings and initializer hook** ([#1930](https://github.com/vig-os/devkit/issues/1930))
+  - Validate site configuration and initialize bindings from PATH or an unbound template.
+
 - **GitHub App provisioning CLI** ([#1909](https://github.com/vig-os/devkit/issues/1909))
   - Add `gh-app-provision` to create an App through GitHub’s manifest flow and store repository secrets, with a network-free `--dry-run`, reverse-proxy `--base-url`, exclusive private-key `--pem-out`, and `--no-secrets`
   - Add the [GitHub App provisioning guide](docs/GITHUB_APP_PROVISIONING.md), linked from `docs/WORKFLOW_SECURITY.md`, and the `/devkit:app-provision` agent skill
