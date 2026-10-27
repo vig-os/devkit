@@ -555,12 +555,12 @@ Rejected alternatives:
    design requires.
 3. **The migrating adoption is a convenience that cleans up**, whenever it
    happens. `init-workspace.sh`:
-   1. reads `CI_RUNNER_SMALL`, `CI_RUNNER_LARGE` and `CI_RUNNER_XLARGE` from
-      its **environment**. A ≥N `devkit-upgrade.yml` passes
-      `${{ vars.CI_RUNNER_* }}` into the install step, so the values are what
-      CI will see. On GitHub Free, org variables are invisible there too,
-      which is correct. Under a pre-N workflow, or a local
-      `install.sh --force`, the environment is empty, so nothing is stripped;
+   1. reads the **migration environment** defined below. A ≥N
+      `devkit-upgrade.yml` passes its visible `${{ vars.CI_RUNNER_* }}`
+      values through `install.sh`, so they are what CI will see. On GitHub
+      Free, org variables are invisible there too, which is correct. Under
+      a pre-N workflow, or a local `install.sh --force`, the CI context is
+      absent, so variables are unknown and nothing is stripped;
    2. applies decision (c) to a non-empty legacy key;
    3. prints exactly one `ci-runner-migration:` line per finding. A ≥N
       workflow lifts the lines into the step summary and the adoption PR body
