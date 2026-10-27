@@ -195,3 +195,9 @@ def test_pattern_lookup_from_subdirectory(repo):
     result = scan(subdirectory, "config.txt")
     assert result.returncode == 1
     assert "nested/config.txt:1: fixture-host" in result.stderr
+
+
+def test_repository_directory_is_not_a_pattern_file(repo):
+    result = scan(repo, DEVKIT_LEAK_PATTERNS=str(repo))
+    assert result.returncode == 2
+    assert "Traceback" not in result.stderr
