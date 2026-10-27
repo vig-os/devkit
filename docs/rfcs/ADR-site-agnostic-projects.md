@@ -827,6 +827,9 @@ The rejected options are kept with the costs that ruled them out.
 
 **Amendments**
 
+- **2026-10-27, architect clarification found while implementing S1b:**
+  duplicate lanes are an error; no change to accepted decisions.
+
 - **2026-10-26, owner: the default lane map puts every lane on SMALL**
   (§5, decision (b)-1). The map had `lint`, `test`, `extension`,
   `release-test` and the seeded hooks on LARGE. *Why:* self-hosted pools
@@ -866,7 +869,11 @@ the legacy `.vig-os` key and `CI_RUNNER_*` are set.**
    `DEVKIT_CI_LANE_SIZES=test=xlarge,lint=large`.** **Chosen** (owner, 2026-10-26;
    the default map was narrowed to all-SMALL on 2026-10-26, see Amendments). It covers the
    lanes `lint`, `test`, `extension` and `release-test`, and the sizes
-   `small`, `large` and `xlarge`. Anything else is an error at the write path
+   `small`, `large` and `xlarge`. Entries are comma-separated `lane=size`,
+   whitespace around entries is trimmed, names are case-sensitive lowercase,
+   an empty value means no override, and duplicate lane assignments are errors
+   at both paths naming `DEVKIT_CI_LANE_SIZES` and the duplicated lane.
+   Anything else is an error at the write path
    (`init-workspace.sh`) and in `resolve-toolchain`. How heavy a project's
    lanes are is a property of the **project**, not of the site, so it may live
    in git. Which label serves each size stays in variables. A fork can only
