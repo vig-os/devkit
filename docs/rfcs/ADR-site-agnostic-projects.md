@@ -15,8 +15,10 @@ and by a gitignored `.site/` directory for everything else.
 
 - **CI runners** come from the GitHub variables `CI_RUNNER_SMALL`,
   `CI_RUNNER_LARGE` and `CI_RUNNER_XLARGE` (repository or organization level),
-  never from repo content. Every managed lane belongs to one **size class**.
-  Unset or empty means the hosted default, **`ubuntu-26.04`**.
+  never from repo content. Every managed lane belongs to one **size class**,
+  and **every lane defaults to SMALL**. A project opts a lane into LARGE or
+  XLARGE with `DEVKIT_CI_LANE_SIZES` (decision (b)). Unset or empty means the
+  hosted default, **`ubuntu-26.04`**.
 - **Fork-safe on every path:** a pull request from another repository never
   requests a self-hosted label. This holds for the variables, for the legacy
   `.vig-os` key and for the legacy resolve variable. The check is explicit even
@@ -125,13 +127,17 @@ Findings this ADR builds on:
 
 | Variable | Meaning |
 |---|---|
-| `CI_RUNNER_SMALL` | one runner label for short orchestration jobs (resolve, gates, release-train steps) |
-| `CI_RUNNER_LARGE` | one runner label for toolchain lanes (dev-shell realisation, lint, tests) |
-| `CI_RUNNER_XLARGE` | one runner label for lanes a project declares heavier than LARGE |
+| `CI_RUNNER_SMALL` | one runner label for every lane by default: orchestration (resolve, gates, release-train steps), the toolchain lanes (lint, tests) and the seeded hooks |
+| `CI_RUNNER_LARGE` | one runner label for the lanes a project moves to LARGE with `DEVKIT_CI_LANE_SIZES`; no lane uses it by default |
+| `CI_RUNNER_XLARGE` | one runner label for the lanes a project moves to XLARGE with `DEVKIT_CI_LANE_SIZES`; no lane uses it by default |
 
 - Set at **repository** or **organization** level. On GitHub Free, private
   repos must use repository-level variables (Evidence, finding 1).
-- **The value is exactly one label.** The direct `runs-on` expression reads a
+- **The value is exactly one label.** That is the canonical form of every
+  `CI_RUNNER_*` value, and no resolver path accepts anything else: a comma
+  list or a JSON list is an error, not a tolerated spelling (the comma-split
+  of the legacy `DEVKIT_CI_RUNNER` key in §3 is a property of that key, not of
+  the variables). The direct `runs-on` expression reads a
   variable as a single label, so the `runner-json` path must not read it any
   other way. One whitespace rule applies everywhere, and a blank label is never
   emitted:
@@ -143,12 +149,13 @@ Findings this ADR builds on:
 
   GitHub's own expressions are the one exception to the "never blank" rule:
   they treat a whitespace-only string as truthy. That affects only the
-  direct-expression jobs reading the class, which are the resolve jobs for
-  SMALL and the seeded hooks for LARGE. For a whitespace-only LARGE, the resolve
-  job's warning names `CI_RUNNER_LARGE` as the variable to delete. For a
-  whitespace-only SMALL, the resolve job never starts (the known limit below),
-  so the run shows a job queued on a blank label, and `MIGRATION.md` names
-  that symptom. A pool that needs several labels
+  direct-expression jobs, which read SMALL: the resolve jobs and the seeded
+  hooks. For a whitespace-only SMALL, the resolve job never starts (the known
+  limit below), so the run shows a job queued on a blank label, and
+  `MIGRATION.md` names that symptom. For a whitespace-only LARGE or XLARGE,
+  which no direct expression reads, the resolve job's warning names the
+  variable to delete and the lanes that opted into that class treat it as
+  unset. A pool that needs several labels
   gets one unique custom label. Runner scale sets already work that way.
   **Known limit:** `CI_RUNNER_SMALL` also selects the resolve job's own runner,
   so a malformed SMALL value is never validated. The resolve job queues on the
@@ -209,7 +216,7 @@ and jobs that consume `resolve-toolchain`'s outputs (**runner-json lanes**).
 #### Direct-expression jobs
 
 These are the `resolve-toolchain` jobs (SMALL), which produce the outputs and
-cannot consume them, and the seeded extension hooks (LARGE, §5), whose callers
+cannot consume them, and the seeded extension hooks (SMALL, §5), whose callers
 pass them no runner input.
 
 Compatibility releases N and N+1, per decision (a)-1:
@@ -227,12 +234,15 @@ there, so the job would fail before any step and the explanation would never
 print. The term never selects a runner when `CI_RUNNER_SMALL` is set.
 
 New seeded hooks use
-`${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_LARGE || 'ubuntu-26.04' }}` and never
-reference `DEVKIT_CI_RESOLVE_RUNNER`. GitHub expressions treat `''` as false,
-so an empty variable falls through. A whitespace-only value is truthy there
-and requests a blank label (§1). The resolve job cannot report that for its
-own runner (the §1 known limit). For a whitespace-only LARGE, it warns before
-any seeded hook runs, and the runner-json lanes treat the value as unset.
+`${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || 'ubuntu-26.04' }}` and never
+reference `DEVKIT_CI_RESOLVE_RUNNER`. They read SMALL, like every other lane
+by default (§5), so the direct expression is the same class as the resolve
+jobs'. GitHub expressions treat `''` as false, so an empty variable falls
+through. A whitespace-only value is truthy there and requests a blank label
+(§1). The resolve job cannot report that for its own runner (the §1 known
+limit), and since it reads the same variable, a whitespace-only SMALL stops the
+run before any seeded hook is reached. The runner-json lanes treat a
+whitespace-only value of any class as unset.
 
 #### runner-json lanes
 
@@ -270,16 +280,21 @@ it. Each lane gets `runners[<lane>] = runners[<class>]`.
 
 - `runners` is a JSON object that maps each class and each overridable lane to
   a label array, for example
-  `{"small":["ubuntu-26.04"],"large":["pool-l"],"xlarge":["ubuntu-26.04"],"lint":["pool-l"],"test":["pool-l"],"extension":["pool-l"],"release-test":["pool-l"]}`.
-  Lanes declare `runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runners).large }}`,
-  or `.test`, or `['release-test']`.
+  `{"small":["pool-s"],"large":["ubuntu-26.04"],"xlarge":["ubuntu-26.04"],"lint":["pool-s"],"test":["pool-s"],"extension":["pool-s"],"release-test":["pool-s"]}`
+  for a consumer that sets only `CI_RUNNER_SMALL` and keeps the default lane
+  map. With `DEVKIT_CI_LANE_SIZES=test=large` and `CI_RUNNER_LARGE=pool-l`,
+  the `test` entry becomes `["pool-l"]`.
+  Lanes declare `runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runners).small }}`
+  for an orchestration job, or `.test`, or `['release-test']`.
 - `runner-sources` is a JSON object that maps each class to `fork`, `variable`,
   `legacy-key` or `default`. It is printed as a table in the step summary. It
   is also the signal [#1891](https://github.com/vig-os/devkit/issues/1891)'s
   cache profile reads instead of `DEVKIT_CI_RUNNER`.
 - `runner-json` is kept in releases N and N+1 as a **deprecated alias** of
-  `runners.large`, for consumer-written jobs that reference it. It is removed
-  in N+2. A removed output reaches `fromJSON('')`, which fails the job loudly.
+  `runners.small`, for consumer-written jobs that reference it. SMALL is the
+  default class of every lane (§5), and a legacy-key consumer has one pool
+  for all classes, so the alias keeps resolving to the pool those jobs used.
+  It is removed in N+2. A removed output reaches `fromJSON('')`, which fails the job loudly.
 
 **Diagnostics.** None of them can be silenced:
 
@@ -305,12 +320,15 @@ it. Each lane gets `runners[<lane>] = runners[<class>]`.
 - If the run is not foreign, at least one **required class** came from
   `variable` and another required class came from `default`: `::notice::`
   naming the unset classes. This is the partial-setup case. The required
-  classes are **SMALL and LARGE always**, plus every other class in the
-  effective lane map (§5). XLARGE is required only when a
-  `DEVKIT_CI_LANE_SIZES` override uses it. LARGE is always required because
-  the seeded hooks and the N `runner-json` alias read it whatever the lane
-  map says. A consumer that sets only SMALL and LARGE is fully set up and sees
-  no notice.
+  classes are **exactly the classes the effective lane map uses**: the §5
+  default map (every lane SMALL, which includes the seeded hooks and the
+  `runner-json` alias) plus the classes named by the repo's
+  `DEVKIT_CI_LANE_SIZES` override. So SMALL is always required, and LARGE or
+  XLARGE is required only when an override moves a lane there. A class no
+  lane uses is never required, whether or not its variable is set. A consumer
+  that keeps the default map and sets only SMALL is fully set up and sees no
+  notice. With `DEVKIT_CI_LANE_SIZES=test=large`, SMALL and LARGE are
+  required, and setting only SMALL gives the notice naming LARGE.
 - If the repo is private, the run is not foreign, and **no** `CI_RUNNER_*`
   variable is visible: a `::notice::` annotation on the run, plus a
   step-summary line. It says that CI runs on hosted runners, that on GitHub
@@ -362,8 +380,9 @@ degrade.
 
 ### 4. Inventory: every job that selects a runner
 
-Classes: **S** = SMALL, **L** = LARGE (the default class of an overridable
-lane), **hosted** = literal `ubuntu-26.04`, unchanged. "runner-json" means
+Classes: **S** = SMALL (the default class of every lane, including the
+overridable ones; a project may move an overridable lane to LARGE or XLARGE,
+§5), **hosted** = literal `ubuntu-26.04`, unchanged. "runner-json" means
 `fromJSON(needs.<resolver>.outputs.runner-json)` today. "resolve var" means
 `vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04'`. Every target row that is not
 hosted uses the fork predicate.
@@ -373,13 +392,13 @@ hosted uses the fork predicate.
 | Workflow (triggers) | Job | Today | Target |
 |---|---|---|---|
 | `ci.yml` (pull_request, workflow_dispatch) | `resolve-toolchain` | resolve var | S, direct expression |
-| | `lint` | runner-json | L, lane `lint` |
-| | `test` | runner-json | L, lane `test` |
+| | `lint` | runner-json | S, lane `lint` |
+| | `test` | runner-json | S, lane `test` |
 | | `commit-checks` | runner-json | S |
 | | `scaffold-drift` | runner-json | S |
 | | `devkit-staleness` | runner-json | S |
 | | `dependency-review` | hosted | hosted (public repos only) |
-| | `extension` → `ci-extension.yml` | passes `runner-json` | passes lane `extension` (L) as `runner-json` |
+| | `extension` → `ci-extension.yml` | passes `runner-json` | passes lane `extension` (S) as `runner-json` |
 | | `summary` | runner-json | S |
 | `ci-extension.yml` (workflow_call, seeded) | `extension` | `fromJSON(inputs.runner-json)` | unchanged; the caller now passes the `extension` lane |
 | `sync-issues.yml` (schedule, workflow_dispatch) | `resolve-toolchain` / `sync` | resolve var / runner-json | S / S |
@@ -393,11 +412,11 @@ hosted uses the fork predicate.
 | | `extension` → `release-extension.yml` | (no input) | (no input) |
 | | `core` → `release-core.yml`, `publish` → `release-publish.yml` | pass `runner-json` | pass `runners` |
 | `release-core.yml` (workflow_call, managed) | `validate`, `finalize` | `fromJSON(inputs.runner-json)` | S from `fromJSON(inputs.runners)` |
-| | `test` | `fromJSON(inputs.runner-json)` | L, lane `release-test` |
+| | `test` | `fromJSON(inputs.runner-json)` | S, lane `release-test` |
 | `release-publish.yml` (workflow_call, managed) | `publish` | `fromJSON(inputs.runner-json)` | S from `fromJSON(inputs.runners)` |
 | `promote-release.yml` (workflow_dispatch) | `resolve-toolchain` / `validate`, `promote`, `merge`, `cleanup`, `floating-tags` | resolve var / runner-json | S / S |
 | `abandon-release.yml` (workflow_dispatch) | `resolve-toolchain` / `validate`, `abandon` | resolve var / runner-json | S / S |
-| `prepare-release-extension.yml` (workflow_call, seeded) | `extension` | resolve var | new scaffolds: L, direct expression; existing copies: decision (d) |
+| `prepare-release-extension.yml` (workflow_call, seeded) | `extension` | resolve var | new scaffolds: S, direct expression; existing copies: decision (d) |
 | `release-extension.yml` (workflow_call, seeded) | `extension` | resolve var | same as above |
 | `publish-release-extension.yml` (release, workflow_dispatch; seeded) | `resolve`, `publish` | resolve var | same as above |
 | `devkit-upgrade.yml` (schedule, workflow_dispatch) | `upgrade`, `report` | `ubuntu-latest` | S, with the fork predicate (decision (e)-1) |
@@ -411,11 +430,12 @@ The `release-core` and `release-publish` input changes from `runner-json` to
 The seeded hooks' inputs do **not** change: the
 `test_callers_pass_only_inputs_the_oldest_seeded_hook_declares` contract holds.
 
-**Every seeded-hook job is L, including `publish-release-extension`'s short
+**Every seeded-hook job is S, including `publish-release-extension`'s short
 `resolve` job.** One stock expression for every seeded job keeps the (d)
-reconcile a byte-exact, per-line match with a single replacement. The files
-are consumer-owned, so a consumer that wants `resolve` on SMALL edits its own
-copy.
+reconcile a byte-exact, per-line match with a single replacement. The hooks
+take no lane override, because their callers pass them no runner input. The
+files are consumer-owned, so a consumer whose hook needs a heavier pool edits
+its own copy.
 
 **Public-only jobs stay hosted.** `dependency-review`, `codeql` and `scorecard`
 skip on private repos. Public repos get hosted minutes free, and public repos
@@ -447,12 +467,22 @@ Default map, with the per-lane override of decision (b)-1:
 
 | Class | Lanes |
 |---|---|
-| LARGE | `lint`, `test`, `extension` (`ci-extension`), `release-test` (`release-core` `test`), seeded release hooks |
-| SMALL | everything else that routes: `resolve-toolchain` jobs and resolvers (`prepare-release` `validate`), `commit-checks`, `scaffold-drift`, `devkit-staleness`, `summary`, `sync-*`, release-train orchestration, `devkit-upgrade` (decision (e)) |
-| XLARGE | no default lane; reachable through the decision (b) override |
+| SMALL | **every lane**: `lint`, `test`, `extension` (`ci-extension`), `release-test` (`release-core` `test`), the seeded release hooks, `resolve-toolchain` jobs and resolvers (`prepare-release` `validate`), `commit-checks`, `scaffold-drift`, `devkit-staleness`, `summary`, `sync-*`, release-train orchestration, `devkit-upgrade` (decision (e)) |
+| LARGE | no default lane; reachable only through the decision (b) override, e.g. `DEVKIT_CI_LANE_SIZES=test=large` |
+| XLARGE | no default lane; reachable only through the decision (b) override |
 
-`lint` and `test` both realise the dev-shell, which is the dominant cost, so
-both are LARGE. A container-mode consumer's runners already need a container
+**Why SMALL for everything.** Self-hosted pools usually hold far fewer large
+runners than small ones. A real consumer pool has per-org capacity of
+SMALL ≤ 4–6, LARGE ≤ 2 and XLARGE ≤ 1. With `lint`, `test`, `extension` and
+`release-test` on LARGE by default, one PR occupies every LARGE slot, a second
+PR queues, and the small slots sit idle. Most dev-shell realisation is
+substituted from a binary cache, so `lint`, drift and the similar lanes are
+light. SMALL is therefore the default, and a project opts a lane into LARGE or
+XLARGE where its own tests need it. How heavy a project's tests are is a
+project property, so the opt-in lives in `.vig-os` (decision (b)), while which
+label serves each size stays in the variables.
+
+A container-mode consumer's runners already need a container
 runtime for the `container:` lanes, so any class it routes is container-capable.
 
 ### 6. Migration
@@ -522,7 +552,7 @@ The PR-body text a ≥N workflow shows, per case:
 | Legacy key | Visible variables | PR body says |
 |---|---|---|
 | set | every required class (§3) | key removed (decision (c)-1); runners now come from the variables; nothing to do |
-| set | some required classes or none | which `CI_RUNNER_*` to set, at **repository level** if the repo is private on GitHub Free; the example command `gh variable set CI_RUNNER_LARGE --body <label>`; until N+2 the key keeps working, and after that CI fails until the variables are set |
+| set | some required classes or none | which `CI_RUNNER_*` to set, at **repository level** if the repo is private on GitHub Free; the example command `gh variable set CI_RUNNER_<S> --body <label>` with `<S>` each required class; until N+2 the key keeps working, and after that CI fails until the variables are set |
 | unset, `vars.DEVKIT_CI_RESOLVE_RUNNER` visible | n/a | rename the variable to `CI_RUNNER_SMALL`, then delete the old one after decision (d)'s hook migration |
 | unset, repo private, no `CI_RUNNER_*` visible | none | one informational line: CI runs hosted; organization variables do not reach private repos on GitHub Free; set repository variables, or set them to `ubuntu-26.04` to declare hosted on purpose (§3) |
 | unset, any other case | n/a | nothing (no line printed) |
@@ -766,6 +796,23 @@ Decided by the owner on 2026-10-26, on PR
 Each option chosen was the one this ADR considers correct in the long term.
 The rejected options are kept with the costs that ruled them out.
 
+**Amendments**
+
+- **2026-10-26, owner: the default lane map puts every lane on SMALL**
+  (§5, decision (b)-1). The map had `lint`, `test`, `extension`,
+  `release-test` and the seeded hooks on LARGE. *Why:* self-hosted pools
+  usually have far fewer large runners than small ones (a real consumer pool:
+  SMALL ≤ 4–6, LARGE ≤ 2, XLARGE ≤ 1 per org), so those lanes let one PR occupy
+  every LARGE slot while a second PR queued and the small slots sat idle, and
+  most dev-shell realisation is a binary-cache substitution, which makes the
+  lanes light. *Effect:* LARGE and XLARGE have no default lane and are reached
+  only through `DEVKIT_CI_LANE_SIZES`. The required classes (§3, (c)-1) shrink
+  to the classes the effective lane map uses, the (d)-1 rewrite target and the
+  seeded-hook expression read `CI_RUNNER_SMALL`, and the deprecated
+  `runner-json` alias follows `runners.small`. This narrows the default only.
+  The (b)-1 override mechanism, its syntax, its validation and the variables'
+  meaning are unchanged.
+
 **(a) Precedence during the compatibility window (releases N and N+1) when both
 the legacy `.vig-os` key and `CI_RUNNER_*` are set.**
 
@@ -786,8 +833,9 @@ the legacy `.vig-os` key and `CI_RUNNER_*` are set.**
 
 **(b) Size class per lane, and whether a consumer can override it.**
 
-1. **Defaults as in §5, plus a per-lane override in `.vig-os`:
-   `DEVKIT_CI_LANE_SIZES=test=xlarge,lint=large`.** **Chosen** (owner, 2026-10-26). It covers the
+1. **Defaults as in §5 (every lane SMALL), plus a per-lane override in `.vig-os`:
+   `DEVKIT_CI_LANE_SIZES=test=xlarge,lint=large`.** **Chosen** (owner, 2026-10-26;
+   the default map was narrowed to all-SMALL on 2026-10-26, see Amendments). It covers the
    lanes `lint`, `test`, `extension` and `release-test`, and the sizes
    `small`, `large` and `xlarge`. Anything else is an error at the write path
    (`init-workspace.sh`) and in `resolve-toolchain`. How heavy a project's
@@ -812,8 +860,11 @@ warnings and the consumer-state tombstone (§3) make the outcome correct
 whenever it happens.
 
 1. **Strip it when it is inert, otherwise keep it and explain.** **Chosen** (owner, 2026-10-26). Inert means the variable of every required class (§3:
-   SMALL and LARGE always, plus XLARGE if the lane map uses it) is visible to the
-   upgrade job, so under (a)-1 the key decides nothing. Then removing it
+   exactly the classes the effective lane map uses, which is SMALL alone under
+   the default map and gains LARGE or XLARGE only through a
+   `DEVKIT_CI_LANE_SIZES` override) is visible to the
+   upgrade job, so under (a)-1 the key decides nothing. A class no lane uses is
+   not required: the key may still name a pool for it, but no lane reads it. Then removing it
    changes no runner, and the repo reaches the end state at the migrating
    adoption. Otherwise the key stays, and the PR body names
    the variables to set. *Cost:* the upgrade's behaviour depends on variables
@@ -837,8 +888,10 @@ and never overwritten.
 1. **Reconcile the exact stock line.** **Chosen** (owner, 2026-10-26). The upgrade checks each
    job's `runs-on` line separately. Where a line is byte-identical to the stock
    `${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}`, it rewrites that
-   line to the new LARGE direct expression (§3, the same for every seeded job)
-   and prints a
+   line to the new SMALL direct expression (§3, the same for every seeded job).
+   The rewrite target is SMALL, not LARGE, so a reconciled hook agrees with
+   "every lane SMALL by default" (§5) and needs only the class every consumer
+   already sets. It prints a
    `preserved-hook`-style reconcile line into the PR body. Any other content is
    left alone and reported as drift. This is the same precedent as the
    pre-commit reconcile ([#1654](https://github.com/vig-os/devkit/issues/1654)):
@@ -1014,12 +1067,15 @@ rebases onto the earlier one:
   - the legacy-key warning names every unset required class, the
     repository-level hint, the delete-the-key step and the `MIGRATION.md`
     anchor, and never the label;
-  - the partial-setup notice: SMALL and LARGE set → no notice; only SMALL set
-    → a notice naming LARGE;
+  - the partial-setup notice: the default map with only SMALL set → no
+    notice; `DEVKIT_CI_LANE_SIZES=test=large` with SMALL and LARGE set → no
+    notice, and with only SMALL set → a notice naming LARGE; a set but unused
+    LARGE is never reported;
   - the private no-variables notice fires as an annotation, is silenced by
     variables set to `ubuntu-26.04`, and does not fire on a public repo or a
     foreign run;
-  - the whitespace-only warning names `CI_RUNNER_LARGE`.
+  - the whitespace-only warning names the offending variable (tested with
+    `CI_RUNNER_LARGE` under a lane override).
 
 **S1b — Per-lane size override `DEVKIT_CI_LANE_SIZES`** (decision (b)-1).
 
@@ -1028,7 +1084,8 @@ rebases onto the earlier one:
     on an unknown lane or size;
   - the init-workspace write-path guard and persistence;
   - the template comment;
-  - XLARGE joining the required classes when the map uses it.
+  - each class an override names joining the required classes (LARGE or
+    XLARGE), and no other class being required.
 - *Files:* `resolve-toolchain/action.yml` (its parser section),
   `assets/init-workspace.sh` (guard and persistence),
   `assets/workspace/.vig-os` (the key and its comment), and the lane-size
@@ -1039,7 +1096,11 @@ rebases onto the earlier one:
   - an override moves a lane's `runners` entry;
   - invalid values fail at both the write path and resolve;
   - persisted across `--force`;
-  - an XLARGE override with XLARGE unset gives the partial-setup notice.
+  - the default map puts every lane on `small`;
+  - an override to LARGE or XLARGE with that class unset gives the
+    partial-setup notice naming it;
+  - a set LARGE or XLARGE that no lane uses gives no notice and is not
+    required.
 
 **S2 — Remaining scaffolded workflows.**
 
@@ -1049,7 +1110,7 @@ rebases onto the earlier one:
   `runner-json` → `runners` input on the managed reusables; the
   `ci-extension.yml` header comment for new scaffolds (`runner-json` is now the
   `extension` lane, not `DEVKIT_CI_RUNNER`-derived); new-scaffold seeded
-  hooks on the LARGE direct expression; `devkit-upgrade.yml` per (e).
+  hooks on the SMALL direct expression; `devkit-upgrade.yml` per (e).
 - *Files:* those workflow files under `assets/workspace/.github/workflows/`,
   and the release-train and hook tests in `tests/test_ci_runner.py`. Not
   disjoint from S1: different test functions in the same file.
