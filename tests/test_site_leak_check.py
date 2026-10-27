@@ -367,3 +367,157 @@ def test_linked_worktree_needs_its_own_patterns_or_environment(repo, tmp_path):
     configured = scan(linked, DEVKIT_LEAK_PATTERNS=str(config))
     assert configured.returncode == 1
     assert "d.txt:1: fixture-host" in configured.stderr
+
+
+@pytest.mark.parametrize("attribute", ["binary", "-diff", "diff=fixture"])
+@pytest.mark.parametrize("location", ["repository", "info", "global"])
+def test_staged_index_content_ignores_diff_attributes(
+    repo, tmp_path, attribute, location
+):
+    patterns(repo)
+    if location == "repository":
+        attributes = repo / ".gitattributes"
+    elif location == "info":
+        attributes = repo / ".git/info/attributes"
+    else:
+        attributes = tmp_path / "attributes"
+        git(repo, "config", "core.attributesFile", str(attributes))
+    attributes.write_text(f"*.txt {attribute}\n")
+    if location == "repository":
+        git(repo, "add", ".gitattributes")
+        git(
+            repo, "-c", "core.hooksPath=/dev/null", "commit", "-m", "fixture attributes"
+        )
+    converter = tmp_path / "textconv"
+    converter.write_text("#!/bin/sh\nprintf 'clean\\n'\n")
+    converter.chmod(0o755)
+    git(repo, "config", "diff.fixture.textconv", str(converter))
+    (repo / "d.txt").write_text("storage.example\n")
+    git(repo, "add", "d.txt")
+    (repo / "d.txt").write_text("worktree differs from index\n")
+    result = scan(repo)
+    assert result.returncode == 1, result.stderr
+    assert "d.txt:1: fixture-host" in result.stderr
+    assert "storage.example" not in result.stderr
+
+
+def test_staged_materialization_reads_raw_blobs_without_checkout_filters(
+    repo, tmp_path
+):
+    patterns(repo)
+    (repo / ".gitattributes").write_text("*.txt filter=fixture\n")
+    converter = tmp_path / "smudge"
+    converter.write_text("#!/bin/sh\nprintf 'clean\\n'\n")
+    converter.chmod(0o755)
+    git(repo, "config", "filter.fixture.smudge", str(converter))
+    (repo / "d.txt").write_text("storage.example\n")
+    git(repo, "add", ".gitattributes", "d.txt")
+    result = scan(repo)
+    assert result.returncode == 1
+    assert "d.txt:1: fixture-host" in result.stderr
+
+
+def test_staged_scan_checks_full_index_contents_of_changed_paths(repo):
+    (repo / "d.txt").write_text("storage.example\n")
+    git(repo, "add", "d.txt")
+    git(repo, "-c", "core.hooksPath=/dev/null", "commit", "-m", "fixture baseline")
+    patterns(repo)
+    (repo / "d.txt").write_text("storage.example\nchanged line\n")
+    git(repo, "add", "d.txt")
+    result = scan(repo)
+    assert result.returncode == 1
+    assert "d.txt:1: fixture-host" in result.stderr
+
+
+def test_staged_deleted_paths_are_skipped(repo):
+    (repo / "d.txt").write_text("storage.example\n")
+    git(repo, "add", "d.txt")
+    git(repo, "-c", "core.hooksPath=/dev/null", "commit", "-m", "fixture baseline")
+    patterns(repo)
+    git(repo, "rm", "d.txt")
+    result = scan(repo)
+    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+
+
+def test_pure_rename_is_covered_by_index_and_filename_snapshots(installed_hook):
+    repo = installed_hook
+    (repo / "old.txt").write_text("storage.example\n")
+    git(repo, "add", "old.txt")
+    git(repo, "-c", "core.hooksPath=/dev/null", "commit", "-m", "fixture baseline")
+    patterns(repo)
+    git(repo, "mv", "old.txt", "new.txt")
+    assert scan(repo).returncode == 1
+    result = commit(repo)
+    assert result.returncode == 1
+    assert "new.txt:1: fixture-host" in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("mode", [(), ("d.txt",), ("--all-files",), "commit"])
+def test_path_only_gitleaks_rules_are_usable(installed_hook, mode):
+    repo = installed_hook
+    patterns(repo).write_text('[[rules]]\nid = "fixture-path"\npath = "d[.]txt$"\n')
+    (repo / "d.txt").write_text("ordinary content\n")
+    git(repo, "add", "d.txt")
+    result = commit(repo) if mode == "commit" else scan(repo, *mode)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "d.txt:" in result.stdout + result.stderr
+    assert "fixture-path" in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("extension", ["useDefault = true", 'path = ".gitleaks.toml"'])
+@pytest.mark.parametrize("mode", [(), ("--all-files",), "commit"])
+def test_pattern_files_must_be_self_contained(installed_hook, extension, mode):
+    repo = installed_hook
+    config = patterns(repo)
+    config.write_text(PATTERNS + f"\n[extend]\n{extension}\n")
+    (repo / ".gitleaks.toml").write_text(PATTERNS)
+    (repo / "d.txt").write_text("ordinary content\n")
+    git(repo, "add", "d.txt")
+    result = commit(repo) if mode == "commit" else scan(repo, *mode)
+    output = result.stdout + result.stderr
+    assert result.returncode == (1 if mode == "commit" else 2)
+    assert str(config) in output
+    assert "self-contained" in output
+    assert "[extend]" in output
+    assert "storage.example" not in output
+
+
+def test_text_hook_skips_nul_files_but_all_files_scans_them(installed_hook):
+    repo = installed_hook
+    patterns(repo)
+    (repo / "d.txt").write_bytes(b"storage.example\n\0")
+    git(repo, "add", "d.txt")
+    assert commit(repo).returncode == 0
+    result = scan(repo, "--all-files")
+    assert result.returncode == 1
+    assert "d.txt:1: fixture-host" in result.stderr
+
+
+@pytest.mark.parametrize("name", ["d file.txt", "d\nfile.txt", ":(glob)*.txt"])
+def test_index_snapshot_preserves_literal_file_names(repo, name):
+    patterns(repo)
+    (repo / name).write_text("storage.example\n")
+    git(repo, "--literal-pathspecs", "add", "--", name)
+    assert scan(repo).stderr == f"{name}:1: fixture-host\n"
+
+
+@pytest.mark.parametrize(
+    "content,scanner,expected",
+    [
+        ("storage.example\n", "gitleaks", 1),
+        ("clean\n", "gitleaks", 0),
+        ("storage.example\n", "/nonexistent/gitleaks", 2),
+    ],
+)
+def test_private_snapshot_is_removed_on_all_exit_paths(
+    repo, tmp_path, content, scanner, expected
+):
+    patterns(repo)
+    (repo / "d.txt").write_text(content)
+    git(repo, "add", "d.txt")
+    temporary = tmp_path / "private-temporary"
+    temporary.mkdir()
+    assert (
+        scan(repo, "--gitleaks", scanner, TMPDIR=str(temporary)).returncode == expected
+    )
+    assert list(temporary.iterdir()) == []
