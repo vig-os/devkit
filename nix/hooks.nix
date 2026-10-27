@@ -208,6 +208,31 @@ let
   dotenvFiles = "(^|/)(\\.env(\\.[^/]*)?|[^/]+\\.env)$";
 
   hookDefs = {
+    # Site-private rules are absent in hosted/fork checkouts: a silent no-op.
+    # Files passed by pre-commit cover its staged snapshot or --all-files tree.
+    site-leak-check = {
+      scaffold = true;
+      yaml = {
+        name = "site-leak-check";
+        entry = "uv run site-leak-check";
+        language = "system";
+        types = [ "text" ];
+      };
+      check = { vigUtils, pkgs, ... }: {
+        enable = true;
+        name = "site-leak-check";
+        entry = "${vigUtils}/bin/site-leak-check --gitleaks ${pkgs.gitleaks}/bin/gitleaks";
+        language = "system";
+        types = [ "text" ];
+      };
+      consumer = pkgs: {
+        enable = true;
+        name = "site-leak-check";
+        entry = "${import ./vig-utils.nix pkgs}/bin/site-leak-check --gitleaks ${pkgs.gitleaks}/bin/gitleaks";
+        language = "system";
+        types = [ "text" ];
+      };
+    };
     no-hardcoded-endpoints = {
       scaffold = true;
       yaml = {

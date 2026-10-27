@@ -2084,3 +2084,24 @@ upgrade ([#1263](https://github.com/vig-os/devkit/issues/1263)). `install.sh
 --force` runs `nix flake update vigos` for you when it can (direnv/`both` mode,
 host `nix` available), and the dev shell warns at entry whenever its own release
 differs from the `.vig-os` `DEVKIT_VERSION` pin — see [Updating](#updating).
+
+## Site leak-check hook
+
+The default-on `site-leak-check` hook loads private gitleaks rules from the
+absolute `$DEVKIT_LEAK_PATTERNS` path, otherwise `.site/leak-patterns.toml`.
+Without a pattern file it exits silently. No patterns ship with devkit.
+Generated hooks update on shell entry; preserved portable hook configs need the
+`site-leak-check` block from the updated workspace template. The hook scans text
+files and needs gitleaks in the development environment.
+
+Use `gitleaks:allow` on an intentional matching line or the private config's
+allowlist. A generated hook can exclude an entire path:
+
+```nix
+hooks.site-leak-check.excludes = [ "^tests/fixtures/legacy\\.txt$" ];
+```
+
+Portable hooks use their `exclude` field. Rule IDs must be safe for public logs;
+findings print only file, line and ID. See the
+[tool README](../packages/vig-utils/README.md#site-leak-check) for lookup safety,
+scan modes, exit codes and private error diagnosis.

@@ -286,6 +286,42 @@ Use `hooks.no-hardcoded-endpoints-dotenv.excludes` for dotenv paths. See the
 versus preserved hook configs. Broader patterns belong to the separate site
 leak check; this lint is not a full-history secret scanner.
 
+## Site leak check
+
+`site-leak-check` loads `$DEVKIT_LEAK_PATTERNS` (an absolute path), otherwise
+`.site/leak-patterns.toml` at the repository root. Without either, it exits 0
+silently, including on hosted and fork runs. devkit ships no patterns. The file
+uses gitleaks format (`[[rules]]` with `id` and `regex`, optional `[allowlist]`);
+keep rule IDs suitable for public logs. Tracked pattern files and files inside
+the worktree outside `.site/` are errors, including through symlinks.
+
+With no arguments the CLI scans staged changes using `gitleaks git --pre-commit
+--staged`. `--all-files` scans tracked and nonignored untracked working-tree
+files; explicit filenames scan those working-tree files. The default-on hook
+selects text files: pre-commit supplies the staged snapshot during commits and
+all tracked text files for `pre-commit run --all-files`. `.site/` is never copied
+into a working-tree scan. Symlinks are not followed. This scans current content,
+not history; use the same config for a separate full-history gitleaks scan.
+
+The executable requires gitleaks on PATH (provided by the devkit environment;
+Nix-generated hooks pin its executable). All scans use `--config` and `--redact`.
+Only file, line and rule ID are published; private scanner diagnostics, matched
+text and rule descriptions are suppressed. Exit codes are 0 for clean, 1 for
+findings and 2 for configuration or scanner errors. Investigate errors locally
+with gitleaks and the private config; those diagnostics can disclose patterns.
+Project input files are scanned as text, so malformed project syntax is harmless.
+
+For an intentional match, use gitleaks' same-line `gitleaks:allow` pragma or the
+site config's allowlist. For a whole path, override the generated consumer hook:
+
+```nix
+hooks.site-leak-check.excludes = [ "^tests/fixtures/legacy\\.txt$" ];
+```
+
+Exclusions apply to filenames supplied by pre-commit. Direct CLI staged/tree
+scans use the private config's allowlist. This hook is independent of the opt-in
+repo-level `gitleaks` hook and its `.gitleaks.toml`.
+
 ## Development and tests
 
 Run package tests from repository root:

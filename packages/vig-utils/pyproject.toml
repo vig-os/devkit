@@ -16,6 +16,7 @@ authors = [
 ]
 
 [project.scripts]
+site-leak-check = "vig_utils.site_leak_check:main"
 check-hardcoded-endpoints = "vig_utils.check_hardcoded_endpoints:main"
 check-site-config = "vig_utils.site_config:main"
 site-init = "vig_utils.site_config:site_init"
