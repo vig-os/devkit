@@ -114,6 +114,7 @@ def test_hook_surfaces():
         ("config.yaml", "AWS_SECRET_ACCESS_KEY: >-\n  literal"),
         ("config.json", '{"endpointUrl":\n "https://storage.service"}'),
         ("config.toml", 'AWS_SESSION_TOKEN = "literal"'),
+        ("config.toml", 'endpoint_url = """\nhttps://storage.service"""'),
         ("config.sh", "export AWS_ENDPOINT_URL=https://storage.service"),
         (".env", "AWS_ACCESS_KEY_ID=literal"),
     ],
