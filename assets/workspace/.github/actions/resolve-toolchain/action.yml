@@ -167,7 +167,9 @@ runs:
         RUNNER_LARGE: ${{ inputs.runner-large }}
         RUNNER_XLARGE: ${{ inputs.runner-xlarge }}
         LEGACY_RESOLVE_RUNNER: ${{ inputs.legacy-resolve-runner }}
-        PR_CONTEXT: ${{ toJSON(github.event.pull_request) }}
+        PR_PRESENT: ${{ github.event.pull_request != null }}
+        HEAD_REPO_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
         BASE_REPOSITORY: ${{ github.repository }}
         INPUT_IMAGE_TAG: ${{ inputs.image-tag }}
       run: |
@@ -263,8 +265,17 @@ runs:
         echo "floating-tags=$FLOATING_TAGS" >> "$GITHUB_OUTPUT"
 
         # Evaluate the ADR §2 predicate here, including for legacy callers.
-        FOREIGN=$(jq -n --argjson pr "${PR_CONTEXT:-null}" --arg base "${BASE_REPOSITORY:-}" \
-          '$pr != null and ($pr.head.repo.fork == true or $pr.head.repo.full_name != $base)')
+        head_repository="${HEAD_REPOSITORY:-}"
+        base_repository="${BASE_REPOSITORY:-}"
+        FOREIGN=false
+        if [[ "${PR_PRESENT:-false}" == true && ( "${HEAD_REPO_FORK:-false}" == true || "${head_repository,,}" != "${base_repository,,}" ) ]]; then
+          FOREIGN=true
+        fi
+        # Bash ranges follow the locale; the ADR label rule is ASCII everywhere.
+        valid_runner_label() {
+          local LC_ALL=C
+          [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]]
+        }
         LEGACY_LABELS=$(jq -cn --arg labels "$CI_RUNNER" \
           '$labels | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))')
         RUNNERS='{}'
@@ -274,7 +285,7 @@ runs:
           raw="${!input_name:-}"
           trimmed="${raw#"${raw%%[![:space:]]*}"}"
           trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
-          if [[ -n "$trimmed" && ! "$raw" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]]; then
+          if [[ -n "$trimmed" ]] && ! valid_runner_label "$raw"; then
             echo "::error::Invalid CI_RUNNER_${size^^}: expected one runner label matching ^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
             exit 1
           fi
