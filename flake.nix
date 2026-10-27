@@ -1748,6 +1748,10 @@
         # and ambient-PATH tool resolution (curl/git/docker) unchanged. Refs #777.
         # ------------------------------------------------------------------
         apps = {
+          app-provision = flake-utils.lib.mkApp {
+            drv = vigUtils;
+            name = "gh-app-provision";
+          };
           install = flake-utils.lib.mkApp {
             drv = pkgs.writeShellScriptBin "install" (builtins.readFile ./install.sh);
             name = "install";
