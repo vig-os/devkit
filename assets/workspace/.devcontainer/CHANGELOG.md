@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Run provisioning through `nix run .#app-provision` and document masked App tokens appended to existing Nix configuration
   - Show a terminal-state page for callbacks after a rejected or failed provisioning attempt
 
+- **Fork-safe CI runner classes** ([#1925](https://github.com/vig-os/devkit/issues/1925))
+  - Resolve independent runner variables and route CI lanes through validated class outputs.
+
 - **GitHub App provisioning CLI** ([#1909](https://github.com/vig-os/devkit/issues/1909))
   - Add `gh-app-provision` to create an App through GitHub’s manifest flow and store repository secrets, with a network-free `--dry-run`, reverse-proxy `--base-url`, exclusive private-key `--pem-out`, and `--no-secrets`
   - Add the [GitHub App provisioning guide](docs/GITHUB_APP_PROVISIONING.md), linked from `docs/WORKFLOW_SECURITY.md`, and the `/devkit:app-provision` agent skill

@@ -141,7 +141,7 @@ def test_scaffold_drift_honors_runner_override() -> None:
     """The job routes runs-on through the resolved runner (self-hosted aware)."""
     workflow = _load(WORKFLOWS / "ci.yml")
     assert workflow["jobs"][DRIFT_JOB]["runs-on"] == (
-        "${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}"
+        "${{ fromJSON(needs.resolve-toolchain.outputs.runners).small }}"
     )
 
 
