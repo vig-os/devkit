@@ -6286,6 +6286,8 @@ _assert_consumer_tokens_intact_1693() {
     mkdir -p "$ws"
     run _clone_shared direnv "$ws"
     assert_success
+    grep -v '^DEVKIT_CI_LANE_SIZES=' "$ws/.vig-os" >"$BATS_TEST_TMPDIR/base"
+    cp "$BATS_TEST_TMPDIR/base" "$ws/.vig-os"
     printf '\nDEVKIT_CI_LANE_SIZES=test=xlarge, lint=large\n' >>"$ws/.vig-os"
     run _upgrade_no_flags "$ws"
     assert_success
@@ -6298,7 +6300,7 @@ _assert_consumer_tokens_intact_1693() {
     mkdir -p "$ws"
     run _clone_shared direnv "$ws"
     assert_success
-    cp "$ws/.vig-os" "$BATS_TEST_TMPDIR/original-manifest"
+    grep -v '^DEVKIT_CI_LANE_SIZES=' "$ws/.vig-os" >"$BATS_TEST_TMPDIR/original-manifest"
     local value
     for value in unknown=large test=huge small=large Test=large test=LARGE \
         test =large test= test==large 'test=large,' ,test=large \

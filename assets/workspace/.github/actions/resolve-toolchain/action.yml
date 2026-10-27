@@ -183,6 +183,7 @@ runs:
         PRERELEASE_FORMAT=""
         FLOATING_TAGS=""
         CI_RUNNER=""
+        CI_LANE_SIZES=""
         DEV_PROFILE_PATH=""
         REFS_POLICY=""
         REFS_OPTIONAL_TYPES_RAW=""
@@ -201,7 +202,7 @@ runs:
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
 
             case "$line" in
-              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_PRERELEASE_FORMAT=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_DEV_PROFILE_PATH=*|DEVKIT_REFS_POLICY=*|DEVKIT_REFS_OPTIONAL_TYPES=*|DEVKIT_COMMIT_TYPES=*|DEVKIT_BRANCH_TYPES=*|DEVKIT_DRIFT_CHECK=*|DEVKIT_LANGUAGES=*)
+              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_PRERELEASE_FORMAT=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_CI_LANE_SIZES=*|DEVKIT_DEV_PROFILE_PATH=*|DEVKIT_REFS_POLICY=*|DEVKIT_REFS_OPTIONAL_TYPES=*|DEVKIT_COMMIT_TYPES=*|DEVKIT_BRANCH_TYPES=*|DEVKIT_DRIFT_CHECK=*|DEVKIT_LANGUAGES=*)
                 key="${line%%=*}"
                 value="${line#*=}"
                 value="${value#"${value%%[![:space:]]*}"}"
@@ -221,6 +222,7 @@ runs:
                   DEVKIT_PRERELEASE_FORMAT) PRERELEASE_FORMAT="$value" ;;
                   DEVKIT_FLOATING_TAGS) FLOATING_TAGS="$value" ;;
                   DEVKIT_CI_RUNNER) CI_RUNNER="$value" ;;
+                  DEVKIT_CI_LANE_SIZES) CI_LANE_SIZES="$value" ;;
                   DEVKIT_DEV_PROFILE_PATH) DEV_PROFILE_PATH="$value" ;;
                   DEVKIT_REFS_POLICY) REFS_POLICY="$value" ;;
                   DEVKIT_REFS_OPTIONAL_TYPES) REFS_OPTIONAL_TYPES_RAW="$value" ;;
@@ -307,8 +309,30 @@ runs:
           RUNNERS=$(jq -c --arg size "$size" --argjson labels "$labels" '.[$size] = $labels' <<< "$RUNNERS")
           SOURCES=$(jq -c --arg size "$size" --arg source "$source" '.[$size] = $source' <<< "$SOURCES")
         done
-        # Built-in effective lane map (§5); S1b feeds its parsed override here.
+        # Effective lane map (§5): only the four project lanes can opt in.
         LANE_SIZES='{"lint":"small","test":"small","extension":"small","release-test":"small"}'
+        if [[ -n "$CI_LANE_SIZES" ]]; then
+          remaining="$CI_LANE_SIZES,"
+          seen=","
+          while [[ -n "$remaining" ]]; do
+            entry="${remaining%%,*}"
+            remaining="${remaining#*,}"
+            entry="${entry#"${entry%%[![:space:]]*}"}"
+            entry="${entry%"${entry##*[![:space:]]}"}"
+            if [[ ! "$entry" =~ ^(lint|test|extension|release-test)=(small|large|xlarge)$ ]]; then
+              echo "::error::Invalid DEVKIT_CI_LANE_SIZES: expected comma-separated lane=size entries (lint, test, extension, release-test; small, large, xlarge)."
+              exit 1
+            fi
+            lane="${entry%%=*}"
+            size="${entry#*=}"
+            if [[ "$seen" == *",$lane,"* ]]; then
+              echo "::error::Duplicate lane $lane in DEVKIT_CI_LANE_SIZES."
+              exit 1
+            fi
+            seen+="$lane,"
+            LANE_SIZES=$(jq -c --arg lane "$lane" --arg size "$size" '.[$lane] = $size' <<< "$LANE_SIZES")
+          done
+        fi
         RUNNERS=$(jq -c --argjson lanes "$LANE_SIZES" '. as $r | reduce ($lanes | to_entries[]) as $lane (. ; .[$lane.key] = $r[$lane.value])' <<< "$RUNNERS")
 
         # Diagnostics use only class/source names, never input label values.

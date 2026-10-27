@@ -410,6 +410,7 @@ MANIFEST_TAG_PREFIX="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TAG_PREFIX 
 MANIFEST_PRERELEASE_FORMAT="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_PRERELEASE_FORMAT || true)"
 MANIFEST_FLOATING_TAGS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FLOATING_TAGS || true)"
 MANIFEST_CI_RUNNER="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_CI_RUNNER || true)"
+MANIFEST_CI_LANE_SIZES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_CI_LANE_SIZES || true)"
 MANIFEST_DEV_PROFILE_PATH="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_DEV_PROFILE_PATH || true)"
 MANIFEST_WORKFLOW="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_WORKFLOW || true)"
 MANIFEST_SYNC_TARGET="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_TARGET || true)"
@@ -451,6 +452,30 @@ PREVIOUS_PIN="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_VERSION \
 # The OWNER/REPO placeholder (written when no origin was resolvable) must not
 # mask a now-detectable git origin on a later upgrade.
 [[ "$MANIFEST_REPO" == "OWNER/REPO" ]] && MANIFEST_REPO=""
+
+# Project lane sizes (#1927): validate before any scaffold write. Keep this
+# grammar aligned with resolve-toolchain; neither path tolerates duplicate lanes.
+validate_lane_sizes() {
+    local remaining="$1," entry lane seen=","
+    [[ -n "$1" ]] || return 0
+    while [[ -n "$remaining" ]]; do
+        entry="${remaining%%,*}"
+        remaining="${remaining#*,}"
+        entry="${entry#"${entry%%[![:space:]]*}"}"
+        entry="${entry%"${entry##*[![:space:]]}"}"
+        if [[ ! "$entry" =~ ^(lint|test|extension|release-test)=(small|large|xlarge)$ ]]; then
+            echo "Error: invalid DEVKIT_CI_LANE_SIZES: expected comma-separated lane=size entries (lint, test, extension, release-test; small, large, xlarge)." >&2
+            return 1
+        fi
+        lane="${entry%%=*}"
+        if [[ "$seen" == *",$lane,"* ]]; then
+            echo "Error: Duplicate lane $lane in DEVKIT_CI_LANE_SIZES." >&2
+            return 1
+        fi
+        seen+="$lane,"
+    done
+}
+validate_lane_sizes "$MANIFEST_CI_LANE_SIZES" || exit 1
 
 # A corrupt persisted mode must not silently fall back to "both" — that would
 # reshape the repo. Refuse loudly instead.
@@ -4394,6 +4419,10 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     # back — else an upgrade silently resets ci.yml onto the hosted default.
     if [[ -n "$MANIFEST_CI_RUNNER" ]]; then
         write_manifest_value DEVKIT_CI_RUNNER "$MANIFEST_CI_RUNNER"
+    fi
+    # Project lane sizes (#1927) survive the managed template overwrite.
+    if [[ -n "$MANIFEST_CI_LANE_SIZES" ]]; then
+        write_manifest_value DEVKIT_CI_LANE_SIZES "$MANIFEST_CI_LANE_SIZES"
     fi
     # Dev-shell gcroot path (#1601): same shape as the runner override above —
     # bare in the template, and a runner-host fact the consumer set once. Losing

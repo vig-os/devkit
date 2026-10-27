@@ -71,6 +71,15 @@ DEVKIT_FLOATING_TAGS=
 # (#1173, #1795, #1796, #1863).
 DEVKIT_CI_RUNNER=
 
+# Per-lane size override (#1927). Empty = every lane uses small.
+# Comma-separated lane=size, e.g. test=xlarge,lint=large; trim entry whitespace.
+# Lanes: lint, test, extension, release-test. Sizes: small, large, xlarge.
+# Names are lowercase; duplicate lanes and invalid entries fail init and CI.
+# Set CI_RUNNER_LARGE / CI_RUNNER_XLARGE variables for opted-in classes;
+# without a variable or legacy key, opted-in lanes run hosted with a warning.
+# Labels stay in variables.
+DEVKIT_CI_LANE_SIZES=
+
 # Absolute path for the direnv-mode dev-shell gcroot profile on the runner host.
 # Empty (default) => `$RUNNER_TEMP/devkit-dev-profile`, wiped with the job — the
 # right place on a hosted runner, since the machine goes too. An EPHEMERAL
