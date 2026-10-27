@@ -4381,6 +4381,95 @@ render_actionlint_optout
 # anchors intact when the feature is enabled.
 render_release_optout
 
+# The upgrade's variables are authoritative only with its explicit CI context.
+# No API lookup: an older default-branch workflow (or local install) knows none.
+migrate_ci_runner_key() {
+    local size name value entry classes="small" missing="" commands="" visible=""
+    local -a overrides=()
+    IFS=',' read -ra overrides <<< "$MANIFEST_CI_LANE_SIZES"
+    for entry in "${overrides[@]}"; do
+        size="${entry#*=}"
+        size="${size//[[:space:]]/}"
+        case " $classes " in
+            *" $size "*) ;;
+            *) classes+=" $size" ;;
+        esac
+    done
+    for size in small large xlarge; do
+        name="DEVKIT_UPGRADE_CI_RUNNER_${size^^}"
+        value="${!name-}"
+        if [[ "${DEVKIT_UPGRADE_CONTEXT:-}" == 1 && "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]]; then
+            visible+=" $size"
+        fi
+    done
+    for size in $classes; do
+        if [[ " $visible " != *" $size "* ]]; then
+            missing+=" CI_RUNNER_${size^^}"
+            commands+=" gh variable set CI_RUNNER_${size^^} --body <label>;"
+        fi
+    done
+    if [[ -n "$MANIFEST_CI_RUNNER" ]]; then
+        if [[ -z "$missing" ]]; then
+            echo "ci-runner-migration: DEVKIT_CI_RUNNER removed from .vig-os; runners now come from variables for every required class; nothing to do."
+        else
+            write_manifest_value DEVKIT_CI_RUNNER "$MANIFEST_CI_RUNNER"
+            echo "ci-runner-migration: DEVKIT_CI_RUNNER kept; set the missing or invalid variables:$missing at repository level on private GitHub Free repos.$commands Until N+2 the key keeps working; after that CI fails until the required variables are set. Then delete the key. See MIGRATION.md#run-ci-on-self-hosted-runners."
+        fi
+    elif [[ "${DEVKIT_UPGRADE_CONTEXT:-}" == 1 ]]; then
+        if [[ -n "${DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER:-}" ]]; then
+            echo "ci-runner-migration: Rename DEVKIT_CI_RESOLVE_RUNNER to CI_RUNNER_SMALL, then delete the old variable after reconciling the seeded release hooks (including any reported drift). See MIGRATION.md#run-ci-on-self-hosted-runners."
+        elif [[ "${DEVKIT_UPGRADE_REPO_PRIVATE:-}" == true && -z "$visible" ]]; then
+            echo "ci-runner-migration: CI runs hosted; organization variables do not reach private repos on GitHub Free. Set repository variables, or set them to ubuntu-26.04 to declare hosted on purpose. See MIGRATION.md#run-ci-on-self-hosted-runners."
+        fi
+    fi
+}
+
+# Consumer-owned workflow jobs: reconcile only the byte-identical stock line.
+# The template supplies the target expression, so seeded and upgraded jobs agree.
+reconcile_release_runner_hooks() {
+    local hook path target stock line job seen tmp in_jobs changed
+    stock="    runs-on: \${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}"
+    for hook in prepare-release-extension release-extension publish-release-extension; do
+        path=".github/workflows/$hook.yml"
+        [[ -f "$WORKSPACE_DIR/$path" && ! -L "$WORKSPACE_DIR/$path" ]] || continue
+        target="$(grep -m1 '^    runs-on:' "$TEMPLATE_DIR/$path")"
+        tmp="$(mktemp)"
+        job="" seen="" in_jobs="" changed=""
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            if [[ "$line" =~ ^[^[:space:]#] && "$line" != jobs: ]]; then
+                if [[ -n "$job" && -z "$seen" ]]; then echo "preserved-hook-drift: $job in $path"; fi
+                in_jobs="" job=""
+            fi
+            if [[ "$line" == jobs: ]]; then in_jobs=1; fi
+            if [[ -n "$in_jobs" && "$line" =~ ^[[:space:]]{2}([A-Za-z0-9_-]+):[[:space:]]*$ ]]; then
+                if [[ -n "$job" && -z "$seen" ]]; then
+                    echo "preserved-hook-drift: $job in $path"
+                fi
+                job="${BASH_REMATCH[1]}" seen=""
+            elif [[ -n "$job" && "$line" =~ ^[[:space:]]{4}runs-on: ]]; then
+                seen=1
+                if [[ "$line" == "$stock" ]]; then
+                    line="$target" changed=1
+                    echo "preserved-hook-fold: $job in $path"
+                elif [[ "$line" != "$target" ]]; then
+                    echo "preserved-hook-drift: $job in $path"
+                fi
+            fi
+            printf '%s\n' "$line" >> "$tmp"
+        done < "$WORKSPACE_DIR/$path"
+        if [[ -n "$job" && -z "$seen" ]]; then
+            echo "preserved-hook-drift: $job in $path"
+        fi
+        if [[ -n "$changed" ]]; then
+            # Preserve a consumer's absent final newline too.
+            if [[ -n "$(tail -c1 "$WORKSPACE_DIR/$path")" ]]; then truncate -s -1 "$tmp"; fi
+            cat "$tmp" > "$WORKSPACE_DIR/$path"
+        fi
+        rm -f "$tmp"
+    done
+}
+reconcile_release_runner_hooks
+
 # Persist the resolved manifest (#885). The scaffolded .vig-os is a managed
 # file (template-overwritten on upgrade), so the resolved delivery mode and
 # identity are written back on every (re)scaffold — the next upgrade then
@@ -4414,12 +4503,9 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     if [[ -n "$MANIFEST_PRERELEASE_FORMAT" ]]; then
         write_manifest_value DEVKIT_PRERELEASE_FORMAT "$MANIFEST_PRERELEASE_FORMAT"
     fi
-    # CI runner override (#1173): bare in the template (DEVKIT_CI_RUNNER=), so a
-    # self-hosted consumer's label list is read before the overwrite and written
-    # back — else an upgrade silently resets ci.yml onto the hosted default.
-    if [[ -n "$MANIFEST_CI_RUNNER" ]]; then
-        write_manifest_value DEVKIT_CI_RUNNER "$MANIFEST_CI_RUNNER"
-    fi
+    # Legacy key migration (#1929): preserve its runner selection unless the
+    # CI upgrade context proves every required class already overrides it.
+    migrate_ci_runner_key
     # Project lane sizes (#1927) survive the managed template overwrite.
     if [[ -n "$MANIFEST_CI_LANE_SIZES" ]]; then
         write_manifest_value DEVKIT_CI_LANE_SIZES "$MANIFEST_CI_LANE_SIZES"

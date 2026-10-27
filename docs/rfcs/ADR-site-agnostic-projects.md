@@ -581,6 +581,20 @@ The PR body never repeats the label itself. It names variables, not values,
 even though the value is already in git, so the adoption PR does not spread
 the label further.
 
+#### Migration environment
+
+The upgrade job exports `DEVKIT_UPGRADE_CONTEXT=1`,
+`DEVKIT_UPGRADE_CI_RUNNER_SMALL`, `DEVKIT_UPGRADE_CI_RUNNER_LARGE` and
+`DEVKIT_UPGRADE_CI_RUNNER_XLARGE` from its visible `vars.CI_RUNNER_*`,
+`DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER` from `vars.DEVKIT_CI_RESOLVE_RUNNER`,
+and `DEVKIT_UPGRADE_REPO_PRIVATE` from `github.event.repository.private`
+(`true`/`false`). Invisible variables are empty. One explicit allow-list in
+`install.sh` forwards these six names through both the direnv `env -i` and
+container `-e` paths. Without context `1`, variables are unknown and the key
+is always kept, including local force installs. With context `1`, stripping
+requires a non-empty valid single label for every required class. Migration
+text names variables and never repeats their values.
+
 #### Deprecation timeline
 
 - **Release N:** variables plus the fork predicate everywhere, the per-run
@@ -882,6 +896,10 @@ The rejected options are kept with the costs that ruled them out.
   `[rules]` table) is an error. `[extend]` in any case is forbidden: pattern
   files must be self-contained. Errors raise `ValueError` without pattern
   values. This is the single S4/S6 contract; no change to accepted decisions.
+
+- **2026-10-27, architect clarification found while implementing S3:**
+  `install.sh` is in scope for forwarding the migration environment above;
+  no change to accepted decisions.
 
 - **2026-10-27, architect clarification found while implementing S1b:**
   duplicate lanes are an error; no change to accepted decisions.

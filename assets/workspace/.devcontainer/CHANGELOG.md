@@ -54,6 +54,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Safe CI runner migration during devkit upgrades** ([#1929](https://github.com/vig-os/devkit/issues/1929))
+  - Remove the legacy runner key only when visible variables cover every required class; preserve local and older-workflow installs with actionable migration text.
+  - Reconcile stock seeded release-hook runner lines and report customised content for review.
+
 - **Harden GitHub App provisioning callbacks and inputs** ([#1919](https://github.com/vig-os/devkit/issues/1919))
   - Accept callbacks only once, including concurrent requests, and preserve the original result on replay
   - Validate reverse-proxy URLs and reject combining `--host` with `--base-url`; cover exchange timeout and malformed JSON errors without exposing secrets
