@@ -46,7 +46,14 @@ HOSTED_DEFAULT = "ubuntu-26.04"
 RUNNER_JSON_EXPR = "${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}"
 
 # Toolchain jobs that must honor the consumer's runner override.
-RUNNER_JSON_JOBS = ("lint", "test", "commit-checks", "summary")
+RUNNER_JSON_JOBS = (
+    "lint",
+    "test",
+    "commit-checks",
+    "scaffold-drift",
+    "devkit-staleness",
+    "summary",
+)
 
 
 def test_ci_toolchain_jobs_use_runner_json() -> None:

@@ -27,6 +27,22 @@ name: Resolve devkit toolchain
 description: Resolve the delivery mode + devcontainer image tag from .vig-os for mode-aware CI jobs
 
 inputs:
+  runner-small:
+    description: Optional SMALL runner variable (single label)
+    required: false
+    default: ''
+  runner-large:
+    description: Optional LARGE runner variable (single label)
+    required: false
+    default: ''
+  runner-xlarge:
+    description: Optional XLARGE runner variable (single label)
+    required: false
+    default: ''
+  legacy-resolve-runner:
+    description: Optional legacy resolve runner variable (single label)
+    required: false
+    default: ''
   working-directory:
     description: >-
       Directory holding the checkout whose `.vig-os` is read (default: the
@@ -52,6 +68,12 @@ inputs:
     default: ''
 
 outputs:
+  runners:
+    description: JSON label arrays by class and lane; every lane defaults to SMALL
+    value: ${{ steps.resolve.outputs.runners }}
+  runner-sources:
+    description: JSON source per class (fork, variable, legacy-key, default)
+    value: ${{ steps.resolve.outputs.runner-sources }}
   mode:
     description: Delivery mode (devcontainer|direnv|both|bare)
     value: ${{ steps.resolve.outputs.mode }}
@@ -80,10 +102,7 @@ outputs:
     description: Floating tag levels from DEVKIT_FLOATING_TAGS (subset of major,minor; empty => off)
     value: ${{ steps.resolve.outputs.floating-tags }}
   runner-json:
-    description: >-
-      JSON array of runner labels from DEVKIT_CI_RUNNER (comma-separated), for
-      use with fromJSON() in `runs-on`. Defaults to ["ubuntu-26.04"] when the
-      key is absent.
+    description: Deprecated JSON array alias of runners.small (removed in N+2)
     value: ${{ steps.resolve.outputs.runner-json }}
   dev-profile-path:
     description: >-
@@ -144,6 +163,12 @@ runs:
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
+        RUNNER_SMALL: ${{ inputs.runner-small }}
+        RUNNER_LARGE: ${{ inputs.runner-large }}
+        RUNNER_XLARGE: ${{ inputs.runner-xlarge }}
+        LEGACY_RESOLVE_RUNNER: ${{ inputs.legacy-resolve-runner }}
+        PR_CONTEXT: ${{ toJSON(github.event.pull_request) }}
+        BASE_REPOSITORY: ${{ github.repository }}
         INPUT_IMAGE_TAG: ${{ inputs.image-tag }}
       run: |
         set -euo pipefail
@@ -237,27 +262,41 @@ runs:
         # <prefix>X / <prefix>X.Y at the final release commit.
         echo "floating-tags=$FLOATING_TAGS" >> "$GITHUB_OUTPUT"
 
-        # CI runner labels (#1173): DEVKIT_CI_RUNNER is a comma-separated label
-        # list routed into `runs-on` via fromJSON() by the downstream CI
-        # jobs. Absent => the hosted default, so existing consumers are unchanged.
-        # Emitted for every mode, ALWAYS a valid JSON array (single label =>
-        # ["ubuntu-26.04"]); whitespace around each label is trimmed and empty
-        # entries dropped so a trailing/spaced comma never yields a blank label.
-        CI_RUNNER="${CI_RUNNER:-ubuntu-26.04}"
-        RUNNER_JSON="["
-        runner_first=1
-        IFS=',' read -ra runner_labels <<< "$CI_RUNNER"
-        for label in "${runner_labels[@]}"; do
-          label="${label#"${label%%[![:space:]]*}"}"
-          label="${label%"${label##*[![:space:]]}"}"
-          [[ -z "$label" ]] && continue
-          if [[ "$runner_first" -eq 1 ]]; then runner_first=0; else RUNNER_JSON+=","; fi
-          RUNNER_JSON+="\"$label\""
+        # Evaluate the ADR §2 predicate here, including for legacy callers.
+        FOREIGN=$(jq -n --argjson pr "${PR_CONTEXT:-null}" --arg base "${BASE_REPOSITORY:-}" \
+          '$pr != null and ($pr.head.repo.fork == true or $pr.head.repo.full_name != $base)')
+        LEGACY_LABELS=$(jq -cn --arg labels "$CI_RUNNER" \
+          '$labels | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))')
+        RUNNERS='{}'
+        SOURCES='{}'
+        for size in small large xlarge; do
+          input_name="RUNNER_${size^^}"
+          raw="${!input_name:-}"
+          trimmed="${raw#"${raw%%[![:space:]]*}"}"
+          trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+          if [[ -n "$trimmed" && ! "$raw" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]]; then
+            echo "::error::Invalid CI_RUNNER_${size^^}: expected one runner label matching ^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+            exit 1
+          fi
+          labels='["ubuntu-26.04"]'
+          source=default
+          if [[ "$FOREIGN" == true ]]; then
+            source=fork
+          elif [[ -n "$trimmed" ]]; then
+            labels=$(jq -cn --arg label "$raw" '[$label]')
+            source=variable
+          elif [[ "$LEGACY_LABELS" != '[]' ]]; then
+            labels="$LEGACY_LABELS"
+            source=legacy-key
+          fi
+          RUNNERS=$(jq -c --arg size "$size" --argjson labels "$labels" '.[$size] = $labels' <<< "$RUNNERS")
+          SOURCES=$(jq -c --arg size "$size" --arg source "$source" '.[$size] = $source' <<< "$SOURCES")
         done
-        # An all-blank value (e.g. DEVKIT_CI_RUNNER=" ,") falls back to the default.
-        [[ "$runner_first" -eq 1 ]] && RUNNER_JSON+="\"ubuntu-26.04\""
-        RUNNER_JSON+="]"
-        echo "runner-json=$RUNNER_JSON" >> "$GITHUB_OUTPUT"
+        # Built-in lane map (§5); overrides are introduced separately in S1b.
+        RUNNERS=$(jq -c '. + {lint: .small, test: .small, extension: .small, "release-test": .small}' <<< "$RUNNERS")
+        echo "runners=$RUNNERS" >> "$GITHUB_OUTPUT"
+        echo "runner-sources=$SOURCES" >> "$GITHUB_OUTPUT"
+        echo "runner-json=$(jq -c '.small' <<< "$RUNNERS")" >> "$GITHUB_OUTPUT"
 
         # Dev-shell gcroot profile path (#1601): DEVKIT_DEV_PROFILE_PATH moves
         # the direnv dev-shell's gcroot out of RUNNER_TEMP, which an ephemeral

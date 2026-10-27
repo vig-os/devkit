@@ -62,7 +62,7 @@ DEVKIT_FLOATING_TAGS=
 # commit-checks), its summary gate, the sync-issues.yml sync job, and the whole
 # release train (prepare-release, prepare-hotfix, release[-core|-publish],
 # promote-release, abandon-release, sync-main-to-dev and their extension hooks)
-# — comma-separated, e.g. `self-hosted,linux,x64,meatgrinder`. Empty (default) =>
+# — comma-separated, e.g. `self-hosted,linux,x64,<label>`. Empty (default) =>
 # the hosted `ubuntu-26.04` runner (no change for existing consumers). Routed
 # into `runs-on` via each workflow's own resolve-toolchain's `runner-json`
 # output; the dependency-review job always stays on the hosted default. The
