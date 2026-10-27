@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Per-clone site bindings and initializer hook** ([#1930](https://github.com/vig-os/devkit/issues/1930))
   - Validate site configuration and initialize bindings from PATH or an unbound template.
+  - Discover only external initializers, validate supported location forms, and accept gitleaks pattern definitions separately from site bindings.
 
 - **GitHub App provisioning CLI** ([#1909](https://github.com/vig-os/devkit/issues/1909))
   - Add `gh-app-provision` to create an App through GitHub’s manifest flow and store repository secrets, with a network-free `--dry-run`, reverse-proxy `--base-url`, exclusive private-key `--pem-out`, and `--no-secrets`

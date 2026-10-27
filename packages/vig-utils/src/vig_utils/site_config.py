@@ -1,4 +1,10 @@
-"""Validate per-clone site bindings and run PATH initializers (ADR §8–§9)."""
+"""Validate per-clone site bindings and run PATH initializers (ADR §8–§9).
+
+.site/leak-patterns.toml is a gitleaks config (S6): validate TOML and, when
+present, a [[rules]] array whose entries have string id and regex fields.
+Other fields, secretGroup, regex content and allowlists are gitleaks' concern;
+site-binding credential restrictions never apply to this file.
+"""
 
 import argparse
 import json
@@ -8,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -44,6 +51,39 @@ def dataset_names(root):
     return set(read(root / "data.toml").get("datasets", {}))
 
 
+def validate_location(location):
+    """Accept unbound, absolute paths, or s3/gs/az/abfs/http/https/file URIs.
+
+    URIs use scheme://location, with a nonempty authority (or an absolute
+    path for file://). Bare host:port and arbitrary scheme:value are invalid.
+    """
+    if isinstance(location, str):
+        if not location or Path(location).is_absolute():
+            return
+        uri = urlsplit(location)
+        schemes = {"s3", "gs", "az", "abfs", "http", "https", "file"}
+        if (
+            uri.scheme in schemes
+            and location.lower().startswith(uri.scheme + "://")
+            and (uri.netloc or (uri.scheme == "file" and uri.path.startswith("/")))
+        ):
+            return
+    raise ValueError("Location must be unbound, an absolute path or a supported URI")
+
+
+def validate_patterns(path):
+    """Check gitleaks rule shape only; leave semantics to gitleaks."""
+    rules = read(path).get("rules", [])
+    if not isinstance(rules, list) or any(
+        not isinstance(rule, dict)
+        or not all(isinstance(rule.get(key), str) for key in ("id", "regex"))
+        for rule in rules
+    ):
+        raise ValueError(
+            "leak-patterns.toml requires [[rules]] with string id and regex"
+        )
+
+
 def validate(path, root):
     """Validate schema v1; warn on mismatches and report unbound datasets."""
     data = read(path)
@@ -67,13 +107,7 @@ def validate(path, root):
             raise ValueError("output must be a table")
         locations.append(data["output"])
     for binding in locations:
-        location = binding.get("location", "")
-        if not isinstance(location, str) or (
-            location
-            and not Path(location).is_absolute()
-            and not urlsplit(location).scheme
-        ):
-            raise ValueError("Location must be unbound, a URI or an absolute path")
+        validate_location(binding.get("location", ""))
     hints = data.get("hints", {})
     if not isinstance(hints, dict) or any(
         not isinstance(v, str) for v in hints.values()
@@ -137,52 +171,118 @@ def fallback(stage, root):
     return name
 
 
-def initialize(root, args):
-    """Stage initializer output, validate everything, then publish bindings."""
+def discover(root):
+    """Discover external initializers; never search relative or in-tree PATHs."""
     found = {}
-    for directory in os.get_exec_path():
-        for path in Path(directory).glob("devkit-site-init-*"):
+    for entry in os.get_exec_path():
+        directory = Path(entry)
+        if not directory.is_absolute() or directory.resolve().is_relative_to(root):
+            continue
+        for path in directory.glob("devkit-site-init-*"):
             name = path.name.removeprefix("devkit-site-init-")
-            if SITE.fullmatch(name) and path.is_file() and os.access(path, os.X_OK):
-                found.setdefault(name, path.resolve())
+            binary = path.resolve()
+            if (
+                SITE.fullmatch(name)
+                and path.is_file()
+                and os.access(path, os.X_OK)
+                and not binary.is_relative_to(root)
+            ):
+                found.setdefault(name, binary)
+    return found
+
+
+@contextmanager
+def site_directory(root):
+    """Remove a newly created site directory if the run leaves it empty."""
+    directory = root / ".site"
+    created = not directory.exists()
+    directory.mkdir(exist_ok=True)
+    try:
+        yield directory
+    finally:
+        if created and directory.is_dir() and not any(directory.iterdir()):
+            directory.rmdir()
+
+
+def unstaged_state(directory, stage=None):
+    """Snapshot direct entries; directory metadata also detects nested writes."""
+    state = {}
+    for path in directory.iterdir():
+        if path != stage:
+            stat = path.lstat()
+            state[path.name] = (
+                stat.st_ino,
+                stat.st_size,
+                stat.st_mtime_ns,
+                stat.st_mode,
+            )
+    return state
+
+
+def publish(stage, name, root, force):
+    """Validate staged outputs and all destinations before publishing any file."""
+    files = list(stage.iterdir())
+    for path in files:
+        if (
+            path.is_symlink()
+            or not path.is_file()
+            or path.name not in (f"{name}.toml", "leak-patterns.toml")
+        ):
+            raise ValueError(f"Unexpected initializer output: {path.name}")
+        if path.name == "leak-patterns.toml":
+            validate_patterns(path)
+        destination = stage.parent / path.name
+        if destination.exists() and (not force or not destination.is_file()):
+            raise ValueError(f"{path.name} exists; use --force to replace a file")
+    validate(stage / f"{name}.toml", root)
+    for path in files:
+        path.replace(stage.parent / path.name)
+
+
+def initialize(root, args):
+    """Stage initializer output, detect out-of-stage writes, then publish."""
+    found = discover(root)
     name = args.site
     if name and (not SITE.fullmatch(name) or name not in found):
         raise ValueError("No initializer found for requested site")
     if not name and len(found) > 1:
         raise ValueError("Choose a site: " + ", ".join(sorted(found)))
     name = name or next(iter(found), None)
-    directory = root / ".site"
-    directory.mkdir(exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".staging-", dir=directory) as temporary:
-        stage = Path(temporary)
-        if name:
-            env = dict(
-                os.environ,
-                DEVKIT_SITE=name,
-                DEVKIT_SITE_DIR=str(stage),
-                DEVKIT_DATA_MANIFEST=str(root / "data.toml")
-                if (root / "data.toml").exists()
-                else "",
-            )
-            result = subprocess.run([str(found[name])], cwd=root, env=env, check=False)
-            if result.returncode:
-                return result.returncode
-        else:
-            name = fallback(stage, root)
-        validate(stage / f"{name}.toml", root)
-        files = list(stage.iterdir())
-        for path in files:
-            if (
-                path.is_symlink()
-                or not path.is_file()
-                or path.name not in (f"{name}.toml", "leak-patterns.toml")
-            ):
-                raise ValueError("Unexpected initializer output")
-            check_credentials(read(path))
-            if (directory / path.name).exists() and not args.force:
-                raise ValueError(f"{path.name} exists; use --force to replace it")
-        for path in files:
-            path.replace(directory / path.name)
+    with site_directory(root) as directory:
+        before = unstaged_state(directory)
+        with tempfile.TemporaryDirectory(
+            prefix=".staging-", dir=directory
+        ) as temporary:
+            stage = Path(temporary)
+            if name:
+                env = dict(
+                    os.environ,
+                    DEVKIT_SITE=name,
+                    DEVKIT_SITE_DIR=str(stage),
+                    DEVKIT_DATA_MANIFEST=str(root / "data.toml")
+                    if (root / "data.toml").exists()
+                    else "",
+                )
+                result = subprocess.run(
+                    [str(found[name])], cwd=root, env=env, check=False
+                )
+                after = unstaged_state(directory, stage)
+                changed = sorted(
+                    key
+                    for key in before.keys() | after.keys()
+                    if before.get(key) != after.get(key)
+                )
+                if changed:
+                    print(
+                        "error: Initializer wrote outside staging: "
+                        + ", ".join(changed),
+                        file=sys.stderr,
+                    )
+                if result.returncode or changed:
+                    return result.returncode or 1
+            else:
+                name = fallback(stage, root)
+            publish(stage, name, root, args.force)
     print(directory / f"{name}.toml")
     return 0
 
@@ -217,5 +317,8 @@ def site_init():
 
 
 if __name__ == "__main__":
-    command = sys.argv.pop(1)
-    sys.exit(site_init() if command == "site-init" else main())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("command", choices=("site-init", "check-site-config"))
+    args, remaining = parser.parse_known_args()
+    sys.argv[1:] = remaining
+    sys.exit(site_init() if args.command == "site-init" else main())

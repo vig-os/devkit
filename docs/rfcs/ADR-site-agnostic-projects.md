@@ -718,7 +718,11 @@ silent move would turn into queued or rejected jobs that point at nothing.
 
 - **Unbound locations.** Schema v1 accepts an empty location as unbound.
   Validation reports a notice listing unbound dataset names and exits 0;
-  malformed bound locations (including relative paths) are errors. Consumers
+  malformed bound locations (including relative paths) are errors. Bound
+  locations are absolute paths or `scheme://location` URIs with schemes `s3`,
+  `gs`, `az`, `abfs`, `http`, `https`, or `file`. A URI needs a non-empty
+  authority, or an absolute path for `file`; arbitrary `scheme:value` and
+  bare `host:port` forms are rejected. Consumers
   must refuse an unbound location with an actionable error naming the dataset
   key (future data recipes: #1921). S4 has no binding consumer.
 - **`data.toml`** is repo-owned. devkit reads only the **names**: the keys of
@@ -739,7 +743,9 @@ silent move would turn into queued or rejected jobs that point at nothing.
 - **Discovery:** executables on `PATH` named `devkit-site-init-<site>`, with
   `<site>` matching `[a-z0-9][a-z0-9-]*`. With an argument, that initialiser
   runs. Without one: exactly one found runs; several is an error that lists
-  them; none uses the fallback.
+  them; none uses the fallback. Only absolute PATH entries outside the repo
+  working tree are searched. Resolved directories and executable targets
+  inside the working tree are excluded, including symlinks into it.
 - **Invocation:** cwd is the repo root, and stdin, stdout and stderr are
   inherited, so an initialiser may prompt. Environment:
   - `DEVKIT_SITE=<site>`
@@ -750,19 +756,27 @@ silent move would turn into queued or rejected jobs that point at nothing.
 - **Initialiser obligations:**
   - write `$DEVKIT_SITE_DIR/<site>.toml` (schema v1), and optionally
     `$DEVKIT_SITE_DIR/leak-patterns.toml`;
-  - write nothing else in the repo;
+  - write nothing else in the repo; writing outside staging is the
+    initialiser's responsibility. devkit detects new or modified `.site/`
+    entries outside its staging directory, reports their names and fails.
+    It does not sandbox the initialiser or remove its out-of-contract writes;
   - put no credentials in either file;
   - exit 0 on success.
 
   It may configure credentials **outside** the repo (its own store, `~/.aws`)
   or in the gitignored `.aws/`.
 - **devkit then:**
-  - validates the staged files with `check-site-config`;
+  - validates `<site>.toml` with `check-site-config`. For the optional
+    `leak-patterns.toml`, checks TOML parsing and the gitleaks rule shape only:
+    if present, `rules` is an array of tables with string `id` and `regex`.
+    Site-binding credential restrictions do not apply to pattern definitions;
+    gitleaks validates the remaining config semantics;
   - on success, moves them into `.site/`; existing files are refused without
     `--force`;
   - on a non-zero exit or an invalid file, deletes the staging directory and
     fails with the initialiser's exit code or the validation error, so nothing
-    is left half-written.
+    is left half-written. If this run created `.site/` and it is empty after
+    cleanup, removes it; existing directories are preserved.
 - **Fallback (no initialiser):** on a TTY, prompt for the site name (default
   `local`), one location per `data.toml` dataset and the output location. Off a
   TTY, write `.site/local.toml` with every declared dataset present, empty locations and comments, and print
