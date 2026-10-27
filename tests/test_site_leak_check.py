@@ -523,3 +523,13 @@ def test_private_snapshot_is_removed_on_all_exit_paths(
         scan(repo, "--gitleaks", scanner, TMPDIR=str(temporary)).returncode == expected
     )
     assert list(temporary.iterdir()) == []
+
+
+@pytest.mark.parametrize("table", ["Extend", "EXTEND"])
+def test_extension_rejection_matches_gitleaks_case_insensitive_keys(repo, table):
+    config = patterns(repo)
+    config.write_text(PATTERNS + f"\n[{table}]\nuseDefault = true\n")
+    result = scan(repo)
+    assert result.returncode == 2
+    assert str(config) in result.stderr
+    assert "self-contained" in result.stderr
