@@ -1,6 +1,8 @@
 """ADR §10 site-private gitleaks hook contract."""
 
 import os
+import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -202,3 +204,61 @@ def test_repository_directory_is_not_a_pattern_file(repo):
     result = scan(repo, DEVKIT_LEAK_PATTERNS=str(repo))
     assert result.returncode == 2
     assert "Traceback" not in result.stderr
+
+
+@pytest.fixture
+def installed_hook(repo):
+    """Install the real pre-commit-compatible hook runner used by devkit."""
+    runner = shutil.which("pre-commit") or shutil.which("prek")
+    assert runner, "the development environment must provide a hook runner"
+    config = {
+        "repos": [
+            {
+                "repo": "local",
+                "hooks": [
+                    {
+                        "id": "site-leak-check",
+                        "name": "site-leak-check",
+                        "entry": shlex.join(
+                            [sys.executable, "-m", "vig_utils.site_leak_check"]
+                        ),
+                        "language": "system",
+                        "types": ["text"],
+                    }
+                ],
+            }
+        ]
+    }
+    (repo / ".pre-commit-config.yaml").write_text(yaml.safe_dump(config))
+    git(repo, "add", ".pre-commit-config.yaml")
+    subprocess.run([runner, "install"], cwd=repo, capture_output=True, check=True)
+    return repo
+
+
+def commit(repo):
+    return subprocess.run(
+        ["git", "-C", str(repo), "commit", "-m", "fixture change"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [(), ("d.txt", ".gitleaksignore", ".gitleaks.toml"), ("--all-files",), "commit"],
+)
+def test_repository_scanner_settings_cannot_suppress_site_rules(installed_hook, mode):
+    repo = installed_hook
+    patterns(repo)
+    (repo / "d.txt").write_text("storage.example\n")
+    (repo / ".gitleaksignore").write_text("d.txt:fixture-host:1\n")
+    (repo / ".gitleaks.toml").write_text(
+        '[[rules]]\nid = "repo-only"\nregex = "never-match-config"\n'
+        '[allowlist]\npaths = [".*"]\n'
+    )
+    git(repo, "add", "d.txt", ".gitleaksignore", ".gitleaks.toml")
+    result = commit(repo) if mode == "commit" else scan(repo, *mode)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "d.txt:1: fixture-host" in result.stdout + result.stderr
+    assert "storage.example" not in result.stdout + result.stderr
