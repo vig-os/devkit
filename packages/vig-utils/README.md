@@ -260,6 +260,19 @@ The wrappers forward argv/stdin/stdout/stderr so they behave like native shell c
 | `DERIVE_BRANCH_TIMEOUT` | `derive-branch-summary` | Timeout seconds |
 | `CI` / `GITHUB_ACTIONS` | `check-agent-identity` | Skip local identity checks in CI |
 
+## Endpoint lint
+
+`check-hardcoded-endpoints FILE [FILE ...]` enforces the two narrow rules in
+[ADR §10](../../docs/rfcs/ADR-site-agnostic-projects.md#10-env-only-runtime-config-lint-and-leak-check-hook-point).
+The `no-hardcoded-endpoints` hook is enabled by default in consumer and devkit
+configurations. Supply tracked files to scan a tree. Violations and input errors
+exit 1 and report file/line diagnostics without assigned values; clean input exits 0.
+Python fixtures and docstrings are parsed as data, and JSON comments are supported.
+Shell/dotenv and TOML assignments are checked one line at a time. Local and
+specified RFC 2606 hosts, variable references, and a same-line
+`devkit: allow-endpoint` pragma are exempt. Broader patterns belong to the
+separate site leak check; this lint is not a full-history secret scanner.
+
 ## Development and tests
 
 Run package tests from repository root:

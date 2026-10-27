@@ -198,6 +198,29 @@ let
   compositeActionFiles = "(^|/)\\.github/actions/[^/]+/action\\.ya?ml$";
 
   hookDefs = {
+    no-hardcoded-endpoints = {
+      scaffold = true;
+      yaml = {
+        name = "no-hardcoded-endpoints";
+        entry = "uv run check-hardcoded-endpoints";
+        language = "system";
+        types = [ "text" ];
+      };
+      check = { vigUtils, ... }: {
+        enable = true;
+        name = "no-hardcoded-endpoints";
+        entry = "${vigUtils}/bin/check-hardcoded-endpoints";
+        language = "system";
+        types = [ "text" ];
+      };
+      consumer = pkgs: {
+        enable = true;
+        name = "no-hardcoded-endpoints";
+        entry = "${import ./vig-utils.nix pkgs}/bin/check-hardcoded-endpoints";
+        language = "system";
+        types = [ "text" ];
+      };
+    };
     # ── Formatting ──────────────────────────────────────────────────────
     # The gate runs ONE treefmt hook (nixfmt-rfc-style + ruff-format +
     # taplo) reusing the flake's treefmt wrapper — the same formatting

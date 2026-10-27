@@ -103,3 +103,22 @@ def test_hook_surfaces():
     assert "scaffold = true;" in block
     assert "consumer =" in block
     assert "enable = true;" in block
+
+
+@pytest.mark.parametrize(
+    ("name", "source"),
+    [
+        ("config.py", 'client(\n endpoint_url="https://storage.service")'),
+        ("config.py", 'os.environ["AWS_ACCESS_KEY_ID"] = "literal"'),
+        ("config.yaml", "endpoint-url: https://storage.service"),
+        ("config.yaml", "AWS_SECRET_ACCESS_KEY: >-\n  literal"),
+        ("config.json", '{"endpointUrl":\n "https://storage.service"}'),
+        ("config.toml", 'AWS_SESSION_TOKEN = "literal"'),
+        ("config.sh", "export AWS_ENDPOINT_URL=https://storage.service"),
+        (".env", "AWS_ACCESS_KEY_ID=literal"),
+    ],
+)
+def test_language_literals(tmp_path, name, source):
+    path = tmp_path / name
+    path.write_text(source + "\n")
+    assert lint(path).returncode == 1
