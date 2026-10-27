@@ -745,3 +745,60 @@ def test_callback_after_rejection_shows_terminal_state(args, rejection):
     assert exchange.call_count == (1 if rejection == "exchange" else 0)
     assert provisioner.error == error
     assert provisioner.result == {}
+
+
+@pytest.mark.parametrize("repos", ["a,b", " a , b "])
+def test_cli_normalizes_repos_before_secret_writes(monkeypatch, conversion, repos):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "gh-app-provision",
+            "--name",
+            "bot",
+            "--owner",
+            "example",
+            "--repo",
+            "example/a",
+            "--org-secret",
+            "--repos",
+            repos,
+        ],
+    )
+
+    def provision(provisioner):
+        provisioner.store_credentials(conversion)
+        return 0
+
+    with (
+        mock.patch.object(mod.Provisioner, "run", provision),
+        mock.patch.object(mod.subprocess, "run") as run,
+    ):
+        assert mod.main() == 0
+    assert len(run.call_args_list) == 3
+    for call in run.call_args_list:
+        assert call.args[0][-2:] == ["--repos", "a,b"]
+
+
+@pytest.mark.parametrize("repos", ["a,b", ""])
+def test_repos_requires_org_secret(monkeypatch, capsys, repos):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "gh-app-provision",
+            "--name",
+            "bot",
+            "--owner",
+            "example",
+            "--repo",
+            "example/a",
+            "--repos",
+            repos,
+            "--dry-run",
+        ],
+    )
+    with pytest.raises(SystemExit) as error:
+        mod.main()
+    assert error.value.code == 2
+    assert "--repos requires --org-secret" in capsys.readouterr().err
