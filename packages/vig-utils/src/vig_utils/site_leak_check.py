@@ -33,7 +33,7 @@ def pattern_file(root: Path) -> Path | None:
     for candidate in {path.absolute(), resolved}:
         if candidate.is_relative_to(root):
             relative = candidate.relative_to(root)
-            if relative.parts[0] != ".site":
+            if len(relative.parts) < 2 or relative.parts[0] != ".site":
                 raise ValueError(
                     "pattern file must be outside the worktree or in .site/"
                 )
