@@ -209,7 +209,9 @@ def test_no_container_runtime_outside_the_container_step() -> None:
 
 
 def _gnu_sed() -> bool:
-    out = subprocess.run(["sed", "--version"], capture_output=True, text=True)
+    out = subprocess.run(
+        ["sed", "--version"], check=False, capture_output=True, text=True
+    )
     return out.returncode == 0 and "GNU" in out.stdout
 
 
@@ -251,12 +253,21 @@ def _run_nix_drift(
     not (_gnu_sed() and shutil.which("rsync") and shutil.which("jq")),
     reason="the scaffold needs GNU sed, rsync and jq on PATH (Linux CI / dev shell)",
 )
+@pytest.mark.parametrize("inox", [False, True])
 def test_nix_drift_reports_clean_then_drift(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, inox: bool
 ) -> None:
     """Parity with the container path: no drift on a fresh scaffold, drift after an edit."""
     tag = "1.2.3"
     monkeypatch.setenv("VIG_OS_VERSION", tag)
+    if inox:
+        seed = tmp_path / "gitflow"
+        seed.mkdir()
+        (seed / ".vig-os").write_text(
+            "DEVKIT_FEATURES_DISABLED=release,sync-issues,scanning,skills,worktree,gh-templates\n"
+            "DEVKIT_REFS_POLICY=optional\n",
+            encoding="utf-8",
+        )
     ws = scaffold_tree(tmp_path)
     git = [
         "git",
@@ -280,3 +291,121 @@ def test_nix_drift_reports_clean_then_drift(
     drift = _run_nix_drift(tmp_path, ws, tag)
     assert drift.returncode == 1, drift.stdout + drift.stderr
     assert "Scaffold drift detected" in drift.stdout + drift.stderr
+
+
+@pytest.mark.parametrize("renovate", [True, False])
+@pytest.mark.parametrize("scanning", [True, False])
+@pytest.mark.parametrize(
+    ("policy", "exempt", "expected", "types"),
+    [
+        ("", "", "chore", ""),
+        ("required", "", "none", ""),
+        ("optional", "", "all", ""),
+        ("optional", "", "all", "chore,record"),
+        ("required", "record,chore", "all", "chore,record"),
+        ("optional", "", "all", "chore"),
+        ("required", "docs,test", "docs,test", ""),
+    ],
+)
+def test_managed_docs_follow_manifest(
+    tmp_path: Path,
+    scanning: bool,
+    renovate: bool,
+    policy: str,
+    exempt: str,
+    expected: str,
+    types: str,
+) -> None:
+    """Managed documentation must describe the same settings as the validators."""
+    ws = tmp_path / "gitflow"
+    ws.mkdir()
+    disabled = [
+        name
+        for name, enabled in [("scanning", scanning), ("renovate", renovate)]
+        if not enabled
+    ]
+    (ws / ".vig-os").write_text(
+        f"DEVKIT_FEATURES_DISABLED={','.join(disabled)}\n"
+        f"DEVKIT_REFS_POLICY={policy}\nDEVKIT_REFS_OPTIONAL_TYPES={exempt}\n"
+        f"DEVKIT_COMMIT_TYPES={types}\n",
+        encoding="utf-8",
+    )
+    scaffold_tree(tmp_path)
+    security = (ws / "SECURITY.md").read_text()
+    assert ("CodeQL" in security) == scanning
+    assert ("Scorecard" in security) == scanning
+    assert ("Renovate monitors" in security) == renovate
+    assert "Dependency review blocks" in security
+    if scanning and renovate:
+        template = REPO_ROOT / "assets/workspace/SECURITY.md"
+        assert security == template.read_text().replace(
+            "{{GITHUB_REPOSITORY}}", "test/repo"
+        )
+    standard = (ws / "docs/COMMIT_MESSAGE_STANDARD.md").read_text()
+    if expected != "chore":
+        assert "The Refs line is optional" not in standard
+    if expected not in ("chore", "none"):
+        assert (
+            "Each exempt type also gets an issue-less `<type>/<summary>` branch form"
+            in standard
+        )
+    if expected == "all":
+        assert "Optional for all approved types" in standard
+        assert "mandatory traceability" not in standard
+        assert (
+            "At least one reference to a GitHub issue must be present" not in standard
+        )
+    elif expected == "none":
+        assert "Mandatory for all approved types" in standard
+        assert "No commit types are exempt" in standard
+        assert "Each exempt type also gets" not in standard
+        assert "`chore/<summary>` branch form" in standard
+        assert "remains allowed under every policy" in standard
+        assert "for types where `Refs:` is optional" not in standard
+    elif expected == "chore":
+        assert "Mandatory for most types" in standard
+        assert "**`chore`**" in standard
+        template = REPO_ROOT / "assets/workspace/docs/COMMIT_MESSAGE_STANDARD.md"
+        assert standard == template.read_text()
+    else:
+        assert "**`docs`**" in standard and "**`test`**" in standard
+        assert "**`chore`**" not in standard
+    if "chore" in exempt.split(",") or (policy == "optional" and expected == "all"):
+        assert "Maintenance commits" in standard
+
+
+@pytest.mark.parametrize(
+    "anchor",
+    ["The following commit types have a relaxed", "Additionally, the CI validator"],
+)
+def test_commit_standard_rejects_missing_anchor(tmp_path: Path, anchor: str) -> None:
+    """A changed template must fail before a splice can corrupt the document."""
+    source = (REPO_ROOT / "assets/init-workspace.sh").read_text()
+    function = source.split("render_commit_standard() {", 1)[1].split("\n}\n", 1)[0]
+    doc = tmp_path / "docs/COMMIT_MESSAGE_STANDARD.md"
+    doc.parent.mkdir()
+    template = (
+        REPO_ROOT / "assets/workspace/docs/COMMIT_MESSAGE_STANDARD.md"
+    ).read_text()
+    doc.write_text(
+        "\n".join(line for line in template.split("\n") if not line.startswith(anchor))
+    )
+    original = doc.read_text()
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'set -e; WORKSPACE_DIR="$1"; RESOLVED_REFS_OPTIONAL_TYPES=none; RESOLVED_COMMIT_TYPES=chore; splice_lines() { echo unexpected-splice; }; render_commit_standard() {'
+            + function
+            + "\n}; render_commit_standard",
+            "test",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "missing or invalid Exemptions anchors" in result.stderr
+    assert "unexpected-splice" not in result.stdout
+    assert doc.read_text() == original
