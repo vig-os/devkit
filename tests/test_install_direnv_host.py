@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import disable_git_auto_maintenance
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALL = REPO_ROOT / "install.sh"
 
@@ -132,6 +134,7 @@ def test_direnv_install_scaffolds_and_upgrades_on_the_host(tmp_path: Path) -> No
     project = _project(tmp_path, "direnv")
     git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c"]
     subprocess.run(["git", "init", "-q", str(project)], check=True)
+    disable_git_auto_maintenance(project)
 
     def install(*extra: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -190,6 +193,7 @@ def test_fresh_latest_resolves_the_newest_release_tag(tmp_path: Path) -> None:
     """No manifest pin: the highest X.Y.Z tag on the devkit remote (no rc, no 'latest')."""
     remote = tmp_path / "remote"
     subprocess.run(["git", "init", "-q", str(remote)], check=True)
+    disable_git_auto_maintenance(remote)
     subprocess.run(
         [
             "git",

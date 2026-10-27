@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from tests.conftest import disable_git_auto_maintenance
 from tests.workflow_scaffold import WORKFLOWS, load_workflow, steps_of_job
 
 if TYPE_CHECKING:
@@ -133,10 +134,12 @@ class _Remote:
         subprocess.run(
             ["git", "init", "-q", "-b", "main", "--bare", str(self.origin)], check=True
         )
+        disable_git_auto_maintenance(self.origin)
         # `file://` (not a bare path): a local-path clone silently ignores
         # --depth, and the step's shallow fetch is part of what is under test.
         self.url = f"file://{self.origin}"
         subprocess.run(["git", "clone", "-q", self.url, str(seed)], check=True)
+        disable_git_auto_maintenance(seed)
         for key, value in (
             ("user.email", "test@example.com"),
             ("user.name", "Test User"),
@@ -163,6 +166,7 @@ class _Remote:
 
         # The workspace the job pushes from: a fresh checkout of the remote.
         subprocess.run(["git", "clone", "-q", self.url, str(self.work)], check=True)
+        disable_git_auto_maintenance(self.work)
 
         stub_dir = tmp_path / "stub-bin"
         stub_dir.mkdir()

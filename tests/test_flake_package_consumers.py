@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from .conftest import disable_git_auto_maintenance
 from .nix_helpers import REPO_ROOT, current_system
 from .nix_helpers import nix_env as _nix_env
 
@@ -96,6 +97,7 @@ def _git_tree(path: Path) -> None:
         "user.email=t@example.com",
     ]
     subprocess.run([*git[:3], "init", "-q"], check=True)
+    disable_git_auto_maintenance(path)
     subprocess.run([*git, "add", "-A"], check=True)
     subprocess.run(
         [
