@@ -281,3 +281,32 @@ def test_tracked_site_bindings_are_scanned(installed_hook, mode):
 def test_active_untracked_patterns_are_not_scanned_as_input(repo):
     path = patterns(repo)
     assert scan(repo, str(path)).returncode == 0
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "",
+        '[[rule]]\nid = "fixture-host"\nregex = "storage[.]example"\n',
+        "rules = []\n",
+        '[[rules]]\nid = "fixture-host"\n',
+    ],
+)
+@pytest.mark.parametrize("mode", [(), ("--all-files",), "commit"])
+def test_present_patterns_need_usable_rules(installed_hook, content, mode):
+    repo = installed_hook
+    path = patterns(repo)
+    path.write_text(content)
+    (repo / "d.txt").write_text("storage.example\n")
+    git(repo, "add", "d.txt")
+    result = commit(repo) if mode == "commit" else scan(repo, *mode)
+    output = result.stdout + result.stderr
+    if mode == "commit":
+        assert result.returncode == 1
+        assert "exit code: 2" in output
+    else:
+        assert result.returncode == 2
+    assert str(path) in output
+    assert "no usable [[rules]]" in output
+    assert "storage.example" not in output
+    assert "Traceback" not in output
