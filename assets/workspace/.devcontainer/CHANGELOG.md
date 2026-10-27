@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     success when no site patterns exist and redacted finding diagnostics.
   - Prevent repository ignore/config bypasses, scan force-added site bindings,
     and reject present pattern files without usable rules.
+  - Scan raw index snapshots despite Git attributes; accept path-only rules and
+    require self-contained pattern files without extension tables.
 
 - **Env-only endpoint lint** ([#1931](https://github.com/vig-os/devkit/issues/1931))
   - Enable the ADR §10 endpoint and credential assignment checks by default in
