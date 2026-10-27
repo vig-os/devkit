@@ -143,9 +143,13 @@ Findings this ADR builds on:
   emitted:
   - **empty** means unset;
   - **whitespace-only** means unset plus a `::warning::` (§3);
-  - a **comma**, or a label with **leading or trailing whitespace**, is an
-    `::error::` in `resolve-toolchain` (§3). A direct expression would request
-    a label no runner carries and queue forever.
+  - any value that is not a **valid label** is an `::error::` naming the
+    variable, in `resolve-toolchain` (§3). A valid label matches
+    `^[A-Za-z0-9][A-Za-z0-9._:/-]*$`: letters, digits and `. _ : / -`, starting
+    with a letter or digit. That rejects a comma list, a JSON list
+    (`["pool-l"]`, by `[`, `]`, `"` and `,`), leading or trailing whitespace
+    and any inner whitespace. A direct expression would request a label no
+    runner carries and queue forever.
 
   GitHub's own expressions are the one exception to the "never blank" rule:
   they treat a whitespace-only string as truthy. That affects only the
@@ -166,7 +170,10 @@ Findings this ADR builds on:
   Falling back to a smaller pool would put a heavy lane on a runner sized for
   orchestration and fail by OOM. Falling back to a larger pool would spend
   capacity the org did not allocate. `resolve-toolchain` reports each class's
-  source (§3), so a partial setup is visible, not silent.
+  source (§3), so a partial setup is visible, not silent. When the effective
+  lane map opts a lane into a class whose variable is not visible on a
+  non-fork run, the lane still runs hosted, and `resolve-toolchain` emits a
+  `::warning::` naming the variable and the affected lanes (§3).
 - **Hosted default: `ubuntu-26.04`**, not `ubuntu-latest`. It is the label
   every managed workflow already uses. A pinned image keeps CI reproducible,
   and moving to the next image is a deliberate devkit release, not a silent
@@ -260,7 +267,9 @@ F = fork predicate (§2)
 raw = input runner-<S>                           # from vars.CI_RUNNER_<S>
 V = trim(raw)
 if raw != "" and V == "":  ::warning:: whitespace-only CI_RUNNER_<S>, treated as unset
-if V != "" and ("," in raw or raw != V):  ::error:: + exit 1   # validate the RAW value
+if raw != "" and V != "" and not match(raw, r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$"):
+                           ::error:: naming CI_RUNNER_<S> + exit 1   # validate the RAW value
+                           # rejects "," "[" "]" '"' and any surrounding or inner whitespace
 L = labels(.vig-os DEVKIT_CI_RUNNER)             # releases N, N+1 only: comma-split,
                                                  # each label trimmed, empties dropped
 if   F:                 runners[S] = [H];  source[S] = "fork"
@@ -317,9 +326,19 @@ it. Each lane gets `runners[<lane>] = runners[<class>]`.
   `DEVKIT_CI_RESOLVE_RUNNER` is deprecated in favour of `CI_RUNNER_SMALL`.
 - If a variable is malformed: `::error::` and exit 1, before any lane is
   scheduled.
+- If the run is not foreign and the effective lane map **opts a lane into a
+  class** (LARGE or XLARGE, through `DEVKIT_CI_LANE_SIZES`) whose
+  `source` is `default`, so its variable is not visible: a `::warning::`
+  that names the variable (`CI_RUNNER_LARGE`) and the affected lane(s), and
+  says those lanes run on the hosted default until the variable is set. The
+  hosted fallback stays, and there is no cross-class fallback (§1). A class
+  that came from `legacy-key` is covered by the legacy-key warning above
+  instead. This catches the case where the key was stripped under (c)-1 and a
+  later opt-in lacks its variable.
 - If the run is not foreign, at least one **required class** came from
   `variable` and another required class came from `default`: `::notice::`
-  naming the unset classes. This is the partial-setup case. The required
+  naming the unset classes. This is the partial-setup case (for an opted-in
+  class the `::warning::` above fires as well). The required
   classes are **exactly the classes the effective lane map uses**: the §5
   default map (every lane SMALL, which includes the seeded hooks and the
   `runner-json` alias) plus the classes named by the repo's
@@ -328,7 +347,8 @@ it. Each lane gets `runners[<lane>] = runners[<class>]`.
   lane uses is never required, whether or not its variable is set. A consumer
   that keeps the default map and sets only SMALL is fully set up and sees no
   notice. With `DEVKIT_CI_LANE_SIZES=test=large`, SMALL and LARGE are
-  required, and setting only SMALL gives the notice naming LARGE.
+  required, and setting only SMALL gives the notice and the warning naming
+  LARGE and the `test` lane.
 - If the repo is private, the run is not foreign, and **no** `CI_RUNNER_*`
   variable is visible: a `::notice::` annotation on the run, plus a
   step-summary line. It says that CI runs on hosted runners, that on GitHub
@@ -577,6 +597,15 @@ the label further.
   `init-workspace.sh` strips an inert key. Otherwise it keeps the key, which
   is harmless if inert (a warning) and red with the full text if not.
   CHANGELOG `### Removed`.
+
+**Why stripping under (c)-1 stays safe.** Inertness is judged against the
+effective lane map **at strip time**: every class a lane uses has a visible
+variable, so removing the key moves no runner. A later change can add a lane
+to a class with no variable, for example `DEVKIT_CI_LANE_SIZES=test=large`
+without `CI_RUNNER_LARGE`. The key no longer exists to serve that lane, so it
+runs hosted, which is a deliberate change by the project and not a silent
+degrade: every non-foreign run emits the §3 `::warning::` naming
+`CI_RUNNER_LARGE` and the `test` lane until the variable is set.
 
 *Cost:*
 
@@ -1041,8 +1070,10 @@ rebases onto the earlier one:
   - executed-bash tests for each class and source: fork, variable,
     legacy-key, default;
   - variable wins over the key, per (a);
-  - a malformed variable fails: a comma, or a label with surrounding
-    whitespace;
+  - a malformed variable fails with an `::error::` naming it: a comma list,
+    a JSON list (`["pool-l"]`), a label with surrounding or inner
+    whitespace, and any character outside the label rule of §1;
+  - a valid label with `. _ : / -` passes;
   - a whitespace-only variable is treated as unset;
   - no variables and no key gives `ubuntu-26.04` everywhere;
   - the shape test above;
@@ -1053,7 +1084,8 @@ rebases onto the earlier one:
 
 **S1d — Runner diagnostics.**
 
-- *Scope:* every §3 diagnostic except the malformed-variable error:
+- *Scope:* every §3 diagnostic except the malformed-variable error (including
+  the opted-in-class `::warning::`):
   - the full-text legacy-key `::warning::` (the primary migration channel,
     §6);
   - the legacy-variable warning;
@@ -1069,8 +1101,12 @@ rebases onto the earlier one:
     anchor, and never the label;
   - the partial-setup notice: the default map with only SMALL set → no
     notice; `DEVKIT_CI_LANE_SIZES=test=large` with SMALL and LARGE set → no
-    notice, and with only SMALL set → a notice naming LARGE; a set but unused
-    LARGE is never reported;
+    notice, and with only SMALL set → a notice and a `::warning::` naming
+    `CI_RUNNER_LARGE` and the `test` lane, with that lane still on the hosted
+    default; a set but unused LARGE is never reported;
+  - the opt-in warning also fires with no variable at all and an override in
+    `.vig-os` (the after-strip case), never on a foreign run, and not for a
+    class sourced from `legacy-key`;
   - the private no-variables notice fires as an annotation, is silenced by
     variables set to `ubuntu-26.04`, and does not fire on a public repo or a
     foreign run;
@@ -1097,8 +1133,9 @@ rebases onto the earlier one:
   - invalid values fail at both the write path and resolve;
   - persisted across `--force`;
   - the default map puts every lane on `small`;
-  - an override to LARGE or XLARGE with that class unset gives the
-    partial-setup notice naming it;
+  - an override to LARGE or XLARGE with that class unset keeps the lane on
+    the hosted default and gives the §3 `::warning::` naming the variable and
+    the lane (the diagnostic itself is tested in S1d);
   - a set LARGE or XLARGE that no lane uses gives no notice and is not
     required.
 
