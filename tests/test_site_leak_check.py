@@ -179,8 +179,9 @@ def test_gitleaks_pragma_is_an_escape_hatch(repo, mode):
     assert scan(repo, *mode).returncode == 0
 
 
-def test_gitleaks_allowlist_is_an_escape_hatch(repo):
-    patterns(repo).write_text(PATTERNS + '\n[allowlist]\npaths = ["config.txt"]\n')
+@pytest.mark.parametrize("allowed_path", ["config.txt", "^config[.]txt$"])
+def test_gitleaks_allowlist_is_an_escape_hatch(repo, allowed_path):
+    patterns(repo).write_text(PATTERNS + f'\n[allowlist]\npaths = ["{allowed_path}"]\n')
     (repo / "config.txt").write_text("storage.example\n")
     git(repo, "add", "config.txt")
     assert scan(repo).returncode == 0
