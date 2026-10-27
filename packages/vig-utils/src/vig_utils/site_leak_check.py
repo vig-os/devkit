@@ -7,7 +7,6 @@ No pattern file means silent success. Exit codes: 0 clean, 1 findings,
 import argparse
 import json
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -58,18 +57,29 @@ def pattern_file(root: Path) -> Path | None:
     return resolved
 
 
-def has_usable_rules(config: Path) -> bool:
-    """Require at least one explicit gitleaks rule at the point of use."""
+def pattern_error(config: Path) -> str | None:
+    """Require self-contained rules; let gitleaks validate regex syntax."""
     with config.open("rb") as stream:
-        rules = tomllib.load(stream).get("rules")
-    return isinstance(rules, list) and any(
+        document = tomllib.load(stream)
+    if "extend" in document:
+        return "pattern file must be self-contained; [extend] is not supported"
+    rules = document.get("rules")
+    if not isinstance(rules, list) or not any(
         isinstance(rule, dict)
-        and all(isinstance(rule.get(key), str) and rule[key] for key in ("id", "regex"))
+        and isinstance(rule.get("id"), str)
+        and rule["id"]
+        and any(
+            isinstance(rule.get(key), str) and rule[key] for key in ("regex", "path")
+        )
         for rule in rules
-    )
+    ):
+        return "no usable [[rules]]; require a nonempty id and regex or path"
+    return None
 
 
-def copy_inputs(root: Path, target: Path, files: list[str], config: Path) -> None:
+def copy_inputs(
+    root: Path, target: Path, files: list[str], config: Path, *, text_only: bool
+) -> None:
     """Snapshot selected files, excluding active patterns and symlinks."""
     for name in files:
         source = Path(name)
@@ -85,21 +95,47 @@ def copy_inputs(root: Path, target: Path, files: list[str], config: Path) -> Non
             continue
         if not source.is_file():
             continue  # Deleted files and submodules have no working-tree text.
+        data = source.read_bytes()
+        if text_only and b"\0" in data:
+            continue
         destination = target / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(source, destination)
+        destination.write_bytes(data)
 
 
-def staged_environment(root: Path) -> dict[str, str]:
-    """Keep Git's real index while gitleaks runs in an empty source directory."""
-    return {
-        **os.environ,
-        "GIT_DIR": os.fsdecode(git(root, "rev-parse", "--absolute-git-dir")).strip(),
-        "GIT_WORK_TREE": str(root),
-        "GIT_INDEX_FILE": os.fsdecode(
-            git(root, "rev-parse", "--path-format=absolute", "--git-path", "index")
-        ).strip(),
-    }
+def copy_staged_inputs(root: Path, target: Path) -> None:
+    """Materialize changed index blobs without diff or checkout conversion."""
+    changed = set(
+        git(
+            root,
+            "diff",
+            "--cached",
+            "--name-only",
+            "-z",
+            "--diff-filter=ACMR",
+            "--no-ext-diff",
+            "--no-textconv",
+        ).split(b"\0")
+    ) - {b""}
+    if not changed:
+        return
+    for entry in git(root, "ls-files", "--stage", "-z").split(b"\0"):
+        if not entry:
+            continue
+        metadata, name = entry.split(b"\t", 1)
+        mode, oid, stage = metadata.split()
+        if name not in changed or stage != b"0" or mode not in {b"100644", b"100755"}:
+            continue
+        relative = Path(os.fsdecode(name))
+        if (
+            relative.is_absolute()
+            or ".." in relative.parts
+            or relative.parts[0] == ".git"
+        ):
+            raise ValueError("invalid index path")
+        destination = target / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(git(root, "cat-file", "blob", oid.decode("ascii")))
 
 
 def scan_commands(root: Path, temporary: Path, args: argparse.Namespace, config: Path):
@@ -107,18 +143,18 @@ def scan_commands(root: Path, temporary: Path, args: argparse.Namespace, config:
     tree = temporary / "tree"
     tree.mkdir()
     if not args.all_files and not args.files:
-        yield tree, ["git", "--pre-commit", "--staged", "."], staged_environment(root)
-        return
-    files = args.files
-    if args.all_files:
-        files = [
-            str(root / os.fsdecode(name))
-            for name in git(
-                root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"
-            ).split(b"\0")
-            if name
-        ]
-    copy_inputs(root, tree, files, config)
+        copy_staged_inputs(root, tree)
+    else:
+        files = args.files
+        if args.all_files:
+            files = [
+                str(root / os.fsdecode(name))
+                for name in git(
+                    root, "ls-files", "-z", "--cached", "--others", "--exclude-standard"
+                ).split(b"\0")
+                if name
+            ]
+        copy_inputs(root, tree, files, config, text_only=not args.all_files)
     # 8.30.1 also loads <source>/.gitleaksignore despite the explicit flag.
     # Scan this file separately as data, so neither pass can load it as config.
     ignore_input = tree / ".gitleaksignore"
@@ -126,8 +162,8 @@ def scan_commands(root: Path, temporary: Path, args: argparse.Namespace, config:
         separate = temporary / "ignore-input"
         separate.mkdir()
         ignore_input.rename(separate / ".gitleaksignore")
-        yield separate, ["dir", ".gitleaksignore"], None
-    yield tree, ["dir", "."], None
+        yield separate, ["dir", ".gitleaksignore"]
+    yield tree, ["dir", "."]
 
 
 def publish_findings(report: Path, tree: Path) -> int:
@@ -152,7 +188,7 @@ def scan(root: Path, config: Path, args: argparse.Namespace) -> int:
         ignore = temporary / ".gitleaksignore"
         ignore.write_text("")
         failed = False
-        for tree, command, environment in scan_commands(root, temporary, args, config):
+        for tree, command in scan_commands(root, temporary, args, config):
             result = subprocess.run(
                 [
                     args.gitleaks,
@@ -171,7 +207,6 @@ def scan(root: Path, config: Path, args: argparse.Namespace) -> int:
                     str(report),
                 ],
                 cwd=tree,
-                env=environment,
                 capture_output=True,
                 check=False,
             )
@@ -206,11 +241,8 @@ def main() -> int:
         config = pattern_file(root)
         if config is None:
             return 0
-        if not has_usable_rules(config):
-            print(
-                f"site-leak-check: {config}: no usable [[rules]]; require a nonempty id and regex",
-                file=sys.stderr,
-            )
+        if error := pattern_error(config):
+            print(f"site-leak-check: {config}: {error}", file=sys.stderr)
             return 2
         return scan(root, config, args)
     except OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError:
