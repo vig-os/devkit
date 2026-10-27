@@ -49,10 +49,10 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: ""
         type: string
-      runner-json:
-        description: "JSON array of runner labels (DEVKIT_CI_RUNNER) for this workflow's jobs"
+      runners:
+        description: "JSON object of resolved runner classes and lanes from the caller"
         required: false
-        default: '["ubuntu-26.04"]'
+        default: '{"small":["ubuntu-26.04"],"release-test":["ubuntu-26.04"]}'
         type: string
     secrets:
       token:
@@ -127,7 +127,7 @@ permissions:
 jobs:
   validate:
     name: Validate Release Core
-    runs-on: ${{ fromJSON(inputs.runner-json) }}
+    runs-on: ${{ fromJSON(inputs.runners).small }}
     permissions:
       contents: read
       pull-requests: read
@@ -356,7 +356,7 @@ jobs:
   finalize:
     name: Finalize Release Core
     needs: validate
-    runs-on: ${{ fromJSON(inputs.runner-json) }}
+    runs-on: ${{ fromJSON(inputs.runners).small }}
     permissions:
       actions: read
       contents: read
@@ -612,7 +612,7 @@ jobs:
   test:
     name: Test Finalized Release
     needs: [validate, finalize]
-    runs-on: ${{ fromJSON(inputs.runner-json) }}
+    runs-on: ${{ fromJSON(inputs.runners)['release-test'] }}
     container:
       image: ${{ inputs.toolchain_image }}
       credentials:

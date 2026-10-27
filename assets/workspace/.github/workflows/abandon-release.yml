@@ -43,10 +43,12 @@ permissions:
 jobs:
   resolve-toolchain:
     name: Resolve toolchain
-    runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
+    runs-on: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
     timeout-minutes: 2
     outputs:
       tag-prefix: ${{ steps.resolve.outputs.tag-prefix }}
+      runners: ${{ steps.resolve.outputs.runners }}
+      runner-sources: ${{ steps.resolve.outputs.runner-sources }}
       runner-json: ${{ steps.resolve.outputs.runner-json }}
     steps:
       - name: Checkout repository
@@ -65,6 +67,10 @@ jobs:
         id: resolve
         uses: ./.devkit-resolve/.github/actions/resolve-toolchain
         with:
+          runner-small: ${{ vars.CI_RUNNER_SMALL }}
+          runner-large: ${{ vars.CI_RUNNER_LARGE }}
+          runner-xlarge: ${{ vars.CI_RUNNER_XLARGE }}
+          legacy-resolve-runner: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER }}
           working-directory: .devkit-resolve
           registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
           registry-username: ${{ github.actor }}
@@ -72,7 +78,7 @@ jobs:
   validate:
     name: Validate abandon preconditions
     needs: [resolve-toolchain]
-    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runners).small }}
     timeout-minutes: 10
     permissions:
       # Draft releases are only visible with push access, mirroring
@@ -134,7 +140,7 @@ jobs:
   abandon:
     name: Delete draft release, tag, PR, and branch
     needs: [resolve-toolchain, validate]
-    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runners).small }}
     timeout-minutes: 10
     permissions:
       contents: read

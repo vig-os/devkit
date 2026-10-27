@@ -50,12 +50,14 @@ jobs:
   # `image` in the host modes makes the container jobs run on the runner.
   resolve-toolchain:
     name: Resolve toolchain
-    runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
+    runs-on: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
     timeout-minutes: 2
     outputs:
       mode: ${{ steps.resolve.outputs.mode }}
       image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
+      runners: ${{ steps.resolve.outputs.runners }}
+      runner-sources: ${{ steps.resolve.outputs.runner-sources }}
       runner-json: ${{ steps.resolve.outputs.runner-json }}
       tag-prefix: ${{ steps.resolve.outputs.tag-prefix }}
       prerelease-format: ${{ steps.resolve.outputs.prerelease-format }}
@@ -75,6 +77,10 @@ jobs:
         id: resolve
         uses: ./.devkit-resolve/.github/actions/resolve-toolchain
         with:
+          runner-small: ${{ vars.CI_RUNNER_SMALL }}
+          runner-large: ${{ vars.CI_RUNNER_LARGE }}
+          runner-xlarge: ${{ vars.CI_RUNNER_XLARGE }}
+          legacy-resolve-runner: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER }}
           working-directory: .devkit-resolve
           registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
           registry-username: ${{ github.actor }}
@@ -99,7 +105,7 @@ jobs:
       toolchain_mode: ${{ needs.resolve-toolchain.outputs.mode }}
       toolchain_image: ${{ needs.resolve-toolchain.outputs.image }}
       devkit_version: ${{ needs.resolve-toolchain.outputs.image-tag }}
-      runner-json: ${{ needs.resolve-toolchain.outputs.runner-json }}
+      runners: ${{ needs.resolve-toolchain.outputs.runners }}
       tag_prefix: ${{ needs.resolve-toolchain.outputs.tag-prefix }}
     secrets: inherit
 
@@ -148,14 +154,14 @@ jobs:
       toolchain_mode: ${{ needs.resolve-toolchain.outputs.mode }}
       toolchain_image: ${{ needs.resolve-toolchain.outputs.image }}
       devkit_version: ${{ needs.resolve-toolchain.outputs.image-tag }}
-      runner-json: ${{ needs.resolve-toolchain.outputs.runner-json }}
+      runners: ${{ needs.resolve-toolchain.outputs.runners }}
       tag_prefix: ${{ needs.resolve-toolchain.outputs.tag-prefix }}
     secrets: inherit
 
   rollback:
     name: Rollback on Failure
     needs: [resolve-toolchain, core, extension, publish]
-    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runners).small }}
     container:
       image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:

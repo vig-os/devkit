@@ -36,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Fork-safe runners across scaffolded workflows** ([#1928](https://github.com/vig-os/devkit/issues/1928))
+  - Route release, sync, upgrade and new seeded hook jobs through runner variables
+    with fork protection; managed release reusables consume runner classes and lanes.
+
 ### Deprecated
 
 ### Removed

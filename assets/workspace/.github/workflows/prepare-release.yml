@@ -23,7 +23,7 @@ permissions:
 jobs:
   validate:
     name: Validate Release Preparation
-    runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
+    runs-on: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
     timeout-minutes: 10
     outputs:
       version: ${{ steps.vars.outputs.version }}
@@ -31,6 +31,8 @@ jobs:
       mode: ${{ steps.resolve.outputs.mode }}
       image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
+      runners: ${{ steps.resolve.outputs.runners }}
+      runner-sources: ${{ steps.resolve.outputs.runner-sources }}
       runner-json: ${{ steps.resolve.outputs.runner-json }}
       tag-prefix: ${{ steps.resolve.outputs.tag-prefix }}
 
@@ -67,6 +69,10 @@ jobs:
         id: resolve
         uses: ./.github/actions/resolve-toolchain
         with:
+          runner-small: ${{ vars.CI_RUNNER_SMALL }}
+          runner-large: ${{ vars.CI_RUNNER_LARGE }}
+          runner-xlarge: ${{ vars.CI_RUNNER_XLARGE }}
+          legacy-resolve-runner: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER }}
           registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
           registry-username: ${{ github.actor }}
 
@@ -180,7 +186,7 @@ jobs:
   prepare:
     name: Prepare Release Branch
     needs: validate
-    runs-on: ${{ fromJSON(needs.validate.outputs.runner-json) }}
+    runs-on: ${{ fromJSON(needs.validate.outputs.runners).small }}
     container:
       image: ${{ needs.validate.outputs.image }}
       credentials:
@@ -440,7 +446,7 @@ jobs:
   open-pr:
     name: Open Draft Release PR
     needs: [validate, prepare, extension]
-    runs-on: ${{ fromJSON(needs.validate.outputs.runner-json) }}
+    runs-on: ${{ fromJSON(needs.validate.outputs.runners).small }}
     container:
       image: ${{ needs.validate.outputs.image }}
       credentials:
@@ -545,7 +551,7 @@ jobs:
   rollback:
     name: Roll Back Prepare Release on Failure or Cancellation
     needs: [validate, prepare, extension, open-pr]
-    runs-on: ${{ fromJSON(needs.validate.outputs.runner-json) }}
+    runs-on: ${{ fromJSON(needs.validate.outputs.runners).small }}
     container:
       image: ${{ needs.validate.outputs.image }}
       credentials:

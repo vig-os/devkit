@@ -48,7 +48,7 @@ permissions:
 jobs:
   resolve:
     name: Resolve Published Release
-    runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
+    runs-on: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || 'ubuntu-26.04' }}
     timeout-minutes: 5
     permissions:
       contents: read
@@ -93,7 +93,7 @@ jobs:
   publish:
     name: Publish Extension Hook (Default No-op)
     needs: resolve
-    runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
+    runs-on: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || 'ubuntu-26.04' }}
     # Gate the irreversible step behind an environment with a required
     # reviewer (one per registry, e.g. `crates-io`, `pypi`):
     # environment: crates-io
