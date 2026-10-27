@@ -292,21 +292,32 @@ leak check; this lint is not a full-history secret scanner.
 `.site/leak-patterns.toml` at the repository root. Without either, it exits 0
 silently, including on hosted and fork runs. devkit ships no patterns. The file
 uses gitleaks format (`[[rules]]` with `id` and `regex`, optional `[allowlist]`);
-keep rule IDs suitable for public logs. Tracked pattern files and files inside
+a present file must contain at least one rule with a nonempty string `id` and
+`regex`. Empty files, `[[rule]]` typos and files without usable rules exit 2 with
+the file path and a configuration error. Keep rule IDs suitable for public logs.
+Tracked pattern files and files inside
 the worktree outside `.site/` are errors, including through symlinks.
+
+Linked git worktrees (for example, `just worktree-start`) do not inherit the
+main clone's gitignored `.site/`. Each worktree runs without patterns unless the
+operator provisions its own `.site/leak-patterns.toml` or sets the absolute
+`DEVKIT_LEAK_PATTERNS` path in its environment.
 
 With no arguments the CLI scans staged changes using `gitleaks git --pre-commit
 --staged`. `--all-files` scans tracked and nonignored untracked working-tree
 files; explicit filenames scan those working-tree files. The default-on hook
 selects text files: pre-commit supplies the staged snapshot during commits and
-all tracked text files for `pre-commit run --all-files`. `.site/` is never copied
-into a working-tree scan. Symlinks are not followed. This scans current content,
+all tracked text files for `pre-commit run --all-files`. Only the active,
+untracked pattern file is excluded from selected inputs; selected `.site/`
+files, including force-added bindings, are scanned. Symlinks are not followed.
+This scans current content,
 not history; use the same config for a separate full-history gitleaks scan.
 
 The executable requires gitleaks on PATH (provided by the devkit environment;
 Nix-generated hooks pin its executable). All scans use `--config` and `--redact`.
 Only file, line and rule ID are published; private scanner diagnostics, matched
-text and rule descriptions are suppressed. Exit codes are 0 for clean, 1 for
+text and rule descriptions are suppressed. Matching file paths are printed
+as-is, even when a path contains a private name. Exit codes are 0 for clean, 1 for
 findings and 2 for configuration or scanner errors. Investigate errors locally
 with gitleaks and the private config; those diagnostics can disclose patterns.
 Project input files are scanned as text, so malformed project syntax is harmless.
@@ -320,7 +331,10 @@ hooks.site-leak-check.excludes = [ "^tests/fixtures/legacy\\.txt$" ];
 
 Exclusions apply to filenames supplied by pre-commit. Direct CLI staged/tree
 scans use the private config's allowlist. This hook is independent of the opt-in
-repo-level `gitleaks` hook and its `.gitleaks.toml`.
+repo-level `gitleaks` hook and its `.gitleaks.toml`. Repository `.gitleaksignore`
+and `.gitleaks.toml` files cannot suppress site findings. With gitleaks 8.30.1,
+a root `.gitleaksignore` is scanned separately as data to prevent automatic
+loading as ignore configuration; its content remains covered by the check.
 
 ## Development and tests
 

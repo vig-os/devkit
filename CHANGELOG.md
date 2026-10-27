@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Site leak-check hook** ([#1932](https://github.com/vig-os/devkit/issues/1932))
   - Enable private gitleaks rules for staged and working-tree scans, with silent
     success when no site patterns exist and redacted finding diagnostics.
+  - Prevent repository ignore/config bypasses, scan force-added site bindings,
+    and reject present pattern files without usable rules.
 
 - **Env-only endpoint lint** ([#1931](https://github.com/vig-os/devkit/issues/1931))
   - Enable the ADR §10 endpoint and credential assignment checks by default in

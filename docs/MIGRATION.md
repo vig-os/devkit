@@ -2092,7 +2092,14 @@ absolute `$DEVKIT_LEAK_PATTERNS` path, otherwise `.site/leak-patterns.toml`.
 Without a pattern file it exits silently. No patterns ship with devkit.
 Generated hooks update on shell entry; preserved portable hook configs need the
 `site-leak-check` block from the updated workspace template. The hook scans text
-files and needs gitleaks in the development environment.
+files and needs gitleaks in the development environment. Existing pattern files
+without usable `[[rules]]` are configuration errors (exit 2), not silent no-ops.
+Repository `.gitleaksignore` and `.gitleaks.toml` cannot suppress this hook.
+
+Linked git worktrees, including those made by `just worktree-start`, have no
+`.site/` at their root unless provisioned separately. Set `DEVKIT_LEAK_PATTERNS`
+to an absolute private file path or provide `.site/leak-patterns.toml` in each
+worktree to enable the check there.
 
 Use `gitleaks:allow` on an intentional matching line or the private config's
 allowlist. A generated hook can exclude an entire path:
@@ -2102,6 +2109,7 @@ hooks.site-leak-check.excludes = [ "^tests/fixtures/legacy\\.txt$" ];
 ```
 
 Portable hooks use their `exclude` field. Rule IDs must be safe for public logs;
-findings print only file, line and ID. See the
+findings print only file, line and ID. Matching file paths are printed as-is,
+even if a path contains a private name. See the
 [tool README](../packages/vig-utils/README.md#site-leak-check) for lookup safety,
 scan modes, exit codes and private error diagnosis.
