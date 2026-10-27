@@ -648,3 +648,27 @@ def test_github_flake_fetch_steps_carry_the_job_token() -> None:
     for sid in ("upgrade", "commit"):
         nix_config = str(step_by_id(steps, sid)["env"]["NIX_CONFIG"])
         assert "access-tokens = github.com=${{ github.token }}" in nix_config
+
+
+def test_runner_migration_environment_and_pr_channel() -> None:
+    job = _jobs()["upgrade"]
+    install = step_by_id(job["steps"], "upgrade")
+    for size in ("SMALL", "LARGE", "XLARGE"):
+        assert install["env"][f"DEVKIT_UPGRADE_CI_RUNNER_{size}"] == (
+            "${{ vars.CI_RUNNER_" + size + " }}"
+        )
+    assert install["env"]["DEVKIT_UPGRADE_CONTEXT"] == "1"
+    assert install["env"]["DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER"] == (
+        "${{ vars.DEVKIT_CI_RESOLVE_RUNNER }}"
+    )
+    assert install["env"]["DEVKIT_UPGRADE_REPO_PRIVATE"] == (
+        "${{ github.event.repository.private }}"
+    )
+    assert "^ci-runner-migration:" in install["run"]
+    assert '"$GITHUB_STEP_SUMMARY"' in install["run"]
+    pr = step_by_name(job["steps"], "Open or update the adoption PR")
+    assert pr["env"]["CI_RUNNER_MIGRATION"] == (
+        "${{ steps.upgrade.outputs.ci-runner-migration }}"
+    )
+    assert "CI runner migration" in pr["run"]
+    assert "$CI_RUNNER_MIGRATION" in pr["run"]

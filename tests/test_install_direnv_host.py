@@ -400,3 +400,74 @@ def test_dev_shell_never_starts_in_the_callers_repo(tmp_path: Path) -> None:
         check=False,
     )
     assert hooks.stdout == "", "the caller's repo config was modified"
+
+
+@pytest.mark.parametrize("mode", ["direnv", "devcontainer"])
+def test_migration_environment_crosses_installer_boundary(
+    tmp_path: Path, mode: str
+) -> None:
+    """Execute both installer paths; a runtime stand-in enforces isolation."""
+    import re
+    import shlex
+
+    source = INSTALL.read_text(encoding="utf-8")
+    match = re.search(r"UPGRADE_ENV_NAMES=\(\s*(.*?)\s*\)", source, re.S)
+    assert match, "installer must define the migration allow-list once"
+    names = match.group(1).split()
+    assert len(names) == 6 and len(set(names)) == 6
+    values = {name: f"value-{index}" for index, name in enumerate(names)}
+    values["DEVKIT_UPGRADE_CONTEXT"] = "1"
+    values["DEVKIT_UPGRADE_REPO_PRIVATE"] = "true"
+    # Shell metacharacters must remain inert data, including on the container leg.
+    values["DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER"] = "$(touch should-not-exist) `false`"
+    capture = tmp_path / "captured-env"
+    src = tmp_path / "source"
+    (src / "assets/workspace").mkdir(parents=True)
+    (src / "assets/workspace/.vig-os").write_text("DEVKIT_VERSION={{IMAGE_TAG}}\n")
+    probe = src / "assets/init-workspace.sh"
+    probe.write_text(f"env > {shlex.quote(str(capture))}\n")
+    bindir, _ = _runtime_stubs(tmp_path, working=True)
+    _stub(
+        bindir / "nix",
+        f"""case " $* " in
+  *" flake metadata "*) printf '%s' '{json.dumps({"path": str(src)})}' ;;
+  *" develop "*) while [ "$1" != -c ]; do shift; done; shift; exec "$@" ;;
+esac""",
+    )
+    _stub(
+        bindir / "docker",
+        f"""if [[ "$1" != run ]]; then exit 0; fi
+shift
+forwarded=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --rm) shift ;;
+        -e) forwarded+=("$2"); shift 2 ;;
+        -v) shift 2 ;;
+        *) break ;;
+    esac
+done
+exec env -i PATH="$PATH" "${{forwarded[@]}}" bash {shlex.quote(str(probe))}""",
+    )
+    env = {**_env(bindir), **values, "DEVKIT_UPGRADE_UNLISTED": "must-not-cross"}
+    proc = subprocess.run(
+        [
+            "bash",
+            str(INSTALL),
+            "--preview",
+            "--skip-preflight",
+            "--version",
+            "1.2.3",
+            "--docker",
+            str(_project(tmp_path, mode)),
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    actual = dict(line.split("=", 1) for line in capture.read_text().splitlines())
+    assert {name: actual.get(name) for name in names} == values
+    assert "DEVKIT_UPGRADE_UNLISTED" not in actual
+    assert not (tmp_path / "should-not-exist").exists()

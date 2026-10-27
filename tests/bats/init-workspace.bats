@@ -6325,3 +6325,159 @@ _assert_consumer_tokens_intact_1693() {
     run grep -x 'DEVKIT_CI_LANE_SIZES=' "$TEMPLATE_DIR/.vig-os"
     assert_success
 }
+
+_runner_migration_upgrade() {
+    local ws="$1"
+    shift
+    env "$@" TEMPLATE_DIR="$TEMPLATE_DIR" WORKSPACE_DIR="$ws" \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts
+}
+
+# Migration runs the actual scaffold, with the default-branch workflow's env.
+_runner_migration_seed() {
+    ws="$BATS_TEST_TMPDIR/runner-migration"
+    mkdir -p "$ws"
+    _clone_shared direnv "$ws"
+    grep -vE '^DEVKIT_CI_(RUNNER|LANE_SIZES)=' "$ws/.vig-os" >"$ws/manifest.tmp"
+    mv "$ws/manifest.tmp" "$ws/.vig-os"
+    unset DEVKIT_UPGRADE_CONTEXT DEVKIT_UPGRADE_CI_RUNNER_SMALL \
+        DEVKIT_UPGRADE_CI_RUNNER_LARGE DEVKIT_UPGRADE_CI_RUNNER_XLARGE \
+        DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER DEVKIT_UPGRADE_REPO_PRIVATE
+}
+
+@test "runner migration strips only valid variables covering the effective map (#1929)" {
+    _runner_migration_seed
+    local -a migration_env=(DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_CI_RUNNER_SMALL=pool-s)
+    local sizes large xlarge expected
+    for spec in 'none|none|none|removed' 'test=large|pool-l|none|removed' \
+        'test=xlarge,lint=large|pool-l|pool-x|removed' \
+        'test=large|none|pool-x|kept' 'test=xlarge|pool-l|none|kept' \
+        'none|unused|unused|removed'; do
+        IFS='|' read -r sizes large xlarge expected <<<"$spec"
+        [[ "$sizes" != none ]] || sizes=''
+        migration_env=(DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_CI_RUNNER_SMALL=pool-s
+            "DEVKIT_UPGRADE_CI_RUNNER_LARGE=${large/none/}" "DEVKIT_UPGRADE_CI_RUNNER_XLARGE=${xlarge/none/}")
+        printf '\nDEVKIT_CI_RUNNER=private-pool\nDEVKIT_CI_LANE_SIZES=%s\n' "$sizes" >>"$ws/.vig-os"
+        run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+        assert_success
+        assert_output --partial 'ci-runner-migration:'
+        refute_output --partial 'private-pool'
+        if [[ "$expected" == removed ]]; then
+            run grep '^DEVKIT_CI_RUNNER=private-pool$' "$ws/.vig-os"
+            assert_failure
+        else
+            assert_output --partial 'repository level'
+            assert_output --partial 'N+2'
+            run grep '^DEVKIT_CI_RUNNER=private-pool$' "$ws/.vig-os"
+            assert_success
+        fi
+        # Remove duplicate keys before the next independent case.
+        grep -vE '^DEVKIT_CI_(RUNNER|LANE_SIZES)=' "$ws/.vig-os" >"$ws/manifest.tmp"
+        mv "$ws/manifest.tmp" "$ws/.vig-os"
+    done
+}
+
+@test "runner migration keeps malformed missing and whitespace variables (#1929)" {
+    _runner_migration_seed
+    local -a migration_env=(DEVKIT_UPGRADE_CONTEXT=1)
+    local value
+    for value in '' ' ' ' pool-s' 'pool-s ' 'pool,s' '["pool-s"]' 'pool s' 'pool@'; do
+        migration_env=(DEVKIT_UPGRADE_CONTEXT=1 "DEVKIT_UPGRADE_CI_RUNNER_SMALL=$value")
+        printf '\nDEVKIT_CI_RUNNER=private-pool\n' >>"$ws/.vig-os"
+        run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+        assert_success
+        assert_output --partial 'gh variable set CI_RUNNER_SMALL --body <label>'
+        run grep -x 'DEVKIT_CI_RUNNER=private-pool' "$ws/.vig-os"
+        assert_success
+    done
+}
+
+@test "runner migration local force never strips even with variables (#1929)" {
+    _runner_migration_seed
+    local -a migration_env=(DEVKIT_UPGRADE_CI_RUNNER_SMALL=pool-s)
+    printf '\nDEVKIT_CI_RUNNER=private-pool\n' >>"$ws/.vig-os"
+    run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+    assert_success
+    assert_output --partial 'ci-runner-migration:'
+    run grep -x 'DEVKIT_CI_RUNNER=private-pool' "$ws/.vig-os"
+    assert_success
+}
+
+@test "runner migration adopt N+1 before releasing N to main keeps key (#1929)" {
+    local -a migration_env=()
+    _runner_migration_seed
+    # main still has the pre-N install/PR-body steps: no upgrade env, and only
+    # flake-bump/preserved-hook lines lifted. dev may already carry N's files.
+    printf '\nDEVKIT_CI_RUNNER=private-pool\n' >>"$ws/.vig-os"
+    run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+    assert_success
+    assert_output --partial 'ci-runner-migration:'
+    local log="$output"
+    run grep -x 'DEVKIT_CI_RUNNER=private-pool' "$ws/.vig-os"
+    assert_success
+    run bash -c 'printf "%s\n" "$1" | grep -E "^(flake-bump:|preserved-hook-(drift|fold|insert):)" | grep "ci-runner-migration:"' bash "$log"
+    assert_failure
+}
+
+@test "runner migration no-key table legacy private public and configured (#1929)" {
+    _runner_migration_seed
+    local -a migration_env=(DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER=private-pool)
+    run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+    assert_success
+    assert_output --partial 'ci-runner-migration:'
+    assert_output --partial 'CI_RUNNER_SMALL'
+    assert_output --partial 'delete'
+    refute_output --partial 'private-pool'
+    migration_env=(DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_REPO_PRIVATE=true)
+    run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+    assert_success
+    assert_output --partial 'organization variables do not reach private repos on GitHub Free'
+    assert_output --partial 'ubuntu-26.04'
+    migration_env=(DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_REPO_PRIVATE=false)
+    run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+    assert_success
+    refute_output --partial 'ci-runner-migration:'
+    migration_env=(DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_REPO_PRIVATE=true DEVKIT_UPGRADE_CI_RUNNER_SMALL=ubuntu-26.04)
+    run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+    assert_success
+    refute_output --partial 'ci-runner-migration:'
+}
+
+@test "runner migration reconciles each stock seeded job and preserves drift (#1929)" {
+    local -a migration_env=()
+    _runner_migration_seed
+    local file
+    for file in prepare-release-extension release-extension publish-release-extension; do
+        cat >"$ws/.github/workflows/$file.yml" <<'YAML'
+name: Consumer hook
+on: workflow_call
+jobs:
+  stock:
+    runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
+    steps: []
+  custom:
+    runs-on: custom-pool
+    steps: []
+  almost:
+    runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }} # custom
+    steps: []
+YAML
+    done
+    run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+    assert_success
+    assert_output --partial 'preserved-hook-fold: stock in .github/workflows/'
+    assert_output --partial 'preserved-hook-drift: custom in .github/workflows/'
+    assert_output --partial 'preserved-hook-drift: almost in .github/workflows/'
+    for file in prepare-release-extension release-extension publish-release-extension; do
+        run grep -F 'vars.CI_RUNNER_SMALL' "$ws/.github/workflows/$file.yml"
+        assert_success
+        assert_output --partial 'github.event.pull_request.head.repo.full_name != github.repository'
+        run grep -F 'runs-on: custom-pool' "$ws/.github/workflows/$file.yml"
+        assert_success
+        run grep -F "}} # custom" "$ws/.github/workflows/$file.yml"
+        assert_success
+    done
+    run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+    assert_success
+    refute_output --partial 'preserved-hook-fold: stock'
+}
