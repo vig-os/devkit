@@ -310,3 +310,60 @@ def test_present_patterns_need_usable_rules(installed_hook, content, mode):
     assert "no usable [[rules]]" in output
     assert "storage.example" not in output
     assert "Traceback" not in output
+
+
+def test_scanner_report_is_redacted(repo, monkeypatch):
+    import json
+
+    from vig_utils import site_leak_check
+
+    patterns(repo)
+    (repo / "d.txt").write_text("storage.example\n")
+    git(repo, "add", "d.txt")
+    original = site_leak_check.publish_findings
+    protected_fields = []
+
+    def inspect_report(report, tree):
+        for finding in json.loads(report.read_text()):
+            protected_fields.extend([finding["Secret"], finding["Match"]])
+        return original(report, tree)
+
+    monkeypatch.setattr(site_leak_check, "publish_findings", inspect_report)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["site-leak-check"])
+    assert site_leak_check.main() == 1
+    assert protected_fields
+    assert all("storage.example" not in field for field in protected_fields)
+
+
+@pytest.mark.parametrize("mode", [(), (".gitleaksignore",), ("--all-files",), "commit"])
+def test_repository_ignore_file_is_still_scanned_as_data(installed_hook, mode):
+    repo = installed_hook
+    patterns(repo)
+    (repo / ".gitleaksignore").write_text(
+        ".gitleaksignore:fixture-host:2\nstorage.example\n"
+    )
+    git(repo, "add", ".gitleaksignore")
+    result = commit(repo) if mode == "commit" else scan(repo, *mode)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert ".gitleaksignore:2: fixture-host" in result.stdout + result.stderr
+
+
+def test_finding_paths_are_printed_as_is(repo):
+    patterns(repo)
+    path = "storage.example notes.txt"
+    (repo / path).write_text("storage.example\n")
+    assert scan(repo, path).stderr == f"{path}:1: fixture-host\n"
+
+
+def test_linked_worktree_needs_its_own_patterns_or_environment(repo, tmp_path):
+    config = patterns(repo)
+    linked = tmp_path / "linked"
+    git(repo, "worktree", "add", "--detach", str(linked))
+    (linked / "d.txt").write_text("storage.example\n")
+    git(linked, "add", "d.txt")
+    result = scan(linked)
+    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+    configured = scan(linked, DEVKIT_LEAK_PATTERNS=str(config))
+    assert configured.returncode == 1
+    assert "d.txt:1: fixture-host" in configured.stderr
