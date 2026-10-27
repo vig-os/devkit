@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Env-only endpoint lint** ([#1931](https://github.com/vig-os/devkit/issues/1931))
   - Enable the ADR §10 endpoint and credential assignment checks by default in
-    devkit and consumer hooks. Refs: #1931.
+    devkit and consumer hooks.
 
 - **Per-lane CI runner size overrides** ([#1927](https://github.com/vig-os/devkit/issues/1927))
   - Add `DEVKIT_CI_LANE_SIZES` for project lanes opting into LARGE or XLARGE;

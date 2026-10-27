@@ -264,14 +264,26 @@ The wrappers forward argv/stdin/stdout/stderr so they behave like native shell c
 
 `check-hardcoded-endpoints FILE [FILE ...]` enforces the two narrow rules in
 [ADR §10](../../docs/rfcs/ADR-site-agnostic-projects.md#10-env-only-runtime-config-lint-and-leak-check-hook-point).
-The `no-hardcoded-endpoints` hook is enabled by default in consumer and devkit
-configurations. Supply tracked files to scan a tree. Violations and input errors
-exit 1 and report file/line diagnostics without assigned values; clean input exits 0.
-Python fixtures and docstrings are parsed as data, and JSON comments are supported.
-Shell/dotenv and TOML literal assignments include multiline strings. Local and
-specified RFC 2606 hosts, variable references, and a same-line
-`devkit: allow-endpoint` pragma are exempt. Broader patterns belong to the
-separate site leak check; this lint is not a full-history secret scanner.
+The default-on `no-hardcoded-endpoints` hook scans shell (extension or shebang),
+Python, YAML, TOML and JSON. Its companion `no-hardcoded-endpoints-dotenv` selects
+`.env`, `.env.*` and `*.env` by path. Other text, including Markdown, is ignored.
+Only findings exit 1; parsing/encoding failures emit one notice and scan each
+line for assignments. Unreadable inputs emit a notice. Diagnostics omit values.
+Variable/command references, empty values, local hosts, and RFC 2606 reserved
+names and subdomains are exempt. Python fixtures/docstrings remain inert when
+parseable; JSON comments and multiline literals are supported.
+
+For an intentional literal, add `# devkit: allow-endpoint` on its assignment line.
+For a whole path, override the hook in the consumer's preserved `flake.nix`:
+
+```nix
+hooks.no-hardcoded-endpoints.excludes = [ "^tests/fixtures/legacy\\.py$" ];
+```
+
+Use `hooks.no-hardcoded-endpoints-dotenv.excludes` for dotenv paths. See the
+[upgrade guidance](../../docs/MIGRATION.md#env-only-endpoint-lint) for generated
+versus preserved hook configs. Broader patterns belong to the separate site
+leak check; this lint is not a full-history secret scanner.
 
 ## Development and tests
 

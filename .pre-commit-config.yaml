@@ -15,7 +15,13 @@ repos:
         name: no-hardcoded-endpoints
         entry: uv run check-hardcoded-endpoints
         language: system
+        types_or: [shell, python, yaml, toml, json]
+      - id: no-hardcoded-endpoints-dotenv
+        name: no-hardcoded-endpoints-dotenv
+        entry: uv run check-hardcoded-endpoints
+        language: system
         types: [text]
+        files: (^|/)(\.env(\.[^/]*)?|[^/]+\.env)$
 
   # General Pre-commit Hooks (Fixes formatting issues)
   - repo: https://github.com/pre-commit/pre-commit-hooks

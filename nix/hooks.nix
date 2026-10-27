@@ -197,6 +197,16 @@ let
   # scaffold copy and the consumer surface unchanged.
   compositeActionFiles = "(^|/)\\.github/actions/[^/]+/action\\.ya?ml$";
 
+  # Dotfiles such as .env have no identify language tag; select them by path.
+  endpointTypes = [
+    "shell"
+    "python"
+    "yaml"
+    "toml"
+    "json"
+  ];
+  dotenvFiles = "(^|/)(\\.env(\\.[^/]*)?|[^/]+\\.env)$";
+
   hookDefs = {
     no-hardcoded-endpoints = {
       scaffold = true;
@@ -204,21 +214,47 @@ let
         name = "no-hardcoded-endpoints";
         entry = "uv run check-hardcoded-endpoints";
         language = "system";
-        types = [ "text" ];
+        types_or = endpointTypes;
       };
       check = { vigUtils, ... }: {
         enable = true;
         name = "no-hardcoded-endpoints";
         entry = "${vigUtils}/bin/check-hardcoded-endpoints";
         language = "system";
-        types = [ "text" ];
+        types_or = endpointTypes;
       };
       consumer = pkgs: {
         enable = true;
         name = "no-hardcoded-endpoints";
         entry = "${import ./vig-utils.nix pkgs}/bin/check-hardcoded-endpoints";
         language = "system";
+        types_or = endpointTypes;
+      };
+    };
+    no-hardcoded-endpoints-dotenv = {
+      scaffold = true;
+      yaml = {
+        name = "no-hardcoded-endpoints-dotenv";
+        entry = "uv run check-hardcoded-endpoints";
+        language = "system";
         types = [ "text" ];
+        files = dotenvFiles;
+      };
+      check = { vigUtils, ... }: {
+        enable = true;
+        name = "no-hardcoded-endpoints-dotenv";
+        entry = "${vigUtils}/bin/check-hardcoded-endpoints";
+        language = "system";
+        types = [ "text" ];
+        files = dotenvFiles;
+      };
+      consumer = pkgs: {
+        enable = true;
+        name = "no-hardcoded-endpoints-dotenv";
+        entry = "${import ./vig-utils.nix pkgs}/bin/check-hardcoded-endpoints";
+        language = "system";
+        types = [ "text" ];
+        files = dotenvFiles;
       };
     };
     # ── Formatting ──────────────────────────────────────────────────────
