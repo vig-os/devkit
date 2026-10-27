@@ -1106,3 +1106,136 @@ def test_runner_repository_name_case(tmp_path, monkeypatch):
     )
     outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_CI_RUNNER=pool\n")
     assert set(json.loads(outputs["runner-sources"]).values()) == {"legacy-key"}
+
+
+# Diagnostics execute the real Bash. S1b will supply lane overrides; until then
+# inject an effective map at its assignment to exercise the diagnostics contract.
+def _runner_diagnostics(tmp_path, monkeypatch, manifest="", lane_class="small"):
+    import tests.workflow_scaffold as scaffold
+
+    summary = tmp_path / "summary"
+    summary.touch()
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    if lane_class != "small":
+        action = _load(scaffold.RESOLVE_ACTION)
+        step = action["runs"]["steps"][0]
+        original = (
+            "LANE_SIZES='"
+            + json.dumps(dict.fromkeys(LANES, "small"), separators=(",", ":"))
+            + "'"
+        )
+        replacement = original.replace('"test":"small"', f'"test":"{lane_class}"')
+        assert original in step["run"]
+        step["run"] = step["run"].replace(original, replacement)
+        monkeypatch.setattr(scaffold, "load_workflow", lambda _: action)
+    proc, outputs = _exec_resolve(tmp_path, "DEVKIT_MODE=direnv\n" + manifest)
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout, summary.read_text(), outputs
+
+
+@pytest.mark.parametrize("configured", [False, True])
+def test_runner_diagnostics_legacy_migration(tmp_path, monkeypatch, configured):
+    if configured:
+        monkeypatch.setenv("RUNNER_SMALL", "configured-pool")
+    log, _, _ = _runner_diagnostics(
+        tmp_path, monkeypatch, "DEVKIT_CI_RUNNER=private-label\n"
+    )
+    warning = next(line for line in log.splitlines() if "::warning::" in line)
+    for text in (
+        "DEVKIT_CI_RUNNER",
+        "deprecated",
+        "N+2",
+        "CI_RUNNER_SMALL",
+        "repository",
+        "private GitHub Free",
+        "delete",
+        ".vig-os",
+        "MIGRATION.md#run-ci-on-self-hosted-runners",
+    ):
+        assert text in warning
+    assert (
+        "overrides" if configured else "gh variable set CI_RUNNER_SMALL --body <label>"
+    ) in warning
+    assert "private-label" not in log
+    assert "configured-pool" not in log
+    assert "CI_RUNNER_LARGE" not in warning
+
+
+def test_runner_diagnostics_legacy_variable(tmp_path, monkeypatch):
+    monkeypatch.setenv("LEGACY_RESOLVE_RUNNER", "private-label")
+    log, _, _ = _runner_diagnostics(tmp_path, monkeypatch)
+    assert (
+        "::warning::DEVKIT_CI_RESOLVE_RUNNER is deprecated in favour of CI_RUNNER_SMALL"
+        in log
+    )
+    assert "private-label" not in log
+
+
+@pytest.mark.parametrize("size", CLASSES)
+def test_runner_diagnostics_whitespace(tmp_path, monkeypatch, size):
+    monkeypatch.setenv("RUNNER_" + size.upper(), " \t\n")
+    log, _, outputs = _runner_diagnostics(tmp_path, monkeypatch)
+    assert f"::warning::Whitespace-only CI_RUNNER_{size.upper()}" in log
+    assert "treated as unset" in log
+    assert json.loads(outputs["runner-sources"])[size] == "default"
+
+
+@pytest.mark.parametrize("size", ["large", "xlarge"])
+@pytest.mark.parametrize("source", ["missing", "variable", "legacy-key", "foreign"])
+@pytest.mark.parametrize("small_set", [False, True])
+def test_runner_diagnostics_opted_in_class(
+    tmp_path, monkeypatch, size, source, small_set
+):
+    if small_set:
+        monkeypatch.setenv("RUNNER_SMALL", "pool-s")
+    if source == "variable":
+        monkeypatch.setenv("RUNNER_" + size.upper(), "pool-extra")
+    if source == "foreign":
+        _runner_event(monkeypatch, {"head": {"repo": {"fork": True}}})
+    manifest = "DEVKIT_CI_RUNNER=pool-legacy\n" if source == "legacy-key" else ""
+    log, _, outputs = _runner_diagnostics(tmp_path, monkeypatch, manifest, size)
+    opt_warning = [
+        line for line in log.splitlines() if "::warning::" in line and "test" in line
+    ]
+    assert bool(opt_warning) == (source == "missing")
+    partial = [line for line in log.splitlines() if "::notice::Partial" in line]
+    assert bool(partial) == (
+        source == "missing" and small_set or source == "variable" and not small_set
+    )
+    if source == "missing":
+        assert "CI_RUNNER_" + size.upper() in opt_warning[0]
+        assert HOSTED_DEFAULT in opt_warning[0]
+        assert json.loads(outputs["runners"])["test"] == [HOSTED_DEFAULT]
+
+
+@pytest.mark.parametrize("unused_set", [False, True])
+def test_runner_diagnostics_default_map_complete(tmp_path, monkeypatch, unused_set):
+    monkeypatch.setenv("RUNNER_SMALL", HOSTED_DEFAULT)
+    if unused_set:
+        monkeypatch.setenv("RUNNER_LARGE", "pool-unused")
+    log, summary, outputs = _runner_diagnostics(tmp_path, monkeypatch)
+    assert "::notice::" not in log
+    assert "::warning::" not in log
+    for size, source in json.loads(outputs["runner-sources"]).items():
+        assert f"| {size} | {source} |" in summary
+    assert "pool-unused" not in summary
+
+
+@pytest.mark.parametrize("private", [False, True])
+@pytest.mark.parametrize("foreign", [False, True])
+@pytest.mark.parametrize("configured", [False, True])
+def test_runner_diagnostics_private_notice(
+    tmp_path, monkeypatch, private, foreign, configured
+):
+    monkeypatch.setenv("REPOSITORY_PRIVATE", str(private).lower())
+    if foreign:
+        _runner_event(monkeypatch, {"head": {"repo": {"fork": True}}})
+    if configured:
+        monkeypatch.setenv("RUNNER_SMALL", HOSTED_DEFAULT)
+    log, summary, _ = _runner_diagnostics(tmp_path, monkeypatch)
+    expected = private and not foreign and not configured
+    assert ("::notice::CI runs on hosted runners" in log) == expected
+    assert ("GitHub Free organization variables" in summary) == expected
+    if expected:
+        assert "repository-level variables" in log
+        assert "private repos" in log
