@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-10-26T18:26:23Z
-updated: 2026-10-26T18:42:35Z
+updated: 2026-10-27T09:04:31Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1915
-comments: 0
+comments: 1
 labels: feature
 assignees: none
 milestone: 1.19.0
 projects: none
 parent: none
 children: none
-synced: 2026-10-27T07:38:04.771Z
+synced: 2026-10-28T08:13:05.575Z
 ---
 
 # [Issue 1915]: [gh-app-provision: org secrets with selected-repo visibility, Nix access-tokens recipe, flake app](https://github.com/vig-os/devkit/issues/1915)
@@ -31,4 +31,12 @@ Follow-up to #1909, which ships the `gh-app-provision` CLI (vig-utils) and its d
 - `nix run .#app-provision -- --dry-run ...` prints the manifest.
 
 Refs #1909.
+
+---
+
+# [Comment #1]() by [gerchowl]()
+
+_Posted on October 27, 2026 at 09:04 AM_
+
+One small item to fold in while working in `gh_app_provision.py`, from the review of #1924. After a *rejected* first callback (wrong state or missing code), later `/callback` requests still get the fixed "Callback already accepted" page. That's misleading: nothing was accepted, and the run has already aborted. Make the page reflect the terminal state, e.g. "This provisioning run has ended", and add a test for it.
 

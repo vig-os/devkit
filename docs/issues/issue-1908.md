@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-10-25T10:21:43Z
-updated: 2026-10-25T12:27:51Z
+updated: 2026-10-27T08:55:16Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1908
-comments: 1
+comments: 2
 labels: none
 assignees: none
-milestone: none
+milestone: 1.19.0
 projects: none
 parent: none
 children: none
-synced: 2026-10-26T07:40:28.928Z
+synced: 2026-10-28T08:13:06.025Z
 ---
 
 # [Issue 1908]: [Site-agnostic projects: site init hook, gitignored .site/, CI runner via org variables](https://github.com/vig-os/devkit/issues/1908)
@@ -66,4 +66,17 @@ Findings:
 4. Templates should pin actions to full SHAs: some orgs enforce it (`sha_pinning_required`), and a tag-pinned action fails at "Set up job".
 5. `schedule` was not observed: GitHub fired no run of a `*/10` cron on the default branch in about 2 h, across 3 new repos. A scheduled run has the same context as `workflow_dispatch` on the default branch (base repo, variables present, no PR), which passed. So schedule is covered by equivalence, but this was not proven empirically.
 
+
+---
+
+# [Comment #2]() by [gerchowl]()
+
+_Posted on October 27, 2026 at 08:55 AM_
+
+ADR accepted (#1917), amended in #1923 so every lane defaults to SMALL. Implementation sub-issues, with the full spec in the ADR's *Implementation* section:
+
+**Release N chain (strict order):** #1925 S1 runner selection core → #1926 S1d diagnostics → #1927 S1b `DEVKIT_CI_LANE_SIZES` → #1928 S2 remaining workflows → #1929 S3 devkit-upgrade migration
+**Independent:** #1930 S4 `.site/` + site-init hook · #1931 S5 env-only lint · #1932 S6 leak-check hook point
+**Docs:** #1933 S7 MIGRATION.md self-hosted rewrite · #1934 S7b remaining docs + scrub
+**Gate:** #1935 S8 release N gate · **N+2:** #1936 S9 removal (Backlog)
 
