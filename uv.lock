@@ -251,10 +251,10 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "github-backup", specifier = "==0.65.1" },
+    { name = "github-backup", specifier = "==0.66.0" },
     { name = "jinja2", specifier = "==3.1.6" },
     { name = "pexpect", specifier = "==4.9.0" },
-    { name = "pytest", specifier = "==9.1.1" },
+    { name = "pytest", specifier = "==9.2.0" },
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "testinfra", specifier = "==6.0.0" },
 ]
@@ -265,9 +265,9 @@ dev = [
     { name = "bcrypt", specifier = "==5.0.0" },
     { name = "pexpect", specifier = "==4.9.0" },
     { name = "pip-licenses", specifier = "==5.5.5" },
-    { name = "pytest", specifier = "==9.1.1" },
+    { name = "pytest", specifier = "==9.2.0" },
     { name = "pytest-cov", specifier = "==7.1.0" },
-    { name = "pytest-docker", specifier = "==3.2.5" },
+    { name = "pytest-docker", specifier = "==3.2.6" },
     { name = "pytest-testinfra", specifier = "==10.2.2" },
     { name = "rich", specifier = "==15.0.0" },
     { name = "testcontainers", specifier = "==4.15.0" },
@@ -285,9 +285,9 @@ lint = [
 test = [
     { name = "bcrypt", specifier = "==5.0.0" },
     { name = "pexpect", specifier = "==4.9.0" },
-    { name = "pytest", specifier = "==9.1.1" },
+    { name = "pytest", specifier = "==9.2.0" },
     { name = "pytest-cov", specifier = "==7.1.0" },
-    { name = "pytest-docker", specifier = "==3.2.5" },
+    { name = "pytest-docker", specifier = "==3.2.6" },
     { name = "pytest-testinfra", specifier = "==10.2.2" },
     { name = "testcontainers", specifier = "==4.15.0" },
 ]
@@ -308,11 +308,11 @@ wheels = [
 
 [[package]]
 name = "github-backup"
-version = "0.65.1"
+version = "0.66.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b6/f6/3d4d51398c1f3f8a5efe03f768907f459555ff24609465e38c90d435c1ab/github_backup-0.65.1.tar.gz", hash = "sha256:cac20d6fb5eb1d46090d3e6d39fcaa743f7572f771ef5fa5db2bbd75f4edd2fe", size = 130586, upload-time = "2026-08-01T22:01:49.991Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4c/6c/818e130ad63c24fcfd48b87c7df274e77cd439ff1d8c0ea948271b6a9e14/github_backup-0.66.0.tar.gz", hash = "sha256:cdc3106097e8a91dc87db30c5568ae265c2279d577b2841b3782382286c3bd64", size = 131788, upload-time = "2026-10-28T16:14:49.619Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a6/aa/3df573ec10a5bb4dd3b0a0f62407fe6a67da9f19cce8e4da5d385eeab39f/github_backup-0.65.1-py3-none-any.whl", hash = "sha256:07b054a1e0cc6e4665d8964bfbe30e02a7c6dce43a4a8e480022043836bbc49d", size = 46582, upload-time = "2026-08-01T22:01:48.781Z" },
+    { url = "https://files.pythonhosted.org/packages/1c/82/0f6520db254705d4a63114b0a5a2d03ede07836c9ca221184fbd513c30f1/github_backup-0.66.0-py3-none-any.whl", hash = "sha256:1205d08bc9bb585500e0d324074f8745ca35632f818df1b1b7fe9c58f412053f", size = 46758, upload-time = "2026-10-28T16:14:48.319Z" },
 ]
 
 [[package]]
@@ -483,7 +483,7 @@ wheels = [
 
 [[package]]
 name = "pytest"
-version = "9.1.1"
+version = "9.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "colorama", marker = "sys_platform == 'win32'" },
@@ -492,9 +492,9 @@ dependencies = [
     { name = "pluggy" },
     { name = "pygments" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e4/47/b9efed96c114afcfa3c9d3fe98a76a1d14c74a9e266d397cf6eb64be5e01/pytest-9.1.1.tar.gz", hash = "sha256:1088fbde8f2b49d95a549a195707afa7a76a3ce9bcadc26b6d71f0ffda5fe313", size = 1636369, upload-time = "2026-06-19T10:58:32.857Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/79/42/bb4641652e58dedeac2ec51abc1f8cae4fee4ec63899a0999016229a0f2a/pytest-9.2.0.tar.gz", hash = "sha256:97c4f3b1f3c7414aa36465e09b8220f1d03627993bd51b1282e193753c80557b", size = 1797555, upload-time = "2026-10-27T21:30:20.728Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/24/25/1de2678b631f5a49215c6c96fff41ba892b0a34df68d6d80292b1b48aa7f/pytest-9.1.1-py3-none-any.whl", hash = "sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c", size = 386536, upload-time = "2026-06-19T10:58:31.347Z" },
+    { url = "https://files.pythonhosted.org/packages/51/39/1f5d8c8877a0fa327db959c19341d4be61660de1ab6b7391f9eb805bcd67/pytest-9.2.0-py3-none-any.whl", hash = "sha256:07acdcf88ec174f907dc01af70bf52d49b014bbab03faeeade31c96b18c2e588", size = 411776, upload-time = "2026-10-27T21:30:19.131Z" },
 ]
 
 [[package]]
@@ -513,15 +513,15 @@ wheels = [
 
 [[package]]
 name = "pytest-docker"
-version = "3.2.5"
+version = "3.2.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
     { name = "pytest" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/66/05/b7e47dc3e01b505838372e296bd780180b3b699a9a134bb8d6be85f3d567/pytest_docker-3.2.5.tar.gz", hash = "sha256:c9662567522911280b394af4da2edd57facaf644494601fac962ff1e396d7ab6", size = 13717, upload-time = "2025-11-12T13:42:19.641Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/22/98/5c5eb1de2919ebbc02bd6c9311326c40148607935ed314608145752d316f/pytest_docker-3.2.6.tar.gz", hash = "sha256:0b86f48e7f728e5171f0278fbf0ea358090ea76fbec2c5f9b25c7ba931fc3097", size = 13832, upload-time = "2026-10-16T12:00:09.557Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9f/e4/3a76a393f808edb0ee08ecc25e5c00bce0522a45b8fcf8693ec9441739c8/pytest_docker-3.2.5-py3-none-any.whl", hash = "sha256:79f3d209f928f45d4385cb825944861bc8a8cccd309804d9c9cd63bcef03edba", size = 8724, upload-time = "2025-11-12T13:42:18.631Z" },
+    { url = "https://files.pythonhosted.org/packages/6b/74/c0514e67030241670ef3b61a18281c1b442c6f4918e62541b6c674ce6470/pytest_docker-3.2.6-py3-none-any.whl", hash = "sha256:aeabb385eeb4898bbab46fe13b7762df31da6a5cf446d0a6746cb00b69cea0b2", size = 8752, upload-time = "2026-10-16T12:00:08.288Z" },
 ]
 
 [[package]]

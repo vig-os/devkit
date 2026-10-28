@@ -13,4 +13,4 @@ build-backend = "hatchling.build"
 packages = ["src/example_pkg"]
 
 [dependency-groups]
-dev = ["pytest==9.1.1", "pytest-cov==7.1.0"]
+dev = ["pytest==9.2.0", "pytest-cov==7.1.0"]
