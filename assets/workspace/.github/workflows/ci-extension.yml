@@ -31,7 +31,7 @@ on:  # yamllint disable-line rule:truthy
         required: false
         type: string
       runner-json:
-        description: "JSON array of runner labels (DEVKIT_CI_RUNNER)"
+        description: "JSON array of runner labels (resolved extension lane)"
         required: false
         type: string
         default: '["ubuntu-26.04"]'

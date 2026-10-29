@@ -5088,7 +5088,7 @@ _RELEASE_RESOLVERS_991=(
 # scaffold-delivered script set (the template's .sh files), never on a
 # consumer's own sourced-only .sh libraries. A blanket `find … -name '*.sh'`
 # re-dirtied preserved consumer libs (mode 644 → 755) on every --force
-# re-scaffold — observed on a self-hosted runner (#1195).
+# re-scaffold — observed in a consumer repo (#1195).
 
 @test "scaffold chmod +x skips a consumer's pre-existing sourced .sh lib (#1195)" {
     ws="$BATS_TEST_TMPDIR/e2e-1195-chmod-scope"
