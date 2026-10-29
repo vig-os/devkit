@@ -64,7 +64,11 @@ def test_valid_bindings(tmp_path, location):
 )
 def test_invalid_bindings(tmp_path, extra):
     config(tmp_path, extra=extra)
-    assert cli(tmp_path, "check-site-config").returncode != 0
+    result = cli(tmp_path, "check-site-config")
+    assert result.returncode != 0
+    if "user:pw@" in extra:
+        assert "datasets.raw.location" in result.stderr
+        assert "user:pw@" not in result.stderr
 
 
 @pytest.mark.parametrize(
