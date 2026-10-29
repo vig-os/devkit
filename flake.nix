@@ -283,6 +283,8 @@
       #     inherit pkgs;
       #     modules = [ "native" ];           # opt-in capability modules (#884)
       #     extraPackages = [ pkgs.foo ];
+      #     withAgentCli = true;             # defaults to false; opting in
+      #                                      # shadows any system claude wrapper
       #     hooks = { pymarkdown.enable = false; };  # opt-in generated hooks (#883)
       #     python = pkgs.python313;          # override the pinned interpreter (#1038)
       #   };
