@@ -169,6 +169,7 @@
   # Additional capability modules, composed alongside `rust`.
   modules ? [ ],
   extraPackages ? [ ],
+  withAgentCli ? false,
   hooks ? null,
   hooksExcludes ? [ ],
   workflow ? "gitflow",
@@ -721,6 +722,7 @@ let
           inherit
             pkgs
             extraPackages
+            withAgentCli
             hooks
             hooksExcludes
             workflow

@@ -12,7 +12,7 @@ see [`docs/NIX2CONTAINER.md`](NIX2CONTAINER.md).
 
 The flake exposes one list, `devTools`, that enumerates every CLI in the
 environment (`just`, `git`, `gh`, `uv`, `nodejs`, `jq`, `tmux`, `ripgrep`, `fd`,
-`bat`, `eza`, `delta`, `lazygit`, `zoxide`, `starship`, `neovim`, `claude-code`,
+`bat`, `eza`, `delta`, `lazygit`, `zoxide`, `starship`, `neovim`,
 `podman`, `taplo`, `shellcheck`, …). Adding a tool there adds it
 everywhere — the dev-shell now and the image's `imageTools` set.
 
@@ -34,7 +34,7 @@ everywhere — the dev-shell now and the image's `imageTools` set.
   are exported as system-independent outputs so consumers can follow the same
   pinned `nixpkgs`.
 - **`nixosModules.default`** / **`homeManagerModules.default`** install the same
-  `devTools` set into a NixOS or home-manager configuration — flip
+  `devTools` set plus the machine-level agent CLI into a NixOS or home-manager configuration — flip
   `programs.vigos-devtools.enable = true`. `claude-code` is unfree, so the
   consumer must allow it (`nixpkgs.config.allowUnfree`). The NixOS module applies
   `overlays.default` for the fast-movers; a home-manager consumer that passes its
@@ -43,6 +43,28 @@ everywhere — the dev-shell now and the image's `imageTools` set.
 - **`apps.install`** wraps the host installer, so `nix run github:vig-os/devcontainer#install -- --help`
   bootstraps a consumer project straight from the flake — no prior `curl | bash`.
   `install.sh` remains the behavior SSoT; the app just wraps it.
+
+### Agent CLI opt-in
+
+Project shells leave `claude` to the machine by default. Install it machine-wide,
+including through `vigos.packages.enable = true` (or the legacy
+`programs.vigos-devtools.enable` home option). `nix/home/claude.nix` configures
+Claude; the packages module continues to install its CLI. `templates/personal`
+continues to use these machine-level modules.
+
+Machines without their own CLI can set `withAgentCli = true` in
+`vigos.lib.mkProjectShell { inherit pkgs; withAgentCli = true; }`, including in
+the scaffolded `flake.nix`, or in `mkRustProject`. Consumers of fixed shell
+outputs can select `nix develop github:vig-os/devkit#with-agent-cli` (locally,
+`nix develop .#with-agent-cli`). These use the same fast-mover pin as the machine
+module. **Opting in shadows any system `claude` wrapper**, including its release
+channel selection and per-profile credential loading. Updating an existing
+scaffold's input adopts the new default; its project settings remain yours.
+
+The image retains its agent CLI. The shared project tool list remains
+`nix/devtools.nix`; the agent package is defined once in `nix/agent-tools.nix`.
+To check the policy without building Claude Code, run
+`nix eval .#checks.x86_64-linux.agentCliPolicy.drvPath` (substitute your system).
 
 ### Formatting, linting, and flake quality gates
 
@@ -61,6 +83,8 @@ access is unavailable, so the dev-shell/image parity test stays a CI pytest):
   signatures whose intentionally-unused args those linters would otherwise flag.
 - **`devShell`** — the dev-shell closure builds.
 - **`devShellTools`** — the parity-test SSoT evaluates to a non-empty list.
+- **`agentCliPolicy`** — evaluation-only assertions exclude `claude-code` from
+  default and scaffolded shells, verify the opt-in pin, and preserve home installs.
 - **`module-<name>`** — one devshell build per shipped capability module,
   generated from the `nix/modules/` registry (a module cannot ship without
   its check).
@@ -321,7 +345,8 @@ The flake pins two inputs:
 
 The `overlay` (also exported as `overlays.default`) replaces just the `fastMovers`
 list — `uv`, `gh`, and `claude-code` — with their `nixpkgs-unstable` builds.
-These ship frequently and we want the latest version in both shell and image;
+These ship frequently; `claude-code` ships in machine profiles and the image,
+and only in project shells that opt in;
 everything else stays on the pinned stable channel for reproducibility.
 
 ### uv and the project interpreter
