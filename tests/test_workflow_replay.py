@@ -161,3 +161,145 @@ def test_cli(tmp_path, job, expected):
     assert process.returncode == expected, process.stderr
     if expected == 0:
         assert json.loads(json.loads(process.stdout)[0]["stdout"]) == {"action": "test"}
+
+
+# ScriptHandler.cs / ScriptHandlerHelpers.cs: implicit sh arguments vs explicit bash.
+# https://github.com/actions/runner/tree/main/src/Runner.Worker/Handlers
+@pytest.mark.parametrize("source", ["implicit", "step", "job", "workflow"])
+def test_shell_defaults(tmp_path, source):
+    step = {"run": "false | true; echo reached"}
+    path = workflow(tmp_path, [step])
+    doc = yaml.safe_load(path.read_text())
+    target = {"step": step, "job": doc["jobs"]["test"], "workflow": doc}.get(source)
+    if source == "step":
+        doc["jobs"]["test"]["steps"][0]["shell"] = "bash"
+    elif target is not None:
+        target["defaults"] = {"run": {"shell": "bash"}}
+    path.write_text(yaml.safe_dump(doc))
+    if source == "implicit":
+        assert Replay(path, "test", {}).run()[0]["stdout"] == "reached\n"
+    else:
+        with pytest.raises(subprocess.CalledProcessError):
+            Replay(path, "test", {}).run()
+
+
+# StepsRunner.cs merges step env before EvaluateStepIf and records CompleteStep results.
+# https://github.com/actions/runner/blob/main/src/Runner.Worker/StepsRunner.cs
+@pytest.mark.parametrize(
+    "condition, result", [("true", "success"), ("false", "skipped")]
+)
+def test_step_results_replace_seeds(tmp_path, condition, result):
+    steps = [
+        {"id": "a", "if": condition, "run": "true", "env": {"OWN": "visible"}},
+        {
+            "if": f"steps.a.outcome == '{result}' && steps.a.conclusion == '{result}' && !steps.a.outputs.old",
+            "run": "echo checked",
+        },
+        {
+            "env": {"OWN": "visible"},
+            "if": "env.OWN == 'visible'",
+            "run": "echo own-env",
+        },
+    ]
+    replay = Replay(
+        workflow(tmp_path, steps),
+        "test",
+        {"steps": {"a": {"outputs": {"old": "stale"}}}},
+    )
+    records = replay.run()
+    assert records[1]["stdout"] == "checked\n"
+    assert records[2]["stdout"] == "own-env\n"
+    assert replay.step_context["a"] == {
+        "outputs": {},
+        "outcome": result,
+        "conclusion": result,
+    }
+
+
+def test_failed_step_result(tmp_path):
+    replay = Replay(workflow(tmp_path, [{"id": "a", "run": "exit 7"}]), "test", {})
+    with pytest.raises(subprocess.CalledProcessError):
+        replay.run()
+    assert replay.step_context["a"] == {
+        "outputs": {},
+        "outcome": "failure",
+        "conclusion": "failure",
+    }
+
+
+# EnvFileKeyValuePairs.ReadLine has Windows-only CRLF handling.
+# https://github.com/actions/runner/blob/main/src/Runner.Worker/FileCommandManager.cs
+@pytest.mark.parametrize(
+    "data, expected",
+    [
+        (b"x<<E\na\rb\nE\n", "a\rb"),
+        (b"x=a\rb\n", "a\rb"),
+        (b"x=1\r\n", "1\r"),
+        (b"x=\xff\n", None),
+    ],
+)
+def test_linux_command_bytes(tmp_path, data, expected):
+    from tests.workflow_replay import _file_values
+
+    path = tmp_path / "output"
+    path.write_bytes(data)
+    if expected is None:
+        with pytest.raises(UnicodeDecodeError):
+            _file_values(path)
+    else:
+        assert _file_values(path) == {"x": expected}
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "if",
+        "timeout-minutes",
+        "container",
+        "services",
+        "strategy",
+        "continue-on-error",
+        "outputs",
+    ],
+)
+def test_unsupported_job_fields(tmp_path, field):
+    with pytest.raises(ValueError, match=field):
+        Replay(workflow(tmp_path, [{"run": "true"}], **{field: None}), "test", {}).run()
+
+
+@pytest.mark.parametrize("value", [None, 4, False])
+def test_non_string_run(tmp_path, value):
+    with pytest.raises(ValueError, match="run"):
+        Replay(workflow(tmp_path, [{"run": value}]), "test", {}).run()
+
+
+def test_working_directory(tmp_path):
+    (tmp_path / "sub").mkdir()
+    path = workflow(tmp_path, [{"run": "pwd", "working-directory": "sub"}])
+    assert Replay(path, "test", {}, cwd=tmp_path).run()[0]["stdout"].strip() == str(
+        tmp_path / "sub"
+    )
+    path = workflow(
+        tmp_path, [{"run": "true", "working-directory": "${{ inputs.dir }}"}]
+    )
+    with pytest.raises(ValueError, match="working-directory"):
+        Replay(path, "test", {}, cwd=tmp_path).run()
+
+
+# Default variables: https://docs.github.com/en/actions/reference/variables-reference
+# GitHubContext.cs.GetRuntimeEnvironmentVariables exports context-derived GITHUB_*.
+def test_default_runner_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    github = {
+        "repository": "o/r",
+        "repository_owner": "o",
+        "event_name": "push",
+        "ref": "refs/heads/dev",
+        "sha": "abc",
+    }
+    script = 'REPO="${GITHUB_REPOSITORY}"; printf "%s|%s|%s|%s|%s|%s|%s|%s|%s" "$REPO" "$GITHUB_REPOSITORY_OWNER" "$GITHUB_EVENT_NAME" "$GITHUB_REF" "$GITHUB_SHA" "$CI" "$GITHUB_ACTIONS" "$HOME" "${GITHUB_ACTOR-}"'
+    replay = Replay(workflow(tmp_path, [{"run": script}]), "test", {"github": github})
+    assert (
+        replay.run()[0]["stdout"]
+        == f"o/r|o|push|refs/heads/dev|abc|true|true|{tmp_path}|"
+    )
