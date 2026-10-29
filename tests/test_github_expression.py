@@ -38,7 +38,7 @@ from tests.workflow_scaffold import WORKFLOWS
         ("true || false && false", True),
         ("(true || false) && false", False),
         ("!false == true", True),
-        ("-2.5e2", -250),
+        ("-2.5e2", -250.0),
         ("0xff", 255),
         ("'it''s'", "it's"),
         ("fromJSON('{\"a\":1}').a", 1),
@@ -48,6 +48,7 @@ from tests.workflow_scaffold import WORKFLOWS
         ),
         ("github.event.pull_request.head.repo.fork", None),
         ("vars.CI_RUNNER_SMALL", "pool-s"),
+        ("secrets.MISSING", None),
         ("true || fromJSON('invalid')", True),
         ("false && fromJSON('invalid')", False),
     ],
@@ -142,6 +143,7 @@ def test_shipped_workflows(event, configured):
             job: {"outputs": {"runners": runners}}
             for job in ("resolve-toolchain", "validate")
         },
+        "secrets": {"GHCR_PULL_TOKEN": "test-token"},
         "github": {"repository": "example/project", "event": {}},
     }
     if event != "push":
