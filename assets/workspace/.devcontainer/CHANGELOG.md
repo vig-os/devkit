@@ -16,6 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Remove the legacy runner key only when visible variables cover every required class; preserve local and older-workflow installs with actionable migration text.
   - Reconcile stock seeded release-hook runner lines and report customised content for review.
 
+- **Site leak-check hook** ([#1932](https://github.com/vig-os/devkit/issues/1932))
+  - Enable private gitleaks rules for staged and working-tree scans, with silent
+    success when no site patterns exist and redacted finding diagnostics.
+  - Prevent repository ignore/config bypasses, scan force-added site bindings,
+    and reject present pattern files without usable rules.
+  - Stream raw index snapshots, including type changes, through one Git batch
+    reader despite Git attributes; share S4's safe pattern validation.
+  - Block option-looking filename bypasses, clean private snapshots on termination,
+    and report filesystem failures with paths and OS reasons without file contents.
+  - Scan symlink link text without reading targets and finish snapshot cleanup
+    despite repeated termination signals.
+
 - **Env-only endpoint lint** ([#1931](https://github.com/vig-os/devkit/issues/1931))
   - Enable the ADR §10 endpoint and credential assignment checks by default in
     devkit and consumer hooks.

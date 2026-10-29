@@ -849,12 +849,18 @@ silent move would turn into queued or rejected jobs that point at nothing.
   - **Pattern file:** `$DEVKIT_LEAK_PATTERNS` (absolute path, for site hosts
     and self-hosted runner service environments), else
     `.site/leak-patterns.toml`, else none.
-  - **Format:** a gitleaks config (`[[rules]]`, `[allowlist]`), so the same
-    file drives the full-history scan in the checklist.
-  - **Runs** `gitleaks` with `--config <file> --redact`. Locally it scans the
-    staged changes; under `pre-commit run --all-files` (CI) it scans the
-    working tree. `--redact` keeps the site's patterns and matches out of
-    public logs.
+  - **Validation:** S6 calls S4's public
+    `vig_utils.site_config.validate_patterns(path: Path) -> None`; the rule is
+    defined in the **S4 pattern-file clarification** in [Amendments](#decisions).
+    The same gitleaks config drives the full-history scan in the checklist.
+  - **Runs** the gitleaks directory scanner with `--config <file> --redact`
+    over isolated snapshots. With no filenames, the CLI reads raw index blobs
+    at added, copied, modified, renamed and type-changed paths. Hook-supplied
+    filenames scan selected working-tree files (pre-commit supplies its staged snapshot
+    during commits); `--all-files` scans the nonignored working tree.
+    Symlink link text becomes regular snapshot content; targets are never
+    followed or read through the link. Hooks select `types_or: [text, symlink]`.
+    Only file, line and rule ID reach public logs.
   - **No pattern file** means exit 0 with no output. That is not a fallback:
     without a site there is nothing site-private to find. Hosted and fork runs
     therefore never see site patterns, which is the point. The patterns are
@@ -910,6 +916,14 @@ The rejected options are kept with the costs that ruled them out.
 - **2026-10-27, architect clarification found while implementing S3:**
   `install.sh` is in scope for forwarding the migration environment above;
   no change to accepted decisions.
+
+- **2026-10-29, S6 clarification (#1932):** staged CLI mode scans full raw
+  index blobs for changed regular files and symlinks, including type changes,
+  through one batch reader without Git diff/checkout filters; deleted paths,
+  unmerged stages and gitlinks are excluded.
+  Symlinks contribute link text, never target content, in every scan mode. Every
+  hook entry passes `--` before filenames. Direct callers use the same delimiter
+  for option-looking names; help options cannot bypass scanning.
 
 - **2026-10-27, architect clarification found while implementing S1b:**
   duplicate lanes are an error; no change to accepted decisions.

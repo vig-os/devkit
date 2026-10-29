@@ -11,6 +11,13 @@ default_language_version:
 repos:
   - repo: local
     hooks:
+      - id: site-leak-check
+        name: site-leak-check
+        entry: uv run site-leak-check
+        args: ["--"]
+        language: system
+        types: []
+        types_or: [text, symlink]
       - id: no-hardcoded-endpoints
         name: no-hardcoded-endpoints
         entry: uv run check-hardcoded-endpoints
