@@ -209,6 +209,24 @@ This section applies to **`vig-os/devcontainer`** (this repo) and, for matching 
 - No other `release/*` branch exists — the `validate` job refuses to cut a second train (single-train policy, [#1627](https://github.com/vig-os/devkit/issues/1627)); promote or abandon the other one first
 - Every hook added to the scaffold since the last release has its row in `inserted_hook_blocks()` (`assets/init-workspace.sh`), and every row's version is the one being cut. A consumer with a preserved `.pre-commit-config.yaml` receives a new hook only through that table (`'<first release shipping it> <hook id> [feature group]'`), and the version is a literal nothing else checks: trains have been renamed mid-flight before, and a stale number either under-inserts (safe) or re-adds a hook a consumer deleted (the [#1651](https://github.com/vig-os/devkit/issues/1651) defect). Add or fix rows on the release branch, with `tests/test_scaffold_preserved_hooks.py` updated to match ([#1660](https://github.com/vig-os/devkit/issues/1660), [#1717](https://github.com/vig-os/devkit/issues/1717))
 
+The **Consumer Matrix** CI job runs every cell listed by
+`scripts/consumer-matrix/render-cell.sh list` against the current checkout's
+scaffold. Before release N, its runner migration cells prove:
+
+- `runner-key-only`: the legacy key still selects runners, with the complete
+  actionable deprecation warning in the CI log.
+- `ci-runner`: variables alone select SMALL/LARGE/XLARGE, with no legacy warning.
+  Override the generic fixture labels with `CONSUMER_MATRIX_RUNNER_LABEL`,
+  `CONSUMER_MATRIX_RUNNER_LARGE`, and `CONSUMER_MATRIX_RUNNER_XLARGE`.
+- `runner-gitflow`: local `dev` is ahead of `main`; N adoption uses a frozen
+  pre-N default-branch PR-body step, targets `dev`, keeps the key, and omits
+  the migration section. The adoption's rendered resolver emits the full
+  warning independently of the old body builder.
+
+These cells execute rendered scripts locally; they do not schedule work on
+self-hosted runners. A live consumer run remains a release gate coordinated
+after merge. The matrix does not depend on the unmerged S6/S7b work.
+
 **Execute:**
 
 ```bash

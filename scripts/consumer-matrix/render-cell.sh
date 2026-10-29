@@ -24,6 +24,8 @@
 #
 # Gates, per cell (each runs even when an earlier one failed, so a red cell
 # names every broken gate at once):
+#   runners    key-only / variable-only runner outputs and full warning text
+#   adoption   gitflow pre-N default-branch body, retained key and dev ancestry
 #   seed       every pre-seeded knob survived the render into .vig-os, and a
 #              fixture cell's language was detected into DEVKIT_LANGUAGES
 #   flake-check  (flake cells only) `nix flake check` of the rendered flake
@@ -73,6 +75,8 @@ CELLS=(
     trunk
     features-disabled
     ci-runner
+    runner-key-only
+    runner-gitflow
     tag-prefix
     language-guard
     python
@@ -143,6 +147,9 @@ cell_spec() {
     CELL_LANGUAGES_GUARD=hold
     CELL_FIXTURE=""
     CELL_FLAKE=false
+    CELL_RUNNER_SMALL=""
+    CELL_RUNNER_LARGE=""
+    CELL_RUNNER_XLARGE=""
     case "$1" in
         direnv | devcontainer | bare) CELL_MODE="$1" ;;
         python | node | rust)
@@ -175,7 +182,13 @@ cell_spec() {
             ;;
         ci-runner)
             CELL_MODE=both
-            CELL_SEED=("DEVKIT_CI_RUNNER=self-hosted,linux,x64,consumer-matrix")
+            CELL_RUNNER_SMALL="${CONSUMER_MATRIX_RUNNER_LABEL:-pool-s}"
+            CELL_RUNNER_LARGE="${CONSUMER_MATRIX_RUNNER_LARGE:-pool-l}"
+            CELL_RUNNER_XLARGE="${CONSUMER_MATRIX_RUNNER_XLARGE:-pool-xl}"
+            ;;
+        runner-key-only | runner-gitflow)
+            CELL_MODE=bare
+            CELL_SEED=("DEVKIT_CI_RUNNER=pool-legacy")
             ;;
         tag-prefix)
             CELL_MODE=both
@@ -211,22 +224,148 @@ render_cell() {
             printf '%s\n' "$line" >>"$ws/.vig-os"
         done
     fi
+    if [[ "$cell" == runner-gitflow ]]; then prepare_adoption "$ws" || return 1; fi
     local -a args=(--no-prompts --mode "$CELL_MODE")
     [[ "$CELL_WORKFLOW" == gitflow ]] || args+=(--workflow "$CELL_WORKFLOW")
     # A fixture is an EXISTING project adopting devkit: its files make the
     # directory non-empty, and init-workspace.sh takes that path only with
     # --force (no .vig-os yet, so nothing is upgraded — an adoption).
-    [[ -z "$CELL_FIXTURE" ]] || args+=(--force)
+    [[ -z "$CELL_FIXTURE" && "$cell" != runner-gitflow ]] || args+=(--force)
     # No baked image VERSION outside the image: point VERSION_FILE at a path
     # that does not exist so the template pin stays as shipped.
     version_file="$ws/.consumer-matrix-no-version"
-    env TEMPLATE_DIR="$TEMPLATE_DIR" \
+    env -u DEVKIT_UPGRADE_CONTEXT -u DEVKIT_UPGRADE_CI_RUNNER_SMALL \
+        -u DEVKIT_UPGRADE_CI_RUNNER_LARGE -u DEVKIT_UPGRADE_CI_RUNNER_XLARGE \
+        -u DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER -u DEVKIT_UPGRADE_REPO_PRIVATE \
+        TEMPLATE_DIR="$TEMPLATE_DIR" \
         WORKSPACE_DIR="$ws" \
         VERSION_FILE="$version_file" \
         SHORT_NAME=consumer_matrix \
         ORG_NAME=vig-os \
         GITHUB_REPOSITORY=vig-os/consumer-matrix \
-        bash "$INIT_WORKSPACE" "${args[@]}"
+        bash "$INIT_WORKSPACE" "${args[@]}" | if [[ "$cell" == runner-gitflow ]]; then
+            tee "$ws/.git/consumer-matrix/install.log"
+        else
+            cat
+        fi || return 1
+    [[ "$cell" != runner-gitflow ]] || adoption_body "$ws"
+}
+
+# Local-only gitflow history: the default-branch workflow is deliberately pre-N.
+# No consumer remote, workflow dispatch, or API call is involved.
+fixture_commit() {
+    git -c user.name=consumer-matrix -c user.email=consumer-matrix@example.com \
+        -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -qm "$1"
+}
+
+prepare_adoption() (
+    cd "$1" || return 1
+    git init -q -b main
+    git config user.name consumer-matrix
+    git config user.email consumer-matrix@example.com
+    git config commit.gpgsign false
+    git config core.hooksPath /dev/null
+    mkdir -p .github/workflows .git/consumer-matrix
+    printf 'DEVKIT_MODE=bare\n' >> .vig-os
+    cp "$ROOT/tests/fixtures/consumer/pre-n-upgrade.yml" .github/workflows/devkit-upgrade.yml
+    git add .
+    fixture_commit 'chore: pre-N consumer' || return 1
+    git checkout -qb dev || return 1
+    echo 'Consumer work ahead of main.' > consumer.txt
+    git add consumer.txt
+    fixture_commit 'chore: advance dev' || return 1
+    git checkout -qb chore/adopt-devkit
+)
+
+# Run the frozen main PR-body step verbatim. The gh recorder captures its
+# --base and --body, and refuses every other command (no network access).
+adoption_body() (
+    cd "$1" || return 1
+    local evidence="$PWD/.git/consumer-matrix" script
+    git show main:.github/workflows/devkit-upgrade.yml > "$evidence/pre-n.yml"
+    script="$(step_script "$evidence/pre-n.yml" 'Open or update the adoption PR')" || return 1
+    mkdir -p "$evidence/bin"
+    cat > "$evidence/bin/gh" <<'GH'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$1 $2" != 'pr view' ]] || exit 1
+[[ "$1 $2" == 'pr create' ]] || exit 2
+shift 2
+while (($#)); do
+    case "$1" in
+        --body) printf '%s\n' "$2" > "$EVIDENCE/pr-body" ;;
+        --base) printf '%s\n' "$2" > "$EVIDENCE/pr-base" ;;
+        --head | --title) ;;
+        *) exit 2 ;;
+    esac
+    shift 2
+done
+GH
+    chmod +x "$evidence/bin/gh"
+    env PATH="$evidence/bin:$PATH" EVIDENCE="$evidence" TARGET=1.0.0 \
+        BRANCH=chore/adopt-devkit BASE=dev FLAKE_BUMP= HOOK_DRIFT= HOOK_RECONCILE= \
+        bash -eo pipefail -c "$script"
+)
+
+gate_adoption() {
+    local evidence=.git/consumer-matrix
+    git merge-base --is-ancestor main dev || return 1
+    [[ "$(git rev-list --count main..dev)" == 1 ]] || return 1
+    [[ "$(git branch --show-current)" == chore/adopt-devkit ]] || return 1
+    grep -qxF DEVKIT_CI_RUNNER=pool-legacy .vig-os || return 1
+    grep -q '^ci-runner-migration:' "$evidence/install.log" || return 1
+    grep -qx dev "$evidence/pr-base" || return 1
+    grep -q 'Automated devkit upgrade' "$evidence/pr-body" || return 1
+    if grep -qiE 'CI runner migration|ci-runner-migration:' "$evidence/pr-body"; then
+        echo 'pre-N PR body unexpectedly lifted the runner migration'
+        return 1
+    fi
+    echo 'pre-N main adoption targets dev, keeps the key, and omits the migration section'
+}
+
+# Execute the consumer action with the same input names its CI supplies.
+# Capture and print its log so the full warning is visible in the matrix job.
+gate_runners() (
+    local evidence resolve
+    evidence="$(mktemp -d)"
+    trap 'rm -rf "$evidence"' EXIT
+    resolve="$(step_script .github/actions/resolve-toolchain/action.yml 'Resolve mode + image tag')" || return 1
+    env GITHUB_OUTPUT="$evidence/outputs" INPUT_IMAGE_TAG= \
+        RUNNER_SMALL="$CELL_RUNNER_SMALL" RUNNER_LARGE="$CELL_RUNNER_LARGE" \
+        RUNNER_XLARGE="$CELL_RUNNER_XLARGE" LEGACY_RESOLVE_RUNNER= \
+        PR_PRESENT=true HEAD_REPO_FORK=false HEAD_REPOSITORY=example/consumer \
+        BASE_REPOSITORY=example/consumer REPOSITORY_PRIVATE=true \
+        bash -eo pipefail -c "$resolve" > "$evidence/ci.log" 2>&1
+    local rc=$?
+    cat "$evidence/ci.log"
+    ((rc == 0)) || return "$rc"
+    assert_runner_result "$evidence/outputs" "$evidence/ci.log"
+)
+
+assert_runner_result() {
+    local runners sources expected source warning
+    runners="$(sed -n 's/^runners=//p' "$1")"
+    sources="$(sed -n 's/^runner-sources=//p' "$1")"
+    if [[ -n "$CELL_RUNNER_SMALL" ]]; then
+        expected="$(jq -cn --arg s "$CELL_RUNNER_SMALL" --arg l "$CELL_RUNNER_LARGE" \
+            --arg xl "$CELL_RUNNER_XLARGE" '{small:[$s],large:[$l],xlarge:[$xl]}')"
+        source=variable
+        if grep -q '::warning::' "$2"; then return 1; fi
+    else
+        expected='{"small":["pool-legacy"],"large":["pool-legacy"],"xlarge":["pool-legacy"]}'
+        source=legacy-key
+        warning='::warning::DEVKIT_CI_RUNNER is deprecated and stops selecting runners in N+2.'
+        warning+=' Unset required class: CI_RUNNER_SMALL; set it with gh variable set CI_RUNNER_SMALL --body <label>.'
+        warning+=' Use repository-level variables on a private GitHub Free repo.'
+        warning+=' Once every required class is set, the key decides nothing; delete DEVKIT_CI_RUNNER from .vig-os.'
+        warning+=' See MIGRATION.md#run-ci-on-self-hosted-runners.'
+        grep -qxF "$warning" "$2" || return 1
+    fi
+    expected="$(jq -c '. + {lint:.small,test:.small,extension:.small,"release-test":.small}' <<< "$expected")"
+    jq -en --argjson actual "$runners" --argjson expected "$expected" '$actual == $expected' || return 1
+    jq -en --argjson actual "$sources" --arg source "$source" \
+        '$actual == {small:$source,large:$source,xlarge:$source}' || return 1
+    echo "verified runners: $runners (source=$source)"
 }
 
 # Print the `run:` body of the first step named $2 in workflow/action file $1.
@@ -414,7 +553,7 @@ run_cell() {
     cd "$ws"
     local branch=dev
     [[ "$CELL_WORKFLOW" == trunk ]] && branch=main
-    git init -q -b "$branch"
+    [[ -d .git ]] || git init -q -b "$branch"
     git add -A
 
     # first-commit runs against the index, so it comes before the commit that
@@ -423,6 +562,8 @@ run_cell() {
     local -a rows=("| gate | result | time |" "| --- | --- | --- |")
     local -a gates=(seed)
     [[ "$CELL_FLAKE" == true ]] && gates+=(flake-check)
+    [[ "$cell" != runner-gitflow ]] || gates+=(adoption)
+    case "$cell" in ci-runner | runner-key-only | runner-gitflow) gates+=(runners) ;; esac
     gates+=(first-commit commit sync lint precommit test actionlint zizmor languages)
     for gate in "${gates[@]}"; do
         if [[ "$gate" == commit ]]; then
@@ -436,6 +577,8 @@ run_cell() {
         start=$SECONDS
         case "$gate" in
             seed) gate_seed || rc=$? ;;
+            adoption) gate_adoption || rc=$? ;;
+            runners) gate_runners || rc=$? ;;
             flake-check) gate_flake_check || rc=$? ;;
             first-commit) gate_first_commit || rc=$? ;;
             sync) in_shell just sync || rc=$? ;;
