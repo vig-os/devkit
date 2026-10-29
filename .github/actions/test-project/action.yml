@@ -129,6 +129,11 @@ runs:
         bats -j "$(nproc)" tests/bats/
 
     # --- Project tests with coverage (suite: all | pytest) -------------------
+    - name: Fetch pre-N release tag for replay tests
+      if: inputs.suite == 'all' || inputs.suite == 'pytest'
+      shell: bash
+      run: git fetch --depth=1 origin tag 1.18.0
+
     - name: Run project tests with coverage
       if: inputs.suite == 'all' || inputs.suite == 'pytest'
       shell: bash
