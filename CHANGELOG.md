@@ -9,9 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Workflow step replay test helper** ([#1963](https://github.com/vig-os/devkit/issues/1963))
-  - Replay evaluated workflow steps in isolated shells with output and environment propagation.
-
 - **Safe CI runner migration during devkit upgrades** ([#1929](https://github.com/vig-os/devkit/issues/1929))
   - Remove the legacy runner key only when visible variables cover every required class; preserve local and older-workflow installs with actionable migration text.
   - Reconcile stock seeded release-hook runner lines and report customised content for review.

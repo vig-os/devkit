@@ -2,21 +2,29 @@
 
 API: Replay(path, job, context, cwd=..., base_env=...).run(only=[id_or_name])
 returns stdout/stderr/outputs/summary/skipped records. Selection is explicit;
-seed context['steps'] for external boundaries. resolve_env(step) resolves env.
+seed context['steps'] only for steps not replayed (external boundaries).
+Replayed ids replace seeds. step_context exposes outputs/outcome/conclusion,
+including failures before they raise. resolve_env(step) resolves env without
+executing or validating unsupported job scheduling fields.
 CLI: python -m tests.workflow_replay FILE JOB --context ctx.json [--cwd DIR]
 [--only NAME ...] [--base-env env.json]. JSON stdout; invalid workflows exit 2;
 failed scripts retain their exit code.
 
-Each step uses a fresh bash -eo pipefail process. Only bash is supported;
-workflow/job defaults and step working-directory are honored. Base env is PATH
-(from host), plus explicit base_env; runner files, RUNNER_TEMP, GITHUB_WORKSPACE
-and GITHUB_EVENT_PATH are supplied. No host secrets or other env is inherited.
-Workflow/job/step env override that base; GITHUB_ENV affects subsequent steps.
-An event payload belongs in context.github.event. Command files support UTF-8,
-name=value and name<<DELIM. Outputs enter steps.<id>.outputs; summaries are text.
+Each step uses a fresh bash script: implicit shell is bash -e; explicit bash
+(including workflow/job defaults) uses --noprofile --norc -eo pipefail. Literal
+working directories are relative to the workspace; expressions are refused.
+Base env: host PATH and HOME, plus explicit base_env. No other host env leaks.
+CI/GITHUB_ACTIONS=true; repository, repository_owner, event_name, ref, sha in
+context.github supply corresponding GITHUB_* variables (missing values are
+empty). GITHUB_WORKSPACE, RUNNER_TEMP and command/event files are supplied;
+context.github.event is written to GITHUB_EVENT_PATH. Workflow/job/step env
+layers override base env; GITHUB_ENV applies only to later steps. Own step env
+is available in if. Command files decode strict UTF-8 and split on LF, keeping
+CR bytes as Linux does. Outputs enter steps.<id>.outputs; summaries are text.
 
 Refuses all uses (including local composites), other shells, continue-on-error,
-timeouts and other unimplemented step keys. No services, checkout, containers,
+timeouts and other unimplemented step keys. run() also refuses job if, timeout,
+container, services, strategy, continue-on-error and outputs. No checkout,
 job conditions, matrix expansion, status functions, runner expression contexts,
 or stdout workflow-command processing. Callers select the job and supply its
 contexts; this is a sequential script harness, not a complete Actions runner.
@@ -36,7 +44,7 @@ from tests.github_expression import evaluate, render_input
 
 
 def _file_values(path):
-    lines, values, index = path.read_text().split("\n"), {}, 0
+    lines, values, index = path.read_bytes().decode("utf-8").split("\n"), {}, 0
     while index < len(lines):
         line = lines[index]
         index += 1
@@ -72,7 +80,11 @@ class Replay:
         self.steps = self.job["steps"]
         self.context = copy.deepcopy(context)
         self.cwd = Path(cwd or Path.cwd()).resolve()
-        self.base_env = {"PATH": os.environ.get("PATH", os.defpath), **(base_env or {})}
+        self.base_env = {
+            "PATH": os.environ.get("PATH", os.defpath),
+            "HOME": str(Path.home()),
+            **(base_env or {}),
+        }
 
     def resolve_env(self, step, context=None, propagated=None):
         """Stringify env layers with step precedence, using the shared evaluator."""
@@ -94,8 +106,10 @@ class Replay:
 
     def _settings(self, step):
         allowed = {"name", "id", "if", "env", "run", "shell", "working-directory"}
-        if set(step) - allowed or "run" not in step:
-            raise ValueError(f"Unsupported step: {step.get('name', step)}")
+        if set(step) - allowed:
+            raise ValueError(f"Unsupported step fields: {sorted(set(step) - allowed)}")
+        if not isinstance(step.get("run"), str):
+            raise ValueError("Unsupported run: expected a string")
         settings = {}
         for source in (self.workflow, self.job):
             settings.update(source.get("defaults", {}).get("run", {}))
@@ -104,17 +118,41 @@ class Replay:
         )
         if settings.get("shell", "bash") != "bash":
             raise ValueError(f"Unsupported shell: {settings['shell']}")
+        directory = settings.get("working-directory", ".")
+        if (
+            not isinstance(directory, str)
+            or "${{" in directory
+            or Path(directory).is_absolute()
+        ):
+            raise ValueError(
+                "Unsupported working-directory: expected a relative literal"
+            )
         return settings
+
+    def _validate_job(self):
+        """Reject scheduling and job features the script harness cannot simulate."""
+        unsupported = {
+            "if",
+            "timeout-minutes",
+            "container",
+            "services",
+            "strategy",
+            "continue-on-error",
+            "outputs",
+        } & self.job.keys()
+        if unsupported:
+            raise ValueError(f"Unsupported job fields: {sorted(unsupported)}")
 
     def run(self, *, only=None):
         """Run all steps or explicit ids/names; fail at the first script error."""
+        self._validate_job()
         if only and any(
             not any(s.get("id") == name or s.get("name") == name for s in self.steps)
             for name in only
         ):
             raise ValueError(f"Unknown step selection: {only}")
         context, propagated, records = copy.deepcopy(self.context), {}, []
-        context.setdefault("steps", {})
+        self.step_context = context.setdefault("steps", {})
         with TemporaryDirectory(prefix="workflow-replay-") as temporary:
             root = Path(temporary)
             event = root / "event.json"
@@ -125,6 +163,8 @@ class Replay:
                 ):
                     continue
                 settings = self._settings(step)
+                if "id" in step:
+                    context["steps"].pop(step["id"], None)
                 env = self.resolve_env(step, context, propagated)
                 context["env"] = env
                 condition = step.get("if", "true")
@@ -134,6 +174,7 @@ class Replay:
                         condition = condition[3:-2]
                     condition = evaluate(f"!!({condition})", context)
                 if not condition:
+                    self._result(step, context, {}, "skipped")
                     records.append({"skipped": True})
                     continue
                 records.append(
@@ -151,14 +192,18 @@ class Replay:
         }
         for path in files.values():
             path.touch()
+        script = root / f"{index}.sh"
+        script.write_text(render_input(step["run"], context), encoding="utf-8")
+        shell = (
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
+            if settings.get("shell") == "bash"
+            else ["bash", "-e"]
+        )
         process = subprocess.run(
-            [
-                *["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c"],
-                render_input(step["run"], context),
-            ],
+            [*shell, str(script)],
             cwd=self.cwd / settings.get("working-directory", "."),
             env={
-                **self.base_env,
+                **self._runner_env(context),
                 **env,
                 "RUNNER_TEMP": str(root),
                 "GITHUB_WORKSPACE": str(self.cwd),
@@ -167,12 +212,14 @@ class Replay:
             },
             capture_output=True,
             text=True,
-            check=True,
+            check=False,
         )
         outputs = _file_values(files["GITHUB_OUTPUT"])
         propagated.update(_file_values(files["GITHUB_ENV"]))
-        if "id" in step:
-            context["steps"][step["id"]] = {"outputs": outputs}
+        self._result(
+            step, context, outputs, "failure" if process.returncode else "success"
+        )
+        process.check_returncode()
         return {
             "stdout": process.stdout,
             "stderr": process.stderr,
@@ -180,6 +227,24 @@ class Replay:
             "summary": files["GITHUB_STEP_SUMMARY"].read_text(),
             "skipped": False,
         }
+
+    def _runner_env(self, context):
+        """Export the documented minimal base and context-derived default variables."""
+        github = context.get("github", {})
+        defaults = {
+            "GITHUB_" + key.upper(): render_input(github.get(key), {})
+            for key in ("repository", "repository_owner", "event_name", "ref", "sha")
+        }
+        return {**self.base_env, "CI": "true", "GITHUB_ACTIONS": "true", **defaults}
+
+    @staticmethod
+    def _result(step, context, outputs, result):
+        if "id" in step:
+            context["steps"][step["id"]] = {
+                "outputs": outputs,
+                "outcome": result,
+                "conclusion": result,
+            }
 
 
 def main():
