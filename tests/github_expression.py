@@ -2,9 +2,20 @@
 
 Lives beside workflow_scaffold.py: test infrastructure, not shipped vig-utils.
 API: evaluate(expression, context) for bare expressions; render(value, context)
-for workflow values (whole expressions preserve types; interpolation is text).
+for runs-on values (whole expressions preserve types; interpolation is text).
+S8 must use render_input(value, context) for step and reusable-job with values:
+it returns strings, using null -> empty, lowercase booleans and G15 numbers.
+Collections cannot be interpolated or passed as scalar inputs.
+Properties and fromJSON/toJSON names ignore case; ambiguous object keys raise.
+Keyword literals are lowercase only (runner Tokens/LexicalAnalyzer.cs).
+Hex string coercion follows runner Sdk/ExpressionUtility.cs, ParseNumber.
+Numeric input formatting follows runner ExpressionConstants.cs (G15).
+Source: https://github.com/actions/runner/tree/main/src/Sdk/DTExpressions2/Expressions2
 CLI from the repository root: python -m tests.github_expression --context
 ctx.json --expr 'fromJSON(inputs.runners).small' (JSON stdout, errors exit 2).
+Add --input for action/reusable inputs. Invalid/unreadable/non-object context
+files produce clean errors with exit 2. Render positions refer to the whole value.
+toJSON uses two-space indentation, LF newlines and G15 scalar numbers.
 Supports the managed subset plus literal string property indexes used by
 release-test. Other functions, numeric/dynamic indexes and filters raise
 ValueError with the source and a zero-based position. Parses every branch
@@ -20,7 +31,7 @@ from pathlib import Path
 _TOKEN = re.compile(
     r"\s+|'(?:[^']|'')*'|-?0[xX][0-9a-fA-F]+|"
     r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|"
-    r"[A-Za-z_][A-Za-z_0-9-]*|&&|\|\||==|!=|[!().\[\]]"
+    r"[A-Za-z_][A-Za-z_0-9-]*|&&|\|\||==|!=|\S"
 )
 _PRECEDENCE = {"||": 1, "&&": 2, "==": 3, "!=": 3}
 
@@ -30,6 +41,8 @@ def _fail(source, position, message):
 
 
 def _truth(value):
+    if isinstance(value, float) and math.isnan(value):
+        return False
     return value is not None and value is not False and value != 0 and value != ""
 
 
@@ -38,35 +51,50 @@ def _number(value):
         return 0
     if isinstance(value, (bool, int, float)):
         return float(value)
-    try:
-        parsed = json.loads(value) if isinstance(value, str) else None
-        return float(parsed) if type(parsed) in (int, float) else math.nan
-    except ValueError:
+    if not isinstance(value, str):
         return math.nan
+    value = value.strip()
+    if not value:
+        return 0
+    if re.fullmatch(r"0x[0-9a-fA-F]+|0o[0-7]+", value):
+        number = int(value, 0)
+        return (
+            number - 2**32
+            if 2**31 <= number < 2**32
+            else number
+            if number < 2**31
+            else math.nan
+        )
+    if not re.fullmatch(
+        r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?|[+-]?Infinity",
+        value,
+    ):
+        return math.nan
+    return float(value)
 
 
 def _equal(left, right):
     if type(left) is not type(right):
         return _number(left) == _number(right)
     if isinstance(left, str):
-        return left.casefold() == right.casefold()
+        return left.lower() == right.lower()
     if isinstance(left, (list, dict)):
         return left is right
     return left == right
 
 
 class _Parser:
-    def __init__(self, source):
+    def __init__(self, expression, source, offset):
         self.source, self.tokens, self.cursor = source, [], 0
         position = 0
-        while position < len(source):
-            match = _TOKEN.match(source, position)
+        while position < len(expression):
+            match = _TOKEN.match(expression, position)
             if not match:
-                _fail(source, position, "Unsupported token")
+                _fail(source, position + offset, "Unsupported token")
             if not match[0].isspace():
-                self.tokens.append((match[0], position))
+                self.tokens.append((match[0], position + offset))
             position = match.end()
-        self.tokens.append(("", len(source)))
+        self.tokens.append(("", len(expression) + offset))
 
     def take(self, expected=None):
         token, position = self.tokens[self.cursor]
@@ -91,15 +119,15 @@ class _Parser:
         if token == "(":
             node = self.expression()
             self.take(")")
-        elif token == "fromJSON":
+        elif token.lower() in {"fromjson", "tojson"}:
             self.take("(")
-            node = ("json", position, self.expression())
+            node = (token.lower(), position, self.expression())
             self.take(")")
-        elif token in {"vars", "github", "needs", "inputs", "secrets"}:
+        elif token.lower() in {"vars", "github", "needs", "inputs", "secrets"}:
             node = ("context", position, token)
         elif token in {"true", "false", "null"}:
             node = ("literal", position, json.loads(token))
-        elif token.startswith("'"):
+        elif re.fullmatch(r"'(?:[^']|'')*'", token):
             node = ("literal", position, token[1:-1].replace("''", "'"))
         elif re.fullmatch(r"-?0[xX][0-9a-fA-F]+", token):
             node = ("literal", position, int(token, 16))
@@ -111,7 +139,7 @@ class _Parser:
             operator, position = self.take()
             key, key_position = self.take()
             if operator == "[":
-                if not key.startswith("'"):
+                if not re.fullmatch(r"'(?:[^']|'')*'", key):
                     _fail(
                         self.source,
                         key_position,
@@ -125,22 +153,50 @@ class _Parser:
         return node
 
 
+def _object(pairs):
+    if len({key.lower() for key, _ in pairs}) != len(pairs):
+        raise ValueError("Ambiguous object properties")
+    return dict(pairs)
+
+
+def _constant(value):
+    raise ValueError(f"Non-standard JSON constant: {value}")
+
+
+def _lookup(value, key, source, position):
+    if not isinstance(value, dict):
+        return None
+    try:
+        _object(list(value.items()))
+    except ValueError as error:
+        _fail(source, position, str(error))
+    return next(
+        (item for name, item in value.items() if name.lower() == key.lower()), None
+    )
+
+
 def _resolve(node, context, source):
     operator, position, *args = node
     if operator == "literal":
         return args[0]
     if operator == "context":
-        return context.get(args[0])
+        return _lookup(context, args[0], source, position)
     left = _resolve(args[0], context, source)
     if operator == "property":
-        return left.get(args[1]) if isinstance(left, dict) else None
+        return _lookup(left, args[1], source, position)
     if operator == "!":
         return not _truth(left)
-    if operator == "json":
+    if operator in {"fromjson", "tojson"}:
         try:
-            return json.loads(left)
-        except ValueError, TypeError:
-            _fail(source, position, "Invalid fromJSON argument")
+            return (
+                _to_json(left)
+                if operator == "tojson"
+                else json.loads(
+                    left, parse_constant=_constant, object_pairs_hook=_object
+                )
+            )
+        except (ValueError, TypeError) as error:
+            _fail(source, position, f"Invalid {operator} argument: {error}")
     if operator == "&&" and not _truth(left) or operator == "||" and _truth(left):
         return left
     right = _resolve(args[1], context, source)
@@ -150,12 +206,13 @@ def _resolve(node, context, source):
     return equal if operator == "==" else not equal
 
 
-def evaluate(expression, context):
+def evaluate(expression, context, *, source=None, offset=0):
     """Evaluate a bare expression; unsupported syntax always raises ValueError."""
-    parser = _Parser(expression)
+    source = expression if source is None else source
+    parser = _Parser(expression, source, offset)
     tree = parser.expression()
     parser.take("")
-    return _resolve(tree, context, expression)
+    return _resolve(tree, context, source)
 
 
 def render(value, context):
@@ -178,22 +235,68 @@ def render(value, context):
         if not end:
             _fail(value, start, "Unclosed interpolation")
         stop = offset + end.start()
-        result = evaluate(value[start + 3 : stop], context)
+        result = evaluate(
+            value[start + 3 : stop], context, source=value, offset=start + 3
+        )
         cursor = stop + 2
         if start == 0 and cursor == len(value):
             return result
-        if isinstance(result, (dict, list)):
-            _fail(value, start, "Cannot interpolate a collection")
-        if isinstance(result, float) and result.is_integer():
-            result = int(result)
-        pieces.append(
-            ""
-            if result is None
-            else str(result).lower()
-            if isinstance(result, bool)
-            else str(result)
-        )
+        pieces.append(_string(result, value, start))
     return "".join(pieces) + value[cursor:]
+
+
+def _string(value, source, position=0):
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return str(value).lower()
+    if isinstance(value, float) and not math.isfinite(value):
+        return {"nan": "NaN", "inf": "Infinity", "-inf": "-Infinity"}[str(value)]
+    if isinstance(value, (int, float)):
+        return "0" if value == 0 else format(value, ".15G")
+    if isinstance(value, str):
+        return value
+    _fail(source, position, "Cannot stringify a collection")
+
+
+def _to_json(value, level=0):
+    """Match runner ToJson.cs layout and scalar formatting, including G15."""
+    if isinstance(value, (dict, list)):
+        mapping = isinstance(value, dict)
+        if mapping:
+            _object(list(value.items()))
+        opening, closing = ("{", "}") if mapping else ("[", "]")
+        if not value:
+            return opening + closing
+        items = (
+            [
+                f"{_to_json(key)}: {_to_json(item, level + 1)}"
+                for key, item in value.items()
+            ]
+            if mapping
+            else [_to_json(item, level + 1) for item in value]
+        )
+        separator = ",\n" + "  " * (level + 1)
+        return (
+            opening
+            + "\n"
+            + "  " * (level + 1)
+            + separator.join(items)
+            + "\n"
+            + "  " * level
+            + closing
+        )
+    if isinstance(value, str):
+        result = json.dumps(value, ensure_ascii=False)
+        for char in "\u0085\u2028\u2029":
+            result = result.replace(char, f"\\u{ord(char):04x}")
+        return result
+    return "null" if value is None else _string(value, "toJSON")
+
+
+def render_input(value, context):
+    """Render a scalar with value as a GitHub input string, using G15 numbers."""
+    return _string(render(value, context), value)
 
 
 def main():
@@ -201,15 +304,26 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--context", required=True, type=Path)
     parser.add_argument("--expr", required=True)
+    parser.add_argument(
+        "--input", action="store_true", help="Render a with input as a string"
+    )
     args = parser.parse_args()
     try:
-        context = json.loads(args.context.read_text())
+        context = json.loads(
+            args.context.read_text(),
+            parse_constant=_constant,
+            object_pairs_hook=_object,
+        )
+        if not isinstance(context, dict):
+            raise ValueError("Context must be a JSON object")
         result = (
             render(args.expr, context)
             if "${{" in args.expr
             else evaluate(args.expr, context)
         )
-    except ValueError as error:
+        if args.input:
+            result = _string(result, args.expr)
+    except (ValueError, OSError) as error:
         parser.error(str(error))
     print(json.dumps(result))
 
