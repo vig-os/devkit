@@ -54,10 +54,12 @@ continues to use these machine-level modules.
 
 Machines without their own CLI can set `withAgentCli = true` in
 `vigos.lib.mkProjectShell { inherit pkgs; withAgentCli = true; }`, including in
-the scaffolded `flake.nix`, or in `mkRustProject`. Consumers of fixed shell
-outputs can select `nix develop github:vig-os/devkit#with-agent-cli` (locally,
-`nix develop .#with-agent-cli`). These use the same fast-mover pin as the machine
-module. **Opting in shadows any system `claude` wrapper**, including its release
+the scaffolded `flake.nix`, or in `mkRustProject`. This adds the CLI to the
+consumer's own project shell. To enter devkit's own project shell with the CLI,
+use `nix develop github:vig-os/devkit#with-agent-cli` (inside a devkit checkout,
+`nix develop .#with-agent-cli`). That output opens devkit's shell, not the
+consumer's; consumers should set `withAgentCli = true` in their own flake.
+Both options use the same fast-mover pin as the machine module. **Opting in shadows any system `claude` wrapper**, including its release
 channel selection and per-profile credential loading. Updating an existing
 scaffold's input adopts the new default; its project settings remain yours.
 
