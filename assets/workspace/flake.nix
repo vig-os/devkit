@@ -120,6 +120,10 @@
             inherit pkgs;
             extraPackages = extraPackages pkgs;
 
+            # Agent CLI is machine-level by default. Opting in shadows any
+            # system claude wrapper (including its credentials/channel setup).
+            # withAgentCli = true;
+
             # Opt-in: let the flake GENERATE .pre-commit-config.yaml from the
             # shared base hook set instead of hand-managing the scaffolded
             # YAML — toggle base hooks, add per-hook/global excludes, or add
