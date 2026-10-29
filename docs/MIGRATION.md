@@ -267,6 +267,38 @@ every delivery mode. A private consumer can skip it — the gate is neutral ther
 and starts working automatically if the repo is later flipped public
 ([#1166](https://github.com/vig-os/devkit/issues/1166)).
 
+### Seeded hook runner migration
+
+CI runner settings are moving to `CI_RUNNER_SMALL`, `CI_RUNNER_LARGE` and
+`CI_RUNNER_XLARGE` variables. Set them at repository level for private repos
+on GitHub Free; organization variables are not visible there. Every lane uses
+SMALL unless `DEVKIT_CI_LANE_SIZES` opts it into another class. A legacy
+`.vig-os` runner key is kept until the CI upgrade context proves every required
+class has a valid single-label variable. Local installs treat variables as
+unknown and keep the key.
+
+The upgrade checks every job in `prepare-release-extension.yml`,
+`release-extension.yml` and `publish-release-extension.yml`:
+
+- **reconciled:** a known seeded runner value was replaced by the fork-safe
+  SMALL expression. Review the workflow diff; indentation, comments and line
+  endings are preserved. The current SMALL expression needs no further change.
+- **pending:** the runner is preserved because this upgrade cannot see a valid
+  `CI_RUNNER_SMALL` in its CI context. Set that variable to one runner label
+  (or `ubuntu-26.04` for hosted runners) and rerun the upgrade from an updated
+  default-branch workflow. Local installs never fold hooks.
+- **drift:** customised or unclassified content is preserved. Review the named
+  file and job, then migrate its runner manually to the SMALL expression in
+  the current seeded template. Keep `DEVKIT_CI_RESOLVE_RUNNER` until every
+  seeded hook job is reconciled and `CI_RUNNER_SMALL` is configured.
+
+All findings use the `ci-runner-migration:` channel in logs and, with an
+updated default-branch upgrade workflow, the **CI runner migration** PR-body
+section. A pre-N workflow drops that channel instead of presenting it under
+unrelated preserved-hook headings. Per-run CI warnings remain the primary
+migration channel. A delete-the-legacy-variable hint appears only once every
+seeded hook job is reconciled.
+
 ### Run CI on self-hosted runners
 
 `ci.yml` defaults to GitHub-hosted `ubuntu-26.04` runners. A consumer whose org

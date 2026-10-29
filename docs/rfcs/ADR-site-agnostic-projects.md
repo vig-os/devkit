@@ -897,6 +897,16 @@ The rejected options are kept with the costs that ruled them out.
   files must be self-contained. Errors raise `ValueError` without pattern
   values. This is the single S4/S6 contract; no change to accepted decisions.
 
+- **2026-10-29, architect clarification of (d)-1 while reviewing S3:**
+  stock includes every runner value ever seeded by a release or dev build,
+  not only the legacy resolve-variable expression originally named below.
+  Fold only with a valid SMALL variable in the CI upgrade context; otherwise
+  preserve and report pending. Classify values independently of layout,
+  preserve indentation and line endings, and report custom or unclassified
+  content as drift. Runner findings use the §6 migration channel so pre-N
+  workflows do not mislabel them. Suggest deleting the legacy resolve variable
+  only when every seeded hook job is reconciled.
+
 - **2026-10-27, architect clarification found while implementing S3:**
   `install.sh` is in scope for forwarding the migration environment above;
   no change to accepted decisions.
@@ -999,15 +1009,25 @@ whenever it happens.
 `release-extension`, `publish-release-extension`), which are consumer-owned
 and never overwritten.
 
-1. **Reconcile the exact stock line.** **Chosen** (owner, 2026-10-26). The upgrade checks each
-   job's `runs-on` line separately. Where a line is byte-identical to the stock
-   `${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}`, it rewrites that
-   line to the new SMALL direct expression (§3, the same for every seeded job).
+1. **Reconcile known stock runner values.** **Chosen** (owner, 2026-10-26;
+   clarified by the S3 amendment). The upgrade classifies every job's `runs-on`
+   value independently of indentation, job-header spelling, comments and line
+   endings. The stock set includes every value seeded by a release or dev
+   build: the hosted `ubuntu-22.04`, `ubuntu-24.04` and `ubuntu-26.04` labels,
+   `${{ fromJSON(inputs.runner-json) }}` and
+   `${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}`. Only with a valid
+   `CI_RUNNER_SMALL` in the CI upgrade context does it rewrite a stock value to
+   the new SMALL direct expression (§3, the same for every seeded job),
+   preserving indentation, comments and line endings. Otherwise it preserves
+   the value and reports pending, asking to set SMALL; local installs never
+   fold. The current SMALL expression is already reconciled.
    The rewrite target is SMALL, not LARGE, so a reconciled hook agrees with
    "every lane SMALL by default" (§5) and needs only the class every consumer
-   already sets. It prints a
-   `preserved-hook`-style reconcile line into the PR body. Any other content is
-   left alone and reported as drift. This is the same precedent as the
+   already sets. It prints reconcile, pending and drift findings through the
+   §6 `ci-runner-migration:` channel; pre-N body builders drop that channel.
+   Any other content is left alone and reported as drift, naming file and job.
+   A delete-the-legacy-variable hint requires every seeded hook job to be
+   reconciled. This is the same precedent as the
    pre-commit reconcile ([#1654](https://github.com/vig-os/devkit/issues/1654)):
    a known-stock block may be folded, nothing else. *Cost:* a second
    reconcile implementation for workflow files, and a consumer-owned file
