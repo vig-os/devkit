@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-10-25T10:21:43Z
-updated: 2026-10-27T08:55:16Z
+updated: 2026-10-29T07:44:06Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1908
-comments: 2
+comments: 3
 labels: none
 assignees: none
 milestone: 1.19.0
 projects: none
 parent: none
 children: none
-synced: 2026-10-28T08:13:06.025Z
+synced: 2026-10-29T08:18:32.803Z
 ---
 
 # [Issue 1908]: [Site-agnostic projects: site init hook, gitignored .site/, CI runner via org variables](https://github.com/vig-os/devkit/issues/1908)
@@ -79,4 +79,12 @@ ADR accepted (#1917), amended in #1923 so every lane defaults to SMALL. Implemen
 **Independent:** #1930 S4 `.site/` + site-init hook · #1931 S5 env-only lint · #1932 S6 leak-check hook point
 **Docs:** #1933 S7 MIGRATION.md self-hosted rewrite · #1934 S7b remaining docs + scrub
 **Gate:** #1935 S8 release N gate · **N+2:** #1936 S9 removal (Backlog)
+
+---
+
+# [Comment #3]() by [gerchowl]()
+
+_Posted on October 29, 2026 at 07:44 AM_
+
+Consumer data point: vig-os/tessera (public, devkit 1.17.0) is moving its repo-owned Linux lanes to the vig-os ksb ARC runners in vig-os/tessera#700, but its scaffolded `ci.yml` lanes have to stay on GitHub-hosted runners until this lands in a release: `DEVKIT_CI_RUNNER` (and, on 1.18.0, `vars.DEVKIT_CI_RESOLVE_RUNNER`) carries no fork predicate, so on a public repo a fork PR's lint/test/summary lanes would route to ksb. There the runner's job-started fork guard (exo-pet/exo-fleet#949) kills them and the required checks go red for every outside contributor. That is defect 2 in ADR-site-agnostic-projects. Tessera will adopt the fork-safe `CI_RUNNER_SMALL` / `CI_RUNNER_LARGE` variables once S1 (#1925) and S2 (#1928) ship. Its repo-owned workflows already use the ADR §2 predicate verbatim, with a lint (`scripts/check-ksb-fork-guard.sh`) that pins the shape.
 

@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-10-27T08:54:43Z
-updated: 2026-10-27T12:04:14Z
+updated: 2026-10-29T01:40:32Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1932
@@ -13,7 +13,7 @@ milestone: 1.19.0
 projects: none
 parent: none
 children: none
-synced: 2026-10-28T08:13:01.016Z
+synced: 2026-10-29T08:18:32.231Z
 ---
 
 # [Issue 1932]: [#1908 S6: Site leak-check hook point](https://github.com/vig-os/devkit/issues/1932)
@@ -58,5 +58,7 @@ Implemented point-of-use validation: a present leak-patterns.toml must contain a
 
 _Posted on October 27, 2026 at 12:01 PM_
 
-Final point-of-use rule: a pattern file must be self-contained (any [extend] table, including empty tables and case variants, exits 2 naming the file) and contain at least one [[rules]] entry with a nonempty string id plus a nonempty regex or path; path-only gitleaks rules are usable, and a missing file remains a silent no-op.
+S6 now calls `vig_utils.site_config.validate_patterns(Path)` from merged S4 (#1938); the local `pattern_error()` implementation is deleted. The single pattern-file rule is S4's **pattern-file clarification (shared with S6)** in the [ADR Amendments](https://github.com/vig-os/devkit/blob/dev/docs/rfcs/ADR-site-agnostic-projects.md#decisions).
+
+S6 preserves the shared validator's safe filename/key message and returns exit 2 for validation errors. A missing selected pattern file remains a silent no-check; an explicit missing path does not fall back to local patterns. Site-binding credential restrictions are not applied to pattern values.
 
