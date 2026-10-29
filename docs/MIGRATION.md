@@ -302,30 +302,194 @@ seeded hook job is reconciled.
 ### Run CI on self-hosted runners
 
 `ci.yml` defaults to GitHub-hosted `ubuntu-26.04` runners. A consumer whose org
-runs its CI on self-hosted runners (e.g. GitHub billing blocks hosted runners
-for heavy jobs) sets the optional `.vig-os` key `DEVKIT_CI_RUNNER` to a
-**comma-separated runner label list** instead of hand-editing the
-scaffold-managed workflow (hand-edits to `runs-on` are clobbered on the next
-upgrade):
+runs CI on self-hosted runners (e.g. GitHub billing blocks hosted runners for
+heavy jobs) sets the repository or organization variables `CI_RUNNER_SMALL`,
+`CI_RUNNER_LARGE` and `CI_RUNNER_XLARGE` — never a `.vig-os` key, and never by
+hand-editing a scaffold-managed `runs-on:` line (hand-edits are clobbered on
+the next upgrade). Each variable is **exactly one runner label**:
+
+```sh
+gh variable set CI_RUNNER_SMALL --body <label>
+```
+
+- **Repository level on GitHub Free.** Organization variables do not reach
+  private repositories on the Free plan. If no `CI_RUNNER_*` variable is
+  visible there at all, `resolve-toolchain` prints a `::notice::` annotation
+  plus a step-summary line saying CI runs hosted and naming the fix — this is
+  not silent. A Free-plan private repo must set the variables at
+  **repository** level; organization level works everywhere else (Team plan,
+  or any public repo).
+- **One label, not a list.** `a,b` is read as a single label literally named
+  `a,b`, never split. For `CI_RUNNER_LARGE`/`XLARGE`, a comma list, a JSON
+  list (`["pool-l"]`), or a label carrying leading, trailing or inner
+  whitespace fails `resolve-toolchain` with an `::error::` naming the
+  variable, before any lane that depends on it is scheduled. `CI_RUNNER_SMALL`
+  feeds `resolve-toolchain`'s own job directly, so the same kind of malformed
+  value queues that job on the literal label instead of ever reaching the
+  error — see [Known symptoms](#known-symptoms).
+- **Unset or empty** means the hosted default, `ubuntu-26.04` — no change for
+  a consumer that sets none of the three.
+
+#### Size classes and the lane override
+
+Every managed lane belongs to one size class, and **every lane defaults to
+SMALL**: `resolve-toolchain` itself, the toolchain lanes (`lint`, `test`, the
+`extension` hook), the release train's `release-test`, the seeded release
+hooks, `commit-checks`, `scaffold-drift`, `devkit-staleness`, `summary`,
+`sync-issues`/`sync-main-to-dev` and `devkit-upgrade`. `CI_RUNNER_LARGE` and
+`CI_RUNNER_XLARGE` serve no lane by default — a project opts `lint`, `test`,
+`extension` or `release-test` into LARGE or XLARGE itself, in `.vig-os`:
 
 ```ini
 # .vig-os
-DEVKIT_CI_RUNNER=self-hosted,linux,x64,meatgrinder
+DEVKIT_CI_LANE_SIZES=test=large,lint=large
 ```
 
-`resolve-toolchain` reads the key and emits a `runner-json` output — a JSON array
-of the labels (`["self-hosted","linux","x64","meatgrinder"]`), or
-`["ubuntu-26.04"]` when the key is absent — and the toolchain jobs (`lint`,
-`test`, `commit-checks`) plus the `summary` gate declare
-`runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}`. The
-scaffolded `sync-issues.yml`'s `sync` job (its daily-cron real work) routes
-through its own `resolve-toolchain`'s `runner-json` output the same way, so a
-self-hosted consumer no longer pays for that job on a hosted runner either
-([#1795](https://github.com/vig-os/devkit/issues/1795)). A single label still
-emits a valid one-element array. The key is persisted across re-scaffolds like
-the other manifest keys, so an upgrade preserves it with no flags. Absent =>
-unchanged behavior for every existing consumer
-([#1173](https://github.com/vig-os/devkit/issues/1173)).
+Comma-separated `lane=size` entries; whitespace around an entry is trimmed;
+duplicate lanes and an unknown lane or size name fail both the scaffold write
+path and `resolve-toolchain`. SMALL is the default for every lane because
+self-hosted pools usually hold far fewer large runners than small ones:
+putting the heavier lanes on LARGE by default let one PR occupy every LARGE
+slot while a second PR queued and the small slots sat idle. Moving a lane to
+a class whose `CI_RUNNER_*` variable is not set has two different outcomes:
+while the legacy `.vig-os` key `DEVKIT_CI_RUNNER` is still set, the class
+falls back to **the key's own labels** (source `legacy-key` — the key backs
+every class while it decides anything, not only SMALL), with no per-lane
+warning (the key-wide migration warning already names it); once the key is
+gone, or was never set, the lane falls to the hosted default instead — there
+is no cross-class fallback to another configured class — and every
+non-foreign run then carries a `::warning::` naming the variable and the
+lane until it is set.
+
+`resolve-toolchain` emits `runners` (a JSON object keyed by class and by every
+overridable lane, each a one-element label array) and `runner-sources`
+(`fork`, `variable`, `legacy-key` or `default` per class, printed as a
+step-summary table). Lanes declare
+`runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runners).test }}` (or
+`.small`, `.lint`, `.extension`, …); the release train
+(`prepare-release`, `prepare-hotfix`, `release` and its reusable
+`release-core`/`release-publish`, `promote-release`, `abandon-release`,
+`sync-main-to-dev`) and `sync-issues` route the same way. The deprecated
+`runner-json` output is kept as an alias of `runners.small`, for
+consumer-written jobs that still read it; it is removed in release N+2.
+
+The seeded, consumer-owned release hooks (`prepare-release-extension.yml`,
+`release-extension.yml`, `publish-release-extension.yml`) take no runner
+input from their callers, so an upgrade never changes what an existing copy
+accepts — see [Seeded hook runner migration](#seeded-hook-runner-migration)
+for how they move onto `CI_RUNNER_SMALL`. `codeql`, `scorecard` and
+`dependency-review` stay hosted: they are public-repo-only (skipped on
+private repos) and need no toolchain, so a consumer whose org **cannot run
+any hosted job at all** still needs that lane handled separately (e.g. a
+repo-specific static render).
+
+#### Fork safety
+
+Every `runs-on` that is not a literal hosted label evaluates the same
+predicate: a pull request is **foreign** when its head repository is a fork,
+or is not this repository at all. A foreign run always resolves to
+`ubuntu-26.04` in every class, whatever the variables say — the legacy
+`.vig-os` key is **ignored** for a foreign run, not just overridden.
+
+This predicate is an accident-prevention layer, not the security boundary.
+On `pull_request` a fork controls the checked-out `ci.yml` content itself, so
+the predicate cannot be trusted as a defense against that content — it
+exists to route fork PRs to hosted runners so they still get CI, not to
+police what a fork's workflow asks for. The controls that actually keep
+untrusted code off a self-hosted pool belong to the runner operator:
+
+- a runner-side **job-start hook** (`ACTIONS_RUNNER_HOOK_JOB_STARTED`) that
+  rejects a job whose `head.repo` differs from `base.repo`;
+- the org setting **"Require approval for fork pull request workflows,"**
+  requiring approval for every external contributor;
+- optionally, keeping the self-hosted runner group's visibility restricted so
+  no public repository can reach it at all.
+
+Configure these on the runner host and in the org's settings; devkit's
+predicate does not, and cannot, substitute for either.
+
+**Forks of a private repo are foreign too**, even though only someone with
+read access can create one. A PR from such a fork gets no CI at all if the
+org cannot run any hosted job — the jobs are rejected or stay queued forever,
+and nothing turns the checks green. The remedy: have contributors push
+branches to the base repository instead (anyone with write access can), and
+turn off **"Allow forking of private repositories"** in the org's member
+privileges so such a PR cannot be opened in the first place.
+
+#### Deprecation timeline
+
+- **This release (N):** `CI_RUNNER_SMALL`/`LARGE`/`XLARGE` and the fork
+  predicate are live everywhere. The legacy `.vig-os` key `DEVKIT_CI_RUNNER`
+  and the legacy variable `DEVKIT_CI_RESOLVE_RUNNER` keep working — the
+  variable wins whenever both are set. A non-empty `DEVKIT_CI_RUNNER` carries
+  the **full actionable migration text** as a `::warning::` on every run;
+  this per-run warning is the primary migration channel, and it reaches
+  every consumer regardless of branch model or whether `devkit-upgrade.yml`
+  has run yet. A non-empty `DEVKIT_CI_RESOLVE_RUNNER` gets only a one-line
+  `::warning::` that it is deprecated in favour of `CI_RUNNER_SMALL` — not
+  the full text.
+- **N+1:** no new runner semantics — a second release of the per-run
+  warnings, and the window in which the migrating adoption below typically
+  runs.
+- **N+2 (removal):** `DEVKIT_CI_RUNNER` stops selecting runners and the
+  deprecated `runner-json` output disappears. **`DEVKIT_CI_RESOLVE_RUNNER`
+  does not disappear**: its term stays permanently as the last term before
+  the hosted default in every `resolve-toolchain` job's `runs-on` (e.g.
+  `ci.yml`, `release.yml`, `sync-issues.yml`), and it keeps selecting that
+  job's own runner whenever `CI_RUNNER_SMALL` is unset — dropping the term
+  would silently move a billing-blocked consumer's resolve job to a hosted
+  runner it may not be able to run at all. Two permanent tombstones replace
+  the per-run warnings:
+  - a `DEVKIT_CI_RUNNER` that would still decide a runner — some required
+    class with no visible variable — turns the run red with a loud
+    `::error::` naming the unset classes; one that is already inert (every
+    required class has a variable) gets only a `::warning::` asking to
+    delete it, and stays green;
+  - a non-empty `DEVKIT_CI_RESOLVE_RUNNER` with `CI_RUNNER_SMALL` unset, on a
+    non-foreign run, turns the run red with an `::error::` — the resolve job
+    is still running on the legacy variable's label, so the error is
+    reachable. With `CI_RUNNER_SMALL` set, the same variable gets only a
+    `::warning::`, because it may still serve pre-N seeded-hook copies (see
+    [Seeded hook runner migration](#seeded-hook-runner-migration)).
+
+  Neither tombstone is ever a silent move to hosted runners.
+
+**The migrating adoption** is the first `devkit-upgrade` run of release N or
+later from your **default branch** — scheduled and dispatched runs always
+use the default branch's own copy of the workflow. Under trunk that is N+1's
+adoption; under gitflow it is the first adoption *after your own next release
+to `main`*, which can land after N+1, after N+2, or never. The design does
+not depend on when, or whether, it runs — the per-run warnings above are the
+guarantee either way. When it does run, `init-workspace.sh` strips
+`DEVKIT_CI_RUNNER` from `.vig-os` automatically once every required class has
+a visible variable, and otherwise keeps the key and prints exactly which
+`CI_RUNNER_*` variables to set.
+
+#### Known symptoms
+
+- **CI never starts on a private repo.** If the repo cannot run hosted jobs
+  at all (a billing block, or included minutes exhausted), the
+  `resolve-toolchain` job itself never starts, or is rejected outright — so
+  neither the private-repo notice nor the migration warning ever prints.
+  What you see instead is GitHub's own billing or queue message on the
+  `Resolve toolchain` job. Why the job tried hosted at all differs by plan:
+  on a **Free**-plan private repo, organization variables simply never reach
+  it (it looks configured but isn't); on **any** plan, including Team (where
+  org variables do propagate), the repo just has no self-hosted variable
+  set. The fix is the same either way: set `CI_RUNNER_SMALL` (**repository**
+  level on GitHub Free; organization level elsewhere), and `LARGE`/`XLARGE`
+  if used, so the job never needs a hosted runner in the first place.
+- **A whitespace-only, or otherwise malformed, `CI_RUNNER_SMALL` queues
+  every run with no error.** `resolve-toolchain`'s own job is itself a
+  direct-expression lane on SMALL, so it cannot validate `CI_RUNNER_SMALL`
+  before using it: GitHub's `runs-on` expression treats any non-empty
+  string, whitespace-only included, as truthy, so the resolve job is
+  scheduled on that value verbatim. If it is not a label any runner carries,
+  the run shows a job queued on a blank or bogus label, with no error
+  anywhere — `CI_RUNNER_LARGE`/`XLARGE` have no such gap, because their only
+  consumers are the validated `resolve-toolchain` output. Fix the value, or
+  delete the variable to recover the hosted default immediately with no
+  commit required.
 
 In direnv mode with preinstalled host Nix, `setup-devkit-toolchain` preserves
 valid runner `NIX_CONFIG` settings, including local caches, trusted public keys,
@@ -344,57 +508,6 @@ If neither validation command is available, the step fails explicitly. If the
 configuration is rejected, it drops that value with a warning and exports
 devkit's valid settings. Diagnostic values are redacted to protect access tokens
 ([#1907](https://github.com/vig-os/devkit/issues/1907)).
-
-The release train routes the same way ([#1863](https://github.com/vig-os/devkit/issues/1863)):
-`prepare-release`, `prepare-hotfix`, `release` (and its reusable `release-core` /
-`release-publish`), `promote-release`, `abandon-release` and `sync-main-to-dev`
-take every job after their resolve step from `runner-json`. The seeded,
-consumer-owned hooks (`prepare-release-extension.yml`, `release-extension.yml`,
-`publish-release-extension.yml`) get no input from the callers, so an upgrade
-never changes what an existing copy accepts; new scaffolds run them on
-`${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}`. To move an existing
-copy onto self-hosted runners, edit its `runs-on` to that expression and set
-the variable. `codeql`, `scorecard` and `devkit-upgrade` stay hosted (outside
-the release train).
-
-**The `resolve-toolchain` jobs take a repository variable, not this key.**
-Every `resolve-toolchain` job *produces* `runner-json` (a job cannot depend on
-its own output — chicken-and-egg), and `.vig-os` cannot be read before a runner
-exists. Each is a seconds-long sparse checkout, one per scaffolded workflow
-that declares it (`ci.yml`, `sync-issues.yml`, `sync-main-to-dev.yml`,
-`abandon-release.yml`, `prepare-hotfix.yml`, `promote-release.yml`,
-`release.yml`). On a **private** repo each is still billed as a full minute, so
-that cost scales with the number of workflow runs rather than with how long
-they take. To move them too, set the repository (or organization) **variable**
-`DEVKIT_CI_RESOLVE_RUNNER` — `vars` resolves server-side before any runner is
-provisioned, so there is no circularity
-([#1796](https://github.com/vig-os/devkit/issues/1796)):
-
-```sh
-gh variable set DEVKIT_CI_RESOLVE_RUNNER --body meatgrinder
-```
-
-Every `resolve-toolchain` job declares
-`runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}`; unset or
-empty => the hosted default, unchanged for every existing consumer.
-
-- The value is **one runner label**, not a comma-separated list: `a,b` is read
-  as a single label named `a,b`. Pick a label only your intended runners carry
-  (e.g. the custom one in your `DEVKIT_CI_RUNNER` list).
-- **Nothing validates it.** The job has no runner to validate it on, so a label
-  no online runner carries does not fail fast: the run sits *queued* until
-  GitHub's job-queue ceiling, and every workflow that declares the job is stuck
-  behind it. If runs queue indefinitely after setting it, check the label
-  first; deleting the variable (`gh variable delete DEVKIT_CI_RESOLVE_RUNNER`)
-  restores the hosted default on the next run with no commit.
-- This is a billing knob, **not an outage fallback**: where the expensive jobs
-  run is still `DEVKIT_CI_RUNNER` in `.vig-os`, so recovering from a self-hosted
-  outage remains a commit to that file.
-
-`dependency-review` stays hosted: it is public-repo-only (skipped on private
-repos), needs no toolchain, and reads GitHub's dependency-graph API. A consumer
-whose org **cannot run any hosted job at all** therefore still needs that lane
-handled separately (e.g. a repo-specific static render).
 
 ### Keep the dev-shell gcroot across ephemeral self-hosted jobs
 
@@ -438,9 +551,11 @@ Notes for the runner host:
 - A value that could never persist — relative, or inside the runner's `_work` /
   `_temp` tree — is refused by `resolve-toolchain` itself, before any lane pays
   a realisation.
-- Only the lanes `DEVKIT_CI_RUNNER` can move onto your runner consume it.
-  Everything else in the scaffold stays on the hosted default, where
-  `RUNNER_TEMP` is the correct place for the root.
+- Only a lane that actually resolves onto your self-hosted runner (its class's
+  `CI_RUNNER_SMALL`/`LARGE`/`XLARGE` variable is set, see
+  [Run CI on self-hosted runners](#run-ci-on-self-hosted-runners)) consumes
+  it. A lane still on the hosted default stays on `RUNNER_TEMP`, which is the
+  correct place for the root there.
 
 ### Point sync-issues at an unprotected mirror branch (protected `main`)
 
@@ -622,7 +737,8 @@ unknown keys:
 | `DEVKIT_ORG` | Persisted organization name (`ORG_NAME`) |
 | `DEVKIT_REPO` | Persisted GitHub `owner/repo` (Renovate preset) |
 | `DEVKIT_MODULES` | Reserved: space-separated capability modules mirroring `mkProjectShell`'s `modules = [ … ]` ([#884](https://github.com/vig-os/devkit/issues/884)) |
-| `DEVKIT_CI_RUNNER` | Comma-separated runner label list for the scaffolded `ci.yml` toolchain jobs and the `sync-issues.yml` `sync` job; empty (default) => the hosted `ubuntu-26.04` runner ([#1173](https://github.com/vig-os/devkit/issues/1173), [#1795](https://github.com/vig-os/devkit/issues/1795)) |
+| `DEVKIT_CI_RUNNER` | **Deprecated**, removed in release N+2: a comma-separated runner label list that once fed every lane directly. Self-hosted runners now come from the `CI_RUNNER_SMALL`/`LARGE`/`XLARGE` repository or organization variables; the key is kept only for the two-release compatibility window and is stripped automatically once those variables cover every required class (see [Run CI on self-hosted runners](#run-ci-on-self-hosted-runners), [#1173](https://github.com/vig-os/devkit/issues/1173), [#1908](https://github.com/vig-os/devkit/issues/1908)) |
+| `DEVKIT_CI_LANE_SIZES` | Comma-separated `lane=size` overrides (`lint`, `test`, `extension`, `release-test`; `small`, `large`, `xlarge`) that move a lane off the SMALL default; empty (default) => every lane SMALL. Labels still come from the `CI_RUNNER_*` variables (see [Size classes and the lane override](#size-classes-and-the-lane-override), [#1908](https://github.com/vig-os/devkit/issues/1908)) |
 | `DEVKIT_DEV_PROFILE_PATH` | Absolute path for the direnv-mode dev-shell gcroot profile on the runner host; empty (default) => `$RUNNER_TEMP/devkit-dev-profile`. An ephemeral self-hosted runner sets a persistent path outside its work tree so the closure survives the job (see [Keep the dev-shell gcroot across ephemeral self-hosted jobs](#keep-the-dev-shell-gcroot-across-ephemeral-self-hosted-jobs), [#1601](https://github.com/vig-os/devkit/issues/1601)) |
 | `DEVKIT_SYNC_TARGET` | Branch the scaffolded sync-issues job commits to; empty (default) => the workflow-model default (`dev`/`main`). A protected-`main` consumer sets an unprotected mirror branch, e.g. `sync/issue-mirror` (see [Point sync-issues at an unprotected mirror branch](#point-sync-issues-at-an-unprotected-mirror-branch-protected-main), [#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_SYNC_SCHEDULE` | Cron override (5-field) for the sync-issues schedule trigger; empty (default) => the daily `0 2 * * *` ([#1228](https://github.com/vig-os/devkit/issues/1228)) |
