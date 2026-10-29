@@ -313,14 +313,20 @@ gh variable set CI_RUNNER_SMALL --body <label>
 ```
 
 - **Repository level on GitHub Free.** Organization variables do not reach
-  private repositories on the Free plan, and the resolver silently falls back
-  to hosted runners there. A Free-plan private repo must set the variables at
+  private repositories on the Free plan. If no `CI_RUNNER_*` variable is
+  visible there at all, `resolve-toolchain` prints a `::notice::` annotation
+  plus a step-summary line saying CI runs hosted and naming the fix — this is
+  not silent. A Free-plan private repo must set the variables at
   **repository** level; organization level works everywhere else (Team plan,
   or any public repo).
 - **One label, not a list.** `a,b` is read as a single label literally named
-  `a,b`, never split. A comma list, a JSON list (`["pool-l"]`), or a label
-  carrying leading, trailing or inner whitespace fails `resolve-toolchain`
-  with an `::error::` naming the variable, before any lane is scheduled.
+  `a,b`, never split. For `CI_RUNNER_LARGE`/`XLARGE`, a comma list, a JSON
+  list (`["pool-l"]`), or a label carrying leading, trailing or inner
+  whitespace fails `resolve-toolchain` with an `::error::` naming the
+  variable, before any lane that depends on it is scheduled. `CI_RUNNER_SMALL`
+  feeds `resolve-toolchain`'s own job directly, so the same kind of malformed
+  value queues that job on the literal label instead of ever reaching the
+  error — see [Known symptoms](#known-symptoms).
 - **Unset or empty** means the hosted default, `ubuntu-26.04` — no change for
   a consumer that sets none of the three.
 
@@ -345,9 +351,15 @@ path and `resolve-toolchain`. SMALL is the default for every lane because
 self-hosted pools usually hold far fewer large runners than small ones:
 putting the heavier lanes on LARGE by default let one PR occupy every LARGE
 slot while a second PR queued and the small slots sat idle. Moving a lane to
-a class whose variable is not set still runs that lane on the hosted default
-— there is no cross-class fallback — and every non-foreign run carries a
-`::warning::` naming the variable and the lane until it is set.
+a class whose `CI_RUNNER_*` variable is not set has two different outcomes:
+while the legacy `.vig-os` key `DEVKIT_CI_RUNNER` is still set, the class
+falls back to **the key's own labels** (source `legacy-key` — the key backs
+every class while it decides anything, not only SMALL), with no per-lane
+warning (the key-wide migration warning already names it); once the key is
+gone, or was never set, the lane falls to the hosted default instead — there
+is no cross-class fallback to another configured class — and every
+non-foreign run then carries a `::warning::` naming the variable and the
+lane until it is set.
 
 `resolve-toolchain` emits `runners` (a JSON object keyed by class and by every
 overridable lane, each a one-element label array) and `runner-sources`
@@ -409,20 +421,38 @@ privileges so such a PR cannot be opened in the first place.
 - **This release (N):** `CI_RUNNER_SMALL`/`LARGE`/`XLARGE` and the fork
   predicate are live everywhere. The legacy `.vig-os` key `DEVKIT_CI_RUNNER`
   and the legacy variable `DEVKIT_CI_RESOLVE_RUNNER` keep working — the
-  variable wins whenever both are set. Every CI run that still sees either
-  one carries the full migration text as a `::warning::`; this per-run
-  warning is the primary migration channel, and it reaches every consumer
-  regardless of branch model or whether `devkit-upgrade.yml` has run yet.
+  variable wins whenever both are set. A non-empty `DEVKIT_CI_RUNNER` carries
+  the **full actionable migration text** as a `::warning::` on every run;
+  this per-run warning is the primary migration channel, and it reaches
+  every consumer regardless of branch model or whether `devkit-upgrade.yml`
+  has run yet. A non-empty `DEVKIT_CI_RESOLVE_RUNNER` gets only a one-line
+  `::warning::` that it is deprecated in favour of `CI_RUNNER_SMALL` — not
+  the full text.
 - **N+1:** no new runner semantics — a second release of the per-run
   warnings, and the window in which the migrating adoption below typically
   runs.
-- **N+2 (removal):** both legacy arms stop selecting runners, and the
-  deprecated `runner-json` output disappears. A repo where the key would
-  still decide a runner — some required class with no visible variable —
-  gets a loud `::error::` naming the unset classes; a repo where every
-  required class already has a variable gets only a `::warning::` asking to
-  delete the now-inert key, and stays green. It is never a silent move to
-  hosted runners.
+- **N+2 (removal):** `DEVKIT_CI_RUNNER` stops selecting runners and the
+  deprecated `runner-json` output disappears. **`DEVKIT_CI_RESOLVE_RUNNER`
+  does not disappear**: its term stays permanently as the last term before
+  the hosted default in every `resolve-toolchain` job's `runs-on` (e.g.
+  `ci.yml`, `release.yml`, `sync-issues.yml`), and it keeps selecting that
+  job's own runner whenever `CI_RUNNER_SMALL` is unset — dropping the term
+  would silently move a billing-blocked consumer's resolve job to a hosted
+  runner it may not be able to run at all. Two permanent tombstones replace
+  the per-run warnings:
+  - a `DEVKIT_CI_RUNNER` that would still decide a runner — some required
+    class with no visible variable — turns the run red with a loud
+    `::error::` naming the unset classes; one that is already inert (every
+    required class has a variable) gets only a `::warning::` asking to
+    delete it, and stays green;
+  - a non-empty `DEVKIT_CI_RESOLVE_RUNNER` with `CI_RUNNER_SMALL` unset, on a
+    non-foreign run, turns the run red with an `::error::` — the resolve job
+    is still running on the legacy variable's label, so the error is
+    reachable. With `CI_RUNNER_SMALL` set, the same variable gets only a
+    `::warning::`, because it may still serve pre-N seeded-hook copies (see
+    [Seeded hook runner migration](#seeded-hook-runner-migration)).
+
+  Neither tombstone is ever a silent move to hosted runners.
 
 **The migrating adoption** is the first `devkit-upgrade` run of release N or
 later from your **default branch** — scheduled and dispatched runs always
@@ -438,13 +468,17 @@ a visible variable, and otherwise keeps the key and prints exactly which
 #### Known symptoms
 
 - **CI never starts on a private repo.** If the repo cannot run hosted jobs
-  at all (a billing block, or a Free-plan repo out of included minutes), the
+  at all (a billing block, or included minutes exhausted), the
   `resolve-toolchain` job itself never starts, or is rejected outright — so
   neither the private-repo notice nor the migration warning ever prints.
   What you see instead is GitHub's own billing or queue message on the
-  `Resolve toolchain` job. The cause is the same either way: on GitHub Free,
-  organization variables do not reach private repositories. Set
-  `CI_RUNNER_SMALL` (and `LARGE`/`XLARGE` if used) at **repository** level.
+  `Resolve toolchain` job. Why the job tried hosted at all differs by plan:
+  on a **Free**-plan private repo, organization variables simply never reach
+  it (it looks configured but isn't); on **any** plan, including Team (where
+  org variables do propagate), the repo just has no self-hosted variable
+  set. The fix is the same either way: set `CI_RUNNER_SMALL` (**repository**
+  level on GitHub Free; organization level elsewhere), and `LARGE`/`XLARGE`
+  if used, so the job never needs a hosted runner in the first place.
 - **A whitespace-only, or otherwise malformed, `CI_RUNNER_SMALL` queues
   every run with no error.** `resolve-toolchain`'s own job is itself a
   direct-expression lane on SMALL, so it cannot validate `CI_RUNNER_SMALL`
