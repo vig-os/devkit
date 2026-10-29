@@ -14,6 +14,7 @@ repos:
       - id: site-leak-check
         name: site-leak-check
         entry: uv run site-leak-check
+        args: ["--"]
         language: system
         types: [text]
       - id: no-hardcoded-endpoints

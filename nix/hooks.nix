@@ -215,6 +215,7 @@ let
       yaml = {
         name = "site-leak-check";
         entry = "uv run site-leak-check";
+        args = [ "--" ];
         language = "system";
         types = [ "text" ];
       };
@@ -222,6 +223,7 @@ let
         enable = true;
         name = "site-leak-check";
         entry = "${vigUtils}/bin/site-leak-check --gitleaks ${pkgs.gitleaks}/bin/gitleaks";
+        args = [ "--" ];
         language = "system";
         types = [ "text" ];
       };
@@ -229,6 +231,7 @@ let
         enable = true;
         name = "site-leak-check";
         entry = "${import ./vig-utils.nix pkgs}/bin/site-leak-check --gitleaks ${pkgs.gitleaks}/bin/gitleaks";
+        args = [ "--" ];
         language = "system";
         types = [ "text" ];
       };

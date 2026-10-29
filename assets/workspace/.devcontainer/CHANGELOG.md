@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     and reject present pattern files without usable rules.
   - Scan raw index snapshots despite Git attributes; accept path-only rules and
     require self-contained pattern files without extension tables.
+  - Block option-looking filename bypasses, clean private snapshots on termination,
+    and report filesystem failures with paths and OS reasons without file contents.
 
 - **Env-only endpoint lint** ([#1931](https://github.com/vig-os/devkit/issues/1931))
   - Enable the ADR §10 endpoint and credential assignment checks by default in

@@ -310,14 +310,18 @@ bypass attributes, textconv and checkout filters. All modes use the same gitleak
 directory scanner. `--all-files` scans tracked and nonignored untracked working-tree
 files; explicit filenames scan those working-tree files. Only the active,
 untracked pattern file is excluded from selected inputs; selected `.site/`
-files, including force-added bindings, are scanned. Symlinks are not followed.
+files, including force-added bindings, are scanned. Symlinks are committed as
+links; link targets are never scanned.
 This scans current content, not history; use the same config for a history scan.
 
 The hook scans text files only. Filename mode skips files containing a NUL byte,
 even with a text extension; direct staged and `--all-files` scans include them.
 Pre-commit supplies staged text files during commits and all tracked text files
 for `pre-commit run --all-files`. Filename mode catches pure renames that a
-content diff would miss; index snapshots cover renamed paths too.
+content diff would miss; index snapshots cover renamed paths too. Every hook
+passes `--` before filenames, including names beginning with `-`. Direct CLI
+callers must do the same; `-h` and `--help` are rejected rather than exiting
+successfully without scanning. See the [S6 ADR amendment](../../docs/rfcs/ADR-site-agnostic-projects.md).
 
 The executable requires gitleaks on PATH (provided by the devkit environment;
 Nix-generated hooks pin its executable). All scans use `--config` and `--redact`.
@@ -326,6 +330,8 @@ text and rule descriptions are suppressed. Matching file paths are printed
 as-is, even when a path contains a private name. Exit codes are 0 for clean, 1 for
 findings and 2 for configuration or scanner errors. Investigate errors locally
 with gitleaks and the private config; those diagnostics can disclose patterns.
+Filesystem errors identify the input path and OS reason without its contents.
+SIGINT, SIGTERM and SIGHUP remove the private snapshot and exit 130, 143 and 129.
 Project input syntax is not parsed, so malformed project syntax is harmless.
 
 For an intentional match, use gitleaks' same-line `gitleaks:allow` pragma or the

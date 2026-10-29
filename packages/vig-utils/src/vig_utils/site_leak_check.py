@@ -7,10 +7,12 @@ No pattern file means silent success. Exit codes: 0 clean, 1 findings,
 import argparse
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
 import tomllib
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -77,6 +79,41 @@ def pattern_error(config: Path) -> str | None:
     return None
 
 
+class SnapshotError(Exception):
+    """A filesystem failure containing only path metadata and an OS reason."""
+
+
+def write_snapshot(target: Path, relative: Path, data: bytes, *, staged: bool) -> None:
+    """Write a snapshot with a contextual, content-free filesystem error."""
+    try:
+        destination = target / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(data)
+    except OSError as error:
+        kind = "staged path" if staged else "input"
+        raise SnapshotError(
+            f"cannot materialise {kind} {relative}: {error.strerror}"
+        ) from None
+
+
+@contextmanager
+def snapshot_signals():
+    """Unwind private snapshots on termination, then restore caller handlers."""
+
+    def terminate(signum, _frame):
+        raise SystemExit(128 + signum)
+
+    previous = {
+        signum: signal.signal(signum, terminate)
+        for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+    }
+    try:
+        yield
+    finally:
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+
+
 def copy_inputs(
     root: Path, target: Path, files: list[str], config: Path, *, text_only: bool
 ) -> None:
@@ -95,17 +132,20 @@ def copy_inputs(
             continue
         if not source.is_file():
             continue  # Deleted files and submodules have no working-tree text.
-        data = source.read_bytes()
+        try:
+            data = source.read_bytes()
+        except OSError as error:
+            raise SnapshotError(
+                f"cannot read input {relative}: {error.strerror}"
+            ) from None
         if text_only and b"\0" in data:
             continue
-        destination = target / relative
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(data)
+        write_snapshot(target, relative, data, staged=False)
 
 
-def copy_staged_inputs(root: Path, target: Path) -> None:
-    """Materialize changed index blobs without diff or checkout conversion."""
-    changed = set(
+def staged_paths(root: Path) -> set[bytes]:
+    """Select added, copied, modified and renamed index paths."""
+    return set(
         git(
             root,
             "diff",
@@ -117,6 +157,24 @@ def copy_staged_inputs(root: Path, target: Path) -> None:
             "--no-textconv",
         ).split(b"\0")
     ) - {b""}
+
+
+def index_path(name: str) -> Path:
+    """Reject index paths that could escape the isolated snapshot."""
+    relative = Path(name)
+    if (
+        relative.is_absolute()
+        or ".." in relative.parts
+        or not relative.parts
+        or relative.parts[0] == ".git"
+    ):
+        raise ValueError("invalid index path")
+    return relative
+
+
+def copy_staged_inputs(root: Path, target: Path) -> None:
+    """Materialize changed index blobs without diff or checkout conversion."""
+    changed = staged_paths(root)
     if not changed:
         return
     for entry in git(root, "ls-files", "--stage", "-z").split(b"\0"):
@@ -126,16 +184,9 @@ def copy_staged_inputs(root: Path, target: Path) -> None:
         mode, oid, stage = metadata.split()
         if name not in changed or stage != b"0" or mode not in {b"100644", b"100755"}:
             continue
-        relative = Path(os.fsdecode(name))
-        if (
-            relative.is_absolute()
-            or ".." in relative.parts
-            or relative.parts[0] == ".git"
-        ):
-            raise ValueError("invalid index path")
-        destination = target / relative
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(git(root, "cat-file", "blob", oid.decode("ascii")))
+        relative = index_path(os.fsdecode(name))
+        data = git(root, "cat-file", "blob", oid.decode("ascii"))
+        write_snapshot(target, relative, data, staged=True)
 
 
 def scan_commands(root: Path, temporary: Path, args: argparse.Namespace, config: Path):
@@ -182,7 +233,10 @@ def publish_findings(report: Path, tree: Path) -> int:
 
 def scan(root: Path, config: Path, args: argparse.Namespace) -> int:
     """Run gitleaks without forwarding its potentially private diagnostics."""
-    with tempfile.TemporaryDirectory(prefix="site-leak-check-") as directory:
+    with (
+        snapshot_signals(),
+        tempfile.TemporaryDirectory(prefix="site-leak-check-") as directory,
+    ):
         temporary = Path(directory)
         report = temporary / "report.json"
         ignore = temporary / ".gitleaksignore"
@@ -218,8 +272,12 @@ def scan(root: Path, config: Path, args: argparse.Namespace) -> int:
         return int(failed)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+def parse_args() -> argparse.Namespace:
+    """Parse options without allowing help-looking filenames to bypass scanning."""
+    # Help-looking filenames must fail closed even outside a hook invocation.
+    parser = argparse.ArgumentParser(
+        description=__doc__, allow_abbrev=False, add_help=False
+    )
     parser.add_argument(
         "--all-files", action="store_true", help="scan nonignored working-tree files"
     )
@@ -227,7 +285,11 @@ def main() -> int:
     parser.add_argument(
         "files", nargs="*", help="pre-commit's selected working-tree files"
     )
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
     config = None
     try:
         try:
@@ -245,6 +307,9 @@ def main() -> int:
             print(f"site-leak-check: {config}: {error}", file=sys.stderr)
             return 2
         return scan(root, config, args)
+    except SnapshotError as error:
+        print(f"site-leak-check: {error}", file=sys.stderr)
+        return 2
     except OSError, ValueError, KeyError, TypeError, subprocess.CalledProcessError:
         # Even parser/scanner errors can contain private regexes or matches.
         print(
