@@ -64,7 +64,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Project shells leave the agent CLI to the machine** ([#1967](https://github.com/vig-os/devkit/issues/1967))
-  - Repositories relying on the dev-shell's `claude` must install it machine-wide (or via the home module), or set `withAgentCli = true`; fixed-output consumers can select `#with-agent-cli`.
+  - Repositories relying on the dev-shell's `claude` must install it machine-wide (or via the home module), or set `withAgentCli = true`; consumers of devkit's own `devShells` output can select `#with-agent-cli`.
   - Opting in shadows any system `claude` wrapper. Home modules and the container image retain the CLI.
 
 - **Rewrite the self-hosted CI runner migration guide** ([#1933](https://github.com/vig-os/devkit/issues/1933))
