@@ -319,6 +319,9 @@ root, mutation = Path(sys.argv[1]), sys.argv[2]
 if mutation == 'hook-drift':
     p = root / 'assets/init-workspace.sh'
     text = p.read_text().replace('\n', '\necho "preserved-hook-drift: DEVKIT_CI_RUNNER is deprecated; set CI_RUNNER_SMALL before N+2"\n', 1)
+elif mutation == 'writeback':
+    p = root / 'assets/init-workspace.sh'
+    text = p.read_text().replace('cat "$tmp" > "$WORKSPACE_DIR/$path"', ':')
 else:
     p = root / 'install.sh'
     text = p.read_text().replace('    DEVKIT_UPGRADE_CONTEXT\n', '')
@@ -357,4 +360,46 @@ PYEDIT
     PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render runner-gitflow "$BATS_TEST_TMPDIR/adopt"
     assert_failure
     assert_output --partial 'required pre-N tag 1.18.0 missing'
+}
+
+@test "runner wiring rejects SMALL substituted for LARGE (M2)" {
+    _render_runner ci-runner
+    python3 - <<'PYEDIT'
+from pathlib import Path
+p = Path('.github/workflows/ci.yml')
+p.write_text(p.read_text().replace('runner-large: ${{ vars.CI_RUNNER_LARGE }}', 'runner-large: ${{ vars.CI_RUNNER_SMALL }}'))
+PYEDIT
+    run gate_runners
+    assert_failure
+}
+
+@test "runner wiring rejects test scheduled on LARGE (M3)" {
+    _render_runner ci-runner
+    python3 - <<'PYEDIT'
+from pathlib import Path
+p = Path('.github/workflows/ci.yml')
+p.write_text(p.read_text().replace('fromJSON(needs.resolve-toolchain.outputs.runners).test', 'fromJSON(needs.resolve-toolchain.outputs.runners).large'))
+PYEDIT
+    run gate_runners
+    assert_failure
+}
+
+@test "adoption replay reads BASE and HOOK_DRIFT from the shipped step env" {
+    _render_runner runner-gitflow
+    python3 - <<'PYEDIT'
+from pathlib import Path
+p = Path('.git/consumer-matrix/pre-n.yml')
+p.write_text(p.read_text().replace('BASE: dev', 'BASE: main').replace('HOOK_DRIFT: ${{ steps.upgrade.outputs.hook-drift }}', 'HOOK_DRIFT: x'))
+PYEDIT
+    run adoption_body "$ws"
+    assert_success
+    run gate_adoption
+    assert_failure
+}
+
+@test "migration checks the rewritten seeded files as well as reconcile logs" {
+    _mutant_runner writeback
+    PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render runner-gitflow "$BATS_TEST_TMPDIR/adopt"
+    assert_failure
+    assert_output --partial 'seeded runner was not rewritten'
 }
