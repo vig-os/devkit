@@ -26,7 +26,7 @@ _manifest() {
     run "$RENDER_CELL" list
     assert_success
     assert_output "$(printf '%s\n' direnv devcontainer bare trunk \
-        features-disabled ci-runner tag-prefix language-guard \
+        features-disabled ci-runner runner-key-only runner-gitflow tag-prefix language-guard \
         python node rust direnv-flake rust-flake)"
 }
 
@@ -57,7 +57,7 @@ _manifest() {
 
 @test "knob cells seed their knob" {
     run "$RENDER_CELL" seed ci-runner
-    assert_output "DEVKIT_CI_RUNNER=self-hosted,linux,x64,consumer-matrix"
+    assert_output ""
     run "$RENDER_CELL" seed tag-prefix
     assert_output "DEVKIT_TAG_PREFIX=v"
     run "$RENDER_CELL" seed language-guard
@@ -230,5 +230,76 @@ _mark_demo() {
     run cell_verdict python false
     assert_success
     run cell_verdict python true test
+    assert_failure
+}
+
+# Release N runner gates execute the rendered action, without scheduling runners.
+_render_runner() {
+    local cell="$1"
+    ws="$BATS_TEST_TMPDIR/$cell"
+    PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render "$cell" "$ws"
+    assert_success
+    _source_render_cell
+    cell_spec "$cell"
+    cd "$ws" || return 1
+}
+
+@test "key-only cell renders the legacy key and checks the full per-run warning" {
+    _render_runner runner-key-only
+    assert_equal "$(_manifest "$ws" DEVKIT_CI_RUNNER)" pool-legacy
+    run gate_runners
+    assert_success
+    assert_output --partial '::warning::DEVKIT_CI_RUNNER is deprecated and stops selecting runners in N+2.'
+    assert_output --partial 'gh variable set CI_RUNNER_SMALL --body <label>'
+    assert_output --partial 'MIGRATION.md#run-ci-on-self-hosted-runners'
+    # Canary: a truncated warning must make the gate red.
+    python3 - <<'PYEDIT'
+from pathlib import Path
+p = Path('.github/actions/resolve-toolchain/action.yml')
+p.write_text(p.read_text().replace('Use repository-level variables on a private GitHub Free repo.', ''))
+PYEDIT
+    run gate_runners
+    assert_failure
+}
+
+@test "variables-only cell takes a label parameter and checks all class outputs" {
+    export CONSUMER_MATRIX_RUNNER_LABEL=pool-custom
+    _render_runner ci-runner
+    assert_equal "$(_manifest "$ws" DEVKIT_CI_RUNNER)" ""
+    run gate_runners
+    assert_success
+    refute_output --partial '::warning::'
+    assert_output --partial 'pool-custom'
+    # Canary: substituting a hosted runner for the variable must fail.
+    python3 - <<'PYEDIT'
+from pathlib import Path
+p = Path('.github/actions/resolve-toolchain/action.yml')
+p.write_text(p.read_text().replace('--arg label "$raw"', '--arg label "ubuntu-26.04"'))
+PYEDIT
+    run gate_runners
+    assert_failure
+}
+
+@test "gitflow adoption uses pre-N main with dev ahead and keeps the warning channel" {
+    _render_runner runner-gitflow
+    run git merge-base --is-ancestor main dev
+    assert_success
+    run git rev-list --count main..dev
+    assert_output 1
+    run git branch --show-current
+    assert_output chore/adopt-devkit
+    assert_equal "$(_manifest "$ws" DEVKIT_CI_RUNNER)" pool-legacy
+    run gate_adoption
+    assert_success
+    run gate_runners
+    assert_success
+    assert_output --partial '::warning::DEVKIT_CI_RUNNER is deprecated'
+    run cat .git/consumer-matrix/pr-body
+    assert_output --partial 'Automated devkit upgrade'
+    refute_output --partial 'CI runner migration'
+    refute_output --partial 'ci-runner-migration:'
+    # Canary: accidentally lifting the new channel must fail adoption proof.
+    echo '### CI runner migration' >> .git/consumer-matrix/pr-body
+    run gate_adoption
     assert_failure
 }
