@@ -8,16 +8,21 @@ it returns strings, using null -> empty, lowercase booleans and G15 numbers.
 Collections cannot be interpolated or passed as scalar inputs.
 Properties and fromJSON/toJSON names ignore case; ambiguous object keys raise.
 Keyword literals are lowercase only (runner Tokens/LexicalAnalyzer.cs).
-Hex string coercion follows runner Sdk/ExpressionUtility.cs, ParseNumber.
+Literals and coercion share runner Sdk/ExpressionUtility.cs, ParseNumber.
+Numbers are doubles. Equality/property names use simple uppercase mappings.
 Numeric input formatting follows runner ExpressionConstants.cs (G15).
 Source: https://github.com/actions/runner/tree/main/src/Sdk/DTExpressions2/Expressions2
 CLI from the repository root: python -m tests.github_expression --context
 ctx.json --expr 'fromJSON(inputs.runners).small' (JSON stdout, errors exit 2).
 Add --input for action/reusable inputs. Invalid/unreadable/non-object context
-files produce clean errors with exit 2. Render positions refer to the whole value.
+files produce clean errors with exit 2. Non-finite CLI results also exit 2
+to keep stdout valid JSON. Render positions refer to the whole value.
 toJSON uses two-space indentation, LF newlines and G15 scalar numbers.
 Supports the managed subset plus literal string property indexes used by
-release-test. Other functions, numeric/dynamic indexes and filters raise
+release-test (present at origin/dev; absent at 1.18.0 in runs-on/with/env,
+including devkit-upgrade step env). String array indexes use Index.cs number
+conversion, nonnegative floor and Int32 bounds; invalid/out-of-range -> null.
+Other functions, numeric/dynamic indexes and filters raise
 ValueError with the source and a zero-based position. Parses every branch
 before evaluating, so short circuiting cannot conceal unsupported syntax.
 """
@@ -29,8 +34,7 @@ import re
 from pathlib import Path
 
 _TOKEN = re.compile(
-    r"\s+|'(?:[^']|'')*'|-?0[xX][0-9a-fA-F]+|"
-    r"-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|"
+    r"\s+|'(?:[^']|'')*'|[+-]?(?:[0-9]|\.[0-9])[^\s()\[\],!<>=&|]*|"
     r"[A-Za-z_][A-Za-z_0-9-]*|&&|\|\||==|!=|\S"
 )
 _PRECEDENCE = {"||": 1, "&&": 2, "==": 3, "!=": 3}
@@ -58,7 +62,7 @@ def _number(value):
         return 0
     if re.fullmatch(r"0x[0-9a-fA-F]+|0o[0-7]+", value):
         number = int(value, 0)
-        return (
+        return float(
             number - 2**32
             if 2**31 <= number < 2**32
             else number
@@ -73,11 +77,18 @@ def _number(value):
     return float(value)
 
 
+def _ordinal(value):
+    """Simple uppercase per character, without multi-character expansions."""
+    return "".join(upper if len(upper := char.upper()) == 1 else char for char in value)
+
+
 def _equal(left, right):
+    if type(left) in (int, float) and type(right) in (int, float):
+        return _number(left) == _number(right)
     if type(left) is not type(right):
         return _number(left) == _number(right)
     if isinstance(left, str):
-        return left.lower() == right.lower()
+        return _ordinal(left) == _ordinal(right)
     if isinstance(left, (list, dict)):
         return left is right
     return left == right
@@ -129,10 +140,11 @@ class _Parser:
             node = ("literal", position, json.loads(token))
         elif re.fullmatch(r"'(?:[^']|'')*'", token):
             node = ("literal", position, token[1:-1].replace("''", "'"))
-        elif re.fullmatch(r"-?0[xX][0-9a-fA-F]+", token):
-            node = ("literal", position, int(token, 16))
-        elif re.match(r"-?\d", token):
-            node = ("literal", position, json.loads(token))
+        elif token and token[0] in "+-.0123456789":
+            number = _number(token)
+            if math.isnan(number):
+                _fail(self.source, position, "Invalid number literal")
+            node = ("literal", position, number)
         else:
             _fail(self.source, position, "Unsupported operand")
         while self.tokens[self.cursor][0] in {".", "["}:
@@ -154,7 +166,7 @@ class _Parser:
 
 
 def _object(pairs):
-    if len({key.lower() for key, _ in pairs}) != len(pairs):
+    if len({_ordinal(key) for key, _ in pairs}) != len(pairs):
         raise ValueError("Ambiguous object properties")
     return dict(pairs)
 
@@ -164,6 +176,13 @@ def _constant(value):
 
 
 def _lookup(value, key, source, position):
+    if isinstance(value, list):
+        index = _number(key)
+        if math.isfinite(index) and index >= 0:
+            integer = math.floor(index)
+            if integer <= 2**31 - 1 and integer < len(value):
+                return value[integer]
+        return None
     if not isinstance(value, dict):
         return None
     try:
@@ -171,7 +190,7 @@ def _lookup(value, key, source, position):
     except ValueError as error:
         _fail(source, position, str(error))
     return next(
-        (item for name, item in value.items() if name.lower() == key.lower()), None
+        (item for name, item in value.items() if _ordinal(name) == _ordinal(key)), None
     )
 
 
@@ -192,7 +211,11 @@ def _resolve(node, context, source):
                 _to_json(left)
                 if operator == "tojson"
                 else json.loads(
-                    left, parse_constant=_constant, object_pairs_hook=_object
+                    left,
+                    parse_int=float,
+                    parse_float=float,
+                    parse_constant=_constant,
+                    object_pairs_hook=_object,
                 )
             )
         except (ValueError, TypeError) as error:
@@ -253,10 +276,10 @@ def _string(value, source, position=0):
     if isinstance(value, float) and not math.isfinite(value):
         return {"nan": "NaN", "inf": "Infinity", "-inf": "-Infinity"}[str(value)]
     if isinstance(value, (int, float)):
-        return "0" if value == 0 else format(value, ".15G")
+        return format(value, ".15G")
     if isinstance(value, str):
         return value
-    _fail(source, position, "Cannot stringify a collection")
+    _fail(source, position, f"Cannot stringify value of type {type(value).__name__}")
 
 
 def _to_json(value, level=0):
@@ -323,9 +346,10 @@ def main():
         )
         if args.input:
             result = _string(result, args.expr)
+        output = json.dumps(result, allow_nan=False)
     except (ValueError, OSError) as error:
         parser.error(str(error))
-    print(json.dumps(result))
+    print(output)
 
 
 if __name__ == "__main__":
