@@ -218,12 +218,19 @@ scaffold. Before release N, its runner migration cells prove:
 - `ci-runner`: variables alone select SMALL/LARGE/XLARGE, with no legacy warning.
   Override the generic fixture labels with `CONSUMER_MATRIX_RUNNER_LABEL`,
   `CONSUMER_MATRIX_RUNNER_LARGE`, and `CONSUMER_MATRIX_RUNNER_XLARGE`.
-- `runner-gitflow`: local `dev` is ahead of `main`; N adoption uses a frozen
-  pre-N default-branch PR-body step, targets `dev`, keeps the key, and omits
+- `runner-gitflow`: local `dev` is ahead of `main`; N adoption replays the upgrade and
+  PR-body steps from immutable tag `1.18.0` through the current installer,
+  targets `dev`, keeps the key, and omits
   the migration section. The adoption's rendered resolver emits the full
   warning independently of the old body builder.
 
-These cells execute rendered scripts locally; they do not schedule work on
+Move the pre-N tag forward only when the oldest supported pre-N release
+changes. CI fetches it explicitly; local runs fail if it is missing. A second
+adoption supplies N's migration environment and checks key removal and stock
+seeded-hook reconciliation through the installer's container boundary.
+
+Download, container execution, and PR API calls use local adapters that reject
+unrecognised commands. These cells execute rendered scripts locally; they do not schedule work on
 self-hosted runners. A live consumer run remains a release gate coordinated
 after merge. The matrix does not depend on the unmerged S6/S7b work.
 

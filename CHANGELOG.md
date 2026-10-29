@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Release N runner migration matrix** ([#1935](https://github.com/vig-os/devkit/issues/1935))
-  - Gate key-only, variables-only, and gitflow adoption with dev ahead of main; verify runner outputs and the full migration warning.
+  - Gate key-only, variables-only, and gitflow adoption with dev ahead of main; verify runner outputs and the full migration warning through the real pre-N workflow and installer.
 
 - **Safe CI runner migration during devkit upgrades** ([#1929](https://github.com/vig-os/devkit/issues/1929))
   - Remove the legacy runner key only when visible variables cover every required class; preserve local and older-workflow installs with actionable migration text.

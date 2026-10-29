@@ -212,6 +212,7 @@ render_cell() {
     local cell="$1" ws="$2" line version_file
     cell_spec "$cell"
     mkdir -p "$ws"
+    ws="$(cd "$ws" && pwd)" || return 1
     if [[ -n "$(ls -A "$ws")" ]]; then
         echo "render-cell: refusing to render into non-empty '$ws'" >&2
         return 1
@@ -224,31 +225,22 @@ render_cell() {
             printf '%s\n' "$line" >>"$ws/.vig-os"
         done
     fi
-    if [[ "$cell" == runner-gitflow ]]; then prepare_adoption "$ws" || return 1; fi
+    if [[ "$cell" == runner-gitflow ]]; then
+        prepare_adoption "$ws" && adoption_body "$ws" && migrating_adoption "$ws"
+        return $?
+    fi
     local -a args=(--no-prompts --mode "$CELL_MODE")
     [[ "$CELL_WORKFLOW" == gitflow ]] || args+=(--workflow "$CELL_WORKFLOW")
     # A fixture is an EXISTING project adopting devkit: its files make the
     # directory non-empty, and init-workspace.sh takes that path only with
     # --force (no .vig-os yet, so nothing is upgraded — an adoption).
-    [[ -z "$CELL_FIXTURE" && "$cell" != runner-gitflow ]] || args+=(--force)
+    [[ -z "$CELL_FIXTURE" ]] || args+=(--force)
     # No baked image VERSION outside the image: point VERSION_FILE at a path
     # that does not exist so the template pin stays as shipped.
     version_file="$ws/.consumer-matrix-no-version"
-    env -u DEVKIT_UPGRADE_CONTEXT -u DEVKIT_UPGRADE_CI_RUNNER_SMALL \
-        -u DEVKIT_UPGRADE_CI_RUNNER_LARGE -u DEVKIT_UPGRADE_CI_RUNNER_XLARGE \
-        -u DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER -u DEVKIT_UPGRADE_REPO_PRIVATE \
-        TEMPLATE_DIR="$TEMPLATE_DIR" \
-        WORKSPACE_DIR="$ws" \
-        VERSION_FILE="$version_file" \
-        SHORT_NAME=consumer_matrix \
-        ORG_NAME=vig-os \
-        GITHUB_REPOSITORY=vig-os/consumer-matrix \
-        bash "$INIT_WORKSPACE" "${args[@]}" | if [[ "$cell" == runner-gitflow ]]; then
-            tee "$ws/.git/consumer-matrix/install.log"
-        else
-            cat
-        fi || return 1
-    [[ "$cell" != runner-gitflow ]] || adoption_body "$ws"
+    env TEMPLATE_DIR="$TEMPLATE_DIR" WORKSPACE_DIR="$ws" VERSION_FILE="$version_file" \
+        SHORT_NAME=consumer_matrix ORG_NAME=vig-os GITHUB_REPOSITORY=vig-os/consumer-matrix \
+        bash "$INIT_WORKSPACE" "${args[@]}"
 }
 
 # Local-only gitflow history: the default-branch workflow is deliberately pre-N.
@@ -265,9 +257,18 @@ prepare_adoption() (
     git config user.email consumer-matrix@example.com
     git config commit.gpgsign false
     git config core.hooksPath /dev/null
-    mkdir -p .github/workflows .git/consumer-matrix
-    printf 'DEVKIT_MODE=bare\n' >> .vig-os
-    cp "$ROOT/tests/fixtures/consumer/pre-n-upgrade.yml" .github/workflows/devkit-upgrade.yml
+    local evidence="$PWD/.git/consumer-matrix"
+    if ! git -C "$ROOT" rev-parse --verify refs/tags/1.18.0 >/dev/null 2>&1; then
+        echo 'consumer-matrix: required pre-N tag 1.18.0 missing; run git fetch --depth=1 origin tag 1.18.0' >&2
+        return 1
+    fi
+    mkdir -p "$evidence/pre-n"
+    git -C "$ROOT" archive 1.18.0 assets | tar -x -C "$evidence/pre-n" || return 1
+    env TEMPLATE_DIR="$evidence/pre-n/assets/workspace" WORKSPACE_DIR="$PWD" \
+        VERSION_FILE="$evidence/no-version" SHORT_NAME=consumer_matrix ORG_NAME=vig-os \
+        GITHUB_REPOSITORY=vig-os/consumer-matrix \
+        bash "$evidence/pre-n/assets/init-workspace.sh" --force --mode bare --no-prompts || return 1
+    git -C "$ROOT" show 1.18.0:assets/workspace/.github/workflows/devkit-upgrade.yml > "$evidence/pre-n.yml"
     git add .
     fixture_commit 'chore: pre-N consumer' || return 1
     git checkout -qb dev || return 1
@@ -277,34 +278,53 @@ prepare_adoption() (
     git checkout -qb chore/adopt-devkit
 )
 
-# Run the frozen main PR-body step verbatim. The gh recorder captures its
-# --base and --body, and refuses every other command (no network access).
+# Replay the immutable default-branch upgrade and body steps. Only the download,
+# container, and PR API boundaries are local adapters; install.sh runs unchanged.
 adoption_body() (
     cd "$1" || return 1
-    local evidence="$PWD/.git/consumer-matrix" script
-    git show main:.github/workflows/devkit-upgrade.yml > "$evidence/pre-n.yml"
-    script="$(step_script "$evidence/pre-n.yml" 'Open or update the adoption PR')" || return 1
+    local evidence="$PWD/.git/consumer-matrix" upgrade body
+    upgrade="$(step_script "$evidence/pre-n.yml" 'Run the devkit upgrade (install.sh --force)')" || return 1
+    body="$(step_script "$evidence/pre-n.yml" 'Open or update the adoption PR')" || return 1
     mkdir -p "$evidence/bin"
-    cat > "$evidence/bin/gh" <<'GH'
-#!/usr/bin/env bash
-set -euo pipefail
-[[ "$1 $2" != 'pr view' ]] || exit 1
-[[ "$1 $2" == 'pr create' ]] || exit 2
-shift 2
-while (($#)); do
-    case "$1" in
-        --body) printf '%s\n' "$2" > "$EVIDENCE/pr-body" ;;
-        --base) printf '%s\n' "$2" > "$EVIDENCE/pr-base" ;;
-        --head | --title) ;;
-        *) exit 2 ;;
-    esac
-    shift 2
-done
-GH
-    chmod +x "$evidence/bin/gh"
-    env PATH="$evidence/bin:$PATH" EVIDENCE="$evidence" TARGET=1.0.0 \
-        BRANCH=chore/adopt-devkit BASE=dev FLAKE_BUMP= HOOK_DRIFT= HOOK_RECONCILE= \
-        bash -eo pipefail -c "$script"
+    local tool
+    for tool in curl docker gh; do
+        ln -sf "$ROOT/scripts/consumer-matrix/install-transport.sh" "$evidence/bin/$tool"
+    done
+    # Upgrade defines the exact FLAKE_BUMP/HOOK_* values it writes to its outputs;
+    # consume those same values in the following PR step, without fabricating them.
+    env -u DEVKIT_UPGRADE_CONTEXT -u DEVKIT_UPGRADE_CI_RUNNER_SMALL \
+        -u DEVKIT_UPGRADE_CI_RUNNER_LARGE -u DEVKIT_UPGRADE_CI_RUNNER_XLARGE \
+        -u DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER -u DEVKIT_UPGRADE_REPO_PRIVATE \
+        PATH="$evidence/bin:$PATH" MATRIX_ROOT="$ROOT" MATRIX_EVIDENCE="$evidence" \
+        RUNNER_TEMP="$evidence" GITHUB_OUTPUT="$evidence/outputs" \
+        GITHUB_STEP_SUMMARY="$evidence/summary" TARGET=1.19.0 \
+        BRANCH=chore/adopt-devkit BASE=dev \
+        bash -eo pipefail -c "$upgrade
+$body"
+)
+
+# A >=N workflow's context must also survive install.sh's isolated boundary.
+# Start from the old dev scaffold again so stock seeded hooks must reconcile.
+migrating_adoption() (
+    local evidence="$1/.git/consumer-matrix" ws rc=0
+    ws="$(mktemp -d)"
+    trap 'rm -rf "$ws"' EXIT
+    git -C "$1" archive dev | tar -x -C "$ws" || return 1
+    git -C "$ws" init -q -b dev
+    cd "$ws" || return 1
+    env DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_CI_RUNNER_SMALL=pool-s \
+        DEVKIT_UPGRADE_CI_RUNNER_LARGE=pool-l DEVKIT_UPGRADE_CI_RUNNER_XLARGE=pool-xl \
+        DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER= DEVKIT_UPGRADE_REPO_PRIVATE=true \
+        PATH="$evidence/bin:$PATH" MATRIX_ROOT="$ROOT" MATRIX_EVIDENCE="$evidence" \
+        bash "$ROOT/install.sh" --force --version 1.19.0 --skip-preflight --docker . \
+        > "$evidence/migrating.log" 2>&1 || rc=$?
+    cat "$evidence/migrating.log"
+    ((rc == 0)) || return "$rc"
+    if grep -q '^DEVKIT_CI_RUNNER=.' .vig-os; then
+        echo 'migration context did not reach the scaffold'
+        return 1
+    fi
+    grep -q '^ci-runner-migration: Seeded hook reconciled:' "$evidence/migrating.log"
 )
 
 gate_adoption() {
@@ -313,10 +333,11 @@ gate_adoption() {
     [[ "$(git rev-list --count main..dev)" == 1 ]] || return 1
     [[ "$(git branch --show-current)" == chore/adopt-devkit ]] || return 1
     grep -qxF DEVKIT_CI_RUNNER=pool-legacy .vig-os || return 1
-    grep -q '^ci-runner-migration:' "$evidence/install.log" || return 1
+    local finding='ci-runner-migration: DEVKIT_CI_RUNNER kept; variables unknown (no CI upgrade context); required variables: CI_RUNNER_SMALL; set them at repository level on private GitHub Free repos. gh variable set CI_RUNNER_SMALL --body <label>; Until N+2 the key keeps working; after that CI fails until the required variables are set. Then delete the key. See MIGRATION.md#seeded-hook-runner-migration.'
+    grep -qxF "$finding" "$evidence/install.log" || return 1
     grep -qx dev "$evidence/pr-base" || return 1
     grep -q 'Automated devkit upgrade' "$evidence/pr-body" || return 1
-    if grep -qiE 'CI runner migration|ci-runner-migration:' "$evidence/pr-body"; then
+    if grep -qiE 'CI runner migration|ci-runner-migration:|DEVKIT_CI_RUNNER' "$evidence/pr-body"; then
         echo 'pre-N PR body unexpectedly lifted the runner migration'
         return 1
     fi

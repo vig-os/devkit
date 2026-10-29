@@ -308,6 +308,9 @@ PYEDIT
 _mutant_runner() {
     local mutation="$1" copy="$BATS_TEST_TMPDIR/mutant"
     git clone -q --shared "$PROJECT_ROOT" "$copy"
+    cp -a "$PROJECT_ROOT/scripts/consumer-matrix/." "$copy/scripts/consumer-matrix/"
+    cp "$PROJECT_ROOT/install.sh" "$copy/install.sh"
+    cp "$PROJECT_ROOT/assets/init-workspace.sh" "$copy/assets/init-workspace.sh"
     RENDER_CELL="$copy/scripts/consumer-matrix/render-cell.sh"
     python3 - "$copy" "$mutation" <<'PYEDIT'
 import sys
@@ -315,7 +318,7 @@ from pathlib import Path
 root, mutation = Path(sys.argv[1]), sys.argv[2]
 if mutation == 'hook-drift':
     p = root / 'assets/init-workspace.sh'
-    text = p.read_text().replace('\n', '\necho "preserved-hook-drift: ci-runner-migration: DEVKIT_CI_RUNNER migration probe"\n', 1)
+    text = p.read_text().replace('\n', '\necho "preserved-hook-drift: DEVKIT_CI_RUNNER is deprecated; set CI_RUNNER_SMALL before N+2"\n', 1)
 else:
     p = root / 'install.sh'
     text = p.read_text().replace('    DEVKIT_UPGRADE_CONTEXT\n', '')
@@ -346,4 +349,12 @@ p.write_text(p.read_text().replace('Until N+2 the key keeps working;', ''))
 PYEDIT
     run gate_adoption
     assert_failure
+}
+
+@test "gitflow render fails clearly without the required pre-N tag" {
+    _mutant_runner context
+    git -C "${RENDER_CELL%/scripts/consumer-matrix/render-cell.sh}" tag -d 1.18.0
+    PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render runner-gitflow "$BATS_TEST_TMPDIR/adopt"
+    assert_failure
+    assert_output --partial 'required pre-N tag 1.18.0 missing'
 }
