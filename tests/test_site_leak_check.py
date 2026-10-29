@@ -124,7 +124,7 @@ def test_all_files_and_precommit_filenames_scan_working_tree(repo):
         assert "storage.example" not in result.stderr + result.stdout
 
 
-@pytest.mark.parametrize("value", ["relative.toml", "/nonexistent/patterns.toml"])
+@pytest.mark.parametrize("value", ["relative.toml"])
 def test_explicit_invalid_path_does_not_fall_back(repo, value):
     patterns(repo)
     assert scan(repo, DEVKIT_LEAK_PATTERNS=value).returncode == 2
@@ -151,7 +151,8 @@ def test_default_hook_on_runner_and_scaffold():
             if h["id"] == "site-leak-check"
         )
         assert hook["entry"] == "uv run site-leak-check"
-        assert hook["types"] == ["text"]
+        assert hook.get("types", []) == []
+        assert hook["types_or"] == ["text", "symlink"]
         assert hook["args"] == ["--"]
     source = (ROOT / "nix/hooks.nix").read_text()
     block = source.split("    site-leak-check = {", 1)[1].split(
@@ -160,6 +161,8 @@ def test_default_hook_on_runner_and_scaffold():
     assert block.count("enable = true;") == 2
     assert "pkgs.gitleaks" in block
     assert block.count('args = [ "--" ];') == 3
+    assert block.count('types_or = [ "text" "symlink" ];') == 3
+    assert 'types = [ "text" ];' not in block
 
 
 def test_no_patterns_outside_git_is_silent(tmp_path):
@@ -216,32 +219,18 @@ def installed_hook(repo):
     """Install the real pre-commit-compatible hook runner used by devkit."""
     runner = shutil.which("pre-commit") or shutil.which("prek")
     assert runner, "the development environment must provide a hook runner"
-    config = {
-        "repos": [
-            {
-                "repo": "local",
-                "hooks": [
-                    {
-                        "id": "site-leak-check",
-                        "name": "site-leak-check",
-                        "entry": shlex.join(
-                            [sys.executable, "-m", "vig_utils.site_leak_check"]
-                        ),
-                        "language": "system",
-                        "args": next(
-                            h.get("args", [])
-                            for r in yaml.safe_load(
-                                (ROOT / ".pre-commit-config.yaml").read_text()
-                            )["repos"]
-                            for h in r["hooks"]
-                            if h["id"] == "site-leak-check"
-                        ),
-                        "types": ["text"],
-                    }
-                ],
-            }
-        ]
-    }
+    hook = dict(
+        next(
+            h
+            for r in yaml.safe_load((ROOT / ".pre-commit-config.yaml").read_text())[
+                "repos"
+            ]
+            for h in r["hooks"]
+            if h["id"] == "site-leak-check"
+        )
+    )
+    hook["entry"] = shlex.join([sys.executable, "-m", "vig_utils.site_leak_check"])
+    config = {"repos": [{"repo": "local", "hooks": [hook]}]}
     (repo / ".pre-commit-config.yaml").write_text(yaml.safe_dump(config))
     git(repo, "add", ".pre-commit-config.yaml")
     subprocess.run([runner, "install"], cwd=repo, capture_output=True, check=True)
@@ -297,16 +286,21 @@ def test_active_untracked_patterns_are_not_scanned_as_input(repo):
 
 
 @pytest.mark.parametrize(
-    "content",
+    "content,message",
     [
-        "",
-        '[[rule]]\nid = "fixture-host"\nregex = "storage[.]example"\n',
-        "rules = []\n",
-        '[[rules]]\nid = "fixture-host"\n',
+        ("", "no usable rules"),
+        (PATTERNS + "\n[ExTeNd]\n", "extend is forbidden"),
+        (PATTERNS + 'REGEX = "never-match"\n', "duplicate key regex"),
+        (
+            PATTERNS + '[[RULES]]\nid = "other"\nregex = "never-match"\n',
+            "duplicate key rules",
+        ),
     ],
 )
 @pytest.mark.parametrize("mode", [(), ("--all-files",), "commit"])
-def test_present_patterns_need_usable_rules(installed_hook, content, mode):
+def test_invalid_patterns_fail_closed_with_shared_validator_message(
+    installed_hook, content, message, mode
+):
     repo = installed_hook
     path = patterns(repo)
     path.write_text(content)
@@ -314,13 +308,11 @@ def test_present_patterns_need_usable_rules(installed_hook, content, mode):
     git(repo, "add", "d.txt")
     result = commit(repo) if mode == "commit" else scan(repo, *mode)
     output = result.stdout + result.stderr
+    assert result.returncode == (1 if mode == "commit" else 2)
     if mode == "commit":
-        assert result.returncode == 1
         assert "exit code: 2" in output
-    else:
-        assert result.returncode == 2
-    assert str(path) in output
-    assert "no usable [[rules]]" in output
+    assert path.name in output
+    assert message in output
     assert "storage.example" not in output
     assert "Traceback" not in output
 
@@ -477,26 +469,6 @@ def test_path_only_gitleaks_rules_are_usable(installed_hook, mode):
     assert "fixture-path" in result.stdout + result.stderr
 
 
-@pytest.mark.parametrize(
-    "extension", ["", "useDefault = true", 'path = ".gitleaks.toml"']
-)
-@pytest.mark.parametrize("mode", [(), ("--all-files",), "commit"])
-def test_pattern_files_must_be_self_contained(installed_hook, extension, mode):
-    repo = installed_hook
-    config = patterns(repo)
-    config.write_text(PATTERNS + f"\n[extend]\n{extension}\n")
-    (repo / ".gitleaks.toml").write_text(PATTERNS)
-    (repo / "d.txt").write_text("ordinary content\n")
-    git(repo, "add", "d.txt")
-    result = commit(repo) if mode == "commit" else scan(repo, *mode)
-    output = result.stdout + result.stderr
-    assert result.returncode == (1 if mode == "commit" else 2)
-    assert str(config) in output
-    assert "self-contained" in output
-    assert "[extend]" in output
-    assert "storage.example" not in output
-
-
 def test_text_hook_skips_nul_files_but_all_files_scans_them(installed_hook):
     repo = installed_hook
     patterns(repo)
@@ -536,16 +508,6 @@ def test_private_snapshot_is_removed_on_all_exit_paths(
         scan(repo, "--gitleaks", scanner, TMPDIR=str(temporary)).returncode == expected
     )
     assert list(temporary.iterdir()) == []
-
-
-@pytest.mark.parametrize("table", ["Extend", "EXTEND"])
-def test_extension_rejection_matches_gitleaks_case_insensitive_keys(repo, table):
-    config = patterns(repo)
-    config.write_text(PATTERNS + f"\n[{table}]\nuseDefault = true\n")
-    result = scan(repo)
-    assert result.returncode == 2
-    assert str(config) in result.stderr
-    assert "self-contained" in result.stderr
 
 
 @pytest.mark.parametrize("name", ["-h", "--help", "--he", "--all-files"])
@@ -727,13 +689,128 @@ def test_unreadable_input_has_specific_safe_error(repo, monkeypatch, capsys):
     assert "storage.example" not in output
 
 
-@pytest.mark.parametrize("mode", [(), ("link.txt",), ("--all-files",)])
-def test_committed_symlink_targets_are_never_scanned(repo, tmp_path, mode):
+@pytest.mark.parametrize("mode", [(), ("link.txt",), ("--all-files",), "commit"])
+@pytest.mark.parametrize("inside", [False, True])
+def test_committed_symlink_targets_are_never_scanned(
+    installed_hook, tmp_path, mode, inside
+):
+    repo = installed_hook
     patterns(repo)
-    target = tmp_path / "private-target"
+    target = (repo if inside else tmp_path) / "private-target"
+    if inside:
+        (repo / ".gitignore").write_text(".site/\nprivate-target\n")
+        git(repo, "add", ".gitignore")
     target.write_text("storage.example\n")
     (repo / "link.txt").symlink_to(target)
     git(repo, "add", "link.txt")
     assert git(repo, "ls-files", "--stage", "link.txt").startswith("120000 ")
-    result = scan(repo, *mode)
+    result = commit(repo) if mode == "commit" else scan(repo, *mode)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("mode", [(), ("data",), ("--all-files",), "commit"])
+@pytest.mark.parametrize("path_rule", [False, True])
+def test_symlink_blob_and_name_are_scanned_without_following(
+    installed_hook, mode, path_rule
+):
+    repo = installed_hook
+    config = patterns(repo)
+    if path_rule:
+        config.write_text('[[rules]]\nid = "fixture-path"\npath = "^data$"\n')
+    (repo / "data").symlink_to("/net/storage.example/share")
+    git(repo, "add", "data")
+    if not mode:
+        # Staged mode must use the link's index blob, not the changed worktree.
+        (repo / "data").unlink()
+        (repo / "data").symlink_to("/ordinary")
+    result = commit(repo) if mode == "commit" else scan(repo, *mode)
+    output = result.stdout + result.stderr
+    assert result.returncode == 1, output
+    assert "data:" in output
+    assert ("fixture-path" if path_rule else "fixture-host") in output
+    assert "storage.example" not in output
+
+
+def test_s6_calls_s4_validator_and_preserves_its_safe_error(repo, monkeypatch, capsys):
+    from vig_utils import site_config, site_leak_check
+
+    config = patterns(repo)
+    called = []
+    message = f"{config.name}: duplicate key fixture"
+
+    def validate(path):
+        called.append(path)
+        raise ValueError(message)
+
+    monkeypatch.setattr(site_config, "validate_patterns", validate)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["site-leak-check"])
+    assert site_leak_check.main() == 2
+    assert called == [config]
+    assert message in capsys.readouterr().err
+
+
+def test_unreadable_patterns_are_identified_without_values(repo, monkeypatch, capsys):
+    import errno
+
+    from vig_utils import site_leak_check
+
+    config = patterns(repo)
+    original = Path.open
+
+    def unreadable(path, *args, **kwargs):
+        if path == config:
+            raise PermissionError(errno.EACCES, "Permission denied", str(path))
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", unreadable)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["site-leak-check"])
+    assert site_leak_check.main() == 2
+    output = capsys.readouterr().err
+    assert config.name in output
+    assert "unreadable pattern file" in output.lower()
+    assert "storage.example" not in output
+
+
+def test_second_signal_during_cleanup_does_not_interrupt_removal(repo, tmp_path):
+    patterns(repo)
+    (repo / "d.txt").write_text("storage.example\n")
+    git(repo, "add", "d.txt")
+    temporary = tmp_path / "private-temporary"
+    temporary.mkdir()
+    driver = tmp_path / "interrupt_cleanup.py"
+    driver.write_text(
+        "import signal, tempfile\n"
+        "from pathlib import Path\n"
+        "from vig_utils import site_leak_check\n"
+        "original = tempfile.TemporaryDirectory.cleanup\n"
+        "def cleanup(self):\n"
+        "    assert (Path(self.name) / 'tree/d.txt').exists()\n"
+        "    signal.raise_signal(signal.SIGHUP)\n"
+        "    original(self)\n"
+        "def terminate(*args):\n"
+        "    signal.raise_signal(signal.SIGTERM)\n"
+        "tempfile.TemporaryDirectory.cleanup = cleanup\n"
+        "site_leak_check.publish_findings = terminate\n"
+        "raise SystemExit(site_leak_check.main())\n"
+    )
+    result = subprocess.run(
+        [sys.executable, str(driver)],
+        cwd=repo,
+        env={**os.environ, "TMPDIR": str(temporary)},
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=20,
+    )
+    assert result.returncode == 143, result.stderr
+    assert "Traceback" not in result.stdout + result.stderr
+    assert list(temporary.iterdir()) == []
+
+
+def test_missing_explicit_patterns_are_silent_without_falling_back(repo, tmp_path):
+    patterns(repo).write_text("invalid private config")
+    missing = tmp_path / "missing-patterns.toml"
+    result = scan(repo, DEVKIT_LEAK_PATTERNS=str(missing))
     assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
