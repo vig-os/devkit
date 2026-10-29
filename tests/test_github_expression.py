@@ -3,6 +3,9 @@
 Runner source: https://github.com/actions/runner/tree/main/src/Sdk/DTExpressions2/Expressions2
 Tokens/LexicalAnalyzer.cs: lowercase keywords; ExpressionConstants.cs: G15,
 case-insensitive functions; Sdk/ExpressionUtility.cs: ParseNumber hex coercion.
+Sdk/Operators/Index.cs (HandleArray/IndexHelper) defines string array indexes:
+https://github.com/actions/runner/blob/main/src/Sdk/DTExpressions2/Expressions2/Sdk/Operators/Index.cs
+Numeric equality uses doubles; OrdinalIgnoreCase uses simple uppercase mapping.
 toJSON layout and G15 scalars: runner Sdk/Functions/ToJson.cs, WriteValue,
 PrefixValue and WriteArrayEnd/WriteMappingEnd:
 https://github.com/actions/runner/blob/main/src/Sdk/DTExpressions2/Expressions2/Sdk/Functions/ToJson.cs
@@ -40,6 +43,12 @@ from tests.workflow_scaffold import WORKFLOWS
         ("!fromJSON('{}')", False),
         ("'HELLO' == 'hello'", True),
         ("'ß' == 'SS'", False),
+        ("'K' == 'k'", False),
+        ("'ſ' == 's'", True),
+        ("'K' == 'k'", True),
+        ("fromJSON('9007199254740993') == 9007199254740992", True),
+        ("9007199254740993 == 9007199254740992", True),
+        ("0x80000000", -2147483648.0),
         ("vars.ci_runner_small", "pool-s"),
         ("VARS.Ci_Runner_Small", "pool-s"),
         ('fromJSON(\'{"Small":"x"}\').small', "x"),
@@ -79,7 +88,7 @@ from tests.workflow_scaffold import WORKFLOWS
 )
 def test_values(expr, expected):
     result = evaluate(expr, {"vars": {"CI_RUNNER_SMALL": "pool-s"}})
-    assert type(result) is type(expected)
+    assert type(result) is (float if type(expected) in (int, float) else type(expected))
     assert result == expected
 
 
@@ -87,6 +96,9 @@ def test_values(expr, expected):
     "expr",
     [
         "contains('a', 'a')",
+        "0X10",
+        "-0x10",
+        "0x100000000",
         "'",
         "vars[']",
         "format('x')",
@@ -229,6 +241,8 @@ def test_nan_falsiness():
         ("${{ true }}", "true"),
         ("${{ false }}", "false"),
         ("${{ 1.0 }}", "1"),
+        ("${{ -0 }}", "-0"),
+        ("${{ fromJSON('-0') }}", "-0"),
         ("${{ 1e20 }}", "1E+20"),
         ("${{ 1.2345678901234567 }}", "1.23456789012346"),
         ("${{ 0.00001 }}", "1E-05"),
@@ -332,3 +346,63 @@ def test_to_json(value, expected, function):
     assert (
         evaluate(f"{function}(inputs.value)", {"inputs": {"value": value}}) == expected
     )
+
+
+@pytest.mark.parametrize(
+    ("index", "expected"),
+    [
+        ("1", "b"),
+        ("", "a"),
+        ("1.9", "b"),
+        ("0x1", "b"),
+        ("2", None),
+        ("-1", None),
+        ("Infinity", None),
+        ("bad", None),
+        ("2147483648", None),
+        ("-0", "a"),
+        ("-0.1", None),
+    ],
+)
+def test_array_string_indexes(index, expected):
+    assert evaluate(f"fromJSON('[\"a\",\"b\"]')['{index}']", {}) == expected
+
+
+@pytest.mark.parametrize(("key", "value"), [("K", None), ("ſ", "found")])
+def test_ordinal_property_matching(key, value):
+    name = "k" if key == "K" else "s"
+    assert evaluate(f"vars.{name}", {"vars": {key: "found"}}) == value
+    assert evaluate(f'fromJSON(\'{{"{key}":"found"}}\').{name}', {}) == value
+
+
+def test_ordinal_property_ambiguity():
+    with pytest.raises(ValueError, match="[Aa]mbiguous"):
+        evaluate("vars.s", {"vars": {"ſ": 1, "s": 2}})
+    assert evaluate("vars.k", {"vars": {"K": 1, "k": 2}}) == 2
+
+
+def test_with_scalar_type_error():
+    value = yaml.safe_load("value: 2026-10-29")["value"]
+    with pytest.raises(ValueError, match="Cannot stringify value of type date"):
+        render_input(value, {})
+
+
+def test_cli_nonfinite_result(tmp_path):
+    path = tmp_path / "context.json"
+    path.write_text("{}")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "tests.github_expression",
+            "--context",
+            str(path),
+            "--expr",
+            "fromJSON('1e999')",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "error:" in result.stderr and "Traceback" not in result.stderr
+    assert result.stdout == ""
