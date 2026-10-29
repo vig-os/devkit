@@ -77,6 +77,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Deprecated
 
+- **Legacy CI runner settings** ([#1934](https://github.com/vig-os/devkit/issues/1934))
+  - The `.vig-os` `DEVKIT_CI_RUNNER` key and `DEVKIT_CI_RESOLVE_RUNNER` variable
+    remain supported in releases N and N+1 with per-run warnings; migrate to
+    `CI_RUNNER_SMALL`/`LARGE`/`XLARGE`.
+  - At N+2, the key stops selecting runners and `runner-json` is removed. A key
+    still needed by any required class produces `::error::`; an inert key or a
+    foreign run only warns. The `DEVKIT_CI_RESOLVE_RUNNER` term stays permanently
+    before the hosted default in resolve jobs: on non-foreign runs it produces
+    `::error::` when set without `CI_RUNNER_SMALL`, and only warns when SMALL is set.
+  - See the [deprecation timeline](https://github.com/vig-os/devkit/blob/dev/docs/MIGRATION.md#deprecation-timeline) and
+    [seeded hook migration](https://github.com/vig-os/devkit/blob/dev/docs/MIGRATION.md#seeded-hook-runner-migration).
+
 ### Removed
 
 ### Fixed

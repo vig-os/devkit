@@ -46,6 +46,44 @@ for devkit's output, re-triaging it on every upgrade (#1182).
    findings are always reported. This scope rule is enforced by
    `tests/test_workflow_zizmor_baseline.py`.
 
+## Runner selection and fork security
+
+Managed runner selection treats a PR as foreign with this predicate:
+
+```text
+github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository)
+```
+
+Foreign PRs, including private-repository forks, resolve every class to
+`ubuntu-26.04`; the legacy runner key is ignored. Direct expressions apply
+this check, and `resolve-toolchain` evaluates it for the `runners` lane outputs.
+Reusable workflows use the caller's event and variables. Configuration and
+private-repo limits are in [the migration guide](MIGRATION.md#run-ci-on-self-hosted-runners).
+
+The predicate is an **accident-prevention layer, not a security boundary**.
+On `pull_request`, a fork controls both `ci.yml` and the resolve action loaded
+from the merge ref: hostile content can remove the predicate or request a literal
+self-hosted label. Self-hosted security must come from runner-side checks and org
+approval settings, never from workflow content. Operators must configure:
+
+- A runner-side job-start hook, such as `ACTIONS_RUNNER_HOOK_JOB_STARTED`, set
+  by the runner operator rather than the repository. It reads the event payload
+  and rejects PR jobs whose `head.repo` differs from `base.repo`.
+- The org setting **"Require approval for fork pull request workflows"** for
+  **all external contributors**.
+- Optionally, runner-group visibility restricted to private repositories.
+  This is an extra layer for operators that can use it.
+
+The predicate covers `pull_request_target` too, but that trigger exposes base
+variables and secrets; never check out and execute untrusted PR code there.
+No managed workflow currently uses it. `push`, `schedule`, `workflow_dispatch`
+and non-PR `workflow_call` events are excluded by the PR guard.
+
+Managed workflows must not add `workflow_run` or `merge_group`: neither supplies
+this predicate's PR head-repository information. Adding either requires a design
+change with a new predicate and evidence first; scaffold tests forbid both today.
+See the [going-public checklist](GOING_PUBLIC.md) before changing visibility.
+
 ## Where the credentials live (`DEVKIT_COMMIT_APP_ENVIRONMENT`)
 
 The audits above are about the workflow *text*. One residual risk is about the

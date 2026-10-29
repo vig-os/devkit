@@ -153,3 +153,47 @@ A one-shot installer flag (`--profile solo`) that writes these same manifest
 keys for you is a **possible follow-up**, tracked against
 [#1285](https://github.com/vig-os/devkit/issues/1285). This guide documents the
 knob combination directly; no such flag exists today.
+
+## Per-clone site bindings
+
+Keep site settings outside git in the worktree's ignored `.site/` directory;
+`.aws/` is ignored too. Store credentials in the environment or the tool's own
+credential store, never in site TOML. CI runners are configured through GitHub
+variables, as described in [the migration guide](MIGRATION.md#run-ci-on-self-hosted-runners).
+
+Run `just site-init` to discover an external `devkit-site-init-<site>` executable
+on absolute `PATH` entries outside the worktree. One discovered initializer runs
+automatically; several require `just site-init <site>`. devkit ships no site
+initializer. With none available, interactive use prompts for bindings; noninteractive
+use writes `.site/local.toml` with empty locations for declared datasets.
+
+An initializer runs from the repository root with `DEVKIT_SITE`,
+`DEVKIT_SITE_DIR` (a staging directory), and `DEVKIT_DATA_MANIFEST` (the absolute
+`data.toml` path, or empty). It writes `<site>.toml` and optionally
+`leak-patterns.toml` into staging. Outputs are validated before publication;
+existing files require `--force`. Failed or invalid output
+is not published. Initializers are trusted local programs; staging is not a sandbox.
+
+Each `.site/<site>.toml` uses schema v1, for example:
+
+```toml
+schema = 1
+site = "local"
+
+[datasets.input]
+location = ""
+
+[output]
+location = ""
+```
+
+Dataset keys correspond to the committed `data.toml` manifest. Empty locations
+are unbound, not usable data sources. `check-site-config` validates bindings;
+`check-site-config --print-path` prints the active file. `DEVKIT_SITE` selects
+one explicitly; otherwise a single site TOML is selected automatically, excluding
+`leak-patterns.toml`. Multiple site files require an explicit selection.
+`leak-patterns` is a reserved site name. Bindings are per worktree.
+
+Read the [site convention and initializer contract](rfcs/ADR-site-agnostic-projects.md#8-site-convention)
+for validation and location rules, and the [going-public checklist](GOING_PUBLIC.md)
+before publishing a private repository.
