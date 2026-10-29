@@ -488,7 +488,12 @@ Contract inputs — every one `required: false`, so devkit can add an input late
 - `mode` — resolved delivery mode (`devcontainer`/`direnv`/`both`/`bare`)
 - `image` — resolved container image (empty string in the host modes)
 - `image-tag` — resolved devkit image tag
-- `runner-json` — JSON array of runner labels (`DEVKIT_CI_RUNNER`); the stub's own `runs-on: ${{ fromJSON(inputs.runner-json) }}` takes its runner from this input rather than a literal label (actionlint does not know every hosted label, so a literal fails the moment you start editing the stub) and carries a safe default so the job still resolves on a direct call
+- `runner-json` — JSON label array from the resolved `extension` lane
+  (`runners.extension`), passed by managed `ci.yml`. Every lane defaults to SMALL;
+  The `.vig-os` key `DEVKIT_CI_LANE_SIZES=extension=large` opts this lane into `CI_RUNNER_LARGE`.
+  The stub uses `runs-on: ${{ fromJSON(inputs.runner-json) }}` and keeps a hosted
+  default for direct calls. The input name remains `runner-json` for compatibility;
+  managed workflows consume the resolver's `runners` object by lane.
 
 `summary` (`CI Summary`, the sole required check) lists `extension` in its `needs:` and fails the gate on `failure` or `cancelled`, exactly like every other lane — a failing or cancelled extension blocks the merge.
 

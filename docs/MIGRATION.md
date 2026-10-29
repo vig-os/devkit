@@ -417,6 +417,8 @@ untrusted code off a self-hosted pool belong to the runner operator:
 Configure these on the runner host and in the org's settings; devkit's
 predicate does not, and cannot, substitute for either.
 
+Before publishing a private repository, follow the [going-public checklist](GOING_PUBLIC.md).
+
 **Forks of a private repo are foreign too**, even though only someone with
 read access can create one. A PR from such a fork gets no CI at all if the
 org cannot run any hosted job — the jobs are rejected or stay queued forever,

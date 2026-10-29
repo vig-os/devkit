@@ -513,7 +513,7 @@ def test_uv_interpreter_pins_do_not_defeat_the_manylinux_path(
     resolution, so the venv was built on the Nix interpreter anyway and every
     C-extension wheel died under the Nix loader on Ubuntu with
     ``ImportError: libstdc++.so.6: cannot open shared object file``
-    (exo-pet/playground-carlos#9, numpy 2.4.4). ``UV_PYTHON_DOWNLOADS=never``
+    (numpy 2.4.4). ``UV_PYTHON_DOWNLOADS=never``
     goes with it: on its own it would forbid the very download the URL forward
     exists to enable.
 
@@ -740,7 +740,7 @@ def test_install_nix_is_gated_on_missing_host_nix() -> None:
 def test_host_nix_config_step_writes_wellformed_nix_config(tmp_path: Path) -> None:
     """On the preinstalled-Nix path, the action must export the same Nix
     settings via a well-formed multi-line NIX_CONFIG (the malformed one from
-    the aborted installer broke `nix develop` on exo-fleet's runner).
+    the aborted installer broke `nix develop` on a self-hosted runner).
 
     Refs: #1192
     """
@@ -1011,14 +1011,14 @@ def test_install_path_carries_expected_settings() -> None:
 
 DETECT_STEP_NAME = "Detect host Nix"
 
-# A representative multi-user host Nix version banner. exo-fleet's wrapper writes
+# A representative multi-user host Nix version banner. The host wrapper writes
 # it to stderr, so a plain `$(nix --version)` capture came back empty.
 HOST_NIX_VERSION = "nix (Nix) 2.18.1"
 
 
 def _write_stderr_version_nix_stub(bin_dir: Path) -> None:
     """A fake `nix` whose `--version` prints ONLY to stderr, mimicking the
-    exo-fleet multi-user host wrapper that produced the empty `()` log (#1198).
+    multi-user host wrapper that produced the empty `()` log (#1198).
     """
     bin_dir.mkdir(parents=True, exist_ok=True)
     stub = bin_dir / "nix"
@@ -1074,8 +1074,7 @@ def test_detect_step_captures_version_from_stderr(tmp_path: Path) -> None:
 # ── Ambient NIX_CONFIG must not corrupt the version probe (#1216) ─────────────
 
 # A malformed ambient NIX_CONFIG as carried by a self-hosted runner's service
-# environment (exo-fleet's meatgrinder, exo-pet/exo-fleet#230): nix rejects it
-# before printing the version.
+# environment: nix rejects it before printing the version.
 MALFORMED_NIX_CONFIG = "experimental-features"
 NIX_CONFIG_PARSE_ERROR = (
     "error: syntax error in configuration line "
@@ -1084,7 +1083,7 @@ NIX_CONFIG_PARSE_ERROR = (
 
 
 def _write_nix_config_sensitive_nix_stub(bin_dir: Path) -> None:
-    """A fake `nix` mimicking nix on exo-fleet's meatgrinder: a malformed ambient
+    """A fake `nix` mimicking nix on a self-hosted runner: a malformed ambient
     `NIX_CONFIG` makes `--version` fail with a config parse error *before* the
     version is printed, so a probe that inherits the ambient config captures the
     error instead of the version. With `NIX_CONFIG` scrubbed it prints the

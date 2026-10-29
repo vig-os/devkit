@@ -2114,7 +2114,7 @@ EOF
 }
 
 @test "--preview does not list template .typos.toml as ADDED under a legacy _typos.toml (#1196)" {
-    # Regression (#1196, exo-pet/vault#31): the real copy rsync-excludes the
+    # Regression (#1196): the real copy rsync-excludes the
     # template .typos.toml when the consumer carries _typos.toml (and no
     # .typos.toml), yet --preview reported it as ADDED — advertising a file the
     # upgrade then silently skips. Preview must mirror the copy's exclude set.
@@ -2656,7 +2656,7 @@ _upgrade_no_flags() {
         'DEVKIT_MODULES="native rust"'
         'DEVKIT_TAG_PREFIX=v'
         'DEVKIT_FLOATING_TAGS=major,minor'
-        'DEVKIT_CI_RUNNER=self-hosted,linux,x64,meatgrinder'
+        'DEVKIT_CI_RUNNER=self-hosted,pool-s'
         'DEVKIT_DEV_PROFILE_PATH=/var/lib/devkit/gcroots/dev-profile'
         'DEVKIT_DRIFT_CHECK=false'
         'DEVKIT_FEATURES_DISABLED=renovate,scanning'
@@ -5088,7 +5088,7 @@ _RELEASE_RESOLVERS_991=(
 # scaffold-delivered script set (the template's .sh files), never on a
 # consumer's own sourced-only .sh libraries. A blanket `find … -name '*.sh'`
 # re-dirtied preserved consumer libs (mode 644 → 755) on every --force
-# re-scaffold — observed in the field on exo-fleet (#1195).
+# re-scaffold — observed in a consumer repo (#1195).
 
 @test "scaffold chmod +x skips a consumer's pre-existing sourced .sh lib (#1195)" {
     ws="$BATS_TEST_TMPDIR/e2e-1195-chmod-scope"

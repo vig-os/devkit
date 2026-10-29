@@ -698,9 +698,10 @@ silent move would turn into queued or rejected jobs that point at nothing.
   lookup slots into the algorithm's `V` step, for example as a
   `CI_RUNNER_<S>_MAIN` consulted first on default-branch events, without
   changing the predicate.
-- **Defence in depth** (documented in the checklist, not enforced by devkit):
-  self-hosted runner groups not available to public repositories, "require
-  approval for fork PR workflows", ephemeral runners.
+- **Runner-side security controls** (configured by the operator, not enforced
+  by devkit): use the job-start hook and org fork-PR approval settings in the
+  [owner-confirmed correction](#decisions). The fork predicate prevents accidents;
+  runner-group visibility is optional.
 
 ### 8. `.site/` convention
 
@@ -877,8 +878,9 @@ silent move would turn into queued or rejected jobs that point at nothing.
   3. Check that `git log --all -- .site .aws` is empty.
   4. Confirm the managed workflows are on a fork-safe devkit (≥ N) and that no
      repo-owned workflow requests a self-hosted label without the predicate.
-  5. Confirm the runner groups do not admit public repos and fork-PR approval
-     is required.
+  5. Configure the operator-set job-start hook and org fork-PR approval for all
+     external contributors, per the [owner-confirmed correction](#decisions).
+     Runner-group visibility is optional.
   6. Confirm label names in public logs reveal nothing.
   7. **If anything is found: rotate first.** A history rewrite does not
      unpublish what a clone or cache already holds. Then rewrite and re-scan.
@@ -891,6 +893,19 @@ Each option chosen was the one this ADR considers correct in the long term.
 The rejected options are kept with the costs that ruled them out.
 
 **Amendments**
+
+- **2026-10-29, owner-confirmed correction:** self-hosted security comes from
+  runner-side checks and org approval settings, never from workflow content.
+  On `pull_request`, a fork controls the workflow and resolve action loaded from
+  the merge ref, so devkit's fork predicate only prevents accidents; it is not a
+  security boundary. The primary controls are an operator-set job-start hook
+  (for example `ACTIONS_RUNNER_HOOK_JOB_STARTED`) that reads the event payload
+  and rejects PR jobs whose `head.repo` differs from `base.repo`, plus the org
+  setting "Require approval for fork pull request workflows" for all external
+  contributors. Runner-group visibility restricted to private repositories is
+  optional. This corrects the security-control framing in §7 and §10 without
+  changing the accepted runner-selection decisions. Confirmed in
+  [the owner's #1934 comment](https://github.com/vig-os/devkit/issues/1934#issuecomment-6440217431).
 
 - **2026-10-29, architect, S4 pattern-file clarification (shared with S6):**
   `validate_patterns(path: Path) -> None` accepts a missing file as no check.
