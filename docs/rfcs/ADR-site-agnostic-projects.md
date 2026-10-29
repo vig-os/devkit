@@ -721,8 +721,16 @@ silent move would turn into queued or rejected jobs that point at nothing.
   malformed bound locations (including relative paths) are errors. Bound
   locations are absolute paths or `scheme://location` URIs with schemes `s3`,
   `gs`, `az`, `abfs`, `http`, `https`, or `file`. A URI needs a non-empty
-  authority, or an absolute path for `file`; arbitrary `scheme:value` and
-  bare `host:port` forms are rejected. Consumers
+  authority for remote URIs. `file:///absolute/path` has no authority,
+  query, fragment or `..` segment (including percent-encoded segments).
+  `s3://bucket/key` accepts general-purpose bucket names following the
+  [AWS naming rules](https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html):
+  3–63 lowercase letters, digits, dots or hyphens; alphanumeric ends; no
+  adjacent dots, IP-address forms, reserved prefixes or alias/directory/table
+  suffixes. Arbitrary `scheme:value` and bare `host:port` forms are rejected.
+  Every location rejects whitespace, Unicode control characters (category Cc),
+  and U+2028/U+2029 before parsing, including in absolute paths. Errors name
+  the dataset or output field and never echo the location value. Consumers
   must refuse an unbound location with an actionable error naming the dataset
   key (future data recipes: #1921). S4 has no binding consumer.
 - **`data.toml`** is repo-owned. devkit reads only the **names**: the keys of
@@ -736,6 +744,16 @@ silent move would turn into queued or rejected jobs that point at nothing.
   Credentials come from the environment or the tool's own store (§9).
 
 ### 9. `site init` hook contract
+
+- **Root and isolation:** resolve the repository root using
+  `git rev-parse --show-toplevel` and resolve its symlinks, regardless of the
+  caller's cwd. Outside a git work tree, both commands refuse with exit 2.
+  All config paths, initializer cwd and discovery boundaries use this root.
+  A linked worktree's toplevel is its root: `.site/` is per worktree, never
+  shared via the common git directory.
+- **Reserved names:** `leak-patterns` (case-insensitive) is reserved for the
+  pattern file, and is refused with exit 2 in initializer selection/output,
+  interactive fallback and `DEVKIT_SITE`.
 
 - **Recipe:** `just site-init [site] [--force]` in the managed root `justfile`,
   the one layer present in every delivery mode, like `doctor`. It calls the
@@ -758,19 +776,27 @@ silent move would turn into queued or rejected jobs that point at nothing.
     `$DEVKIT_SITE_DIR/leak-patterns.toml`;
   - write nothing else in the repo; writing outside staging is the
     initialiser's responsibility. devkit detects new or modified `.site/`
-    entries outside its staging directory, reports their names and fails.
+    entries recursively outside its staging directory, comparing relative
+    paths, types, sizes, mtimes and inodes, reports their names and fails.
+    Symlinks and special files anywhere under `.site/` are refused.
     It does not sandbox the initialiser or remove its out-of-contract writes;
   - put no credentials in either file;
   - exit 0 on success.
+
+  **Known limit:** this detects changes after execution; it is not a sandbox
+  or protection against a trusted initializer restoring metadata. Use only
+  trusted initializers. devkit cannot undo arbitrary writes outside staging.
 
   It may configure credentials **outside** the repo (its own store, `~/.aws`)
   or in the gitignored `.aws/`.
 - **devkit then:**
   - validates `<site>.toml` with `check-site-config`. For the optional
-    `leak-patterns.toml`, checks TOML parsing and the gitleaks rule shape only:
-    if present, `rules` is an array of tables with string `id` and `regex`.
-    Site-binding credential restrictions do not apply to pattern definitions;
-    gitleaks validates the remaining config semantics;
+    `leak-patterns.toml`, uses the public
+    `vig_utils.site_config.validate_patterns(path: Path) -> None` validator.
+    Its self-contained pattern-file contract is the **S4 pattern-file
+    clarification** in [Amendments](#decisions). Site-binding credential
+    restrictions do not apply to pattern values; gitleaks validates remaining
+    config semantics;
   - on success, moves them into `.site/`; existing files are refused without
     `--force`;
   - on a non-zero exit or an invalid file, deletes the staging directory and
@@ -845,6 +871,17 @@ Each option chosen was the one this ADR considers correct in the long term.
 The rejected options are kept with the costs that ruled them out.
 
 **Amendments**
+
+- **2026-10-29, architect, S4 pattern-file clarification (shared with S6):**
+  `validate_patterns(path: Path) -> None` accepts a missing file as no check.
+  Otherwise parse TOML and compare keys case-insensitively. Duplicate case
+  variants at the same level (top level or within rules and nested tables)
+  are an error naming the file and key, never values. A usable `[[rules]]`
+  entry has a nonempty string `id` and at least one nonempty string `regex`
+  or `path`. Zero usable rules (including an empty file, `[[rule]]` typo or
+  `[rules]` table) is an error. `[extend]` in any case is forbidden: pattern
+  files must be self-contained. Errors raise `ValueError` without pattern
+  values. This is the single S4/S6 contract; no change to accepted decisions.
 
 - **2026-10-27, architect clarification found while implementing S1b:**
   duplicate lanes are an error; no change to accepted decisions.
