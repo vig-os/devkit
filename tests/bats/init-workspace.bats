@@ -6444,7 +6444,7 @@ _runner_migration_seed() {
 }
 
 @test "runner migration reconciles each stock seeded job and preserves drift (#1929)" {
-    local -a migration_env=()
+    local -a migration_env=(DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_CI_RUNNER_SMALL=pool-s)
     _runner_migration_seed
     local file
     for file in prepare-release-extension release-extension publish-release-extension; do
@@ -6459,15 +6459,15 @@ jobs:
     runs-on: custom-pool
     steps: []
   almost:
-    runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }} # custom
+    runs-on: ${{ vars.CUSTOM_RUNNER || 'ubuntu-26.04' }} # custom
     steps: []
 YAML
     done
     run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
     assert_success
-    assert_output --partial 'preserved-hook-fold: stock in .github/workflows/'
-    assert_output --partial 'preserved-hook-drift: custom in .github/workflows/'
-    assert_output --partial 'preserved-hook-drift: almost in .github/workflows/'
+    assert_output --partial 'ci-runner-migration: Seeded hook reconciled: stock in .github/workflows/'
+    assert_output --partial 'ci-runner-migration: Seeded hook drift: custom in .github/workflows/'
+    assert_output --partial 'ci-runner-migration: Seeded hook drift: almost in .github/workflows/'
     for file in prepare-release-extension release-extension publish-release-extension; do
         run grep -F 'vars.CI_RUNNER_SMALL' "$ws/.github/workflows/$file.yml"
         assert_success
@@ -6479,5 +6479,5 @@ YAML
     done
     run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
     assert_success
-    refute_output --partial 'preserved-hook-fold: stock'
+    refute_output --partial 'Seeded hook reconciled: stock'
 }
