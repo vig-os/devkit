@@ -13,8 +13,8 @@ For the flake architecture and contributor onboarding see
 
 Project dev-shells no longer provide `claude` by default. Repositories relying on
 that copy must install it machine-wide (or enable the home packages module), or
-set `withAgentCli = true` in their shell builder. Fixed-output consumers can use
-`#with-agent-cli`. Opting in shadows a system wrapper and its credential/channel
+set `withAgentCli = true` in their shell builder. Consumers of devkit's own `devShells` output can
+use `#with-agent-cli`. Opting in shadows a system wrapper and its credential/channel
 setup. See [Agent CLI opt-in](NIX.md#agent-cli-opt-in). Home modules and the
 container image retain the CLI.
 
