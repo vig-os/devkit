@@ -303,3 +303,47 @@ PYEDIT
     run gate_adoption
     assert_failure
 }
+
+# Mutation copies keep the checkout and its immutable release tags untouched.
+_mutant_runner() {
+    local mutation="$1" copy="$BATS_TEST_TMPDIR/mutant"
+    git clone -q --shared "$PROJECT_ROOT" "$copy"
+    RENDER_CELL="$copy/scripts/consumer-matrix/render-cell.sh"
+    python3 - "$copy" "$mutation" <<'PYEDIT'
+import sys
+from pathlib import Path
+root, mutation = Path(sys.argv[1]), sys.argv[2]
+if mutation == 'hook-drift':
+    p = root / 'assets/init-workspace.sh'
+    text = p.read_text().replace('\n', '\necho "preserved-hook-drift: ci-runner-migration: DEVKIT_CI_RUNNER migration probe"\n', 1)
+else:
+    p = root / 'install.sh'
+    text = p.read_text().replace('    DEVKIT_UPGRADE_CONTEXT\n', '')
+p.write_text(text)
+PYEDIT
+}
+
+@test "pre-N adoption body catches migration smuggled through hook drift" {
+    _mutant_runner hook-drift
+    _render_runner runner-gitflow
+    run gate_adoption
+    assert_failure
+}
+
+@test "gitflow gate exercises install context forwarding (M7)" {
+    _mutant_runner context
+    PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render runner-gitflow "$BATS_TEST_TMPDIR/adopt"
+    assert_failure
+    assert_output --partial 'migration context did not reach the scaffold'
+}
+
+@test "gitflow gate asserts the complete install migration finding" {
+    _render_runner runner-gitflow
+    python3 - <<'PYEDIT'
+from pathlib import Path
+p = Path('.git/consumer-matrix/install.log')
+p.write_text(p.read_text().replace('Until N+2 the key keeps working;', ''))
+PYEDIT
+    run gate_adoption
+    assert_failure
+}
