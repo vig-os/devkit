@@ -309,6 +309,7 @@ _mutant_runner() {
     local mutation="$1" copy="$BATS_TEST_TMPDIR/mutant"
     git clone -q --shared "$PROJECT_ROOT" "$copy"
     cp -a "$PROJECT_ROOT/scripts/consumer-matrix/." "$copy/scripts/consumer-matrix/"
+    cp -a "$PROJECT_ROOT/tests/." "$copy/tests/"
     cp "$PROJECT_ROOT/install.sh" "$copy/install.sh"
     cp "$PROJECT_ROOT/assets/init-workspace.sh" "$copy/assets/init-workspace.sh"
     RENDER_CELL="$copy/scripts/consumer-matrix/render-cell.sh"

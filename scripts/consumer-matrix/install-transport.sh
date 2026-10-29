@@ -4,12 +4,12 @@
 set -euo pipefail
 case "${0##*/}" in
     curl)
-        [[ "$*" == '-sSfL https://raw.githubusercontent.com/vig-os/devkit/refs/tags/1.19.0/install.sh' ]]
+        [[ "$*" == "-sSfL https://raw.githubusercontent.com/vig-os/devkit/refs/tags/$MATRIX_TARGET/install.sh" ]]
         cat "$MATRIX_ROOT/install.sh"
         ;;
     docker)
         case "$*" in
-            info | 'pull ghcr.io/vig-os/devcontainer:1.19.0') exit 0 ;;
+            info | "pull ghcr.io/vig-os/devcontainer:$MATRIX_TARGET") exit 0 ;;
         esac
         [[ "$1 $2" == 'run --rm' ]]
         shift 2
@@ -22,7 +22,7 @@ case "${0##*/}" in
             esac
             shift 2
         done
-        [[ "$1 $2" == 'ghcr.io/vig-os/devcontainer:1.19.0 /root/assets/init-workspace.sh' ]]
+        [[ "$1 $2" == "ghcr.io/vig-os/devcontainer:$MATRIX_TARGET /root/assets/init-workspace.sh" ]]
         shift 2
         exec env -i PATH="$PATH" HOME="$HOME" "${forwarded[@]}" \
             TEMPLATE_DIR="$MATRIX_ROOT/assets/workspace" \

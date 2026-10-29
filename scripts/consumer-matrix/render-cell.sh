@@ -278,35 +278,23 @@ prepare_adoption() (
     git checkout -qb chore/adopt-devkit
 )
 
-# Replay the immutable default-branch upgrade and body steps. Only the download,
-# container, and PR API boundaries are local adapters; install.sh runs unchanged.
+# Replay the immutable upgrade and body steps in separate shells through the
+# shared helper. Only curl, docker and gh use adapters; install.sh runs unchanged.
 adoption_body() (
     cd "$1" || return 1
-    local evidence="$PWD/.git/consumer-matrix" upgrade body
-    upgrade="$(step_script "$evidence/pre-n.yml" 'Run the devkit upgrade (install.sh --force)')" || return 1
-    body="$(step_script "$evidence/pre-n.yml" 'Open or update the adoption PR')" || return 1
+    local evidence="$PWD/.git/consumer-matrix" tool
     mkdir -p "$evidence/bin"
-    local tool
     for tool in curl docker gh; do
         ln -sf "$ROOT/scripts/consumer-matrix/install-transport.sh" "$evidence/bin/$tool"
     done
-    # Upgrade defines the exact FLAKE_BUMP/HOOK_* values it writes to its outputs;
-    # consume those same values in the following PR step, without fabricating them.
-    env -u DEVKIT_UPGRADE_CONTEXT -u DEVKIT_UPGRADE_CI_RUNNER_SMALL \
-        -u DEVKIT_UPGRADE_CI_RUNNER_LARGE -u DEVKIT_UPGRADE_CI_RUNNER_XLARGE \
-        -u DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER -u DEVKIT_UPGRADE_REPO_PRIVATE \
-        PATH="$evidence/bin:$PATH" MATRIX_ROOT="$ROOT" MATRIX_EVIDENCE="$evidence" \
-        RUNNER_TEMP="$evidence" GITHUB_OUTPUT="$evidence/outputs" \
-        GITHUB_STEP_SUMMARY="$evidence/summary" TARGET=1.19.0 \
-        BRANCH=chore/adopt-devkit BASE=dev \
-        bash -eo pipefail -c "$upgrade
-$body"
+    PYTHONPATH="$ROOT" uv run --project "$ROOT" --frozen --quiet python -m tests.consumer_matrix adoption "$evidence"
 )
 
 # A >=N workflow's context must also survive install.sh's isolated boundary.
 # Start from the old dev scaffold again so stock seeded hooks must reconcile.
 migrating_adoption() (
-    local evidence="$1/.git/consumer-matrix" ws rc=0
+    local evidence="$1/.git/consumer-matrix" ws rc=0 target
+    target="$(sed -n 's/^DEVKIT_VERSION=//p' "$ROOT/.vig-os")"
     ws="$(mktemp -d)"
     trap 'rm -rf "$ws"' EXIT
     git -C "$1" archive dev | tar -x -C "$ws" || return 1
@@ -315,8 +303,8 @@ migrating_adoption() (
     env DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_CI_RUNNER_SMALL=pool-s \
         DEVKIT_UPGRADE_CI_RUNNER_LARGE=pool-l DEVKIT_UPGRADE_CI_RUNNER_XLARGE=pool-xl \
         DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER= DEVKIT_UPGRADE_REPO_PRIVATE=true \
-        PATH="$evidence/bin:$PATH" MATRIX_ROOT="$ROOT" MATRIX_EVIDENCE="$evidence" \
-        bash "$ROOT/install.sh" --force --version 1.19.0 --skip-preflight --docker . \
+        PATH="$evidence/bin:$PATH" MATRIX_ROOT="$ROOT" MATRIX_EVIDENCE="$evidence" MATRIX_TARGET="$target" \
+        bash "$ROOT/install.sh" --force --version "$target" --skip-preflight --docker . \
         > "$evidence/migrating.log" 2>&1 || rc=$?
     cat "$evidence/migrating.log"
     ((rc == 0)) || return "$rc"
@@ -324,7 +312,15 @@ migrating_adoption() (
         echo 'migration context did not reach the scaffold'
         return 1
     fi
-    grep -q '^ci-runner-migration: Seeded hook reconciled:' "$evidence/migrating.log"
+    grep -q '^ci-runner-migration: Seeded hook reconciled:' "$evidence/migrating.log" || return 1
+    local path target_line
+    for path in prepare-release-extension release-extension publish-release-extension; do
+        target_line="$(grep '    runs-on:' "$ROOT/assets/workspace/.github/workflows/$path.yml" | sort -u)"
+        if [[ "$(grep '    runs-on:' ".github/workflows/$path.yml" | sort -u)" != "$target_line" ]]; then
+            echo "seeded runner was not rewritten: $path"
+            return 1
+        fi
+    done
 )
 
 gate_adoption() {
@@ -347,16 +343,12 @@ gate_adoption() {
 # Execute the consumer action with the same input names its CI supplies.
 # Capture and print its log so the full warning is visible in the matrix job.
 gate_runners() (
-    local evidence resolve
+    local evidence
     evidence="$(mktemp -d)"
     trap 'rm -rf "$evidence"' EXIT
-    resolve="$(step_script .github/actions/resolve-toolchain/action.yml 'Resolve mode + image tag')" || return 1
-    env GITHUB_OUTPUT="$evidence/outputs" INPUT_IMAGE_TAG= \
-        RUNNER_SMALL="$CELL_RUNNER_SMALL" RUNNER_LARGE="$CELL_RUNNER_LARGE" \
-        RUNNER_XLARGE="$CELL_RUNNER_XLARGE" LEGACY_RESOLVE_RUNNER= \
-        PR_PRESENT=true HEAD_REPO_FORK=false HEAD_REPOSITORY=example/consumer \
-        BASE_REPOSITORY=example/consumer REPOSITORY_PRIVATE=true \
-        bash -eo pipefail -c "$resolve" > "$evidence/ci.log" 2>&1
+    PYTHONPATH="$ROOT" uv run --project "$ROOT" --frozen --quiet python -m tests.consumer_matrix \
+        runners "$CELL_RUNNER_SMALL" "$CELL_RUNNER_LARGE" "$CELL_RUNNER_XLARGE" "$evidence" \
+        > "$evidence/ci.log" 2>&1
     local rc=$?
     cat "$evidence/ci.log"
     ((rc == 0)) || return "$rc"

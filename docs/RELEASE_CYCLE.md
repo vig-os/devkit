@@ -216,10 +216,12 @@ scaffold. Before release N, its runner migration cells prove:
 - `runner-key-only`: the legacy key still selects runners, with the complete
   actionable deprecation warning in the CI log.
 - `ci-runner`: variables alone select SMALL/LARGE/XLARGE, with no legacy warning.
-  Override the generic fixture labels with `CONSUMER_MATRIX_RUNNER_LABEL`,
+  Managed workflow inputs and job runners are evaluated for same-repository
+  and fork PRs. Override the generic fixture labels with `CONSUMER_MATRIX_RUNNER_LABEL`,
   `CONSUMER_MATRIX_RUNNER_LARGE`, and `CONSUMER_MATRIX_RUNNER_XLARGE`.
 - `runner-gitflow`: local `dev` is ahead of `main`; N adoption replays the upgrade and
-  PR-body steps from immutable tag `1.18.0` through the current installer,
+  PR-body steps in separate shells via the shared replay helper, evaluating
+  their own environment blocks from immutable tag `1.18.0` through the current installer,
   targets `dev`, keeps the key, and omits
   the migration section. The adoption's rendered resolver emits the full
   warning independently of the old body builder.
