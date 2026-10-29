@@ -21,6 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.18.1] - TBD
 
+### Changed
+
+- **Upgrade uv 0.12.17 → 0.13.4 with the security input advance** ([#1847](https://github.com/vig-os/devkit/issues/1847))
+  - The nixpkgs-unstable bump carries uv 0.13; see the [uv 0.13.0 migration notes](https://github.com/astral-sh/uv/releases/tag/0.13.0) for breaking changes
+  - `--constraint`, `--override`, `--exclude` and `--build-constraint` values no longer split on spaces; repeat the option for multiple paths
+  - Included constraints files now honor `--require-hashes` and reject editable requirements; supply missing hashes and move editables to requirements files or `--editable`
+  - Stricter tar validation can reject previously accepted archives; `uv_build` sdist bytes and hashes may change. If `[build-system]` caps `uv_build<0.13`, raise that bound to allow 0.13 (e.g. `uv_build>=0.13.0,<0.14`)
+  - The new default Python 3.15 does not affect the devkit image: `UV_PYTHON` pins its interpreter and `UV_PYTHON_DOWNLOADS=never` disables downloads
+
 ### Security
 
 - **Reconcile expired Nix image exceptions against rebuilt closures** ([#1847](https://github.com/vig-os/devkit/issues/1847))
