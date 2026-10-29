@@ -184,6 +184,8 @@ def render(value, context):
             return result
         if isinstance(result, (dict, list)):
             _fail(value, start, "Cannot interpolate a collection")
+        if isinstance(result, float) and result.is_integer():
+            result = int(result)
         pieces.append(
             ""
             if result is None
