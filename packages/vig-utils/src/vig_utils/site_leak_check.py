@@ -11,9 +11,10 @@ import signal
 import subprocess
 import sys
 import tempfile
-import tomllib
 from contextlib import contextmanager
 from pathlib import Path
+
+from vig_utils import site_config
 
 
 def git(root: Path, *args: str) -> bytes:
@@ -29,8 +30,14 @@ def pattern_file(root: Path) -> Path | None:
     path = Path(configured) if configured else root / ".site/leak-patterns.toml"
     if configured and not path.is_absolute():
         raise ValueError("DEVKIT_LEAK_PATTERNS must be absolute")
-    if not configured and not path.exists() and not path.is_symlink():
+    try:
+        path.lstat()
+    except FileNotFoundError:
         return None
+    except OSError as error:
+        raise SnapshotError(
+            f"unreadable pattern file {path}: {error.strerror}"
+        ) from None
     resolved = path.resolve()
     for candidate in {path.absolute(), resolved}:
         if candidate.is_relative_to(root):
@@ -59,26 +66,6 @@ def pattern_file(root: Path) -> Path | None:
     return resolved
 
 
-def pattern_error(config: Path) -> str | None:
-    """Require self-contained rules; let gitleaks validate regex syntax."""
-    with config.open("rb") as stream:
-        document = tomllib.load(stream)
-    if any(key.casefold() == "extend" for key in document):
-        return "pattern file must be self-contained; [extend] is not supported"
-    rules = document.get("rules")
-    if not isinstance(rules, list) or not any(
-        isinstance(rule, dict)
-        and isinstance(rule.get("id"), str)
-        and rule["id"]
-        and any(
-            isinstance(rule.get(key), str) and rule[key] for key in ("regex", "path")
-        )
-        for rule in rules
-    ):
-        return "no usable [[rules]]; require a nonempty id and regex or path"
-    return None
-
-
 class SnapshotError(Exception):
     """A filesystem failure containing only path metadata and an OS reason."""
 
@@ -100,13 +87,18 @@ def write_snapshot(target: Path, relative: Path, data: bytes, *, staged: bool) -
 def snapshot_signals():
     """Unwind private snapshots on termination, then restore caller handlers."""
 
+    handled = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+
     def terminate(signum, _frame):
+        # Block delivery while atomically switching all termination signals to
+        # ignored; another signal must not interrupt TemporaryDirectory cleanup.
+        mask = signal.pthread_sigmask(signal.SIG_BLOCK, handled)
+        for caught in handled:
+            signal.signal(caught, signal.SIG_IGN)
+        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
         raise SystemExit(128 + signum)
 
-    previous = {
-        signum: signal.signal(signum, terminate)
-        for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
-    }
+    previous = {signum: signal.signal(signum, terminate) for signum in handled}
     try:
         yield
     finally:
@@ -117,12 +109,12 @@ def snapshot_signals():
 def copy_inputs(
     root: Path, target: Path, files: list[str], config: Path, *, text_only: bool
 ) -> None:
-    """Snapshot selected files, excluding active patterns and symlinks."""
+    """Snapshot files and link text, excluding active patterns and link targets."""
     for name in files:
-        source = Path(name)
-        if source.is_symlink():
-            continue
-        source = source.resolve()
+        source = Path(os.path.normpath(Path.cwd() / name))
+        is_link = source.is_symlink()
+        if not is_link:
+            source = source.resolve()
         if source == config:
             continue
         if not source.is_relative_to(root):
@@ -130,10 +122,11 @@ def copy_inputs(
         relative = source.relative_to(root)
         if relative.parts[0] == ".git":
             continue
-        if not source.is_file():
+        if not is_link and not source.is_file():
             continue  # Deleted files and submodules have no working-tree text.
         try:
-            data = source.read_bytes()
+            # Path.readlink() normalizes separators and dot components.
+            data = os.fsencode(os.readlink(source)) if is_link else source.read_bytes()  # noqa: PTH115
         except OSError as error:
             raise SnapshotError(
                 f"cannot read input {relative}: {error.strerror}"
@@ -182,7 +175,11 @@ def copy_staged_inputs(root: Path, target: Path) -> None:
             continue
         metadata, name = entry.split(b"\t", 1)
         mode, oid, stage = metadata.split()
-        if name not in changed or stage != b"0" or mode not in {b"100644", b"100755"}:
+        if (
+            name not in changed
+            or stage != b"0"
+            or mode not in {b"100644", b"100755", b"120000"}
+        ):
             continue
         relative = index_path(os.fsdecode(name))
         data = git(root, "cat-file", "blob", oid.decode("ascii"))
@@ -303,8 +300,15 @@ def main() -> int:
         config = pattern_file(root)
         if config is None:
             return 0
-        if error := pattern_error(config):
-            print(f"site-leak-check: {config}: {error}", file=sys.stderr)
+        try:
+            site_config.validate_patterns(config)
+        except ValueError as error:
+            message = (
+                "unreadable pattern file"
+                if isinstance(error.__cause__, OSError)
+                else str(error)
+            )
+            print(f"site-leak-check: {config}: {message}", file=sys.stderr)
             return 2
         return scan(root, config, args)
     except SnapshotError as error:

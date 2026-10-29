@@ -2091,9 +2091,12 @@ The default-on `site-leak-check` hook loads private gitleaks rules from the
 absolute `$DEVKIT_LEAK_PATTERNS` path, otherwise `.site/leak-patterns.toml`.
 Without a pattern file it exits silently. No patterns ship with devkit.
 Generated hooks update on shell entry; preserved portable hook configs need the
-`site-leak-check` block from the updated workspace template. The hook scans text
-files and needs gitleaks in the development environment. Existing pattern files
-without usable `[[rules]]` are configuration errors (exit 2), not silent no-ops.
+`site-leak-check` block from the updated workspace template. The hook selects
+text files and symlinks with `types: []` and `types_or: [text, symlink]`, clearing
+the runner's default file-only filter. Symlink link text is
+scanned without following or reading its target. It needs gitleaks in the
+development environment. S6 uses S4's shared validator; see the S4 pattern-file
+clarification in the [ADR Amendments](rfcs/ADR-site-agnostic-projects.md#decisions).
 Repository `.gitleaksignore` and `.gitleaks.toml` cannot suppress this hook.
 
 Linked git worktrees, including those made by `just worktree-start`, have no

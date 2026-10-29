@@ -217,7 +217,11 @@ let
         entry = "uv run site-leak-check";
         args = [ "--" ];
         language = "system";
-        types = [ "text" ];
+        types = [ ];
+        types_or = [
+          "text"
+          "symlink"
+        ];
       };
       check = { vigUtils, pkgs, ... }: {
         enable = true;
@@ -225,7 +229,11 @@ let
         entry = "${vigUtils}/bin/site-leak-check --gitleaks ${pkgs.gitleaks}/bin/gitleaks";
         args = [ "--" ];
         language = "system";
-        types = [ "text" ];
+        types = [ ];
+        types_or = [
+          "text"
+          "symlink"
+        ];
       };
       consumer = pkgs: {
         enable = true;
@@ -233,7 +241,11 @@ let
         entry = "${import ./vig-utils.nix pkgs}/bin/site-leak-check --gitleaks ${pkgs.gitleaks}/bin/gitleaks";
         args = [ "--" ];
         language = "system";
-        types = [ "text" ];
+        types = [ ];
+        types_or = [
+          "text"
+          "symlink"
+        ];
       };
     };
     no-hardcoded-endpoints = {

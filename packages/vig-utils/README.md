@@ -290,12 +290,11 @@ leak check; this lint is not a full-history secret scanner.
 
 `site-leak-check` loads `$DEVKIT_LEAK_PATTERNS` (an absolute path), otherwise
 `.site/leak-patterns.toml` at the repository root. Without either, it exits 0
-silently, including on hosted and fork runs. devkit ships no patterns. The file
-uses self-contained gitleaks format: at least one `[[rules]]` entry with a
-nonempty string `id` and either a nonempty `regex` or `path`. Path-only rules
-are valid. Any `[extend]` table, including empty tables and case variants, is
-rejected: patterns cannot load another file or the default ruleset. Present
-files without usable rules also exit 2, naming the file without printing patterns.
+silently, including when an explicitly selected file is missing; that never falls
+back to the local file. devkit ships no patterns. S6 uses
+`vig_utils.site_config.validate_patterns`; the rule is defined once in the
+**S4 pattern-file clarification** in the [ADR Amendments](../../docs/rfcs/ADR-site-agnostic-projects.md#decisions).
+Validation errors exit 2 with the validator's file/key message and no values.
 Keep rule IDs suitable for public logs. Tracked pattern files and files inside
 the worktree outside `.site/` are errors, including through symlinks.
 
@@ -311,14 +310,16 @@ directory scanner. `--all-files` scans tracked and nonignored untracked working-
 files; explicit filenames scan those working-tree files. Only the active,
 untracked pattern file is excluded from selected inputs; selected `.site/`
 files, including force-added bindings, are scanned. Symlinks are committed as
-links; link targets are never scanned.
+links; their link text is scanned as a regular file in the snapshot. Link targets
+are never followed or read through the link.
 This scans current content, not history; use the same config for a history scan.
 
-The hook scans text files only. Filename mode skips files containing a NUL byte,
-even with a text extension; direct staged and `--all-files` scans include them.
-Pre-commit supplies staged text files during commits and all tracked text files
-for `pre-commit run --all-files`. Filename mode catches pure renames that a
-content diff would miss; index snapshots cover renamed paths too. Every hook
+The hook selects text files and symlinks with `types_or: [text, symlink]` and
+`types: []` to clear the runner's default file-only filter. Filename mode skips
+files containing a NUL byte, even with a text extension; direct staged and `--all-files` scans include them.
+Pre-commit supplies staged text files and symlinks during commits, and tracked
+text files and symlinks for `pre-commit run --all-files`. Filename mode catches
+pure renames that a content diff would miss; index snapshots cover renamed paths too. Every hook
 passes `--` before filenames, including names beginning with `-`. Direct CLI
 callers must do the same; `-h` and `--help` are rejected rather than exiting
 successfully without scanning. See the [S6 ADR amendment](../../docs/rfcs/ADR-site-agnostic-projects.md).
@@ -332,6 +333,7 @@ findings and 2 for configuration or scanner errors. Investigate errors locally
 with gitleaks and the private config; those diagnostics can disclose patterns.
 Filesystem errors identify the input path and OS reason without its contents.
 SIGINT, SIGTERM and SIGHUP remove the private snapshot and exit 130, 143 and 129.
+Further termination signals are ignored while cleanup completes.
 Project input syntax is not parsed, so malformed project syntax is harmless.
 
 For an intentional match, use gitleaks' same-line `gitleaks:allow` pragma or the

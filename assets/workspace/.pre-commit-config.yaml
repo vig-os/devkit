@@ -16,7 +16,8 @@ repos:
         entry: uv run site-leak-check
         args: ["--"]
         language: system
-        types: [text]
+        types: []
+        types_or: [text, symlink]
       - id: no-hardcoded-endpoints
         name: no-hardcoded-endpoints
         entry: uv run check-hardcoded-endpoints

@@ -158,6 +158,7 @@ def test_default_hook_on_runner_and_scaffold():
     block = source.split("    site-leak-check = {", 1)[1].split(
         "    no-hardcoded-endpoints = {", 1
     )[0]
+    block = " ".join(block.split())
     assert block.count("enable = true;") == 2
     assert "pkgs.gitleaks" in block
     assert block.count('args = [ "--" ];') == 3
