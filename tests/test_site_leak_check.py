@@ -151,7 +151,7 @@ def test_default_hook_on_runner_and_scaffold():
             if h["id"] == "site-leak-check"
         )
         assert hook["entry"] == "uv run site-leak-check"
-        assert hook.get("types", []) == []
+        assert hook["types"] == []
         assert hook["types_or"] == ["text", "symlink"]
         assert hook["args"] == ["--"]
     source = (ROOT / "nix/hooks.nix").read_text()
@@ -162,7 +162,7 @@ def test_default_hook_on_runner_and_scaffold():
     assert "pkgs.gitleaks" in block
     assert block.count('args = [ "--" ];') == 3
     assert block.count('types_or = [ "text" "symlink" ];') == 3
-    assert 'types = [ "text" ];' not in block
+    assert block.count("types = [ ];") == 3
 
 
 def test_no_patterns_outside_git_is_silent(tmp_path):
@@ -717,7 +717,11 @@ def test_symlink_blob_and_name_are_scanned_without_following(
     config = patterns(repo)
     if path_rule:
         config.write_text('[[rules]]\nid = "fixture-path"\npath = "^data$"\n')
-    (repo / "data").symlink_to("/net/storage.example/share")
+    else:
+        config.write_text(
+            '[[rules]]\nid = "fixture-host"\nregex = "storage[.]example//share"\n'
+        )
+    (repo / "data").symlink_to("/net/storage.example//share")
     git(repo, "add", "data")
     if not mode:
         # Staged mode must use the link's index blob, not the changed worktree.
