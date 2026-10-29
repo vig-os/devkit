@@ -1,10 +1,13 @@
 """ADR §10 site-private gitleaks hook contract."""
 
 import os
+import select
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
@@ -149,12 +152,14 @@ def test_default_hook_on_runner_and_scaffold():
         )
         assert hook["entry"] == "uv run site-leak-check"
         assert hook["types"] == ["text"]
+        assert hook["args"] == ["--"]
     source = (ROOT / "nix/hooks.nix").read_text()
     block = source.split("    site-leak-check = {", 1)[1].split(
         "    no-hardcoded-endpoints = {", 1
     )[0]
     assert block.count("enable = true;") == 2
     assert "pkgs.gitleaks" in block
+    assert block.count('args = [ "--" ];') == 3
 
 
 def test_no_patterns_outside_git_is_silent(tmp_path):
@@ -223,6 +228,14 @@ def installed_hook(repo):
                             [sys.executable, "-m", "vig_utils.site_leak_check"]
                         ),
                         "language": "system",
+                        "args": next(
+                            h.get("args", [])
+                            for r in yaml.safe_load(
+                                (ROOT / ".pre-commit-config.yaml").read_text()
+                            )["repos"]
+                            for h in r["hooks"]
+                            if h["id"] == "site-leak-check"
+                        ),
                         "types": ["text"],
                     }
                 ],
@@ -533,3 +546,194 @@ def test_extension_rejection_matches_gitleaks_case_insensitive_keys(repo, table)
     assert result.returncode == 2
     assert str(config) in result.stderr
     assert "self-contained" in result.stderr
+
+
+@pytest.mark.parametrize("name", ["-h", "--help", "--he", "--all-files"])
+def test_option_like_filenames_cannot_bypass_installed_hook(installed_hook, name):
+    repo = installed_hook
+    patterns(repo)
+    (repo / "d.txt").write_text("storage.example\n")
+    (repo / name).write_text("ordinary content\n")
+    git(repo, "--literal-pathspecs", "add", "--", "d.txt", name)
+    result = commit(repo)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "d.txt:1: fixture-host" in result.stdout + result.stderr
+    assert "storage.example" not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("name", ["-h", "--help", "--he", "--all-files"])
+def test_cli_option_like_names_never_exit_success_without_scanning(repo, name):
+    patterns(repo)
+    (repo / "d.txt").write_text("storage.example\n")
+    git(repo, "add", "d.txt")
+    assert scan(repo, name).returncode != 0
+
+
+@pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM, signal.SIGHUP])
+def test_signals_remove_private_snapshot_without_traceback(repo, tmp_path, signum):
+    patterns(repo)
+    (repo / "d.txt").write_text("storage.example\n")
+    git(repo, "add", "d.txt")
+    temporary = tmp_path / "private-temporary"
+    temporary.mkdir()
+    fifo = tmp_path / "ready"
+    os.mkfifo(fifo)
+    descriptor = os.open(fifo, os.O_RDWR | os.O_NONBLOCK)
+    scanner = tmp_path / "scanner"
+    scanner.write_text(
+        f"#!{sys.executable}\n"
+        "import os, signal\n"
+        "with open(os.environ['READY_FIFO'], 'w') as stream:\n"
+        "    stream.write(os.getcwd() + '\\n')\n"
+        "signal.pause()\n"
+    )
+    scanner.chmod(0o755)
+    process = subprocess.Popen(
+        [sys.executable, "-m", "vig_utils.site_leak_check", "--gitleaks", str(scanner)],
+        cwd=repo,
+        env={**os.environ, "TMPDIR": str(temporary), "READY_FIFO": str(fifo)},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        assert select.select([descriptor], [], [], 20)[0], "scanner did not start"
+        snapshot = Path(os.read(descriptor, 4096).decode().strip())
+        assert (snapshot / "d.txt").read_text() == "storage.example\n"
+        process.send_signal(signum)
+        stdout, stderr = process.communicate(timeout=20)
+        assert process.returncode == 128 + signum, stderr
+        assert "Traceback" not in stdout + stderr
+        assert list(temporary.iterdir()) == []
+    finally:
+        # Only the process group created by this test belongs to us.
+        with suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        process.communicate(timeout=20)
+        os.close(descriptor)
+        shutil.rmtree(temporary)
+
+
+def test_staged_gitlink_bump_is_not_materialized_as_a_blob(repo):
+    old = git(repo, "rev-parse", "HEAD")
+    git(repo, "update-index", "--add", "--cacheinfo", f"160000,{old},module")
+    git(repo, "-c", "core.hooksPath=/dev/null", "commit", "-m", "fixture gitlink")
+    new = git(repo, "rev-parse", "HEAD")
+    git(repo, "update-index", "--cacheinfo", f"160000,{new},module")
+    patterns(repo)
+    result = scan(repo)
+    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+
+
+def test_merge_conflict_stages_are_not_materialized(repo, tmp_path, monkeypatch):
+    from vig_utils import site_leak_check
+
+    oid = git(repo, "hash-object", "-w", ".gitignore")
+    subprocess.run(
+        ["git", "-C", str(repo), "update-index", "--index-info"],
+        input="".join(f"100644 {oid} {stage}\tconflict.txt\n" for stage in (1, 2, 3)),
+        text=True,
+        check=True,
+        capture_output=True,
+    )
+    original = site_leak_check.git
+
+    def index_with_conflict(root, *args):
+        if args[0] == "diff":
+            # Exercise the stage guard independently of the diff-filter guard.
+            return b"conflict.txt\0"
+        assert args[0] != "cat-file", "unmerged stages must never be read"
+        return original(root, *args)
+
+    monkeypatch.setattr(site_leak_check, "git", index_with_conflict)
+    target = tmp_path / "snapshot"
+    target.mkdir()
+    site_leak_check.copy_staged_inputs(repo, target)
+    assert list(target.iterdir()) == []
+
+
+def test_changed_paths_exclude_deletions_and_conflicts(repo):
+    from vig_utils import site_leak_check
+
+    (repo / "deleted.txt").write_text("ordinary\n")
+    git(repo, "add", "deleted.txt")
+    git(repo, "-c", "core.hooksPath=/dev/null", "commit", "-m", "fixture baseline")
+    git(repo, "rm", "deleted.txt")
+    (repo / "added.txt").write_text("ordinary\n")
+    git(repo, "add", "added.txt")
+    oid = git(repo, "hash-object", "-w", ".gitignore")
+    subprocess.run(
+        ["git", "-C", str(repo), "update-index", "--index-info"],
+        input="".join(f"100644 {oid} {stage}\tconflict.txt\n" for stage in (1, 2, 3)),
+        text=True,
+        check=True,
+        capture_output=True,
+    )
+    assert site_leak_check.staged_paths(repo) == {b"added.txt"}
+
+
+@pytest.mark.parametrize(
+    "name", ["../outside", "nested/../../outside", "/outside", ".git/config"]
+)
+def test_index_path_guard_rejects_unsafe_paths(name):
+    from vig_utils import site_leak_check
+
+    with pytest.raises(ValueError, match="invalid index path"):
+        site_leak_check.index_path(name)
+
+
+def test_index_path_guard_accepts_literal_dots():
+    from vig_utils import site_leak_check
+
+    assert site_leak_check.index_path("nested/a..txt") == Path("nested/a..txt")
+
+
+def test_overlong_index_path_has_specific_safe_error(repo):
+    patterns(repo)
+    (repo / "d.txt").write_text("storage.example\n")
+    oid = git(repo, "hash-object", "-w", "d.txt")
+    name = "x" * 300 + ".txt"
+    git(repo, "update-index", "--add", "--cacheinfo", f"100644,{oid},{name}")
+    result = scan(repo)
+    assert result.returncode == 2
+    assert f"cannot materialise staged path {name}" in result.stderr
+    assert "too long" in result.stderr.lower()
+    assert "storage.example" not in result.stdout + result.stderr
+
+
+def test_unreadable_input_has_specific_safe_error(repo, monkeypatch, capsys):
+    import errno
+
+    from vig_utils import site_leak_check
+
+    patterns(repo)
+    source = repo / "d.txt"
+    source.write_text("storage.example\n")
+    original = Path.read_bytes
+
+    def unreadable(path):
+        if path == source:
+            raise PermissionError(errno.EACCES, "Permission denied", str(path))
+        return original(path)
+
+    monkeypatch.setattr(Path, "read_bytes", unreadable)
+    monkeypatch.chdir(repo)
+    monkeypatch.setattr(sys, "argv", ["site-leak-check", "d.txt"])
+    assert site_leak_check.main() == 2
+    output = capsys.readouterr().err
+    assert "cannot read input d.txt" in output
+    assert "permission denied" in output.lower()
+    assert "storage.example" not in output
+
+
+@pytest.mark.parametrize("mode", [(), ("link.txt",), ("--all-files",)])
+def test_committed_symlink_targets_are_never_scanned(repo, tmp_path, mode):
+    patterns(repo)
+    target = tmp_path / "private-target"
+    target.write_text("storage.example\n")
+    (repo / "link.txt").symlink_to(target)
+    git(repo, "add", "link.txt")
+    assert git(repo, "ls-files", "--stage", "link.txt").startswith("120000 ")
+    result = scan(repo, *mode)
+    assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
