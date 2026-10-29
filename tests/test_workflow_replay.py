@@ -20,7 +20,8 @@ def workflow(tmp_path, steps, **job):
     return path
 
 
-def test_isolation_propagation_and_precedence(tmp_path):
+def test_isolation_propagation_and_precedence(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOST_SECRET", "must-not-leak")
     path = workflow(
         tmp_path,
         [
@@ -29,7 +30,7 @@ def test_isolation_propagation_and_precedence(tmp_path):
                 "env": {"BASE": "step"},
                 "run": """
 private=hidden
-printf 'value<<END\none\ntwo\nEND\n' >> "$GITHUB_OUTPUT"
+printf 'plain=scalar\nvalue<<END\none\ntwo\nEND\n' >> "$GITHUB_OUTPUT"
 printf 'LATER<<END\nthree\nfour\nEND\n' >> "$GITHUB_ENV"
 test "${LATER-unset}" = unset
 printf '%s' "$BASE" >> "$GITHUB_STEP_SUMMARY"
@@ -51,7 +52,7 @@ printf '%s|%s' "$PREVIOUS" "$LATER"
     replay = Replay(path, "test", {}, cwd=tmp_path)
     result = replay.run()
     assert result[0]["summary"] == "step"
-    assert result[0]["outputs"] == {"value": "one\ntwo"}
+    assert result[0]["outputs"] == {"plain": "scalar", "value": "one\ntwo"}
     assert result[1]["stdout"] == "one\ntwo|three\nfour"
 
 
@@ -141,43 +142,22 @@ def test_real_pre_n_env_and_selection(tmp_path):
         Replay(path, "test", {}).run(only=["typo"])
 
 
-def test_cli(tmp_path):
+@pytest.mark.parametrize("job, expected", [("test", 0), ("absent", 2)])
+def test_cli(tmp_path, job, expected):
     path = workflow(
         tmp_path,
         [{"run": 'cat "$GITHUB_EVENT_PATH"; echo summary >> "$GITHUB_STEP_SUMMARY"'}],
     )
     context = tmp_path / "context.json"
     context.write_text(json.dumps({"github": {"event": {"action": "test"}}}))
+    command = [sys.executable, "-m", "tests.workflow_replay", str(path), job]
+    command += ["--context", str(context), "--cwd", str(tmp_path)]
     process = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "tests.workflow_replay",
-            str(path),
-            "test",
-            "--context",
-            str(context),
-            "--cwd",
-            str(tmp_path),
-        ],
+        command,
         capture_output=True,
         text=True,
         check=False,
     )
-    assert process.returncode == 0, process.stderr
-    assert json.loads(json.loads(process.stdout)[0]["stdout"]) == {"action": "test"}
-    process = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "tests.workflow_replay",
-            str(path),
-            "absent",
-            "--context",
-            str(context),
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert process.returncode == 2
+    assert process.returncode == expected, process.stderr
+    if expected == 0:
+        assert json.loads(json.loads(process.stdout)[0]["stdout"]) == {"action": "test"}

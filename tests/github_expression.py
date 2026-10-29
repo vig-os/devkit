@@ -134,7 +134,15 @@ class _Parser:
             self.take("(")
             node = (token.lower(), position, self.expression())
             self.take(")")
-        elif token.lower() in {"vars", "github", "needs", "inputs", "secrets"}:
+        elif token.lower() in {
+            "vars",
+            "github",
+            "needs",
+            "inputs",
+            "secrets",
+            "steps",
+            "env",
+        }:
             node = ("context", position, token)
         elif token in {"true", "false", "null"}:
             node = ("literal", position, json.loads(token))
