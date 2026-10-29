@@ -89,6 +89,7 @@ def test_rejects(expr):
 
 
 def test_render():
+    assert render("n=${{ 1.0 }}", {}) == "n=1"
     assert render("${{ fromJSON('[1,2]') }}", {}) == [1, 2]
     assert render("runner-${{ 'A' }}-${{ null }}-${{ true }}", {}) == "runner-A--true"
     assert render("${{ '}}' }}", {}) == "}}"
