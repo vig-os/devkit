@@ -7,6 +7,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import time
 from contextlib import suppress
 from pathlib import Path
 
@@ -819,3 +820,132 @@ def test_missing_explicit_patterns_are_silent_without_falling_back(repo, tmp_pat
     missing = tmp_path / "missing-patterns.toml"
     result = scan(repo, DEVKIT_LEAK_PATTERNS=str(missing))
     assert (result.returncode, result.stdout, result.stderr) == (0, "", "")
+
+
+@pytest.mark.parametrize("to_link", [False, True])
+def test_staged_type_changes_scan_new_index_blob(repo, to_link):
+    source = repo / "data"
+    if to_link:
+        source.write_text("ordinary\n")
+    else:
+        source.symlink_to("/ordinary")
+    git(repo, "add", "data")
+    git(repo, "-c", "core.hooksPath=/dev/null", "commit", "-m", "fixture baseline")
+    source.unlink()
+    if to_link:
+        source.symlink_to("/net/storage.example/share")
+    else:
+        source.write_text("storage.example\n")
+    git(repo, "add", "data")
+    assert git(repo, "diff", "--cached", "--name-status") == "T\tdata"
+    patterns(repo)
+    result = scan(repo)
+    assert result.returncode == 1, result.stderr
+    assert "data:1: fixture-host" in result.stderr
+    assert "storage.example" not in result.stdout + result.stderr
+
+
+def test_many_index_blobs_use_one_batch_process(repo, tmp_path, monkeypatch):
+    from vig_utils import site_leak_check
+
+    expected = {}
+    for number in range(256):
+        name = f"nested/{number}.txt"
+        data = f"fixture {number}\n".encode() + b"\0\nlast" + bytes([number])
+        source = repo / name
+        source.parent.mkdir(exist_ok=True)
+        source.write_bytes(data)
+        expected[name] = data
+    git(repo, "add", "nested")
+    original = subprocess.Popen
+    commands = []
+
+    def record(command, *args, **kwargs):
+        commands.append(command)
+        return original(command, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", record)
+    target = tmp_path / "snapshot"
+    target.mkdir()
+    site_leak_check.copy_staged_inputs(repo, target)
+    assert {
+        str(path.relative_to(target)): path.read_bytes()
+        for path in target.rglob("*.txt")
+    } == expected
+    readers = [command for command in commands if "cat-file" in command]
+    assert len(readers) == 1, f"expected one blob reader, got {len(readers)}"
+    assert "--batch" in readers[0]
+
+
+@pytest.mark.parametrize("mode", [(), ("--all-files",)])
+@pytest.mark.parametrize("outcome", ["clean", "findings", "error"])
+def test_signals_during_normal_cleanup_are_deferred_until_tree_is_deleted(
+    repo, tmp_path, mode, outcome
+):
+    patterns(repo)
+    (repo / "d.txt").write_text(
+        "ordinary\n" if outcome == "clean" else "storage.example\n"
+    )
+    git(repo, "add", "d.txt")
+    temporary = tmp_path / "private-temporary"
+    temporary.mkdir()
+    ready, release = tmp_path / "ready", tmp_path / "release"
+    for fifo in (ready, release):
+        os.mkfifo(fifo)
+    ready_fd = os.open(ready, os.O_RDWR | os.O_NONBLOCK)
+    release_fd = os.open(release, os.O_RDWR | os.O_NONBLOCK)
+    marker = tmp_path / "cleaned"
+    driver = tmp_path / "pause_cleanup.py"
+    driver.write_text(
+        "import os, tempfile\n"
+        "from pathlib import Path\n"
+        "from vig_utils import site_leak_check\n"
+        "original = tempfile.TemporaryDirectory.cleanup\n"
+        "def cleanup(self):\n"
+        "    assert (Path(self.name) / 'tree/d.txt').is_file()\n"
+        "    with open(os.environ['READY_FIFO'], 'w') as stream:\n"
+        "        stream.write(self.name + '\\n')\n"
+        "    with open(os.environ['RELEASE_FIFO']) as stream:\n"
+        "        stream.read(1)\n"
+        "    original(self)\n"
+        "    Path(os.environ['CLEANED_MARKER']).write_text('cleaned')\n"
+        "tempfile.TemporaryDirectory.cleanup = cleanup\n"
+        "raise SystemExit(site_leak_check.main())\n"
+    )
+    scanner = ["--gitleaks", "/nonexistent/gitleaks"] if outcome == "error" else []
+    process = subprocess.Popen(
+        [sys.executable, str(driver), *mode, *scanner],
+        cwd=repo,
+        env={
+            **os.environ,
+            "TMPDIR": str(temporary),
+            "READY_FIFO": str(ready),
+            "RELEASE_FIFO": str(release),
+            "CLEANED_MARKER": str(marker),
+        },
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        assert select.select([ready_fd], [], [], 20)[0], "cleanup did not begin"
+        snapshot = Path(os.read(ready_fd, 4096).decode().strip())
+        assert (snapshot / "tree/d.txt").exists()
+        process.send_signal(signal.SIGTERM)
+        time.sleep(0.01)  # Cleanup remains paused; signal delivery is deterministic.
+        process.send_signal(signal.SIGHUP)
+        os.write(release_fd, b"x")
+        stdout, stderr = process.communicate(timeout=20)
+        assert process.returncode in {129, 143}, stderr
+        assert marker.read_text() == "cleaned", "signal interrupted deletion"
+        assert list(temporary.iterdir()) == []
+        assert "Traceback" not in stdout + stderr
+        assert "storage.example" not in stdout + stderr
+    finally:
+        with suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        process.communicate(timeout=20)
+        os.close(ready_fd)
+        os.close(release_fd)
+        shutil.rmtree(temporary)
