@@ -3,6 +3,9 @@
 Runner source: https://github.com/actions/runner/tree/main/src/Sdk/DTExpressions2/Expressions2
 Tokens/LexicalAnalyzer.cs: lowercase keywords; ExpressionConstants.cs: G15,
 case-insensitive functions; Sdk/ExpressionUtility.cs: ParseNumber hex coercion.
+toJSON layout and G15 scalars: runner Sdk/Functions/ToJson.cs, WriteValue,
+PrefixValue and WriteArrayEnd/WriteMappingEnd:
+https://github.com/actions/runner/blob/main/src/Sdk/DTExpressions2/Expressions2/Sdk/Functions/ToJson.cs
 """
 
 import json
@@ -13,7 +16,7 @@ import pytest
 import yaml
 
 from tests import github_expression
-from tests.github_expression import evaluate, render
+from tests.github_expression import evaluate, render, render_input
 from tests.workflow_scaffold import WORKFLOWS
 
 
@@ -186,11 +189,13 @@ def test_shipped_workflows(event, configured):
                         if configured and event != "fork"
                         else "ubuntu-26.04"
                     )
+            for value in job.get("with", {}).values():
+                render_input(value, context)
             for step in job.get("steps", []):
                 if "resolve-toolchain" in step.get("uses", ""):
                     resolves += 1
                     for value in step.get("with", {}).values():
-                        render(value, context)
+                        render_input(value, context)
     assert runs and resolves and predicates
 
 
@@ -284,3 +289,29 @@ def test_workflow_mutations(tmp_path, monkeypatch, mutation):
     monkeypatch.setitem(test_shipped_workflows.__globals__, "WORKFLOWS", tmp_path)
     with pytest.raises(AssertionError if mutation == "fork" else ValueError):
         test_shipped_workflows("fork", True)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (
+            {"a": 1, "nested": [True, None, {}]},
+            '{\n  "a": 1,\n  "nested": [\n    true,\n    null,\n    {}\n  ]\n}',
+        ),
+        ([1, 2], "[\n  1,\n  2\n]"),
+        ({}, "{}"),
+        ([], "[]"),
+        ('say "café 🌍"\n', '"say \\"café 🌍\\"\\n"'),
+        (None, "null"),
+        (True, "true"),
+        (False, "false"),
+        (1.0, "1"),
+        (1e20, "1E+20"),
+        (1.2345678901234567, "1.23456789012346"),
+    ],
+)
+@pytest.mark.parametrize("function", ["toJSON", "toJson", "TOJSON"])
+def test_to_json(value, expected, function):
+    assert (
+        evaluate(f"{function}(inputs.value)", {"inputs": {"value": value}}) == expected
+    )
