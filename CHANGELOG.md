@@ -63,6 +63,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Project shells leave the agent CLI to the machine** ([#1967](https://github.com/vig-os/devkit/issues/1967))
+  - Repositories relying on the dev-shell's `claude` must install it machine-wide (or via the home module), or set `withAgentCli = true`; consumers of devkit's own `devShells` output can select `#with-agent-cli`.
+  - Opting in shadows any system `claude` wrapper. Home modules and the container image retain the CLI.
+
 - **Rewrite the self-hosted CI runner migration guide** ([#1933](https://github.com/vig-os/devkit/issues/1933))
   - `docs/MIGRATION.md`'s "Run CI on self-hosted runners" section now documents the shipped `CI_RUNNER_SMALL`/`LARGE`/`XLARGE` variables, the per-lane `DEVKIT_CI_LANE_SIZES` override, fork safety (including the private-fork remedy) and the full N/N+1/N+2 deprecation timeline, replacing the stale description of the deprecated `DEVKIT_CI_RUNNER`-only mechanism
   - Add "CI never starts on a private repo" and whitespace-only `CI_RUNNER_SMALL` symptom entries, and scrub the site-specific example label from the section and the manifest key table

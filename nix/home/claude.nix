@@ -12,7 +12,7 @@
 # The user-owned ~/.claude/CLAUDE.md gets a single `@vigos.md` import line
 # seeded (created if missing, appended once if absent — Claude Code itself
 # writes to this file via the memory feature, so it is never overwritten).
-# Packages: none — claude-code, nodejs, uv ship via vigos.packages/devTools.
+# Packages: none — claude-code, nodejs, uv ship via vigos.packages (devTools + agent-tools).
 # Org defaults pre-authorize nothing (no permission modes in the seed).
 {
   config,
