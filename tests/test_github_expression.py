@@ -1,4 +1,9 @@
-"""GitHub semantics: https://docs.github.com/en/actions/reference/workflows-and-actions/expressions."""
+"""GitHub semantics: https://docs.github.com/en/actions/reference/workflows-and-actions/expressions.
+
+Runner source: https://github.com/actions/runner/tree/main/src/Sdk/DTExpressions2/Expressions2
+Tokens/LexicalAnalyzer.cs: lowercase keywords; ExpressionConstants.cs: G15,
+case-insensitive functions; Sdk/ExpressionUtility.cs: ParseNumber hex coercion.
+"""
 
 import json
 import subprocess
@@ -7,6 +12,7 @@ import sys
 import pytest
 import yaml
 
+from tests import github_expression
 from tests.github_expression import evaluate, render
 from tests.workflow_scaffold import WORKFLOWS
 
@@ -28,6 +34,13 @@ from tests.workflow_scaffold import WORKFLOWS
         ("!fromJSON('[]')", False),
         ("!fromJSON('{}')", False),
         ("'HELLO' == 'hello'", True),
+        ("'ß' == 'SS'", False),
+        ("vars.ci_runner_small", "pool-s"),
+        ("VARS.Ci_Runner_Small", "pool-s"),
+        ('fromJSON(\'{"Small":"x"}\').small', "x"),
+        ("fromJson('true')", True),
+        ("FROMJSON('null')", None),
+        ("'0x10' == 16", True),
         ("'a' != 'A'", False),
         ("1 != 2", True),
         ("null == false", True),
@@ -73,6 +86,14 @@ def test_values(expr, expected):
         "true garbage",
         "(true",
         "fromJSON('bad')",
+        "fromJSON('NaN')",
+        "fromJSON('Infinity')",
+        "fromJSON('-Infinity')",
+        "fromJSON('{\"a\":NaN}')",
+        'fromJSON(\'{"Small":1,"small":2}\').small',
+        "True",
+        "FALSE",
+        "Null",
         "unknown.x",
         "true || contains('a','a')",
         "false && vars.*.x",
@@ -171,3 +192,95 @@ def test_shipped_workflows(event, configured):
                     for value in step.get("with", {}).values():
                         render(value, context)
     assert runs and resolves and predicates
+
+
+def test_context_ambiguity():
+    for context in ({"vars": {"x": 1, "X": 2}}, {"vars": {}, "VARS": {}}):
+        with pytest.raises(ValueError, match="[Aa]mbiguous"):
+            evaluate("vars.x", context)
+
+
+def test_nan_falsiness():
+    assert evaluate("!inputs.x", {"inputs": {"x": float("nan")}}) is True
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("${{ null }}", ""),
+        ("${{ true }}", "true"),
+        ("${{ false }}", "false"),
+        ("${{ 1.0 }}", "1"),
+        ("${{ 1e20 }}", "1E+20"),
+        ("${{ 1.2345678901234567 }}", "1.23456789012346"),
+        ("${{ 0.00001 }}", "1E-05"),
+        (7, "7"),
+        (False, "false"),
+    ],
+)
+def test_render_input(value, expected):
+    assert github_expression.render_input(value, {}) == expected
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "contains('x','x')",
+        "prefix ${{ contains('x','x') }}",
+        "a ${{ true }} b ${{ format('x') }}",
+    ],
+)
+def test_error_positions(value):
+    function = "contains" if "contains" in value else "format"
+    with pytest.raises(ValueError) as error:
+        (render if "${{" in value else evaluate)(value, {})
+    assert repr(value) in str(error.value)
+    assert f"position {value.index(function)}" in str(error.value)
+
+
+@pytest.mark.parametrize("contents", [None, "directory", "[]", "null", "7", "invalid"])
+def test_cli_context_errors(tmp_path, contents):
+    path = tmp_path / "context.json"
+    if contents == "directory":
+        path.mkdir()
+    elif contents is not None:
+        path.write_text(contents)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "tests.github_expression",
+            "--context",
+            str(path),
+            "--expr",
+            "true",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 2
+    assert "error:" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("mutation", ["fork", "reusable"])
+def test_workflow_mutations(tmp_path, monkeypatch, mutation):
+    # Mutate copies, leaving managed workflows untouched. Both must trip the gate.
+    for path in WORKFLOWS.glob("*.yml"):
+        data = yaml.safe_load(path.read_text())
+        if mutation == "fork" and path.name == "sync-issues.yml":
+            job = next(
+                job
+                for job in data["jobs"].values()
+                if "github.event.pull_request" in str(job.get("runs-on", ""))
+            )
+            job["runs-on"] = (
+                "${{ (github.event.pull_request.head.repo.fork && vars.ci_runner_small) || (!github.event.pull_request.head.repo.fork && vars.CI_RUNNER_SMALL) || 'ubuntu-26.04' }}"
+            )
+        if mutation == "reusable" and path.name == "release.yml":
+            job = next(job for job in data["jobs"].values() if "uses" in job)
+            job.setdefault("with", {})["runners"] = "${{ contains('x','x') }}"
+        (tmp_path / path.name).write_text(yaml.safe_dump(data))
+    monkeypatch.setitem(test_shipped_workflows.__globals__, "WORKFLOWS", tmp_path)
+    with pytest.raises(AssertionError if mutation == "fork" else ValueError):
+        test_shipped_workflows("fork", True)
