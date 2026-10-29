@@ -855,8 +855,8 @@ silent move would turn into queued or rejected jobs that point at nothing.
     The same gitleaks config drives the full-history scan in the checklist.
   - **Runs** the gitleaks directory scanner with `--config <file> --redact`
     over isolated snapshots. With no filenames, the CLI reads raw index blobs
-    at added, copied, modified and renamed paths. Hook-supplied filenames
-    scan selected working-tree files (pre-commit supplies its staged snapshot
+    at added, copied, modified, renamed and type-changed paths. Hook-supplied
+    filenames scan selected working-tree files (pre-commit supplies its staged snapshot
     during commits); `--all-files` scans the nonignored working tree.
     Symlink link text becomes regular snapshot content; targets are never
     followed or read through the link. Hooks select `types_or: [text, symlink]`.
@@ -918,8 +918,9 @@ The rejected options are kept with the costs that ruled them out.
   no change to accepted decisions.
 
 - **2026-10-29, S6 clarification (#1932):** staged CLI mode scans full raw
-  index blobs for changed regular files and symlinks, bypassing Git
-  diff/checkout filters; deleted paths, unmerged stages and gitlinks are excluded.
+  index blobs for changed regular files and symlinks, including type changes,
+  through one batch reader without Git diff/checkout filters; deleted paths,
+  unmerged stages and gitlinks are excluded.
   Symlinks contribute link text, never target content, in every scan mode. Every
   hook entry passes `--` before filenames. Direct callers use the same delimiter
   for option-looking names; help options cannot bypass scanning.

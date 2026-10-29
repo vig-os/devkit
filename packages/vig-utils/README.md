@@ -304,8 +304,9 @@ operator provisions its own `.site/leak-patterns.toml` or sets the absolute
 `DEVKIT_LEAK_PATTERNS` path in its environment.
 
 With no arguments, the CLI snapshots full index contents at added, copied,
-modified and renamed paths; deleted and untouched paths are skipped. Raw blobs
-bypass attributes, textconv and checkout filters. All modes use the same gitleaks
+modified, renamed and type-changed paths; deleted and untouched paths are skipped.
+A single `git cat-file --batch` reader streams raw blobs without attributes,
+textconv or checkout filters. All modes use the same gitleaks
 directory scanner. `--all-files` scans tracked and nonignored untracked working-tree
 files; explicit filenames scan those working-tree files. Only the active,
 untracked pattern file is excluded from selected inputs; selected `.site/`
@@ -333,7 +334,8 @@ findings and 2 for configuration or scanner errors. Investigate errors locally
 with gitleaks and the private config; those diagnostics can disclose patterns.
 Filesystem errors identify the input path and OS reason without its contents.
 SIGINT, SIGTERM and SIGHUP remove the private snapshot and exit 130, 143 and 129.
-Further termination signals are ignored while cleanup completes.
+Termination signals are blocked during deletion on every exit path, then
+honoured after the private snapshot is gone.
 Project input syntax is not parsed, so malformed project syntax is harmless.
 
 For an intentional match, use gitleaks' same-line `gitleaks:allow` pragma or the

@@ -84,26 +84,39 @@ def write_snapshot(target: Path, relative: Path, data: bytes, *, staged: bool) -
 
 
 @contextmanager
-def snapshot_signals():
-    """Unwind private snapshots on termination, then restore caller handlers."""
-
+def private_snapshot():
+    """Own the snapshot and defer termination until protected deletion finishes."""
     handled = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+    received = None
+    cleaning = False
 
     def terminate(signum, _frame):
-        # Block delivery while atomically switching all termination signals to
-        # ignored; another signal must not interrupt TemporaryDirectory cleanup.
-        mask = signal.pthread_sigmask(signal.SIG_BLOCK, handled)
-        for caught in handled:
-            signal.signal(caught, signal.SIG_IGN)
-        signal.pthread_sigmask(signal.SIG_SETMASK, mask)
-        raise SystemExit(128 + signum)
+        nonlocal received
+        if received is None:
+            received = signum
+        if not cleaning:
+            raise SystemExit(128 + received)
 
     previous = {signum: signal.signal(signum, terminate) for signum in handled}
+    directory = None
     try:
-        yield
+        directory = tempfile.TemporaryDirectory(prefix="site-leak-check-")
+        yield Path(directory.name)
     finally:
-        for signum, handler in previous.items():
-            signal.signal(signum, handler)
+        cleaning = True
+        mask = signal.pthread_sigmask(signal.SIG_BLOCK, handled)
+        try:
+            if directory is not None:
+                directory.cleanup()
+        finally:
+            try:
+                # Pending signals run our recording handler only after deletion.
+                signal.pthread_sigmask(signal.SIG_SETMASK, mask)
+            finally:
+                for signum, handler in previous.items():
+                    signal.signal(signum, handler)
+        if received is not None:
+            raise SystemExit(128 + received)
 
 
 def copy_inputs(
@@ -137,7 +150,7 @@ def copy_inputs(
 
 
 def staged_paths(root: Path) -> set[bytes]:
-    """Select added, copied, modified and renamed index paths."""
+    """Select added, copied, modified, renamed and type-changed index paths."""
     return set(
         git(
             root,
@@ -145,7 +158,7 @@ def staged_paths(root: Path) -> set[bytes]:
             "--cached",
             "--name-only",
             "-z",
-            "--diff-filter=ACMR",
+            "--diff-filter=ACMRT",
             "--no-ext-diff",
             "--no-textconv",
         ).split(b"\0")
@@ -165,25 +178,48 @@ def index_path(name: str) -> Path:
     return relative
 
 
+def read_blob(process: subprocess.Popen, oid: bytes) -> bytes:
+    """Read one exact-size raw blob from the persistent cat-file batch stream."""
+    process.stdin.write(oid + b"\n")
+    process.stdin.flush()
+    header = process.stdout.readline().split()
+    if len(header) != 3 or header[:2] != [oid, b"blob"]:
+        raise SnapshotError("cannot read staged blob")
+    size = int(header[2])
+    data = process.stdout.read(size)
+    if len(data) != size or process.stdout.read(1) != b"\n":
+        raise SnapshotError("cannot read staged blob")
+    return data
+
+
 def copy_staged_inputs(root: Path, target: Path) -> None:
-    """Materialize changed index blobs without diff or checkout conversion."""
+    """Materialize changed index blobs through one raw cat-file batch process."""
     changed = staged_paths(root)
     if not changed:
         return
-    for entry in git(root, "ls-files", "--stage", "-z").split(b"\0"):
-        if not entry:
-            continue
-        metadata, name = entry.split(b"\t", 1)
-        mode, oid, stage = metadata.split()
-        if (
-            name not in changed
-            or stage != b"0"
-            or mode not in {b"100644", b"100755", b"120000"}
-        ):
-            continue
-        relative = index_path(os.fsdecode(name))
-        data = git(root, "cat-file", "blob", oid.decode("ascii"))
-        write_snapshot(target, relative, data, staged=True)
+    entries = git(root, "ls-files", "--stage", "-z").split(b"\0")
+    with subprocess.Popen(
+        ["git", "-C", str(root), "cat-file", "--batch"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+    ) as process:
+        for entry in entries:
+            if not entry:
+                continue
+            metadata, name = entry.split(b"\t", 1)
+            mode, oid, stage = metadata.split()
+            if (
+                name not in changed
+                or stage != b"0"
+                or mode not in {b"100644", b"100755", b"120000"}
+            ):
+                continue
+            relative = index_path(os.fsdecode(name))
+            write_snapshot(target, relative, read_blob(process, oid), staged=True)
+        process.stdin.close()
+        if process.wait():
+            raise SnapshotError("cannot read staged blobs")
 
 
 def scan_commands(root: Path, temporary: Path, args: argparse.Namespace, config: Path):
@@ -230,11 +266,7 @@ def publish_findings(report: Path, tree: Path) -> int:
 
 def scan(root: Path, config: Path, args: argparse.Namespace) -> int:
     """Run gitleaks without forwarding its potentially private diagnostics."""
-    with (
-        snapshot_signals(),
-        tempfile.TemporaryDirectory(prefix="site-leak-check-") as directory,
-    ):
-        temporary = Path(directory)
+    with private_snapshot() as temporary:
         report = temporary / "report.json"
         ignore = temporary / ".gitleaksignore"
         ignore.write_text("")

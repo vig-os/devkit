@@ -21,8 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     success when no site patterns exist and redacted finding diagnostics.
   - Prevent repository ignore/config bypasses, scan force-added site bindings,
     and reject present pattern files without usable rules.
-  - Scan raw index snapshots despite Git attributes and use S4's shared pattern
-    validator, preserving its safe configuration-error messages.
+  - Stream raw index snapshots, including type changes, through one Git batch
+    reader despite Git attributes; share S4's safe pattern validation.
   - Block option-looking filename bypasses, clean private snapshots on termination,
     and report filesystem failures with paths and OS reasons without file contents.
   - Scan symlink link text without reading targets and finish snapshot cleanup
