@@ -37,6 +37,23 @@
 
 set -euo pipefail
 
+# Migration environment contract (ADR §6): the only additional names forwarded
+# into either isolated scaffold environment. Values remain data, never commands.
+UPGRADE_ENV_NAMES=(
+    DEVKIT_UPGRADE_CI_RUNNER_SMALL
+    DEVKIT_UPGRADE_CI_RUNNER_LARGE
+    DEVKIT_UPGRADE_CI_RUNNER_XLARGE
+    DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER
+    DEVKIT_UPGRADE_REPO_PRIVATE
+    DEVKIT_UPGRADE_CONTEXT
+)
+UPGRADE_ENV=()
+UPGRADE_CONTAINER_ENV=()
+for upgrade_name in "${UPGRADE_ENV_NAMES[@]}"; do
+    UPGRADE_ENV+=("$upgrade_name=${!upgrade_name-}")
+    UPGRADE_CONTAINER_ENV+=(-e "$upgrade_name=${!upgrade_name-}")
+done
+
 # Configuration
 REGISTRY="ghcr.io/vig-os/devcontainer"
 VERSION="latest"
@@ -888,7 +905,7 @@ host_scaffold() {
     # Started from the scratch dir, never the caller's cwd: the dev-shell hooks
     # (core.hooksPath, the version-skew warning) act on the repo they start in.
     (cd "$scratch" && nix --extra-experimental-features "nix-command flakes" develop "path:$src" -c \
-        sh -c 'exec env -i PATH="$PATH" "$@"' sh HOME="$HOME" TERM="${TERM:-dumb}" \
+        sh -c 'exec env -i PATH="$PATH" "$@"' sh HOME="$HOME" TERM="${TERM:-dumb}" "${UPGRADE_ENV[@]}" \
         ${LANG:+LANG="$LANG"} ${TMPDIR:+TMPDIR="$TMPDIR"} \
         SHORT_NAME="$PROJECT_NAME" ORG_NAME="$ORG_NAME" \
         GITHUB_REPOSITORY="$GITHUB_REPOSITORY" VIG_OS_VERSION="$tag" \
@@ -1023,6 +1040,7 @@ fi
 # variables to the container.
 declare -a CMD=(
     "$RUNTIME" run --rm
+    "${UPGRADE_CONTAINER_ENV[@]}"
     -e "SHORT_NAME=$PROJECT_NAME"
     -e "ORG_NAME=$ORG_NAME"
     -e "GITHUB_REPOSITORY=$GITHUB_REPOSITORY"

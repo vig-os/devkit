@@ -225,6 +225,12 @@ jobs:
         id: upgrade
         if: steps.resolve.outputs.proceed == 'true'
         env:
+          DEVKIT_UPGRADE_CONTEXT: '1'
+          DEVKIT_UPGRADE_CI_RUNNER_SMALL: ${{ vars.CI_RUNNER_SMALL }}
+          DEVKIT_UPGRADE_CI_RUNNER_LARGE: ${{ vars.CI_RUNNER_LARGE }}
+          DEVKIT_UPGRADE_CI_RUNNER_XLARGE: ${{ vars.CI_RUNNER_XLARGE }}
+          DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER }}
+          DEVKIT_UPGRADE_REPO_PRIVATE: ${{ github.event.repository.private }}
           TARGET: ${{ steps.resolve.outputs.target }}
           # Authenticated github: flake fetches (an anonymous fetch shares the
           # runner IP's API rate limit); never echoed.
@@ -270,6 +276,16 @@ jobs:
           echo "flake-bump=${FLAKE_BUMP}" >> "$GITHUB_OUTPUT"
           if [ -n "$FLAKE_BUMP" ]; then
             echo "- ${FLAKE_BUMP}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # Separate migration channel: pre-N workflows deliberately ignore it.
+          CI_RUNNER_MIGRATION="$(grep -E '^ci-runner-migration:' "$RUNNER_TEMP/install.log" || true)"
+          {
+            echo "ci-runner-migration<<DEVKIT_EOF"
+            if [ -n "$CI_RUNNER_MIGRATION" ]; then printf '%s\n' "$CI_RUNNER_MIGRATION"; fi
+            echo "DEVKIT_EOF"
+          } >> "$GITHUB_OUTPUT"
+          if [ -n "$CI_RUNNER_MIGRATION" ]; then
+            printf '\n### CI runner migration\n\n%s\n' "$CI_RUNNER_MIGRATION" >> "$GITHUB_STEP_SUMMARY"
           fi
           # Known-bad blocks in a PRESERVED config (#1652): the scaffold cannot
           # rewrite a consumer-owned file (#878), so a hook fix never reaches
@@ -428,6 +444,7 @@ jobs:
           FLAKE_BUMP: ${{ steps.upgrade.outputs.flake-bump }}
           HOOK_DRIFT: ${{ steps.upgrade.outputs.hook-drift }}
           HOOK_RECONCILE: ${{ steps.upgrade.outputs.hook-reconcile }}
+          CI_RUNNER_MIGRATION: ${{ steps.upgrade.outputs.ci-runner-migration }}
           # PR base per workflow model (retargeted dev -> main at scaffold time).
           BASE: dev
         run: |
@@ -447,13 +464,16 @@ jobs:
           # they review the adoption.
           # shellcheck disable=SC2016  # backticks are literal Markdown code spans, not command substitution
           if [ -n "$HOOK_DRIFT" ]; then
-            BODY="$(printf '%s\n**Preserved config keeps a retired hook block** — the upgrade cannot rewrite a consumer-owned file; fold these in by hand (see MIGRATION.md):\n\n```\n%s\n```\n' "$BODY" "$HOOK_DRIFT")"
+            BODY="$(printf '%s\n**Preserved hook config needs review** — customised or retired content was preserved; review these findings by hand (see MIGRATION.md):\n\n```\n%s\n```\n' "$BODY" "$HOOK_DRIFT")"
           fi
           # Reconciled blocks (#1654): this upgrade DID rewrite the preserved
           # hook config. Say so where the diff is reviewed, next to the hunk.
           # shellcheck disable=SC2016  # backticks are literal Markdown code spans, not command substitution
           if [ -n "$HOOK_RECONCILE" ]; then
-            BODY="$(printf '%s\n**Preserved hook config reconciled** — the upgrade rewrote `.pre-commit-config.yaml`; review the hunk (see MIGRATION.md):\n\n```\n%s\n```\n' "$BODY" "$HOOK_RECONCILE")"
+            BODY="$(printf '%s\n**Preserved hook config reconciled** — the upgrade reconciled stock content in the listed files; review the hunks (see MIGRATION.md):\n\n```\n%s\n```\n' "$BODY" "$HOOK_RECONCILE")"
+          fi
+          if [ -n "$CI_RUNNER_MIGRATION" ]; then
+            BODY="$(printf '%s\n\n### CI runner migration\n\n%s\n' "$BODY" "$CI_RUNNER_MIGRATION")"
           fi
           if gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
             gh pr edit "$BRANCH" --title "$TITLE" --body "$BODY"

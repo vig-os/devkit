@@ -4381,6 +4381,179 @@ render_actionlint_optout
 # anchors intact when the feature is enabled.
 render_release_optout
 
+upgrade_has_runner_variable() {
+    local name="DEVKIT_UPGRADE_CI_RUNNER_${1^^}" value
+    value="${!name-}"
+    [[ "${DEVKIT_UPGRADE_CONTEXT:-}" == 1 && "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]]
+}
+
+# The upgrade's variables are authoritative only with its explicit CI context.
+# No API lookup: an older default-branch workflow (or local install) knows none.
+migrate_ci_runner_key() {
+    local size entry classes="small" missing="" commands="" visible="" availability="missing or invalid variables"
+    local -a overrides=()
+    IFS=',' read -ra overrides <<< "$MANIFEST_CI_LANE_SIZES"
+    for entry in "${overrides[@]}"; do
+        size="${entry#*=}"
+        size="${size//[[:space:]]/}"
+        case " $classes " in
+            *" $size "*) ;;
+            *) classes+=" $size" ;;
+        esac
+    done
+    for size in small large xlarge; do
+        if upgrade_has_runner_variable "$size"; then
+            visible+=" $size"
+        fi
+    done
+    for size in $classes; do
+        if [[ " $visible " != *" $size "* ]]; then
+            missing+=" CI_RUNNER_${size^^}"
+            commands+=" gh variable set CI_RUNNER_${size^^} --body <label>;"
+        fi
+    done
+    if [[ -n "$MANIFEST_CI_RUNNER" ]]; then
+        if [[ -z "$missing" ]]; then
+            echo "ci-runner-migration: DEVKIT_CI_RUNNER removed from .vig-os; runners now come from variables for every required class; nothing to do."
+        else
+            write_manifest_value DEVKIT_CI_RUNNER "$MANIFEST_CI_RUNNER"
+            if [[ "${DEVKIT_UPGRADE_CONTEXT:-}" != 1 ]]; then availability="variables unknown (no CI upgrade context); required variables"; fi
+            echo "ci-runner-migration: DEVKIT_CI_RUNNER kept; $availability:$missing; set them at repository level on private GitHub Free repos.$commands Until N+2 the key keeps working; after that CI fails until the required variables are set. Then delete the key. See MIGRATION.md#seeded-hook-runner-migration."
+        fi
+    elif [[ "${DEVKIT_UPGRADE_CONTEXT:-}" == 1 ]]; then
+        if [[ -n "${DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER:-}" ]]; then
+            if [[ "$CI_RUNNER_HOOKS_RECONCILED" == true ]]; then
+                echo "ci-runner-migration: Set CI_RUNNER_SMALL in place of DEVKIT_CI_RESOLVE_RUNNER, then delete the old variable; every seeded hook job is reconciled. See MIGRATION.md#seeded-hook-runner-migration."
+            else
+                echo "ci-runner-migration: Set CI_RUNNER_SMALL; keep DEVKIT_CI_RESOLVE_RUNNER until every seeded hook job is reconciled. See MIGRATION.md#seeded-hook-runner-migration."
+            fi
+        elif [[ "${DEVKIT_UPGRADE_REPO_PRIVATE:-}" == true && -z "$visible" ]]; then
+            echo "ci-runner-migration: CI runs hosted; organization variables do not reach private repos on GitHub Free. Set repository variables, or set them to ubuntu-26.04 to declare hosted on purpose. See MIGRATION.md#seeded-hook-runner-migration."
+        fi
+    fi
+}
+
+# Source: git log --all -p -- assets/workspace/.github/workflows/*release-extension.yml
+# (all tags, including 1.18.0/1.19.0-rc1, and pre-S2 dev builds).
+# S2's current SMALL expression is already reconciled, not another stock arm.
+CI_RUNNER_HOOK_STOCK=(
+    ubuntu-22.04 ubuntu-24.04 ubuntu-26.04
+    "\${{ fromJSON(inputs.runner-json) }}"
+    "\${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}"
+)
+
+report_hook_runner() {
+    echo "ci-runner-migration: Seeded hook $1: $2 in $3; $4 See MIGRATION.md#seeded-hook-runner-migration."
+    if [[ "$1" != reconciled ]]; then CI_RUNNER_HOOKS_RECONCILED=false; fi
+}
+
+finish_hook_runner_job() {
+    if [[ -n "$HOOK_RUNNER_JOB" && -z "$HOOK_RUNNER_JOB_SEEN" ]]; then
+        report_hook_runner drift "$HOOK_RUNNER_JOB" "$1" "no job runs-on could be classified; review this workflow manually."
+    fi
+}
+
+# Track the jobs mapping without requiring a YAML runtime in a bare scaffold.
+# Unknown layouts remain untouched and get an explicit finding, never a fold.
+track_hook_runner_job() {
+    local line="$1" path="$2" indent name
+    if [[ "$line" =~ ^([[:space:]]*)jobs:[[:space:]]*(#.*)?$ ]]; then
+        HOOK_RUNNER_JOBS_INDENT=${#BASH_REMATCH[1]}
+        HOOK_RUNNER_JOB_INDENT=-1
+    elif [[ "$line" =~ ^([[:space:]]*)[^[:space:]#] ]]; then
+        indent=${#BASH_REMATCH[1]}
+        if (( indent <= HOOK_RUNNER_JOBS_INDENT )); then
+            finish_hook_runner_job "$path"
+            HOOK_RUNNER_JOBS_INDENT=-1 HOOK_RUNNER_JOB=""
+        elif (( HOOK_RUNNER_JOBS_INDENT >= 0 )) && [[ "$line" =~ ^[[:space:]]*([^:#]+):[[:space:]]*(#.*)?$ ]]; then
+            name="${BASH_REMATCH[1]}"
+            if (( HOOK_RUNNER_JOB_INDENT < 0 || indent == HOOK_RUNNER_JOB_INDENT )); then
+                finish_hook_runner_job "$path"
+                name="${name%"${name##*[![:space:]]}"}"
+                name="${name#\"}" name="${name%\"}" name="${name#\'}" name="${name%\'}"
+                HOOK_RUNNER_JOB="$name" HOOK_RUNNER_JOB_INDENT=$indent
+                HOOK_RUNNER_PROPERTY_INDENT=-1 HOOK_RUNNER_JOB_SEEN=""
+            fi
+        fi
+        if [[ -n "$HOOK_RUNNER_JOB" ]] && (( indent > HOOK_RUNNER_JOB_INDENT && HOOK_RUNNER_PROPERTY_INDENT < 0 )); then
+            HOOK_RUNNER_PROPERTY_INDENT=$indent
+        fi
+    fi
+}
+
+# Return the replacement in HOOK_RUNNER_REPLACEMENT; status stays in this shell.
+classify_hook_runner() {
+    local value="$1" target="$2" job="$3" path="$4" stock
+    HOOK_RUNNER_REPLACEMENT="$value"
+    [[ "$value" != "$target" ]] || return 0
+    for stock in "${CI_RUNNER_HOOK_STOCK[@]}"; do
+        if [[ "$value" == "$stock" ]]; then
+            if upgrade_has_runner_variable small; then
+                HOOK_RUNNER_REPLACEMENT="$target"
+                report_hook_runner reconciled "$job" "$path" "stock runner replaced by the SMALL expression; review this workflow diff."
+            else
+                report_hook_runner pending "$job" "$path" "stock runner preserved; set CI_RUNNER_SMALL to a valid single label in the CI upgrade context and rerun the upgrade."
+            fi
+            return 0
+        fi
+    done
+    report_hook_runner drift "$job" "$path" "custom runner preserved; migrate this workflow job to the SMALL expression manually."
+}
+
+reconcile_release_runner_file() {
+    local path="$1" target="$2" line ending prefix value comment indent tmp changed="" count=0
+    HOOK_RUNNER_JOBS_INDENT=-1 HOOK_RUNNER_JOB_INDENT=-1 HOOK_RUNNER_PROPERTY_INDENT=-1
+    HOOK_RUNNER_JOB="" HOOK_RUNNER_JOB_SEEN=""
+    tmp="$(mktemp)"
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        ending=$'\n'
+        if [[ "$line" == *$'\r' ]]; then line="${line%$'\r'}"; ending=$'\r\n'; fi
+        track_hook_runner_job "$line" "$path"
+        if [[ "$line" =~ ^([[:space:]]*runs-on:[[:space:]]*)(.*)$ ]]; then
+            prefix="${BASH_REMATCH[1]}" value="${BASH_REMATCH[2]}" comment=""
+            indent="${line%%[![:space:]]*}"
+            count=$((count + 1))
+            if [[ "$value" =~ ([[:space:]]+#.*)$ ]]; then
+                comment="${BASH_REMATCH[1]}" value="${value%"${BASH_REMATCH[1]}"}"
+            fi
+            comment="${value##*[![:space:]]}$comment" value="${value%"${value##*[![:space:]]}"}"
+            if [[ -n "$HOOK_RUNNER_JOB" && ${#indent} -eq "$HOOK_RUNNER_PROPERTY_INDENT" ]]; then
+                HOOK_RUNNER_JOB_SEEN=1
+                classify_hook_runner "$value" "$target" "$HOOK_RUNNER_JOB" "$path"
+                if [[ "$value" != "$HOOK_RUNNER_REPLACEMENT" ]]; then
+                    line="$prefix$HOOK_RUNNER_REPLACEMENT$comment" changed=1
+                fi
+            else
+                report_hook_runner drift "${HOOK_RUNNER_JOB:-unclassified job}" "$path" "runs-on outside a recognised job mapping; review this workflow manually."
+            fi
+        fi
+        printf '%s%s' "$line" "$ending" >> "$tmp"
+    done < "$WORKSPACE_DIR/$path"
+    finish_hook_runner_job "$path"
+    if (( count == 0 )) && [[ -z "$HOOK_RUNNER_JOB" ]]; then report_hook_runner drift "unclassified job" "$path" "no runs-on lines found; review this workflow manually."; fi
+    if [[ -n "$changed" ]]; then
+        if [[ -n "$(tail -c1 "$WORKSPACE_DIR/$path")" ]]; then truncate -s -1 "$tmp"; fi
+        cat "$tmp" > "$WORKSPACE_DIR/$path"
+    fi
+    rm -f "$tmp"
+}
+
+reconcile_release_runner_hooks() {
+    local hook path target
+    CI_RUNNER_HOOKS_RECONCILED=true
+    for hook in prepare-release-extension release-extension publish-release-extension; do
+        path=".github/workflows/$hook.yml"
+        [[ -e "$WORKSPACE_DIR/$path" || -L "$WORKSPACE_DIR/$path" ]] || continue
+        if [[ ! -f "$WORKSPACE_DIR/$path" || -L "$WORKSPACE_DIR/$path" ]]; then
+            report_hook_runner drift "unclassified job" "$path" "not a regular owned file; review this workflow manually."
+            continue
+        fi
+        target="$(grep -m1 '^    runs-on:' "$TEMPLATE_DIR/$path")"
+        reconcile_release_runner_file "$path" "${target#*runs-on: }"
+    done
+}
+reconcile_release_runner_hooks
+
 # Persist the resolved manifest (#885). The scaffolded .vig-os is a managed
 # file (template-overwritten on upgrade), so the resolved delivery mode and
 # identity are written back on every (re)scaffold — the next upgrade then
@@ -4414,12 +4587,9 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     if [[ -n "$MANIFEST_PRERELEASE_FORMAT" ]]; then
         write_manifest_value DEVKIT_PRERELEASE_FORMAT "$MANIFEST_PRERELEASE_FORMAT"
     fi
-    # CI runner override (#1173): bare in the template (DEVKIT_CI_RUNNER=), so a
-    # self-hosted consumer's label list is read before the overwrite and written
-    # back — else an upgrade silently resets ci.yml onto the hosted default.
-    if [[ -n "$MANIFEST_CI_RUNNER" ]]; then
-        write_manifest_value DEVKIT_CI_RUNNER "$MANIFEST_CI_RUNNER"
-    fi
+    # Legacy key migration (#1929): preserve its runner selection unless the
+    # CI upgrade context proves every required class already overrides it.
+    migrate_ci_runner_key
     # Project lane sizes (#1927) survive the managed template overwrite.
     if [[ -n "$MANIFEST_CI_LANE_SIZES" ]]; then
         write_manifest_value DEVKIT_CI_LANE_SIZES "$MANIFEST_CI_LANE_SIZES"

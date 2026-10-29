@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Safe CI runner migration during devkit upgrades** ([#1929](https://github.com/vig-os/devkit/issues/1929))
+  - Remove the legacy runner key only when visible variables cover every required class; preserve local and older-workflow installs with actionable migration text.
+  - Reconcile stock seeded release-hook runner lines and report customised content for review.
+
 - **Env-only endpoint lint** ([#1931](https://github.com/vig-os/devkit/issues/1931))
   - Enable the ADR §10 endpoint and credential assignment checks by default in
     devkit and consumer hooks.

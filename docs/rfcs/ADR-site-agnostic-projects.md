@@ -555,12 +555,12 @@ Rejected alternatives:
    design requires.
 3. **The migrating adoption is a convenience that cleans up**, whenever it
    happens. `init-workspace.sh`:
-   1. reads `CI_RUNNER_SMALL`, `CI_RUNNER_LARGE` and `CI_RUNNER_XLARGE` from
-      its **environment**. A ≥N `devkit-upgrade.yml` passes
-      `${{ vars.CI_RUNNER_* }}` into the install step, so the values are what
-      CI will see. On GitHub Free, org variables are invisible there too,
-      which is correct. Under a pre-N workflow, or a local
-      `install.sh --force`, the environment is empty, so nothing is stripped;
+   1. reads the **migration environment** defined below. A ≥N
+      `devkit-upgrade.yml` passes its visible `${{ vars.CI_RUNNER_* }}`
+      values through `install.sh`, so they are what CI will see. On GitHub
+      Free, org variables are invisible there too, which is correct. Under
+      a pre-N workflow, or a local `install.sh --force`, the CI context is
+      absent, so variables are unknown and nothing is stripped;
    2. applies decision (c) to a non-empty legacy key;
    3. prints exactly one `ci-runner-migration:` line per finding. A ≥N
       workflow lifts the lines into the step summary and the adoption PR body
@@ -580,6 +580,20 @@ The PR-body text a ≥N workflow shows, per case:
 The PR body never repeats the label itself. It names variables, not values,
 even though the value is already in git, so the adoption PR does not spread
 the label further.
+
+#### Migration environment
+
+The upgrade job exports `DEVKIT_UPGRADE_CONTEXT=1`,
+`DEVKIT_UPGRADE_CI_RUNNER_SMALL`, `DEVKIT_UPGRADE_CI_RUNNER_LARGE` and
+`DEVKIT_UPGRADE_CI_RUNNER_XLARGE` from its visible `vars.CI_RUNNER_*`,
+`DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER` from `vars.DEVKIT_CI_RESOLVE_RUNNER`,
+and `DEVKIT_UPGRADE_REPO_PRIVATE` from `github.event.repository.private`
+(`true`/`false`). Invisible variables are empty. One explicit allow-list in
+`install.sh` forwards these six names through both the direnv `env -i` and
+container `-e` paths. Without context `1`, variables are unknown and the key
+is always kept, including local force installs. With context `1`, stripping
+requires a non-empty valid single label for every required class. Migration
+text names variables and never repeats their values.
 
 #### Deprecation timeline
 
@@ -883,6 +897,20 @@ The rejected options are kept with the costs that ruled them out.
   files must be self-contained. Errors raise `ValueError` without pattern
   values. This is the single S4/S6 contract; no change to accepted decisions.
 
+- **2026-10-29, architect clarification of (d)-1 while reviewing S3:**
+  stock includes every runner value ever seeded by a release or dev build,
+  not only the legacy resolve-variable expression originally named below.
+  Fold only with a valid SMALL variable in the CI upgrade context; otherwise
+  preserve and report pending. Classify values independently of layout,
+  preserve indentation and line endings, and report custom or unclassified
+  content as drift. Runner findings use the §6 migration channel so pre-N
+  workflows do not mislabel them. Suggest deleting the legacy resolve variable
+  only when every seeded hook job is reconciled.
+
+- **2026-10-27, architect clarification found while implementing S3:**
+  `install.sh` is in scope for forwarding the migration environment above;
+  no change to accepted decisions.
+
 - **2026-10-27, architect clarification found while implementing S1b:**
   duplicate lanes are an error; no change to accepted decisions.
 
@@ -981,15 +1009,25 @@ whenever it happens.
 `release-extension`, `publish-release-extension`), which are consumer-owned
 and never overwritten.
 
-1. **Reconcile the exact stock line.** **Chosen** (owner, 2026-10-26). The upgrade checks each
-   job's `runs-on` line separately. Where a line is byte-identical to the stock
-   `${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}`, it rewrites that
-   line to the new SMALL direct expression (§3, the same for every seeded job).
+1. **Reconcile known stock runner values.** **Chosen** (owner, 2026-10-26;
+   clarified by the S3 amendment). The upgrade classifies every job's `runs-on`
+   value independently of indentation, job-header spelling, comments and line
+   endings. The stock set includes every value seeded by a release or dev
+   build: the hosted `ubuntu-22.04`, `ubuntu-24.04` and `ubuntu-26.04` labels,
+   `${{ fromJSON(inputs.runner-json) }}` and
+   `${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}`. Only with a valid
+   `CI_RUNNER_SMALL` in the CI upgrade context does it rewrite a stock value to
+   the new SMALL direct expression (§3, the same for every seeded job),
+   preserving indentation, comments and line endings. Otherwise it preserves
+   the value and reports pending, asking to set SMALL; local installs never
+   fold. The current SMALL expression is already reconciled.
    The rewrite target is SMALL, not LARGE, so a reconciled hook agrees with
    "every lane SMALL by default" (§5) and needs only the class every consumer
-   already sets. It prints a
-   `preserved-hook`-style reconcile line into the PR body. Any other content is
-   left alone and reported as drift. This is the same precedent as the
+   already sets. It prints reconcile, pending and drift findings through the
+   §6 `ci-runner-migration:` channel; pre-N body builders drop that channel.
+   Any other content is left alone and reported as drift, naming file and job.
+   A delete-the-legacy-variable hint requires every seeded hook job to be
+   reconciled. This is the same precedent as the
    pre-commit reconcile ([#1654](https://github.com/vig-os/devkit/issues/1654)):
    a known-stock block may be folded, nothing else. *Cost:* a second
    reconcile implementation for workflow files, and a consumer-owned file
