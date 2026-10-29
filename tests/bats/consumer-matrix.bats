@@ -26,7 +26,7 @@ _manifest() {
     run "$RENDER_CELL" list
     assert_success
     assert_output "$(printf '%s\n' direnv devcontainer bare trunk \
-        features-disabled ci-runner tag-prefix language-guard \
+        features-disabled ci-runner runner-key-only runner-gitflow tag-prefix language-guard \
         python node rust direnv-flake rust-flake)"
 }
 
@@ -57,7 +57,7 @@ _manifest() {
 
 @test "knob cells seed their knob" {
     run "$RENDER_CELL" seed ci-runner
-    assert_output "DEVKIT_CI_RUNNER=self-hosted,linux,x64,consumer-matrix"
+    assert_output ""
     run "$RENDER_CELL" seed tag-prefix
     assert_output "DEVKIT_TAG_PREFIX=v"
     run "$RENDER_CELL" seed language-guard
@@ -231,4 +231,176 @@ _mark_demo() {
     assert_success
     run cell_verdict python true test
     assert_failure
+}
+
+# Release N runner gates execute the rendered action, without scheduling runners.
+_render_runner() {
+    local cell="$1"
+    ws="$BATS_TEST_TMPDIR/$cell"
+    PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render "$cell" "$ws"
+    assert_success
+    _source_render_cell
+    cell_spec "$cell"
+    cd "$ws" || return 1
+}
+
+@test "key-only cell renders the legacy key and checks the full per-run warning" {
+    _render_runner runner-key-only
+    assert_equal "$(_manifest "$ws" DEVKIT_CI_RUNNER)" pool-legacy
+    run gate_runners
+    assert_success
+    assert_output --partial '::warning::DEVKIT_CI_RUNNER is deprecated and stops selecting runners in N+2.'
+    assert_output --partial 'gh variable set CI_RUNNER_SMALL --body <label>'
+    assert_output --partial 'MIGRATION.md#run-ci-on-self-hosted-runners'
+    # Canary: a truncated warning must make the gate red.
+    python3 - <<'PYEDIT'
+from pathlib import Path
+p = Path('.github/actions/resolve-toolchain/action.yml')
+p.write_text(p.read_text().replace('Use repository-level variables on a private GitHub Free repo.', ''))
+PYEDIT
+    run gate_runners
+    assert_failure
+}
+
+@test "variables-only cell takes a label parameter and checks all class outputs" {
+    export CONSUMER_MATRIX_RUNNER_LABEL=pool-custom
+    _render_runner ci-runner
+    assert_equal "$(_manifest "$ws" DEVKIT_CI_RUNNER)" ""
+    run gate_runners
+    assert_success
+    refute_output --partial '::warning::'
+    assert_output --partial 'pool-custom'
+    # Canary: substituting a hosted runner for the variable must fail.
+    python3 - <<'PYEDIT'
+from pathlib import Path
+p = Path('.github/actions/resolve-toolchain/action.yml')
+p.write_text(p.read_text().replace('--arg label "$raw"', '--arg label "ubuntu-26.04"'))
+PYEDIT
+    run gate_runners
+    assert_failure
+}
+
+@test "gitflow adoption uses pre-N main with dev ahead and keeps the warning channel" {
+    _render_runner runner-gitflow
+    run git merge-base --is-ancestor main dev
+    assert_success
+    run git rev-list --count main..dev
+    assert_output 1
+    run git branch --show-current
+    assert_output chore/adopt-devkit
+    assert_equal "$(_manifest "$ws" DEVKIT_CI_RUNNER)" pool-legacy
+    run gate_adoption
+    assert_success
+    run gate_runners
+    assert_success
+    assert_output --partial '::warning::DEVKIT_CI_RUNNER is deprecated'
+    run cat .git/consumer-matrix/pr-body
+    assert_output --partial 'Automated devkit upgrade'
+    refute_output --partial 'CI runner migration'
+    refute_output --partial 'ci-runner-migration:'
+    # Canary: accidentally lifting the new channel must fail adoption proof.
+    echo '### CI runner migration' >> .git/consumer-matrix/pr-body
+    run gate_adoption
+    assert_failure
+}
+
+# Mutation copies keep the checkout and its immutable release tags untouched.
+_mutant_runner() {
+    local mutation="$1" copy="$BATS_TEST_TMPDIR/mutant"
+    git clone -q --shared "$PROJECT_ROOT" "$copy"
+    cp -a "$PROJECT_ROOT/scripts/consumer-matrix/." "$copy/scripts/consumer-matrix/"
+    cp -a "$PROJECT_ROOT/tests/." "$copy/tests/"
+    cp "$PROJECT_ROOT/install.sh" "$copy/install.sh"
+    cp "$PROJECT_ROOT/assets/init-workspace.sh" "$copy/assets/init-workspace.sh"
+    RENDER_CELL="$copy/scripts/consumer-matrix/render-cell.sh"
+    python3 - "$copy" "$mutation" <<'PYEDIT'
+import sys
+from pathlib import Path
+root, mutation = Path(sys.argv[1]), sys.argv[2]
+if mutation == 'hook-drift':
+    p = root / 'assets/init-workspace.sh'
+    text = p.read_text().replace('\n', '\necho "preserved-hook-drift: DEVKIT_CI_RUNNER is deprecated; set CI_RUNNER_SMALL before N+2"\n', 1)
+elif mutation == 'writeback':
+    p = root / 'assets/init-workspace.sh'
+    text = p.read_text().replace('cat "$tmp" > "$WORKSPACE_DIR/$path"', ':')
+else:
+    p = root / 'install.sh'
+    text = p.read_text().replace('    DEVKIT_UPGRADE_CONTEXT\n', '')
+p.write_text(text)
+PYEDIT
+}
+
+@test "pre-N adoption body catches migration smuggled through hook drift" {
+    _mutant_runner hook-drift
+    _render_runner runner-gitflow
+    run gate_adoption
+    assert_failure
+}
+
+@test "gitflow gate exercises install context forwarding (M7)" {
+    _mutant_runner context
+    PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render runner-gitflow "$BATS_TEST_TMPDIR/adopt"
+    assert_failure
+    assert_output --partial 'migration context did not reach the scaffold'
+}
+
+@test "gitflow gate asserts the complete install migration finding" {
+    _render_runner runner-gitflow
+    python3 - <<'PYEDIT'
+from pathlib import Path
+p = Path('.git/consumer-matrix/install.log')
+p.write_text(p.read_text().replace('Until N+2 the key keeps working;', ''))
+PYEDIT
+    run gate_adoption
+    assert_failure
+}
+
+@test "gitflow render fails clearly without the required pre-N tag" {
+    _mutant_runner context
+    git -C "${RENDER_CELL%/scripts/consumer-matrix/render-cell.sh}" tag -d 1.18.0
+    PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render runner-gitflow "$BATS_TEST_TMPDIR/adopt"
+    assert_failure
+    assert_output --partial 'required pre-N tag 1.18.0 missing'
+}
+
+@test "runner wiring rejects SMALL substituted for LARGE (M2)" {
+    _render_runner ci-runner
+    python3 - <<'PYEDIT'
+from pathlib import Path
+p = Path('.github/workflows/ci.yml')
+p.write_text(p.read_text().replace('runner-large: ${{ vars.CI_RUNNER_LARGE }}', 'runner-large: ${{ vars.CI_RUNNER_SMALL }}'))
+PYEDIT
+    run gate_runners
+    assert_failure
+}
+
+@test "runner wiring rejects test scheduled on LARGE (M3)" {
+    _render_runner ci-runner
+    python3 - <<'PYEDIT'
+from pathlib import Path
+p = Path('.github/workflows/ci.yml')
+p.write_text(p.read_text().replace('fromJSON(needs.resolve-toolchain.outputs.runners).test', 'fromJSON(needs.resolve-toolchain.outputs.runners).large'))
+PYEDIT
+    run gate_runners
+    assert_failure
+}
+
+@test "adoption replay reads BASE and HOOK_DRIFT from the shipped step env" {
+    _render_runner runner-gitflow
+    python3 - <<'PYEDIT'
+from pathlib import Path
+p = Path('.git/consumer-matrix/pre-n.yml')
+p.write_text(p.read_text().replace('BASE: dev', 'BASE: main').replace('HOOK_DRIFT: ${{ steps.upgrade.outputs.hook-drift }}', 'HOOK_DRIFT: x'))
+PYEDIT
+    run adoption_body "$ws"
+    assert_success
+    run gate_adoption
+    assert_failure
+}
+
+@test "migration checks the rewritten seeded files as well as reconcile logs" {
+    _mutant_runner writeback
+    PATH="$STUB_BIN:$PATH" run "$RENDER_CELL" render runner-gitflow "$BATS_TEST_TMPDIR/adopt"
+    assert_failure
+    assert_output --partial 'seeded runner was not rewritten'
 }

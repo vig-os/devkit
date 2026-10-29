@@ -24,6 +24,8 @@
 #
 # Gates, per cell (each runs even when an earlier one failed, so a red cell
 # names every broken gate at once):
+#   runners    key-only / variable-only runner outputs and full warning text
+#   adoption   gitflow pre-N default-branch body, retained key and dev ancestry
 #   seed       every pre-seeded knob survived the render into .vig-os, and a
 #              fixture cell's language was detected into DEVKIT_LANGUAGES
 #   flake-check  (flake cells only) `nix flake check` of the rendered flake
@@ -73,6 +75,8 @@ CELLS=(
     trunk
     features-disabled
     ci-runner
+    runner-key-only
+    runner-gitflow
     tag-prefix
     language-guard
     python
@@ -143,6 +147,9 @@ cell_spec() {
     CELL_LANGUAGES_GUARD=hold
     CELL_FIXTURE=""
     CELL_FLAKE=false
+    CELL_RUNNER_SMALL=""
+    CELL_RUNNER_LARGE=""
+    CELL_RUNNER_XLARGE=""
     case "$1" in
         direnv | devcontainer | bare) CELL_MODE="$1" ;;
         python | node | rust)
@@ -175,7 +182,13 @@ cell_spec() {
             ;;
         ci-runner)
             CELL_MODE=both
-            CELL_SEED=("DEVKIT_CI_RUNNER=self-hosted,linux,x64,consumer-matrix")
+            CELL_RUNNER_SMALL="${CONSUMER_MATRIX_RUNNER_LABEL:-pool-s}"
+            CELL_RUNNER_LARGE="${CONSUMER_MATRIX_RUNNER_LARGE:-pool-l}"
+            CELL_RUNNER_XLARGE="${CONSUMER_MATRIX_RUNNER_XLARGE:-pool-xl}"
+            ;;
+        runner-key-only | runner-gitflow)
+            CELL_MODE=bare
+            CELL_SEED=("DEVKIT_CI_RUNNER=pool-legacy")
             ;;
         tag-prefix)
             CELL_MODE=both
@@ -199,6 +212,7 @@ render_cell() {
     local cell="$1" ws="$2" line version_file
     cell_spec "$cell"
     mkdir -p "$ws"
+    ws="$(cd "$ws" && pwd)" || return 1
     if [[ -n "$(ls -A "$ws")" ]]; then
         echo "render-cell: refusing to render into non-empty '$ws'" >&2
         return 1
@@ -211,6 +225,10 @@ render_cell() {
             printf '%s\n' "$line" >>"$ws/.vig-os"
         done
     fi
+    if [[ "$cell" == runner-gitflow ]]; then
+        prepare_adoption "$ws" && adoption_body "$ws" && migrating_adoption "$ws"
+        return $?
+    fi
     local -a args=(--no-prompts --mode "$CELL_MODE")
     [[ "$CELL_WORKFLOW" == gitflow ]] || args+=(--workflow "$CELL_WORKFLOW")
     # A fixture is an EXISTING project adopting devkit: its files make the
@@ -220,13 +238,147 @@ render_cell() {
     # No baked image VERSION outside the image: point VERSION_FILE at a path
     # that does not exist so the template pin stays as shipped.
     version_file="$ws/.consumer-matrix-no-version"
-    env TEMPLATE_DIR="$TEMPLATE_DIR" \
-        WORKSPACE_DIR="$ws" \
-        VERSION_FILE="$version_file" \
-        SHORT_NAME=consumer_matrix \
-        ORG_NAME=vig-os \
-        GITHUB_REPOSITORY=vig-os/consumer-matrix \
+    env TEMPLATE_DIR="$TEMPLATE_DIR" WORKSPACE_DIR="$ws" VERSION_FILE="$version_file" \
+        SHORT_NAME=consumer_matrix ORG_NAME=vig-os GITHUB_REPOSITORY=vig-os/consumer-matrix \
         bash "$INIT_WORKSPACE" "${args[@]}"
+}
+
+# Local-only gitflow history: the default-branch workflow is deliberately pre-N.
+# No consumer remote, workflow dispatch, or API call is involved.
+fixture_commit() {
+    git -c user.name=consumer-matrix -c user.email=consumer-matrix@example.com \
+        -c commit.gpgsign=false -c core.hooksPath=/dev/null commit -qm "$1"
+}
+
+prepare_adoption() (
+    cd "$1" || return 1
+    git init -q -b main
+    git config user.name consumer-matrix
+    git config user.email consumer-matrix@example.com
+    git config commit.gpgsign false
+    git config core.hooksPath /dev/null
+    local evidence="$PWD/.git/consumer-matrix"
+    if ! git -C "$ROOT" rev-parse --verify refs/tags/1.18.0 >/dev/null 2>&1; then
+        echo 'consumer-matrix: required pre-N tag 1.18.0 missing; run git fetch --depth=1 origin tag 1.18.0' >&2
+        return 1
+    fi
+    mkdir -p "$evidence/pre-n"
+    git -C "$ROOT" archive 1.18.0 assets | tar -x -C "$evidence/pre-n" || return 1
+    env TEMPLATE_DIR="$evidence/pre-n/assets/workspace" WORKSPACE_DIR="$PWD" \
+        VERSION_FILE="$evidence/no-version" SHORT_NAME=consumer_matrix ORG_NAME=vig-os \
+        GITHUB_REPOSITORY=vig-os/consumer-matrix \
+        bash "$evidence/pre-n/assets/init-workspace.sh" --force --mode bare --no-prompts || return 1
+    git -C "$ROOT" show 1.18.0:assets/workspace/.github/workflows/devkit-upgrade.yml > "$evidence/pre-n.yml"
+    git add .
+    fixture_commit 'chore: pre-N consumer' || return 1
+    git checkout -qb dev || return 1
+    echo 'Consumer work ahead of main.' > consumer.txt
+    git add consumer.txt
+    fixture_commit 'chore: advance dev' || return 1
+    git checkout -qb chore/adopt-devkit
+)
+
+# Replay the immutable upgrade and body steps in separate shells through the
+# shared helper. Only curl, docker and gh use adapters; install.sh runs unchanged.
+adoption_body() (
+    cd "$1" || return 1
+    local evidence="$PWD/.git/consumer-matrix" tool
+    mkdir -p "$evidence/bin"
+    for tool in curl docker gh; do
+        ln -sf "$ROOT/scripts/consumer-matrix/install-transport.sh" "$evidence/bin/$tool"
+    done
+    PYTHONPATH="$ROOT" uv run --project "$ROOT" --frozen --quiet python -m tests.consumer_matrix adoption "$evidence"
+)
+
+# A >=N workflow's context must also survive install.sh's isolated boundary.
+# Start from the old dev scaffold again so stock seeded hooks must reconcile.
+migrating_adoption() (
+    local evidence="$1/.git/consumer-matrix" ws rc=0 target
+    target="$(sed -n 's/^DEVKIT_VERSION=//p' "$ROOT/.vig-os")"
+    ws="$(mktemp -d)"
+    trap 'rm -rf "$ws"' EXIT
+    git -C "$1" archive dev | tar -x -C "$ws" || return 1
+    git -C "$ws" init -q -b dev
+    cd "$ws" || return 1
+    env DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_CI_RUNNER_SMALL=pool-s \
+        DEVKIT_UPGRADE_CI_RUNNER_LARGE=pool-l DEVKIT_UPGRADE_CI_RUNNER_XLARGE=pool-xl \
+        DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER= DEVKIT_UPGRADE_REPO_PRIVATE=true \
+        PATH="$evidence/bin:$PATH" MATRIX_ROOT="$ROOT" MATRIX_EVIDENCE="$evidence" MATRIX_TARGET="$target" \
+        bash "$ROOT/install.sh" --force --version "$target" --skip-preflight --docker . \
+        > "$evidence/migrating.log" 2>&1 || rc=$?
+    cat "$evidence/migrating.log"
+    ((rc == 0)) || return "$rc"
+    if grep -q '^DEVKIT_CI_RUNNER=.' .vig-os; then
+        echo 'migration context did not reach the scaffold'
+        return 1
+    fi
+    grep -q '^ci-runner-migration: Seeded hook reconciled:' "$evidence/migrating.log" || return 1
+    local path target_line
+    for path in prepare-release-extension release-extension publish-release-extension; do
+        target_line="$(grep '    runs-on:' "$ROOT/assets/workspace/.github/workflows/$path.yml" | sort -u)"
+        if [[ "$(grep '    runs-on:' ".github/workflows/$path.yml" | sort -u)" != "$target_line" ]]; then
+            echo "seeded runner was not rewritten: $path"
+            return 1
+        fi
+    done
+)
+
+gate_adoption() {
+    local evidence=.git/consumer-matrix
+    git merge-base --is-ancestor main dev || return 1
+    [[ "$(git rev-list --count main..dev)" == 1 ]] || return 1
+    [[ "$(git branch --show-current)" == chore/adopt-devkit ]] || return 1
+    grep -qxF DEVKIT_CI_RUNNER=pool-legacy .vig-os || return 1
+    local finding='ci-runner-migration: DEVKIT_CI_RUNNER kept; variables unknown (no CI upgrade context); required variables: CI_RUNNER_SMALL; set them at repository level on private GitHub Free repos. gh variable set CI_RUNNER_SMALL --body <label>; Until N+2 the key keeps working; after that CI fails until the required variables are set. Then delete the key. See MIGRATION.md#seeded-hook-runner-migration.'
+    grep -qxF "$finding" "$evidence/install.log" || return 1
+    grep -qx dev "$evidence/pr-base" || return 1
+    grep -q 'Automated devkit upgrade' "$evidence/pr-body" || return 1
+    if grep -qiE 'CI runner migration|ci-runner-migration:|DEVKIT_CI_RUNNER' "$evidence/pr-body"; then
+        echo 'pre-N PR body unexpectedly lifted the runner migration'
+        return 1
+    fi
+    echo 'pre-N main adoption targets dev, keeps the key, and omits the migration section'
+}
+
+# Execute the consumer action with the same input names its CI supplies.
+# Capture and print its log so the full warning is visible in the matrix job.
+gate_runners() (
+    local evidence
+    evidence="$(mktemp -d)"
+    trap 'rm -rf "$evidence"' EXIT
+    PYTHONPATH="$ROOT" uv run --project "$ROOT" --frozen --quiet python -m tests.consumer_matrix \
+        runners "$CELL_RUNNER_SMALL" "$CELL_RUNNER_LARGE" "$CELL_RUNNER_XLARGE" "$evidence" \
+        > "$evidence/ci.log" 2>&1
+    local rc=$?
+    cat "$evidence/ci.log"
+    ((rc == 0)) || return "$rc"
+    assert_runner_result "$evidence/outputs" "$evidence/ci.log"
+)
+
+assert_runner_result() {
+    local runners sources expected source warning
+    runners="$(sed -n 's/^runners=//p' "$1")"
+    sources="$(sed -n 's/^runner-sources=//p' "$1")"
+    if [[ -n "$CELL_RUNNER_SMALL" ]]; then
+        expected="$(jq -cn --arg s "$CELL_RUNNER_SMALL" --arg l "$CELL_RUNNER_LARGE" \
+            --arg xl "$CELL_RUNNER_XLARGE" '{small:[$s],large:[$l],xlarge:[$xl]}')"
+        source=variable
+        if grep -q '::warning::' "$2"; then return 1; fi
+    else
+        expected='{"small":["pool-legacy"],"large":["pool-legacy"],"xlarge":["pool-legacy"]}'
+        source=legacy-key
+        warning='::warning::DEVKIT_CI_RUNNER is deprecated and stops selecting runners in N+2.'
+        warning+=' Unset required class: CI_RUNNER_SMALL; set it with gh variable set CI_RUNNER_SMALL --body <label>.'
+        warning+=' Use repository-level variables on a private GitHub Free repo.'
+        warning+=' Once every required class is set, the key decides nothing; delete DEVKIT_CI_RUNNER from .vig-os.'
+        warning+=' See MIGRATION.md#run-ci-on-self-hosted-runners.'
+        grep -qxF "$warning" "$2" || return 1
+    fi
+    expected="$(jq -c '. + {lint:.small,test:.small,extension:.small,"release-test":.small}' <<< "$expected")"
+    jq -en --argjson actual "$runners" --argjson expected "$expected" '$actual == $expected' || return 1
+    jq -en --argjson actual "$sources" --arg source "$source" \
+        '$actual == {small:$source,large:$source,xlarge:$source}' || return 1
+    echo "verified runners: $runners (source=$source)"
 }
 
 # Print the `run:` body of the first step named $2 in workflow/action file $1.
@@ -414,7 +566,7 @@ run_cell() {
     cd "$ws"
     local branch=dev
     [[ "$CELL_WORKFLOW" == trunk ]] && branch=main
-    git init -q -b "$branch"
+    [[ -d .git ]] || git init -q -b "$branch"
     git add -A
 
     # first-commit runs against the index, so it comes before the commit that
@@ -423,6 +575,8 @@ run_cell() {
     local -a rows=("| gate | result | time |" "| --- | --- | --- |")
     local -a gates=(seed)
     [[ "$CELL_FLAKE" == true ]] && gates+=(flake-check)
+    [[ "$cell" != runner-gitflow ]] || gates+=(adoption)
+    case "$cell" in ci-runner | runner-key-only | runner-gitflow) gates+=(runners) ;; esac
     gates+=(first-commit commit sync lint precommit test actionlint zizmor languages)
     for gate in "${gates[@]}"; do
         if [[ "$gate" == commit ]]; then
@@ -436,6 +590,8 @@ run_cell() {
         start=$SECONDS
         case "$gate" in
             seed) gate_seed || rc=$? ;;
+            adoption) gate_adoption || rc=$? ;;
+            runners) gate_runners || rc=$? ;;
             flake-check) gate_flake_check || rc=$? ;;
             first-commit) gate_first_commit || rc=$? ;;
             sync) in_shell just sync || rc=$? ;;

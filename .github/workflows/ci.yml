@@ -257,6 +257,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
+      - name: Fetch the oldest supported pre-N scaffold
+        run: git fetch --depth=1 origin tag 1.18.0
+
       - name: Run project checks (bats)
         uses: ./.github/actions/test-project
         with:
@@ -318,6 +321,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Fetch the oldest supported pre-N scaffold
+        run: git fetch --depth=1 origin tag 1.18.0
 
       - name: Set up environment
         uses: ./.github/actions/setup-env
