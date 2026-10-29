@@ -130,6 +130,9 @@
 
             # Common knobs, all optional:
             #
+            #   withAgentCli = true;           # defaults to false; opting in
+            #                                  # shadows any system claude wrapper
+            #
             #   crates = [ "my-cli" ];         # one package/check per crate;
             #                                  # null builds the workspace default
             #   toolchainHash = "sha256-…";    # required once you add a
