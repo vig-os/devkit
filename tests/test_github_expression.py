@@ -406,3 +406,21 @@ def test_cli_nonfinite_result(tmp_path):
     assert result.returncode == 2
     assert "error:" in result.stderr and "Traceback" not in result.stderr
     assert result.stdout == ""
+
+
+@pytest.mark.parametrize(
+    "root, expression, value",
+    [
+        (
+            "steps",
+            "STEPS.Build.OUTPUTS.Target",
+            {"build": {"outputs": {"target": "v1"}}},
+        ),
+        ("env", "ENV.Base", {"BASE": "v1"}),
+    ],
+)
+def test_replay_context_roots(root, expression, value):
+    assert evaluate(expression, {root: value}) == "v1"
+    assert evaluate(expression, {}) is None
+    with pytest.raises(ValueError, match="Ambiguous"):
+        evaluate(expression, {root: value, root.upper(): value})
