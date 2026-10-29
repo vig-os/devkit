@@ -87,6 +87,8 @@ def test_values(expr, expected):
     "expr",
     [
         "contains('a', 'a')",
+        "'",
+        "vars[']",
         "format('x')",
         "vars.*.x",
         "inputs.x[0]",
