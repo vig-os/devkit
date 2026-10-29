@@ -6,6 +6,8 @@ case-insensitive functions; Sdk/ExpressionUtility.cs: ParseNumber hex coercion.
 toJSON layout and G15 scalars: runner Sdk/Functions/ToJson.cs, WriteValue,
 PrefixValue and WriteArrayEnd/WriteMappingEnd:
 https://github.com/actions/runner/blob/main/src/Sdk/DTExpressions2/Expressions2/Sdk/Functions/ToJson.cs
+Strings use JsonUtility/Newtonsoft default escaping, including Unicode separators:
+https://github.com/JamesNK/Newtonsoft.Json/blob/master/Src/Newtonsoft.Json/Utilities/JavaScriptUtils.cs
 """
 
 import json
@@ -44,6 +46,12 @@ from tests.workflow_scaffold import WORKFLOWS
         ("fromJson('true')", True),
         ("FROMJSON('null')", None),
         ("'0x10' == 16", True),
+        ("'0xFFFFFFFF' == -1", True),
+        ("'0x100000000' == 0", False),
+        ("'0X10' == 16", False),
+        ("'1_0' == 10", False),
+        ("'0o10' == 8", True),
+        ("'  +.5  ' == 0.5", True),
         ("'a' != 'A'", False),
         ("1 != 2", True),
         ("null == false", True),
@@ -122,7 +130,8 @@ def test_render():
         render("prefix ${{ true", {})
 
 
-def test_cli(tmp_path):
+@pytest.mark.parametrize("as_input", [False, True])
+def test_cli(tmp_path, as_input):
     context = tmp_path / "context.json"
     context.write_text('{"inputs":{"x":7}}')
     command = [
@@ -132,11 +141,13 @@ def test_cli(tmp_path):
         "--context",
         str(context),
     ]
+    if as_input:
+        command.append("--input")
     result = subprocess.run(
         command + ["--expr", "${{ inputs.x }}"], capture_output=True, text=True
     )
     assert result.returncode == 0, result.stderr
-    assert json.loads(result.stdout) == 7
+    assert json.loads(result.stdout) == ("7" if as_input else 7)
     result = subprocess.run(
         command + ["--expr", "${{ contains('x','x') }}"], capture_output=True, text=True
     )
@@ -302,6 +313,10 @@ def test_workflow_mutations(tmp_path, monkeypatch, mutation):
         ({}, "{}"),
         ([], "[]"),
         ('say "café 🌍"\n', '"say \\"café 🌍\\"\\n"'),
+        ("\u0085\u2028\u2029", '"\\u0085\\u2028\\u2029"'),
+        (float("nan"), "NaN"),
+        (float("inf"), "Infinity"),
+        (float("-inf"), "-Infinity"),
         (None, "null"),
         (True, "true"),
         (False, "false"),
