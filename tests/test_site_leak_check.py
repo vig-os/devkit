@@ -897,7 +897,7 @@ def test_signals_during_normal_cleanup_are_deferred_until_tree_is_deleted(
     marker = tmp_path / "cleaned"
     driver = tmp_path / "pause_cleanup.py"
     driver.write_text(
-        "import os, tempfile\n"
+        "import os, signal, tempfile\n"
         "from pathlib import Path\n"
         "from vig_utils import site_leak_check\n"
         "original = tempfile.TemporaryDirectory.cleanup\n"
@@ -907,6 +907,8 @@ def test_signals_during_normal_cleanup_are_deferred_until_tree_is_deleted(
         "        stream.write(self.name + '\\n')\n"
         "    with open(os.environ['RELEASE_FIFO']) as stream:\n"
         "        stream.read(1)\n"
+        "    blocked = signal.pthread_sigmask(signal.SIG_BLOCK, [])\n"
+        "    assert {signal.SIGINT, signal.SIGTERM, signal.SIGHUP} <= blocked\n"
         "    original(self)\n"
         "    Path(os.environ['CLEANED_MARKER']).write_text('cleaned')\n"
         "tempfile.TemporaryDirectory.cleanup = cleanup\n"
