@@ -34,6 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Stricter tar validation can reject previously accepted archives; `uv_build` sdist bytes and hashes may change. If `[build-system]` caps `uv_build<0.13`, raise that bound to allow 0.13 (e.g. `uv_build>=0.13.0,<0.14`)
   - The new default Python 3.15 does not affect the devkit image: `UV_PYTHON` pins its interpreter and `UV_PYTHON_DOWNLOADS=never` disables downloads
 
+### Fixed
+
+- **Restore managed Python downloads with uv 0.13** ([#1976](https://github.com/vig-os/devkit/issues/1976))
+  - Derive the metadata URL's crate path from the packaged uv version so both CI setup actions use the correct layout, including arm64 release builds.
+
 ### Security
 
 - **Reconcile expired Nix image exceptions against rebuilt closures** ([#1847](https://github.com/vig-os/devkit/issues/1847))
