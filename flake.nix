@@ -245,6 +245,7 @@
       # drift from this list.
       # ---------------------------------------------------------------------
       devTools = import ./nix/devtools.nix;
+      agentTools = import ./nix/agent-tools.nix;
 
       # Capability-module registry (#884): name -> (pkgs -> { packages, env,
       # shellHook }). Consumed by mkProjectShell's `modules` argument and by
@@ -282,6 +283,8 @@
       #     inherit pkgs;
       #     modules = [ "native" ];           # opt-in capability modules (#884)
       #     extraPackages = [ pkgs.foo ];
+      #     withAgentCli = true;             # defaults to false; opting in
+      #                                      # shadows any system claude wrapper
       #     hooks = { pymarkdown.enable = false; };  # opt-in generated hooks (#883)
       #     python = pkgs.python313;          # override the pinned interpreter (#1038)
       #   };
@@ -290,6 +293,7 @@
           pkgs,
           modules ? [ ],
           extraPackages ? [ ],
+          withAgentCli ? false,
           hooks ? null,
           hooksExcludes ? [ ],
           # Workflow model (#1224): gitflow (default) | trunk. Tunes the
@@ -513,7 +517,12 @@
           # load pre-commit's manylinux-wheel C extensions outside `nix develop`.
           # Derived from `pkgs.uv.version` so it tracks the overlaid (floating)
           # uv and cannot drift from a literal pin. Refs #632, #666, #683, #774.
-          uvPythonDownloadsJsonUrl = "https://raw.githubusercontent.com/astral-sh/uv/${pkgs.uv.version}/crates/uv-python/download-metadata.json";
+          # uv 0.13 moved managed-Python metadata into its own crate. Keep the
+          # layout version-aware as well as the tag; both CI actions forward this
+          # value unchanged. Refs #1976.
+          uvPythonDownloadsCrate =
+            if pkgs.lib.versionAtLeast pkgs.uv.version "0.13.0" then "uv-python-managed" else "uv-python";
+          uvPythonDownloadsJsonUrl = "https://raw.githubusercontent.com/astral-sh/uv/${pkgs.uv.version}/crates/${uvPythonDownloadsCrate}/download-metadata.json";
 
           # The interpreter (default 3.14, matching `requires-python`
           # >=3.14,<3.15; overridable via the `python` argument, #1038) is
@@ -769,6 +778,7 @@
             # Refs #729, #778.
             packages =
               (devTools pkgs)
+              ++ pkgs.lib.optionals withAgentCli (agentTools pkgs)
               ++ [
                 python
               ]
@@ -1103,6 +1113,7 @@
           (builtins.filter (
             p: p != pkgs.podman && p != pkgs.git && p != pkgs.actionlint && p != pkgs.neovim
           ) (devTools pkgs))
+          ++ agentTools pkgs
           ++ [
             podmanClient
             pkgs.gitMinimal
@@ -1197,6 +1208,10 @@
       in
       {
         devShells.default = mkProjectShell { inherit pkgs; };
+        devShells.with-agent-cli = mkProjectShell {
+          inherit pkgs;
+          withAgentCli = true;
+        };
 
         # Binary names of every tool in devTools — read by the parity test.
         devShellTools = devShellToolNames pkgs;
@@ -1300,6 +1315,15 @@
 
           # The dev-shell evaluates and its closure builds.
           devShell = self.devShells.${system}.default;
+
+          # Package-policy assertions evaluate without building agent tools.
+          agentCliPolicy =
+            assert
+              (import ./tests/agent-cli-policy.nix {
+                flake = self;
+                inherit system;
+              }).agentCliPolicy;
+            pkgs.runCommand "agent-cli-policy" { } "touch $out";
 
           # devShellTools (the parity-test SSoT) evaluates to a non-empty list.
           devShellTools = pkgs.runCommand "devshell-tools-eval" { } ''
@@ -1782,7 +1806,7 @@
       # importable NixOS or home-manager config.
       #
       # A consumer imports the module and flips one option to get exactly the
-      # `devTools` set the dev-shell and image ship — the same SSoT, no drift.
+      # `devTools` set plus the machine-level agent CLI from agentTools.
       # The fast-mover overlay (uv/gh/claude-code from unstable) is applied so
       # those resolve to the intended versions; claude-code is unfree, so the
       # consumer must allow it (documented in docs/NIX.md). Refs #777.
@@ -1798,7 +1822,7 @@
           options.programs.vigos-devtools.enable = lib.mkEnableOption "the vigOS devcontainer toolchain (devTools)";
           config = lib.mkIf config.programs.vigos-devtools.enable {
             nixpkgs.overlays = [ overlay ];
-            environment.systemPackages = devTools pkgs;
+            environment.systemPackages = devTools pkgs ++ agentTools pkgs;
           };
         };
 

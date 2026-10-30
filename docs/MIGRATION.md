@@ -9,6 +9,15 @@ For the flake architecture and contributor onboarding see
 [`docs/NIX.md`](./NIX.md); for the security posture see
 [`docs/CONTAINER_SECURITY.md`](./CONTAINER_SECURITY.md).
 
+## Project shell agent CLI migration
+
+Project dev-shells no longer provide `claude` by default. Repositories relying on
+that copy must install it machine-wide (or enable the home packages module), or
+set `withAgentCli = true` in their shell builder. Consumers of devkit's own `devShells` output can
+use `#with-agent-cli`. Opting in shadows a system wrapper and its credential/channel
+setup. See [Agent CLI opt-in](NIX.md#agent-cli-opt-in). Home modules and the
+container image retain the CLI.
+
 ## What changed
 
 The devcontainer used to be a Debian image (`FROM python:3.14-slim-…`) built

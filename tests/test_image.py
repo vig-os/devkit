@@ -29,7 +29,7 @@ import pytest
 # every nixpkgs bump. System packages (git, curl, tmux, rsync) were already
 # presence-only. Refs #635, #666.
 EXPECTED_VERSIONS = {
-    "uv": "0.12.",  # uv (fast-mover overlaid from nixpkgs-unstable)
+    "uv": "0.13.",  # uv (fast-mover overlaid from nixpkgs-unstable)
     "python": "3.14",  # interpreter major.minor (pinned to python314)
     "ruff": "0.15.",  # nixpkgs-26.05
     "pip_licenses": "5.",  # PyPI wheel pinned in flake.nix
