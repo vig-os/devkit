@@ -271,7 +271,7 @@ def dev_shell_tools(current_system: str) -> list[str]:
 def test_devshell_tools_is_superset_of_agent_toolkit(
     dev_shell_tools: list[str],
 ) -> None:
-    """The SSoT must absorb issue #545's agent-CLI toolkit plus claude."""
+    """The SSoT must retain issue #545's terminal toolkit."""
     required = {
         "rg",
         "fd",
@@ -284,10 +284,10 @@ def test_devshell_tools_is_superset_of_agent_toolkit(
         "freeze",
         "expect",
         "nvim",
-        "claude",
     }
     missing = required - set(dev_shell_tools)
     assert not missing, f"devTools is missing agent-toolkit tools: {sorted(missing)}"
+    assert "claude" not in dev_shell_tools, "Agent CLI must require explicit opt-in"
 
 
 def test_devshell_provides_bats(dev_shell_tools: list[str]) -> None:

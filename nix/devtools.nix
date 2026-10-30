@@ -1,7 +1,7 @@
 # The vigOS toolchain SSoT - one list, delivered everywhere: the dev-shell,
 # the Nix-built image, and the vigos.packages home module. Lives outside
 # flake.nix so the vigos.* path modules (nix/home/) can share it without
-# duplicating the list. Refs #818.
+# duplicating the list. Machine agent CLIs are separate in agent-tools.nix. Refs #818.
 pkgs:
 let
   batsWithLibs = import ./bats.nix;
@@ -79,5 +79,4 @@ with pkgs;
   # in the same profile, the bare editor yields instead of colliding in
   # buildEnv. Refs #824.
   (pkgs.lib.lowPrio neovim) # nvim
-  claude-code # claude
 ]

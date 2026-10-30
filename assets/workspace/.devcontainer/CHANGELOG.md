@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Project shells leave the agent CLI to the machine** ([#1967](https://github.com/vig-os/devkit/issues/1967))
+  - Repositories relying on the dev-shell's `claude` must install it machine-wide (or via the home module), or set `withAgentCli = true`; consumers of devkit's own `devShells` output can select `#with-agent-cli`.
+  - Opting in shadows any system `claude` wrapper. Home modules and the container image retain the CLI.
+
 - **Upgrade uv 0.12.17 → 0.13.4 with the security input advance** ([#1847](https://github.com/vig-os/devkit/issues/1847))
   - The nixpkgs-unstable bump carries uv 0.13; see the [uv 0.13.0 migration notes](https://github.com/astral-sh/uv/releases/tag/0.13.0) for breaking changes
   - `--constraint`, `--override`, `--exclude` and `--build-constraint` values no longer split on spaces; repeat the option for multiple paths
