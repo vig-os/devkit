@@ -661,6 +661,32 @@ revision clears (or introduces). The nightly `vulnix` scan runs against the
 `devcontainerImageEnv` closure; HIGH/CRITICAL findings are gated by `vulnix-gate`
 against the `.vulnixignore` exception register.
 
+### Brotli security fix in 1.18.1
+
+[CVE-2026-111497](https://github.com/advisories/GHSA-9v8h-qqgm-4m35)
+affects the native Brotli decoder in `c/dec/decode.c` when it processes crafted,
+untrusted streams. Upstream fixes the 1.2 series in
+[Brotli 1.2.1](https://github.com/google/brotli/releases/tag/v1.2.1).
+The image exposes decoding through curl and Node.js (including Brotli zlib APIs
+and HTTP response decoding), so the dependency is upgraded rather than excepted.
+
+The stable pin advances to nixos-26.05 revision
+`08d3a97586f6b6343b3b5e799980773629432610`, a channel descendant of the
+previous pin that contains 1.2.1. This includes 392 upstream commits, including curl,
+Node.js, glibc, Go, OpenSSH, and graphics-library updates. A version-only overlay
+on the old stable pin is insufficient: that pin's Node.js expression appends a
+Brotli security patch for some Node majors which is already present in 1.2.1.
+The new stable expression removes that redundant patch application.
+
+The locked unstable channel still contains 1.2.0. Its private package-set import
+therefore calls the fixed stable Brotli expression with unstable dependencies.
+This covers the fast-moving tools' dependencies (notably `gh → git → curl`)
+without advancing unrelated unstable tools. Python Brotli bindings inherit the
+native package's source and version. The stable and unstable packages retain
+the upstream build checks and architecture patch. Rebuilding affected dependents
+is required; evaluating derivations alone does not prove a rebuilt image's
+runtime closure. The release Vulnix CVE Gate scans that rebuilt closure.
+
 ## Publish cutover
 
 The build pipeline is Nix-only (the Debian path was decommissioned in #642), and

@@ -127,6 +127,14 @@
         system:
         import nixpkgs-unstable {
           inherit system;
+          # The locked unstable channel still has Brotli 1.2.0. Reuse the
+          # fixed stable expression with unstable's dependencies so gh's
+          # git/curl closure also receives 1.2.1. See docs/NIX.md (#1977).
+          overlays = [
+            (final: _prev: {
+              brotli = final.callPackage "${nixpkgs}/pkgs/by-name/br/brotli/package.nix" { };
+            })
+          ];
           config.allowUnfree = true;
         };
 
