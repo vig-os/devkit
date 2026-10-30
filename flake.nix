@@ -517,7 +517,12 @@
           # load pre-commit's manylinux-wheel C extensions outside `nix develop`.
           # Derived from `pkgs.uv.version` so it tracks the overlaid (floating)
           # uv and cannot drift from a literal pin. Refs #632, #666, #683, #774.
-          uvPythonDownloadsJsonUrl = "https://raw.githubusercontent.com/astral-sh/uv/${pkgs.uv.version}/crates/uv-python/download-metadata.json";
+          # uv 0.13 moved managed-Python metadata into its own crate. Keep the
+          # layout version-aware as well as the tag; both CI actions forward this
+          # value unchanged. Refs #1976.
+          uvPythonDownloadsCrate =
+            if pkgs.lib.versionAtLeast pkgs.uv.version "0.13.0" then "uv-python-managed" else "uv-python";
+          uvPythonDownloadsJsonUrl = "https://raw.githubusercontent.com/astral-sh/uv/${pkgs.uv.version}/crates/${uvPythonDownloadsCrate}/download-metadata.json";
 
           # The interpreter (default 3.14, matching `requires-python`
           # >=3.14,<3.15; overridable via the `python` argument, #1038) is
