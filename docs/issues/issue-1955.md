@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-10-29T01:35:25Z
-updated: 2026-10-29T02:34:40Z
+updated: 2026-10-29T23:35:01Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1955
-comments: 1
+comments: 2
 labels: bug
 assignees: none
 milestone: 1.19.0
 projects: none
 parent: none
 children: none
-synced: 2026-10-29T08:18:29.251Z
+synced: 2026-10-30T08:26:27.687Z
 ---
 
 # [Issue 1955]: [devkit-upgrade hook migration: message and fold-gate follow-ups from S3 review](https://github.com/vig-os/devkit/issues/1955)
@@ -41,4 +41,12 @@ _Posted on October 29, 2026 at 02:34 AM_
 Two wording nits from the final re-review of PR #1956 (S7 #1933) belong here too, since they're consumer-facing migration text:
 - `docs/MIGRATION.md` ~424: "the variable wins whenever both are set" comes right after `DEVKIT_CI_RESOLVE_RUNNER`, so it reads as that variable beating the key. Say "a `CI_RUNNER_*` variable wins over the `.vig-os` key".
 - `docs/MIGRATION.md` ~444-447: the N+2 `DEVKIT_CI_RUNNER` tombstone omits the ADR's foreign-run case, which only warns. Add it.
+
+---
+
+# [Comment #2]() by [gerchowl]()
+
+_Posted on October 29, 2026 at 11:35 PM_
+
+One more wording nit from the final re-review of PR #1971 (S7b #1934): `docs/DOWNSTREAM_RELEASE.md:490` and its template copy capitalise "The" after a semicolon ("defaults to SMALL; The `.vig-os` key…"). Lowercase it.
 
