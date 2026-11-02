@@ -367,6 +367,10 @@ def test_direnv_upgrade_reports_the_flake_bump_line(tmp_path: Path) -> None:
         ("1.2.1", "1.2.2", "", False, "not in lockstep"),
         ("1.2.1", "1.2.2", "true", True, "advanced pinned input"),
         ("1.2.3", "1.2.3", "", False, "already pinned"),
+        ("refs/tags/1.2.2", "1.2.2", "", True, "advanced pinned input"),
+        ("v1.2.2", "1.2.2", "", True, "published bare tag"),
+        ("refs/tags/v1.2.2", "1.2.2", "", True, "published bare tag"),
+        ("1.2.2", "", "", False, "pre-upgrade DEVKIT_VERSION is empty"),
     ],
 )
 def test_release_pin_upgrade_policy(
@@ -416,14 +420,24 @@ def test_release_pin_upgrade_policy(
     assert "DEVKIT_VERSION=1.2.3" in manifest.read_text()
     assert f"DEVKIT_FLAKE_PIN_ADVANCE={knob}\n" in manifest.read_text()
     expected = "1.2.3" if advances else ref
+    if advances and ref.startswith("refs/tags/"):
+        expected = f"refs/tags/{expected}"
     assert f'{separator}{expected}"' in (project / "flake.nix").read_text()
+    if advances and ref.startswith(("v", "refs/tags/v")):
+        assert "published bare tag" in lines[0]
     if advances:
         assert "flake update vigos" in (bindir / "nix.log").read_text()
         # CI rejects a release ref that differs from the scaffold version.
-        assert f"DEVKIT_VERSION={expected}" in manifest.read_text()
+        assert (
+            f"DEVKIT_VERSION={expected.removeprefix('refs/tags/')}"
+            in manifest.read_text()
+        )
     elif expected != "1.2.3":
         assert "hooks may fail and CI will reject" in out
-        assert "DEVKIT_FLAKE_PIN_ADVANCE=true" in out
+        assert "To advance the pin: point it at the new release" in out
+        assert "nix flake update vigos" in out
+        if knob == "false":
+            assert "DEVKIT_FLAKE_PIN_ADVANCE=true" not in out
     assert not marker.exists()
 
 
