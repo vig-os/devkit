@@ -1337,6 +1337,7 @@ _run_install_no_nix() {
     _run_install_nix_stub "$dir" "$log" 1 --force
     assert_success
     assert_output --partial "flake-bump: failed — nix flake update vigos did not succeed; pin 'vigos' left at 1.4.0 (non-fatal)"
+    assert_output --partial "Upgrade incomplete: hooks may fail and CI will reject"
     _assert_one_flake_bump_line "$output"
     run grep -F "flake update vigos --flake $dir" "$log"
     assert_success
@@ -1351,6 +1352,7 @@ _run_install_no_nix() {
     _run_install_no_nix "$dir" --force
     assert_success
     assert_output --partial "flake-bump: skipped — nix not found on PATH; pin 'vigos' 1.4.0 -> 1.4.1 not advanced"
+    assert_output --partial "Upgrade incomplete: hooks may fail and CI will reject"
     _assert_one_flake_bump_line "$output"
     cmp "$BATS_TEST_TMPDIR/before.nix" "$dir/flake.nix"
 }
