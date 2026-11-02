@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
-    import pytest
 
+import pytest
 from vig_utils.vulnix_gate import (
     blocking_findings,
     excepted_cves,
@@ -185,3 +185,53 @@ class TestMain:
             date(2026, 6, 23),
         )
         assert code == 1
+
+
+@pytest.mark.parametrize(
+    ("pname", "version", "expiration", "expected"),
+    [
+        ("brotli", "1.2.1", "2099-01-01", 0),
+        ("brotli", "1.2.0", "2099-01-01", 1),
+        ("brotli", "1.2.10", "2099-01-01", 1),
+        ("brotli", "1.2.1-lib", "2099-01-01", 1),
+        ("python3.13-brotli", "1.2.1", "2099-01-01", 1),
+        ("Brotli", "1.2.1", "2099-01-01", 1),
+        ("other-product", "1.2.1", "2099-01-01", 1),
+        ("brotli", "1.2.1", "2020-01-01", 1),
+    ],
+)
+def test_exact_package_version_exception(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pname: str,
+    version: str,
+    expiration: str,
+    expected: int,
+):
+    """A CPE collision exemption must not hide the genuinely vulnerable version."""
+    findings = tmp_path / "findings.json"
+    findings.write_text(
+        json.dumps(
+            [
+                {
+                    "pname": pname,
+                    "version": version,
+                    "affected_by": ["CVE-2026-111497"],
+                    "cvssv3_basescore": {"CVE-2026-111497": 9.8},
+                }
+            ]
+        )
+    )
+    register = tmp_path / ".vulnixignore"
+    register.write_text(f"Expiration: {expiration}\nCVE-2026-111497@brotli@1.2.1\n")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "vulnix-gate",
+            str(findings),
+            "--register",
+            str(register),
+        ],
+    )
+    assert main(today=date(2026, 11, 2)) == expected

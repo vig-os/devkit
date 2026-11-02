@@ -661,6 +661,22 @@ revision clears (or introduces). The nightly `vulnix` scan runs against the
 `devcontainerImageEnv` closure; HIGH/CRITICAL findings are gated by `vulnix-gate`
 against the `.vulnixignore` exception register.
 
+### Brotli security fix in 1.18.1
+
+The stable pin `08d3a97586f6b6343b3b5e799980773629432610` ships Google Brotli
+1.2.1, fixing the decoder vulnerability
+[CVE-2026-111497](https://github.com/advisories/GHSA-9v8h-qqgm-4m35).
+Its advance includes 392 upstream commits affecting curl, Node.js, glibc, Go,
+OpenSSH, and graphics libraries. The shipped runtime Brotli comes from stable;
+no unstable overlay is needed. Derivation dependencies also include build tools
+and must not be mistaken for the shipped runtime closure.
+
+Vulnix 1.12.4 ignores the CPE vendor and incorrectly matches Google's 1.2.1
+against the same-named Go port's affected range (below 1.2.7). The evidence is
+registered in `.vulnixignore` as `CVE-2026-111497@brotli@1.2.1`, expiring
+2026-12-02 with review on 2026-11-25. The exact exception leaves 1.2.0 blocking.
+The release gate must still scan the rebuilt image's full runtime closure.
+
 ## Publish cutover
 
 The build pipeline is Nix-only (the Debian path was decommissioned in #642), and

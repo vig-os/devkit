@@ -41,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Fix Brotli decoder CVE-2026-111497** ([#1977](https://github.com/vig-os/devkit/issues/1977))
+  - The stable input ships Google Brotli 1.2.1; register the remaining Vulnix CPE false positive with evidence and an exact package/version exception that leaves 1.2.0 blocking.
+  - Remove the two SQLite exceptions fixed by SQLite 3.53.3; see [Nix dependency policy](docs/NIX.md#brotli-security-fix-in-1181).
+
 - **Reconcile expired Nix image exceptions against rebuilt closures** ([#1847](https://github.com/vig-os/devkit/issues/1847))
   - Advance the stable and unstable Nix inputs to ship available security fixes, including libmicrohttpd 1.0.10 and Unbound 1.26.1; remove their five cleared exceptions
   - Re-verify all six glibc exceptions against the applied nixpkgs backports, replace deployment assumptions with per-CVE fix links, and schedule the next review for Wednesday 2026-11-25
