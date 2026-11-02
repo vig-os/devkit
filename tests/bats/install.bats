@@ -1320,8 +1320,8 @@ _run_install_no_nix() {
         _run_install_nix_stub "$dir" "$log" 0 --force
         assert_success
         assert_line --partial "flake-bump: skipped — input 'vigos' is pinned to '1.4.0'"
-        assert_line --partial "DEVKIT_FLAKE_PIN_ADVANCE=true"
-        assert_line '  To follow releases automatically: vigos.url = "github:vig-os/devkit"'
+        assert_line --partial "Upgrade incomplete: hooks may fail and CI will reject"
+        refute_output --partial "DEVKIT_FLAKE_PIN_ADVANCE=true"
         assert_line "  To advance the pin: point it at the new release, then run 'nix flake update vigos'."
         _assert_one_flake_bump_line "$output"
         cmp "$BATS_TEST_TMPDIR/before.nix" "$dir/flake.nix"
@@ -1411,8 +1411,7 @@ _run_install_no_nix() {
 
 @test "a non-release pin is left alone even with the knob (#1752)" {
     local i=0
-    for url in 'github:vig-os/devkit?ref=main' 'github:vig-os/devkit?rev=0123abcd' \
-        'github:vig-os/devkit?ref=refs/tags/1.4.0'; do
+    for url in 'github:vig-os/devkit?ref=main' 'github:vig-os/devkit?rev=0123abcd'; do
         echo "url: $url"
         dir="$BATS_TEST_TMPDIR/pin-nonrelease-$i"
         log="$BATS_TEST_TMPDIR/pin-nonrelease-$((i++))-nix.log"

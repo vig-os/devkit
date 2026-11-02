@@ -253,7 +253,7 @@ jobs:
             exit 0
           fi
           if [[ "$pinned_ref" != "$DEVKIT_VERSION" ]]; then
-            echo "::error::flake.nix pins the devkit input '$pinned_input' to $pinned_ref but .vig-os DEVKIT_VERSION is $DEVKIT_VERSION — the scaffold and its toolchain must move together. In one commit: bump the pin, run 'nix flake update $pinned_input', and set DEVKIT_FLAKE_PIN_ADVANCE=true in .vig-os so upgrades do this for you."
+            echo "::error::flake.nix pins the devkit input '$pinned_input' to $pinned_ref but .vig-os DEVKIT_VERSION is $DEVKIT_VERSION — the scaffold and its toolchain must move together. In one commit: bump the pin and run 'nix flake update $pinned_input'. Lockstep release pins advance by default; with DEVKIT_FLAKE_PIN_ADVANCE=false, continue to align pins manually."
             exit 1
           fi
           echo "flake.nix pins the devkit input '$pinned_input' to $pinned_ref, matching DEVKIT_VERSION."

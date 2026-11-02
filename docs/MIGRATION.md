@@ -22,7 +22,12 @@ You must then align the release pin and run `nix flake update <input>` manually
 before committing: a mismatch can break hooks and fails CI. Empty selects the
 new lockstep default; `true` continues to advance any release pin. Non-lockstep
 pins with an empty knob remain unchanged with an explicit warning and remedy.
-The installer preserves your knob value.
+Comparisons recognize `refs/tags/` and a leading `v`. The installer preserves
+`refs/tags/` but removes `v` when advancing, since published devkit tags are bare
+`X.Y.Z`; the `flake-bump:` line reports that spelling change. Missing Nix or a
+failed lock update also reports an incomplete upgrade when the pin remains
+behind. The installer preserves your knob value; manually align pins when you
+have explicitly opted out.
 
 ## Project shell agent CLI migration
 
