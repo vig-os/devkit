@@ -9,6 +9,21 @@ For the flake architecture and contributor onboarding see
 [`docs/NIX.md`](./NIX.md); for the security posture see
 [`docs/CONTAINER_SECURITY.md`](./CONTAINER_SECURITY.md).
 
+## Lockstep flake pins during upgrades
+
+Consumers in `direnv` or `both` mode whose devkit release input matches their
+pre-upgrade `DEVKIT_VERSION` now advance that pin and its lock by default on
+`install.sh --force` upgrades. This prevents new scaffold hooks from running in
+an old shell. This applies when adopting the release containing #1856, even
+through an older `devkit-upgrade.yml`.
+
+To opt out, set `DEVKIT_FLAKE_PIN_ADVANCE=false` in `.vig-os` before upgrading.
+You must then align the release pin and run `nix flake update <input>` manually
+before committing: a mismatch can break hooks and fails CI. Empty selects the
+new lockstep default; `true` continues to advance any release pin. Non-lockstep
+pins with an empty knob remain unchanged with an explicit warning and remedy.
+The installer preserves your knob value.
+
 ## Project shell agent CLI migration
 
 Project dev-shells no longer provide `claude` by default. Repositories relying on
