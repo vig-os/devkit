@@ -1083,9 +1083,9 @@ fi
 # hook sets) silently keeps running the previous release. Advance the lock
 # here, on the host, after the ownership repair and git phase: a direnv
 # consumer has nix by definition, and the scaffold container must not write the
-# lock (network dependence + root-owned output hazards, #1235/#1248). Pinned
-# inputs are the consumer's explicit choice and are never auto-bumped; a
-# missing flake.lock (fresh scaffold) locks current content on first shell
+# lock (network dependence + root-owned output hazards, #1235/#1248). Release
+# pins follow the tri-state policy below; a missing flake.lock (fresh scaffold)
+# locks current content on first shell
 # entry anyway. Upgrades only (--force): the skew needs a pre-existing lock to
 # lag behind. Non-fatal on failure (e.g. offline): print the manual step.
 #
@@ -1100,13 +1100,34 @@ fi
 # A PINNED input advances by default when it matched the pre-upgrade version
 # (#1856). false opts out; true advances any release pin (#1752):
 # a RELEASE pin moves to the new .vig-os DEVKIT_VERSION (written by the
-# scaffold above), form preserved, atomically with the lock — on any failure
+# scaffold above), preserving the URL form and refs/tags/ but removing v,
+# atomically with the lock — on any failure
 # flake.nix and flake.lock are restored, so flake.nix never runs ahead of it.
 #
 # Broad detector: matches a floating OR pinned devkit input. A different
 # detector from the narrow pinned-only regex shared by init-workspace.sh's
 # lagging-pin WARNING and ci.yml's `Check flake pin lockstep` step.
 DEVKIT_INPUT_RE='^[[:space:]]*(inputs\.)?[A-Za-z0-9_-]+\.url[[:space:]]*=[[:space:]]*"github:vig-os/devkit["/?]'
+
+# Compare release spellings by version, without treating branch/revision pins
+# as releases. Published devkit tags use bare X.Y.Z, never a leading v (#1856).
+normalize_release_ref() {
+    local ref="${1#refs/tags/}"
+    printf '%s\n' "${ref#v}"
+}
+
+# Check the actual retained pin after every outcome, including atomic rollback.
+# Keep this outside the flake-bump report so there is exactly one report line.
+warn_incomplete_pin_upgrade() {
+    local ref
+    ref="$(grep -E "$DEVKIT_INPUT_RE" "$PROJECT_PATH/flake.nix" | head -n1 \
+        | sed -E 's|.*"github:vig-os/devkit[/?](ref=)?([^"]+)".*|\2|' || true)"
+    ref="$(normalize_release_ref "$ref")"
+    if [[ "$ref" =~ $RELEASE_RE ]] && [ "$ref" != "$NEW_DEVKIT_VERSION" ]; then
+        echo "  Upgrade incomplete: hooks may fail and CI will reject the pin/version mismatch."
+        echo "  To advance the pin: point it at the new release, then run 'nix flake update $DEVKIT_INPUT_NAME'."
+    fi
+}
 
 # Lock the devkit input $1 of the flake at $2 to its current flake.nix URL.
 advance_flake_lock() {
@@ -1124,7 +1145,7 @@ advance_flake_lock() {
 advance_pinned_input() {
     local name="$1" old="$2" new="$3" flake="$PROJECT_PATH/flake.nix"
     local lock="$PROJECT_PATH/flake.lock" line_no old_esc new_esc new_re tmpd
-    local flake_tmp flake_orig lock_orig
+    local flake_tmp flake_orig lock_orig note="${4:-}"
     # `|| true`: a no-match grep would abort the upgrade under pipefail.
     line_no="$(grep -nE "$DEVKIT_INPUT_RE" "$flake" | head -n1 | cut -d: -f1 || true)"
     if [ -z "$line_no" ]; then
@@ -1155,7 +1176,7 @@ advance_pinned_input() {
     cat "$flake_tmp" >"$flake"
     info "Advancing the pinned '$name' flake input $old -> $new (nix flake update $name)..."
     if advance_flake_lock "$name" "$PROJECT_PATH"; then
-        echo "flake-bump: advanced pinned input '$name' $old -> $new (flake.nix + flake.lock); review and commit both with the upgrade"
+        echo "flake-bump: advanced pinned input '$name' $old -> $new (flake.nix + flake.lock)${note:+; $note}; review and commit both with the upgrade"
     else
         cat "$flake_orig" >"$flake" || true
         cat "$lock_orig" >"$lock" || true
@@ -1199,33 +1220,39 @@ if [ -n "$FORCE" ] && { [ "$MODE" = "direnv" ] || [ "$MODE" = "both" ]; } \
             PIN_ADVANCE="$(read_manifest_value "$PROJECT_PATH/.vig-os" DEVKIT_FLAKE_PIN_ADVANCE || true)"
             NEW_DEVKIT_VERSION="$(read_manifest_value "$PROJECT_PATH/.vig-os" DEVKIT_VERSION || true)"
             RELEASE_RE='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+            PIN_VERSION="$(normalize_release_ref "$DEVKIT_PINNED_REF")"
+            PREVIOUS_PIN_VERSION="$(normalize_release_ref "$PREVIOUS_DEVKIT_VERSION")"
+            TARGET_PIN_REF="$NEW_DEVKIT_VERSION"
+            case "$DEVKIT_PINNED_REF" in
+                refs/tags/*) TARGET_PIN_REF="refs/tags/$NEW_DEVKIT_VERSION" ;;
+            esac
+            PIN_REF_NOTE=""
+            case "${DEVKIT_PINNED_REF#refs/tags/}" in
+                v*) PIN_REF_NOTE="removed v prefix to use published bare tag '$NEW_DEVKIT_VERSION'" ;;
+            esac
             if [ "$PIN_ADVANCE" != "true" ] && { [ "$PIN_ADVANCE" = "false" ] \
-                || [ "$DEVKIT_PINNED_REF" != "$PREVIOUS_DEVKIT_VERSION" ]; }; then
+                || [ "$PIN_VERSION" != "$PREVIOUS_PIN_VERSION" ]; }; then
                 if [ "$PIN_ADVANCE" = "false" ]; then
                     PIN_SKIP_REASON="explicit opt-out: DEVKIT_FLAKE_PIN_ADVANCE=false"
+                elif [ -z "$PREVIOUS_DEVKIT_VERSION" ]; then
+                    PIN_SKIP_REASON="pre-upgrade DEVKIT_VERSION is empty; cannot establish lockstep"
                 else
                     PIN_SKIP_REASON="not in lockstep with pre-upgrade DEVKIT_VERSION '$PREVIOUS_DEVKIT_VERSION'"
                 fi
                 echo "flake-bump: skipped — input '$DEVKIT_INPUT_NAME' is pinned to '$DEVKIT_PINNED_REF' ($PIN_SKIP_REASON)"
-                if [[ "$DEVKIT_PINNED_REF" =~ $RELEASE_RE ]] \
-                    && [ "$DEVKIT_PINNED_REF" != "$NEW_DEVKIT_VERSION" ]; then
-                    echo "  Upgrade incomplete: hooks may fail and CI will reject the pin/version mismatch."
-                    echo "  Fix: set DEVKIT_FLAKE_PIN_ADVANCE=true in .vig-os, then re-run this install.sh upgrade."
-                fi
-                echo "  To follow releases automatically: $DEVKIT_INPUT_NAME.url = \"github:vig-os/devkit\""
-                echo "  To advance the pin: point it at the new release, then run 'nix flake update $DEVKIT_INPUT_NAME'."
             elif ! [[ "$NEW_DEVKIT_VERSION" =~ $RELEASE_RE ]]; then
                 echo "flake-bump: skipped — DEVKIT_VERSION '$NEW_DEVKIT_VERSION' in .vig-os is not a release version; pin '$DEVKIT_PINNED_REF' left as is"
-            elif ! [[ "$DEVKIT_PINNED_REF" =~ $RELEASE_RE ]]; then
+            elif ! [[ "$PIN_VERSION" =~ $RELEASE_RE ]]; then
                 echo "flake-bump: skipped — input '$DEVKIT_INPUT_NAME' is pinned to '$DEVKIT_PINNED_REF', not a release version; DEVKIT_FLAKE_PIN_ADVANCE applies to release pins only"
-            elif [ "$DEVKIT_PINNED_REF" = "$NEW_DEVKIT_VERSION" ]; then
+            elif [ "$DEVKIT_PINNED_REF" = "$TARGET_PIN_REF" ]; then
                 echo "flake-bump: input '$DEVKIT_INPUT_NAME' already pinned to '$NEW_DEVKIT_VERSION'; nothing to advance"
             elif ! command -v nix >/dev/null 2>&1; then
                 echo "flake-bump: skipped — nix not found on PATH; pin '$DEVKIT_INPUT_NAME' $DEVKIT_PINNED_REF -> $NEW_DEVKIT_VERSION not advanced"
                 echo "  Run: edit flake.nix, then 'nix flake update $DEVKIT_INPUT_NAME'"
             else
-                advance_pinned_input "$DEVKIT_INPUT_NAME" "$DEVKIT_PINNED_REF" "$NEW_DEVKIT_VERSION"
+                advance_pinned_input "$DEVKIT_INPUT_NAME" "$DEVKIT_PINNED_REF" "$TARGET_PIN_REF" "$PIN_REF_NOTE"
             fi
+            warn_incomplete_pin_upgrade
         fi
     fi
 fi

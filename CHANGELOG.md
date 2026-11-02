@@ -21,11 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.18.2] - TBD
 
+### Changed
+
+- **Default lockstep pin advancement** ([#1856](https://github.com/vig-os/devkit/issues/1856)): lockstep release pins advance unless `DEVKIT_FLAKE_PIN_ADVANCE=false`.
+
 ### Fixed
 
 - **Advance lockstep release pins during upgrades** ([#1856](https://github.com/vig-os/devkit/issues/1856))
   - The target installer advances release pins matching the pre-upgrade version by default, keeping the scaffold and dev shell aligned even through older upgrade workflows.
-  - Preserve explicit pin-advance settings and report the hook/CI failure and remedy when a skipped pin leaves a mismatch.
+  - Recognize qualified release refs, preserve `refs/tags/`, and report removal of a leading `v` to use published bare tags.
+  - Preserve explicit pin-advance settings; report every retained-pin mismatch, including failed updates and missing Nix, with manual-alignment advice that honors an explicit opt-out.
   - Migration: affected direnv/both consumers can set `DEVKIT_FLAKE_PIN_ADVANCE=false` to opt out and align pins manually; see [the migration note](docs/MIGRATION.md#lockstep-flake-pins-during-upgrades).
 
 ## [1.18.1](https://github.com/vig-os/devkit/releases/tag/1.18.1) - 2026-11-02
