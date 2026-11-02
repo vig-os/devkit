@@ -358,6 +358,7 @@ def test_direnv_upgrade_reports_the_flake_bump_line(tmp_path: Path) -> None:
     assert not marker.exists()
 
 
+@pytest.mark.parametrize("separator", ["?ref=", "/"])
 @pytest.mark.parametrize(
     ("ref", "previous", "knob", "advances", "reason"),
     [
@@ -369,7 +370,13 @@ def test_direnv_upgrade_reports_the_flake_bump_line(tmp_path: Path) -> None:
     ],
 )
 def test_release_pin_upgrade_policy(
-    tmp_path: Path, ref: str, previous: str, knob: str, advances: bool, reason: str
+    tmp_path: Path,
+    ref: str,
+    previous: str,
+    knob: str,
+    advances: bool,
+    reason: str,
+    separator: str,
 ) -> None:
     """Run the target installer and real scaffold; mirror CI's pin lockstep gate."""
     bindir, marker = _runtime_stubs(tmp_path, working=False)
@@ -382,7 +389,7 @@ def test_release_pin_upgrade_policy(
         encoding="utf-8",
     )
     (project / "flake.nix").write_text(
-        f'{{ inputs = {{\n  vigos.url = "github:vig-os/devkit?ref={ref}";\n}}; }}\n',
+        f'{{ inputs = {{\n  vigos.url = "github:vig-os/devkit{separator}{ref}";\n}}; }}\n',
         encoding="utf-8",
     )
     (project / "flake.lock").write_text("{}\n", encoding="utf-8")
@@ -397,7 +404,7 @@ def test_release_pin_upgrade_policy(
             "1.2.3",
             str(project),
         ],
-        env=_env(bindir),
+        env={**_env(bindir), "TMPDIR": str(tmp_path)},
         capture_output=True,
         text=True,
         check=False,
@@ -409,7 +416,7 @@ def test_release_pin_upgrade_policy(
     assert "DEVKIT_VERSION=1.2.3" in manifest.read_text()
     assert f"DEVKIT_FLAKE_PIN_ADVANCE={knob}\n" in manifest.read_text()
     expected = "1.2.3" if advances else ref
-    assert f'?ref={expected}"' in (project / "flake.nix").read_text()
+    assert f'{separator}{expected}"' in (project / "flake.nix").read_text()
     if advances:
         assert "flake update vigos" in (bindir / "nix.log").read_text()
         # CI rejects a release ref that differs from the scaffold version.

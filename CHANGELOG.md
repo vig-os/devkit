@@ -93,6 +93,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Advance lockstep release pins during upgrades** ([#1856](https://github.com/vig-os/devkit/issues/1856))
+  - The target installer advances release pins matching the pre-upgrade version by default, keeping the scaffold and dev shell aligned even through older upgrade workflows.
+  - Preserve explicit pin-advance settings and report the hook/CI failure and remedy when a skipped pin leaves a mismatch.
+  - Migration: affected direnv/both consumers can set `DEVKIT_FLAKE_PIN_ADVANCE=false` to opt out and align pins manually; see [the migration note](docs/MIGRATION.md#lockstep-flake-pins-during-upgrades).
+
 - **Harden GitHub App provisioning callbacks and inputs** ([#1919](https://github.com/vig-os/devkit/issues/1919))
   - Accept callbacks only once, including concurrent requests, and preserve the original result on replay
   - Validate reverse-proxy URLs and reject combining `--host` with `--base-url`; cover exchange timeout and malformed JSON errors without exposing secrets
