@@ -11,7 +11,9 @@ silently skipped.
 
 Register-entry expiry is enforced separately by `check-expirations` (pre-commit
 + CI); this gate additionally refuses to mask a finding with an already-expired
-exception. Only sub-threshold *scored* CVEs are awareness-only and never gate.
+exception. Entries may use `CVE@pname@version` to match exactly one package
+and version; bare CVE entries retain their existing scope. Only sub-threshold
+*scored* CVEs are awareness-only and never gate.
 
 This is the objective go/no-go input for the publish-cutover (#637 → #639).
 
@@ -41,7 +43,7 @@ DEFAULT_THRESHOLD = 7.0  # CVSS v3 HIGH starts at 7.0
 
 
 def excepted_cves(register: Path, *, today: date | None = None) -> set[str]:
-    """Return the CVE IDs that have a non-expired exception in *register*."""
+    """Return active exception keys (bare CVEs or exact CVE@pname@version keys)."""
     review_date = today or date.today()
     return {
         entry_id
@@ -71,7 +73,8 @@ def blocking_findings(
             score = scores.get(cve)
             if score is not None and score < threshold:
                 continue  # sub-threshold scored: awareness only
-            if cve in excepted:
+            scoped_key = f"{cve}@{item.get('pname')}@{item.get('version')}"
+            if cve in excepted or scoped_key in excepted:
                 continue
             blocking.append(
                 {
