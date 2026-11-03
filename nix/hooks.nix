@@ -210,6 +210,16 @@ let
   # Module-owned entries have one portable definition and a store-path wrapper.
   # The installer consumes portable.docs; ordinary runner/scaffold renders omit it.
   docsSpecs = {
+    glossary-schema = {
+      command = "glossary-guard";
+      mode = "schema";
+      files = "";
+    };
+    glossary-terms = {
+      command = "glossary-guard";
+      mode = "terms";
+      files = "";
+    };
     typstyle-check = {
       mode = "format";
       files = "\\.typ$";
@@ -240,6 +250,8 @@ let
           (builtins.elem spec.mode [
             "compile"
             "pdf"
+            "schema"
+            "terms"
           ])
           {
             always_run = true;
@@ -251,7 +263,7 @@ let
     in
     {
       yaml = common // {
-        entry = "typst-guard ${spec.mode}";
+        entry = "${spec.command or "typst-guard"} ${spec.mode}";
       };
       consumer =
         pkgs:
@@ -267,7 +279,7 @@ let
                   pkgs.typstyle
                 ]
               }:"$PATH"
-              exec ${import ./vig-utils.nix pkgs}/bin/typst-guard ${spec.mode} "$@"
+              exec ${import ./vig-utils.nix pkgs}/bin/${spec.command or "typst-guard"} ${spec.mode} "$@"
             ''
           );
         };

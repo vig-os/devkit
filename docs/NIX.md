@@ -317,6 +317,92 @@ checks preview references in source, including comments. Typstyle 0.15.2 exposes
 CLI formatting options with an 80-column default and no config-file option, so no
 `typstyle.toml` is scaffolded. The real-tool canary is `checks.<system>.typst-canary`.
 
+
+#### Terminology register
+
+The docs module also installs `glossary-schema` and `glossary-terms` hooks.
+Both validate the register; terms scans all selected sources on every run, so
+register edits also check existing documents. Without `glossary.yaml` they do
+nothing. Set `DEVKIT_GLOSSARY="docs/terms.yaml"` in `.vig-os` to select another
+repository-relative register (an explicitly configured missing file fails).
+The packaged `vig_utils/glossary.schema.json` defines a YAML list:
+
+```yaml
+- id: feed-pump
+  term: Feed Pump
+  definition: Moves fluid into the circuit.
+  kind: part
+  aliases: [Supply Pump]
+  forbidden:
+    - term: Input Pump
+      use: Feed Pump
+  part-number: FP-100
+  pattern: 'FP-\d+'
+  status: active
+```
+
+`id`, `term`, `definition`, and `kind` are required; IDs must be unique.
+Kinds are `term`, `part`, `component`, `acronym`, and `role`; optional status is
+`active` or `deprecated`. Duplicate YAML keys, names shared across entries
+(casefolded), aliases forbidden by another entry (same spelling), and `use`
+replacements absent from registered terms/aliases are rejected. Aliases must
+be unique within each entry. Deprecation status alone does not reject a name.
+
+Forbidden phrases normally match case-insensitively using Unicode casefolding.
+When a forbidden spelling casefolds to a registered term or alias, it matches
+case-sensitively: `Github` can suggest `GitHub`, and `us` can suggest `US`,
+without rejecting the correct spellings. Registered term and alias occurrences
+are protected, so a forbidden `pump` does not reject `Feed Pump` or `Supply Pump`.
+Protection is case-insensitive except for names with casing corrections.
+Underscores count as prose boundaries (`_emph_` and `__strong__`). Spaces, tabs,
+NBSP, and newlines are interchangeable within phrases, including hard wraps.
+Hyphens are literal characters, not whitespace separators.
+
+Part patterns are Python regular expressions with inline flags, compiled
+case-insensitively by default. Invalid flags, patterns matching empty text,
+and a part number not fully matching its own pattern fail schema validation,
+with the entry ID in the diagnostic. Known part numbers belong only to entries
+sharing the **identical pattern string**; repeat that pattern on each part in
+its family. A part with no pattern does not populate another family's known
+set. Each unknown token occurrence is reported once, even for overlapping
+families. Numbers inside scheme URLs (`https://...`), `mailto:`, and `www.`
+URLs are skipped.
+
+Only Git-tracked `.typ` and `.md` sources are scanned. Set comma-separated
+`DEVKIT_GLOSSARY_SOURCES="docs/**,manual/*.typ"` to select Git pathspecs relative
+to the repository root (`git ls-files` semantics). Untracked/ignored files,
+hidden directories, and `generated/` are excluded. There is **no non-Git
+fallback**: terms mode with a nonempty register requires a Git working tree.
+An undecodable source produces a file-specific UTF-8 error while other sources
+are still checked. Schema mode validates only the register and never scans.
+
+Append `// glossary: ignore` at the **end of a `.typ` line**, or
+`<!-- glossary: ignore -->` at the **end of a `.md` line**. Trailing spaces are
+allowed; trailing text and markers in the other file type do not suppress.
+The marker suppresses that line; hard-wrapped matches cannot cross it.
+Typst `/* glossary: ignore */` is not supported. Inline code and fenced code
+are scanned as ordinary source text; use the same per-line marker for examples
+that intentionally contain forbidden text. These checks do not parse markup
+or discover synonyms. Run `glossary-guard schema` or `glossary-guard terms`
+manually from the repository root.
+
+For YAML language-server editor validation, put this header in the register,
+replacing `RELEASE_TAG` with an installed devkit release tag that includes the
+terminology register (for example, the tag recorded in your adoption PR):
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/vig-os/devkit/RELEASE_TAG/packages/vig-utils/src/vig_utils/glossary.schema.json
+```
+
+Pin the URL to that release tag, rather than `dev`, so editor and hook schemas
+stay aligned. The schema's `$id` is its canonical development-source identity;
+validation needs no network access because vig-utils packages the schema.
+`jsonschema` and its runtime dependencies are available in every devkit image
+and toolchain through vig-utils, even without the docs module. This shared
+package uses the standard validator so the shipped JSON Schema is the single
+structural-validation contract for both editors and hooks; hook activation
+and source scanning remain opt-in.
+
 ### `packages.<system>.guardrails` — the gates without a `mkProjectShell` migration
 
 The `guardrails` capability module (#1488, `nix/modules/guardrails.nix`) wraps

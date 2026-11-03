@@ -35,6 +35,9 @@ DEVKIT_REPO=
 DEVKIT_MODULES=""
 # docs only: comma-separated repository-relative Typst skip globs.
 DEVKIT_TYPST_SKIP=""
+# docs only: optional terminology register and comma-separated source globs.
+DEVKIT_GLOSSARY=""
+DEVKIT_GLOSSARY_SOURCES=""
 # docs only: colon-separated existing repo-relative font directories (branding).
 DEVKIT_TYPST_FONT_PATHS=""
 
