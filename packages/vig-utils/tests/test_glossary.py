@@ -346,3 +346,108 @@ def test_packaged_schema_constraints_independent_of_semantic_checks(
     entries[0][field] = value
     schema = json.loads(files("vig_utils").joinpath("glossary.schema.json").read_text())
     assert not Draft202012Validator(schema).is_valid(entries)
+
+
+@pytest.mark.parametrize("name", ["Feed Pump", "Supply Pump", "Control Unit"])
+def test_dead_forbidden_rules(register, name):
+    root, entries = register
+    entries.append(
+        {
+            "id": "control",
+            "term": "Control Unit",
+            "definition": "Controls.",
+            "kind": "term",
+        }
+    )
+    entries[0]["forbidden"] = [{"term": name, "use": "Feed Pump"}]
+    write_entries(root, entries)
+    assert glossary.main(["schema"]) == 1
+
+
+@pytest.mark.parametrize(
+    "text,bad,expected",
+    [
+        ("the Feed Pump", "the feed", 0),
+        ("Feed Pump station", "pump station", 0),
+        ("**Feed** Pump", "pump", 0),
+        ("#strong[Feed] Pump", "pump", 0),
+        ("ßßßßßßßßßß Feed Pump\npump", "pump", 1),
+    ],
+)
+def test_protection_overlap_markup_and_offsets(register, text, bad, expected):
+    root, entries = register
+    entries[0]["forbidden"] = [{"term": bad, "use": "Feed Pump"}]
+    write_entries(root, entries)
+    (root / "source.md").write_text(text)
+    track(root)
+    assert glossary.main(["terms"]) == expected
+
+
+@pytest.mark.parametrize(
+    "term,bad,text", [("US", "us", "Us"), ("GitHub", "Github", "GITHUB")]
+)
+def test_case_sensitive_forbidden(register, term, bad, text):
+    root, entries = register
+    entries[0].update(term=term, aliases=[], forbidden=[{"term": bad, "use": term}])
+    write_entries(root, entries)
+    (root / "source.md").write_text(text)
+    track(root)
+    assert glossary.main(["terms"]) == 0
+
+
+def test_overlapping_rules_keep_longest(register, capsys):
+    root, entries = register
+    entries[0]["forbidden"] = [
+        {"term": t, "use": "Feed Pump"} for t in ("input", "input pump", "pump unit")
+    ]
+    write_entries(root, entries)
+    (root / "source.md").write_text("input pump unit")
+    track(root)
+    assert glossary.main(["terms"]) == 1
+    error = capsys.readouterr().err
+    assert error.count("is forbidden") == 1
+    assert "'input pump'" in error
+
+
+def test_unsupported_sources_warn_and_utf8_path_once(register, capsys):
+    root, _ = register
+    (root / ".vig-os").write_text('DEVKIT_GLOSSARY_SOURCES="*.yaml,*.md"\n')
+    (root / "bad.md").write_bytes(b"\xff")
+    track(root)
+    assert glossary.main(["terms"]) == 1
+    error = capsys.readouterr().err
+    assert "unsupported" in error and "*.yaml" in error
+    assert error.count("bad.md") == 1
+
+
+def test_candidates_precision_recall_and_source_selection(register, capsys):
+    root, _ = register
+    documents = {
+        "source.md": "The Feed Pump uses Supply Pump and FP-100.\nThe Thermal Valve uses NASA and FlowController.\nSet flow_rate to AB-200.\nOrdinary prose starts here.\nThermal Valve supports NASA.\n",
+        "source.typ": "#strong[Feed] Pump connects Control Unit.\n",
+        "untracked.md": "WrongCandidate",
+        "generated/out.md": "WrongCandidate",
+    }
+    for name, text in documents.items():
+        path = root / name
+        path.parent.mkdir(exist_ok=True)
+        path.write_text(text)
+    track(root)
+    subprocess.run(["git", "reset", "-q", "--", "untracked.md"], check=True)
+    assert glossary.main(["candidates"]) == 0
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    expected = {
+        "Thermal Valve",
+        "NASA",
+        "FlowController",
+        "flow_rate",
+        "AB-200",
+        "Control Unit",
+    }
+    actual = {row["candidate"] for row in rows}
+    assert len(actual & expected) / len(actual) == 1.0  # precision
+    assert len(actual & expected) / len(expected) == 1.0  # recall
+    thermal = next(row for row in rows if row["candidate"] == "Thermal Valve")
+    assert thermal["count"] == 2 and thermal["line"] == 2
+    assert thermal["file"] == "source.md" and thermal["context"]
+    assert thermal["nearest"] and 0 <= thermal["score"] <= 1
