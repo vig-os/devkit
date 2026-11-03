@@ -3217,18 +3217,49 @@ insert_missing_hook_blocks() {
     done < <(inserted_hook_blocks)
 }
 
+plan_docs_module() {
+    local recipes="$WORKSPACE_DIR/justfile.devkit-docs"
+    case " $MANIFEST_MODULES " in
+        *" docs "*)
+            reconcile_plan_header
+            echo "  +  insert/reconcile docs hooks in .pre-commit-config.yaml; managed justfile.devkit-docs and justfile import"
+            ;;
+        *)
+            if [[ -e "$recipes" ]]; then
+                reconcile_plan_header
+                echo "  -  managed docs hooks, justfile.devkit-docs and justfile import"
+            fi
+            ;;
+    esac
+}
+
 # Module-owned hooks extend preserved-config reconciliation; store symlinks stay
 # owned by mkProjectShell. Reconciliation warnings must not abort an upgrade.
 render_docs_module() {
     local enabled=false pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
-    local recipes="$WORKSPACE_DIR/justfile.docs"
+    local recipes="$WORKSPACE_DIR/justfile.devkit-docs"
+    local justfile="$WORKSPACE_DIR/justfile" tmp managed=false
+    if [[ "${1:-apply}" == plan ]]; then
+        plan_docs_module
+        return 0
+    fi
     case " $MANIFEST_MODULES " in *" docs "*) enabled=true ;; esac
     if [[ -L "$recipes" ]] || { [[ -e "$recipes" ]] && ! head -n 1 "$recipes" | grep -q '^# Managed by vigOS devkit'; }; then
-        echo "Notice: consumer-owned justfile.docs retained; add document recipes by hand if needed." >&2
+        echo "Notice: consumer-owned justfile.devkit-docs retained; add document recipes by hand if needed." >&2
     elif [[ "$enabled" == true ]]; then
         cp "$TEMPLATE_DIR/../justfile.d/docs.justfile" "$recipes"
+        managed=true
     else
         rm -f "$recipes"
+    fi
+    if [[ -f "$justfile" && ! -L "$justfile" ]]; then
+        tmp="$(mktemp)"
+        awk -v line="import? 'justfile.devkit-docs'" '$0 != line' "$justfile" > "$tmp"
+        if [[ "$managed" == true ]]; then
+            printf "import? 'justfile.devkit-docs'\n" >> "$tmp"
+        fi
+        cat "$tmp" > "$justfile"
+        rm -f "$tmp"
     fi
     if [[ "$enabled" == true ]] || { [[ -f "$pc" && ! -L "$pc" ]] && grep -qE '^[[:space:]]*# >>> devkit:docs([[:space:]]|$)' "$pc"; }; then
         if ! command -v reconcile-preserved-hooks >/dev/null 2>&1; then
@@ -3251,9 +3282,7 @@ reconcile_preserved_hooks() {
         fold_retired_hook_blocks "$mode" "$pc"
         insert_missing_hook_blocks "$mode" "$pc"
     fi
-    if [[ "$mode" == apply ]]; then
-        render_docs_module
-    fi
+    render_docs_module "$mode"
 }
 
 # Excise the release recipes when the release feature is disabled (#1656). Every

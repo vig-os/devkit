@@ -238,9 +238,12 @@ owned block to committed hook configs and leaves generated store symlinks to the
 flake. This keeps the module contract at packages/env/shellHook and supports both
 config paths without teaching capability modules to overwrite consumer files.
 Removing `docs` and rerunning the installer removes its block and recipes, restoring
-consumer whitespace exclusions. `justfile.docs` is created with a managed header;
+consumer whitespace exclusions. `justfile.devkit-docs` is created with a managed header;
 an existing file is overwritten or deleted only with that header. Consumer-owned
-files (including symlinks) are retained with a notice in either module state.
+files (including symlinks) at that reserved name are retained with a notice in either module state.
+The import is emitted only with docs ON and a devkit-managed recipe file. The
+separate devkit name avoids collisions: consumer-owned `justfile.docs` files are
+never touched or imported.
 Comments and other hooks are preserved. Whitespace
 configs must use block-style repositories and hook mappings without YAML aliases.
 Mixed or legacy line endings are rejected without rewriting; uniform LF and CRLF
@@ -252,14 +255,19 @@ reordering are safe. Parsed values allow formatter re-quoting. Managed-block edi
 are detected before replacement; the installer warns with manual advice and
 continues, retaining the original config. Pre-release blocks with the old state
 format require manual removal of their block and generated exclusions first.
+If a fixer hook is deleted or its repository URL changes (including adding
+`.git`), restore that hook and URL, switch docs OFF, then reapply the edit and
+switch ON. If `exclude` was moved before `id`, move it after `id` and retry.
+Added inline comments on an injected exclude line require moving the comment to
+its own line before retrying; reconciliation refuses them without dropping text.
 The owned markers and state comments should be left intact. Both
 staged and installed output pass `prek validate-config`; failures retain the original
-bytes and print instructions for adding hooks by hand. Reconciliation preserves
+bytes and print recovery instructions. Writes preserve the existing inode. Reconciliation preserves
 consumer indentation, line endings, and final-newline presence. Enabling docs adds
-no new strict scaffold yamllint rule/message finding; existing findings may remain. Existing `typst-compile` or
+no new strict scaffold yamllint rule/message finding (including counts); existing findings may remain. Existing `typst-compile` or
 `typstyle` hooks are retained with a notice rather than duplicated.
-Non-docs upgrades add the inert optional `import? 'justfile.docs'` line and empty
-`DEVKIT_TYPST_SKIP` and `DEVKIT_TYPST_FONT_PATHS` keys, without additional hooks.
+Non-docs upgrades add empty `DEVKIT_TYPST_SKIP` and `DEVKIT_TYPST_FONT_PATHS`
+keys, without additional hooks or a document-recipe import.
 
 The guards are `typstyle-check` (`typstyle --check`), `typst-compile` (all declared
 entries plus template smoke tests), `typst-preview-pins` (exact `@preview` versions),
@@ -280,7 +288,7 @@ repository-relative skip globs in `.vig-os`, for example
 `DEVKIT_TYPST_SKIP="drafts/**,templates/experimental/**"`. Matching uses Python
 fnmatch (including `/`); skips apply to entries and template smoke tests.
 
-With docs enabled, the installer manages `justfile.docs`:
+With docs enabled, the installer manages `justfile.devkit-docs`:
 
 - `just typst [--deps]` builds sibling `generated/<stem>.pdf` files with
   `--input rev=<sha8>[-dirty]`; Git status determines the dirty suffix.

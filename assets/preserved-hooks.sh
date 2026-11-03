@@ -2,7 +2,7 @@
 # Shared preserved-config block ranges and splices (#1654, #1994).
 
 hook_block_range() {
-    awk -v id="$2" '
+    awk -v id="$2" -v markers_only="${3:-false}" '
         # Exact id, never a prefix (#1727): the token after the marker is
         # extracted and compared as a STRING, so on this sentinel path `id` is
         # never interpolated into a regex and a metacharacter in a hook id cannot
@@ -19,6 +19,7 @@ hook_block_range() {
         sentinel($0, "<<<") { se = NR }
         END {
             if (ss && se && se >= ss) { print ss, se; exit 0 }
+            if (markers_only == "true") exit 1
             for (i = 1; i <= NR; i++) {
                 if (L[i] ~ /^[[:space:]]*-[[:space:]]+repo:/) cur = i
                 if (cur && L[i] ~ ("^[[:space:]]*-[[:space:]]+id:[[:space:]]+" id "[[:space:]]*$")) {

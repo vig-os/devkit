@@ -168,7 +168,6 @@ import? '.devcontainer/justfile.worktree'
 
 # Import team-shared project recipes (git-tracked, preserved on upgrade)
 
-import? 'justfile.docs'
 import? 'justfile.project'
 
 # Import personal recipes (gitignored, preserved on upgrade)

@@ -151,7 +151,9 @@ def test_validation_failure_restores_original(
         )
 
     monkeypatch.setattr(subprocess, "run", reject_candidate)
+    inode = path.stat().st_ino
     assert preserved_hooks.main() == 1
+    assert path.stat().st_ino == inode
     assert path.read_bytes() == original
     assert len(calls) == failure_call and calls[-1] != original
 
@@ -287,9 +289,9 @@ def test_sample_config_style_and_bounded_markers(tmp_path, consistent):
             capture_output=True,
             text=True,
         )
-        return {
+        return Counter(
             re.sub(r"^.*?:\d+:\d+: ", "", line) for line in result.stdout.splitlines()
-        }
+        )
 
     before = findings()
     assert reconcile(path, True).returncode == 0
@@ -340,7 +342,10 @@ def test_fixer_edits_are_safe(tmp_path, edit, enabled):
     text = path.read_text()
     if edit == "delete":
         start = text.index("      - id: trailing-whitespace")
-        text = text[:start]
+        text = (
+            text[:start]
+            + "      - id: consumer\n        name: consumer\n        entry: echo\n        language: system\n"
+        )
     elif edit == "repo":
         text = text.replace(
             "https://example.com/hooks", "https://example.com/hooks.git"
@@ -393,7 +398,9 @@ def test_publication_keeps_inode(tmp_path):
     [
         "# >>> devkit:docs\n",
         "# <<< devkit:docs\n",
-        BASE.replace("hooks:", "hooks: &hooks")
+        BASE.replace("trailing-whitespace", "consumer").replace(
+            "hooks:", "hooks: &hooks"
+        )
         + "  - repo: local\n    hooks: *hooks\n",
     ],
 )
@@ -429,4 +436,29 @@ def test_duplicate_fixer_is_refused(tmp_path):
     original = BASE + BASE.removeprefix("repos:\n")
     path.write_text(original)
     assert reconcile(path, True).returncode == 1
+    assert path.read_text() == original
+
+
+def test_restore_refuses_two_matching_fixers():
+    from vig_utils.preserved_hooks import GENERATED, restore_fixers
+
+    duplicate = (BASE + BASE.removeprefix("repos:\n")).replace(
+        "        name:", f'        exclude: "{GENERATED}"\n        name:'
+    )
+    with pytest.raises(ValueError, match="uniquely locate"):
+        restore_fixers(duplicate, [["local", "trailing-whitespace", None, GENERATED]])
+
+
+def test_old_docs_state_stays_untouched(tmp_path):
+    path = tmp_path / ".pre-commit-config.yaml"
+    original = (
+        BASE
+        + "# >>> devkit:docs\n"
+        + BASE.removeprefix("repos:\n")
+        + "# <<< devkit:docs\n"
+    )
+    path.write_text(original)
+    result = reconcile(path, True)
+    assert result.returncode == 1
+    assert "unrecognized docs state" in result.stderr
     assert path.read_text() == original

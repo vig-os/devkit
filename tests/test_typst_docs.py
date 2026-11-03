@@ -89,13 +89,23 @@ def test_consumer_owned_docs_justfile_survives_upgrade(tmp_path, enabled):
     seed = tmp_path / "seed"
     seed.mkdir()
     (seed / ".vig-os").write_text(f'DEVKIT_MODULES="{"docs" if enabled else ""}"\n')
-    original = "# Consumer recipes\ncustom:\n    echo mine\n"
+    original = "# Consumer recipes\nthis is deliberately invalid just syntax\n"
     (seed / "justfile.docs").write_text(original)
     scaffold(tmp_path, seed=seed)
     assert (
         "import? 'justfile.docs'" not in (tmp_path / "workspace/justfile").read_text()
     )
     assert (tmp_path / "workspace/justfile.docs").read_text() == original
+    parsed = subprocess.run(
+        ["just", "--justfile", str(tmp_path / "workspace/justfile"), "--list"],
+        capture_output=True,
+        text=True,
+    )
+    assert parsed.returncode == 0, parsed.stderr
+    assert (
+        "import? 'justfile.devkit-docs'"
+        in (tmp_path / "workspace/justfile").read_text()
+    ) == enabled
 
 
 def test_reconciliation_failure_does_not_abort_installer(tmp_path):
@@ -115,3 +125,18 @@ def test_docs_preview_reports_hooks_and_recipes(tmp_path):
     result = scaffold(tmp_path, seed=seed, preview=True)
     assert "docs hooks" in result.stdout
     assert "justfile.devkit-docs" in result.stdout
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_unmanaged_reserved_recipe_file_is_not_imported(tmp_path, enabled):
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    (seed / ".vig-os").write_text(f'DEVKIT_MODULES="{"docs" if enabled else ""}"\n')
+    original = "consumer syntax that just cannot parse\n"
+    (seed / "justfile.devkit-docs").write_text(original)
+    scaffold(tmp_path, seed=seed)
+    assert (tmp_path / "workspace/justfile.devkit-docs").read_text() == original
+    assert (
+        "import? 'justfile.devkit-docs'"
+        not in (tmp_path / "workspace/justfile").read_text()
+    )

@@ -50,8 +50,8 @@ def hooks(text):
         repo_fields = fields(repo)
         identity = repo_fields["repo"][1].value
         sequence = repo_fields["hooks"][1]
-        if sequence.flow_style:
-            raise ValueError("hooks must use block-style YAML")
+        if not isinstance(sequence, yaml.SequenceNode) or sequence.flow_style:
+            raise ValueError("hooks must use a block-style sequence")
         for hook in sequence.value:
             values = fields(hook)
             yield identity, values["id"][1].value, hook, values
@@ -106,9 +106,17 @@ def restore_fixers(text, records):
     for repo, identity, old, pattern in reversed(records):
         matches = [item for item in hooks(text) if item[:2] == (repo, identity)]
         if len(matches) != 1:
-            raise ValueError(f"cannot uniquely locate {identity} in repository {repo}")
+            raise ValueError(
+                f"cannot uniquely locate {identity} in repository {repo}; restore the hook and repository URL, switch docs OFF, then reapply your edit"
+            )
         values = matches[0][3]
         key, value = values["exclude"]
+        if (old is None or old.endswith("\n")) and "#" in text[
+            value.end_mark.index : line_end(text, value.end_mark.index)
+        ]:
+            raise ValueError(
+                f"managed exclusion comment for {identity}: move the comment to its own line before retrying"
+            )
         if value.value != pattern:
             raise ValueError(f"managed exclusion for {identity} was edited")
         start, end = value.start_mark.index, value.end_mark.index
@@ -117,7 +125,7 @@ def restore_fixers(text, records):
             end = line_end(text, end)
             if text[start : key.start_mark.index].strip():
                 raise ValueError(
-                    f"cannot safely remove relocated exclude for {identity}"
+                    f"cannot safely remove relocated exclude for {identity}; move exclude after id and retry"
                 )
         elif old.endswith("\n"):
             end = line_end(text, end)
@@ -171,10 +179,11 @@ def block_operation(text, library, operation, *arguments):
 
 def restore(text, library):
     """Apply the shared range engine and decline edits, as historical folds do."""
-    span = block_operation(text, library, "hook_block_range", "docs")
+    span = block_operation(text, library, "hook_block_range", "docs", "true")
     if not span:
         if any(
-            line.strip().split()[:3] == ["#", ">>>", "devkit:docs"]
+            line.strip().split()[:3]
+            in (["#", ">>>", "devkit:docs"], ["#", "<<<", "devkit:docs"])
             for line in text.splitlines()
         ):
             raise ValueError("incomplete docs marker")
@@ -203,18 +212,27 @@ def rendered_hooks(text, owned):
     """Match the consumer's dash spacing and nested sequence indentation."""
     sequence = repos_node(text)
     repo = sequence.value[0]
-    width = repo.start_mark.column - sequence.start_mark.column
     key, nested = fields(repo)["hooks"]
-    dumper = (
-        yaml.SafeDumper
-        if key.start_mark.column == nested.start_mark.column
-        else IndentedDumper
+    repo_indent = sequence.start_mark.column
+    mapping_step = repo.start_mark.column - repo_indent
+    # Match indentless sequences, otherwise use the consumer's outer step.
+    # Copying an already inconsistent inner step would add a lint finding.
+    hook_indent = key.start_mark.column - repo_indent
+    if nested.start_mark.column != key.start_mark.column:
+        hook_indent += repo_indent or mapping_step
+    hook_step = (
+        nested.value[0].start_mark.column - nested.start_mark.column
+        if nested.value
+        else mapping_step
     )
-    return yaml.dump(
-        [{"repo": "local", "hooks": owned}],
-        Dumper=dumper,
-        sort_keys=False,
-        indent=width,
+    body = yaml.dump(owned, Dumper=IndentedDumper, sort_keys=False, indent=hook_step)
+    return (
+        "-"
+        + " " * (mapping_step - 1)
+        + "repo: local\n"
+        + " " * (key.start_mark.column - repo_indent)
+        + "hooks:\n"
+        + textwrap.indent(body, " " * hook_indent)
     )
 
 
@@ -268,7 +286,7 @@ def validate(path):
 
 
 def publish(path, candidate):
-    """Validate a staged file, atomically install, then validate and roll back."""
+    """Validate staged bytes, write in place, then validate and roll back."""
     with tempfile.TemporaryDirectory(
         prefix=".preserved-hooks-", dir=path.parent
     ) as directory:
@@ -280,11 +298,11 @@ def publish(path, candidate):
         staged.write_bytes(candidate)
         staged.chmod(path.stat().st_mode)
         validate(staged)
-        staged.replace(path)
         try:
+            path.write_bytes(candidate)
             validate(path)
         except Exception:
-            backup.replace(path)
+            path.write_bytes(backup.read_bytes())
             raise
 
 
@@ -328,8 +346,13 @@ def main():
         Exception
     ) as error:  # Retain bytes and give advice even for unexpected failures.
         print("preserved-hook-drift: docs in .pre-commit-config.yaml")
+        advice = (
+            f" Add hooks by hand from {asset} if enabling docs manually."
+            if enabled == "true"
+            else ""
+        )
         print(
-            f"reconcile-preserved-hooks: {type(error).__name__}: {str(error) or repr(error)}\nOriginal config retained. Add the hooks by hand from {asset}; see docs/NIX.md (Docs module).",
+            f"reconcile-preserved-hooks: {type(error).__name__}: {str(error) or repr(error)}\nOriginal config retained. Resolve the reported edit before retrying; use {asset} as a reference; see docs/NIX.md (Docs module).{advice}",
             file=sys.stderr,
         )
         return 1
