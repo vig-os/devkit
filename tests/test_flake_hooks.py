@@ -1602,7 +1602,7 @@ def test_docs_module_activates_generated_hooks():
     expr = f"""let
       f = builtins.getFlake "path:{REPO_ROOT}";
       pkgs = import f.inputs.nixpkgs {{ system = builtins.currentSystem; overlays = [ f.overlays.default ]; }};
-      shell = f.lib.mkProjectShell {{ inherit pkgs; modules = [ "docs" ]; }};
+      shell = f.lib.mkProjectShell {{ inherit pkgs; modules = [ "docs" ]; hooks = {{ }}; }};
     in shell.hooksConfigFile"""
     result = _run_nix(
         ["build", "--impure", "--no-link", "--print-out-paths", "--expr", expr],
@@ -1613,3 +1613,14 @@ def test_docs_module_activates_generated_hooks():
     hooks = _normalize(config)["hooks"]
     assert "typst-compile" in hooks
     assert "generated" in hooks["end-of-file-fixer"]["exclude"]
+
+
+def test_docs_committed_config_does_not_enable_generated_installation():
+    expr = f"""let
+      f = builtins.getFlake "path:{REPO_ROOT}";
+      pkgs = import f.inputs.nixpkgs {{ system = builtins.currentSystem; overlays = [ f.overlays.default ]; }};
+    in (f.lib.mkProjectShell {{ inherit pkgs; modules = [ "docs" ]; }}).shellHook"""
+    result = _run_nix(["eval", "--raw", "--impure", "--expr", expr])
+    assert result.returncode == 0, result.stderr
+    assert "Refusing to install" not in result.stdout
+    assert "installing generated .pre-commit-config.yaml" not in result.stdout

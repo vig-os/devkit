@@ -24,6 +24,7 @@ repos:
   - repo: local
     hooks:
       - id: trailing-whitespace
+        name: existing
         entry: echo
         language: system
         exclude: '^vendor/'  # consumer exception

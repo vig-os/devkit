@@ -1329,11 +1329,13 @@
                   pkgs.typstyle
                   pkgs.tinymist
                   pkgs.poppler-utils
+                  pkgs.bash
                 ];
               }
               ''
                 export PREK_HOME="$TMPDIR/prek"
-                python ${./tests/typst_canary.py} ${./assets/docs-hooks.json} ${./assets/justfile.d/docs.justfile}
+                export FONTCONFIG_FILE=${pkgs.makeFontsConf { fontDirectories = [ pkgs.liberation_ttf ]; }}
+                python ${./tests/typst_canary.py} ${./assets/docs-hooks.json} ${./assets/justfile.d/docs.justfile} ${./assets} ${pkgs.liberation_ttf}
                 touch "$out"
               '';
 

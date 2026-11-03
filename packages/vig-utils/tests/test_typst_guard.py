@@ -82,3 +82,97 @@ def test_format_passes_tool_failure_through(repo, monkeypatch, code):
 
     monkeypatch.setattr(guard().subprocess, "run", run)
     assert guard().main(["format", "main.typ"]) == code
+
+
+@pytest.mark.parametrize(
+    "marker", ["//devkit: entry", "// devkit: entry", "// devkit: entry  \t"]
+)
+def test_entry_marker_whitespace(repo, marker):
+    (repo / "main.typ").write_text(marker + "\nHello\n")
+    assert guard().documents()[0] == [Path("main.typ")]
+
+
+def test_unmarked_entries_warn(repo, capsys):
+    (repo / "unmarked.typ").write_text('#set page(paper: "a4")\n= Title\n')
+    guard().documents()
+    assert "unmarked.typ" in capsys.readouterr().err
+    (repo / "main.typ").write_text("Hello\n")
+    guard().documents()
+    assert "zero entries" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("generated/a.PDF", 1),
+        ("Generated/a.pdf", 1),
+        ("docs/generated/a.PdF", 1),
+        ("other/a.PDF", 0),
+        ("notgenerated/a.PDF", 0),
+    ],
+)
+def test_generated_pdf_scope_is_case_insensitive(repo, name, expected):
+    path = repo / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(b"%PDF\n")
+    subprocess.run(["git", "add", "-f", name], check=True)
+    assert guard().main(["pdf"]) == expected
+
+
+def test_project_font_paths_reach_every_compile_mode(repo, monkeypatch):
+    for folder in ("fonts", "branding"):
+        (repo / folder).mkdir()
+    (repo / ".vig-os").write_text('DEVKIT_TYPST_FONT_PATHS="fonts:branding"\n')
+    calls = []
+
+    def run(argv, **kwargs):
+        if argv[0] != "typst":
+            return subprocess.CompletedProcess(
+                argv, 0, "12345678" if argv[1] == "rev-parse" else "", ""
+            )
+        calls.append(argv)
+        assert [
+            argv[i + 1] for i, value in enumerate(argv) if value == "--font-path"
+        ] == ["fonts", "branding"]
+        assert "--ignore-system-fonts" in argv
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(guard().subprocess, "run", run)
+    for mode in ("compile", "canonical", "build"):
+        assert guard().main([mode]) == 0
+    assert len(calls) == 6
+
+
+@pytest.mark.parametrize("value", ["../outside", "/usr/share/fonts", "missing"])
+def test_project_font_paths_reject_unreproducible_inputs(repo, value):
+    (repo / ".vig-os").write_text(f'DEVKIT_TYPST_FONT_PATHS="{value}"\n')
+    assert guard().main(["compile"]) == 1
+
+
+def test_probe_parses_real_versions_and_resolves_paths(repo, monkeypatch, capsys):
+    import json
+    import os
+    import shlex
+
+    binary = repo / "bin"
+    binary.mkdir()
+    versions = {
+        "typst": "typst 0.15.1 (abcdef)",
+        "typstyle": "typstyle \nVersion: 0.15.2\nBuild Timestamp: today",
+        "tinymist": "tinymist \nVersion: 0.15.10\nTypst Version: 0.15.1",
+    }
+    for tool, version in versions.items():
+        target = binary / (tool + "-real")
+        target.write_text("#!/bin/sh\nprintf '%s\\n' " + shlex.quote(version) + "\n")
+        target.chmod(0o755)
+        (binary / tool).symlink_to(target)
+    monkeypatch.setenv("PATH", f"{binary}:{os.environ['PATH']}")
+    assert guard().main(["probe"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    for tool, version in [
+        ("typst", "0.15.1"),
+        ("typstyle", "0.15.2"),
+        ("tinymist", "0.15.10"),
+    ]:
+        assert data[tool]["version"] == version
+        assert data[tool]["path"] == str((binary / tool).resolve())

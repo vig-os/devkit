@@ -3,12 +3,14 @@
 import hashlib
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-config, recipes = (Path(p).resolve() for p in sys.argv[1:])
+config, recipes, assets, font_root = (Path(p).resolve() for p in sys.argv[1:])
 
 
 def run(*args):
@@ -21,6 +23,10 @@ with tempfile.TemporaryDirectory() as directory:
     run("git", "config", "user.email", "author@example.com")
     run("git", "config", "user.name", "Example Author")
     Path("guards.json").write_text(config.read_text())
+    consumer = Path(".pre-commit-config.yaml")
+    consumer.write_text(
+        "repos:\n  - repo: local\n    hooks:\n      - id: canary\n        name: canary\n        entry: 'true'\n        language: system\n        files: '^$'\n"
+    )
     Path(".gitignore").write_text("generated/\n")
     for folder in ("parts", "templates", "generated"):
         Path(folder).mkdir()
@@ -56,6 +62,9 @@ with tempfile.TemporaryDirectory() as directory:
             '// devkit: entry\n#set text(font: "Missing Example Font")\n',
         ),
         ("typst-preview-pins", '#import "@preview/example": *\n'),
+        ("typst-preview-pins", '#import "@preview/example:0.1": *\n'),
+        ("typst-preview-pins", '#import "@preview/example:0x1x0": *\n'),
+        ("typst-preview-pins", '#import "@preview/example:0.1.0junk": *\n'),
     ]:
         Path("main.typ").write_text(bad)
         hook(name, 1)
@@ -64,10 +73,13 @@ with tempfile.TemporaryDirectory() as directory:
     Path("main.typ").write_text('#import "@preview/example:0.1.0": *\n')
     hook("typst-preview-pins")
     Path("main.typ").write_text(source)
-    Path("generated/output.pdf").write_bytes(b"%PDF-1.7\n")
-    run("git", "add", "-f", "generated/output.pdf")
+    Path("outside.PDF").write_bytes(b"%PDF\n")
+    run("git", "add", "outside.PDF")
+    hook("forbid-generated-pdf")
+    Path("generated/output.PDF").write_bytes(b"%PDF-1.7\n")
+    run("git", "add", "-f", "generated/output.PDF")
     hook("forbid-generated-pdf", 1)
-    run("git", "rm", "-f", "generated/output.pdf")
+    run("git", "rm", "-f", "generated/output.PDF")
     hook("forbid-generated-pdf")
 
     def recipe(name, *args):
@@ -80,6 +92,50 @@ with tempfile.TemporaryDirectory() as directory:
             name,
             *args,
         )
+
+    # Execute the installer's actual module gate, including a real OFF run.
+    script = (assets / "init-workspace.sh").read_text()
+    gate = re.search(r"(?ms)^render_docs_module\(\) \{\n.*?^\}\n", script)[0]
+    for enabled in (False, True, False):
+        subprocess.run(
+            ["bash", "-c", gate + "\nrender_docs_module"],
+            check=True,
+            env=dict(
+                os.environ,
+                WORKSPACE_DIR=directory,
+                TEMPLATE_DIR=str(assets / "workspace"),
+                MANIFEST_MODULES="docs" if enabled else "",
+            ),
+        )
+        assert ("typst-compile" in consumer.read_text()) == enabled
+        Path("main.typ").write_text("#let x=(1,2)\n")
+        result = subprocess.run(
+            ["prek", "run", "--all-files"], capture_output=True, text=True
+        )
+        assert result.returncode == int(enabled), result.stdout + result.stderr
+    Path("main.typ").write_text(source)
+
+    # Prove the fixture is a discovered system font, rather than an unknown font.
+    assert "Liberation Sans" in run("typst", "fonts")
+    assert "Liberation Sans" not in run("typst", "fonts", "--ignore-system-fonts")
+    branded = '//devkit: entry  \n#set text(font: "Liberation Sans")\nBrand\n'
+    Path("main.typ").write_text(branded)
+    hook("typst-compile", 1)
+    Path("fonts").mkdir()
+    shutil.copy(next(font_root.rglob("LiberationSans-Regular.ttf")), "fonts/brand.ttf")
+    Path(".vig-os").write_text('DEVKIT_TYPST_FONT_PATHS="fonts"\n')
+    hook("typst-compile")
+    for name in ("typst", "typst-canonical"):
+        recipe(name)
+        assert "LiberationSans" in run("pdffonts", "generated/main.pdf")
+    Path("main.typ").write_text(
+        branded + '#set text(font: "Liberation Serif")\nSystem\n'
+    )
+    hook("typst-compile", 1)
+    Path("main.typ").write_text(source)
+    Path(".vig-os").unlink()
+    run("git", "add", ".")
+    run("git", "commit", "-qm", "Complete fixtures")
 
     recipe("typst", "--deps")
     stamp = run("git", "rev-parse", "--short=8", "HEAD").strip()
@@ -100,7 +156,11 @@ with tempfile.TemporaryDirectory() as directory:
     recipe("typst-canonical", "--deps")
     assert hashlib.sha256(Path("generated/main.pdf").read_bytes()).digest() == digest
     assert "canonical" in run("pdftotext", "generated/main.pdf", "-")
-    assert set(json.loads(recipe("typst-probe"))) == {"typst", "typstyle", "tinymist"}
+    probe = json.loads(recipe("typst-probe"))
+    assert set(probe) == {"typst", "typstyle", "tinymist"}
+    for tool, identity in probe.items():
+        assert identity["path"] == str(Path(shutil.which(tool)).resolve())
+        assert re.fullmatch(r"\d+\.\d+\.\d+", identity["version"]), identity
     Path(".vig-os").write_text('DEVKIT_TYPST_SKIP="main.typ,templates/**"\n')
     Path("main.typ").write_text("// devkit: entry\n#unknown()\n")
     hook("typst-compile")
