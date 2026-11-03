@@ -174,6 +174,17 @@ def test_only_plan_limit_403_can_skip_rules(tmp_path, job, status, message):
         ([review(1), review(2)], "2", False),
         ([review(1), review(2, state="CHANGES_REQUESTED")], "1", False),
         ([review(1), review(2, state="DISMISSED")], "1", False),
+        ([review(1), review(2, state="COMMENTED")], "1", True),
+        ([review(1), review(2, state="PENDING")], "1", True),
+        (
+            [
+                review(1),
+                review(2, state="COMMENTED"),
+                review(3, state="CHANGES_REQUESTED"),
+            ],
+            "1",
+            False,
+        ),
         ([review(1, commit="old")], "1", False),
         ([review(1, login="author")], "1", False),
         ([review(2, state="CHANGES_REQUESTED"), review(1)], "1", False),
