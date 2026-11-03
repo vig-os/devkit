@@ -224,7 +224,9 @@ def test_plot_dimensions_preserve_text_size(project):
 
 def test_empty_glossary_and_canonical_slides(project):
     source = (
-        project + "#show: slides.with(title: [Canonical])\n#slide()[Body #glossary()]"
+        project
+        + '#show: glossary-setup.with(yaml("/glossary.yaml"))\n'
+        + "#show: slides.with(title: [Canonical])\n#slide()[Body #glossary()]"
     )
     result = compile_source(source)
     assert result.returncode == 0, result.stderr
@@ -313,6 +315,9 @@ def test_glossary_body_first_use_and_sorted_unique_appendix(project, wrapper):
     text = " ".join(pdf_text().split())
     assert text.count("Using Central processing unit (CPU)") == 1, text
     assert text.count("Using CPU") == 1, text
+    assert text.index("Using CPU") < text.index(
+        "Using Central processing unit (CPU)"
+    ), text
     assert "A specimen. (Sample)" not in text
     appendix = text.split("Glossary")[-1]
     assert appendix.index("CPU") < appendix.index("Sample"), appendix
@@ -356,3 +361,74 @@ def test_slides_long_short_title_does_not_overlap_counter(project):
         for w in words
         if (w.text or "").startswith("ABC")
     )
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Results for *Q3* with $alpha$ decay",
+        "Water H#sub[2]O and m#super[2] data",
+        "Before #box[Boxmarker] after",
+        'Before #image("marker.svg", height: 8pt) after',
+    ],
+)
+def test_slide_footer_preserves_content(project, title):
+    Path("marker.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="red"/></svg>'
+    )
+    result = compile_source(
+        project + f"#show: slides.with(short-title: [{title}])\n#slide()[Body]"
+    )
+    assert result.returncode == 0, result.stderr
+    text = " ".join(pdf_text().split())
+    if "Q3" in title:
+        assert "Results for Q3 with α decay" in text, text
+    elif "Water" in title:
+        assert "Water H" in text and "O and m" in text and "data" in text, text
+        assert "2" in text, text
+    else:
+        assert "Before" in text and "after" in text and "visible" not in text, text
+        if "box" in title:
+            assert "Before Boxmarker after" in text, text
+        else:
+            # SVG is drawn as vectors; its red rectangle must survive export.
+            subprocess.run(
+                ["pdftocairo", "-svg", "main.pdf", "footer.svg"],
+                check=True,
+                capture_output=True,
+            )
+            assert "100%,0%,0%" in Path("footer.svg").read_text()
+
+
+@pytest.mark.parametrize("script", ["super", "sub"])
+def test_plot_uses_synthesized_scripts_at_seven_points(project, script):
+    result = compile_source(
+        project + f"#plot((0, 1), (0, 1), xlabel: [m#{script}[2]], ylabel: [Y])"
+    )
+    assert result.returncode == 0, result.stderr
+    subprocess.run(
+        ["pdftohtml", "-xml", "-zoom", "1", "main.pdf", "script.xml"],
+        check=True,
+        capture_output=True,
+    )
+    root = ET.parse("script.xml")
+    sizes = {n.attrib["id"]: float(n.attrib["size"]) for n in root.iter("fontspec")}
+    assert any(
+        "".join(n.itertext()).strip() == "2" and sizes[n.attrib["font"]] == 7
+        for n in root.iter("text")
+    )
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        (
+            "#glossary()",
+            "no glossary loaded; see https://github.com/vig-os/devkit/blob/1.18.1/docs/NIX.md#house-style-package",
+        ),
+        ("#show: glossary-setup.with(())\n#glossary()", "empty glossary register"),
+    ],
+)
+def test_glossary_setup_errors_are_actionable(project, source, expected):
+    result = compile_source(project + source)
+    assert result.returncode != 0 and expected in result.stderr, result.stderr
