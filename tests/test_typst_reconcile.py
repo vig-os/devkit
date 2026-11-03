@@ -79,7 +79,8 @@ def test_layout_on_off_round_trip_and_real_parsers(tmp_path, layout):
     assert path.read_bytes() == original
 
 
-def test_validation_failure_restores_original(tmp_path, monkeypatch):
+@pytest.mark.parametrize("failure_call", [2, 3])
+def test_validation_failure_restores_original(tmp_path, monkeypatch, failure_call):
     from vig_utils import typst_scaffold
 
     path = tmp_path / ".pre-commit-config.yaml"
@@ -92,15 +93,15 @@ def test_validation_failure_restores_original(tmp_path, monkeypatch):
     calls = []
 
     def reject_candidate(*args, **kwargs):
-        calls.append(path.read_bytes())
+        calls.append(Path(args[0][-1]).read_bytes())
         return subprocess.CompletedProcess(
-            args, int(len(calls) > 1), "", "parser rejected candidate"
+            args, int(len(calls) == failure_call), "", "parser rejected candidate"
         )
 
     monkeypatch.setattr(subprocess, "run", reject_candidate)
     assert typst_scaffold.main() == 1
     assert path.read_bytes() == original
-    assert len(calls) == 2 and calls[1] != original
+    assert len(calls) == failure_call and calls[-1] != original
 
 
 def test_unsupported_flow_layout_is_unchanged_with_manual_notice(tmp_path):

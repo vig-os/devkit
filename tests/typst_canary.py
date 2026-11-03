@@ -161,6 +161,11 @@ with tempfile.TemporaryDirectory() as directory:
     for tool, identity in probe.items():
         assert identity["path"] == str(Path(shutil.which(tool)).resolve())
         assert re.fullmatch(r"\d+\.\d+\.\d+", identity["version"]), identity
+    reported = probe["tinymist"]
+    assert (
+        reported["version"]
+        == re.search(r"-tinymist-(\d+\.\d+\.\d+)/", reported["path"])[1]
+    )
     Path(".vig-os").write_text('DEVKIT_TYPST_SKIP="main.typ,templates/**"\n')
     Path("main.typ").write_text("// devkit: entry\n#unknown()\n")
     hook("typst-compile")
