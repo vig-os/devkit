@@ -1233,13 +1233,13 @@ STUB
     assert_failure
 }
 
-@test "a ?ref= pinned input reports the skip (#1497)" {
+@test "an aligned ?ref= pin reports no advance with the default knob (#1856)" {
     dir="$BATS_TEST_TMPDIR/flake-qref-report"
     log="$BATS_TEST_TMPDIR/flake-qref-report-nix.log"
     _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.1";'
     _run_install_nix_stub "$dir" "$log" 0 --force
     assert_success
-    assert_output --partial "flake-bump: skipped"
+    assert_output --partial "already pinned to"
     assert_output --partial "1.4.1"
     run grep -F "flake update" "$log"
     assert_failure
@@ -1276,8 +1276,9 @@ STUB
 # the old release's toolchain (#1756: hooks the new scaffold wires failed to
 # spawn). DEVKIT_FLAKE_PIN_ADVANCE=true opts a consumer into advancing a
 # RELEASE pin to the new DEVKIT_VERSION on --force, form preserved, atomically
-# with `nix flake update <input>`; empty/false keeps today's loud skip. The
-# stub docker is a no-op, so the fixture's DEVKIT_VERSION=1.4.1 IS the version
+# with `nix flake update <input>`; empty advances lockstep release pins (#1856),
+# while false explicitly opts out. The stub docker is a no-op, so the fixture's
+# DEVKIT_VERSION=1.4.1 IS the version
 # being adopted: a 1.4.0 pin is the skew, a 1.4.1 pin is already aligned.
 
 # Exactly one `flake-bump:` line per run, whatever the outcome ($1 = output).
@@ -1309,7 +1310,7 @@ _run_install_no_nix() {
     run env PATH="$farm" bash "$INSTALL_SH" --docker --skip-pull "$@" "$dir" </dev/null
 }
 
-@test "pinned input without the knob stays put and names the knob (#1752)" {
+@test "non-lockstep or opted-out pinned input stays put and names the remedy (#1856)" {
     for knob in "" false; do
         echo "knob: '${knob}'"
         dir="$BATS_TEST_TMPDIR/pin-knob-off-${knob:-absent}"
@@ -1319,8 +1320,8 @@ _run_install_no_nix() {
         _run_install_nix_stub "$dir" "$log" 0 --force
         assert_success
         assert_line --partial "flake-bump: skipped — input 'vigos' is pinned to '1.4.0'"
-        assert_line --partial "DEVKIT_FLAKE_PIN_ADVANCE=true"
-        assert_line '  To follow releases automatically: vigos.url = "github:vig-os/devkit"'
+        assert_line --partial "Upgrade incomplete: hooks may fail and CI will reject"
+        refute_output --partial "DEVKIT_FLAKE_PIN_ADVANCE=true"
         assert_line "  To advance the pin: point it at the new release, then run 'nix flake update vigos'."
         _assert_one_flake_bump_line "$output"
         cmp "$BATS_TEST_TMPDIR/before.nix" "$dir/flake.nix"
@@ -1410,8 +1411,7 @@ _run_install_no_nix() {
 
 @test "a non-release pin is left alone even with the knob (#1752)" {
     local i=0
-    for url in 'github:vig-os/devkit?ref=main' 'github:vig-os/devkit?rev=0123abcd' \
-        'github:vig-os/devkit?ref=refs/tags/1.4.0'; do
+    for url in 'github:vig-os/devkit?ref=main' 'github:vig-os/devkit?rev=0123abcd'; do
         echo "url: $url"
         dir="$BATS_TEST_TMPDIR/pin-nonrelease-$i"
         log="$BATS_TEST_TMPDIR/pin-nonrelease-$((i++))-nix.log"
@@ -1450,6 +1450,7 @@ _run_install_no_nix() {
     _run_install_nix_stub "$dir" "$log" 1 --force
     assert_success
     assert_output --partial "flake-bump: failed — nix flake update vigos did not succeed; pin 'vigos' left at 1.4.0 (non-fatal)"
+    assert_output --partial "Upgrade incomplete: hooks may fail and CI will reject"
     _assert_one_flake_bump_line "$output"
     run grep -F "flake update vigos --flake $dir" "$log"
     assert_success
@@ -1464,6 +1465,7 @@ _run_install_no_nix() {
     _run_install_no_nix "$dir" --force
     assert_success
     assert_output --partial "flake-bump: skipped — nix not found on PATH; pin 'vigos' 1.4.0 -> 1.4.1 not advanced"
+    assert_output --partial "Upgrade incomplete: hooks may fail and CI will reject"
     _assert_one_flake_bump_line "$output"
     cmp "$BATS_TEST_TMPDIR/before.nix" "$dir/flake.nix"
 }

@@ -358,6 +358,89 @@ def test_direnv_upgrade_reports_the_flake_bump_line(tmp_path: Path) -> None:
     assert not marker.exists()
 
 
+@pytest.mark.parametrize("separator", ["?ref=", "/"])
+@pytest.mark.parametrize(
+    ("ref", "previous", "knob", "advances", "reason"),
+    [
+        ("1.2.2", "1.2.2", "", True, "advanced pinned input"),
+        ("1.2.2", "1.2.2", "false", False, "explicit opt-out"),
+        ("1.2.1", "1.2.2", "", False, "not in lockstep"),
+        ("1.2.1", "1.2.2", "true", True, "advanced pinned input"),
+        ("1.2.3", "1.2.3", "", False, "already pinned"),
+        ("refs/tags/1.2.2", "1.2.2", "", True, "advanced pinned input"),
+        ("v1.2.2", "1.2.2", "", True, "published bare tag"),
+        ("refs/tags/v1.2.2", "1.2.2", "", True, "published bare tag"),
+        ("1.2.2", "", "", False, "pre-upgrade DEVKIT_VERSION is empty"),
+    ],
+)
+def test_release_pin_upgrade_policy(
+    tmp_path: Path,
+    ref: str,
+    previous: str,
+    knob: str,
+    advances: bool,
+    reason: str,
+    separator: str,
+) -> None:
+    """Run the target installer and real scaffold; mirror CI's pin lockstep gate."""
+    bindir, marker = _runtime_stubs(tmp_path, working=False)
+    _nix_stub(bindir)
+    project = _project(tmp_path, "direnv")
+    manifest = project / ".vig-os"
+    manifest.write_text(
+        f"DEVKIT_MODE=direnv\nDEVKIT_VERSION={previous}\n"
+        f"DEVKIT_FLAKE_PIN_ADVANCE={knob}\n",
+        encoding="utf-8",
+    )
+    (project / "flake.nix").write_text(
+        f'{{ inputs = {{\n  vigos.url = "github:vig-os/devkit{separator}{ref}";\n}}; }}\n',
+        encoding="utf-8",
+    )
+    (project / "flake.lock").write_text("{}\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(project)], check=True)
+    proc = subprocess.run(
+        [
+            "bash",
+            str(INSTALL),
+            "--force",
+            "--skip-preflight",
+            "--version",
+            "1.2.3",
+            str(project),
+        ],
+        env={**_env(bindir), "TMPDIR": str(tmp_path)},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    out = proc.stdout + proc.stderr
+    assert proc.returncode == 0, out
+    lines = [line for line in out.splitlines() if line.startswith("flake-bump:")]
+    assert len(lines) == 1 and reason in lines[0], out
+    assert "DEVKIT_VERSION=1.2.3" in manifest.read_text()
+    assert f"DEVKIT_FLAKE_PIN_ADVANCE={knob}\n" in manifest.read_text()
+    expected = "1.2.3" if advances else ref
+    if advances and ref.startswith("refs/tags/"):
+        expected = f"refs/tags/{expected}"
+    assert f'{separator}{expected}"' in (project / "flake.nix").read_text()
+    if advances and ref.startswith(("v", "refs/tags/v")):
+        assert "published bare tag" in lines[0]
+    if advances:
+        assert "flake update vigos" in (bindir / "nix.log").read_text()
+        # CI rejects a release ref that differs from the scaffold version.
+        assert (
+            f"DEVKIT_VERSION={expected.removeprefix('refs/tags/')}"
+            in manifest.read_text()
+        )
+    elif expected != "1.2.3":
+        assert "hooks may fail and CI will reject" in out
+        assert "To advance the pin: point it at the new release" in out
+        assert "nix flake update vigos" in out
+        if knob == "false":
+            assert "DEVKIT_FLAKE_PIN_ADVANCE=true" not in out
+    assert not marker.exists()
+
+
 def test_smoke_lane_installs_nix_and_drops_the_container_workarounds() -> None:
     """The direnv smoke lane scaffolds on the host (#1871): Nix first, no --docker."""
     text = (
