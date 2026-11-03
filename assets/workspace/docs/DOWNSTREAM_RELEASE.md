@@ -190,12 +190,18 @@ gh -R <owner>/<repo> pr review <PR_NUMBER> --approve
 On a repository whose `main` ruleset requires **no** approving reviews (solo projects), promote's gates skip the approval assertion — explicitly, logged — and this step disappears ([#1506](https://github.com/vig-os/devkit/issues/1506)). Full reasoning and the upstream runbook: [`docs/RELEASE_CYCLE.md`](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#phase-5-post-release-cleanup).
 
 Private repositories on a Free-plan organization cannot query rulesets (HTTP
-403). Both promote gates stop retrying that response and require **1** approving
+403 with `Upgrade to GitHub Pro`). Both promote gates stop retrying only that
+response and require **1** approving
 review by default. Solo consumers who cannot collect a review can set
 `DEVKIT_RELEASE_REQUIRED_APPROVALS=0` in `.vig-os`; teams can set a larger
 non-negative integer. Empty means 1. This count applies **only** to the 403
 fallback: real ruleset requirements always win, and classic protection continues
-to be enforced by GitHub at merge time. Other API errors still retry and fail.
+to be enforced by GitHub at merge time. Other API errors, including rate-limit,
+permission, and SAML 403s, retry and fail if attempts are exhausted. A transient
+error followed by a successful response can recover. When counting reviews,
+both gates count distinct reviewers whose latest review is APPROVED on the
+current PR head, excluding the PR author. Later changes requested or dismissed
+reviews cancel that reviewer's approval; approvals on older heads do not count.
 
 
 **Upstream (`vig-os/devcontainer`) only:** Root `promote-release.yml` also prunes GHCR RC package versions via the org Packages API using **`GITHUB_TOKEN`** with **repo Admin** on the `devcontainer` package (one-time **Manage Actions access** grant). See [GitHub App Configuration](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#github-app-configuration) and [Registry and cleanup tokens](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#registry-and-cleanup-tokens-upstream) in `docs/RELEASE_CYCLE.md`.

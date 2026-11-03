@@ -46,7 +46,7 @@ def replay_gate(
         " if status != 200:\n"
         "  print(f'gh: {message} (HTTP {status})',file=sys.stderr); sys.exit(1)\n"
         " print(json.dumps([{'type':'pull_request','parameters':{'required_approving_review_count':int(os.environ['REQUIRED'])}}]))\n"
-        "elif a[:2]==['pr','list']: print(os.environ['PRS'])\n"
+        "elif a[:2]==['pr','list']: print(json.dumps([{k:v for k,v in p.items() if k in a[a.index('--json')+1].split(',')} for p in json.loads(os.environ['PRS'])]))\n"
         'elif a[:2]==[\'pr\',\'view\']: print(\'{"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN"}\')\n'
         "else: print(os.environ['REVIEWS'])\n"
     )

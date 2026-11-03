@@ -34,7 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Migration: affected direnv/both consumers can set `DEVKIT_FLAKE_PIN_ADVANCE=false` to opt out and align pins manually; see [the migration note](docs/MIGRATION.md#lockstep-flake-pins-during-upgrades).
 
 - **Promote releases on plan-limited private repositories** ([#1851](https://github.com/vig-os/devkit/issues/1851))
-  - Stop retrying rulesets HTTP 403 responses and require one approval by default in both promote gates.
+  - Stop retrying only rulesets plan-limit HTTP 403 responses and require one approval by default in both promote gates.
+  - Count distinct current-head approvals from each reviewer's latest review, excluding the PR author; keep host retry diagnostics out of API responses.
   - Add `DEVKIT_RELEASE_REQUIRED_APPROVALS` for the 403 fallback; solo consumers can set 0, while real ruleset requirements retain precedence.
 
 ## [1.18.1](https://github.com/vig-os/devkit/releases/tag/1.18.1) - 2026-11-02
