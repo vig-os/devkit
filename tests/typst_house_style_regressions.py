@@ -1,6 +1,5 @@
 """Round-two layout regressions, executed with real tools in the Nix sandbox."""
 
-import hashlib
 import json
 import os
 import re
@@ -134,6 +133,79 @@ def labelled_plain_table():
         assert 'stroke="#ff4136"' in Path("main.svg").read_text()
 
 
+def plain_table_contract():
+    build("#plain-table(columns: 2, table.header([Nativehead], [Value]), [A], [B])")
+    run("typst", "compile", "--format", "svg", "main.typ", "main.svg")
+    assert "v " in Path("main.svg").read_text()
+    assert "LibertinusSerif-Bold" not in run("pdffonts", "main.pdf")
+    build(
+        "#plain-table(columns: 3, table.header(repeat: false, level: 2, table.cell(x: 2)[Last], table.cell(x: 0)[First], table.cell(x: 1)[Middle]), [A], [B], [C])"
+    )
+    words = positions()
+    assert words["First"]["xMin"] < words["Middle"]["xMin"] < words["Last"]["xMin"]
+    assert abs(words["First"]["xMin"] - words["A"]["xMin"]) < 0.1
+    headers = json.loads(
+        run(
+            "typst",
+            "eval",
+            "--in",
+            "main.typ",
+            "query(table).first().children.filter(c => c.func() == table.header).map(h => (repeat: h.repeat, level: h.level))",
+        )
+    )
+    assert headers == [{"repeat": False, "level": 2}], headers
+
+    build(
+        "#plain-table(columns: 3, table.header(table.cell(colspan: 2)[Wide], [Tail]), [A], [B], [C])"
+    )
+    words = positions()
+    assert abs(words["Tail"]["xMin"] - words["C"]["xMin"]) < 0.1
+
+
+def labelled_ordinary_table():
+    build(
+        '#set page(numbering: "1")\n#table(columns: 2, table.header([Head], [Value]), [A], [B]) <ordinary>\n#context assert.eq(query(<ordinary>).len(), 1)\n#ref(<ordinary>, form: "page")'
+    )
+    run("typst", "compile", "--format", "svg", "main.typ", "main.svg")
+    svg = Path("main.svg").read_text()
+    assert svg.count('stroke-width="0.8"') == 2 and svg.count('stroke-width="0.4"') == 1
+
+
+def nested_plain_table():
+    build(
+        "#table(columns: 1, table.header([Outerheader]), [Before #plain-table(columns: 2, [Inner], [Value]) After])"
+    )
+    run("typst", "compile", "--format", "svg", "main.typ", "main.svg")
+    svg = Path("main.svg").read_text()
+    assert svg.count('stroke-width="0.8"') == 2 and svg.count('stroke-width="0.4"') == 1
+
+
+def dependency_outputs():
+    from itertools import product
+
+    Path("main.typ").write_text(prefix + "#note[Dependencies]")
+    for fmt, joined_deps, joined_format, stdout in product(
+        ("json", "make", "zero"), (False, True), (False, True), (False, True)
+    ):
+        output = "-" if stdout else "native.deps"
+        flags = [f"--deps={output}"] if joined_deps else ["--deps", output]
+        flags += [f"--deps-format={fmt}"] if joined_format else ["--deps-format", fmt]
+        result = subprocess.run(
+            ["typst", "compile", "--jobs", "2", "main.typ", "main.pdf", *flags],
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode == 0, (flags, result.stderr)
+        data = result.stdout if stdout else Path(output).read_bytes()
+        assert b"/devkit-typst-packages-" not in data, (flags, data)
+        if fmt == "json":
+            assert all(Path(name).is_file() for name in json.loads(data)["inputs"])
+        elif fmt == "zero":
+            assert all(
+                Path(os.fsdecode(name)).is_file() for name in data.split(b"\0") if name
+            )
+
+
 def valid_caption(caption):
     Path("logo.svg").write_text(
         '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
@@ -217,22 +289,15 @@ def header_positions():
 
 
 def version_policy():
-    lock = json.loads((registry / "devkit-docs.lock.json").read_text())
-    assert version in lock
-    for release, expected in lock.items():
-        root = registry / "local/devkit-docs" / release
-        digest = hashlib.sha256()
-        for path in sorted(root.rglob("*")):
-            if path.is_file() and path.name != "LICENSE":
-                digest.update(path.relative_to(root).as_posix().encode() + b"\0")
-                digest.update(path.read_bytes() + b"\0")
-        assert digest.hexdigest() == expected, release
+    from vig_utils.typst_packages import verify_registry
+
+    verify_registry(registry)
+    for package in (registry / "local/devkit-docs").iterdir():
         Path("old.typ").write_text(
-            f'#import "@local/devkit-docs:{release}": *\n#show: devkit-document.with()\nRetained import'
+            f'#import "@local/devkit-docs:{package.name}": *\n#show: devkit-document.with()\nRetained import'
         )
         run("typst", "compile", "old.typ", "old.pdf")
     Path("old.typ").unlink()
-    assert set(lock) == {p.name for p in (registry / "local/devkit-docs").iterdir()}
     assert f"@local/devkit-docs:{version}" in Path(sys.argv[2]).read_text()
 
 
@@ -389,6 +454,29 @@ def kill_style_mutants():
             ),
             ("m14 plain header bold", "return strong(cell)", "return cell"),
         )
+        mutants += (
+            (
+                "S1 plain default stroke",
+                'metadata("devkit-plain-table")',
+                'metadata("disabled")',
+            ),
+            (
+                "S2 ordinary label",
+                'let _ = fields.remove("label", default: none)',
+                "let _ = none",
+            ),
+            (
+                "S4 plain header settings",
+                "(cell.func())(..fields, ..children.map(mark-plain))",
+                "(cell.func())(..children.map(mark-plain))",
+            ),
+            (
+                "S8 plain header cells",
+                'table.cell(..fields, metadata("devkit-plain-table") + body)',
+                'table.cell(metadata("devkit-plain-table") + body)',
+            ),
+            ("S9 nested plain table", "if value.func() == table { return false }", ""),
+        )
         try:
             os.environ["TYPST_PACKAGE_PATH"] = str(copy)
             for name, before, after in mutants:
@@ -402,7 +490,13 @@ def kill_style_mutants():
                 assert before in source, name
                 target.write_text(source.replace(before, after))
                 try:
-                    if name.startswith(("m02", "m05", "m11", "m14")):
+                    if name.startswith(("S1", "S4", "S8")):
+                        plain_table_contract()
+                    elif name.startswith("S2"):
+                        labelled_ordinary_table()
+                    elif name.startswith("S9"):
+                        nested_plain_table()
+                    elif name.startswith(("m02", "m05", "m11", "m14")):
                         header_positions()
                     elif name.startswith("m03"):
                         empty_caption('"  "')
@@ -433,6 +527,18 @@ def package_paths():
             prefix.split("#show:")[0]
             + '#import "@local/mypkg:0.1.0": marker\n#note[Core registry]\n#marker'
         )
+        if location == "outer":
+            override = root / "local/devkit-docs" / version
+            shutil.copytree(registry / "local/devkit-docs" / version, override)
+            library = override / "lib.typ"
+            library.chmod(0o600)
+            library.write_text(
+                library.read_text() + '\n#let consumer-origin = "consumer"'
+            )
+            main = Path("main.typ")
+            main.write_text(
+                main.read_text() + '\n#assert.eq(consumer-origin, "consumer")'
+            )
         env = dict(os.environ)
         env.pop("TYPST_PACKAGE_PATH", None)
         if location == "outer":
@@ -482,6 +588,10 @@ with tempfile.TemporaryDirectory() as directory:
         ),
         ("table overrides", overrides),
         ("labelled plain table", labelled_plain_table),
+        ("plain table defaults and header positions", plain_table_contract),
+        ("labelled ordinary table", labelled_ordinary_table),
+        ("nested plain table", nested_plain_table),
+        ("native dependency spellings and formats", dependency_outputs),
         ("ordinary table overrides", ordinary_overrides),
         ("header positions and rules", header_positions),
         *(
@@ -514,7 +624,7 @@ with tempfile.TemporaryDirectory() as directory:
         ("public API and running titles", public_api_and_layout),
         ("style and metadata contracts", style_contract),
         ("consumer package registry", package_paths),
-        ("sixteen style mutants", kill_style_mutants),
+        ("twenty-one style mutants", kill_style_mutants),
     ):
         try:
             test()

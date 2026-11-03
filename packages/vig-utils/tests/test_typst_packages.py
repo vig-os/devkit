@@ -1,0 +1,179 @@
+"""Dependency artifacts and process lifecycle for the docs compiler wrapper."""
+
+import json
+import os
+import select
+import shutil
+import signal
+import subprocess
+import sys
+from contextlib import suppress
+from pathlib import Path
+
+import pytest
+from vig_utils import typst_packages
+
+
+@pytest.fixture
+def compiler(tmp_path):
+    source = tmp_path / "source space #$colon:" / "local/mypkg/0.1.0"
+    source.mkdir(parents=True)
+    (source / "lib.typ").write_text("Content")
+    outer = tmp_path / "outer"
+    outer.mkdir()
+    temporary = tmp_path / "temporary unions #$"
+    temporary.mkdir()
+    script = tmp_path / "compiler.py"
+    script.write_text("""import json, os, signal, sys
+from contextlib import suppress
+from pathlib import Path
+args = sys.argv[1:]
+union = Path(os.environ["TYPST_PACKAGE_PATH"])
+if args == ["watch"]:
+    def stop(signum, frame):
+        Path("stopped").write_text(str(signum))
+        sys.exit(0)
+    for signum in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(signum, stop)
+    print(json.dumps({"pid": os.getpid(), "union": str(union)}), flush=True)
+    while True:
+        signal.pause()
+def option(name, default):
+    value = default
+    for i, arg in enumerate(args):
+        if arg == name:
+            value = args[i + 1]
+        elif arg.startswith(name + "="):
+            value = arg.split("=", 1)[1]
+    return value
+def make_path(path):
+    return "".join("$$" if c == "$" else "\\\\" + c if c in " \\t#:\\\\" else c for c in str(path))
+path = str(union / "local/mypkg/0.1.0/lib.typ")
+fmt = option("--deps-format", "json")
+data = {"json": json.dumps({"inputs": [path], "outputs": ["main.pdf"]}).encode(),
+        "make": ("main.pdf: " + make_path(path) + "\\n").encode(),
+        "zero": os.fsencode(path) + b"\\0"}[fmt]
+Path("union.json").write_text(json.dumps(str(union)))
+output = option("--deps", "-")
+if output == "-":
+    sys.stdout.buffer.write(data)
+else:
+    Path(output).write_bytes(data)
+    print("Compiler stdout")
+""")
+    env = dict(os.environ, TYPST_PACKAGE_PATH=str(outer), TMPDIR=str(temporary))
+    argv = [
+        sys.executable,
+        "-c",
+        "from vig_utils.typst_packages import main; raise SystemExit(main())",
+        str(source.parents[2]),
+        sys.executable,
+        str(script),
+    ]
+    return argv, env, source
+
+
+@pytest.mark.parametrize("fmt", ["json", "make", "zero"])
+@pytest.mark.parametrize("joined_deps", [False, True])
+@pytest.mark.parametrize("joined_format", [False, True])
+@pytest.mark.parametrize("stdout", [False, True])
+def test_dependency_spellings_and_formats(
+    compiler, tmp_path, fmt, joined_deps, joined_format, stdout
+):
+    argv, env, source = compiler
+    output = "-" if stdout else "deps.out"
+    flags = [f"--deps={output}"] if joined_deps else ["--deps", output]
+    flags += [f"--deps-format={fmt}"] if joined_format else ["--deps-format", fmt]
+    result = subprocess.run(
+        [*argv, *flags], env=env, cwd=tmp_path, capture_output=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    data = result.stdout if stdout else (tmp_path / output).read_bytes()
+    assert b"/devkit-typst-packages-" not in data, data
+    target = source / "lib.typ"
+    if fmt == "json":
+        assert json.loads(data)["inputs"] == [str(target)]
+    elif fmt == "zero":
+        assert data.split(b"\0") == [os.fsencode(target), b""]
+    else:
+        escaped = "".join(
+            "$$" if c == "$" else "\\" + c if c in " \t#:\\" else c for c in str(target)
+        )
+        assert data == f"main.pdf: {escaped}\n".encode()
+    assert not Path(json.loads((tmp_path / "union.json").read_text())).exists()
+    if not stdout:
+        assert result.stdout == b"Compiler stdout\n"
+
+
+@pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGINT])
+def test_signals_reach_child_and_cleanup_union(compiler, tmp_path, signum):
+    argv, env, _ = compiler
+    process = subprocess.Popen(
+        [*argv, "watch"],
+        env=env,
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    child = None
+    try:
+        assert select.select([process.stdout], [], [], 10)[0], (
+            "child never became ready"
+        )
+        child = json.loads(process.stdout.readline())
+        process.send_signal(signum)
+        _, stderr = process.communicate(timeout=10)
+        assert process.returncode == 0, stderr
+        assert (tmp_path / "stopped").read_text() == str(signum)
+        assert not Path(child["union"]).exists()
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        if child:
+            with suppress(ProcessLookupError):
+                os.kill(child["pid"], signal.SIGTERM)
+
+
+@pytest.fixture
+def registry(tmp_path):
+    assets = Path(__file__).resolve().parents[3] / "assets/typst"
+    root = tmp_path / "registry"
+    shutil.copytree(assets / "vendor/preview", root / "preview")
+    shutil.copytree(assets / "releases/devkit-docs", root / "local/devkit-docs")
+    shutil.copytree(assets / "devkit-docs", root / "local/devkit-docs/0.1.1")
+    shutil.copy(assets / "devkit-docs.lock.json", root)
+    if (assets / "released-packages.json").exists():
+        shutil.copy(assets / "released-packages.json", root)
+    return root
+
+
+@pytest.mark.parametrize("mutation", ["vendor", "release", "nested-license"])
+def test_registry_integrity_rejects_mutations(registry, mutation):
+    verify = typst_packages.verify_registry
+    verify(registry)
+    if mutation == "vendor":
+        path = registry / "preview/cetz/0.3.4/src/aabb.typ"
+        path.write_bytes(path.read_bytes() + b"\n// changed\n")
+    elif mutation == "release":
+        shutil.rmtree(registry / "local/devkit-docs/0.1.0")
+        lock_path = registry / "devkit-docs.lock.json"
+        lock = json.loads(lock_path.read_text())
+        lock.pop("local/devkit-docs/0.1.0", None)
+        lock.pop("0.1.0", None)
+        lock_path.write_text(json.dumps(lock))
+    else:
+        path = registry / "local/devkit-docs/0.1.1/nested/LICENSE"
+        path.parent.mkdir()
+        path.write_text("New nested content")
+    with pytest.raises(ValueError):
+        verify(registry)
+
+
+def test_only_injected_root_license_is_excluded(registry):
+    verify = typst_packages.verify_registry
+    verify(registry)
+    (registry / "local/devkit-docs/0.1.1/LICENSE").write_text(
+        "Injected repository license"
+    )
+    verify(registry)
