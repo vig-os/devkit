@@ -480,7 +480,7 @@ def test_long_styled_footer_keeps_prefix(project, wrapper, font, single_word):
     )
     result = compile_source(
         project
-        + f"#show: slides.with(short-title: [#{wrapper}[{value}]])\n#slide()[Body]"
+        + f"#show: slides.with(short-title: {{ let style = {wrapper}; style([{value}]) }})\n#slide()[Body]"
     )
     assert result.returncode == 0, result.stderr
     words = pdf_words()
