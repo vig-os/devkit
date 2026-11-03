@@ -230,7 +230,7 @@ To request generated hooks explicitly, also set `hooks = { };`. Scaffolded
 projects declare `DEVKIT_MODULES="docs"` in `.vig-os` and rerun the installer;
 the default scaffold flake forwards docs activation. Other flakes, including
 preserved and language-pack flakes, must also enable the module themselves. Enter the project toolchain before installing or upgrading:
-reconciling a committed config requires its `typst-scaffold` command on PATH.
+reconciling a committed config requires its `reconcile-preserved-hooks` command on PATH.
 
 `nix/hooks.nix` defines the four guards once. Its `portable.docs` render is committed
 as `assets/docs-hooks.json`; CI checks that asset for drift. The installer adds an
@@ -238,11 +238,21 @@ owned block to committed hook configs and leaves generated store symlinks to the
 flake. This keeps the module contract at packages/env/shellHook and supports both
 config paths without teaching capability modules to overwrite consumer files.
 Removing `docs` and rerunning the installer removes its block and recipes, restoring
-consumer whitespace exclusions. Comments and other hooks are preserved. Whitespace
+consumer whitespace exclusions. `justfile.docs` is created with a managed header;
+an existing file is overwritten or deleted only with that header. Consumer-owned
+files (including symlinks) are retained with a notice in either module state.
+Comments and other hooks are preserved. Whitespace
 configs must use block-style repositories and hook mappings without YAML aliases.
 Mixed or legacy line endings are rejected without rewriting; uniform LF and CRLF
 are preserved.
-The owned markers record reversible source edits and should be left intact. Both
+The docs module extends the existing preserved-hook range/splice engine (#1654),
+using the same exact feature markers and insert/fold/drift report channels.
+Reversible exclusion records use repository and hook IDs, so hook insertion and
+reordering are safe. Parsed values allow formatter re-quoting. Managed-block edits, including comments,
+are detected before replacement; the installer warns with manual advice and
+continues, retaining the original config. Pre-release blocks with the old state
+format require manual removal of their block and generated exclusions first.
+The owned markers and state comments should be left intact. Both
 staged and installed output pass `prek validate-config`; failures retain the original
 bytes and print instructions for adding hooks by hand. Reconciliation preserves
 consumer indentation, line endings, and final-newline presence. Enabling docs adds

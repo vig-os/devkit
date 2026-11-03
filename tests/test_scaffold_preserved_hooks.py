@@ -716,6 +716,10 @@ def _shell_function(name: str) -> str:
     the point: a hand-copied awk here would stay green while the script broke.
     """
     text = INIT_WORKSPACE.read_text(encoding="utf-8")
+    if f"\n{name}() {{\n" not in text:
+        text = (INIT_WORKSPACE.parent / "preserved-hooks.sh").read_text(
+            encoding="utf-8"
+        )
     start = text.index(f"\n{name}() {{\n") + 1
     end = text.index("\n}\n", start) + len("\n}\n")
     return text[start:end]
