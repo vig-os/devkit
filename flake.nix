@@ -907,6 +907,8 @@
         # agree on one formatting. Refs #777.
         treefmtEval = treefmt-nix.lib.evalModule pkgs {
           projectRootFile = "flake.nix";
+          # Keep vendored archives byte-identical to their recorded hashes.
+          settings.global.excludes = [ "assets/typst/vendor/**" ];
           programs = {
             nixfmt = {
               enable = true;

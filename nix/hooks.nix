@@ -146,6 +146,8 @@ let
     "^\\.github_data/"
     "^docs/issues/"
     "^docs/pull-requests/"
+    # Preserve the pinned upstream archives; see assets/typst/README.md.
+    "^assets/typst/vendor/"
   ];
 
   # Upstream repos (pinned revs) for the portable render of hooks that the
