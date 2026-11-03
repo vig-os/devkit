@@ -56,8 +56,8 @@ def test_recovery_gate(
     gh.write_text(
         "#!/usr/bin/env python3\nimport os,sys,json\n"
         "a=sys.argv[1:]\n"
-        "if a[0]=='api' and 'reviews' in a[1]: print(os.environ['REVIEWS'])\n"
-        "elif a[0]=='api': print(json.dumps({'status': os.environ['MERGE_ON_MAIN'] if '/merge...' in a[1] else os.environ['TAG_ON_MAIN']}))\n"
+        "if a[0]=='api' and any('reviews' in arg for arg in a): print('[' + os.environ['REVIEWS'] + ']')\n"
+        "elif a[0]=='api': print(os.environ['MERGE_ON_MAIN'] if '/merge...' in a[1] else os.environ['TAG_ON_MAIN'])\n"
         "else: print(os.environ['PRS'] if '--state' in a and (a[a.index('--state')+1]=='all' or os.environ['STATE']=='OPEN') else '[]')\n"
     )
     gh.chmod(0o755)
@@ -81,6 +81,8 @@ def test_recovery_gate(
         text=True,
     )
     assert (result.returncode == 0) == ok, result.stdout + result.stderr
+    if not ok:
+        assert "ERROR:" in result.stdout
     if ok and state == "MERGED":
         assert "already merged by reviewer at" in result.stdout
         assert "already_merged=true" in (tmp_path / "output").read_text()

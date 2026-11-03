@@ -347,16 +347,9 @@ jobs:
           GH_TOKEN: ${{ steps.release_pr_token.outputs.token }}
         run: |
           set -euo pipefail
-          PR_JSON=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh pr list \
-            --head "release/$VERSION" \
-            --base main \
-            --json number,isDraft,reviewDecision,statusCheckRollup \
-            --limit 1)
-
-          PR_COUNT=$(echo "$PR_JSON" | jq 'length')
-          if [ "$PR_COUNT" != "1" ]; then
-            echo "ERROR: Expected exactly 1 PR from release/$VERSION to main, found $PR_COUNT"
-            exit 1
+          source .github/scripts/find-release-pr.sh
+          if [ "$PR_STATE" = MERGED ]; then
+            exit 0
           fi
 
           PR_NUMBER=$(echo "$PR_JSON" | jq -r '.[0].number')
@@ -579,24 +572,9 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
-          RELEASE_BRANCH="release/$VERSION"
-
-          PR_JSON=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh pr list \
-            --head "$RELEASE_BRANCH" \
-            --base main \
-            --json number,isDraft,reviewDecision,statusCheckRollup \
-            --limit 1)
-
-          PR_COUNT=$(echo "$PR_JSON" | jq 'length')
-
-          if [ "$PR_COUNT" != "1" ]; then
-            if [ "$PR_COUNT" = "0" ]; then
-              echo "ERROR: No PR found from $RELEASE_BRANCH to main"
-              exit 1
-            else
-              echo "ERROR: Multiple PRs found from $RELEASE_BRANCH to main"
-              exit 1
-            fi
+          source .github/scripts/find-release-pr.sh
+          if [ "$PR_STATE" = MERGED ]; then
+            exit 0
           fi
 
           PR_NUMBER=$(echo "$PR_JSON" | jq -r '.[0].number')
@@ -663,6 +641,7 @@ jobs:
           echo "✓ PR #$PR_NUMBER verified for merge"
 
       - name: Merge release PR
+        if: steps.pr.outputs.already_merged != 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
