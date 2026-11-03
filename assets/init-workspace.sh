@@ -3263,7 +3263,7 @@ render_docs_module() {
     fi
     if [[ "$enabled" == true ]] || { [[ -f "$pc" && ! -L "$pc" ]] && grep -qE '^[[:space:]]*# >>> devkit:docs([[:space:]]|$)' "$pc"; }; then
         if ! command -v reconcile-preserved-hooks >/dev/null 2>&1; then
-            echo "Warning: enter the devkit toolchain, or add docs hooks by hand from docs-hooks.json; see docs/NIX.md." >&2
+            echo "Warning: enter the devkit toolchain to reconcile docs hooks; see docs/NIX.md." >&2
         elif ! reconcile-preserved-hooks "$WORKSPACE_DIR" "$TEMPLATE_DIR/../docs-hooks.json" "$enabled"; then
             echo "Warning: docs hook reconciliation declined; installer continues. Follow the manual advice above." >&2
         fi
