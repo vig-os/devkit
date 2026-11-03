@@ -54,3 +54,9 @@ def test_nested_font_feature_is_not_a_family_override():
     source = '#set text(features: (font: 1))\n#set text(font: "Libertinus Serif")'
     instrument(source, "a.typ", origins)
     assert origins["bypasses"] == [("a.typ", 2, set())]
+
+
+def test_existing_dotted_labels_are_preserved():
+    origins = {}
+    instrument("#figure(rect()) <fig.example>", "a.typ", origins)
+    assert "<fig.example>" in origins
