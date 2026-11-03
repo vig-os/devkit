@@ -226,8 +226,8 @@ devShells.default = vigos.lib.mkProjectShell {
 
 Enable `modules = [ "docs" ]` in `mkProjectShell` for generated hooks. Scaffolded
 projects declare `DEVKIT_MODULES="docs"` in `.vig-os` and rerun the installer;
-the shipped flake forwards that list. Existing preserved flakes must also enable
-the module themselves. Enter the project toolchain before installing or upgrading:
+the default scaffold flake forwards docs activation. Other flakes, including
+preserved and language-pack flakes, must also enable the module themselves. Enter the project toolchain before installing or upgrading:
 reconciling a committed config requires its `typst-scaffold` command on PATH.
 
 `nix/hooks.nix` defines the four guards once. Its `portable.docs` render is committed
