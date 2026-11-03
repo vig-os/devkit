@@ -519,12 +519,13 @@ def test_long_styled_footer_keeps_prefix(project, wrapper, font, single_word):
         '#image("tall.svg", height: 40pt) After',
     ],
 )
-def test_footer_is_one_line_with_tall_content(project, title):
+@pytest.mark.parametrize("option", ["title", "short-title"])
+def test_footer_is_one_line_with_tall_content(project, title, option):
     Path("tall.svg").write_text(
         '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="40"><rect width="10" height="40" fill="red"/></svg>'
     )
     result = compile_source(
-        project + f"#show: slides.with(short-title: [{title}])\n#slide()[Body]"
+        project + f"#show: slides.with({option}: [{title}])\n#slide()[Body]"
     )
     assert result.returncode == 0, result.stderr
     footer = [w for w in pdf_words() if float(w.attrib["yMin"]) > 350]
@@ -550,7 +551,7 @@ def test_footer_is_one_line_with_tall_content(project, title):
     )
     root = ET.parse("footer.svg").getroot()
     # No image/box can be laid out below the page; the red image is bounded too.
-    if "image" in title:
+    if "image" in title or "box" in title:
         red = next(
             n
             for n in root.iter()
