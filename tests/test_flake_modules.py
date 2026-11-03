@@ -324,6 +324,50 @@ def test_node_module_rejects_unknown_option(current_system: str) -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_docs_toolchain_tracks_unstable(current_system: str) -> None:
+    """All docs entry points use the same unstable Typst minor (#1993)."""
+    expr = f"""
+    let
+      flake = builtins.getFlake "path:{REPO_ROOT}";
+      system = "{current_system}";
+      pkgs = import flake.inputs.nixpkgs {{
+        inherit system;
+        overlays = [ flake.overlays.default ];
+        config.allowUnfree = true;
+      }};
+      unstable = import flake.inputs.nixpkgs-unstable {{ inherit system; }};
+      names = [ "typst" "typstyle" "tinymist" ];
+      describe = p: {{ inherit (p) pname version drvPath; }};
+      select = packages: map describe
+        (builtins.filter (p: builtins.elem (p.pname or "") names) packages);
+    in {{
+      unstable = map (name: describe unstable.${{name}}) names;
+      overlay = map (name: describe pkgs.${{name}}) names;
+      module = select ((import (flake.outPath + "/nix/modules/docs.nix")) pkgs {{}}).packages;
+      shell = select (flake.lib.mkProjectShell {{
+        inherit pkgs;
+        modules = [ "docs" ];
+      }}).nativeBuildInputs;
+      check = select flake.checks.${{system}}.module-docs.nativeBuildInputs;
+    }}
+    """
+    result = subprocess.run(
+        ["nix", "eval", "--impure", "--json", "--expr", expr],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stderr
+    paths = json.loads(result.stdout)
+    expected = {p["pname"]: p for p in paths.pop("unstable")}
+    assert len({".".join(p["version"].split(".")[:2]) for p in expected.values()}) == 1
+    for entry, packages in paths.items():
+        assert {p["pname"]: p for p in packages} == expected, (
+            f"{entry} must provide all three tools from unstable: {packages!r}"
+        )
+
+
 def test_docs_module_provides_typst_and_typstyle(current_system: str) -> None:
     """The ``docs`` module puts ``typst`` and ``typstyle`` on PATH (#1178).
 
