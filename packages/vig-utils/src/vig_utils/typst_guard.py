@@ -98,6 +98,31 @@ def compile_all(mode, deps):
     return failed
 
 
+def pinned_packages(files):
+    """Reject preview references without an exact package version."""
+    bad = []
+    for name in files:
+        for package in re.findall(r'@preview/[^\s"\']+', Path(name).read_text()):
+            if not re.fullmatch(r"@preview/[a-z0-9-]+:\d+\.\d+\.\d+", package):
+                bad.append(f"{name}: unpinned package {package}")
+    print("\n".join(bad), end="\n" if bad else "", file=sys.stderr)
+    return int(bool(bad))
+
+
+def generated_pdfs():
+    """Reject PDF paths under generated directories in the Git index."""
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z"], check=True, capture_output=True
+    ).stdout
+    bad = [
+        name
+        for name in tracked.decode().split("\0")
+        if name.endswith(".pdf") and "generated" in Path(name).parts[:-1]
+    ]
+    print("\n".join(bad), end="\n" if bad else "", file=sys.stderr)
+    return int(bool(bad))
+
+
 def main(argv=None):
     """Run a guard, build entries or report toolchain identity as JSON."""
     parser = argparse.ArgumentParser(description=__doc__)
@@ -114,26 +139,9 @@ def main(argv=None):
                 ["typstyle", "--check", *args.files], check=False
             ).returncode
         if args.mode == "pins":
-            bad = []
-            for name in args.files:
-                for package in re.findall(
-                    r'@preview/[^\s"\']+', Path(name).read_text()
-                ):
-                    if not re.fullmatch(r"@preview/[a-z0-9-]+:\d+\.\d+\.\d+", package):
-                        bad.append(f"{name}: unpinned package {package}")
-            print("\n".join(bad), end="\n" if bad else "", file=sys.stderr)
-            return int(bool(bad))
+            return pinned_packages(args.files)
         if args.mode == "pdf":
-            tracked = subprocess.run(
-                ["git", "ls-files", "-z"], check=True, capture_output=True
-            ).stdout
-            bad = [
-                name
-                for name in tracked.decode().split("\0")
-                if name.endswith(".pdf") and "generated" in Path(name).parts[:-1]
-            ]
-            print("\n".join(bad), end="\n" if bad else "", file=sys.stderr)
-            return int(bool(bad))
+            return generated_pdfs()
         if args.mode == "probe":
             print(
                 json.dumps(

@@ -16,6 +16,7 @@ authors = [
 ]
 
 [project.scripts]
+typst-scaffold = "vig_utils.typst_scaffold:main"
 typst-guard = "vig_utils.typst_guard:main"
 site-leak-check = "vig_utils.site_leak_check:main"
 check-hardcoded-endpoints = "vig_utils.check_hardcoded_endpoints:main"

@@ -222,6 +222,58 @@ devShells.default = vigos.lib.mkProjectShell {
   C-extension sdist; for `node`, that `node`/`npm` resolve and the versioned
   form pins the major).
 
+### Docs module: Typst guards and reproducible recipes
+
+Enable `modules = [ "docs" ]` in `mkProjectShell` for generated hooks. Scaffolded
+projects declare `DEVKIT_MODULES="docs"` in `.vig-os` and rerun the installer;
+the shipped flake forwards that list. Existing preserved flakes must also enable
+the module themselves. Enter the project toolchain before installing or upgrading:
+reconciling a committed config requires its `typst-scaffold` command on PATH.
+
+`nix/hooks.nix` defines the four guards once. Its `portable.docs` render is committed
+as `assets/docs-hooks.json`; CI checks that asset for drift. The installer adds an
+owned block to committed hook configs and leaves generated store symlinks to the
+flake. This keeps the module contract at packages/env/shellHook and supports both
+config paths without teaching capability modules to overwrite consumer files.
+Removing `docs` and rerunning the installer removes its block and recipes, restoring
+consumer whitespace exclusions. Comments and other hooks are preserved. Whitespace
+hooks must use block-style YAML; their managed exclusion markers retain the original
+source and should be left intact. Non-docs consumers receive no additional hooks.
+
+The guards are `typstyle-check` (`typstyle --check`), `typst-compile` (all declared
+entries plus template smoke tests), `typst-preview-pins` (exact `@preview` versions),
+and `forbid-generated-pdf` (PDFs under any `generated/` in the Git index). Generic
+whitespace, line-ending, and EOF fixers exclude `generated/` only with this module.
+The compile and PDF guards run on every commit, including changes to dependencies.
+
+Declare an entry with a standalone `// devkit: entry` line. Unmarked files are
+libraries, including files used only through includes/imports. Files under `parts/`,
+`generated/`, hidden directories, and `node_modules/` are excluded. Files under any
+`templates/` directory compile independently to `/dev/null`. This explicit rule
+avoids guessing entry points from Typst's dynamic imports. Add comma-separated,
+repository-relative skip globs in `.vig-os`, for example
+`DEVKIT_TYPST_SKIP="drafts/**,templates/experimental/**"`. Matching uses Python
+fnmatch (including `/`); skips apply to entries and template smoke tests.
+
+With docs enabled, the installer manages `justfile.docs`:
+
+- `just typst [--deps]` builds sibling `generated/<stem>.pdf` files with
+  `--input rev=<sha8>[-dirty]`; Git status determines the dirty suffix.
+- `just typst-canonical [--deps]` omits the revision input for hash comparisons.
+- `just typst-probe` prints Typst, typstyle, and tinymist version strings as JSON.
+
+Every compile uses `--root . --ignore-system-fonts`, clears `TYPST_FONT_PATHS`,
+sets `SOURCE_DATE_EPOCH=0` and `TZ=UTC`, and rejects warnings. Fonts come from the
+compiler's built-ins (Libertinus Serif, New Computer Modern, DejaVu Sans Mono).
+Optional dependency lists are sibling `<stem>.deps.json` files. Ignore generated
+outputs in your project's `.gitignore` so they do not dirty subsequent stamped
+builds. Canonical hashes require identical source, packages, and pinned toolchains;
+documents must tolerate an absent `sys.inputs.rev`. Preview packages are not vendored
+in phase 1a and may need network access on first use. The pin guard conservatively
+checks preview references in source, including comments. Typstyle 0.15.2 exposes
+CLI formatting options with an 80-column default and no config-file option, so no
+`typstyle.toml` is scaffolded. The real-tool canary is `checks.<system>.typst-canary`.
+
 ### `packages.<system>.guardrails` — the gates without a `mkProjectShell` migration
 
 The `guardrails` capability module (#1488, `nix/modules/guardrails.nix`) wraps
@@ -723,32 +775,3 @@ is the go/no-go signal for it.
 - [`docs/CONTAINER_SECURITY.md`](CONTAINER_SECURITY.md) — the full CVE-patching
   strategy (pinned `nixpkgs`, `vulnix`, SBOM/Trivy, exception registers).
 - [`flake.nix`](../flake.nix) — the authoritative source for all of the above.
-
-### Typst execution primitives (#1994 checkpoint)
-
-`typst-guard` provides the execution layer for opt-in document guards. Automatic
-module activation, scaffold hook entries, and just recipes remain tracked in
-[#1994](https://github.com/vig-os/devkit/issues/1994); this checkpoint does not
-install hooks or recipes for consumers.
-
-Declare each entry document with a standalone `// devkit: entry` line. Other
-files are libraries, including files reached by imports or includes. Files under
-`parts/`, `generated/`, hidden directories, and `node_modules/` are excluded;
-`templates/**/*.typ` are smoke-compiled to `/dev/null`. Set
-`DEVKIT_TYPST_SKIP="drafts/**,templates/experimental/**"` in `.vig-os` to add
-repository-relative skip globs (comma-separated, matching with Python fnmatch).
-
-Run `typst-guard compile` to check entries and templates, `format <files...>`
-to check formatting, `pins <files...>` to require exact preview-package versions,
-and `pdf` to reject generated PDFs in the Git index. Compiles reject warnings,
-use built-in fonts with `--ignore-system-fonts`, remove `TYPST_FONT_PATHS`, and
-set `SOURCE_DATE_EPOCH=0` and `TZ=UTC`. Templates must compile independently.
-Typstyle 0.15.2 exposes CLI formatting settings, with an 80-column default; it
-does not provide a config-file option, so no `typstyle.toml` is scaffolded.
-
-`typst-guard build [--deps]` writes sibling `generated/<stem>.pdf` files with
-`rev=<sha8>[-dirty]`; `canonical [--deps]` omits the revision input. Optional
-dependency lists use sibling `<stem>.deps.json` files. `probe` prints the
-Typst, typstyle, and tinymist version strings as JSON. Canonical hashes require
-identical source, packages, and pinned toolchains. Preview packages are not
-vendored by this checkpoint and may require network access on first use.

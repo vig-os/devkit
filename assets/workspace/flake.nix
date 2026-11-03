@@ -122,6 +122,11 @@
         devShells.default = vigos.lib.mkProjectShell (
           {
             inherit pkgs;
+            modules = builtins.filter (name: name != "") (
+              nixpkgs.lib.splitString " " (
+                builtins.replaceStrings [ "\"" "'" ] [ "" "" ] (vigOsValue "DEVKIT_MODULES")
+              )
+            );
             extraPackages = extraPackages pkgs;
 
             # Agent CLI is machine-level by default. Opting in shadows any

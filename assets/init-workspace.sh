@@ -4386,6 +4386,26 @@ render_actionlint_optout
 # anchors intact when the feature is enabled.
 render_release_optout
 
+# Module-owned hooks are installed in committed configs by the scaffold, while
+# store symlinks remain owned by mkProjectShell. Non-docs consumers are unchanged.
+render_docs_module() {
+    local enabled=false pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
+    case " $MANIFEST_MODULES " in *" docs "*) enabled=true ;; esac
+    if [[ "$enabled" == true ]]; then
+        cp "$TEMPLATE_DIR/../justfile.d/docs.justfile" "$WORKSPACE_DIR/justfile.docs"
+    else
+        rm -f "$WORKSPACE_DIR/justfile.docs"
+    fi
+    if [[ "$enabled" == true ]] || { [[ -f "$pc" && ! -L "$pc" ]] && grep -q '^# >>> devkit:docs$' "$pc"; }; then
+        if ! command -v typst-scaffold >/dev/null 2>&1; then
+            echo "Error: docs module reconciliation requires typst-scaffold from the devkit toolchain on PATH." >&2
+            exit 1
+        fi
+        typst-scaffold "$WORKSPACE_DIR" "$TEMPLATE_DIR/../docs-hooks.json" "$enabled"
+    fi
+}
+render_docs_module
+
 upgrade_has_runner_variable() {
     local name="DEVKIT_UPGRADE_CI_RUNNER_${1^^}" value
     value="${!name-}"
