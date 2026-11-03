@@ -16,6 +16,7 @@ authors = [
 ]
 
 [project.scripts]
+glossary-candidates = "vig_utils.glossary:candidates_main"
 glossary-guard = "vig_utils.glossary:main"
 reconcile-preserved-hooks = "vig_utils.preserved_hooks:main"
 typst-guard = "vig_utils.typst_guard:main"

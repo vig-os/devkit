@@ -144,6 +144,9 @@ Available recipes:
     clean version="dev"                        # Remove image (default: dev)
     clean-test-containers                      # Clean up lingering test containers
 
+    [docs]
+    glossary-candidates                        # List unregistered terminology for agent or reviewer triage (advisory).
+
     [git]
     gh-branch                                  # Show current branch + list recent branches
     gh-log                                     # Pretty one-line git log (last 20 commits)

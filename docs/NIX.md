@@ -369,8 +369,9 @@ families. Numbers inside scheme URLs (`https://...`), `mailto:`, and `www.`
 URLs are skipped.
 
 Only Git-tracked `.typ` and `.md` sources are scanned. Set comma-separated
-`DEVKIT_GLOSSARY_SOURCES="docs/**,manual/*.typ"` to select Git pathspecs relative
-to the repository root (`git ls-files` semantics). Untracked/ignored files,
+`DEVKIT_GLOSSARY_SOURCES="docs/**,manual/*.{md,typ}"` to select Git pathspecs relative
+to the repository root (`git ls-files` semantics after expanding brace
+alternatives; nested braces are unsupported). Untracked/ignored files,
 hidden directories, and `generated/` are excluded. There is **no non-Git
 fallback**: terms mode with a nonempty register requires a Git working tree.
 An undecodable source produces a file-specific UTF-8 error while other sources
@@ -382,9 +383,108 @@ allowed; trailing text and markers in the other file type do not suppress.
 The marker suppresses that line; hard-wrapped matches cannot cross it.
 Typst `/* glossary: ignore */` is not supported. Inline code and fenced code
 are scanned as ordinary source text; use the same per-line marker for examples
-that intentionally contain forbidden text. These checks do not parse markup
-or discover synonyms. Run `glossary-guard schema` or `glossary-guard terms`
+that intentionally contain forbidden text. URLs and paths are also ordinary
+text for forbidden phrases (only part-number detection excludes URLs).
+Simple Markdown emphasis (`*`, `**`, `_`, `__`), code delimiters and Typst
+`#strong[...]` / `#emph[...]` are transparent; nested markup, links and arbitrary
+Typst expressions are not parsed. Emphasis is limited to a single line and
+1,024 content characters; longer spans retain their delimiters. Inline markup
+is unwrapped only at word boundaries so adjacent prefixes/plurals stay visible. Backticks become spaces, preserving code
+boundaries and offsets (for example, a plural after a code span cannot hide a
+forbidden term). Registered terms/aliases protect their exact spelling plus sentence-case
+and title-case forms, unless a derived form is explicitly forbidden by any
+entry. Literal registered names remain protected. ALLCAPS forms are not protected; use the per-line
+suppression marker above for intentional ALLCAPS headings. Other case variants
+remain unprotected; incidental lowercase matches such as `valve a little` do not.
+A registered span suppresses a forbidden hit only if it contains the hit or crosses one of its edges. This protects
+`the feed` in `the Feed Pump` and `pump station` in `Feed Pump station`. A
+registered name contained inside the forbidden hit never suppresses it: with
+`Valve` registered, `regulating valve` is still forbidden.
+Overlapping forbidden hits are reported once, keeping the longest rule (ties
+prefer the earliest position). Exact forbidden spellings equal to any registered
+term or alias are rejected as dead rules; casing corrections remain valid.
+Unsupported suffixes in source pathspecs warn on stderr. Run `glossary-guard schema` or `glossary-guard terms`
 manually from the repository root.
+
+Run `glossary-candidates` (or `just glossary-candidates` with the docs module)
+from the repository root for advisory candidate discovery. It uses the same
+tracked source selection as terms mode, even without a register, and never
+installs a blocking hook. Invalid registers fail before scanning. Unreadable or
+non-UTF-8 sources are reported and skipped, remaining files are scanned, and
+the command exits 1. Findings alone exit 0; diagnostics name the invoked tool.
+Each JSON line contains `file`, first-occurrence `line`, `candidate`, per-file
+`count`, `nearest` canonical term (or null), `score` (0–1 difflib similarity,
+not confidence), and a short `context` snippet from the original source,
+including its markup and line breaks. Aliases and registered part
+numbers are subtracted case-insensitively. Output is ordered by file and name.
+
+An agent or reviewer goes through **each candidate** in the PR and answers:
+
+- **Synonym of X → use the canonical term.** Replace the invented name.
+- **New term → add it to `glossary.yaml` in this PR.** Supply its definition,
+  kind and any accepted aliases, then rerun both commands.
+
+Extraction recognizes consecutive title-case words (also across a single line
+break, never a blank line), CamelCase, letter/digit part numbers and ALLCAPS
+acronyms. Leading and trailing stopwords are removed; coordinating conjunctions
+split phrases while retaining the joined phrase as a candidate, and single
+title-case words are ignored. `--allow And` disables splitting at And, preserving
+names such as Research And Development. Joining stops at blank
+lines, list items, headings and standalone two/three-word title-case name lines.
+Prepared/reviewed/approved/signed/author labels followed by names are filtered.
+This conservative name-line boundary can also separate a wrapped domain name.
+Sentence-start connectives However, When, After, Before, Then, Also, Therefore,
+Meanwhile, Finally, Thus and Next are default stopwords. Common words/acronyms such as TODO, NOTE, JSON, MIT, PR, CI, AM and PM are skipped;
+add project-specific names with `glossary-candidates --stopwords NASA,FlowController`
+(case-insensitive, comma-separated, additive to the built-in list in
+`vig_utils.glossary.STOPWORDS`). The same option works with
+`glossary-guard candidates --stopwords ...`. Remove built-ins or additional
+stopwords with `--allow CD,EN` (case-insensitive; allow takes precedence).
+Allowing a standards prefix also reports its numbers, such as `EN-123`; other
+structural/code filters still apply. Both commands support these controls.
+
+Discovery filters YAML frontmatter, Markdown/Typst headings, Markdown pipe-table
+header rows, Markdown inline/reference links (including their text), URLs,
+backtick code spans/fences, underscore identifiers, citations (`[@key]`, `@key`),
+and Typst string literals and simple `#link(...)[text]` labels. Table body
+prose and simple emphasized prose remain eligible. UTF, SHA, ISO, ANSI, RFC, IEEE, IEC, DIN and EN numeric standards are
+filtered as standards rather than proposed parts. Deterministic terms mode
+continues scanning code, links and paths as described above.
+
+This is a lexical heuristic, not a grammatical noun parser or full markup
+parser. Lowercase/single-word title-case names, nested markup, complex links,
+non-pipe tables and unusual identifier/part/standard formats can be missed or
+need reviewer judgment. An actual new name appearing only in a filtered region
+is intentionally missed; register it during review. Ignore markers apply only
+to deterministic checks.
+
+The realistic Markdown/Typst fixtures in
+`packages/vig-utils/tests/fixtures/glossary/` contain headings, tables, links,
+URLs, code, citations, frontmatter, sentence-initial prose and Typst markup.
+They contain five distinct expected names: **precision 100% (5/5), recall 100%
+(5/5)**. Assertions also check repeated names, wrapped phrases, original-source
+context, sorted output and the closest choice among multiple registered terms.
+A second corpus in `fixtures/glossary/review/` models a README, commissioning
+report and Typst note with tables, citations, code and links. Measured distinct-name
+**precision is 100% (10/10), recall 90.9% (10/11)**; tests require ≥75% each.
+The lowercase `service manifold` is missed, reflecting the documented lexical
+limit rather than removing it from the expected set. These are fixture results,
+not an accuracy claim for arbitrary documents.
+
+Nearest-term comparisons are memoized per distinct candidate for each invocation.
+Reproduce the synthetic workload with
+`uv run python packages/vig-utils/tests/benchmark_glossary.py`: 300 tracked files,
+15,000 lines, a 300-term register, eight distinct names and 2,400 output rows.
+Single runs on the same shared host took **16.922 s before** (943a2f9b) and
+**1.112 s after**, about 15.2× faster. Timings vary with host load; the permanent
+cache regression asserts one comparison per term/name pair across files rather
+than imposing a machine-dependent time threshold.
+`uv run python packages/vig-utils/tests/benchmark_nearest.py` measures 2,000
+distinct names × 300 terms: **12.645 s before** (21bd9717), **6.774 s after**
+(about 1.9× faster, single shared-host runs). `real_quick_ratio` and `quick_ratio`
+upper bounds skip full comparisons only when strictly below the best score;
+equal-score ties retain the lexicographically greatest canonical spelling.
+Before/after result hashes match, including every score and term choice.
 
 For YAML language-server editor validation, put this header in the register,
 replacing `RELEASE_TAG` with an installed devkit release tag that includes the
