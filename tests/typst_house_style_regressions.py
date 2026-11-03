@@ -1,5 +1,6 @@
 """Round-two layout regressions, executed with real tools in the Nix sandbox."""
 
+import json
 import os
 import re
 import shutil
@@ -11,7 +12,7 @@ from pathlib import Path
 
 registry = Path(sys.argv[1])
 version = next((registry / "local/devkit-docs").iterdir()).name
-prefix = f'// devkit: entry\n#import "@local/devkit-docs:{version}": *\n#show: document.with()\n'
+prefix = f'// devkit: entry\n#import "@local/devkit-docs:{version}": *\n#show: devkit-document()\n'
 failures = []
 
 
@@ -91,8 +92,10 @@ def overrides():
         "main.typ",
         'query(table).map(t => t.children.filter(c => c.func() == table.header).map(h => (repeat: h.at("repeat", default: true), level: h.at("level", default: 1)))).flatten()',
     )
-    assert '"repeat":false' in headers.replace(" ", "").replace("\n", "")
-    assert '"level":2' in headers.replace(" ", "").replace("\n", "")
+    headers = json.loads(headers)
+    assert headers and all(
+        header == {"repeat": False, "level": 2} for header in headers
+    ), headers
 
 
 def rules():
@@ -148,6 +151,11 @@ def public_api_and_layout():
         ["typst-guard", "compile"], check=False, capture_output=True, text=True
     )
     assert result.returncode == 1 and "#show:" in result.stderr, result.stderr
+    Path("main.typ").write_text(prefix.split("#show:")[0] + "#devkit-document()")
+    result = subprocess.run(
+        ["typst-guard", "compile"], check=False, capture_output=True, text=True
+    )
+    assert result.returncode == 1 and "function" in result.stderr, result.stderr
     build("")
     Path("main.typ").write_text(
         prefix.split("#show:")[0]
