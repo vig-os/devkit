@@ -43,8 +43,9 @@ repos:
     assert (dest / "justfile.docs").exists() == enabled
     assert "# consumer comment" in (dest / config.name).read_text()
     if enabled:
-        assert "generated" in hooks[0]["exclude"]
-        assert "vendor" in hooks[0]["exclude"]
+        fixer = next(hook for hook in hooks if hook["id"] == "trailing-whitespace")
+        assert "generated" in fixer["exclude"]
+        assert "vendor" in fixer["exclude"]
         before = (dest / config.name).read_text()
         scaffold(tmp_path, name="workspace")
         assert (dest / config.name).read_text() == before

@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Opt-in Typst guards and reproducible builds** ([#1994](https://github.com/vig-os/devkit/issues/1994))
   - Enable module-gated formatting, warning-free compilation, package pins, and generated-PDF guards, with reversible scaffold reconciliation.
   - Add stamped/canonical just recipes, dependency lists, toolchain probing, and built-in-font deterministic builds.
+  - Validate reversible hook edits across YAML layouts, retain hand-written hooks, and keep committed-config shell entry free of generated-hook installation.
+  - Support explicit project branding fonts, flexible entry markers, resolved tool identities, and case-insensitive generated-PDF guards.
 
 - **Release N runner migration matrix** ([#1935](https://github.com/vig-os/devkit/issues/1935))
   - Gate key-only, variables-only, and gitflow adoption with dev ahead of main; verify managed workflow runner wiring, fork isolation, and the full migration warning through isolated pre-N workflow steps and the installer.

@@ -224,7 +224,7 @@ let
     };
     forbid-generated-pdf = {
       mode = "pdf";
-      files = "(^|/)generated/.*\\.pdf$";
+      files = "(?i)(^|/)generated/.*\\.pdf$";
     };
   };
   docsHook =

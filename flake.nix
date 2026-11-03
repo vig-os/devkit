@@ -440,7 +440,7 @@
           # tests/test_flake_devshell.py, tests/test_flake_hooks.py).
           # ------------------------------------------------------------------
           docsEnabled = builtins.any (entry: (normalizeModuleEntry entry).name == "docs") modules;
-          hooksEnabled = docsEnabled || hooks != null || hooksExcludes != [ ];
+          hooksEnabled = hooks != null || hooksExcludes != [ ];
           consumerHooksBase = hooksModule.consumer pkgs {
             docs = docsEnabled;
             inherit

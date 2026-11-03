@@ -6,41 +6,82 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+ENTRY_PATTERN = r"(?m)^[ \t]*//[ \t]*devkit:[ \t]*entry[ \t]*$"
+
+
+def manifest_value(key):
+    """Read a literal manifest value without executing shell."""
+    manifest = Path(".vig-os")
+    if manifest.exists():
+        for line in manifest.read_text().splitlines():
+            if line.startswith(key + "="):
+                return " ".join(shlex.split(line.split("=", 1)[1], comments=True))
+    return ""
+
 
 def skip_globs():
-    """Read a comma-separated literal manifest value without executing shell."""
-    manifest = Path(".vig-os")
-    if not manifest.exists():
-        return []
-    for line in manifest.read_text().splitlines():
-        if line.startswith("DEVKIT_TYPST_SKIP="):
-            tokens = shlex.split(line.split("=", 1)[1], comments=True)
-            return [
-                item.strip() for item in " ".join(tokens).split(",") if item.strip()
-            ]
-    return []
+    """Return the project's additional entry/template skip globs."""
+    return [
+        item.strip()
+        for item in manifest_value("DEVKIT_TYPST_SKIP").split(",")
+        if item.strip()
+    ]
+
+
+def project_font_paths():
+    """Allow explicit existing font directories contained in the repository."""
+    value = manifest_value("DEVKIT_TYPST_FONT_PATHS")
+    paths = []
+    for name in value.split(":") if value else []:
+        path = Path(name.strip())
+        if (
+            not name.strip()
+            or path.is_absolute()
+            or not path.resolve().is_relative_to(Path.cwd())
+            or not path.is_dir()
+        ):
+            raise ValueError(
+                f"DEVKIT_TYPST_FONT_PATHS requires existing repo-relative directories: {name}"
+            )
+        paths.append(path.as_posix())
+    return paths
 
 
 def documents():
     """Only explicitly declared entries build; templates get a smoke compile."""
     entries, templates = [], []
     skips = skip_globs()
+    seen = False
     for path in sorted(Path().rglob("*.typ")):
         if any(
             part.startswith(".") or part in {"generated", "parts", "node_modules"}
             for part in path.parts
         ):
             continue
+        seen = True
         if any(fnmatch.fnmatchcase(path.as_posix(), glob) for glob in skips):
             continue
         if "templates" in path.parts:
             templates.append(path)
-        elif "// devkit: entry" in path.read_text().splitlines():
+        elif re.search(ENTRY_PATTERN, path.read_text()):
             entries.append(path)
+        elif re.search(
+            r"(?m)^[ \t]*(?:#set[ \t]+page\b|#show[ \t]*:|=+[ \t]+)", path.read_text()
+        ):
+            print(
+                f"warning: {path} looks like an entry but has no // devkit: entry marker",
+                file=sys.stderr,
+            )
+    if seen and not entries:
+        print(
+            "warning: zero entries declared; add // devkit: entry to entry documents",
+            file=sys.stderr,
+        )
     return entries, templates
 
 
@@ -61,6 +102,8 @@ def compile_document(path, output, rev=None, deps=False):
         "--format",
         "pdf",
     ]
+    for font_path in project_font_paths():
+        argv += ["--font-path", font_path]
     if rev is not None:
         argv += ["--input", f"rev={rev}"]
     if deps:
@@ -117,10 +160,37 @@ def generated_pdfs():
     bad = [
         name
         for name in tracked.decode().split("\0")
-        if name.endswith(".pdf") and "generated" in Path(name).parts[:-1]
+        if Path(name).suffix.casefold() == ".pdf"
+        and "generated" in [part.casefold() for part in Path(name).parts[:-1]]
     ]
     print("\n".join(bad), end="\n" if bad else "", file=sys.stderr)
     return int(bool(bad))
+
+
+def toolchain_probe():
+    """Report resolved binaries and their own versions, never embedded Typst's."""
+    identities = {}
+    for tool in ("typst", "typstyle", "tinymist"):
+        binary = shutil.which(tool)
+        if binary is None:
+            raise ValueError(f"{tool} is not on PATH")
+        path = str(Path(binary).resolve())
+        output = subprocess.run(
+            [binary, "--version"], check=True, capture_output=True, text=True
+        ).stdout
+        match = re.search(
+            rf"(?m)^(?:{tool}[ \t]+|Version:[ \t]*)(\d+\.\d+\.\d+)(?:[ \t(]|$)", output
+        )
+        source = "output"
+        if match is None:
+            match = re.search(rf"/nix/store/[^/]+-{tool}-(\d+\.\d+\.\d+)(?:/|$)", path)
+            source = "store-path"
+        if match is None:
+            raise ValueError(
+                f"cannot determine {tool}'s own version from --version or its store path"
+            )
+        identities[tool] = {"path": path, "version": match[1], "version_source": source}
+    return identities
 
 
 def main(argv=None):
@@ -143,19 +213,7 @@ def main(argv=None):
         if args.mode == "pdf":
             return generated_pdfs()
         if args.mode == "probe":
-            print(
-                json.dumps(
-                    {
-                        tool: subprocess.run(
-                            [tool, "--version"],
-                            check=True,
-                            capture_output=True,
-                            text=True,
-                        ).stdout.strip()
-                        for tool in ["typst", "typstyle", "tinymist"]
-                    }
-                )
-            )
+            print(json.dumps(toolchain_probe()))
             return 0
         return compile_all(args.mode, args.deps)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:

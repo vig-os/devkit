@@ -224,7 +224,9 @@ devShells.default = vigos.lib.mkProjectShell {
 
 ### Docs module: Typst guards and reproducible recipes
 
-Enable `modules = [ "docs" ]` in `mkProjectShell` for generated hooks. Scaffolded
+Enable `modules = [ "docs" ]` in `mkProjectShell` for the document toolchain.
+Committed-config consumers receive hooks through scaffold reconciliation alone.
+To request generated hooks explicitly, also set `hooks = { };`. Scaffolded
 projects declare `DEVKIT_MODULES="docs"` in `.vig-os` and rerun the installer;
 the default scaffold flake forwards docs activation. Other flakes, including
 preserved and language-pack flakes, must also enable the module themselves. Enter the project toolchain before installing or upgrading:
@@ -237,16 +239,27 @@ flake. This keeps the module contract at packages/env/shellHook and supports bot
 config paths without teaching capability modules to overwrite consumer files.
 Removing `docs` and rerunning the installer removes its block and recipes, restoring
 consumer whitespace exclusions. Comments and other hooks are preserved. Whitespace
-hooks must use block-style YAML; their managed exclusion markers retain the original
-source and should be left intact. Non-docs consumers receive no additional hooks.
+configs must use block-style repositories and hook mappings without YAML aliases.
+The owned markers record reversible source edits and should be left intact. Both
+staged and installed output pass `prek validate-config`; failures retain the original
+bytes and print instructions for adding hooks by hand. Reconciliation preserves
+consumer indentation, line endings, and final-newline presence. Enabling docs adds
+no new strict scaffold yamllint rule/message finding; existing findings may remain. Existing `typst-compile` or
+`typstyle` hooks are retained with a notice rather than duplicated.
+Non-docs upgrades add the inert optional `import? 'justfile.docs'` line and empty
+`DEVKIT_TYPST_SKIP` and `DEVKIT_TYPST_FONT_PATHS` keys, without additional hooks.
 
 The guards are `typstyle-check` (`typstyle --check`), `typst-compile` (all declared
 entries plus template smoke tests), `typst-preview-pins` (exact `@preview` versions),
-and `forbid-generated-pdf` (PDFs under any `generated/` in the Git index). Generic
+and `forbid-generated-pdf` (PDFs under any `generated/` in the Git index, case-insensitively). Generic
 whitespace, line-ending, and EOF fixers exclude `generated/` only with this module.
 The compile and PDF guards run on every commit, including changes to dependencies.
 
-Declare an entry with a standalone `// devkit: entry` line. Unmarked files are
+Declare an entry with a standalone marker matching
+`(?m)^[ \t]*//[ \t]*devkit:[ \t]*entry[ \t]*$`: `//devkit: entry`,
+`// devkit: entry`, and trailing spaces or tabs are accepted. Suspicious unmarked
+files (page settings, show rules, or headings) and zero declared entries produce
+warnings when Typst files are present. Unmarked files are
 libraries, including files used only through includes/imports. Files under `parts/`,
 `generated/`, hidden directories, and `node_modules/` are excluded. Files under any
 `templates/` directory compile independently to `/dev/null`. This explicit rule
@@ -260,11 +273,19 @@ With docs enabled, the installer manages `justfile.docs`:
 - `just typst [--deps]` builds sibling `generated/<stem>.pdf` files with
   `--input rev=<sha8>[-dirty]`; Git status determines the dirty suffix.
 - `just typst-canonical [--deps]` omits the revision input for hash comparisons.
-- `just typst-probe` prints Typst, typstyle, and tinymist version strings as JSON.
+- `just typst-probe` prints JSON objects for Typst, typstyle, and tinymist, each
+  containing a resolved binary `path`, single-line `version`, and `version_source`.
+  Versions are parsed from each tool's own output. The pinned tinymist build omits
+  its own version there, so its resolved Nix store version is reported explicitly
+  with `version_source: "store-path"`; its embedded Typst version is never substituted.
 
 Every compile uses `--root . --ignore-system-fonts`, clears `TYPST_FONT_PATHS`,
 sets `SOURCE_DATE_EPOCH=0` and `TZ=UTC`, and rejects warnings. Fonts come from the
 compiler's built-ins (Libertinus Serif, New Computer Modern, DejaVu Sans Mono).
+For branding, set `DEVKIT_TYPST_FONT_PATHS="fonts:assets/fonts"` in `.vig-os`. Each
+colon-separated directory must exist within the repository and is passed as
+`--font-path` by hooks and both build recipes. Commit those fonts for reproducible
+canonical output. System fonts remain ignored even with project fonts enabled.
 Optional dependency lists are sibling `<stem>.deps.json` files. Ignore generated
 outputs in your project's `.gitignore` so they do not dirty subsequent stamped
 builds. Canonical hashes require identical source, packages, and pinned toolchains;

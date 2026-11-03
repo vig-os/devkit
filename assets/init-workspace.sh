@@ -407,6 +407,7 @@ MANIFEST_ORG="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_ORG || true)"
 MANIFEST_REPO="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REPO || true)"
 MANIFEST_MODULES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_MODULES || true)"
 MANIFEST_TYPST_SKIP="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TYPST_SKIP || true)"
+MANIFEST_TYPST_FONT_PATHS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TYPST_FONT_PATHS || true)"
 MANIFEST_TAG_PREFIX="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TAG_PREFIX || true)"
 MANIFEST_RELEASE_REQUIRED_APPROVALS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_RELEASE_REQUIRED_APPROVALS || true)"
 if [[ -n "$MANIFEST_RELEASE_REQUIRED_APPROVALS" && ! "$MANIFEST_RELEASE_REQUIRED_APPROVALS" =~ ^[0-9]+$ ]]; then
@@ -4397,7 +4398,7 @@ render_docs_module() {
     else
         rm -f "$WORKSPACE_DIR/justfile.docs"
     fi
-    if [[ "$enabled" == true ]] || { [[ -f "$pc" && ! -L "$pc" ]] && grep -q '^# >>> devkit:docs$' "$pc"; }; then
+    if [[ "$enabled" == true ]] || { [[ -f "$pc" && ! -L "$pc" ]] && grep -qE '^[[:space:]]*# >>> devkit:docs([[:space:]]|$)' "$pc"; }; then
         if ! command -v typst-scaffold >/dev/null 2>&1; then
             echo "Error: docs module reconciliation requires typst-scaffold from the devkit toolchain on PATH." >&2
             exit 1
@@ -4596,6 +4597,9 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     write_manifest_value DEVKIT_PROJECT "$SHORT_NAME"
     write_manifest_value DEVKIT_ORG "$ORG_NAME"
     write_manifest_value DEVKIT_REPO "$GITHUB_REPOSITORY"
+    if [[ -n "$MANIFEST_TYPST_FONT_PATHS" ]]; then
+        write_manifest_value DEVKIT_TYPST_FONT_PATHS "\"$MANIFEST_TYPST_FONT_PATHS\""
+    fi
     if [[ -n "$MANIFEST_TYPST_SKIP" ]]; then
         write_manifest_value DEVKIT_TYPST_SKIP "\"$MANIFEST_TYPST_SKIP\""
     fi
