@@ -39,7 +39,12 @@ repos:
         for r in yaml.safe_load((dest / config.name).read_text())["repos"]
         for h in r["hooks"]
     ]
-    for hook_id in ("typst-compile", "glossary-schema", "glossary-terms"):
+    for hook_id in (
+        "typst-compile",
+        "glossary-schema",
+        "glossary-terms",
+        "typst-content",
+    ):
         assert any(h["id"] == hook_id for h in hooks) == enabled
     assert 'DEVKIT_GLOSSARY="terms.yaml"' in (dest / ".vig-os").read_text()
     assert 'DEVKIT_GLOSSARY_SOURCES="docs/**"' in (dest / ".vig-os").read_text()
