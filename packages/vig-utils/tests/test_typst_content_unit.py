@@ -37,3 +37,13 @@ def test_unresolved_width_and_page_margin():
 def test_settings_and_prose_are_not_rewritten_as_calls():
     source = "#set figure(gap: 10pt)\nA prose example: figure(example)."
     assert instrument(source, "a.typ", {}) == source
+
+
+def test_svg_css_specificity(tmp_path):
+    from vig_utils.typst_content import svg_text
+
+    path = tmp_path / "chart.svg"
+    path.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><style>#small {font-size:5px} .large {font-size:20px}</style><text id="small" class="large">Text</text></svg>'
+    )
+    assert svg_text(path)[0] == 5
