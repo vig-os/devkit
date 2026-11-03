@@ -723,3 +723,32 @@ is the go/no-go signal for it.
 - [`docs/CONTAINER_SECURITY.md`](CONTAINER_SECURITY.md) — the full CVE-patching
   strategy (pinned `nixpkgs`, `vulnix`, SBOM/Trivy, exception registers).
 - [`flake.nix`](../flake.nix) — the authoritative source for all of the above.
+
+### Typst execution primitives (#1994 checkpoint)
+
+`typst-guard` provides the execution layer for opt-in document guards. Automatic
+module activation, scaffold hook entries, and just recipes remain tracked in
+[#1994](https://github.com/vig-os/devkit/issues/1994); this checkpoint does not
+install hooks or recipes for consumers.
+
+Declare each entry document with a standalone `// devkit: entry` line. Other
+files are libraries, including files reached by imports or includes. Files under
+`parts/`, `generated/`, hidden directories, and `node_modules/` are excluded;
+`templates/**/*.typ` are smoke-compiled to `/dev/null`. Set
+`DEVKIT_TYPST_SKIP="drafts/**,templates/experimental/**"` in `.vig-os` to add
+repository-relative skip globs (comma-separated, matching with Python fnmatch).
+
+Run `typst-guard compile` to check entries and templates, `format <files...>`
+to check formatting, `pins <files...>` to require exact preview-package versions,
+and `pdf` to reject generated PDFs in the Git index. Compiles reject warnings,
+use built-in fonts with `--ignore-system-fonts`, remove `TYPST_FONT_PATHS`, and
+set `SOURCE_DATE_EPOCH=0` and `TZ=UTC`. Templates must compile independently.
+Typstyle 0.15.2 exposes CLI formatting settings, with an 80-column default; it
+does not provide a config-file option, so no `typstyle.toml` is scaffolded.
+
+`typst-guard build [--deps]` writes sibling `generated/<stem>.pdf` files with
+`rev=<sha8>[-dirty]`; `canonical [--deps]` omits the revision input. Optional
+dependency lists use sibling `<stem>.deps.json` files. `probe` prints the
+Typst, typstyle, and tinymist version strings as JSON. Canonical hashes require
+identical source, packages, and pinned toolchains. Preview packages are not
+vendored by this checkpoint and may require network access on first use.
