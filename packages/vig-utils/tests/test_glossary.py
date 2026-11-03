@@ -557,6 +557,7 @@ def test_brace_source_pathspec_does_not_warn(register, capsys):
     captured = capsys.readouterr()
     assert captured.err.count("unsupported") == 1
     assert "*.yaml" in captured.err and "{md" not in captured.err
+    assert "NovelValve" in captured.out
 
 
 def test_nearest_is_cached_across_files(register, capsys, monkeypatch):
