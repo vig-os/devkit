@@ -168,4 +168,51 @@ with tempfile.TemporaryDirectory() as directory:
     # All metadata is optional, including the title block.
     Path("main.typ").write_text(prefix + "#show: document.with()\nOptional metadata\n")
     run("typst-guard", "compile")
+    Path("logo.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">'
+        '<rect width="20" height="20" fill="#ff00ff"/></svg>'
+    )
+    Path("main.typ").write_text(
+        prefix
+        + """#show: document.with(
+  title: "Branded example", logo: path("logo.svg"), accent: rgb("174f79"),
+  doc-id: "EX-003", labels: ("doc-id": [Identifier]),
+)
+= Branded heading
+#doc-ref("EX-004", title: "Linked reference", target: "https://example.com")
+#table(columns: 2, align: numeric-columns(1),
+  table.header(table.cell(colspan: 2)[Spanning header]),
+  [Value], number(12.3),
+) <user-table>
+#context assert.eq(query(<user-table>).len(), 1)
+#fig([Figurebodymarker], caption: [Captionmarker])
+"""
+    )
+    run("typst-guard", "compile")
+    recipe("typst-canonical")
+    branded_text = run("pdftotext", "generated/main.pdf", "-")
+    assert "Identifier: EX-003" in branded_text
+    assert "Linked reference" in branded_text
+    assert branded_text.index("Figurebodymarker") < branded_text.index("Captionmarker")
+    run(
+        "typst",
+        "compile",
+        "--ignore-system-fonts",
+        "--format",
+        "svg",
+        "main.typ",
+        "brand.svg",
+    )
+    svg = Path("brand.svg").read_text()
+    assert "#174f79" in svg and "#ff00ff" in svg
+    # A plain table without explicit table.header still gets a repeated first row.
+    Path("main.typ").write_text(
+        prefix
+        + """#show: document.with()
+#table(columns: 2, [Implicit header], [Value],
+  ..range(100).map(n => ([Row #n], number(n))).flatten())
+"""
+    )
+    recipe("typst-canonical")
+    assert run("pdftotext", "generated/main.pdf", "-").count("Implicit header") >= 2
 print("House-style contracts passed")
