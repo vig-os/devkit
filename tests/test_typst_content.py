@@ -1,7 +1,7 @@
 """Real compiler acceptance tests for content helpers (#1994)."""
 
 import json
-import shutil
+import os
 import subprocess
 import tomllib
 import xml.etree.ElementTree as ET
@@ -9,19 +9,27 @@ from pathlib import Path
 
 import pytest
 
-ASSETS = Path(__file__).resolve().parents[1] / "assets/typst"
+ASSETS = Path(
+    os.environ.get(
+        "DEVKIT_TYPST_ASSETS", Path(__file__).resolve().parents[1] / "assets/typst"
+    )
+)
 
 
 @pytest.fixture
 def project(tmp_path, monkeypatch):
     registry = tmp_path / "registry"
-    shutil.copytree(ASSETS / "vendor", registry)
     local = registry / "local/devkit-docs"
-    shutil.copytree(ASSETS / "releases/devkit-docs", local)
+    local.mkdir(parents=True)
+    (registry / "preview").symlink_to(
+        ASSETS / "vendor/preview", target_is_directory=True
+    )
+    for package in (ASSETS / "releases/devkit-docs").iterdir():
+        (local / package.name).symlink_to(package, target_is_directory=True)
     version = tomllib.loads((ASSETS / "devkit-docs/typst.toml").read_text())["package"][
         "version"
     ]
-    shutil.copytree(ASSETS / "devkit-docs", local / version)
+    (local / version).symlink_to(ASSETS / "devkit-docs", target_is_directory=True)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("TYPST_PACKAGE_PATH", str(registry))
     monkeypatch.setenv("TYPST_PACKAGE_CACHE_PATH", str(tmp_path / "cache"))

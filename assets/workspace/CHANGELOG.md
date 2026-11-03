@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Typst plots, glossary and slides** ([#1994](https://github.com/vig-os/devkit/issues/1994))
+  - Ship devkit-docs 0.2.0 with licensed, offline lilaq plots, required axis labels and a 7 pt text minimum.
+  - Render canonical glossary terms, first-use acronyms and used-term appendices from the configured consumer YAML.
+  - Add a branded 16:9 slide layout with title, section and content slides, booktabs, captions and revision footers; retain older package imports.
+
 - **Offline Typst house-style package** ([#1994](https://github.com/vig-os/devkit/issues/1994))
   - Add the versioned, neutral devkit-docs package with document layout, booktabs tables, captions, callouts, revisions, and document references.
   - Share its immutable package registry across docs shells and hooks; vendor licensed diagram dependencies and verify real offline builds.

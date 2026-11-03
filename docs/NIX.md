@@ -346,7 +346,7 @@ CLI formatting options with an 80-column default and no config-file option, so n
 
 The `docs` shell exposes an immutable registry through its Typst and Tinymist
 wrappers; `DEVKIT_TYPST_PACKAGE_PATH` identifies that registry. Import
-`@local/devkit-docs:0.1.1`. Its own SemVer is independent of devkit releases.
+`@local/devkit-docs:0.2.0`. Its own SemVer is independent of devkit releases.
 Shipped versions remain available after an upgrade, and a content-hash lock
 checks their integrity. See the [version policy and registry layout](../assets/typst/README.md#local-package-versions).
 A package upgrade is explicit: read its changes and update imports together.
@@ -376,7 +376,7 @@ A minimal entry document:
 
 ```typst
 // devkit: entry
-#import "@local/devkit-docs:0.1.1": *
+#import "@local/devkit-docs:0.2.0": *
 #show: devkit-document.with(title: "Example report", authors: ("Example Author",))
 
 = Results
@@ -391,7 +391,7 @@ title and page `n / N`. Stamped builds also show `rev`; canonical builds omit
 it. Monospaced text uses DejaVu Sans Mono and math uses Typst's built-in
 New Computer Modern. `type-scale` exports these sizes, including `figure-min: 7pt`.
 Authors must keep figure lettering at least 7 pt at the final placed size;
-SVG and plot text-size enforcement belongs to the later content guards.
+The plot helper enforces this minimum; checking external SVGs belongs to the later content guards.
 
 All metadata is optional: `title`, `short-title` (running header/footer text),
 `subtitle`, `authors` (a string or tuple of names),
@@ -456,8 +456,79 @@ in [the registry guide](../assets/typst/README.md).
 `checks.<system>.typst-house-style` compiles real fixtures through guards and
 recipes in a network-free Nix sandbox, checks PDF text and table rules, tests
 caption failures and offline imports, and compares canonical hashes.
-Plots, glossary rendering, slides, and content guards are separate later phases
-of [#1994](https://github.com/vig-os/devkit/issues/1994).
+
+`plot(x, y, xlabel: [...], ylabel: [...], width: 9cm, height: 5cm)` renders a
+native line plot using vendored lilaq 0.5.0. The coordinate arrays must satisfy
+lilaq's data requirements. Both axis labels must contain visible content;
+missing or blank labels panic. Tick and label text inherits `type-scale.small`
+(9 pt); explicit label text below 7 pt panics. Dimensions change the data area,
+without shrinking lettering. Wrap the result in `fig` with a caption:
+
+```typst
+#fig(
+  plot((0, 1, 2), (1, 3, 2), xlabel: [Time (s)], ylabel: [Distance (m)]),
+  caption: [Measured trajectory],
+)
+```
+
+Do not shrink plots or label content with `scale`, `resize`, or transforms:
+those can change final lettering size after the helper checks it. Prefer SVG
+or native plots for charts; raster chart lettering cannot be checked.
+The helper intentionally exposes a single line series and dimensions. For other
+plot types use an explicitly pinned lilaq import; its upstream API does not
+provide the helper's label and size checks. All transitive packages, including
+optional computational plugins, are vendored and content locked.
+
+`term("id")` reads the canonical term from the consumer register. Unknown or
+duplicate IDs fail compilation. For an `acronym`, the first occurrence prints
+`definition (term)`; later occurrences print the canonical term. Supply the
+expanded name as the definition for acronym entries. `glossary()` renders only
+used entries, sorted by canonical term, with definitions. Place it at the end
+of the document as an appendix; `glossary(title: [Terminology])` changes its title.
+An empty used-term set produces no heading. Usage and first-use state are local
+to each compiled document, including terms in included files.
+
+```typst
+The #term("sample") was examined.
+#glossary()
+```
+
+Recipes and compile guards read `DEVKIT_GLOSSARY` from `.vig-os` (default
+`glossary.yaml`) and pass its UTF-8 YAML text as `--input devkit-glossary=...`.
+The package parses that text natively with `yaml(bytes(...))`. Package filesystem
+isolation prevents a package-relative path from reading consumer files. Paths
+must stay inside the repository, including symlink targets. An explicitly
+configured missing file fails; an absent default file supplies no register.
+Direct compiler and editor preview calls must supply the same input, for example
+`typst compile --ignore-system-fonts --input "devkit-glossary=$(cat glossary.yaml)" main.typ main.pdf`.
+The shell example assumes a small register: command-line input size is bounded
+by the operating system's argument limit. Register edits are picked up on each
+recipe invocation; watch/editor workflows must refresh the input after edits.
+`glossary-schema` remains the schema validator; the helper does not replace it.
+
+For presentations, use the same import with `#show: slides.with(...)`:
+
+```typst
+#show: slides.with(title: [Example deck], authors: ("Example Author",))
+#section-slide[Results]
+#slide(title: [Measurements])[
+  #table(columns: 2, table.header([Item], [Value]), [Sample], number(12.3))
+  #fig(rect(width: 20mm, height: 10mm), caption: [Example figure])
+]
+```
+
+The layout is 256 × 144 mm (16:9), with 12 mm margins. A title slide is emitted
+when metadata is provided. `section-slide` centers its title; `slide` starts a
+content page with an optional heading. The same type scale, booktabs rules,
+figure captions, branding (`accent`, `logo`, `labels`), metadata, `short-title`,
+page totals and revision footer apply. Sizes remain in points: choose slide
+content for the intended viewing distance. Content must fit a slide; there is
+no automatic shrinking or overflow clipping. Canonical builds omit the stamp.
+
+The network-free `typst-house-style` check also exercises these helpers with
+an empty package cache and inspects rendered PDF font sizes. Content guards
+(captions, table headers, style bypass and external SVG lettering) remain the
+next part of [#1994](https://github.com/vig-os/devkit/issues/1994).
 
 #### Terminology register
 
