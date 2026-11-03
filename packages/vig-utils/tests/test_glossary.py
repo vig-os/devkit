@@ -619,7 +619,10 @@ def test_only_exact_case_spans_protect(register, span, bad, text, expected):
     "text,expected",
     [
         ("Data Historian The", {"Data Historian"}),
-        ("Cooling Loop And Bypass Line", {"Cooling Loop", "Bypass Line"}),
+        (
+            "Cooling Loop And Bypass Line",
+            {"Cooling Loop And Bypass Line", "Cooling Loop", "Bypass Line"},
+        ),
         ("Thermal\nValve", {"Thermal Valve"}),
         ("Thermal Valve\n\nControl Unit", {"Thermal Valve", "Control Unit"}),
         ("Thermal Valve\n- Control Unit", {"Thermal Valve", "Control Unit"}),
@@ -740,3 +743,84 @@ def test_review_corpus_precision_and_recall(register, capsys):
     }
     assert len(actual & expected) / len(actual) >= 0.75
     assert len(actual & expected) / len(expected) >= 0.75
+
+
+@pytest.mark.parametrize(
+    "text,suffix",
+    [
+        ("Two #emph[input pump]s failed.", ".typ"),
+        ("#strong[pre]input pump", ".typ"),
+        ("Two #strong[FP-101]s failed.", ".typ"),
+        ("#emph[X]FP-101", ".typ"),
+        ("input pump#emph[s]", ".typ"),
+        ("Two **input pump**s failed.", ".md"),
+        ("Two _input pump_s failed.", ".md"),
+        ("Two *input pump*s failed.", ".typ"),
+    ],
+)
+def test_markup_word_boundaries(register, text, suffix):
+    root, _ = register
+    (root / ("source" + suffix)).write_text(text)
+    track(root)
+    assert glossary.main(["terms"]) == 1
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("Regulating valve opens first.", 0),
+        ("## Regulating Valve", 0),
+        ("THE REGULATING VALVE A LITTLE", 1),
+    ],
+)
+def test_sentence_and_title_case_protection(register, text, expected):
+    root, entries = register
+    entries[0]["term"] = "regulating valve"
+    entries[0]["forbidden"] = [{"term": "valve", "use": "regulating valve"}]
+    (root / "glossary.yaml").write_text(yaml.safe_dump(entries))
+    (root / "source.md").write_text(text)
+    track(root)
+    assert glossary.main(["terms"]) == expected
+
+
+def test_unclosed_markup_scales():
+    text = "*a " * 34_000
+    start = time.monotonic()
+    assert glossary.transparent_text(text) == text
+    assert time.monotonic() - start < 1.0
+
+
+@pytest.mark.parametrize("allow", ["", "AND"])
+@pytest.mark.parametrize("name", ["Research And Development", "Procter And Gamble"])
+def test_conjunction_names(register, capsys, name, allow):
+    root, _ = register
+    (root / "source.md").write_text(name)
+    track(root)
+    assert glossary.main(["candidates", "--allow", allow]) == 0
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [row["candidate"] for row in rows] == [name]
+    assert rows[0]["count"] == 1
+
+
+@pytest.mark.parametrize(
+    "word", ["However", "When", "After", "Before", "Then", "Also", "Therefore"]
+)
+def test_sentence_connective_stopwords(register, capsys, word):
+    root, _ = register
+    (root / "source.md").write_text(word + " Alice")
+    track(root)
+    assert glossary.main(["candidates"]) == 0
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.parametrize("allow", ["", "and"])
+def test_allow_controls_conjunction_splitting(register, capsys, allow):
+    root, _ = register
+    name = "Cooling Loop And Bypass Line"
+    (root / "source.md").write_text(name)
+    track(root)
+    assert glossary.main(["candidates", "--allow", allow]) == 0
+    actual = {
+        json.loads(line)["candidate"] for line in capsys.readouterr().out.splitlines()
+    }
+    assert actual == ({name} if allow else {name, "Cooling Loop", "Bypass Line"})
