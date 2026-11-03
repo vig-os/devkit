@@ -454,7 +454,7 @@ def test_footnote_first_term_expands_in_footnote(project):
 def test_register_bound_term_has_bookmark_text(project):
     result = compile_source(
         project
-        + '#let g = glossary-tools(yaml("/glossary.yaml"))\n#let term = g.term\n#show: g.setup\n#outline()\n= Using #term("cpu")\n#term("cpu")\n#g.glossary()',
+        + '#let g = glossary-tools(yaml("/glossary.yaml"))\n#let term = g.term\n#show: g.setup\n#outline()\n= Using #term("cpu")\n#term("cpu")\n#glossary()',
         "--pretty",
     )
     assert result.returncode == 0, result.stderr

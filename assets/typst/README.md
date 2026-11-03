@@ -89,4 +89,5 @@ See [the user guide](../../docs/NIX.md#house-style-package) for the public API.
 
 Glossary consumers load their own register with
 `#show: glossary-setup.with(yaml("/glossary.yaml"))`; no compiler input is needed.
-See [the helper API and limits](../../docs/NIX.md) for plots, glossary and slides.
+For bookmark-safe terms, bind `glossary-tools(yaml("/glossary.yaml"))` as described
+in the user guide. See [the helper API and limits](../../docs/NIX.md) for plots, glossary and slides.

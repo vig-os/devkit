@@ -10,6 +10,6 @@
 #import "devkit-document.typ" as devkit-document
 
 #import "content.typ": (
-  glossary, glossary-setup, plot, section-slide, slide, term,
+  glossary, glossary-setup, glossary-tools, plot, section-slide, slide, term,
 )
 #import "slides.typ" as slides

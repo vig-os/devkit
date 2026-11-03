@@ -1,21 +1,34 @@
 #import "style.typ": (
-  figure-style, plain-text, title-block, type-scale, typography, typst-document,
+  figure-style, title-block, type-scale, typography, typst-document,
 )
 
-// A plain-text footer must occupy one line, even for unbroken titles.
+// Preserve rich content, treating non-text elements as indivisible tokens.
+#let footer-pieces(value) = {
+  if value == none { return () }
+  if type(value) == str { return value.clusters() }
+  if value.has("children") {
+    return value.children.map(footer-pieces).flatten()
+  }
+  if value.func() == text { return value.text.clusters() }
+  if value.func() == image { return (box(value),) }
+  (value,)
+}
+
 #let footer-title(body) = layout(size => {
-  let value = plain-text(body)
-  if measure(value).width <= size.width { value } else {
+  let pieces = footer-pieces(body)
+  let value = pieces.join()
+  if measure(box(value)).width <= size.width { box(value) } else {
     let low = 0
-    let clusters = value.clusters()
-    let high = clusters.len()
+    let high = pieces.len()
     while low < high {
       let middle = calc.ceil((low + high) / 2)
-      if measure(clusters.slice(0, middle).join() + "…").width <= size.width {
+      if (
+        measure(box(pieces.slice(0, middle).join() + […])).width <= size.width
+      ) {
         low = middle
       } else { high = middle - 1 }
     }
-    clusters.slice(0, low).join() + "…"
+    box(pieces.slice(0, low).join() + […])
   }
 })
 

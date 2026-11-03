@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Ship devkit-docs 0.2.0 with licensed, offline lilaq plots, required axis labels and a 7 pt text minimum.
   - Load consumer glossary YAML directly, reject duplicate IDs, and reserve acronym expansion for body occurrences.
   - Keep plot ticks at 9 pt, enforce script and explicit math text minimums, and fit long slide footer titles.
+  - Preserve rich slide footer content, synthesize readable script glyphs, and provide bookmark-safe bound glossary terms with actionable setup errors.
   - Add a branded 16:9 slide layout with title, section and content slides, booktabs, captions and revision footers; retain older package imports.
 
 - **Offline Typst house-style package** ([#1994](https://github.com/vig-os/devkit/issues/1994))

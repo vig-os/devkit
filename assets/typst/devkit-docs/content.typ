@@ -54,8 +54,8 @@
     message: "plot requires non-empty x and y axis labels",
   )
   set text(size: calc.max(type-scale.small, type-scale.figure-min))
-  set super(size: type-scale.figure-min)
-  set sub(size: type-scale.figure-min)
+  set super(size: type-scale.figure-min, typographic: false)
+  set sub(size: type-scale.figure-min, typographic: false)
   show math.equation: it => {
     set text(size: type-scale.small)
     if it.has("label") and it.label == <devkit-plot-math> { return it }
@@ -83,7 +83,11 @@
 #let copying-outline = state("devkit-copying-outline", false)
 #let used-terms = state("devkit-used-terms", ())
 
-#let glossary-setup(entries, body) = {
+#let index-glossary(entries) = {
+  assert(
+    entries.len() > 0,
+    message: "empty glossary register; add at least one entry",
+  )
   let register = (:)
   for entry in entries {
     assert(
@@ -92,6 +96,10 @@
     )
     register.insert(entry.id, entry)
   }
+  register
+}
+
+#let setup-register(register, body) = {
   glossary-register.update(register)
   show outline.entry: it => {
     copying-outline.update(true)
@@ -101,26 +109,55 @@
   body
 }
 
+#let glossary-setup(entries, body) = setup-register(
+  index-glossary(entries),
+  body,
+)
+
+// The canonical spelling stays outside context, so PDF bookmarks can read it.
+#let render-term(entry) = {
+  context {
+    if (
+      not copying-outline.get()
+        and entry.id not in used-terms.get()
+        and entry.kind == "acronym"
+    ) {
+      [#entry.definition (]
+    }
+  }
+  entry.term
+  context {
+    let copy = copying-outline.get()
+    let first = not copy and entry.id not in used-terms.get()
+    if first and entry.kind == "acronym" { [)] }
+    if not copy {
+      used-terms.update(ids => if entry.id in ids { ids } else {
+        ids + (entry.id,)
+      })
+      metadata((kind: "devkit-term", id: entry.id))
+    }
+  }
+}
+
+#let lookup-term(register, id) = {
+  assert(id in register, message: "unknown glossary id: " + id)
+  render-term(register.at(id))
+}
+
 #let term(id) = context {
   let entries = glossary-register.get()
   assert(
     entries != none,
-    message: "no glossary loaded; see glossary-setup in docs/NIX.md",
+    message: "no glossary loaded; see https://github.com/vig-os/devkit/blob/1.18.1/docs/NIX.md#house-style-package",
   )
-  assert(id in entries, message: "unknown glossary id: " + id)
-  let entry = entries.at(id)
-  let copy = copying-outline.get()
-  let first = not copy and id not in used-terms.get()
-  if not copy {
-    used-terms.update(ids => if id in ids { ids } else { ids + (id,) })
-    metadata((kind: "devkit-term", id: id))
-  }
-  if first and entry.kind == "acronym" {
-    [#entry.definition (#entry.term)]
-  } else { entry.term }
+  lookup-term(entries, id)
 }
 
 #let glossary(title: [Glossary]) = context {
+  assert(
+    glossary-register.get() != none,
+    message: "no glossary loaded; see https://github.com/vig-os/devkit/blob/1.18.1/docs/NIX.md#house-style-package",
+  )
   let ids = used-terms.final()
   assert(ids == ids.dedup(), message: "duplicate ids in glossary usage state")
   if ids.len() > 0 {
@@ -133,6 +170,15 @@
       block[#strong(entry.term) — #entry.definition]
     }
   }
+}
+
+// Bind the register before layout when canonical text is needed in bookmarks.
+#let glossary-tools(entries) = {
+  let register = index-glossary(entries)
+  (
+    term: id => lookup-term(register, id),
+    setup: body => setup-register(register, body),
+  )
 }
 
 #let slide(body, title: none) = {

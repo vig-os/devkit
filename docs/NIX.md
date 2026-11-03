@@ -478,6 +478,9 @@ Do not shrink plots or label content with `scale`, `resize`, or transforms:
 those can change final lettering size after the helper checks it. Arbitrary
 user math (fractions, custom functions, contextual content, or manual math-size
 styles) cannot be checked generically; authors must verify its final PDF text.
+In particular, `$x^#text(size: 8pt)[k]$` can render the explicit text at 5.6 pt:
+the explicit 8 pt style overrides the helper's script base before math shrinking.
+Use ordinary attachments without explicit text sizes, or verify the final PDF.
 The helper checks explicit text styles and sizes ordinary attached scripts. Prefer SVG
 or native plots for charts; raster chart lettering cannot be checked.
 The helper intentionally exposes a single line series and dimensions. For other
@@ -513,6 +516,33 @@ previews all use this API and track file changes natively. `glossary-schema`
 validates the configured register independently. Calling `term` without setup
 reports “no glossary loaded”; setup rejects duplicate IDs. Outline and figure
 outline copies use short forms and never consume the first body expansion.
+Place custom `show outline.entry` rules **before** `glossary-setup`: rules added
+after setup can replace its copy tracking and consume expansion in the TOC.
+First usage includes footnotes: if the first `term` call is in a footnote, its
+expansion appears in that footnote, and subsequent body calls use the short form.
+Both `term` and `glossary` require setup; an empty register is an error.
+
+PDF bookmarks cannot evaluate the legacy state-based `term` function. For
+headings with terms, bind the register before layout so bookmarks retain the
+canonical spelling:
+
+```typst
+#let g = glossary-tools(yaml("/glossary.yaml"))
+#let term = g.term
+#show: g.setup
+
+#outline()
+= Using #term("cpu")
+#glossary()
+```
+
+`glossary-tools` returns `term` and `setup` functions. Its setup validates the
+register and installs the same outline-copy tracking; place custom outline
+show rules before `#show: g.setup`. Keep the bound `term` in scope in each
+included source (or export it from a consumer-owned shared module). The original
+`glossary-setup` API remains supported, but its contextual terms have no PDF
+bookmark text. Bound terms keep static canonical text in bookmarks while
+retaining contextual first-use expansion in the body.
 
 For presentations, use the same import with `#show: slides.with(...)`:
 
@@ -529,8 +559,10 @@ The layout is 256 × 144 mm (16:9), with 12 mm margins. A title slide is emitted
 when metadata is provided. `section-slide` centers its title; `slide` starts a
 content page with an optional heading. The same type scale, booktabs rules,
 figure captions, branding (`accent`, `logo`, `labels`), metadata, `short-title`,
-page totals and revision footer apply. Footer titles render as plain text and
-truncate with an ellipsis to fit one line. Sizes remain in points: choose slide
+page totals and revision footer apply. Footer titles preserve content (including
+emphasis, math, scripts, boxes, and inline images) and truncate with an ellipsis to fit the available cell width.
+Truncation preserves whole non-text elements and never shrinks or clips them.
+Sizes remain in points: choose slide
 content for the intended viewing distance. Content must fit a slide; there is
 no automatic shrinking or overflow clipping. Canonical builds omit the stamp.
 
