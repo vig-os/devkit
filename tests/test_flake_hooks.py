@@ -1594,6 +1594,8 @@ def test_docs_hook_asset_matches_definition(rendered_portable):
         "typst-compile",
         "typst-preview-pins",
         "forbid-generated-pdf",
+        "glossary-schema",
+        "glossary-terms",
     }
     assert not ids.intersection(_normalize(rendered_portable["scaffold"])["hooks"])
 
@@ -1612,6 +1614,8 @@ def test_docs_module_activates_generated_hooks():
     config = yaml.safe_load(Path(result.stdout.strip()).read_text())
     hooks = _normalize(config)["hooks"]
     assert "typst-compile" in hooks
+    assert "glossary-schema" in hooks
+    assert "glossary-terms" in hooks
     assert "generated" in hooks["end-of-file-fixer"]["exclude"]
 
 
