@@ -228,8 +228,11 @@ def query_document(entry):
                 run_typst, flags=flags, tree=tree, env=compiler_env, entry=entry
             )
 
-            execute(["compile", str(entry), "guard.pdf", "--deps", "guard.deps.json"])
-            deps = json.loads((tree / "guard.deps.json").read_text())["inputs"]
+            # Outputs must not follow mirrored asset symlinks into the consumer.
+            output = Path(directory) / "guard.pdf"
+            deps_path = Path(directory) / "guard.deps.json"
+            execute(["compile", str(entry), str(output), "--deps", str(deps_path)])
+            deps = json.loads(deps_path.read_text())["inputs"]
             active = set()
             for name in deps:
                 p = Path(name)
