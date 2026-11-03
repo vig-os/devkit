@@ -281,3 +281,12 @@ def test_source_settings_prose_and_unbalanced_markup(doc):
         "#set figure(gap: 10pt)\n#set table(inset: 5pt)\nA prose example: figure(example).\n#figure([A (literal], caption: [Caption])\n#table(table.header([Name]), [Value])"
     )
     assert run("content") == 0
+
+
+def test_repeated_image_call_keeps_each_placed_width(doc, capsys):
+    write(
+        '#let chart(w) = image("chart.svg", width: w)\n#chart(50pt)\n#chart(100pt)',
+        package=True,
+    )
+    assert run("figure-text-size") == 1
+    assert "5 pt" in capsys.readouterr().err
