@@ -535,3 +535,33 @@ def test_interrupted_write_restores_original(tmp_path, monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         preserved_hooks.publish(path, b"repos: []\n")
     assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "layout,expected",
+    [
+        (
+            "repos:\n-   repo: https://example.com/hooks\n    hooks:\n    -   id: upstream\n",
+            "-   repo: local\n    hooks:\n    -   id: canary\n        name: Canary\n",
+        ),
+        (
+            "repos:\n- repo: https://example.com/hooks\n  hooks:\n  - id: upstream\n",
+            "- repo: local\n  hooks:\n  - id: canary\n    name: Canary\n",
+        ),
+        (
+            "repos:\n  -   repo: https://example.com/hooks\n      hooks:\n        - id: upstream\n",
+            "-   repo: local\n    hooks:\n      - id: canary\n        name: Canary\n",
+        ),
+        (
+            "repos:\n  - repo: https://example.com/hooks\n    hooks:\n      -   id: upstream\n",
+            "- repo: local\n  hooks:\n    -   id: canary\n        name: Canary\n",
+        ),
+    ],
+)
+def test_rendered_hooks_exact_dash_spacing(layout, expected):
+    from vig_utils.preserved_hooks import rendered_hooks
+
+    assert (
+        rendered_hooks(layout, [{"id": "canary", "name": "Canary"}]).encode()
+        == expected.encode()
+    )
