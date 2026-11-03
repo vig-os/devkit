@@ -108,6 +108,9 @@
       fastMovers = [
         "uv"
         "gh"
+        "typst"
+        "typstyle"
+        "tinymist"
         # claude (claude-code) is an agent CLI that moves very fast; track unstable.
         "claude-code"
       ];

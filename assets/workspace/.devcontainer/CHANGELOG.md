@@ -63,6 +63,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Unstable Typst toolchain** ([#1993](https://github.com/vig-os/devkit/issues/1993))
+  - Take typst 0.15.1, typstyle 0.15.2, and tinymist 0.15.10 from the locked nixpkgs-unstable input via fastMovers; add tinymist diagnostics and preview to the docs module.
+  - Consumers regenerate `generated/` artifacts once under the updated toolchain.
+
 - **Default lockstep pin advancement** ([#1856](https://github.com/vig-os/devkit/issues/1856)): lockstep release pins advance unless `DEVKIT_FLAKE_PIN_ADVANCE=false`.
 
 - **Project shells leave the agent CLI to the machine** ([#1967](https://github.com/vig-os/devkit/issues/1967))
@@ -97,6 +101,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Recover promotion after a manually merged release PR** ([#1990](https://github.com/vig-os/devkit/issues/1990))
   - Verify approval and main ancestry, skip the completed merge, and allow recovery from main or dev after branch deletion.
+
+- **Typst formatter documentation** ([#1993](https://github.com/vig-os/devkit/issues/1993))
+  - Describe typstyle as the Typst formatter and document the docs module version source and language server.
 
 - **Advance lockstep release pins during upgrades** ([#1856](https://github.com/vig-os/devkit/issues/1856))
   - The target installer advances release pins matching the pre-upgrade version by default, keeping the scaffold and dev shell aligned even through older upgrade workflows.

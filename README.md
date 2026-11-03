@@ -250,7 +250,7 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 
 - **pre-commit** - Git hook framework for code quality
 - **ruff** - Fast Python linter and formatter (replaces Black, isort, flake8, and more)
-- **typstyle** - Typo and style checks (e.g. in docs and prose)
+- **typstyle** - Typst document formatter
 - **just** - Command runner for task automation
 - **precommit alias** - Shortcut command for running pre-commit hooks
 

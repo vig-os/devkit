@@ -1,27 +1,19 @@
 # `docs` capability module (#1178): the document-edition dev-shell capability.
 # v1 contract (packages only, per docs/rfcs/ADR-capability-modules.md): puts
-# `typst` (the document compiler), `typstyle` (its formatter) and
-# `poppler-utils` (PDF reading) on the dev-shell PATH so a document-oriented
-# consumer opts in with `modules = [ "docs" ]` instead of a PyPI typst pin or
-# hand-wiring `extraPackages`. First consumer: exo-pet/vault; qms and EXOMA
-# presentations/grants share the same profile.
+# `typst` (the document compiler), `typstyle` (its formatter), `tinymist`
+# (the Typst language server with diagnostics and preview), and `poppler-utils`
+# (PDF reading) on the dev-shell PATH. Document-oriented consumers opt in with
+# `modules = [ "docs" ]` instead of a PyPI typst pin or hand-wiring packages.
 #
-# `poppler-utils` (#1573) is the reading half of the same capability: without
-# `pdftotext`/`pdftoppm` there is no CLI path from a PDF to text, and an agent's
-# file reader — which shells out to `pdftoppm` to render a page — cannot open a
-# PDF at all. All three named consumers handle PDFs, and at a ~140 MB closure it
-# is the small generic native CLI this module exists to carry. OCR is NOT the
-# same call: `tesseract` (1.11 GB) and `ocrmypdf` (1.68 GB) would charge every
-# `docs` consumer an order of magnitude more for a capability EXOMA grant decks
-# never use, so it stays repo-local (exo-pet/vault#70) until a second consumer
-# justifies a dedicated `ocr` module.
+# `poppler-utils` (#1573) supplies `pdftotext`/`pdftoppm` for PDF reading.
+# OCR tools carry much larger closures and remain consumer-owned until a
+# dedicated capability is justified.
 #
-# Takes no options (`_options`): unlike `node`, there is NO version knob in v1 —
-# nixpkgs carries a single `typst`/`typstyle` per pin, so the module simply
-# tracks the toolchain nixpkgs pin rather than exposing a selectable version.
-# typst output is not stable across versions, so a consumer's `generated/`
-# artifacts are regenerated once under the pinned toolchain; pin-tracking beats
-# maintaining a bespoke version overlay.
+# Takes no options (`_options`): there is NO version knob in v1. The Typst
+# toolchain tracks nixpkgs-unstable via flake.nix's fastMovers overlay; the
+# three tools share a Typst minor version. Typst output can change between
+# versions, so consumers regenerate `generated/` artifacts once under the
+# updated pinned toolchain.
 #
 # Deliberate v1 exclusions (see docs/NIX.md): pandoc/LaTeX (ask-gated until a
 # consumer needs them), headless drawio/excalidraw export (electron-shaped, stays
@@ -31,6 +23,7 @@ pkgs: _options: {
   packages = with pkgs; [
     typst
     typstyle
+    tinymist
     poppler-utils
   ];
 }
