@@ -243,3 +243,24 @@ def test_dependency_paths_survive_composed_registry_cleanup(
     deps = json.loads(Path("generated/main.deps.json").read_text())
     assert deps["inputs"] == [str(roots[0] / "local/mypkg/0.1.0/lib.typ")]
     assert all(Path(name).is_file() for name in deps["inputs"])
+
+
+def test_compile_transports_configured_yaml_natively(repo, monkeypatch):
+    (repo / ".vig-os").write_text('DEVKIT_GLOSSARY="terms.yaml"\n')
+    contents = "- id: sample\n  term: Sample\n  definition: A specimen.\n  kind: term\n"
+    (repo / "terms.yaml").write_text(contents)
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(guard().subprocess, "run", run)
+    assert guard().main(["compile"]) == 0
+    assert all("devkit-glossary=" + contents in argv for argv in calls)
+
+
+def test_compile_rejects_glossary_outside_repository(repo, capsys):
+    (repo / ".vig-os").write_text('DEVKIT_GLOSSARY="../outside.yaml"\n')
+    assert guard().main(["compile"]) == 1
+    assert "repository-relative" in capsys.readouterr().err
