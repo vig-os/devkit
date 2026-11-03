@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-09-29T12:59:21Z
-updated: 2026-09-29T16:01:15Z
+updated: 2026-10-06T22:37:47Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1765
-comments: 3
+comments: 4
 labels: feature
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-09-30T08:17:46.241Z
+synced: 2026-10-07T08:29:21.747Z
 ---
 
 # [Issue 1765]: [[FEATURE] devkit plugin: guided reproducible first-setup (/devkit:init), coverage-gated against devkit's SSoTs, discoverable to agents](https://github.com/vig-os/devkit/issues/1765)
@@ -120,4 +120,20 @@ Two consequences for this issue:
 - **`.claude/settings.json` is not in `PRESERVE_FILES`**, so a consumer can't durably commit `extraKnownMarketplaces`/`enabledPlugins` there: the next `--force` upgrade drops it. The scaffold should render them (proposal 3 above), or preserve a project-owned settings seam.
 
 revkit's workaround is `just claude-plugin [ref]`: local scope, pinned to `DEVKIT_VERSION`, and it checks that the ref ships the plugin (vig-os/revkit#14).
+
+---
+
+# [Comment #4]() by [gerchowl]()
+
+_Posted on October 6, 2026 at 10:37 PM_
+
+Field report from an agent's first setup (Claude Code adopting devkit 1.18.0 into an existing directory for a new exo-pet repo, 2026-10-07). Relevant to the guided-setup scope here and the AX budget in #1766.
+
+**Cost:** about 8 tool calls and 3 failed `install.sh` runs before a working scaffold. The bugs are in #1844. The AX-level lessons:
+
+1. **Org provisioning order is invisible to devkit.** In an org that provisions repos declaratively (`org-config`/otterdog, as in exo-pet), the right order is: change-request issue → org-config PR → `apply` creates the repo → scaffold → push. devkit says nothing about this. Worse, its preflight *fails* when `origin` points at a not-yet-created repo (#1844). So the obvious fix for an agent is `gh repo create`, which bypasses org-config. That's what happened here, and the repo had to be deleted and re-provisioned. **Suggestion:** `/devkit:init` should detect a consumer org-config (e.g. `<org>/org-config` exists, or a `.vig-os` key) and either draft the provisioning PR or stop and say "provision via org-config first".
+2. **Sibling conventions aren't discoverable.** Every exo-pet repo uses `--workflow trunk`, `DEVKIT_CI_RUNNER=self-hosted,linux,x64,ci-vm` and `DEVKIT_DEV_PROFILE_PATH=/var/lib/ci-cache/devkit/dev-profile`. The agent found this only by reading other repos' `.vig-os`, after it had already recommended gitflow to the user. **Suggestion:** an org-level defaults source (e.g. `<org>/.github/.vig-os.defaults`, or org-config) that `init-workspace.sh` reads as the base layer.
+3. **Adopting into a non-empty dir** (only `.git` plus a data folder) has no clean path. "Not empty" → `--force` → upgrade preflight. The scaffold also recreates `.git`, which drops `origin` (#1844 item 2).
+4. **Stale ghcr creds** made a public image pull fail with a misleading "check your internet connection" (#1844 item 1).
+
 

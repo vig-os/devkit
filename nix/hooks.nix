@@ -197,7 +197,106 @@ let
   # scaffold copy and the consumer surface unchanged.
   compositeActionFiles = "(^|/)\\.github/actions/[^/]+/action\\.ya?ml$";
 
+  # Dotfiles such as .env have no identify language tag; select them by path.
+  endpointTypes = [
+    "shell"
+    "python"
+    "yaml"
+    "toml"
+    "json"
+  ];
+  dotenvFiles = "(^|/)(\\.env(\\.[^/]*)?|[^/]+\\.env)$";
+
   hookDefs = {
+    # Site-private rules are absent in hosted/fork checkouts: a silent no-op.
+    # Files passed by pre-commit cover its staged snapshot or --all-files tree.
+    site-leak-check = {
+      scaffold = true;
+      yaml = {
+        name = "site-leak-check";
+        entry = "uv run site-leak-check";
+        args = [ "--" ];
+        language = "system";
+        types = [ ];
+        types_or = [
+          "text"
+          "symlink"
+        ];
+      };
+      check = { vigUtils, pkgs, ... }: {
+        enable = true;
+        name = "site-leak-check";
+        entry = "${vigUtils}/bin/site-leak-check --gitleaks ${pkgs.gitleaks}/bin/gitleaks";
+        args = [ "--" ];
+        language = "system";
+        types = [ ];
+        types_or = [
+          "text"
+          "symlink"
+        ];
+      };
+      consumer = pkgs: {
+        enable = true;
+        name = "site-leak-check";
+        entry = "${import ./vig-utils.nix pkgs}/bin/site-leak-check --gitleaks ${pkgs.gitleaks}/bin/gitleaks";
+        args = [ "--" ];
+        language = "system";
+        types = [ ];
+        types_or = [
+          "text"
+          "symlink"
+        ];
+      };
+    };
+    no-hardcoded-endpoints = {
+      scaffold = true;
+      yaml = {
+        name = "no-hardcoded-endpoints";
+        entry = "uv run check-hardcoded-endpoints";
+        language = "system";
+        types_or = endpointTypes;
+      };
+      check = { vigUtils, ... }: {
+        enable = true;
+        name = "no-hardcoded-endpoints";
+        entry = "${vigUtils}/bin/check-hardcoded-endpoints";
+        language = "system";
+        types_or = endpointTypes;
+      };
+      consumer = pkgs: {
+        enable = true;
+        name = "no-hardcoded-endpoints";
+        entry = "${import ./vig-utils.nix pkgs}/bin/check-hardcoded-endpoints";
+        language = "system";
+        types_or = endpointTypes;
+      };
+    };
+    no-hardcoded-endpoints-dotenv = {
+      scaffold = true;
+      yaml = {
+        name = "no-hardcoded-endpoints-dotenv";
+        entry = "uv run check-hardcoded-endpoints";
+        language = "system";
+        types = [ "text" ];
+        files = dotenvFiles;
+      };
+      check = { vigUtils, ... }: {
+        enable = true;
+        name = "no-hardcoded-endpoints-dotenv";
+        entry = "${vigUtils}/bin/check-hardcoded-endpoints";
+        language = "system";
+        types = [ "text" ];
+        files = dotenvFiles;
+      };
+      consumer = pkgs: {
+        enable = true;
+        name = "no-hardcoded-endpoints-dotenv";
+        entry = "${import ./vig-utils.nix pkgs}/bin/check-hardcoded-endpoints";
+        language = "system";
+        types = [ "text" ];
+        files = dotenvFiles;
+      };
+    };
     # ── Formatting ──────────────────────────────────────────────────────
     # The gate runs ONE treefmt hook (nixfmt-rfc-style + ruff-format +
     # taplo) reusing the flake's treefmt wrapper — the same formatting

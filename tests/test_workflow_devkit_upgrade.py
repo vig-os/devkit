@@ -621,3 +621,131 @@ def test_valid_feature_group_default_ships_the_workflow() -> None:
     """With no opt-out, the workflow is scaffolded."""
     tree = cached_tree(None)
     assert (tree / REL).is_file()
+
+
+def test_direnv_upgrade_passes_no_container_runtime_flag() -> None:
+    """direnv mode runs install.sh without --docker (#1871); other modes keep it.
+
+    install.sh's direnv path scaffolds on the runner from the pinned flake
+    source, so no docker/podman is needed or selected. The mode is read from the
+    checked-out ``.vig-os``; container modes still pin ``--docker`` (#1305).
+    """
+    step = step_by_id(
+        _jobs(TEMPLATE.read_text(encoding="utf-8"))["upgrade"]["steps"], "upgrade"
+    )
+    run = str(step["run"])
+    assert "RUNTIME_FLAG=(--docker)" in run
+    assert "DEVKIT_MODE=direnv" in run and "RUNTIME_FLAG=()" in run
+    assert '${RUNTIME_FLAG[@]+"${RUNTIME_FLAG[@]}"}' in run
+    # No hard-coded runtime flag on the install.sh command line itself.
+    cmdline = next(line for line in run.splitlines() if "bash -s --" in line)
+    assert "--docker" not in cmdline
+
+
+def test_github_flake_fetch_steps_carry_the_job_token() -> None:
+    """Steps that fetch github: flakes authenticate nix with the job token (#1871)."""
+    steps = _jobs(TEMPLATE.read_text(encoding="utf-8"))["upgrade"]["steps"]
+    for sid in ("upgrade", "commit"):
+        nix_config = str(step_by_id(steps, sid)["env"]["NIX_CONFIG"])
+        assert "access-tokens = github.com=${{ github.token }}" in nix_config
+
+
+def test_runner_migration_environment_and_pr_channel() -> None:
+    job = _jobs()["upgrade"]
+    install = step_by_id(job["steps"], "upgrade")
+    for size in ("SMALL", "LARGE", "XLARGE"):
+        assert install["env"][f"DEVKIT_UPGRADE_CI_RUNNER_{size}"] == (
+            "${{ vars.CI_RUNNER_" + size + " }}"
+        )
+    assert install["env"]["DEVKIT_UPGRADE_CONTEXT"] == "1"
+    assert install["env"]["DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER"] == (
+        "${{ vars.DEVKIT_CI_RESOLVE_RUNNER }}"
+    )
+    assert install["env"]["DEVKIT_UPGRADE_REPO_PRIVATE"] == (
+        "${{ github.event.repository.private }}"
+    )
+    assert "^ci-runner-migration:" in install["run"]
+    assert '"$GITHUB_STEP_SUMMARY"' in install["run"]
+    pr = step_by_name(job["steps"], "Open or update the adoption PR")
+    assert pr["env"]["CI_RUNNER_MIGRATION"] == (
+        "${{ steps.upgrade.outputs.ci-runner-migration }}"
+    )
+    assert "CI runner migration" in pr["run"]
+    assert "$CI_RUNNER_MIGRATION" in pr["run"]
+
+
+def test_runner_migration_lines_reach_summary_and_pr_body(tmp_path: Path) -> None:
+    """Execute the workflow shells with install/network/PR side effects stubbed."""
+    import os
+    import shlex
+    import subprocess
+
+    job = _jobs()["upgrade"]
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    message = "ci-runner-migration: Set CI_RUNNER_SMALL at repository level."
+    curl = bindir / "curl"
+    curl.write_text(
+        "#!/usr/bin/env bash\ncat <<'INSTALL'\n"
+        + "printf '%s\\n' "
+        + shlex.quote(message)
+        + "\nINSTALL\n"
+    )
+    curl.chmod(0o755)
+    body = tmp_path / "pr-body"
+    gh = bindir / "gh"
+    gh.write_text(
+        "#!/usr/bin/env bash\n"
+        'if [[ "$2" == view ]]; then exit 1; fi\n'
+        "while [[ $# -gt 0 ]]; do\n"
+        '  if [[ "$1" == --body ]]; then printf "%s" "$2" > '
+        + shlex.quote(str(body))
+        + "; exit 0; fi\n  shift\ndone\nexit 2\n"
+    )
+    gh.chmod(0o755)
+    (tmp_path / ".vig-os").write_text("DEVKIT_MODE=direnv\n")
+    output, summary = tmp_path / "output", tmp_path / "summary"
+    env = {
+        **os.environ,
+        "PATH": f"{bindir}:{os.environ['PATH']}",
+        "TARGET": "1.2.3",
+        "BRANCH": "chore/adoption",
+        "BASE": "dev",
+        "RUNNER_TEMP": str(tmp_path),
+        "GITHUB_OUTPUT": str(output),
+        "GITHUB_STEP_SUMMARY": str(summary),
+    }
+    install = subprocess.run(
+        ["bash", "-c", step_by_id(job["steps"], "upgrade")["run"]],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert install.returncode == 0, install.stdout + install.stderr
+    assert f"### CI runner migration\n\n{message}" in summary.read_text()
+    assert (
+        f"ci-runner-migration<<DEVKIT_EOF\n{message}\nDEVKIT_EOF" in output.read_text()
+    )
+    pr_env = {
+        **env,
+        "CI_RUNNER_MIGRATION": message,
+        "FLAKE_BUMP": "",
+        "HOOK_DRIFT": "",
+        "HOOK_RECONCILE": "",
+    }
+    pr = subprocess.run(
+        [
+            "bash",
+            "-c",
+            step_by_name(job["steps"], "Open or update the adoption PR")["run"],
+        ],
+        cwd=tmp_path,
+        env=pr_env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert pr.returncode == 0, pr.stdout + pr.stderr
+    assert f"### CI runner migration\n\n{message}" in body.read_text()

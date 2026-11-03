@@ -43,17 +43,29 @@ if TYPE_CHECKING:
 HOSTED_DEFAULT = "ubuntu-26.04"
 
 # The expression the runner-configurable jobs must use for runs-on.
-RUNNER_JSON_EXPR = "${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}"
+RUNNER_JSON_EXPR = "${{ fromJSON(needs.resolve-toolchain.outputs.runners).small }}"
 
 # Toolchain jobs that must honor the consumer's runner override.
-RUNNER_JSON_JOBS = ("lint", "test", "commit-checks", "summary")
+RUNNER_JSON_JOBS = (
+    "lint",
+    "test",
+    "commit-checks",
+    "scaffold-drift",
+    "devkit-staleness",
+    "summary",
+)
 
 
 def test_ci_toolchain_jobs_use_runner_json() -> None:
     """lint/test/commit-checks/summary route runs-on through the resolved runner."""
     workflow = _load(WORKFLOWS / "ci.yml")
     for job in RUNNER_JSON_JOBS:
-        assert workflow["jobs"][job]["runs-on"] == RUNNER_JSON_EXPR
+        assert (
+            workflow["jobs"][job]["runs-on"]
+            == "${{ fromJSON(needs.resolve-toolchain.outputs.runners)."
+            + (job if job in ("lint", "test") else "small")
+            + " }}"
+        )
 
 
 def test_dependency_review_stays_hosted() -> None:
@@ -124,7 +136,25 @@ def test_resolve_toolchain_workflow_list_is_complete() -> None:
 def test_resolve_toolchain_runner_is_var_overridable(workflow_name: str) -> None:
     """resolve-toolchain takes its runner from a repo/org variable, hosted default."""
     workflow = _load(WORKFLOWS / workflow_name)
-    assert workflow["jobs"]["resolve-toolchain"]["runs-on"] == RESOLVE_RUNNER_EXPR
+    assert workflow["jobs"]["resolve-toolchain"]["runs-on"] == (SAFE_RESOLVE_EXPR)
+
+
+@pytest.mark.parametrize("workflow_name", RESOLVE_TOOLCHAIN_WORKFLOWS)
+def test_resolve_toolchain_sparse_checkout_has_own_path(workflow_name: str) -> None:
+    """The sparse clone lives in its own path, never the shared workspace root (#1860).
+
+    On a persistent self-hosted runner later jobs reuse ``_work/<repo>/<repo>``;
+    a sparse clone at the root leaves it unmaterialized for them.
+    """
+    job = _load(WORKFLOWS / workflow_name)["jobs"]["resolve-toolchain"]
+    checkout = next(
+        s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout")
+    )
+    resolve = next(s for s in job["steps"] if s.get("id") == "resolve")
+    path = checkout["with"]["path"]
+    assert path == ".devkit-resolve"
+    assert resolve["uses"] == f"./{path}/.github/actions/resolve-toolchain"
+    assert resolve["with"]["working-directory"] == path
 
 
 @pytest.mark.parametrize(
@@ -133,8 +163,8 @@ def test_resolve_toolchain_runner_is_var_overridable(workflow_name: str) -> None
         pytest.param(None, [HOSTED_DEFAULT], id="key-absent"),
         pytest.param("my-runner", ["my-runner"], id="single-label"),
         pytest.param(
-            "self-hosted, linux, x64, meatgrinder",
-            ["self-hosted", "linux", "x64", "meatgrinder"],
+            "self-hosted, linux, x64, pool",
+            ["self-hosted", "linux", "x64", "pool"],
             id="multi-label-whitespace-trimmed",
         ),
     ],
@@ -730,4 +760,657 @@ def test_branch_gate_issueless_type_outside_branch_types() -> None:
     # exactly as `chore/54-x` always was.
     assert (
         _run_branch_gate("record/Bad_Slug", DEFAULT_BRANCH_TYPES, "chore,record") == 1
+    )
+
+
+@pytest.mark.parametrize(
+    "step_name", ["Check declared languages", "Check flake pin lockstep"]
+)
+def test_ci_gate_steps_run_in_resolve_checkout(step_name: str) -> None:
+    """The marker/flake.nix gates read the sparse clone, not the workspace root (#1860)."""
+    job = _load(WORKFLOWS / "ci.yml")["jobs"]["resolve-toolchain"]
+    step = next(s for s in job["steps"] if s.get("name") == step_name)
+    assert step["working-directory"] == ".devkit-resolve"
+
+
+# ── release-train routing (#1863) ─────────────────────────────────────────────
+# Every release-train job takes its runner from DEVKIT_CI_RUNNER (runner-json)
+# or, before a runner-json exists, the resolve variable. Hosted-only by design:
+# codeql / scorecard / devkit-upgrade (not release train, no .vig-os access).
+
+_RESOLVER_JSON = "${{ fromJSON(needs.resolve-toolchain.outputs.runners).small }}"
+_VALIDATE_JSON = "${{ fromJSON(needs.validate.outputs.runners).small }}"
+_INPUT_JSON = "${{ fromJSON(inputs.runners).small }}"
+
+# workflow -> expected routing expression for every job that is not the resolver
+RELEASE_TRAIN_ROUTING = {
+    "prepare-release.yml": _VALIDATE_JSON,
+    "prepare-hotfix.yml": _RESOLVER_JSON,
+    "release.yml": _RESOLVER_JSON,
+    "promote-release.yml": _RESOLVER_JSON,
+    "abandon-release.yml": _RESOLVER_JSON,
+    "sync-main-to-dev.yml": _RESOLVER_JSON,
+    "release-core.yml": _INPUT_JSON,
+    "release-publish.yml": _INPUT_JSON,
+}
+# Seeded, consumer-owned hooks: callers pass them no new input (see the compat
+# guard below), so they take the resolve variable like the standalone publish seam.
+SEEDED_HOOKS = (
+    "release-extension.yml",
+    "prepare-release-extension.yml",
+    "publish-release-extension.yml",
+)
+
+
+@pytest.mark.parametrize("workflow_name", sorted(RELEASE_TRAIN_ROUTING))
+def test_release_train_jobs_route_via_runner_json(workflow_name: str) -> None:
+    """No release-train job hard-codes a hosted label (#1863)."""
+    expected = RELEASE_TRAIN_ROUTING[workflow_name]
+    jobs = _load(WORKFLOWS / workflow_name)["jobs"]
+    for name, job in jobs.items():
+        if "uses" in job:  # reusable-workflow call: runner chosen inside
+            continue
+        runs_on = job["runs-on"]
+        if runs_on == SAFE_RESOLVE_EXPR:
+            assert name == "resolve-toolchain" or (
+                workflow_name == "prepare-release.yml" and name == "validate"
+            )
+            continue
+        if workflow_name == "release-core.yml" and name == "test":
+            expected = "${{ fromJSON(inputs.runners)['release-test'] }}"
+        assert runs_on == expected, f"{workflow_name}:{name}"
+        expected = RELEASE_TRAIN_ROUTING[workflow_name]
+
+
+def test_prepare_release_validate_is_the_resolver() -> None:
+    """prepare-release has no resolve-toolchain job; `validate` resolves inline."""
+    validate = _load(WORKFLOWS / "prepare-release.yml")["jobs"]["validate"]
+    assert validate["runs-on"] == SAFE_RESOLVE_EXPR
+    assert (
+        validate["outputs"]["runner-json"] == "${{ steps.resolve.outputs.runner-json }}"
+    )
+
+
+@pytest.mark.parametrize(
+    "workflow_name",
+    [n for n, e in RELEASE_TRAIN_ROUTING.items() if e == _RESOLVER_JSON],
+)
+def test_release_train_resolver_exports_runner_json(workflow_name: str) -> None:
+    """Jobs read runner-json from needs.resolve-toolchain, so it must export it."""
+    jobs = _load(WORKFLOWS / workflow_name)["jobs"]
+    outputs = jobs["resolve-toolchain"]["outputs"]
+    assert outputs["runner-json"] == "${{ steps.resolve.outputs.runner-json }}"
+    for name, job in jobs.items():
+        if str(job.get("uses", "")).rsplit("/", 1)[-1] in SEEDED_HOOKS:
+            continue  # seeded hooks take no runner-json from the caller
+        if name != "resolve-toolchain":
+            assert "resolve-toolchain" in _needs(job), f"{workflow_name}:{name}"
+
+
+def _needs(job: dict) -> list[str]:
+    needs = job.get("needs", [])
+    return [needs] if isinstance(needs, str) else list(needs)
+
+
+@pytest.mark.parametrize(
+    "workflow_name",
+    [n for n, e in RELEASE_TRAIN_ROUTING.items() if e == _INPUT_JSON],
+)
+def test_reusable_release_workflows_declare_runners_input(
+    workflow_name: str,
+) -> None:
+    """Reusable release workflows take an optional runner-json, hosted default."""
+    workflow = _load(WORKFLOWS / workflow_name)
+    on = workflow.get("on", workflow.get(True))
+    inputs = on["workflow_call"]["inputs"]
+    assert "runner-json" not in inputs
+    spec = inputs["runners"]
+    assert spec["type"] == "string"
+    assert spec["required"] is False
+    defaults = json.loads(spec["default"])
+    assert defaults["small"] == [HOSTED_DEFAULT]
+    if workflow_name == "release-core.yml":
+        assert defaults["release-test"] == [HOSTED_DEFAULT]
+
+
+@pytest.mark.parametrize(
+    ("caller", "job", "source"),
+    [
+        ("release.yml", "core", "needs.resolve-toolchain.outputs.runners"),
+        ("release.yml", "publish", "needs.resolve-toolchain.outputs.runners"),
+    ],
+)
+def test_release_callers_pass_runner_json(caller: str, job: str, source: str) -> None:
+    """Callers hand their resolved runner-json to the managed reusable workflows."""
+    spec = _load(WORKFLOWS / caller)["jobs"][job]
+    assert spec["with"]["runners"] == "${{ " + source + " }}"
+    assert "runner-json" not in spec["with"]
+    assert source.split(".")[1] in _needs(spec)
+
+
+# Inputs the seeded hooks declared BEFORE #1863 (the oldest supported template).
+# Seeded files are never overwritten on upgrade, so an existing consumer's copy
+# declares exactly these; a caller passing anything else fails with "Invalid
+# input" for every existing consumer.
+OLDEST_SEEDED_INPUTS = {
+    "release-extension.yml": {
+        "version",
+        "finalize_sha",
+        "release_date",
+        "release_kind",
+        "publish_version",
+    },
+    "prepare-release-extension.yml": {
+        "version",
+        "release_branch",
+        "branch_sha",
+        "dry_run",
+    },
+}
+
+
+def test_callers_pass_only_inputs_the_oldest_seeded_hook_declares() -> None:
+    """Managed callers must stay compatible with preserved seeded hook copies."""
+    seen = set()
+    for path in WORKFLOWS.glob("*.yml"):
+        for name, job in (_load(path).get("jobs") or {}).items():
+            hook = str(job.get("uses", "")).rsplit("/", 1)[-1]
+            if hook in OLDEST_SEEDED_INPUTS:
+                seen.add(hook)
+                extra = set(job.get("with") or {}) - OLDEST_SEEDED_INPUTS[hook]
+                assert not extra, f"{path.name}:{name} passes {extra} to {hook}"
+    assert seen == set(OLDEST_SEEDED_INPUTS)
+
+
+@pytest.mark.parametrize("hook", SEEDED_HOOKS)
+def test_seeded_hooks_use_resolve_variable(hook: str) -> None:
+    """Seeded hooks take the resolve variable, not a caller-passed runner-json."""
+    jobs = _load(WORKFLOWS / hook)["jobs"]
+    assert {j["runs-on"] for j in jobs.values()} == {SAFE_SMALL_EXPR}
+
+
+FORK_PREDICATE = "github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository)"
+SAFE_RESOLVE_EXPR = (
+    "${{ ("
+    + FORK_PREDICATE
+    + " && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}"
+)
+SAFE_SMALL_EXPR = SAFE_RESOLVE_EXPR.replace(" || vars.DEVKIT_CI_RESOLVE_RUNNER", "")
+CLASSES = ("small", "large", "xlarge")
+LANES = ("lint", "test", "extension", "release-test")
+
+
+@pytest.mark.parametrize("size", CLASSES)
+@pytest.mark.parametrize("source", ("fork", "variable", "legacy-key", "default"))
+def test_runner_class_sources(tmp_path, monkeypatch, size, source):
+    repo = {"fork": True, "full_name": "example/fork"}
+    _runner_event(monkeypatch, {"head": {"repo": repo}} if source == "fork" else None)
+    for cls in CLASSES:
+        monkeypatch.setenv(
+            "RUNNER_" + cls.upper(),
+            "pool-" + cls if source in ("fork", "variable") else "",
+        )
+    manifest = "DEVKIT_MODE=direnv\n"
+    if source != "default":
+        manifest += "DEVKIT_CI_RUNNER=self-hosted, linux, ,pool\n"
+    outputs = _run_resolve(tmp_path, manifest)
+    runners = json.loads(outputs["runners"])
+    expected = (
+        ["pool-" + size]
+        if source == "variable"
+        else (
+            ["self-hosted", "linux", "pool"]
+            if source == "legacy-key"
+            else [HOSTED_DEFAULT]
+        )
+    )
+    assert runners[size] == expected
+    assert json.loads(outputs["runner-sources"])[size] == source
+    assert json.loads(outputs["runner-json"]) == runners["small"]
+    assert all(runners[lane] == runners["small"] for lane in LANES)
+
+
+@pytest.mark.parametrize(
+    "repo,foreign",
+    [
+        (None, True),
+        ({"fork": False, "full_name": "example/other"}, True),
+        ({"fork": True, "full_name": "example/project"}, True),
+        ({"fork": False, "full_name": "example/project"}, False),
+    ],
+)
+def test_runner_fork_predicate(tmp_path, monkeypatch, repo, foreign):
+    _runner_event(monkeypatch, {"head": {"repo": repo}})
+    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_CI_RUNNER=pool\n")
+    assert set(json.loads(outputs["runner-sources"]).values()) == {
+        "fork" if foreign else "legacy-key"
+    }
+
+
+@pytest.mark.parametrize("size", CLASSES)
+@pytest.mark.parametrize(
+    "value",
+    ["a,b", '["pool-l"]', " pool", "pool ", "po ol", "pool@x", "-pool", "pool\nother"],
+)
+def test_runner_variable_rejects_malformed(tmp_path, monkeypatch, size, value):
+    monkeypatch.setenv("RUNNER_" + size.upper(), value)
+    proc, _ = _exec_resolve(tmp_path, "DEVKIT_MODE=direnv\n")
+    assert proc.returncode == 1
+    assert "::error::" in proc.stdout
+    assert "CI_RUNNER_" + size.upper() in proc.stdout
+
+
+@pytest.mark.parametrize("size", CLASSES)
+@pytest.mark.parametrize("value", ["pool._:/-1", " \t\n"])
+def test_runner_variable_label_rule(tmp_path, monkeypatch, size, value):
+    monkeypatch.setenv("RUNNER_" + size.upper(), value)
+    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\n")
+    runners = json.loads(outputs["runners"])
+    assert runners[size] == ([value] if value.strip() else [HOSTED_DEFAULT])
+    assert all(runners[other] == [HOSTED_DEFAULT] for other in CLASSES if other != size)
+
+
+def test_runner_unconfigured_defaults(tmp_path):
+    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\n")
+    assert all(v == [HOSTED_DEFAULT] for v in json.loads(outputs["runners"]).values())
+
+
+SCAFFOLDED_WORKFLOWS = sorted(WORKFLOWS.glob("*.yml")) + sorted(
+    (REPO_ROOT / "assets/smoke-test/.github/workflows").glob("*.yml")
+)
+
+
+@pytest.mark.parametrize(
+    "path", SCAFFOLDED_WORKFLOWS, ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
+def test_runner_shape_is_fork_safe(path):
+    """Every inventory job follows its producer, reusable input, or hosted rule."""
+    for name, job in _load(path)["jobs"].items():
+        if "runs-on" not in job:
+            continue
+        expr = job["runs-on"]
+        if (
+            path.parent != WORKFLOWS
+            and path.name != "ci-extension.yml"
+            or path.name in ("codeql.yml", "scorecard.yml")
+            or name == "dependency-review"
+        ):
+            assert expr == HOSTED_DEFAULT
+        elif path.name == "ci-extension.yml":
+            assert expr == "${{ fromJSON(inputs.runner-json) }}"
+            caller = _load(WORKFLOWS / "ci.yml")["jobs"]["extension"]
+            assert (
+                caller["with"]["runner-json"]
+                == "${{ toJSON(fromJSON(needs.resolve-toolchain.outputs.runners).extension) }}"
+            )
+        elif path.name in SEEDED_HOOKS or path.name == "devkit-upgrade.yml":
+            assert expr == SAFE_SMALL_EXPR
+        elif name == "resolve-toolchain" or (
+            path.name == "prepare-release.yml" and name == "validate"
+        ):
+            assert expr == SAFE_RESOLVE_EXPR
+        elif path.name in ("release-core.yml", "release-publish.yml"):
+            lane = "['release-test']" if name == "test" else ".small"
+            assert expr == "${{ fromJSON(inputs.runners)" + lane + " }}"
+        else:
+            resolver = (
+                "validate"
+                if path.name == "prepare-release.yml"
+                else "resolve-toolchain"
+            )
+            lane = (
+                name if path.name == "ci.yml" and name in ("lint", "test") else "small"
+            )
+            assert (
+                expr
+                == "${{ fromJSON(needs."
+                + resolver
+                + ".outputs.runners)."
+                + lane
+                + " }}"
+            )
+            assert resolver in _needs(job)
+
+
+def test_runner_workflows_forbid_unsupported_triggers():
+    for path in SCAFFOLDED_WORKFLOWS:
+        doc = _load(path)
+        triggers = doc.get("on", doc.get(True))
+        assert not {"workflow_run", "merge_group"}.intersection(triggers)
+
+
+@pytest.mark.parametrize(
+    "workflow_name", (*RESOLVE_TOOLCHAIN_WORKFLOWS, "prepare-release.yml")
+)
+def test_runner_inputs_and_outputs(workflow_name):
+    resolver = (
+        "validate" if workflow_name == "prepare-release.yml" else "resolve-toolchain"
+    )
+    job = _load(WORKFLOWS / workflow_name)["jobs"][resolver]
+    for output in ("runners", "runner-sources", "runner-json"):
+        assert job["outputs"][output] == "${{ steps.resolve.outputs." + output + " }}"
+    step = next(s for s in job["steps"] if s.get("id") == "resolve")
+    for size in CLASSES:
+        assert (
+            step["with"]["runner-" + size]
+            == "${{ vars.CI_RUNNER_" + size.upper() + " }}"
+        )
+    assert (
+        step["with"]["legacy-resolve-runner"] == "${{ vars.DEVKIT_CI_RESOLVE_RUNNER }}"
+    )
+
+
+def _runner_event(monkeypatch, pr, base="example/project"):
+    """Render the action's actual context env bindings before executing its Bash."""
+    repo = ((pr or {}).get("head") or {}).get("repo") or {}
+    values = {
+        "toJSON(github.event.pull_request)": json.dumps(pr, ensure_ascii=False),
+        "github.event.pull_request != null": str(pr is not None).lower(),
+        "github.event.pull_request.head.repo.fork": str(
+            repo.get("fork", False)
+        ).lower(),
+        "github.event.pull_request.head.repo.full_name": repo.get("full_name", ""),
+        "github.repository": base,
+        "github.event.repository.private": os.environ.get(
+            "REPOSITORY_PRIVATE", "false"
+        ),
+    }
+    action = _load(WORKFLOWS.parent / "actions/resolve-toolchain/action.yml")
+    for name, expression in action["runs"]["steps"][0]["env"].items():
+        if "github." in expression:
+            monkeypatch.setenv(
+                name, values[expression.removeprefix("${{ ").removesuffix(" }}")]
+            )
+
+
+def test_runner_large_pr_body(tmp_path, monkeypatch):
+    pr = {
+        "body": "漢" * 50000,
+        "head": {"repo": {"fork": False, "full_name": "example/project"}},
+    }
+    assert len(pr["body"].encode()) > 128 * 1024
+    _runner_event(monkeypatch, pr)
+    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_CI_RUNNER=pool\n")
+    assert set(json.loads(outputs["runner-sources"]).values()) == {"legacy-key"}
+
+
+def test_runner_ascii_label_under_utf8_locale(tmp_path, monkeypatch):
+    monkeypatch.setenv("LC_ALL", "en_US.UTF-8")
+    monkeypatch.setenv("RUNNER_LARGE", "pöol")
+    proc, _ = _exec_resolve(tmp_path, "DEVKIT_MODE=direnv\n")
+    assert proc.returncode == 1
+    assert "::error::Invalid CI_RUNNER_LARGE" in proc.stdout
+
+
+def test_runner_repository_name_case(tmp_path, monkeypatch):
+    _runner_event(
+        monkeypatch,
+        {"head": {"repo": {"fork": False, "full_name": "org/proj"}}},
+        "Org/Proj",
+    )
+    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\nDEVKIT_CI_RUNNER=pool\n")
+    assert set(json.loads(outputs["runner-sources"]).values()) == {"legacy-key"}
+
+
+# Diagnostics execute the real Bash. S1b will supply lane overrides; until then
+# inject an effective map at its assignment to exercise the diagnostics contract.
+def _runner_diagnostics(tmp_path, monkeypatch, manifest="", lane_class="small"):
+    import tests.workflow_scaffold as scaffold
+
+    summary = tmp_path / "summary"
+    summary.touch()
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    if lane_class != "small":
+        action = _load(scaffold.RESOLVE_ACTION)
+        step = action["runs"]["steps"][0]
+        original = (
+            "LANE_SIZES='"
+            + json.dumps(dict.fromkeys(LANES, "small"), separators=(",", ":"))
+            + "'"
+        )
+        replacement = original.replace('"test":"small"', f'"test":"{lane_class}"')
+        assert original in step["run"]
+        step["run"] = step["run"].replace(original, replacement)
+        monkeypatch.setattr(scaffold, "load_workflow", lambda _: action)
+    proc, outputs = _exec_resolve(tmp_path, "DEVKIT_MODE=direnv\n" + manifest)
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout, summary.read_text(), outputs
+
+
+@pytest.mark.parametrize("configured", [False, True])
+def test_runner_diagnostics_legacy_migration(tmp_path, monkeypatch, configured):
+    if configured:
+        monkeypatch.setenv("RUNNER_SMALL", "configured-pool")
+    log, _, _ = _runner_diagnostics(
+        tmp_path, monkeypatch, "DEVKIT_CI_RUNNER=private-label\n"
+    )
+    warning = next(line for line in log.splitlines() if "::warning::" in line)
+    for text in (
+        "DEVKIT_CI_RUNNER",
+        "deprecated",
+        "N+2",
+        "CI_RUNNER_SMALL",
+        "repository",
+        "private GitHub Free",
+        "delete",
+        ".vig-os",
+        "MIGRATION.md#run-ci-on-self-hosted-runners",
+    ):
+        assert text in warning
+    assert (
+        "overrides" if configured else "gh variable set CI_RUNNER_SMALL --body <label>"
+    ) in warning
+    assert "private-label" not in log
+    assert "configured-pool" not in log
+    assert "CI_RUNNER_LARGE" not in warning
+
+
+def test_runner_diagnostics_legacy_variable(tmp_path, monkeypatch):
+    monkeypatch.setenv("LEGACY_RESOLVE_RUNNER", "private-label")
+    log, _, _ = _runner_diagnostics(tmp_path, monkeypatch)
+    assert (
+        "::warning::DEVKIT_CI_RESOLVE_RUNNER is deprecated in favour of CI_RUNNER_SMALL"
+        in log
+    )
+    assert "private-label" not in log
+
+
+@pytest.mark.parametrize("size", CLASSES)
+def test_runner_diagnostics_whitespace(tmp_path, monkeypatch, size):
+    monkeypatch.setenv("RUNNER_" + size.upper(), " \t\n")
+    log, _, outputs = _runner_diagnostics(tmp_path, monkeypatch)
+    assert f"::warning::Whitespace-only CI_RUNNER_{size.upper()}" in log
+    assert "treated as unset" in log
+    assert json.loads(outputs["runner-sources"])[size] == "default"
+
+
+@pytest.mark.parametrize("size", ["large", "xlarge"])
+@pytest.mark.parametrize("source", ["missing", "variable", "legacy-key", "foreign"])
+@pytest.mark.parametrize("small_set", [False, True])
+def test_runner_diagnostics_opted_in_class(
+    tmp_path, monkeypatch, size, source, small_set
+):
+    if small_set:
+        monkeypatch.setenv("RUNNER_SMALL", "pool-s")
+    if source == "variable":
+        monkeypatch.setenv("RUNNER_" + size.upper(), "pool-extra")
+    if source == "foreign":
+        _runner_event(monkeypatch, {"head": {"repo": {"fork": True}}})
+    manifest = "DEVKIT_CI_RUNNER=pool-legacy\n" if source == "legacy-key" else ""
+    log, _, outputs = _runner_diagnostics(tmp_path, monkeypatch, manifest, size)
+    opt_warning = [
+        line for line in log.splitlines() if "::warning::" in line and "test" in line
+    ]
+    assert bool(opt_warning) == (source == "missing")
+    partial = [line for line in log.splitlines() if "::notice::Partial" in line]
+    assert bool(partial) == (
+        source == "missing" and small_set or source == "variable" and not small_set
+    )
+    if source == "missing":
+        assert "CI_RUNNER_" + size.upper() in opt_warning[0]
+        assert HOSTED_DEFAULT in opt_warning[0]
+        assert json.loads(outputs["runners"])["test"] == [HOSTED_DEFAULT]
+
+
+@pytest.mark.parametrize("unused_set", [False, True])
+def test_runner_diagnostics_default_map_complete(tmp_path, monkeypatch, unused_set):
+    monkeypatch.setenv("RUNNER_SMALL", HOSTED_DEFAULT)
+    if unused_set:
+        monkeypatch.setenv("RUNNER_LARGE", "pool-unused")
+    log, summary, outputs = _runner_diagnostics(tmp_path, monkeypatch)
+    assert "::notice::" not in log
+    assert "::warning::" not in log
+    for size, source in json.loads(outputs["runner-sources"]).items():
+        assert f"| {size} | {source} |" in summary
+    assert "pool-unused" not in summary
+
+
+@pytest.mark.parametrize("private", [False, True])
+@pytest.mark.parametrize("foreign", [False, True])
+@pytest.mark.parametrize("configured", [False, True])
+def test_runner_diagnostics_private_notice(
+    tmp_path, monkeypatch, private, foreign, configured
+):
+    monkeypatch.setenv("REPOSITORY_PRIVATE", str(private).lower())
+    if foreign:
+        _runner_event(monkeypatch, {"head": {"repo": {"fork": True}}})
+    if configured:
+        monkeypatch.setenv("RUNNER_SMALL", HOSTED_DEFAULT)
+    log, summary, _ = _runner_diagnostics(tmp_path, monkeypatch)
+    expected = private and not foreign and not configured
+    assert ("::notice::CI runs on hosted runners" in log) == expected
+    assert ("GitHub Free organization variables" in summary) == expected
+    if expected:
+        assert "repository-level variables" in log
+        assert "private repos" in log
+
+
+def test_runner_diagnostics_legacy_required_classes(tmp_path, monkeypatch):
+    log, _, _ = _runner_diagnostics(
+        tmp_path, monkeypatch, "DEVKIT_CI_RUNNER=private-label\n", "large"
+    )
+    for size in ("SMALL", "LARGE"):
+        assert f"gh variable set CI_RUNNER_{size} --body <label>" in log
+    assert "CI_RUNNER_XLARGE" not in log
+    assert "private-label" not in log
+
+
+def test_runner_diagnostics_whitespace_opted_in(tmp_path, monkeypatch):
+    monkeypatch.setenv("RUNNER_SMALL", "pool-s")
+    monkeypatch.setenv("RUNNER_LARGE", " \t\n")
+    log, _, outputs = _runner_diagnostics(tmp_path, monkeypatch, lane_class="large")
+    assert "::warning::Whitespace-only CI_RUNNER_LARGE" in log
+    assert "::warning::CI_RUNNER_LARGE is not visible; lanes test" in log
+    assert "::notice::Partial" in log
+    assert json.loads(outputs["runners"])["test"] == [HOSTED_DEFAULT]
+
+
+@pytest.mark.parametrize("lane", LANES)
+@pytest.mark.parametrize("size", CLASSES)
+def test_lane_size_override_moves_lane(tmp_path, monkeypatch, lane, size):
+    for cls in CLASSES:
+        monkeypatch.setenv(f"RUNNER_{cls.upper()}", f"pool-{cls}")
+    outputs = _run_resolve(
+        tmp_path, f"DEVKIT_MODE=direnv\nDEVKIT_CI_LANE_SIZES= {lane}={size} \n"
+    )
+    runners = json.loads(outputs["runners"])
+    assert runners[lane] == [f"pool-{size}"]
+    assert all(runners[other] == ["pool-small"] for other in LANES if other != lane)
+
+
+INVALID_LANE_SIZES = (
+    "unknown=large",
+    "test=huge",
+    "small=large",
+    "Test=large",
+    "test=LARGE",
+    "test",
+    "=large",
+    "test=",
+    "test==large",
+    "test=large,",
+    ",test=large",
+    "test=large,,lint=large",
+    "test =large",
+    "test= large",
+    "test=large,test=xlarge",
+    "test=large,test=large",
+)
+
+
+@pytest.mark.parametrize("value", INVALID_LANE_SIZES)
+def test_lane_size_override_rejects_invalid(tmp_path, value):
+    proc, _ = _exec_resolve(
+        tmp_path, f"DEVKIT_MODE=direnv\nDEVKIT_CI_LANE_SIZES={value}\n"
+    )
+    assert proc.returncode != 0
+    assert "::error::" in proc.stdout
+    assert "DEVKIT_CI_LANE_SIZES" in proc.stdout
+    if value.count("test=") > 1:
+        assert "duplicate" in proc.stdout.lower()
+        assert "test" in proc.stdout
+
+
+@pytest.mark.parametrize("size", ("large", "xlarge"))
+def test_lane_size_override_required_classes(tmp_path, monkeypatch, size):
+    monkeypatch.setenv("RUNNER_SMALL", "pool-small")
+    proc, outputs = _exec_resolve(
+        tmp_path, f"DEVKIT_MODE=direnv\nDEVKIT_CI_LANE_SIZES=test={size}\n"
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(outputs["runners"])["test"] == [HOSTED_DEFAULT]
+    assert (
+        f"::warning::CI_RUNNER_{size.upper()} is not visible; lanes test" in proc.stdout
+    )
+    assert "::notice::Partial CI runner setup" in proc.stdout
+    other = "XLARGE" if size == "large" else "LARGE"
+    assert f"CI_RUNNER_{other}" not in proc.stdout
+
+
+@pytest.mark.parametrize("value", ("", "test=small", "test=large, lint=xlarge"))
+def test_lane_size_override_defaults_and_multiple(tmp_path, monkeypatch, value):
+    for size in CLASSES:
+        monkeypatch.setenv(f"RUNNER_{size.upper()}", f"pool-{size}")
+    proc, outputs = _exec_resolve(
+        tmp_path, f"DEVKIT_MODE=direnv\nDEVKIT_CI_LANE_SIZES={value}\n"
+    )
+    assert proc.returncode == 0, proc.stderr
+    runners = json.loads(outputs["runners"])
+    assert runners["test"] == ["pool-large" if "," in value else "pool-small"]
+    assert runners["lint"] == ["pool-xlarge" if "," in value else "pool-small"]
+    assert runners["extension"] == runners["release-test"] == ["pool-small"]
+    assert "::notice::" not in proc.stdout
+    assert "::warning::" not in proc.stdout
+
+
+def test_ci_extension_header_describes_extension_lane():
+    header = (WORKFLOWS / "ci-extension.yml").read_text().split("name:", 1)[0]
+    assert "extension" in header
+    assert "DEVKIT_CI_RUNNER-derived" not in header
+
+
+@pytest.mark.parametrize(
+    "event_name", ("pull_request", "pull_request_target", "workflow_call")
+)
+@pytest.mark.parametrize("foreign", (False, True))
+def test_runner_uses_caller_pr_context(tmp_path, monkeypatch, event_name, foreign):
+    """Reusable calls preserve the caller's event; event_name is not a trust test."""
+    monkeypatch.setenv("GITHUB_EVENT_NAME", event_name)
+    _runner_event(
+        monkeypatch,
+        {
+            "head": {
+                "repo": {
+                    "fork": foreign,
+                    "full_name": "example/fork" if foreign else "example/project",
+                }
+            }
+        },
+    )
+    monkeypatch.setenv("RUNNER_SMALL", "pool-small")
+    outputs = _run_resolve(tmp_path, "DEVKIT_MODE=direnv\n")
+    assert all(
+        labels == ([HOSTED_DEFAULT] if foreign else ["pool-small"])
+        for lane, labels in json.loads(outputs["runners"]).items()
+        if lane == "small" or lane in LANES
     )

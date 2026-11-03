@@ -347,17 +347,7 @@ jobs:
           GH_TOKEN: ${{ steps.release_pr_token.outputs.token }}
         run: |
           set -euo pipefail
-          PR_JSON=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh pr list \
-            --head "release/$VERSION" \
-            --base main \
-            --json number,isDraft,reviewDecision,statusCheckRollup \
-            --limit 1)
-
-          PR_COUNT=$(echo "$PR_JSON" | jq 'length')
-          if [ "$PR_COUNT" != "1" ]; then
-            echo "ERROR: Expected exactly 1 PR from release/$VERSION to main, found $PR_COUNT"
-            exit 1
-          fi
+          source .github/scripts/find-release-pr.sh
 
           PR_NUMBER=$(echo "$PR_JSON" | jq -r '.[0].number')
           IS_DRAFT=$(echo "$PR_JSON" | jq -r '.[0].isDraft')
@@ -408,7 +398,7 @@ jobs:
           fi
 
           CI_PENDING=$(echo "$LATEST_CHECKS" | jq '[.[] | (.conclusion // .state) as $v | select($v == null or $v == "" or $v == "PENDING" or $v == "IN_PROGRESS" or $v == "QUEUED" or $v == "EXPECTED")] | length')
-          if [ "$CI_PENDING" != "0" ]; then
+          if [ "$PR_STATE" = OPEN ] && [ "$CI_PENDING" != "0" ]; then
             echo "ERROR: PR #$PR_NUMBER has checks still in progress"
             exit 1
           fi
@@ -417,6 +407,10 @@ jobs:
           if [ "$CI_SUCCESS" = "0" ]; then
             echo "ERROR: PR #$PR_NUMBER has no successful CI checks"
             exit 1
+          fi
+
+          if [ "$PR_STATE" = MERGED ]; then
+            exit 0
           fi
 
           # Mergeability gate (#1132). Approved + CI-green is not the same as
@@ -579,25 +573,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
-          RELEASE_BRANCH="release/$VERSION"
-
-          PR_JSON=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh pr list \
-            --head "$RELEASE_BRANCH" \
-            --base main \
-            --json number,isDraft,reviewDecision,statusCheckRollup \
-            --limit 1)
-
-          PR_COUNT=$(echo "$PR_JSON" | jq 'length')
-
-          if [ "$PR_COUNT" != "1" ]; then
-            if [ "$PR_COUNT" = "0" ]; then
-              echo "ERROR: No PR found from $RELEASE_BRANCH to main"
-              exit 1
-            else
-              echo "ERROR: Multiple PRs found from $RELEASE_BRANCH to main"
-              exit 1
-            fi
-          fi
+          source .github/scripts/find-release-pr.sh
 
           PR_NUMBER=$(echo "$PR_JSON" | jq -r '.[0].number')
           IS_DRAFT=$(echo "$PR_JSON" | jq -r '.[0].isDraft')
@@ -649,7 +625,7 @@ jobs:
           fi
 
           CI_PENDING=$(echo "$LATEST_CHECKS" | jq '[.[] | (.conclusion // .state) as $v | select($v == null or $v == "" or $v == "PENDING" or $v == "IN_PROGRESS" or $v == "QUEUED" or $v == "EXPECTED")] | length')
-          if [ "$CI_PENDING" != "0" ]; then
+          if [ "$PR_STATE" = OPEN ] && [ "$CI_PENDING" != "0" ]; then
             echo "ERROR: PR #$PR_NUMBER has checks still in progress"
             exit 1
           fi
@@ -660,9 +636,14 @@ jobs:
             exit 1
           fi
 
+          if [ "$PR_STATE" = MERGED ]; then
+            exit 0
+          fi
+
           echo "✓ PR #$PR_NUMBER verified for merge"
 
       - name: Merge release PR
+        if: steps.pr.outputs.already_merged != 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}

@@ -27,6 +27,30 @@ name: Resolve devkit toolchain
 description: Resolve the delivery mode + devcontainer image tag from .vig-os for mode-aware CI jobs
 
 inputs:
+  runner-small:
+    description: Optional SMALL runner variable (single label)
+    required: false
+    default: ''
+  runner-large:
+    description: Optional LARGE runner variable (single label)
+    required: false
+    default: ''
+  runner-xlarge:
+    description: Optional XLARGE runner variable (single label)
+    required: false
+    default: ''
+  legacy-resolve-runner:
+    description: Optional legacy resolve runner variable (single label)
+    required: false
+    default: ''
+  working-directory:
+    description: >-
+      Directory holding the checkout whose `.vig-os` is read (default: the
+      workspace root). Callers that sparse-check-out into their own `path:`
+      pass it so the sparse clone never occupies the shared workspace root of
+      a persistent runner (#1860).
+    required: false
+    default: '.'
   image-tag:
     description: Optional image tag override
     required: false
@@ -44,6 +68,12 @@ inputs:
     default: ''
 
 outputs:
+  runners:
+    description: JSON label arrays by class and lane; every lane defaults to SMALL
+    value: ${{ steps.resolve.outputs.runners }}
+  runner-sources:
+    description: JSON source per class (fork, variable, legacy-key, default)
+    value: ${{ steps.resolve.outputs.runner-sources }}
   mode:
     description: Delivery mode (devcontainer|direnv|both|bare)
     value: ${{ steps.resolve.outputs.mode }}
@@ -72,10 +102,7 @@ outputs:
     description: Floating tag levels from DEVKIT_FLOATING_TAGS (subset of major,minor; empty => off)
     value: ${{ steps.resolve.outputs.floating-tags }}
   runner-json:
-    description: >-
-      JSON array of runner labels from DEVKIT_CI_RUNNER (comma-separated), for
-      use with fromJSON() in `runs-on`. Defaults to ["ubuntu-26.04"] when the
-      key is absent.
+    description: Deprecated JSON array alias of runners.small (removed in N+2)
     value: ${{ steps.resolve.outputs.runner-json }}
   dev-profile-path:
     description: >-
@@ -134,7 +161,17 @@ runs:
     - name: Resolve mode + image tag
       id: resolve
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       env:
+        RUNNER_SMALL: ${{ inputs.runner-small }}
+        RUNNER_LARGE: ${{ inputs.runner-large }}
+        RUNNER_XLARGE: ${{ inputs.runner-xlarge }}
+        LEGACY_RESOLVE_RUNNER: ${{ inputs.legacy-resolve-runner }}
+        PR_PRESENT: ${{ github.event.pull_request != null }}
+        HEAD_REPO_FORK: ${{ github.event.pull_request.head.repo.fork }}
+        HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+        BASE_REPOSITORY: ${{ github.repository }}
+        REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
         INPUT_IMAGE_TAG: ${{ inputs.image-tag }}
       run: |
         set -euo pipefail
@@ -146,6 +183,7 @@ runs:
         PRERELEASE_FORMAT=""
         FLOATING_TAGS=""
         CI_RUNNER=""
+        CI_LANE_SIZES=""
         DEV_PROFILE_PATH=""
         REFS_POLICY=""
         REFS_OPTIONAL_TYPES_RAW=""
@@ -164,7 +202,7 @@ runs:
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
 
             case "$line" in
-              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_PRERELEASE_FORMAT=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_DEV_PROFILE_PATH=*|DEVKIT_REFS_POLICY=*|DEVKIT_REFS_OPTIONAL_TYPES=*|DEVKIT_COMMIT_TYPES=*|DEVKIT_BRANCH_TYPES=*|DEVKIT_DRIFT_CHECK=*|DEVKIT_LANGUAGES=*)
+              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_PRERELEASE_FORMAT=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_CI_LANE_SIZES=*|DEVKIT_DEV_PROFILE_PATH=*|DEVKIT_REFS_POLICY=*|DEVKIT_REFS_OPTIONAL_TYPES=*|DEVKIT_COMMIT_TYPES=*|DEVKIT_BRANCH_TYPES=*|DEVKIT_DRIFT_CHECK=*|DEVKIT_LANGUAGES=*)
                 key="${line%%=*}"
                 value="${line#*=}"
                 value="${value#"${value%%[![:space:]]*}"}"
@@ -184,6 +222,7 @@ runs:
                   DEVKIT_PRERELEASE_FORMAT) PRERELEASE_FORMAT="$value" ;;
                   DEVKIT_FLOATING_TAGS) FLOATING_TAGS="$value" ;;
                   DEVKIT_CI_RUNNER) CI_RUNNER="$value" ;;
+                  DEVKIT_CI_LANE_SIZES) CI_LANE_SIZES="$value" ;;
                   DEVKIT_DEV_PROFILE_PATH) DEV_PROFILE_PATH="$value" ;;
                   DEVKIT_REFS_POLICY) REFS_POLICY="$value" ;;
                   DEVKIT_REFS_OPTIONAL_TYPES) REFS_OPTIONAL_TYPES_RAW="$value" ;;
@@ -228,27 +267,136 @@ runs:
         # <prefix>X / <prefix>X.Y at the final release commit.
         echo "floating-tags=$FLOATING_TAGS" >> "$GITHUB_OUTPUT"
 
-        # CI runner labels (#1173): DEVKIT_CI_RUNNER is a comma-separated label
-        # list routed into `runs-on` via fromJSON() by the downstream CI
-        # jobs. Absent => the hosted default, so existing consumers are unchanged.
-        # Emitted for every mode, ALWAYS a valid JSON array (single label =>
-        # ["ubuntu-26.04"]); whitespace around each label is trimmed and empty
-        # entries dropped so a trailing/spaced comma never yields a blank label.
-        CI_RUNNER="${CI_RUNNER:-ubuntu-26.04}"
-        RUNNER_JSON="["
-        runner_first=1
-        IFS=',' read -ra runner_labels <<< "$CI_RUNNER"
-        for label in "${runner_labels[@]}"; do
-          label="${label#"${label%%[![:space:]]*}"}"
-          label="${label%"${label##*[![:space:]]}"}"
-          [[ -z "$label" ]] && continue
-          if [[ "$runner_first" -eq 1 ]]; then runner_first=0; else RUNNER_JSON+=","; fi
-          RUNNER_JSON+="\"$label\""
+        # Evaluate the ADR §2 predicate here, including for legacy callers.
+        head_repository="${HEAD_REPOSITORY:-}"
+        base_repository="${BASE_REPOSITORY:-}"
+        FOREIGN=false
+        if [[ "${PR_PRESENT:-false}" == true && ( "${HEAD_REPO_FORK:-false}" == true || "${head_repository,,}" != "${base_repository,,}" ) ]]; then
+          FOREIGN=true
+        fi
+        # Bash ranges follow the locale; the ADR label rule is ASCII everywhere.
+        valid_runner_label() {
+          local LC_ALL=C
+          [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]]
+        }
+        LEGACY_LABELS=$(jq -cn --arg labels "$CI_RUNNER" \
+          '$labels | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))')
+        RUNNERS='{}'
+        SOURCES='{}'
+        for size in small large xlarge; do
+          input_name="RUNNER_${size^^}"
+          raw="${!input_name:-}"
+          trimmed="${raw#"${raw%%[![:space:]]*}"}"
+          trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+          if [[ -n "$raw" && -z "$trimmed" ]]; then
+            echo "::warning::Whitespace-only CI_RUNNER_${size^^}, treated as unset; delete the variable or set one runner label."
+          fi
+          if [[ -n "$trimmed" ]] && ! valid_runner_label "$raw"; then
+            echo "::error::Invalid CI_RUNNER_${size^^}: expected one runner label matching ^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+            exit 1
+          fi
+          labels='["ubuntu-26.04"]'
+          source=default
+          if [[ "$FOREIGN" == true ]]; then
+            source=fork
+          elif [[ -n "$trimmed" ]]; then
+            labels=$(jq -cn --arg label "$raw" '[$label]')
+            source=variable
+          elif [[ "$LEGACY_LABELS" != '[]' ]]; then
+            labels="$LEGACY_LABELS"
+            source=legacy-key
+          fi
+          RUNNERS=$(jq -c --arg size "$size" --argjson labels "$labels" '.[$size] = $labels' <<< "$RUNNERS")
+          SOURCES=$(jq -c --arg size "$size" --arg source "$source" '.[$size] = $source' <<< "$SOURCES")
         done
-        # An all-blank value (e.g. DEVKIT_CI_RUNNER=" ,") falls back to the default.
-        [[ "$runner_first" -eq 1 ]] && RUNNER_JSON+="\"ubuntu-26.04\""
-        RUNNER_JSON+="]"
-        echo "runner-json=$RUNNER_JSON" >> "$GITHUB_OUTPUT"
+        # Effective lane map (§5): only the four project lanes can opt in.
+        LANE_SIZES='{"lint":"small","test":"small","extension":"small","release-test":"small"}'
+        if [[ -n "$CI_LANE_SIZES" ]]; then
+          remaining="$CI_LANE_SIZES,"
+          seen=","
+          while [[ -n "$remaining" ]]; do
+            entry="${remaining%%,*}"
+            remaining="${remaining#*,}"
+            entry="${entry#"${entry%%[![:space:]]*}"}"
+            entry="${entry%"${entry##*[![:space:]]}"}"
+            if [[ ! "$entry" =~ ^(lint|test|extension|release-test)=(small|large|xlarge)$ ]]; then
+              echo "::error::Invalid DEVKIT_CI_LANE_SIZES: expected comma-separated lane=size entries (lint, test, extension, release-test; small, large, xlarge)."
+              exit 1
+            fi
+            lane="${entry%%=*}"
+            size="${entry#*=}"
+            if [[ "$seen" == *",$lane,"* ]]; then
+              echo "::error::Duplicate lane $lane in DEVKIT_CI_LANE_SIZES."
+              exit 1
+            fi
+            seen+="$lane,"
+            LANE_SIZES=$(jq -c --arg lane "$lane" --arg size "$size" '.[$lane] = $size' <<< "$LANE_SIZES")
+          done
+        fi
+        RUNNERS=$(jq -c --argjson lanes "$LANE_SIZES" '. as $r | reduce ($lanes | to_entries[]) as $lane (. ; .[$lane.key] = $r[$lane.value])' <<< "$RUNNERS")
+
+        # Diagnostics use only class/source names, never input label values.
+        required=$(jq -cn --argjson lanes "$LANE_SIZES" '$lanes | [.[], "small"] | unique')
+        missing=()
+        configured=()
+        overrides=()
+        visible=0
+        for size in small large xlarge; do
+          source=$(jq -r --arg size "$size" '.[$size]' <<< "$SOURCES")
+          input_name="RUNNER_${size^^}"
+          raw="${!input_name:-}"
+          if [[ "$raw" == *[![:space:]]* ]]; then
+            visible=$((visible + 1))
+            overrides+=("CI_RUNNER_${size^^}")
+          fi
+          if jq -e --arg size "$size" 'index($size) != null' <<< "$required" > /dev/null; then
+            if [[ "$raw" != *[![:space:]]* ]]; then
+              missing+=("CI_RUNNER_${size^^}")
+            fi
+            case "$source" in
+              variable) configured+=("CI_RUNNER_${size^^}") ;;
+              default)
+                if [[ "$size" != small && "$FOREIGN" == false ]]; then
+                  lanes=$(jq -r --arg size "$size" 'to_entries | map(select(.value == $size) | .key) | join(", ")' <<< "$LANE_SIZES")
+                  echo "::warning::CI_RUNNER_${size^^} is not visible; lanes $lanes run on the hosted default ubuntu-26.04 until the variable is set."
+                fi
+                ;;
+            esac
+          fi
+        done
+        if [[ "$LEGACY_LABELS" != '[]' ]]; then
+          migration="DEVKIT_CI_RUNNER is deprecated and stops selecting runners in N+2."
+          for variable in "${missing[@]}"; do
+            migration+=" Unset required class: $variable; set it with gh variable set $variable --body <label>."
+          done
+          for variable in "${overrides[@]}"; do
+            migration+=" $variable already overrides the key; the key no longer decides that class."
+          done
+          echo "::warning::$migration Use repository-level variables on a private GitHub Free repo. Once every required class is set, the key decides nothing; delete DEVKIT_CI_RUNNER from .vig-os. See MIGRATION.md#run-ci-on-self-hosted-runners."
+        fi
+        if [[ -n "${LEGACY_RESOLVE_RUNNER:-}" ]]; then
+          echo "::warning::DEVKIT_CI_RESOLVE_RUNNER is deprecated in favour of CI_RUNNER_SMALL."
+        fi
+        if [[ "$FOREIGN" == false && ${#configured[@]} -gt 0 && ${#missing[@]} -gt 0 && "$LEGACY_LABELS" == '[]' ]]; then
+          echo "::notice::Partial CI runner setup; unset required classes: ${missing[*]}. Set their repository-level variables."
+        fi
+        if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+          {
+            echo '| Runner class | Source |'
+            echo '| --- | --- |'
+            jq -r 'to_entries[] | "| \(.key) | \(.value) |"' <<< "$SOURCES"
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
+        if [[ "${REPOSITORY_PRIVATE:-false}" == true && "$FOREIGN" == false && "$visible" == 0 ]]; then
+          notice='CI runs on hosted runners. On GitHub Free organization variables do not reach private repos; set repository-level variables CI_RUNNER_SMALL/LARGE/XLARGE.'
+          echo "::notice::$notice"
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            echo "$notice" >> "$GITHUB_STEP_SUMMARY"
+          fi
+        fi
+        echo "runners=$RUNNERS" >> "$GITHUB_OUTPUT"
+        echo "runner-sources=$SOURCES" >> "$GITHUB_OUTPUT"
+        echo "runner-json=$(jq -c '.small' <<< "$RUNNERS")" >> "$GITHUB_OUTPUT"
 
         # Dev-shell gcroot profile path (#1601): DEVKIT_DEV_PROFILE_PATH moves
         # the direnv dev-shell's gcroot out of RUNNER_TEMP, which an ephemeral
@@ -505,6 +653,7 @@ runs:
       # probe entirely (no image needed).
       if: steps.resolve.outputs.image != ''
       shell: bash
+      working-directory: ${{ inputs.working-directory }}
       env:
         IMAGE: ${{ steps.resolve.outputs.image }}
         REGISTRY_TOKEN: ${{ inputs.registry-token }}

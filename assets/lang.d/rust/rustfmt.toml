@@ -1,0 +1,11 @@
+# Seeded by vigOS devkit — yours to edit; upgrades never overwrite this file.
+# Bugs / missing tools: https://github.com/vig-os/devkit/issues
+
+# rustfmt: the Rust pack's base (devkit #1496), scaffold-once. Stable options
+# only, so `cargo fmt` behaves the same on every toolchain the repo pins.
+# The edition is read from Cargo.toml.
+# Reference: https://rust-lang.github.io/rustfmt/
+
+newline_style = "Unix"
+use_field_init_shorthand = true
+use_try_shorthand = true

@@ -129,7 +129,7 @@ def test_gate_regex_matches_the_scaffold_warning_regex() -> None:
     ids=["query-ref", "path-ref"],
 )
 def test_gate_fails_on_a_lagging_pin(tmp_path: Path, url_line: str) -> None:
-    """The failure names the input, the pin, the version, and the knob."""
+    """The failure names the mismatch, the manual remedy, and the new default."""
     rc, output = _run_gate(tmp_path, "direnv", "1.17.0", _flake(url_line))
     assert rc == 1
     assert "::error::" in output
@@ -137,7 +137,8 @@ def test_gate_fails_on_a_lagging_pin(tmp_path: Path, url_line: str) -> None:
     assert f"'{name}'" in output
     assert "1.16.0" in output
     assert "1.17.0" in output
-    assert "DEVKIT_FLAKE_PIN_ADVANCE=true" in output
+    assert "Lockstep release pins advance by default" in output
+    assert "DEVKIT_FLAKE_PIN_ADVANCE=false" in output
     assert f"nix flake update {name}" in output
 
 

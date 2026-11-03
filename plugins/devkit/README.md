@@ -64,6 +64,7 @@ Claude Code namespaces every plugin component under the plugin name, so each ski
 | `/devkit:release-abandon` | Draft-only rejection path: deletes the branch, tag, PR and draft Release | yes |
 | `/devkit:release-hotfix` | Cuts a patch from `main` instead of `dev` | yes |
 | `/devkit:release-neutral` | Lands a change on `main` without cutting a release (devkit only) | yes |
+| `/devkit:app-provision` | Creates a GitHub App and wires its credentials into repo secrets, replacing an expiring PAT; the human only clicks Create and Install | yes |
 | `/devkit:pack-rust` | Audits a Rust repo against what the Rust pack ships today, and names what is still open | no |
 
 ## Principles

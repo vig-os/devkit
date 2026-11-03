@@ -61,6 +61,9 @@ curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bas
 curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --org MyOrg ~/my-project
 
 # Choose the delivery mode: devcontainer | direnv | both (default: both)
+# direnv runs without Docker/Podman: it needs nix, jq and rsync, and scaffolds from the
+# devkit flake source at the .vig-os pin (upgrade) or the newest release (fresh install);
+# a direnv --force without --version keeps the .vig-os pin (container mode moves to latest)
 curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --mode direnv ~/my-project
 
 # Preview without executing
@@ -238,6 +241,10 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 - **uv** - Fast Python package installer and resolver
 
 > The image provides Python + uv, but the scaffold is **language-neutral** and ships no `pyproject.toml`. Add a Python package layout on demand with `nix flake init -t github:vig-os/devcontainer#python`.
+
+### **Rust**
+
+> A repo with a `Cargo.toml` gets the **Rust pack** on its first scaffold: a `flake.nix` on `vigos.lib.mkRustProject` (dev shell plus a `nix flake check` suite of fmt, clippy, nextest, doctests, rustdoc and cargo-deny), cargo `just lint` / `just test` recipes, and base `rustfmt.toml` / `clippy.toml` / `deny.toml`. Start a new crate with `nix flake init -t github:vig-os/devkit#rust`. See [Rust projects: the Rust pack](docs/MIGRATION.md#rust-projects-the-rust-pack).
 
 ### **Development Tools**
 

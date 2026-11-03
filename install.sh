@@ -21,6 +21,9 @@
 #   --prune-devcontainer  In direnv/bare mode, remove a pre-existing .devcontainer/
 #                     (container->direnv/bare migration cleanup; default keeps it)
 #   --skip-preflight  Bypass the upgrade preflight guard (branch + clean-tree checks)
+#   --allow-untracked Let the upgrade run with untracked files present (tracked
+#                     changes still refuse); by default untracked paths must be
+#                     covered by the upgraded .gitignore (e.g. target/)
 #   --skip-pull       Use the already-present local image for --version (skip the
 #                     registry pull); e.g. a locally built :dev tag
 #   --dry-run         Show the container command that would run without executing
@@ -33,6 +36,23 @@
 #   curl -sSfL ... | bash -s -- --org MyOrg ./my-project
 
 set -euo pipefail
+
+# Migration environment contract (ADR §6): the only additional names forwarded
+# into either isolated scaffold environment. Values remain data, never commands.
+UPGRADE_ENV_NAMES=(
+    DEVKIT_UPGRADE_CI_RUNNER_SMALL
+    DEVKIT_UPGRADE_CI_RUNNER_LARGE
+    DEVKIT_UPGRADE_CI_RUNNER_XLARGE
+    DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER
+    DEVKIT_UPGRADE_REPO_PRIVATE
+    DEVKIT_UPGRADE_CONTEXT
+)
+UPGRADE_ENV=()
+UPGRADE_CONTAINER_ENV=()
+for upgrade_name in "${UPGRADE_ENV_NAMES[@]}"; do
+    UPGRADE_ENV+=("$upgrade_name=${!upgrade_name-}")
+    UPGRADE_CONTAINER_ENV+=(-e "$upgrade_name=${!upgrade_name-}")
+done
 
 # Configuration
 REGISTRY="ghcr.io/vig-os/devcontainer"
@@ -52,6 +72,10 @@ SMOKE_TEST=""
 PREVIEW=""
 PRUNE_DEVCONTAINER=""
 SKIP_PREFLIGHT=false
+ALLOW_UNTRACKED=false
+# Untracked paths (one per line) forwarded to init-workspace.sh, which checks
+# them against the upgraded .gitignore (#1826). Set by run_preflight_guard.
+PREFLIGHT_UNTRACKED=""
 
 # Colors (disabled if not a tty)
 if [ -t 1 ]; then
@@ -100,6 +124,11 @@ OPTIONS:
                       The default is non-destructive and keeps it (#738).
     --skip-preflight  Bypass the upgrade preflight guard (--force refuses on
                       main/dev/release/*/detached HEAD and on a dirty tree)
+    --allow-untracked Let --force run with untracked files present. Tracked
+                      changes still refuse. Without it, untracked paths pass
+                      only when the upgraded .gitignore will ignore them (build
+                      output such as target/ or node_modules/ whose ignore rule
+                      arrives with the upgrade)
     --skip-pull       Use the already-present local image for --version (skip the
                       registry pull); e.g. a locally built :dev tag
     --dry-run         Show the container command that would run (unlike
@@ -360,7 +389,7 @@ preflight_confirm() {
 run_preflight_guard() {
     local path="$1"
     local skip_hint="Re-run with --skip-preflight to bypass the upgrade preflight guard."
-    local branch upgrade_branch dirty
+    local branch upgrade_branch dirty tracked untracked
 
     if ! command -v git >/dev/null 2>&1 \
         || ! git -C "$path" rev-parse --git-dir >/dev/null 2>&1; then
@@ -375,13 +404,35 @@ run_preflight_guard() {
         exit 1
     fi
 
+    # Tracked changes always refuse. Untracked paths are judged by what the
+    # upgrade itself will ignore (#1826): a Rust repo's target/ is untracked
+    # only because the fragment that ignores it arrives with this upgrade, and
+    # only the image knows the fragments and the detected languages — so the
+    # paths are forwarded to init-workspace.sh, which refuses any the upgraded
+    # .gitignore will not cover, before it writes a file.
     dirty="$(git -C "$path" status --porcelain 2>/dev/null || true)"
-    if [ -n "$dirty" ]; then
+    tracked="$(printf '%s\n' "$dirty" | grep -v '^??' | grep -v '^$' || true)"
+    if [ -n "$tracked" ]; then
         err "preflight: refusing to upgrade on a dirty tree."
         echo "  An upgrade must be the only change in its diff — commit or stash this first:"
         printf '%s\n' "$dirty" | head -10 | sed 's/^/    /'
         echo "  $skip_hint"
         exit 1
+    fi
+    # --no-empty-directory: git status never counted an empty dir, so neither
+    # does this. core.quotePath=false: a non-ASCII name must reach the
+    # container verbatim, or its C-quoted form matches no ignore pattern.
+    untracked="$(git -c core.quotePath=false -C "$path" ls-files --others \
+        --exclude-standard --directory --no-empty-directory 2>/dev/null || true)"
+    if [ -n "$untracked" ]; then
+        if [ "$ALLOW_UNTRACKED" = true ]; then
+            warn "preflight: --allow-untracked: leaving these untracked paths out of the check:"
+            printf '%s\n' "$untracked" | head -10 | sed 's/^/    /'
+        else
+            info "preflight: untracked paths found; the scaffold checks them against the upgraded .gitignore (#1826):"
+            printf '%s\n' "$untracked" | head -10 | sed 's/^/    /'
+            PREFLIGHT_UNTRACKED="$untracked"
+        fi
     fi
 
     upgrade_branch="chore/devkit-upgrade-$VERSION"
@@ -559,6 +610,10 @@ while [ $# -gt 0 ]; do
             ;;
         --skip-preflight)
             SKIP_PREFLIGHT=true
+            shift
+            ;;
+        --allow-untracked)
+            ALLOW_UNTRACKED=true
             shift
             ;;
         --skip-pull)
@@ -765,61 +820,178 @@ if [ -n "$FORCE" ] && [ -z "$SMOKE_TEST" ] && [ -z "$PREVIEW" ] \
     run_preflight_guard "$PROJECT_PATH"
 fi
 
-# Detect container runtime
-RUNTIME=$(detect_runtime)
-if [ -z "$RUNTIME" ]; then
-    err "No container runtime found!"
-    OS=$(detect_os)
-    show_install_instructions "$OS"
-    exit 1
+# Resolve the release the host scaffold runs (#1871): an explicit --version wins;
+# otherwise an existing .vig-os pin (an upgrade re-applies the repo's own pin),
+# otherwise the newest X.Y.Z release tag on the devkit remote. The result reaches
+# a flake ref and a sed replacement, so it is held to the release-tag charset.
+# Runs before --dry-run so the plan shows the real version.
+resolve_host_version() {
+    local tag="$VERSION" pinned
+    if [ "$tag" = "latest" ]; then
+        pinned="$(read_manifest_value "$PROJECT_PATH/.vig-os" DEVKIT_VERSION || true)"
+        if [ -n "$pinned" ] && [ "$pinned" != "latest" ]; then
+            tag="$pinned"
+            info "Devkit version from .vig-os manifest: $tag"
+        else
+            tag="$(git ls-remote --tags --refs https://github.com/vig-os/devkit 2>/dev/null \
+                | sed -n 's|.*refs/tags/||p' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
+                | sort -t. -k1,1n -k2,2n -k3,3n | tail -n1 || true)"
+            if [ -z "$tag" ]; then
+                err "Could not resolve the latest devkit release (git ls-remote github.com/vig-os/devkit failed or listed no X.Y.Z tag)"
+                echo "  Pass an exact release: --version <tag>"
+                exit 1
+            fi
+            info "Latest devkit release: $tag"
+        fi
+    fi
+    if ! [[ "$tag" =~ ^[0-9A-Za-z._-]+$ ]]; then
+        err "Invalid devkit version '$tag' (expected a release tag: [0-9A-Za-z._-]+)"
+        exit 1
+    fi
+    VERSION="$tag"
+}
+
+# Container-free scaffold (#1871). Fetch the devkit flake source at $VERSION via
+# nix (read-only store path), copy its assets/ writable into a scratch dir, replay
+# the image's bake steps (flake.nix `bootstrap`: stamp the pin into the template
+# .vig-os, record the built tag in VERSION), and run init-workspace.sh on the
+# host against $PROJECT_PATH. `bash <script>`, not the shebang: it is /bin/bash,
+# absent on NixOS and bash 3.2 on macOS. Same approach as ci.yml's drift check
+# (#1861); keep the two in step.
+host_scaffold() {
+    local tag="$VERSION" src scratch tool rc=0
+    for tool in nix jq rsync; do
+        if ! command -v "$tool" >/dev/null 2>&1; then
+            err "direnv mode needs '$tool' on PATH to scaffold without a container"
+            return 1
+        fi
+    done
+    scratch="$(mktemp -d "${TMPDIR:-/tmp}/devkit-scaffold.XXXXXX")" || return 1
+    info "Fetching devkit $tag via nix..."
+    if ! src="$(nix --extra-experimental-features "nix-command flakes" \
+        flake metadata --json "github:vig-os/devkit/$tag" | jq -er .path)"; then
+        err "Could not fetch github:vig-os/devkit/$tag via nix"
+        rm -rf "$scratch"
+        return 1
+    fi
+    if ! { cp -R "$src/assets" "$scratch/assets" \
+        && chmod -R u+w "$scratch/assets" \
+        && sed "s/[{][{]IMAGE_TAG[}][}]/$tag/g" "$scratch/assets/workspace/.vig-os" \
+            >"$scratch/vig-os.stamped" \
+        && mv "$scratch/vig-os.stamped" "$scratch/assets/workspace/.vig-os" \
+        && printf '%s\n' "$tag" >"$scratch/assets/VERSION"; }; then
+        err "Could not prepare the devkit assets from the flake source"
+        rm -rf "$scratch"
+        return 1
+    fi
+    # A pin older than #1826 ignores DEVKIT_PREFLIGHT_UNTRACKED: refuse as the
+    # image path does rather than lose the untracked-path guard.
+    if [ -n "$PREFLIGHT_UNTRACKED" ] \
+        && ! grep -q DEVKIT_PREFLIGHT_UNTRACKED "$scratch/assets/init-workspace.sh"; then
+        err "preflight: refusing to upgrade on a dirty tree."
+        echo "  devkit $tag predates the untracked-path check (#1826), so these untracked"
+        echo "  paths cannot be matched against the upgraded .gitignore:"
+        printf '%s\n' "$PREFLIGHT_UNTRACKED" | head -10 | sed 's/^/    /'
+        echo "  Commit, remove or ignore them, or re-run with --allow-untracked or --skip-preflight."
+        rm -rf "$scratch"
+        return 1
+    fi
+    # Run inside the pinned release's own dev-shell (GNU sed, bash >= 4, ...):
+    # init-workspace.sh needs them, and a macOS host (BSD sed, bash 3.2) would
+    # otherwise fail half-way after writing files, which the container never did.
+    # `env -i` gives it the clean environment the container run had: only the
+    # variables below (PATH is the dev-shell's, expanded inside it, host's appended).
+    # shellcheck disable=SC2016  # $PATH must expand inside the dev-shell, not here
+    # Started from the scratch dir, never the caller's cwd: the dev-shell hooks
+    # (core.hooksPath, the version-skew warning) act on the repo they start in.
+    (cd "$scratch" && nix --extra-experimental-features "nix-command flakes" develop "path:$src" -c \
+        sh -c 'exec env -i PATH="$PATH" "$@"' sh HOME="$HOME" TERM="${TERM:-dumb}" "${UPGRADE_ENV[@]}" \
+        ${LANG:+LANG="$LANG"} ${TMPDIR:+TMPDIR="$TMPDIR"} \
+        SHORT_NAME="$PROJECT_NAME" ORG_NAME="$ORG_NAME" \
+        GITHUB_REPOSITORY="$GITHUB_REPOSITORY" VIG_OS_VERSION="$tag" \
+        DEVKIT_PREFLIGHT_UNTRACKED="$PREFLIGHT_UNTRACKED" \
+        TEMPLATE_DIR="$scratch/assets/workspace" VERSION_FILE="$scratch/assets/VERSION" \
+        WORKSPACE_DIR="$PROJECT_PATH" \
+        bash "$scratch/assets/init-workspace.sh" "${INIT_ARGS[@]}") || rc=$?
+    chmod -R u+w "$scratch" 2>/dev/null || true
+    rm -rf "$scratch"
+    return "$rc"
+}
+
+# direnv mode is container-free (#1871): the pinned scaffold runs on the host
+# straight from the devkit flake source (same replay as the CI drift check,
+# #1861), so no docker/podman is detected, required or touched. Every other mode
+# keeps the image path below.
+HOST_SCAFFOLD=false
+if [ "$MODE" = "direnv" ]; then
+    HOST_SCAFFOLD=true
+    if [ -n "$RUNTIME" ]; then
+        warn "--$RUNTIME is ignored in direnv mode (no container runtime is used)"
+    fi
+    resolve_host_version
 fi
 
-# Verify runtime is actually working
-if ! $RUNTIME info >/dev/null 2>&1; then
-    OS=$(detect_os)
-    err "$RUNTIME is installed but not running!"
-    echo ""
-    case "$OS" in
-        macos)
-            if [ "$RUNTIME" = "podman" ]; then
-                echo "Start the Podman machine:"
-                echo "  podman machine start"
-                echo ""
-                echo "If no machine exists, create one first:"
-                echo "  podman machine init"
-                echo "  podman machine start"
-            else
-                echo "Start Docker Desktop from your Applications folder,"
-                echo "or run: open -a Docker"
-            fi
-            ;;
-        windows)
-            echo "Make sure Docker Desktop or Podman Desktop is running."
-            echo "Check the system tray for the container icon."
-            ;;
-        *)
-            if [ "$RUNTIME" = "docker" ]; then
-                echo "Start the Docker daemon:"
-                echo "  sudo systemctl start docker"
-                echo ""
-                echo "To enable on boot:"
-                echo "  sudo systemctl enable docker"
-            else
-                echo "Podman should work without a daemon on Linux."
-                echo "Try running: podman info"
-                echo ""
-                echo "If using rootless podman, ensure your user session is set up:"
-                echo "  podman system migrate"
-            fi
-            ;;
-    esac
-    echo ""
-    exit 1
+# Detect container runtime
+if [ "$HOST_SCAFFOLD" = false ]; then
+    RUNTIME=$(detect_runtime)
+    if [ -z "$RUNTIME" ]; then
+        err "No container runtime found!"
+        OS=$(detect_os)
+        show_install_instructions "$OS"
+        exit 1
+    fi
+
+    # Verify runtime is actually working
+    if ! $RUNTIME info >/dev/null 2>&1; then
+        OS=$(detect_os)
+        err "$RUNTIME is installed but not running!"
+        echo ""
+        case "$OS" in
+            macos)
+                if [ "$RUNTIME" = "podman" ]; then
+                    echo "Start the Podman machine:"
+                    echo "  podman machine start"
+                    echo ""
+                    echo "If no machine exists, create one first:"
+                    echo "  podman machine init"
+                    echo "  podman machine start"
+                else
+                    echo "Start Docker Desktop from your Applications folder,"
+                    echo "or run: open -a Docker"
+                fi
+                ;;
+            windows)
+                echo "Make sure Docker Desktop or Podman Desktop is running."
+                echo "Check the system tray for the container icon."
+                ;;
+            *)
+                if [ "$RUNTIME" = "docker" ]; then
+                    echo "Start the Docker daemon:"
+                    echo "  sudo systemctl start docker"
+                    echo ""
+                    echo "To enable on boot:"
+                    echo "  sudo systemctl enable docker"
+                else
+                    echo "Podman should work without a daemon on Linux."
+                    echo "Try running: podman info"
+                    echo ""
+                    echo "If using rootless podman, ensure your user session is set up:"
+                    echo "  podman system migrate"
+                fi
+                ;;
+        esac
+        echo ""
+        exit 1
+    fi
 fi
 
 IMAGE="$REGISTRY:$VERSION"
 
-info "Using $RUNTIME with image $IMAGE"
+if [ "$HOST_SCAFFOLD" = true ]; then
+    info "direnv mode: scaffolding on the host from the devkit flake source (no container runtime)"
+else
+    info "Using $RUNTIME with image $IMAGE"
+fi
 info "Target directory: $PROJECT_PATH"
 info "Project name: $PROJECT_NAME"
 
@@ -834,46 +1006,64 @@ if [ "$VERSION" != "latest" ]; then
     VERSION_ENV=(-e "VIG_OS_VERSION=$VERSION")
 fi
 
-# Build the command using an array for safe execution
-# Use --rm to cleanup container after run; no -it since we use --no-prompts (non-interactive)
-# Pass SHORT_NAME and ORG_NAME as environment variables to the container
+# Flags shared by both scaffold paths, as an array for safe execution.
+# --no-prompts: non-interactive, since the container run has no tty (-it) and the
+# host path must behave identically.
+declare -a INIT_ARGS=(--no-prompts)
+
+if [ -n "$FORCE" ]; then
+    INIT_ARGS+=(--force)
+fi
+
+if [ -n "$SMOKE_TEST" ]; then
+    INIT_ARGS+=(--smoke-test)
+fi
+
+if [ -n "$PREVIEW" ]; then
+    INIT_ARGS+=(--preview)
+fi
+
+if [ -n "$MODE" ]; then
+    INIT_ARGS+=(--mode "$MODE")
+fi
+
+if [ -n "$WORKFLOW_MODEL" ]; then
+    INIT_ARGS+=(--workflow "$WORKFLOW_MODEL")
+fi
+
+if [ -n "$PRUNE_DEVCONTAINER" ]; then
+    INIT_ARGS+=(--prune-devcontainer)
+fi
+
+# Container path: use --rm to cleanup container after run; no -it since we use
+# --no-prompts (non-interactive). Pass SHORT_NAME and ORG_NAME as environment
+# variables to the container.
 declare -a CMD=(
     "$RUNTIME" run --rm
+    "${UPGRADE_CONTAINER_ENV[@]}"
     -e "SHORT_NAME=$PROJECT_NAME"
     -e "ORG_NAME=$ORG_NAME"
     -e "GITHUB_REPOSITORY=$GITHUB_REPOSITORY"
     ${VERSION_ENV[@]+"${VERSION_ENV[@]}"}
+    ${PREFLIGHT_UNTRACKED:+-e "DEVKIT_PREFLIGHT_UNTRACKED=$PREFLIGHT_UNTRACKED"}
     -v "$PROJECT_PATH:/workspace"
     "$IMAGE"
-    /root/assets/init-workspace.sh --no-prompts
+    /root/assets/init-workspace.sh "${INIT_ARGS[@]}"
 )
-
-if [ -n "$FORCE" ]; then
-    CMD+=(--force)
-fi
-
-if [ -n "$SMOKE_TEST" ]; then
-    CMD+=(--smoke-test)
-fi
-
-if [ -n "$PREVIEW" ]; then
-    CMD+=(--preview)
-fi
-
-if [ -n "$MODE" ]; then
-    CMD+=(--mode "$MODE")
-fi
-
-if [ -n "$WORKFLOW_MODEL" ]; then
-    CMD+=(--workflow "$WORKFLOW_MODEL")
-fi
-
-if [ -n "$PRUNE_DEVCONTAINER" ]; then
-    CMD+=(--prune-devcontainer)
-fi
 
 if [ "$DRY_RUN" = true ]; then
     info "Would execute:"
+    if [ "$HOST_SCAFFOLD" = true ]; then
+        # Host path: nix fetches the pinned flake source; init-workspace.sh runs
+        # from its assets/ against the target. No container runtime involved.
+        printf '  nix flake metadata --json github:vig-os/devkit/%s\n' "$VERSION"
+        printf '  SHORT_NAME=%q ORG_NAME=%q GITHUB_REPOSITORY=%q VIG_OS_VERSION=%q ' \
+            "$PROJECT_NAME" "$ORG_NAME" "$GITHUB_REPOSITORY" "$VERSION"
+        printf 'WORKSPACE_DIR=%q bash <flake-source>/assets/init-workspace.sh' "$PROJECT_PATH"
+        printf ' %q' "${INIT_ARGS[@]}"
+        printf '\n'
+        exit 0
+    fi
     # Derive the shown command from the real CMD array (built above, including
     # --force/--smoke-test/--mode) via printf '%q' so it is shell-safe and stays
     # in sync with what would actually run — no hand-maintained duplicate string.
@@ -905,24 +1095,44 @@ if [ ! -t 0 ]; then
     fi
 fi
 
-# Pull image first (better UX - shows progress separately)
-if [ "$SKIP_PULL" = false ]; then
-    info "Pulling image $IMAGE..."
-    if ! $RUNTIME pull "$IMAGE" >/dev/null 2>&1; then
-        err "Failed to pull image $IMAGE"
-        echo ""
-        echo "Check your internet connection and that the image exists:"
-        echo "  $REGISTRY:$VERSION"
+if [ "$HOST_SCAFFOLD" = false ]; then
+    # Pull image first (better UX - shows progress separately)
+    if [ "$SKIP_PULL" = false ]; then
+        info "Pulling image $IMAGE..."
+        if ! $RUNTIME pull "$IMAGE" >/dev/null 2>&1; then
+            err "Failed to pull image $IMAGE"
+            echo ""
+            echo "Check your internet connection and that the image exists:"
+            echo "  $REGISTRY:$VERSION"
+            exit 1
+        fi
+    else
+        # Verify image exists locally when skipping pull
+        if ! $RUNTIME image inspect "$IMAGE" >/dev/null 2>&1; then
+            err "Image $IMAGE not found locally (--skip-pull was specified)"
+            exit 1
+        fi
+        info "Using local image $IMAGE (skipping pull)"
+    fi
+
+    # An image older than #1826 ignores DEVKIT_PREFLIGHT_UNTRACKED, so with `--version
+    # <old>` the forwarded paths would go unchecked and the #886 untracked guard would
+    # be lost. Ask the image whether its init-workspace.sh knows the variable, and if
+    # not, refuse here exactly as the host-side guard used to.
+    if [ -n "$PREFLIGHT_UNTRACKED" ] \
+        && ! $RUNTIME run --rm "$IMAGE" grep -q DEVKIT_PREFLIGHT_UNTRACKED \
+            /root/assets/init-workspace.sh >/dev/null 2>&1; then
+        err "preflight: refusing to upgrade on a dirty tree."
+        echo "  Image $IMAGE predates the untracked-path check (#1826), so these untracked"
+        echo "  paths cannot be matched against the upgraded .gitignore:"
+        printf '%s\n' "$PREFLIGHT_UNTRACKED" | head -10 | sed 's/^/    /'
+        echo "  Commit, remove or ignore them, or re-run with --allow-untracked or --skip-preflight."
         exit 1
     fi
-else
-    # Verify image exists locally when skipping pull
-    if ! $RUNTIME image inspect "$IMAGE" >/dev/null 2>&1; then
-        err "Image $IMAGE not found locally (--skip-pull was specified)"
-        exit 1
-    fi
-    info "Using local image $IMAGE (skipping pull)"
 fi
+
+# Capture the consumer's pin before the target scaffold overwrites .vig-os (#1856).
+PREVIOUS_DEVKIT_VERSION="$(read_manifest_value "$PROJECT_PATH/.vig-os" DEVKIT_VERSION || true)"
 
 # Run the initialization
 if [ -n "$PREVIEW" ]; then
@@ -932,10 +1142,15 @@ else
 fi
 echo ""
 
-# Execute the container using array expansion (safe from shell injection)
-if ! "${CMD[@]}"; then
-    err "Failed to initialize workspace"
-    exit 1
+if [ "$HOST_SCAFFOLD" = true ]; then
+    # Container-free scaffold (#1871): files are created as the invoking user.
+    host_scaffold || { err "Failed to initialize workspace"; exit 1; }
+else
+    # Execute the container using array expansion (safe from shell injection)
+    if ! "${CMD[@]}"; then
+        err "Failed to initialize workspace"
+        exit 1
+    fi
 fi
 
 # Preview mode: init-workspace.sh printed the file report and exited before
@@ -960,7 +1175,8 @@ fi
 # probe uses find(1) primaries portable across GNU and BSD (macOS bash 3.2 must
 # work — no GNU-only `stat -c`). Warn-not-fail to match the git phase's
 # CI/fresh-machine-friendly posture.
-if [ -n "$(find "$PROJECT_PATH" ! -user "$(id -un)" -print -quit)" ]; then
+if [ "$HOST_SCAFFOLD" = false ] \
+    && [ -n "$(find "$PROJECT_PATH" ! -user "$(id -un)" -print -quit)" ]; then
     HOST_UID="$(id -u)"
     HOST_GID="$(id -g)"
     info "Restoring ownership of scaffolded files to ${HOST_UID}:${HOST_GID}..."
@@ -1080,9 +1296,9 @@ fi
 # hook sets) silently keeps running the previous release. Advance the lock
 # here, on the host, after the ownership repair and git phase: a direnv
 # consumer has nix by definition, and the scaffold container must not write the
-# lock (network dependence + root-owned output hazards, #1235/#1248). Pinned
-# inputs are the consumer's explicit choice and are never auto-bumped; a
-# missing flake.lock (fresh scaffold) locks current content on first shell
+# lock (network dependence + root-owned output hazards, #1235/#1248). Release
+# pins follow the tri-state policy below; a missing flake.lock (fresh scaffold)
+# locks current content on first shell
 # entry anyway. Upgrades only (--force): the skew needs a pre-existing lock to
 # lag behind. Non-fatal on failure (e.g. offline): print the manual step.
 #
@@ -1094,15 +1310,37 @@ fi
 # line in the adoption PR. One-liner `<name>.url = "..."` declarations are
 # recognized; the anchored grep never matches the doc-comment example (#1110).
 #
-# A PINNED input is advanced only under DEVKIT_FLAKE_PIN_ADVANCE=true (#1752):
+# A PINNED input advances by default when it matched the pre-upgrade version
+# (#1856). false opts out; true advances any release pin (#1752):
 # a RELEASE pin moves to the new .vig-os DEVKIT_VERSION (written by the
-# scaffold above), form preserved, atomically with the lock — on any failure
+# scaffold above), preserving the URL form and refs/tags/ but removing v,
+# atomically with the lock — on any failure
 # flake.nix and flake.lock are restored, so flake.nix never runs ahead of it.
 #
 # Broad detector: matches a floating OR pinned devkit input. A different
 # detector from the narrow pinned-only regex shared by init-workspace.sh's
 # lagging-pin WARNING and ci.yml's `Check flake pin lockstep` step.
 DEVKIT_INPUT_RE='^[[:space:]]*(inputs\.)?[A-Za-z0-9_-]+\.url[[:space:]]*=[[:space:]]*"github:vig-os/devkit["/?]'
+
+# Compare release spellings by version, without treating branch/revision pins
+# as releases. Published devkit tags use bare X.Y.Z, never a leading v (#1856).
+normalize_release_ref() {
+    local ref="${1#refs/tags/}"
+    printf '%s\n' "${ref#v}"
+}
+
+# Check the actual retained pin after every outcome, including atomic rollback.
+# Keep this outside the flake-bump report so there is exactly one report line.
+warn_incomplete_pin_upgrade() {
+    local ref
+    ref="$(grep -E "$DEVKIT_INPUT_RE" "$PROJECT_PATH/flake.nix" | head -n1 \
+        | sed -E 's|.*"github:vig-os/devkit[/?](ref=)?([^"]+)".*|\2|' || true)"
+    ref="$(normalize_release_ref "$ref")"
+    if [[ "$ref" =~ $RELEASE_RE ]] && [ "$ref" != "$NEW_DEVKIT_VERSION" ]; then
+        echo "  Upgrade incomplete: hooks may fail and CI will reject the pin/version mismatch."
+        echo "  To advance the pin: point it at the new release, then run 'nix flake update $DEVKIT_INPUT_NAME'."
+    fi
+}
 
 # Lock the devkit input $1 of the flake at $2 to its current flake.nix URL.
 advance_flake_lock() {
@@ -1120,7 +1358,7 @@ advance_flake_lock() {
 advance_pinned_input() {
     local name="$1" old="$2" new="$3" flake="$PROJECT_PATH/flake.nix"
     local lock="$PROJECT_PATH/flake.lock" line_no old_esc new_esc new_re tmpd
-    local flake_tmp flake_orig lock_orig
+    local flake_tmp flake_orig lock_orig note="${4:-}"
     # `|| true`: a no-match grep would abort the upgrade under pipefail.
     line_no="$(grep -nE "$DEVKIT_INPUT_RE" "$flake" | head -n1 | cut -d: -f1 || true)"
     if [ -z "$line_no" ]; then
@@ -1151,7 +1389,7 @@ advance_pinned_input() {
     cat "$flake_tmp" >"$flake"
     info "Advancing the pinned '$name' flake input $old -> $new (nix flake update $name)..."
     if advance_flake_lock "$name" "$PROJECT_PATH"; then
-        echo "flake-bump: advanced pinned input '$name' $old -> $new (flake.nix + flake.lock); review and commit both with the upgrade"
+        echo "flake-bump: advanced pinned input '$name' $old -> $new (flake.nix + flake.lock)${note:+; $note}; review and commit both with the upgrade"
     else
         cat "$flake_orig" >"$flake" || true
         cat "$lock_orig" >"$lock" || true
@@ -1195,22 +1433,39 @@ if [ -n "$FORCE" ] && { [ "$MODE" = "direnv" ] || [ "$MODE" = "both" ]; } \
             PIN_ADVANCE="$(read_manifest_value "$PROJECT_PATH/.vig-os" DEVKIT_FLAKE_PIN_ADVANCE || true)"
             NEW_DEVKIT_VERSION="$(read_manifest_value "$PROJECT_PATH/.vig-os" DEVKIT_VERSION || true)"
             RELEASE_RE='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
-            if [ "$PIN_ADVANCE" != "true" ]; then
-                echo "flake-bump: skipped — input '$DEVKIT_INPUT_NAME' is pinned to '$DEVKIT_PINNED_REF' (never auto-bumped; set DEVKIT_FLAKE_PIN_ADVANCE=true in .vig-os to advance release pins with upgrades)"
-                echo "  To follow releases automatically: $DEVKIT_INPUT_NAME.url = \"github:vig-os/devkit\""
-                echo "  To advance the pin: point it at the new release, then run 'nix flake update $DEVKIT_INPUT_NAME'."
+            PIN_VERSION="$(normalize_release_ref "$DEVKIT_PINNED_REF")"
+            PREVIOUS_PIN_VERSION="$(normalize_release_ref "$PREVIOUS_DEVKIT_VERSION")"
+            TARGET_PIN_REF="$NEW_DEVKIT_VERSION"
+            case "$DEVKIT_PINNED_REF" in
+                refs/tags/*) TARGET_PIN_REF="refs/tags/$NEW_DEVKIT_VERSION" ;;
+            esac
+            PIN_REF_NOTE=""
+            case "${DEVKIT_PINNED_REF#refs/tags/}" in
+                v*) PIN_REF_NOTE="removed v prefix to use published bare tag '$NEW_DEVKIT_VERSION'" ;;
+            esac
+            if [ "$PIN_ADVANCE" != "true" ] && { [ "$PIN_ADVANCE" = "false" ] \
+                || [ "$PIN_VERSION" != "$PREVIOUS_PIN_VERSION" ]; }; then
+                if [ "$PIN_ADVANCE" = "false" ]; then
+                    PIN_SKIP_REASON="explicit opt-out: DEVKIT_FLAKE_PIN_ADVANCE=false"
+                elif [ -z "$PREVIOUS_DEVKIT_VERSION" ]; then
+                    PIN_SKIP_REASON="pre-upgrade DEVKIT_VERSION is empty; cannot establish lockstep"
+                else
+                    PIN_SKIP_REASON="not in lockstep with pre-upgrade DEVKIT_VERSION '$PREVIOUS_DEVKIT_VERSION'"
+                fi
+                echo "flake-bump: skipped — input '$DEVKIT_INPUT_NAME' is pinned to '$DEVKIT_PINNED_REF' ($PIN_SKIP_REASON)"
             elif ! [[ "$NEW_DEVKIT_VERSION" =~ $RELEASE_RE ]]; then
                 echo "flake-bump: skipped — DEVKIT_VERSION '$NEW_DEVKIT_VERSION' in .vig-os is not a release version; pin '$DEVKIT_PINNED_REF' left as is"
-            elif ! [[ "$DEVKIT_PINNED_REF" =~ $RELEASE_RE ]]; then
+            elif ! [[ "$PIN_VERSION" =~ $RELEASE_RE ]]; then
                 echo "flake-bump: skipped — input '$DEVKIT_INPUT_NAME' is pinned to '$DEVKIT_PINNED_REF', not a release version; DEVKIT_FLAKE_PIN_ADVANCE applies to release pins only"
-            elif [ "$DEVKIT_PINNED_REF" = "$NEW_DEVKIT_VERSION" ]; then
+            elif [ "$DEVKIT_PINNED_REF" = "$TARGET_PIN_REF" ]; then
                 echo "flake-bump: input '$DEVKIT_INPUT_NAME' already pinned to '$NEW_DEVKIT_VERSION'; nothing to advance"
             elif ! command -v nix >/dev/null 2>&1; then
                 echo "flake-bump: skipped — nix not found on PATH; pin '$DEVKIT_INPUT_NAME' $DEVKIT_PINNED_REF -> $NEW_DEVKIT_VERSION not advanced"
                 echo "  Run: edit flake.nix, then 'nix flake update $DEVKIT_INPUT_NAME'"
             else
-                advance_pinned_input "$DEVKIT_INPUT_NAME" "$DEVKIT_PINNED_REF" "$NEW_DEVKIT_VERSION"
+                advance_pinned_input "$DEVKIT_INPUT_NAME" "$DEVKIT_PINNED_REF" "$TARGET_PIN_REF" "$PIN_REF_NOTE"
             fi
+            warn_incomplete_pin_upgrade
         fi
     fi
 fi

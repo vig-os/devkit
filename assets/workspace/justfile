@@ -16,6 +16,11 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 help:
     @just --list
 
+# Initialize per-clone site bindings (ADR §8–§9)
+[group('helpers')]
+site-init *args:
+    @site-init {{ args }}
+
 # Diagnostics only — always exits 0 (#1448). Lives here, not in
 # justfile.project: this is the only managed justfile layer present in EVERY
 # delivery mode (direnv/bare carry no .devcontainer/), and justfile.project is
