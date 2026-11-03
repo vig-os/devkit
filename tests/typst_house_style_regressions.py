@@ -1,6 +1,8 @@
 """Round-two layout regressions, executed with real tools in the Nix sandbox."""
 
 import os
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -107,6 +109,149 @@ def rules():
     assert len(paths) == 3 and all("h " in path for path in paths), paths
 
 
+def version_policy():
+    assert version == "0.1.0", version
+    assert f"@local/devkit-docs:{version}" in Path(sys.argv[2]).read_text()
+
+
+def font_environment():
+    assert os.environ.get("TYPST_IGNORE_SYSTEM_FONTS") == "true"
+    assert "Liberation Sans" not in run("typst", "fonts")
+    env = dict(os.environ)
+    env.pop("TYPST_IGNORE_SYSTEM_FONTS", None)
+    visible = subprocess.run(
+        ["typst", "fonts"], env=env, check=True, capture_output=True, text=True
+    ).stdout
+    assert "Liberation Sans" in visible
+    Path("font.typ").write_text('#set text(font: "Liberation Sans")\nFont probe')
+    for tool in ("typst", "tinymist"):
+        result = subprocess.run(
+            [tool, "compile", "font.typ", "font.pdf"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert "unknown font family" in result.stderr, (tool, result.stderr)
+    Path("font.typ").unlink()
+
+
+def public_api_and_layout():
+    global prefix
+    prefix = prefix.split("#show:")[0] + "#show: devkit-document()\n"
+    build(
+        '#set document(keywords: ("Builtin keyword",))\n#scale(50%)[Builtin scaling]\n#context assert.eq(type-scale.figure-min, 7pt)'
+    )
+    Path("main.typ").write_text(
+        prefix.split("#show:")[0] + '#devkit-document(title: "Wrong")[Body]'
+    )
+    result = subprocess.run(
+        ["typst-guard", "compile"], check=False, capture_output=True, text=True
+    )
+    assert result.returncode == 1 and "#show:" in result.stderr, result.stderr
+    build("")
+    Path("main.typ").write_text(
+        prefix.split("#show:")[0]
+        + '#show: devkit-document(title: "Long title", short-title: "Running title", authors: "Solo Author")\nBody\n#pagebreak()\nNext page'
+    )
+    run("typst-guard", "compile")
+    run("typst", "compile", "main.typ", "main.pdf")
+    pages = run("pdftotext", "-layout", "main.pdf", "-").split("\f")
+    assert pages[0].count("Long title") == 1 and pages[0].count("Running title") == 1
+    assert pages[1].count("Running title") == 2
+    words = positions()
+    assert "Solo" in words
+
+
+def style_contract():
+    Path("main.typ").write_text(
+        prefix.split("#show:")[0]
+        + """#show: devkit-document(title: "Metadata title", authors: ("Metadata Author",))
+#context { assert.eq(text.lang, "en"); assert.eq(type-scale.figure-min, 7pt) }
+= #context assert.eq(text.size, 20pt) Headingone
+== #context assert.eq(text.size, 16pt) Headingtwo
+=== #context assert.eq(text.size, 13pt) Headingthree
+==== #context assert.eq(text.size, 11pt) Headingfour
+`Rawmarker`
+#fig([Figurebody], caption: [Captionmarker #context assert.eq(text.size, 9pt) #layout(size => assert.eq(size.width, 85% * (210mm - 5cm)))])
+#pagebreak()
+Second page
+"""
+    )
+    run("typst-guard", "compile")
+    run("typst", "compile", "main.typ", "main.pdf")
+    text = run("pdftotext", "-layout", "main.pdf", "-")
+    assert re.search(r"1\s+Headingone", text) and re.search(
+        r"1\.1\s+Headingtwo", text
+    ), text
+    assert "DejaVuSansMono" in run("pdffonts", "main.pdf")
+    info = run("pdfinfo", "main.pdf")
+    assert "Metadata title" in info and "Metadata Author" in info
+    assert text.split("\f")[1].count("Metadata title") == 2
+
+
+def kill_style_mutants():
+    with tempfile.TemporaryDirectory() as directory:
+        copy = Path(directory) / "registry"
+        shutil.copytree(registry, copy)
+        style = copy / "local/devkit-docs" / version / "style.typ"
+        original = style.read_text()
+        style.chmod(0o600)
+        mutants = (
+            (
+                "heading sizes",
+                "heading: (20pt, 16pt, 13pt, 11pt)",
+                "heading: (21pt, 16pt, 13pt, 11pt)",
+            ),
+            ("figure minimum", "figure-min: 7pt", "figure-min: 6pt"),
+            ("caption size", "caption: 9pt", "caption: 8pt"),
+            ("caption width", "width: 85%", "width: 80%"),
+            ("raw font", 'font: "DejaVu Sans Mono"', 'font: "Libertinus Serif"'),
+            (
+                "numbering",
+                'set heading(numbering: "1.1")',
+                "set heading(numbering: none)",
+            ),
+            (
+                "PDF metadata",
+                "set typst-document(title: title, author: authors)",
+                "set typst-document(title: none, author: ())",
+            ),
+            ("language", 'lang: "en"', 'lang: "de"'),
+            ("header title", "text(size: type-scale.small, fill: accent, title)", "[]"),
+        )
+        try:
+            os.environ["TYPST_PACKAGE_PATH"] = str(copy)
+            for name, before, after in mutants:
+                assert before in original, name
+                style.write_text(original.replace(before, after))
+                try:
+                    style_contract()
+                except AssertionError:
+                    print(f"KILLED: {name}", flush=True)
+                else:
+                    raise AssertionError(f"Surviving mutant: {name}")
+        finally:
+            os.environ["TYPST_PACKAGE_PATH"] = str(registry)
+
+
+def package_paths():
+    root = Path("consumer/local/example/0.1.0")
+    root.mkdir(parents=True)
+    (root / "typst.toml").write_text(
+        '[package]\nname="example"\nversion="0.1.0"\nentrypoint="lib.typ"'
+    )
+    (root / "lib.typ").write_text("#let marker = [Consumer registry]")
+    Path("main.typ").write_text(
+        prefix.split("#show:")[0]
+        + '#import "@local/example:0.1.0": marker\n#note[Core registry]\n#marker'
+    )
+    env = dict(os.environ, TYPST_PACKAGE_PATH=str(Path("consumer").resolve()))
+    result = subprocess.run(
+        [sys.argv[3]], env=env, check=False, capture_output=True, text=True
+    )
+    assert result.returncode == 0 and "warning:" not in result.stderr, result.stderr
+
+
 with tempfile.TemporaryDirectory() as directory:
     os.chdir(directory)
     os.environ.update(TYPST_PACKAGE_PATH=str(registry), SOURCE_DATE_EPOCH="0", TZ="UTC")
@@ -126,6 +271,12 @@ with tempfile.TemporaryDirectory() as directory:
         ),
         ("table overrides", overrides),
         ("header rules", rules),
+        ("independent package version", version_policy),
+        ("font environment", font_environment),
+        ("public API and running titles", public_api_and_layout),
+        ("style and metadata contracts", style_contract),
+        ("consumer package registry", package_paths),
+        ("nine style mutants", kill_style_mutants),
     ):
         try:
             test()

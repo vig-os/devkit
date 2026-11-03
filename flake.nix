@@ -1356,11 +1356,15 @@
                   pkgs.vig-utils
                 ];
                 inherit (docs.env) TYPST_PACKAGE_PATH;
+                TYPST_IGNORE_SYSTEM_FONTS = docs.env.TYPST_IGNORE_SYSTEM_FONTS or "false";
+                FONTCONFIG_FILE = pkgs.makeFontsConf { fontDirectories = [ pkgs.liberation_ttf ]; };
               }
               ''
                 export PREK_HOME="$TMPDIR/prek"
                 python ${./tests/typst_house_style.py} ${registry} ${./assets/justfile.d/docs.justfile} ${./assets/docs-hooks.json} ${./.vig-os}
-                python ${./tests/typst_house_style_regressions.py} ${registry}
+                python ${./tests/typst_house_style_regressions.py} ${registry} ${./docs/NIX.md} ${
+                  (hooksModule.consumer pkgs { docs = true; }).hooks.typst-compile.entry
+                }
                 touch "$out"
               '';
 
