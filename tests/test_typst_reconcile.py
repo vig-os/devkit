@@ -46,6 +46,22 @@ LAYOUTS = {
     .encode(),
     "crlf": BASE.replace("\n", "\r\n").encode(),
 }
+for name, width, inner in [
+    ("remote-four", 4, 8),
+    ("remote-three", 3, 6),
+    ("remote-mixed", 4, 10),
+]:
+    LAYOUTS[name] = (
+        "repos:\n"
+        + " " * width
+        + "- repo: https://example.com/hooks\n"
+        + " " * (width + 2)
+        + "rev: v1\n"
+        + " " * (width + 2)
+        + "hooks:\n"
+        + " " * inner
+        + "- id: trailing-whitespace\n"
+    ).encode()
 
 
 def reconcile(path, enabled, env=None):
@@ -462,3 +478,90 @@ def test_old_docs_state_stays_untouched(tmp_path):
     assert result.returncode == 1
     assert "unrecognized docs state" in result.stderr
     assert path.read_text() == original
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_missing_managed_exclude_has_recovery_advice(tmp_path, enabled):
+    path = tmp_path / ".pre-commit-config.yaml"
+    path.write_text(BASE)
+    assert reconcile(path, True).returncode == 0
+    edited = path.read_text().replace('        exclude: "(^|/)generated/"\n', "")
+    path.write_text(edited)
+    result = reconcile(path, enabled)
+    assert result.returncode == 1
+    assert "restore" in result.stderr.lower() and "exclude" in result.stderr
+    assert "KeyError" not in result.stderr
+    assert path.read_text() == edited
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_deleted_local_repository_reports_orphan_exclusions(tmp_path, enabled):
+    path = tmp_path / ".pre-commit-config.yaml"
+    remote = BASE.replace("repo: local", "repo: https://example.com/hooks\n    rev: v1")
+    path.write_text(
+        BASE.replace("trailing-whitespace", "consumer")
+        + remote.removeprefix("repos:\n")
+    )
+    assert reconcile(path, True).returncode == 0
+    edited = (
+        "repos:\n"
+        + "  - repo: https://"
+        + path.read_text().split("  - repo: https://", 1)[1]
+    )
+    path.write_text(edited)
+    result = reconcile(path, enabled)
+    assert result.returncode == 1
+    assert "docs block" in result.stderr and "exclusion" in result.stderr
+    assert "restore" in result.stderr.lower()
+    assert path.read_text() == edited
+
+
+def test_interrupted_write_restores_original(tmp_path, monkeypatch):
+    from vig_utils import preserved_hooks
+
+    path = tmp_path / "config.yaml"
+    original = BASE.encode()
+    path.write_bytes(original)
+    write = Path.write_bytes
+
+    def interrupt(target, content):
+        if target == path and content != original:
+            write(target, content[:10])
+            raise KeyboardInterrupt()
+        return write(target, content)
+
+    monkeypatch.setattr(Path, "write_bytes", interrupt)
+    monkeypatch.setattr(preserved_hooks, "validate", lambda _: None)
+    with pytest.raises(KeyboardInterrupt):
+        preserved_hooks.publish(path, b"repos: []\n")
+    assert path.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "layout,expected",
+    [
+        (
+            "repos:\n-   repo: https://example.com/hooks\n    hooks:\n    -   id: upstream\n",
+            "-   repo: local\n    hooks:\n    -   id: canary\n        name: Canary\n",
+        ),
+        (
+            "repos:\n- repo: https://example.com/hooks\n  hooks:\n  - id: upstream\n",
+            "- repo: local\n  hooks:\n  - id: canary\n    name: Canary\n",
+        ),
+        (
+            "repos:\n  -   repo: https://example.com/hooks\n      hooks:\n        - id: upstream\n",
+            "-   repo: local\n    hooks:\n      - id: canary\n        name: Canary\n",
+        ),
+        (
+            "repos:\n  - repo: https://example.com/hooks\n    hooks:\n      -   id: upstream\n",
+            "- repo: local\n  hooks:\n    -   id: canary\n        name: Canary\n",
+        ),
+    ],
+)
+def test_rendered_hooks_exact_dash_spacing(layout, expected):
+    from vig_utils.preserved_hooks import rendered_hooks
+
+    assert (
+        rendered_hooks(layout, [{"id": "canary", "name": "Canary"}]).encode()
+        == expected.encode()
+    )

@@ -106,7 +106,7 @@ def test_consumer_owned_docs_justfile_survives_upgrade(tmp_path, enabled):
     )
     assert parsed.returncode == 0, parsed.stderr
     assert (
-        "import? 'justfile.devkit-docs'"
+        "mod devkit-docs 'justfile.devkit-docs'"
         in (tmp_path / "workspace/justfile").read_text()
     ) == enabled
 
@@ -140,6 +140,119 @@ def test_unmanaged_reserved_recipe_file_is_not_imported(tmp_path, enabled):
     scaffold(tmp_path, seed=seed)
     assert (tmp_path / "workspace/justfile.devkit-docs").read_text() == original
     assert (
-        "import? 'justfile.devkit-docs'"
+        "mod devkit-docs 'justfile.devkit-docs'"
         not in (tmp_path / "workspace/justfile").read_text()
     )
+
+
+@pytest.mark.parametrize("recipe", ["typst", "typst-canonical", "typst-probe"])
+def test_consumer_recipe_names_do_not_clash(tmp_path, recipe):
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    (seed / ".vig-os").write_text('DEVKIT_MODULES="docs"\n')
+    (seed / "justfile.local").write_text(f"{recipe}:\n    @echo consumer\n")
+    scaffold(tmp_path, seed=seed)
+    justfile = tmp_path / "workspace/justfile"
+    for args in [["--list"], [recipe], ["--show", "devkit-docs::typst"]]:
+        result = subprocess.run(
+            ["just", "--justfile", str(justfile), *args], capture_output=True, text=True
+        )
+        assert result.returncode == 0, result.stderr
+
+
+def test_preview_removes_hooks_without_recipe_file(tmp_path):
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    (seed / ".vig-os").write_text('DEVKIT_MODULES="docs"\n')
+    scaffold(tmp_path, seed=seed)
+    dest = tmp_path / "workspace"
+    (dest / "justfile.devkit-docs").unlink()
+    (dest / ".vig-os").write_text('DEVKIT_MODULES=""\n')
+    result = scaffold(tmp_path, preview=True)
+    assert "  -  managed docs hooks" in result.stdout
+
+
+def test_preview_keeps_consumer_owned_recipe_file(tmp_path):
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    (seed / ".vig-os").write_text('DEVKIT_MODULES=""\n')
+    (seed / "justfile.devkit-docs").write_text("# Consumer recipes\n")
+    result = scaffold(tmp_path, seed=seed, preview=True)
+    assert not any(
+        "  -  " in line and "justfile.devkit-docs" in line
+        for line in result.stdout.splitlines()
+    )
+    assert "consumer-owned justfile.devkit-docs retained" in result.stdout
+
+
+@pytest.mark.parametrize("filename", ["justfile", "justfile.project", "justfile.local"])
+@pytest.mark.parametrize("name", ["docs", "devkit-docs"])
+@pytest.mark.parametrize("kind", ["recipe", "alias", "module"])
+def test_docs_namespace_collisions_across_enable_cycle(tmp_path, filename, name, kind):
+    (tmp_path / "justfile").write_text(
+        "import? 'justfile.project'\nimport? 'justfile.local'\n"
+    )
+    (tmp_path / "consumer.just").write_text("target:\n    @echo consumer\n")
+    declarations = {
+        "recipe": f"{name}:\n    @echo consumer\n",
+        "alias": f"target:\n    @echo consumer\nalias {name} := target\n",
+        "module": f"mod {name} 'consumer.just'\n",
+    }
+    with (tmp_path / filename).open("a") as stream:
+        stream.write(declarations[kind])
+    script = (REPO_ROOT / "assets/init-workspace.sh").read_text()
+    functions = script.split("docs_recipes_consumer_owned()", 1)[1].split(
+        "# One pass, two gates.", 1
+    )[0]
+    for enabled in [True, False, True]:
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                "docs_recipes_consumer_owned()" + functions + "\nrender_docs_module",
+            ],
+            env={
+                **os.environ,
+                "WORKSPACE_DIR": str(tmp_path),
+                "TEMPLATE_DIR": str(REPO_ROOT / "assets/workspace"),
+                "MANIFEST_MODULES": "docs" if enabled else "",
+            },
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        parsed = subprocess.run(
+            ["just", "--justfile", str(tmp_path / "justfile"), "--list"],
+            capture_output=True,
+            text=True,
+        )
+        assert parsed.returncode == 0, parsed.stderr
+        loaded = (
+            "mod devkit-docs 'justfile.devkit-docs'"
+            in (tmp_path / "justfile").read_text()
+        )
+        assert loaded == (enabled and name != "devkit-docs")
+        if enabled and name == "devkit-docs":
+            assert result.stderr.count("Notice: devkit-docs name clash") == 1
+            assert "rename" in result.stderr and "rerun" in result.stderr
+
+
+@pytest.mark.parametrize("anchor", [False, True])
+def test_docs_off_consumer_exclude_does_not_trigger_reconciliation(tmp_path, anchor):
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    (seed / ".vig-os").write_text('DEVKIT_MODULES=""\n')
+    original = (
+        "repos:\n  - repo: local\n    hooks:\n      - id: trailing-whitespace\n        name: existing\n        entry: echo\n        language: system\n        exclude: "
+        + ("&consumer " if anchor else "")
+        + "'(^|/)generated/'\n"
+    )
+    (seed / ".pre-commit-config.yaml").write_text(original)
+    scaffold(tmp_path, seed=seed)
+    for _ in range(2):
+        result = scaffold(tmp_path)
+        assert "reconcile-preserved-hooks:" not in result.stderr
+        assert "docs hook reconciliation" not in result.stderr
+        assert (
+            tmp_path / "workspace/.pre-commit-config.yaml"
+        ).read_bytes() == original.encode()

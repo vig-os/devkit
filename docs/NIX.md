@@ -262,11 +262,26 @@ If a fixer hook is deleted or its repository URL changes (including adding
 switch ON. If `exclude` was moved before `id`, move it after `id` and retry.
 Added inline comments on an injected exclude line require moving the comment to
 its own line before retrying; reconciliation refuses them without dropping text.
+If a restored fixer is missing its managed `exclude`, restore that value before
+switching docs OFF. Keep the local repository containing the docs block until
+after switching docs OFF. If that repository is deleted, generated exclusions
+without a docs block trigger a warning when docs is enabled, and reconciliation
+retains the config. With docs OFF, only devkit markers or recorded state trigger
+reconciliation; consumer-owned generated exclusions and YAML anchors are left alone.
+Restore the deleted repository/block and switch docs OFF before deleting it again.
+Without the block's recovery records, exclusions cannot be safely undone.
+Consumer-owned exclusions identical to the generated pattern are indistinguishable;
+remove those exclusions by hand before retrying reconciliation.
 The owned markers and state comments should be left intact. Both
 staged and installed output pass `prek validate-config`; failures retain the original
-bytes and print recovery instructions. Writes preserve the existing inode. Reconciliation preserves
+bytes and print recovery instructions. Writes preserve the existing inode.
+Rollback also writes in place: a second interrupt or I/O error during rollback
+can prevent complete restoration. Restore the config from version control
+before retrying in that case. Reconciliation preserves
 consumer indentation, line endings, and final-newline presence. Enabling docs adds
-no new strict scaffold yamllint rule/message finding (including counts); existing findings may remain. Existing `typst-compile` or
+no strict scaffold yamllint findings to configurations that were clean. Configurations
+with existing findings (such as wide dash spacing or indentless hook lists) may
+gain findings; review the result with your lint configuration. Existing `typst-compile` or
 `typstyle` hooks are retained with a notice rather than duplicated.
 Non-docs upgrades add empty `DEVKIT_TYPST_SKIP` and `DEVKIT_TYPST_FONT_PATHS`
 keys, without additional hooks or a document-recipe import.
@@ -290,12 +305,21 @@ repository-relative skip globs in `.vig-os`, for example
 `DEVKIT_TYPST_SKIP="drafts/**,templates/experimental/**"`. Matching uses Python
 fnmatch (including `/`); skips apply to entries and template smoke tests.
 
-With docs enabled, the installer manages `justfile.devkit-docs`:
+With docs enabled, the installer manages `justfile.devkit-docs`, loaded as
+`mod devkit-docs 'justfile.devkit-docs'`. Document recipes live in the `devkit-docs` namespace,
+so consumer recipes named `typst`, `typst-canonical`, or `typst-probe` remain usable.
+Upgrades replace the former flat import or `docs` module; use the namespaced commands below.
+If a consumer recipe, alias or module in `justfile`, `justfile.project` or
+`justfile.local` already uses `devkit-docs`, the installer skips loading the
+module and prints one notice. Rename that consumer declaration and rerun the
+installer to enable document commands. Consumer `docs` declarations coexist.
+Consumer-owned recipe files are retained and never loaded automatically:
 
-- `just typst [--deps]` builds sibling `generated/<stem>.pdf` files with
+
+- `just devkit-docs::typst [--deps]` builds sibling `generated/<stem>.pdf` files with
   `--input rev=<sha8>[-dirty]`; Git status determines the dirty suffix.
-- `just typst-canonical [--deps]` omits the revision input for hash comparisons.
-- `just typst-probe` prints JSON objects for Typst, typstyle, and tinymist, each
+- `just devkit-docs::typst-canonical [--deps]` omits the revision input for hash comparisons.
+- `just devkit-docs::typst-probe` prints JSON objects for Typst, typstyle, and tinymist, each
   containing a resolved binary `path`, single-line `version`, and `version_source`.
   Versions are parsed from each tool's own output. The pinned tinymist build omits
   its own version there, so its resolved Nix store version is reported explicitly
@@ -406,7 +430,7 @@ term or alias are rejected as dead rules; casing corrections remain valid.
 Unsupported suffixes in source pathspecs warn on stderr. Run `glossary-guard schema` or `glossary-guard terms`
 manually from the repository root.
 
-Run `glossary-candidates` (or `just glossary-candidates` with the docs module)
+Run `glossary-candidates` (or `just devkit-docs::glossary-candidates` with the docs module)
 from the repository root for advisory candidate discovery. It uses the same
 tracked source selection as terms mode, even without a register, and never
 installs a blocking hook. Invalid registers fail before scanning. Unreadable or

@@ -110,6 +110,10 @@ def restore_fixers(text, records):
                 f"cannot uniquely locate {identity} in repository {repo}; restore the hook and repository URL, switch docs OFF, then reapply your edit"
             )
         values = matches[0][3]
+        if "exclude" not in values:
+            raise ValueError(
+                f"managed exclude for {identity} is missing; restore its exclude value, switch docs OFF, then reapply your edit"
+            )
         key, value = values["exclude"]
         if (old is None or old.endswith("\n")) and "#" in text[
             value.end_mark.index : line_end(text, value.end_mark.index)
@@ -177,6 +181,22 @@ def block_operation(text, library, operation, *arguments):
         )
 
 
+def reject_orphan_exclusions(text):
+    """Refuse generated exclusions whose reversible docs state was deleted."""
+    for _, identity, _, values in hooks(text):
+        value = values.get("exclude")
+        if (
+            identity in FIXERS
+            and value
+            and (
+                value[1].value == GENERATED or value[1].value.endswith("|" + GENERATED)
+            )
+        ):
+            raise ValueError(
+                "docs block is missing but generated exclusions remain; restore the deleted local repository/docs block, switch docs OFF, then reapply your edit; if these exclusions are consumer-owned, remove them by hand before retrying"
+            )
+
+
 def restore(text, library):
     """Apply the shared range engine and decline edits, as historical folds do."""
     span = block_operation(text, library, "hook_block_range", "docs", "true")
@@ -187,6 +207,7 @@ def restore(text, library):
             for line in text.splitlines()
         ):
             raise ValueError("incomplete docs marker")
+        reject_orphan_exclusions(text)
         return text
     start, end = map(int, span.split())
     block = "".join(text.splitlines(keepends=True)[start - 1 : end])
@@ -311,7 +332,7 @@ def publish(path, candidate):
         try:
             path.write_bytes(candidate)
             validate(path)
-        except Exception:
+        except BaseException:
             path.write_bytes(backup.read_bytes())
             raise
 
