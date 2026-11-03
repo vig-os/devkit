@@ -310,7 +310,7 @@ def svg_rules(root):
     """Support simple SVG CSS; report selectors requiring a full CSS engine."""
     rules = []
     for node in root.iter():
-        if node.tag.endswith("}style"):
+        if node.tag.split("}")[-1] == "style":
             for selectors, declarations in re.findall(
                 r"([^{}]+)\{([^{}]+)\}", node.text or ""
             ):
@@ -331,10 +331,17 @@ def svg_font(node, inherited, rules):
         "#" + node.get("id", ""),
         *("." + c for c in node.get("class", "").split()),
     )
-    for selectors, declarations in [*rules, (names, node.get("style", ""))]:
-        if any(selector in names for selector in selectors) and (
-            match := re.search(r"font-size\s*:\s*([^;]+)", declarations)
-        ):
+    matching = []
+    for order, (selectors, declarations) in enumerate(rules):
+        scores = [
+            2 if selector.startswith("#") else 1 if selector.startswith(".") else 0
+            for selector in selectors
+            if selector in names
+        ]
+        if scores:
+            matching.append((max(scores), order, declarations))
+    for _, _, declarations in [*sorted(matching), (3, 0, node.get("style", ""))]:
+        if match := re.search(r"(?:^|;)\s*font-size\s*:\s*([^;]+)", declarations):
             style = match[1].strip()
     if style in ("inherit", "unset"):
         return inherited
