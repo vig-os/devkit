@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import tomllib
+import unicodedata
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -380,9 +381,13 @@ def test_slide_footer_preserves_content(project, title):
         project + f"#show: slides.with(short-title: [{title}])\n#slide()[Body]"
     )
     assert result.returncode == 0, result.stderr
-    text = " ".join(pdf_text().split())
+    text = unicodedata.normalize("NFKC", " ".join(pdf_text().split()))
     if "Q3" in title:
         assert "Results for Q3 with α decay" in text, text
+        fonts = subprocess.run(
+            ["pdffonts", "main.pdf"], check=True, capture_output=True, text=True
+        )
+        assert "Bold" in fonts.stdout
     elif "Water" in title:
         assert "Water H" in text and "O and m" in text and "data" in text, text
         assert "2" in text, text
@@ -397,7 +402,7 @@ def test_slide_footer_preserves_content(project, title):
                 check=True,
                 capture_output=True,
             )
-            assert "100%,0%,0%" in Path("footer.svg").read_text()
+            assert "100%,0%,0%" in Path("footer.svg").read_text().replace(" ", "")
 
 
 @pytest.mark.parametrize("script", ["super", "sub"])
@@ -432,3 +437,27 @@ def test_plot_uses_synthesized_scripts_at_seven_points(project, script):
 def test_glossary_setup_errors_are_actionable(project, source, expected):
     result = compile_source(project + source)
     assert result.returncode != 0 and expected in result.stderr, result.stderr
+
+
+def test_footnote_first_term_expands_in_footnote(project):
+    result = compile_source(
+        project
+        + '#show: glossary-setup.with(yaml("/glossary.yaml"))\nStart#footnote[Footnote #term("cpu").]\n\nLaterbody #term("cpu").'
+    )
+    assert result.returncode == 0, result.stderr
+    text = " ".join(pdf_text().split())
+    assert (
+        "Laterbody CPU." in text and "Footnote Central processing unit (CPU)." in text
+    ), text
+
+
+def test_register_bound_term_has_bookmark_text(project):
+    result = compile_source(
+        project
+        + '#let g = glossary-tools(yaml("/glossary.yaml"))\n#let term = g.term\n#show: g.setup\n#outline()\n= Using #term("cpu")\n#term("cpu")\n#g.glossary()',
+        "--pretty",
+    )
+    assert result.returncode == 0, result.stderr
+    assert b"/Title (Using CPU)" in Path("main.pdf").read_bytes()
+    text = " ".join(pdf_text().split())
+    assert text.index("Using CPU") < text.index("Using Central processing unit (CPU)")
