@@ -158,3 +158,13 @@ def test_existing_handwritten_hooks_are_not_duplicated(tmp_path):
     assert "notice" in result.stderr.lower()
     assert reconcile(path, False).returncode == 0
     assert path.read_text() == original
+
+
+def test_mixed_newlines_are_rejected_without_rewriting(tmp_path):
+    path = tmp_path / ".pre-commit-config.yaml"
+    original = BASE.replace("repos:\n", "repos:\r\n").encode()
+    path.write_bytes(original)
+    result = reconcile(path, True)
+    assert result.returncode == 1
+    assert "by hand" in result.stderr
+    assert path.read_bytes() == original

@@ -176,3 +176,11 @@ def test_probe_parses_real_versions_and_resolves_paths(repo, monkeypatch, capsys
     ]:
         assert data[tool]["version"] == version
         assert data[tool]["path"] == str((binary / tool).resolve())
+
+
+def test_parts_only_repository_warns_about_zero_entries(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "parts").mkdir()
+    (tmp_path / "parts/body.typ").write_text("Hello\n")
+    assert guard().documents() == ([], [])
+    assert "zero entries" in capsys.readouterr().err
