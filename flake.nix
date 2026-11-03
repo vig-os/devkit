@@ -4,7 +4,8 @@
   inputs = {
     # Pinned stable channel: the controlled version document (flake.lock).
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-    # Secondary channel, overlaid only for fast-moving tools (uv, gh, claude).
+    # Secondary channel for fast-moving tools: uv, gh, claude-code, and
+    # the Typst toolchain (typst, typstyle, tinymist).
     nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     # treefmt-nix: one multi-language `nix fmt` entrypoint + a formatting check,
@@ -108,6 +109,9 @@
       fastMovers = [
         "uv"
         "gh"
+        "typst"
+        "typstyle"
+        "tinymist"
         # claude (claude-code) is an agent CLI that moves very fast; track unstable.
         "claude-code"
       ];
@@ -1810,8 +1814,8 @@
       #
       # A consumer imports the module and flips one option to get exactly the
       # `devTools` set plus the machine-level agent CLI from agentTools.
-      # The fast-mover overlay (uv/gh/claude-code from unstable) is applied so
-      # those resolve to the intended versions; claude-code is unfree, so the
+      # The fast-mover overlay (uv/gh/claude-code/typst/typstyle/tinymist from
+      # unstable) ensures the intended versions; claude-code is unfree, so the
       # consumer must allow it (documented in docs/NIX.md). Refs #777.
       # ----------------------------------------------------------------------
       nixosModules.default =

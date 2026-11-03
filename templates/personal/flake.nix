@@ -22,7 +22,8 @@
       homeConfigurations.me = home-manager.lib.homeManagerConfiguration {
         pkgs = import nixpkgs {
           system = "x86_64-linux"; # aarch64-darwin on an Apple-silicon Mac
-          overlays = [ vigos.overlays.default ]; # fast-movers (claude-code, uv, gh)
+          # Fast-movers: claude-code, uv, gh, typst, typstyle, tinymist.
+          overlays = [ vigos.overlays.default ];
           config.allowUnfree = true; # claude-code
         };
         modules = [

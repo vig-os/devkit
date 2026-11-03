@@ -1,8 +1,9 @@
 # Scheduled bump of the fast-branch flake inputs: nixpkgs-unstable and
 # home-manager-unstable (home-manager master).
 #
-# The fastMovers overlay (uv, gh, claude-code) tracks nixpkgs-unstable, so the
-# only thing standing between us and a fresh claude-code is this lock pin
+# The fastMovers overlay (uv, gh, claude-code, typst, typstyle, tinymist) tracks
+# nixpkgs-unstable. Typst tool bumps change document output; this lock pin
+# controls when consumers receive them and fresh claude-code versions
 # (ADR-home-environment-modules rejects third-party claude-code flakes). The
 # home-manager-unstable pin feeds the ci-hm-unstable eval guard (#1589) — a
 # stale pin would make that guard test a frozen master snapshot, so both bump
@@ -112,7 +113,7 @@ jobs:
           set -euo pipefail
           if ! gh pr list --head chore/update-nixpkgs-unstable --base dev --state open \
               --json number --jq '.[0].number' | grep -q .; then
-            body="$(printf 'Scheduled refresh of the fast-branch pins: nixpkgs-unstable (uv, gh, claude-code via the fastMovers overlay) and home-manager master (the ci-hm-unstable eval guard). Full CI on this PR is the merge gate.\n\nRefs: #817, #1589\n')"
+            body="$(printf 'Scheduled refresh of the fast-branch pins: nixpkgs-unstable (uv, gh, claude-code, typst, typstyle, tinymist via the fastMovers overlay) and home-manager master (the ci-hm-unstable eval guard). Typst tool bumps change document output: review rendered PDF/hash drift, compile compatibility, and typstyle formatting changes before adopting. Full CI on this PR is the merge gate.\n\nRefs: #817, #1589, #1993\n')"
             gh pr create --base dev --head chore/update-nixpkgs-unstable \
               --title "chore(nix): bump nixpkgs-unstable + home-manager master" \
               --body "$body"

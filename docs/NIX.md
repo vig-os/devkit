@@ -134,10 +134,11 @@ devShells.default = vigos.lib.mkProjectShell {
     for consumers who previously hand-wired `extraPackages = [ pkgs.nodejs ]`.
   - `docs` ([#1178](https://github.com/vig-os/devkit/issues/1178)) — the
     document-edition capability: `typst` (the document compiler), `typstyle`
-    (its formatter) and `poppler-utils`
+    (its formatter), `tinymist` (the Typst language server with editor
+    diagnostics and preview), and `poppler-utils`
     ([#1573](https://github.com/vig-os/devkit/issues/1573)) in the shell, for
-    document-oriented consumers (exo-pet/vault, the future `qms` app, EXOMA
-    presentations/grants) that previously pinned `typst` via PyPI. Opt in with:
+    document-oriented consumers that previously pinned `typst` via PyPI.
+    Opt in with:
 
     ```nix
     devShells.default = vigos.lib.mkProjectShell {
@@ -146,17 +147,42 @@ devShells.default = vigos.lib.mkProjectShell {
     };
     ```
 
-    **No version option in v1** — nixpkgs carries a single `typst`/`typstyle`
-    per pin, so the module tracks the toolchain nixpkgs pin rather than exposing
-    a selectable version (typst output is not stable across versions, so a
-    consumer regenerates its `generated/` artifacts once under the pinned
-    toolchain — pin-tracking beats a bespoke version overlay).
+    **No version option in v1** — `typst`, `typstyle`, and `tinymist` come from
+    the locked nixpkgs-unstable input via `fastMovers`, including consumers
+    applying `overlays.default`. They share Typst minor 0.15 (currently 0.15.1,
+    0.15.2, and 0.15.10 respectively). Pass the overlaid `pkgs` to
+    `mkProjectShell`; direct module imports also use the supplied package set.
+
+    ### Migrating to Typst 0.15
+
+    This affects consumers of the `docs` module and `overlays.default`, plus
+    anyone formatting with the image's typstyle: the 0.14.4 → 0.15.2 update
+    can reformat `.typ` files. Rendered output changes too. Consumers comparing
+    canonical PDF hashes against issued documents will see hash drift.
+    Regenerate `generated/` deliberately in its own commit, review the output,
+    and re-issue documents where your process requires it. Documents relying
+    on Typst 0.14 behaviour may fail to compile; check the breaking changes in
+    the [upstream Typst 0.15 changelog](https://typst.app/docs/changelog/0.15.0/).
+
+    For stability, pin a devkit release tag and set
+    `DEVKIT_FLAKE_PIN_ADVANCE=false` to hold it. Lockstep pins now advance
+    with upgrades by default
+    ([#1856](https://github.com/vig-os/devkit/issues/1856)); `devkit-upgrade`
+    opens adoption PRs on a schedule. Typst tools now move with the weekly
+    nixpkgs-unstable bump, so patch releases can change rendered output
+    between devkit releases.
+
+    **Language-server cost:** tinymist adds about 258 MB beyond the combined
+    typst/typstyle closure on x86_64-linux (258,182,512 bytes at the current
+    pin, measured with cache-only `nix path-info -S` and deduplicated runtime
+    references). This cost applies to the opted-in docs shell; the image
+    includes only typstyle.
 
     **PDF reading is part of the capability.** `poppler-utils` puts `pdftotext`
     and `pdftoppm` on the shell PATH: without them there is no CLI path from a
     PDF to text, and an agent's file reader — which shells out to `pdftoppm` to
-    render a page — cannot open a PDF at all. Every named `docs` consumer
-    handles PDFs, and the ~140 MB closure is the small generic native CLI this
+    render a page — cannot open a PDF at all. Document-oriented consumers
+    handle PDFs, and the ~140 MB closure is the small generic native CLI this
     module exists to carry. **Deliberate v1 exclusions:** pandoc/LaTeX
     (ask-gated until a consumer needs them), headless drawio/excalidraw export
     (electron-shaped, stays repo-owned), Python doc-processing libraries
@@ -164,8 +190,7 @@ devShells.default = vigos.lib.mkProjectShell {
     `pyproject.toml` via uv, and **OCR** — `tesseract` (1.11 GB) and `ocrmypdf`
     (1.68 GB) would charge every `docs` consumer an order of magnitude more than
     `poppler-utils` for a capability most never use, so it stays repo-local
-    ([exo-pet/vault#70](https://github.com/exo-pet/vault/issues/70)) until a
-    second consumer justifies a dedicated `ocr` module.
+    until a dedicated `ocr` module is justified.
   - **Candidates (ask-gated, not shipped):** `geant4`, `rust`, `fortran`/`f2py`,
     `root`.
 - **Per-module options (the `node` version).** A `modules` entry is either a
@@ -322,7 +347,7 @@ flakes: `flake.lock` gained exactly two entries and nothing to `follows`.
 Measured cost (x86_64-linux, warm store): flake eval of the services app
 ~0.8 s, PoC closure build/substitute ~3 s, `process-compose` boot-to-healthy
 (both services) ~3 s. For comparison, the devenv path this replaces paid ~165 s
-of IFD on a cold eval (exo-pet/exo-fleet#76).
+of IFD on a cold eval.
 
 ### PoC S3 service: SeaweedFS, not MinIO
 
@@ -390,7 +415,8 @@ pin wins and no download happens; the URL matters only on the CI runner.
   support, the project Python env (`vig-utils` + `pip-licenses` baked via
   `python314.withPackages`), the `prek` hook runner (via `devTools`),
   Rust/just tooling
-  (`cargo-binstall`, `just-lsp`, `typstyle`), core GNU utilities, `cacert`,
+  (`cargo-binstall`, `just-lsp`, and the unstable Typst formatter `typstyle`),
+  core GNU utilities, `cacert`,
   `openssh`, and `dockerTools.fakeNss` (a root uid-0 user database, without which
   `ssh`/`tmux`/`git` fail with "No user exists for uid 0").
 
