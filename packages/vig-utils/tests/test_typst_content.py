@@ -65,7 +65,11 @@ def test_blank_captions(doc, capsys, caption):
     ["[Caption]", "[#text(red)[Styled]]", "[$x$]", '[#image("chart.svg")]', "[@sec]"],
 )
 def test_visible_captions(doc, caption):
-    write("= Section <sec>\n#figure(rect(), caption: " + caption + ")")
+    write(
+        '#set heading(numbering: "1.")\n= Section <sec>\n#figure(rect(), caption: '
+        + caption
+        + ")"
+    )
     assert run("figure-caption") == 0
 
 
@@ -234,3 +238,34 @@ def test_malformed_svg_and_raster(doc, capsys):
     )
     assert run("figure-text-size") == 1
     assert "7 pt" in capsys.readouterr().err
+
+
+def test_svg_transformed_text_and_unsupported_css(doc, capsys):
+    Path("chart.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><g transform="scale(0.5)"><text x="0" y="20" font-size="10">Small</text></g></svg>'
+    )
+    write('#image("chart.svg", width: 100pt)')
+    assert run("figure-text-size") == 1
+    assert "5 pt" in capsys.readouterr().err
+    Path("chart.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><style>g text {font-size: 10px}</style><g><text x="0" y="20">Text</text></g></svg>'
+    )
+    assert run("figure-text-size") == 0
+    assert "warning:" in capsys.readouterr().err
+
+
+def test_marker_in_a_string_is_not_suppression(doc):
+    write('#figure(rect(), alt: "// figure-caption: ignore")')
+    assert run("figure-caption") == 1
+
+
+def test_raster_is_skipped(doc):
+    import base64
+
+    Path("chart.png").write_bytes(
+        base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII="
+        )
+    )
+    write('#image("chart.png", width: 1pt)')
+    assert run("figure-text-size") == 0
