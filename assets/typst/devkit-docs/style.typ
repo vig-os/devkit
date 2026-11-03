@@ -96,6 +96,7 @@
 
 #let has-plain-marker(value) = {
   if type(value) != content { return false }
+  if value.func() == table { return false }
   if value.func() == metadata {
     return value.value == "devkit-plain-table"
   }
@@ -117,7 +118,7 @@
 // User hline/vline decorations are replaced by booktabs rules; plain-table
 // retains them. Rebuilt booktabs tables have stroke: none and are left intact.
 #let booktabs(it, inset: none) = {
-  if has-plain-marker(it) { return it }
+  if it.children.any(has-plain-marker) { return it }
   let fields = it.fields()
   // Resolved fields include explicit arguments and contextual set/show-set
   // rules. Typst cannot distinguish an explicit native default from omission.

@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Share its immutable package registry across docs shells and hooks; vendor licensed diagram dependencies and verify real offline builds.
   - Preserve spanned table layouts and explicit header settings, provide native-table opt-out, paginate table figures, and reject blank captions.
   - Preserve labelled plain-table opt-outs and table overrides, accept visible non-text captions, lock package contents, retain old versions, and share consumer/data-dir registries with stable dependency paths.
+  - Stabilize every dependency output format and flag spelling, forward compiler signals, verify vendored hashes and retained releases, and scope nested table opt-outs.
   - Give the package independent SemVer, preserve built-in names, add short titles, and share font isolation and consumer registries across document tools.
 
 - **Advisory glossary candidate discovery** ([#1994](https://github.com/vig-os/devkit/issues/1994))

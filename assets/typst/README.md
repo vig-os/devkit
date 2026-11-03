@@ -7,18 +7,29 @@ registry, then the standard data-directory `typst/packages`. First match wins
 per namespace/name/version. Hooks and recipes use the same composition.
 Typst 0.15 itself accepts only one directory and replaces data-dir lookup when
 `TYPST_PACKAGE_PATH` is supplied. Wrappers build a temporary symlink union and
-remove it on exit; JSON dependency inputs are resolved to stable source paths
-before cleanup. Explicit CLI `--package-path` takes precedence over the wrapper
+remove it after the child exits. SIGTERM and SIGINT are forwarded to the child,
+including watch commands. Dependency flags accept both `--opt value` and
+`--opt=value`. JSON, Make and NUL-delimited (`zero`) dependencies are rewritten
+to stable source paths before cleanup, in files and with `--deps -` on stdout.
+Dependency stdout is buffered until the child exits; other tool stdout streams
+normally. Make prefixes escape spaces, tabs, `#`, `$` and `:`. If a resolved package root
+contains CR, LF or backslash, Make output is preserved verbatim because that
+root cannot be encoded safely by this rewriter; its temporary paths can become
+dangling. JSON and `zero` are preferred for those paths. Artifact I/O errors
+are reported on stderr and leave the native file unchanged; they never turn a
+successful compile into failure. File replacement is atomic. Explicit CLI `--package-path` takes precedence over the wrapper
 environment, as it does in native Typst.
 
 ## Local package versions
 
 The active source lives in `devkit-docs/`, with independent SemVer in
 `devkit-docs/typst.toml`. The registry retains the initial 0.1.0 snapshot alongside 0.1.1.
-`devkit-docs.lock.json` maps each shipped version to its SHA-256 content hash.
+`devkit-docs.lock.json` maps each `namespace/name/version` to its SHA-256 content
+hash, covering the local package versions and every vendored preview package.
 Hash sorted file paths relative to each version directory followed by NUL,
-then file bytes followed by NUL. Exclude the injected root `LICENSE`, whose
-source is devkit's license. The sandbox check verifies every locked version
+then file bytes followed by NUL. Exclude only the injected `LICENSE` at each
+local devkit-docs package root, whose source is devkit's license. Nested LICENSE
+files and all vendored licenses are hashed. The sandbox check verifies every locked version
 and compiles every retained import; source changes without a new version and
 lock entry fail the check.
 
@@ -26,6 +37,11 @@ When changing a shipped package, first copy its exact source to
 `releases/devkit-docs/<old-version>/`, then edit the active source and bump its
 manifest version. Keep the old lock entry unchanged and add the new version's
 hash. Never modify or remove shipped version directories or lock entries.
+`released-packages.json` is an independent, append-only ledger of historical
+packages. Add versions when archiving a shipped package; never remove its
+entries. The check rejects removing a version together with its hash entry.
+The active 0.1.1 remains unpublished until this PR lands; its reviewed source
+and hash are updated together during review.
 The Nix registry includes retained directories alongside the active version;
 patch upgrades therefore preserve older imports. Devkit-only release bumps
 never change package versions. API-compatible changes use patch bumps;

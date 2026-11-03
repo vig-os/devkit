@@ -361,6 +361,11 @@ on macOS). Typst 0.15 natively uses one path and skips the data directory when
 that path is set; the wrappers compose these registries temporarily and clean
 up after the process exits. First namespace/name/version wins. JSON dependency
 inputs point to stable source files, including when `--deps` is used directly.
+Both spaced and equals forms of `--deps` and `--deps-format` work. JSON, Make
+and `zero` outputs are rewritten in files or on stdout (`--deps -`). See the
+[registry guide](../assets/typst/README.md) for exact escaping limits and
+artifact I/O behavior. SIGTERM/SIGINT reach the child compiler, and temporary
+registries are removed after it exits.
 Explicit CLI `--package-path` overrides this composition. Compilation errors,
 including invalid registry directories, propagate to the caller.
 
@@ -418,7 +423,8 @@ Typst's native 5 pt. Typst exposes resolved values, not whether a default value
 was explicitly supplied: an ordinary table with explicit `stroke: stroke()`
 or `inset: 5pt` is indistinguishable from an omitted argument. Use `plain-table`
 for exact native defaults, or `booktabs-table` for an explicit booktabs inset.
-User labels and references work on both helpers.
+User labels and references work on both helpers. A nested plain-table only
+opts out its own table; an enclosing ordinary table keeps booktabs.
 Table column widths and alignment are retained. `number(value)`
 right-aligns a numeric cell with tabular lining digits;
 `align: numeric-columns(1, 2)` right-aligns zero-based numeric columns.

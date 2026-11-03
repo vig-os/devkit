@@ -177,3 +177,43 @@ def test_only_injected_root_license_is_excluded(registry):
         "Injected repository license"
     )
     verify(registry)
+
+
+@pytest.mark.parametrize("suffix", ["\nunsafe", "\\unsafe"])
+def test_make_unrepresentable_destination_keeps_compiler_success(
+    compiler, tmp_path, suffix
+):
+    argv, env, source = compiler
+    root = source.parents[2]
+    renamed = root.with_name(root.name + suffix)
+    root.rename(renamed)
+    argv[3] = str(renamed)
+    result = subprocess.run(
+        [*argv, "--deps-format=make", "--deps=deps.out"],
+        env=env,
+        cwd=tmp_path,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert b"/devkit-typst-packages-" in (tmp_path / "deps.out").read_bytes()
+    assert not Path(json.loads((tmp_path / "union.json").read_text())).exists()
+
+
+def test_artifact_rewrite_io_failure_preserves_compile_success(
+    compiler, tmp_path, monkeypatch, capsys
+):
+    argv, env, _ = compiler
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("TYPST_PACKAGE_PATH", env["TYPST_PACKAGE_PATH"])
+    monkeypatch.setattr(
+        sys, "argv", ["typst-with-packages", *argv[3:], "--deps=deps.out"]
+    )
+
+    def fail_replace(*args, **kwargs):
+        raise OSError("artifact replacement denied")
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    assert typst_packages.main() == 0
+    assert "artifact unchanged" in capsys.readouterr().err
+    assert b"/devkit-typst-packages-" in (tmp_path / "deps.out").read_bytes()
