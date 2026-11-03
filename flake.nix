@@ -1366,7 +1366,7 @@
                 python ${./tests/typst_house_style.py} ${registry} ${./assets/justfile.d/docs.justfile} ${./assets/docs-hooks.json} ${./assets/typst/devkit-docs/typst.toml}
                 python ${./tests/typst_house_style_regressions.py} ${registry} ${./docs/NIX.md} ${
                   (hooksModule.consumer pkgs { docs = true; }).hooks.typst-compile.entry
-                }
+                } ${./assets/justfile.d/docs.justfile}
                 touch "$out"
               '';
 
