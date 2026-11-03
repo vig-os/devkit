@@ -1,5 +1,6 @@
 """Byte-preserving reconciliation canaries for reviewer layouts (#1994)."""
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -48,25 +49,49 @@ def reconcile(path, enabled, env=None):
     )
 
 
+def lint_findings(path):
+    """Compare actual strict findings by rule/message, excluding locations."""
+    result = subprocess.run(
+        [
+            "yamllint",
+            "--strict",
+            "-f",
+            "parsable",
+            "-c",
+            str(ROOT / "assets/workspace/.yamllint"),
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode in (0, 1, 2), result.stderr
+    findings = set()
+    for line in result.stdout.splitlines():
+        match = re.fullmatch(
+            r".*?:\d+:\d+: \[(?:warning|error)\] (.*) \(([^()]*)\)", line
+        )
+        assert match, line
+        findings.add((match[2], match[1]))
+    return findings
+
+
 @pytest.mark.parametrize("layout", LAYOUTS)
 def test_layout_on_off_round_trip_and_real_parsers(tmp_path, layout):
     path = tmp_path / ".pre-commit-config.yaml"
     original = LAYOUTS[layout]
     path.write_bytes(original)
+    before = lint_findings(path)
     result = reconcile(path, True)
     assert result.returncode == 0, result.stderr
-    for command in (
-        ["prek", "validate-config", str(path)],
-        [
-            "yamllint",
-            "--strict",
-            "-c",
-            str(ROOT / "assets/workspace/.yamllint"),
-            str(path),
-        ],
-    ):
-        checked = subprocess.run(command, capture_output=True, text=True)
-        assert checked.returncode == 0, checked.stdout + checked.stderr
+    checked = subprocess.run(
+        ["prek", "validate-config", str(path)], capture_output=True, text=True
+    )
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    assert lint_findings(path) <= before
+    on = path.read_bytes()
+    assert on.endswith(b"\n") == original.endswith(b"\n")
+    assert (b"\r\n" in on) == (b"\r\n" in original)
+    assert original.splitlines()[1] in on.splitlines()
     doc = yaml.safe_load(path.read_bytes())
     assert (
         len([h for r in doc["repos"] for h in r["hooks"] if h["id"] == "typst-compile"])
