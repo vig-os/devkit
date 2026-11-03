@@ -16,7 +16,7 @@ def test_scaffold_docs_activation_and_reconciliation(tmp_path, enabled):
     seed.mkdir()
     manifest = seed / ".vig-os"
     manifest.write_text(
-        f'DEVKIT_MODULES="{"docs" if enabled else ""}"\nDEVKIT_TYPST_SKIP="drafts/**"\nDEVKIT_TYPST_FONT_PATHS="fonts:branding"\n'
+        f'DEVKIT_MODULES="{"docs" if enabled else ""}"\nDEVKIT_GLOSSARY="terms.yaml"\nDEVKIT_GLOSSARY_SOURCES="docs/**"\nDEVKIT_TYPST_SKIP="drafts/**"\nDEVKIT_TYPST_FONT_PATHS="fonts:branding"\n'
     )
     config = seed / ".pre-commit-config.yaml"
     original = """# consumer comment
@@ -39,7 +39,10 @@ repos:
         for r in yaml.safe_load((dest / config.name).read_text())["repos"]
         for h in r["hooks"]
     ]
-    assert any(h["id"] == "typst-compile" for h in hooks) == enabled
+    for hook_id in ("typst-compile", "glossary-schema", "glossary-terms"):
+        assert any(h["id"] == hook_id for h in hooks) == enabled
+    assert 'DEVKIT_GLOSSARY="terms.yaml"' in (dest / ".vig-os").read_text()
+    assert 'DEVKIT_GLOSSARY_SOURCES="docs/**"' in (dest / ".vig-os").read_text()
     assert (dest / "justfile.devkit-docs").exists() == enabled
     assert "# consumer comment" in (dest / config.name).read_text()
     if enabled:
