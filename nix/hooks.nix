@@ -141,7 +141,7 @@ let
 
   # Top-level exclude — one regex string in the committed YAML, a list for
   # git-hooks.nix (which joins with `|`). Same paths, two spellings.
-  yamlExclude = "^.github_data/|^docs/issues/|^docs/pull-requests/";
+  yamlExclude = "^.github_data/|^docs/issues/|^docs/pull-requests/|^assets/typst/vendor/";
   baseExcludes = [
     "^\\.github_data/"
     "^docs/issues/"
