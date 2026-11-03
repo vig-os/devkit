@@ -317,6 +317,46 @@ checks preview references in source, including comments. Typstyle 0.15.2 exposes
 CLI formatting options with an 80-column default and no config-file option, so no
 `typstyle.toml` is scaffolded. The real-tool canary is `checks.<system>.typst-canary`.
 
+
+#### Terminology register
+
+The docs module also installs `glossary-schema` and `glossary-terms` hooks.
+Both validate the register; terms scans all selected sources on every run, so
+register edits also check existing documents. Without `glossary.yaml` they do
+nothing. Set `DEVKIT_GLOSSARY="docs/terms.yaml"` in `.vig-os` to select another
+repository-relative register (an explicitly configured missing file fails).
+The packaged `vig_utils/glossary.schema.json` defines a YAML list:
+
+```yaml
+- id: feed-pump
+  term: Feed Pump
+  definition: Moves fluid into the circuit.
+  kind: part
+  aliases: [Supply Pump]
+  forbidden:
+    - term: Input Pump
+      use: Feed Pump
+  part-number: FP-100
+  pattern: 'FP-\d+'
+  status: active
+```
+
+`id`, `term`, `definition`, and `kind` are required; IDs must be unique.
+Kinds are `term`, `part`, `component`, `acronym`, and `role`; optional status is
+`active` or `deprecated`. Aliases are accepted spellings. Forbidden names name
+an explicit replacement in `use`. Patterns are Python regular expressions for
+part-number families; every matched number must equal a registered
+`part-number`. Matching is case-insensitive with Unicode word boundaries.
+Deprecation status is metadata; rejection requires a forbidden variant.
+
+By default all `.typ` and `.md` files are scanned. Set comma-separated
+`DEVKIT_GLOSSARY_SOURCES="docs/**,manual/*.typ"` to narrow the selection (Python
+`fnmatch`, repository-relative paths). Hidden directories and `generated/`
+are skipped. For an intentional quotation, append `// glossary: ignore` in
+Typst or `<!-- glossary: ignore -->` in Markdown; this suppresses only that
+line. Run `glossary-guard schema` or `glossary-guard terms` manually from the
+repository root. These source checks do not parse markup or discover synonyms.
+
 ### `packages.<system>.guardrails` — the gates without a `mkProjectShell` migration
 
 The `guardrails` capability module (#1488, `nix/modules/guardrails.nix`) wraps

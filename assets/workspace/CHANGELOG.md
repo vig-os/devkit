@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Opt-in terminology register checks** ([#1994](https://github.com/vig-os/devkit/issues/1994))
+  - Validate glossary YAML and reject forbidden names and unknown part numbers in document sources.
+
 ### Changed
 
 ### Deprecated

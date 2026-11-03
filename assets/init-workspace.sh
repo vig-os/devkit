@@ -406,6 +406,8 @@ MANIFEST_PROJECT="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_PROJECT || tru
 MANIFEST_ORG="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_ORG || true)"
 MANIFEST_REPO="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REPO || true)"
 MANIFEST_MODULES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_MODULES || true)"
+MANIFEST_GLOSSARY="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_GLOSSARY || true)"
+MANIFEST_GLOSSARY_SOURCES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_GLOSSARY_SOURCES || true)"
 MANIFEST_TYPST_SKIP="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TYPST_SKIP || true)"
 MANIFEST_TYPST_FONT_PATHS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TYPST_FONT_PATHS || true)"
 MANIFEST_TAG_PREFIX="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TAG_PREFIX || true)"
@@ -4572,6 +4574,12 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     write_manifest_value DEVKIT_REPO "$GITHUB_REPOSITORY"
     if [[ -n "$MANIFEST_TYPST_FONT_PATHS" ]]; then
         write_manifest_value DEVKIT_TYPST_FONT_PATHS "\"$MANIFEST_TYPST_FONT_PATHS\""
+    fi
+    if [[ -n "$MANIFEST_GLOSSARY" ]]; then
+        write_manifest_value DEVKIT_GLOSSARY "\"$MANIFEST_GLOSSARY\""
+    fi
+    if [[ -n "$MANIFEST_GLOSSARY_SOURCES" ]]; then
+        write_manifest_value DEVKIT_GLOSSARY_SOURCES "\"$MANIFEST_GLOSSARY_SOURCES\""
     fi
     if [[ -n "$MANIFEST_TYPST_SKIP" ]]; then
         write_manifest_value DEVKIT_TYPST_SKIP "\"$MANIFEST_TYPST_SKIP\""
