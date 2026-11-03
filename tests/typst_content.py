@@ -429,7 +429,7 @@ def test_plot_uses_synthesized_scripts_at_seven_points(project, script):
     [
         (
             "#glossary()",
-            "no glossary loaded; see https://github.com/vig-os/devkit/blob/1.18.1/docs/NIX.md#house-style-package",
+            "no glossary loaded; see https://github.com/vig-os/devkit/blob/dev/docs/NIX.md#house-style-package",
         ),
         ("#show: glossary-setup.with(())\n#glossary()", "empty glossary register"),
     ],
@@ -461,3 +461,118 @@ def test_register_bound_term_has_bookmark_text(project):
     assert b"/Title (Using CPU)" in Path("main.pdf").read_bytes()
     text = " ".join(pdf_text().split())
     assert text.index("Using CPU") < text.index("Using Central processing unit (CPU)")
+
+
+@pytest.mark.parametrize(
+    "wrapper,font",
+    [
+        ("strong", "Bold"),
+        ("emph", "Italic"),
+        ("text.with(fill: red)", None),
+        ("smallcaps", None),
+        ('link.with("https://example.com")', None),
+    ],
+)
+@pytest.mark.parametrize("single_word", [False, True])
+def test_long_styled_footer_keeps_prefix(project, wrapper, font, single_word):
+    value = "Prefixmarker" + (
+        "abcdefghij" * 80 if single_word else " extended research area facility" * 20
+    )
+    result = compile_source(
+        project
+        + f"#show: slides.with(short-title: [#{wrapper}[{value}]])\n#slide()[Body]"
+    )
+    assert result.returncode == 0, result.stderr
+    words = pdf_words()
+    footer = [w for w in words if float(w.attrib["yMin"]) > 350]
+    title = [w for w in footer if w.text not in {"1", "/"}]
+    extracted = " ".join(w.text or "" for w in title)
+    assert "PREFIXMARKER" in extracted.upper() and "…" in extracted, extracted
+    counter = next(w for w in footer if w.text == "1")
+    assert max(float(w.attrib["xMax"]) for w in title) + 2 <= float(
+        counter.attrib["xMin"]
+    )
+    assert max(float(w.attrib["yMax"]) for w in footer) <= 408.18896
+    if font:
+        fonts = subprocess.run(
+            ["pdffonts", "main.pdf"], check=True, capture_output=True, text=True
+        ).stdout
+        assert font in fonts, fonts
+    if "red" in wrapper:
+        subprocess.run(
+            ["pdftocairo", "-svg", "main.pdf", "footer.svg"],
+            check=True,
+            capture_output=True,
+        )
+        assert "100%,0%,0%" in Path("footer.svg").read_text().replace(" ", "")
+    if "link" in wrapper:
+        assert b"https://example.com" in Path("main.pdf").read_bytes()
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        r"Alpha \ Beta",
+        r"Alpha \ Beta \ Gamma",
+        "Alpha\n\nBeta\n\nGamma",
+        "#box(height: 40pt)[Boxmarker] After",
+        '#image("tall.svg", height: 40pt) After',
+    ],
+)
+def test_footer_is_one_line_with_tall_content(project, title):
+    Path("tall.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="40"><rect width="10" height="40" fill="red"/></svg>'
+    )
+    result = compile_source(
+        project + f"#show: slides.with(short-title: [{title}])\n#slide()[Body]"
+    )
+    assert result.returncode == 0, result.stderr
+    footer = [w for w in pdf_words() if float(w.attrib["yMin"]) > 350]
+    text = " ".join(w.text or "" for w in footer)
+    for marker in (
+        ["Boxmarker", "After"]
+        if "box" in title
+        else ["After"]
+        if "image" in title
+        else ["Alpha", "Beta"] + (["Gamma"] if "Gamma" in title else [])
+    ):
+        assert marker in text, text
+    assert (
+        max(float(w.attrib["yMax"]) for w in footer)
+        - min(float(w.attrib["yMin"]) for w in footer)
+        <= 11
+    )
+    assert max(float(w.attrib["yMax"]) for w in footer) <= 408.18896
+    subprocess.run(
+        ["pdftocairo", "-svg", "main.pdf", "footer.svg"],
+        check=True,
+        capture_output=True,
+    )
+    root = ET.parse("footer.svg").getroot()
+    # No image/box can be laid out below the page; the red image is bounded too.
+    if "image" in title:
+        red = next(
+            n
+            for n in root.iter()
+            if "100%,0%,0%" in n.attrib.get("fill", "").replace(" ", "")
+        )
+        coords = [
+            float(x)
+            for x in __import__("re").findall(r"[-+]?\d+(?:\.\d+)?", red.attrib["d"])
+        ]
+        ys = coords[1::2]
+        assert max(ys) - min(ys) <= 11 and max(ys) <= 408.18896
+
+
+@pytest.mark.parametrize("bound", [False, True])
+def test_empty_yaml_register_has_clear_error(project, bound):
+    Path("glossary.yaml").write_text("")
+    setup = (
+        '#let g = glossary-tools(yaml("/glossary.yaml"))\n#show: g.setup'
+        if bound
+        else '#show: glossary-setup.with(yaml("/glossary.yaml"))'
+    )
+    result = compile_source(project + setup + "\n#glossary()")
+    assert result.returncode != 0 and "empty glossary register" in result.stderr, (
+        result.stderr
+    )

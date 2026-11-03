@@ -896,3 +896,10 @@ def test_schema_rejects_non_string_yaml_scalars(register, scalar, field):
         + f"  {field}: {value}\n"
     )
     assert glossary.main(["schema"]) == 1
+
+
+@pytest.mark.parametrize("contents", ["", "[]\n"])
+def test_empty_register_rejected_by_schema(register, contents):
+    root, _ = register
+    (root / "glossary.yaml").write_text(contents)
+    assert glossary.main(["schema"]) == 1
