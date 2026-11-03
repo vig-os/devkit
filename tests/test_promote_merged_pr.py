@@ -9,6 +9,7 @@ import pytest
 from tests.workflow_scaffold import REPO_ROOT, load_workflow, step_by_name, steps_of_job
 
 
+@pytest.mark.parametrize("job", [None, "validate", "merge"])
 @pytest.mark.parametrize(
     ("state", "decision", "reviews", "merge_on_main", "tag_on_main", "count", "ok"),
     [
@@ -41,10 +42,18 @@ from tests.workflow_scaffold import REPO_ROOT, load_workflow, step_by_name, step
     ],
 )
 def test_recovery_gate(
-    tmp_path, state, decision, reviews, merge_on_main, tag_on_main, count, ok
+    tmp_path, state, decision, reviews, merge_on_main, tag_on_main, count, ok, job
 ):
     pr = {
         "number": 42,
+        "isDraft": False,
+        "statusCheckRollup": [
+            {"name": "CI", "conclusion": "SUCCESS"},
+            {
+                "name": "pending",
+                "conclusion": "PENDING" if state == "MERGED" else "SUCCESS",
+            },
+        ],
         "state": state,
         "reviewDecision": decision,
         "headRefOid": "head",
@@ -58,6 +67,7 @@ def test_recovery_gate(
         "a=sys.argv[1:]\n"
         "if a[0]=='api' and any('reviews' in arg for arg in a): print('[' + os.environ['REVIEWS'] + ']')\n"
         "elif a[0]=='api': print(os.environ['MERGE_ON_MAIN'] if '/merge...' in a[1] else os.environ['TAG_ON_MAIN'])\n"
+        'elif a[:2]==[\'pr\',\'view\']: print(\'{"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN"}\')\n'
         "else: print(os.environ['PRS'] if '--state' in a and (a[a.index('--state')+1]=='all' or os.environ['STATE']=='OPEN') else '[]')\n"
     )
     gh.chmod(0o755)
@@ -73,8 +83,17 @@ def test_recovery_gate(
         MERGE_ON_MAIN="ahead" if merge_on_main else "diverged",
         TAG_ON_MAIN="identical" if tag_on_main else "behind",
     )
+    script = "source .github/scripts/find-release-pr.sh"
+    if job:
+        workflow = load_workflow(REPO_ROOT / ".github/workflows/promote-release.yml")
+        script = step_by_name(
+            steps_of_job(workflow, job), "Find and verify release PR"
+        )["run"]
+        script = (
+            'retry() { while [ "$1" != -- ]; do shift; done; shift; "$@"; }\n' + script
+        )
     result = subprocess.run(
-        ["bash", "-c", "source .github/scripts/find-release-pr.sh"],
+        ["bash", "-c", script],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,

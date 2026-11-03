@@ -348,9 +348,6 @@ jobs:
         run: |
           set -euo pipefail
           source .github/scripts/find-release-pr.sh
-          if [ "$PR_STATE" = MERGED ]; then
-            exit 0
-          fi
 
           PR_NUMBER=$(echo "$PR_JSON" | jq -r '.[0].number')
           IS_DRAFT=$(echo "$PR_JSON" | jq -r '.[0].isDraft')
@@ -401,7 +398,7 @@ jobs:
           fi
 
           CI_PENDING=$(echo "$LATEST_CHECKS" | jq '[.[] | (.conclusion // .state) as $v | select($v == null or $v == "" or $v == "PENDING" or $v == "IN_PROGRESS" or $v == "QUEUED" or $v == "EXPECTED")] | length')
-          if [ "$CI_PENDING" != "0" ]; then
+          if [ "$PR_STATE" = OPEN ] && [ "$CI_PENDING" != "0" ]; then
             echo "ERROR: PR #$PR_NUMBER has checks still in progress"
             exit 1
           fi
@@ -410,6 +407,10 @@ jobs:
           if [ "$CI_SUCCESS" = "0" ]; then
             echo "ERROR: PR #$PR_NUMBER has no successful CI checks"
             exit 1
+          fi
+
+          if [ "$PR_STATE" = MERGED ]; then
+            exit 0
           fi
 
           # Mergeability gate (#1132). Approved + CI-green is not the same as
@@ -573,9 +574,6 @@ jobs:
         run: |
           set -euo pipefail
           source .github/scripts/find-release-pr.sh
-          if [ "$PR_STATE" = MERGED ]; then
-            exit 0
-          fi
 
           PR_NUMBER=$(echo "$PR_JSON" | jq -r '.[0].number')
           IS_DRAFT=$(echo "$PR_JSON" | jq -r '.[0].isDraft')
@@ -627,7 +625,7 @@ jobs:
           fi
 
           CI_PENDING=$(echo "$LATEST_CHECKS" | jq '[.[] | (.conclusion // .state) as $v | select($v == null or $v == "" or $v == "PENDING" or $v == "IN_PROGRESS" or $v == "QUEUED" or $v == "EXPECTED")] | length')
-          if [ "$CI_PENDING" != "0" ]; then
+          if [ "$PR_STATE" = OPEN ] && [ "$CI_PENDING" != "0" ]; then
             echo "ERROR: PR #$PR_NUMBER has checks still in progress"
             exit 1
           fi
@@ -636,6 +634,10 @@ jobs:
           if [ "$CI_SUCCESS" = "0" ]; then
             echo "ERROR: PR #$PR_NUMBER has no successful CI checks"
             exit 1
+          fi
+
+          if [ "$PR_STATE" = MERGED ]; then
+            exit 0
           fi
 
           echo "✓ PR #$PR_NUMBER verified for merge"

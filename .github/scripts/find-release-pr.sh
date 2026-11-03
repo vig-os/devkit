@@ -62,7 +62,7 @@ verify_merged_pr() {
   verify_ancestor "$MERGE_SHA" 'Release PR merge commit'
   verify_ancestor "$VERSION" "Tag $VERSION"
   echo "already merged by $(jq -r '.[0].mergedBy.login' <<< "$PR_JSON") at $(jq -r '.[0].mergedAt' <<< "$PR_JSON")"
-  echo 'Skipping open-only mergeability and CI checks for the verified merged PR'
+  echo 'Skipping open-only mergeability and CI-pending checks for the verified merged PR'
   echo 'already_merged=true' >> "$GITHUB_OUTPUT"
 }
 find_release_pr
