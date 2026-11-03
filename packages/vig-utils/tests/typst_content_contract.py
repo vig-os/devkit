@@ -303,3 +303,15 @@ def test_repeated_image_call_keeps_each_placed_width(doc, capsys):
     )
     assert run("figure-text-size") == 1
     assert "5 pt" in capsys.readouterr().err
+
+
+def test_guard_outputs_never_overwrite_consumer_assets(doc):
+    write("Hello")
+    assets = {
+        "guard.pdf": b"Consumer PDF",
+        "guard.deps.json": b"Consumer dependency data",
+    }
+    for name, content in assets.items():
+        Path(name).write_bytes(content)
+    assert run("content") == 0
+    assert {name: Path(name).read_bytes() for name in assets} == assets
