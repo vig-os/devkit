@@ -1360,6 +1360,7 @@
               ''
                 export PREK_HOME="$TMPDIR/prek"
                 python ${./tests/typst_house_style.py} ${registry} ${./assets/justfile.d/docs.justfile} ${./assets/docs-hooks.json} ${./.vig-os}
+                python ${./tests/typst_house_style_regressions.py} ${registry}
                 touch "$out"
               '';
 
