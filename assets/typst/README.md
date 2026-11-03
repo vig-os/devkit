@@ -1,5 +1,20 @@
 # Offline Typst registry
 
+Start glossary documents with the **bound API** so PDF bookmarks retain terms:
+
+```typst
+#import "@local/devkit-docs:0.2.0": *
+#let g = glossary-tools(yaml("/glossary.yaml"))
+#let term = g.term
+#show: g.setup
+
+= Using #term("cpu")
+#glossary()
+```
+
+The register must contain at least one entry. No compiler input is needed.
+See [the helper API and limits](../../docs/NIX.md#house-style-package).
+
 The `docs` module wraps Typst and Tinymist with the immutable registry built by
 [nix/typst-packages.nix](../../nix/typst-packages.nix). The compiler and language
 server search the consumer's `TYPST_PACKAGE_PATH` (a path list), then this
@@ -87,7 +102,6 @@ imports work without network or a populated cache, and review license changes.
 
 See [the user guide](../../docs/NIX.md#house-style-package) for the public API.
 
-Glossary consumers load their own register with
-`#show: glossary-setup.with(yaml("/glossary.yaml"))`; no compiler input is needed.
-For bookmark-safe terms, bind `glossary-tools(yaml("/glossary.yaml"))` as described
-in the user guide. See [the helper API and limits](../../docs/NIX.md) for plots, glossary and slides.
+The **legacy glossary API**, `#show: glossary-setup.with(yaml("/glossary.yaml"))`,
+remains supported, but its contextual `term` calls lose their text in PDF
+bookmarks. Prefer the bound API above for new documents.

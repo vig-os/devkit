@@ -3,6 +3,7 @@
   "$id": "https://raw.githubusercontent.com/vig-os/devkit/dev/packages/vig-utils/src/vig_utils/glossary.schema.json",
   "title": "Terminology register",
   "type": "array",
+  "minItems": 1,
   "items": {
     "type": "object",
     "additionalProperties": false,

@@ -85,7 +85,7 @@
 
 #let index-glossary(entries) = {
   assert(
-    entries.len() > 0,
+    entries != none and entries.len() > 0,
     message: "empty glossary register; add at least one entry",
   )
   let register = (:)
@@ -148,7 +148,7 @@
   let entries = glossary-register.get()
   assert(
     entries != none,
-    message: "no glossary loaded; see https://github.com/vig-os/devkit/blob/1.18.1/docs/NIX.md#house-style-package",
+    message: "no glossary loaded; see https://github.com/vig-os/devkit/blob/dev/docs/NIX.md#house-style-package",
   )
   lookup-term(entries, id)
 }
@@ -156,7 +156,7 @@
 #let glossary(title: [Glossary]) = context {
   assert(
     glossary-register.get() != none,
-    message: "no glossary loaded; see https://github.com/vig-os/devkit/blob/1.18.1/docs/NIX.md#house-style-package",
+    message: "no glossary loaded; see https://github.com/vig-os/devkit/blob/dev/docs/NIX.md#house-style-package",
   )
   let ids = used-terms.final()
   assert(ids == ids.dedup(), message: "duplicate ids in glossary usage state")

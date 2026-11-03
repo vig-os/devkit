@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import subprocess
 import tomllib
 import unicodedata
@@ -468,7 +469,7 @@ def test_register_bound_term_has_bookmark_text(project):
     [
         ("strong", "Bold"),
         ("emph", "Italic"),
-        ("text.with(fill: red)", None),
+        ('text.with(fill: rgb("ff0000"))', None),
         ("smallcaps", None),
         ('link.with("https://example.com")', None),
     ],
@@ -498,7 +499,7 @@ def test_long_styled_footer_keeps_prefix(project, wrapper, font, single_word):
             ["pdffonts", "main.pdf"], check=True, capture_output=True, text=True
         ).stdout
         assert font in fonts, fonts
-    if "red" in wrapper:
+    if "fill:" in wrapper:
         subprocess.run(
             ["pdftocairo", "-svg", "main.pdf", "footer.svg"],
             check=True,
@@ -515,7 +516,7 @@ def test_long_styled_footer_keeps_prefix(project, wrapper, font, single_word):
         r"Alpha \ Beta",
         r"Alpha \ Beta \ Gamma",
         "Alpha\n\nBeta\n\nGamma",
-        "#box(height: 40pt)[Boxmarker] After",
+        '#box(height: 40pt, fill: rgb("ff0000"))[Boxmarker] After',
         '#image("tall.svg", height: 40pt) After',
     ],
 )
@@ -544,8 +545,18 @@ def test_footer_is_one_line_with_tall_content(project, title, option):
         <= 11
     )
     assert max(float(w.attrib["yMax"]) for w in footer) <= 408.18896
+    last_page = str(len(pdf_text().rstrip("\n\f").split("\f")))
     subprocess.run(
-        ["pdftocairo", "-svg", "main.pdf", "footer.svg"],
+        [
+            "pdftocairo",
+            "-svg",
+            "-f",
+            last_page,
+            "-l",
+            last_page,
+            "main.pdf",
+            "footer.svg",
+        ],
         check=True,
         capture_output=True,
     )
@@ -557,10 +568,7 @@ def test_footer_is_one_line_with_tall_content(project, title, option):
             for n in root.iter()
             if "100%,0%,0%" in n.attrib.get("fill", "").replace(" ", "")
         )
-        coords = [
-            float(x)
-            for x in __import__("re").findall(r"[-+]?\d+(?:\.\d+)?", red.attrib["d"])
-        ]
+        coords = [float(x) for x in re.findall(r"[-+]?\d+(?:\.\d+)?", red.attrib["d"])]
         ys = coords[1::2]
         assert max(ys) - min(ys) <= 11 and max(ys) <= 408.18896
 

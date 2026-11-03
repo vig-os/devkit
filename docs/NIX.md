@@ -520,7 +520,8 @@ Place custom `show outline.entry` rules **before** `glossary-setup`: rules added
 after setup can replace its copy tracking and consume expansion in the TOC.
 First usage includes footnotes: if the first `term` call is in a footnote, its
 expansion appears in that footnote, and subsequent body calls use the short form.
-Both `term` and `glossary` require setup; an empty register is an error.
+Both `term` and `glossary` require setup; an empty YAML file or empty register
+is an error. The glossary schema likewise requires at least one entry.
 
 PDF bookmarks cannot evaluate the legacy state-based `term` function. For
 headings with terms, bind the register before layout so bookmarks retain the
@@ -559,9 +560,17 @@ The layout is 256 × 144 mm (16:9), with 12 mm margins. A title slide is emitted
 when metadata is provided. `section-slide` centers its title; `slide` starts a
 content page with an optional heading. The same type scale, booktabs rules,
 figure captions, branding (`accent`, `logo`, `labels`), metadata, `short-title`,
-page totals and revision footer apply. Footer titles preserve content (including
-emphasis, math, scripts, boxes, and inline images) and truncate with an ellipsis to fit the available cell width.
-Truncation preserves whole non-text elements and never shrinks or clips them.
+page totals and revision footer apply. Footer titles preserve emphasis, colour,
+smallcaps, links, math, scripts, boxes, and images. Truncation prefers whole
+words and re-wraps each prefix in its original styles; an oversized word falls
+back to character prefixes. An ellipsis marks omitted content. A 2 mm column
+gap separates the title from the page counter.
+
+The footer occupies exactly one measured line (font ascender to descender).
+Explicit line and paragraph breaks become spaces. Inline images and boxes
+higher than the footer font size scale uniformly to that height, including
+text inside a box; keep such boxes concise to avoid small lettering. The final
+line also fits its vertical extent without clipping or distorting content.
 Sizes remain in points: choose slide
 content for the intended viewing distance. Content must fit a slide; there is
 no automatic shrinking or overflow clipping. Canonical builds omit the stamp.
