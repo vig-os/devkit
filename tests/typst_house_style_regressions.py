@@ -206,6 +206,40 @@ def dependency_outputs():
             )
 
 
+def failed_dependency_outputs(fmt, stdout):
+    Path("main.typ").write_text(
+        prefix + '#assert(false, message: "Intentional compile failure")'
+    )
+    output = "-" if stdout else "failed.deps"
+    Path("failed.deps").unlink(missing_ok=True)
+    result = subprocess.run(
+        [
+            "typst",
+            "compile",
+            "--jobs",
+            "2",
+            "main.typ",
+            "main.pdf",
+            f"--deps={output}",
+            f"--deps-format={fmt}",
+        ],
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 1 and b"Intentional compile failure" in result.stderr, (
+        result.stderr
+    )
+    data = result.stdout if stdout else Path(output).read_bytes()
+    assert b"/devkit-typst-packages-" not in data, (fmt, stdout, data)
+    names = (
+        json.loads(data)["inputs"]
+        if fmt == "json"
+        else [os.fsdecode(n) for n in data.split(b"\0") if n]
+    )
+    assert any("devkit-docs" in name for name in names), names
+    assert all(Path(name).is_file() for name in names), names
+
+
 def valid_caption(caption):
     Path("logo.svg").write_text(
         '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
@@ -592,6 +626,14 @@ with tempfile.TemporaryDirectory() as directory:
         ("labelled ordinary table", labelled_ordinary_table),
         ("nested plain table", nested_plain_table),
         ("native dependency spellings and formats", dependency_outputs),
+        *(
+            (
+                f"failed native compile dependencies {fmt} stdout={stdout}",
+                lambda f=fmt, s=stdout: failed_dependency_outputs(f, s),
+            )
+            for fmt in ("json", "zero")
+            for stdout in (False, True)
+        ),
         ("ordinary table overrides", ordinary_overrides),
         ("header positions and rules", header_positions),
         *(

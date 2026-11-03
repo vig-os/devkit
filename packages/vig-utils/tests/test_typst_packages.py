@@ -29,15 +29,6 @@ from contextlib import suppress
 from pathlib import Path
 args = sys.argv[1:]
 union = Path(os.environ["TYPST_PACKAGE_PATH"])
-if args == ["watch"]:
-    def stop(signum, frame):
-        Path("stopped").write_text(str(signum))
-        sys.exit(0)
-    for signum in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(signum, stop)
-    print(json.dumps({"pid": os.getpid(), "union": str(union)}), flush=True)
-    while True:
-        signal.pause()
 def option(name, default):
     value = default
     for i, arg in enumerate(args):
@@ -54,12 +45,22 @@ data = {"json": json.dumps({"inputs": [path], "outputs": ["main.pdf"]}).encode()
         "make": ("main.pdf: " + make_path(path) + "\\n").encode(),
         "zero": os.fsencode(path) + b"\\0"}[fmt]
 Path("union.json").write_text(json.dumps(str(union)))
+if "--no-deps" in args:
+    sys.exit(1)
 output = option("--deps", "-")
 if output == "-":
     sys.stdout.buffer.write(data)
 else:
     Path(output).write_bytes(data)
-    print("Compiler stdout")
+    if "watch" not in args:
+        print("Compiler stdout")
+if "watch" in args:
+    for signum in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT):
+        signal.signal(signum, signal.SIG_DFL)
+    print(json.dumps({"pid": os.getpid(), "union": str(union)}), flush=True)
+    while True:
+        signal.pause()
+sys.exit(int(option("--exit-code", "0")))
 """)
     env = dict(os.environ, TYPST_PACKAGE_PATH=str(outer), TMPDIR=str(temporary))
     argv = [
@@ -73,21 +74,26 @@ else:
     return argv, env, source
 
 
+@pytest.mark.parametrize("code", [0, 143])
 @pytest.mark.parametrize("fmt", ["json", "make", "zero"])
 @pytest.mark.parametrize("joined_deps", [False, True])
 @pytest.mark.parametrize("joined_format", [False, True])
 @pytest.mark.parametrize("stdout", [False, True])
 def test_dependency_spellings_and_formats(
-    compiler, tmp_path, fmt, joined_deps, joined_format, stdout
+    compiler, tmp_path, fmt, joined_deps, joined_format, stdout, code
 ):
     argv, env, source = compiler
     output = "-" if stdout else "deps.out"
     flags = [f"--deps={output}"] if joined_deps else ["--deps", output]
     flags += [f"--deps-format={fmt}"] if joined_format else ["--deps-format", fmt]
     result = subprocess.run(
-        [*argv, *flags], env=env, cwd=tmp_path, capture_output=True, check=False
+        [*argv, *flags, f"--exit-code={code}"],
+        env=env,
+        cwd=tmp_path,
+        capture_output=True,
+        check=False,
     )
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == code, result.stderr
     data = result.stdout if stdout else (tmp_path / output).read_bytes()
     assert b"/devkit-typst-packages-" not in data, data
     target = source / "lib.typ"
@@ -105,11 +111,12 @@ def test_dependency_spellings_and_formats(
         assert result.stdout == b"Compiler stdout\n"
 
 
-@pytest.mark.parametrize("signum", [signal.SIGTERM, signal.SIGINT])
-def test_signals_reach_child_and_cleanup_union(compiler, tmp_path, signum):
-    argv, env, _ = compiler
+@pytest.mark.parametrize("signum", [signal.SIGHUP, signal.SIGTERM, signal.SIGINT])
+@pytest.mark.parametrize("fmt", ["json", "zero"])
+def test_signals_reach_child_and_cleanup_union(compiler, tmp_path, signum, fmt):
+    argv, env, source = compiler
     process = subprocess.Popen(
-        [*argv, "watch"],
+        [*argv, "watch", "--deps=deps.out", f"--deps-format={fmt}"],
         env=env,
         cwd=tmp_path,
         stdout=subprocess.PIPE,
@@ -123,8 +130,17 @@ def test_signals_reach_child_and_cleanup_union(compiler, tmp_path, signum):
         child = json.loads(process.stdout.readline())
         process.send_signal(signum)
         _, stderr = process.communicate(timeout=10)
-        assert process.returncode == 0, stderr
-        assert (tmp_path / "stopped").read_text() == str(signum)
+        assert process.returncode == 128 + signum, stderr
+        with pytest.raises(ProcessLookupError):
+            os.kill(child["pid"], 0)
+        data = (tmp_path / "deps.out").read_bytes()
+        assert b"/devkit-typst-packages-" not in data, data
+        names = (
+            json.loads(data)["inputs"]
+            if fmt == "json"
+            else [os.fsdecode(n) for n in data.split(b"\0") if n]
+        )
+        assert names == [str(source / "lib.typ")]
         assert not Path(child["union"]).exists()
     finally:
         if process.poll() is None:
@@ -200,20 +216,61 @@ def test_make_unrepresentable_destination_keeps_compiler_success(
     assert not Path(json.loads((tmp_path / "union.json").read_text())).exists()
 
 
-def test_artifact_rewrite_io_failure_preserves_compile_success(
-    compiler, tmp_path, monkeypatch, capsys
+@pytest.mark.parametrize("code", [0, 143])
+def test_artifact_rewrite_io_failure_preserves_child_exit(
+    compiler, tmp_path, monkeypatch, capsys, code
 ):
     argv, env, _ = compiler
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("TYPST_PACKAGE_PATH", env["TYPST_PACKAGE_PATH"])
     monkeypatch.setattr(
-        sys, "argv", ["typst-with-packages", *argv[3:], "--deps=deps.out"]
+        sys,
+        "argv",
+        ["typst-with-packages", *argv[3:], "--deps=deps.out", f"--exit-code={code}"],
     )
 
     def fail_replace(*args, **kwargs):
         raise OSError("artifact replacement denied")
 
     monkeypatch.setattr(Path, "replace", fail_replace)
-    assert typst_packages.main() == 0
+    assert typst_packages.main() == code
     assert "artifact unchanged" in capsys.readouterr().err
     assert b"/devkit-typst-packages-" in (tmp_path / "deps.out").read_bytes()
+
+
+@pytest.mark.parametrize("fmt", ["json", "make", "zero"])
+@pytest.mark.parametrize("code", [0, 143])
+def test_dependency_symlink_is_preserved(compiler, tmp_path, fmt, code):
+    argv, env, source = compiler
+    target = tmp_path / "real.deps"
+    target.touch()
+    link = tmp_path / "deps.out"
+    link.symlink_to(target.name)
+    result = subprocess.run(
+        [*argv, "--deps=deps.out", f"--deps-format={fmt}", f"--exit-code={code}"],
+        env=env,
+        cwd=tmp_path,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == code, result.stderr
+    assert link.is_symlink()
+    data = target.read_bytes()
+    assert data == link.read_bytes() and b"/devkit-typst-packages-" not in data
+    if fmt == "json":
+        assert json.loads(data)["inputs"] == [str(source / "lib.typ")]
+    assert not Path(json.loads((tmp_path / "union.json").read_text())).exists()
+
+
+def test_failed_child_without_artifact_keeps_exit_and_diagnostics(compiler, tmp_path):
+    argv, env, _ = compiler
+    result = subprocess.run(
+        [*argv, "--deps=missing.deps", "--no-deps"],
+        env=env,
+        cwd=tmp_path,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode == 1 and result.stderr == b""
+    assert not (tmp_path / "missing.deps").exists()
+    assert not Path(json.loads((tmp_path / "union.json").read_text())).exists()
