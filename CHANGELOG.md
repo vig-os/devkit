@@ -95,6 +95,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Recover promotion after a manually merged release PR** ([#1990](https://github.com/vig-os/devkit/issues/1990))
+  - Verify approval and main ancestry, skip the completed merge, and allow recovery from main or dev after branch deletion.
+
 - **Advance lockstep release pins during upgrades** ([#1856](https://github.com/vig-os/devkit/issues/1856))
   - The target installer advances release pins matching the pre-upgrade version by default, keeping the scaffold and dev shell aligned even through older upgrade workflows.
   - Recognize qualified release refs, preserve `refs/tags/`, and report removal of a leading `v` to use published bare tags.

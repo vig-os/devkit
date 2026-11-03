@@ -1273,6 +1273,22 @@ git branch -D release/X.Y.Z
 gh pr close <PR_NUMBER>
 ```
 
+#### Recovering a manually merged release PR
+
+Don't merge the release PR by hand; let `promote-release` merge it after validation.
+If it happened, dispatch promote-release from main or dev, even if the release
+branch was deleted:
+
+```bash
+gh workflow run promote-release.yml --ref dev -f version=X.Y.Z
+```
+
+Recovery requires exactly one merged release PR, approval on its final head,
+and both its merge commit and the release tag to be ancestors of main.
+Closed unmerged or ambiguous PRs are refused. All other promotion checks still
+apply. The merge job reports who merged the PR and when, skips the duplicate
+merge, and succeeds so cleanup runs.
+
 #### Abandoning a Finalized Release (before promote)
 
 Rejecting a release at the promote gate — after finalize has already created
