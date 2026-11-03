@@ -38,7 +38,7 @@ LAYOUTS = {
 def reconcile(path, enabled, env=None):
     return subprocess.run(
         [
-            "typst-scaffold",
+            "reconcile-preserved-hooks",
             str(path.parent),
             str(ROOT / "assets/docs-hooks.json"),
             str(enabled).lower(),
@@ -105,26 +105,40 @@ def test_layout_on_off_round_trip_and_real_parsers(tmp_path, layout):
 
 
 @pytest.mark.parametrize("failure_call", [2, 3])
-def test_validation_failure_restores_original(tmp_path, monkeypatch, failure_call):
-    from vig_utils import typst_scaffold
+@pytest.mark.parametrize("unexpected", [False, True])
+def test_validation_failure_restores_original(
+    tmp_path, monkeypatch, failure_call, unexpected
+):
+    from vig_utils import preserved_hooks
 
     path = tmp_path / ".pre-commit-config.yaml"
     original = LAYOUTS["crlf"]
     path.write_bytes(original)
     monkeypatch.setattr(
         "sys.argv",
-        ["typst-scaffold", str(tmp_path), str(ROOT / "assets/docs-hooks.json"), "true"],
+        [
+            "reconcile-preserved-hooks",
+            str(tmp_path),
+            str(ROOT / "assets/docs-hooks.json"),
+            "true",
+        ],
     )
     calls = []
 
+    real_run = subprocess.run
+
     def reject_candidate(*args, **kwargs):
+        if args[0][0] != "prek":
+            return real_run(*args, **kwargs)
         calls.append(Path(args[0][-1]).read_bytes())
+        if unexpected and len(calls) == failure_call:
+            raise RuntimeError()
         return subprocess.CompletedProcess(
             args, int(len(calls) == failure_call), "", "parser rejected candidate"
         )
 
     monkeypatch.setattr(subprocess, "run", reject_candidate)
-    assert typst_scaffold.main() == 1
+    assert preserved_hooks.main() == 1
     assert path.read_bytes() == original
     assert len(calls) == failure_call and calls[-1] != original
 
