@@ -1332,7 +1332,7 @@
                 ];
               }
               ''
-                export HOME="$TMPDIR" PRE_COMMIT_HOME="$TMPDIR/prek"
+                export PREK_HOME="$TMPDIR/prek"
                 python ${./tests/typst_canary.py} ${./assets/docs-hooks.json} ${./assets/justfile.d/docs.justfile}
                 touch "$out"
               '';
