@@ -1,0 +1,8 @@
+[package]
+name = "devkit-docs"
+version = "0.1.0"
+entrypoint = "lib.typ"
+compiler = "0.15.0"
+authors = ["devkit contributors"]
+license = "Apache-2.0"
+description = "Neutral, offline document house style"

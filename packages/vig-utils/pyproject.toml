@@ -19,6 +19,7 @@ authors = [
 glossary-candidates = "vig_utils.glossary:candidates_main"
 glossary-guard = "vig_utils.glossary:main"
 reconcile-preserved-hooks = "vig_utils.preserved_hooks:main"
+typst-with-packages = "vig_utils.typst_packages:main"
 typst-guard = "vig_utils.typst_guard:main"
 site-leak-check = "vig_utils.site_leak_check:main"
 check-hardcoded-endpoints = "vig_utils.check_hardcoded_endpoints:main"

@@ -335,12 +335,129 @@ canonical output. System fonts remain ignored even with project fonts enabled.
 Optional dependency lists are sibling `<stem>.deps.json` files. Ignore generated
 outputs in your project's `.gitignore` so they do not dirty subsequent stamped
 builds. Canonical hashes require identical source, packages, and pinned toolchains;
-documents must tolerate an absent `sys.inputs.rev`. Preview packages are not vendored
-in phase 1a and may need network access on first use. The pin guard conservatively
+documents must tolerate an absent `sys.inputs.rev`. The house-style diagram dependency closure is vendored. Other preview packages
+may need network access on first use. The pin guard conservatively
 checks preview references in source, including comments. Typstyle 0.15.2 exposes
 CLI formatting options with an 80-column default and no config-file option, so no
 `typstyle.toml` is scaffolded. The real-tool canary is `checks.<system>.typst-canary`.
 
+
+#### House-style package
+
+The `docs` shell exposes an immutable registry through its Typst and Tinymist
+wrappers; `DEVKIT_TYPST_PACKAGE_PATH` identifies that registry. Import
+`@local/devkit-docs:0.1.1`. Its own SemVer is independent of devkit releases.
+Shipped versions remain available after an upgrade, and a content-hash lock
+checks their integrity. See the [version policy and registry layout](../assets/typst/README.md#local-package-versions).
+A package upgrade is explicit: read its changes and update imports together.
+If Typst reports `package not found`, enter the docs shell and check the version
+in your import. Other packages remain consumer-owned.
+
+Direct compiler calls, Tinymist, compile hooks and recipes search the consumer's
+`TYPST_PACKAGE_PATH` path list first, then the devkit registry, then standard
+Typst data-dir packages (`$XDG_DATA_HOME/typst/packages`, defaulting to
+`~/.local/share/typst/packages` on Linux; `~/Library/Application Support/typst/packages`
+on macOS). Typst 0.15 natively uses one path and skips the data directory when
+that path is set; the wrappers compose these registries temporarily and clean
+up after the process exits. First namespace/name/version wins. JSON dependency
+inputs point to stable source files, including when `--deps` is used directly.
+Both spaced and equals forms of `--deps` and `--deps-format` work. JSON, Make
+and `zero` outputs are rewritten in files or on stdout (`--deps -`). See the
+[registry guide](../assets/typst/README.md) for exact escaping limits and
+artifact I/O behavior. SIGHUP/SIGTERM/SIGINT reach the child compiler, and
+temporary registries are removed after it exits. Produced dependencies are
+stabilized even after a failed compile or signal termination, without changing
+the child exit status. Symlinked dependency paths retain the link and update
+the resolved target.
+Explicit CLI `--package-path` overrides this composition. Compilation errors,
+including invalid registry directories, propagate to the caller.
+
+A minimal entry document:
+
+```typst
+// devkit: entry
+#import "@local/devkit-docs:0.1.1": *
+#show: devkit-document.with(title: "Example report", authors: ("Example Author",))
+
+= Results
+#table(columns: 2, table.header([Item], [Value]), [Sample], number(12.3))
+#fig(rect(width: 20mm, height: 10mm), caption: [Example figure])
+```
+
+Use the `#show: devkit-document.with(...)` namespace form. Calling the namespace directly is a type error; passing
+body content to `.with(...)` gives an explicit show-rule usage error. Glob imports preserve the built-in `document` and `scale` functions. The defaults are A4, 2.5 cm margins, Libertinus Serif body text at 11 pt,
+9 pt small text and captions, numbered headings at 20/16/13/11 pt, and a running
+title and page `n / N`. Stamped builds also show `rev`; canonical builds omit
+it. Monospaced text uses DejaVu Sans Mono and math uses Typst's built-in
+New Computer Modern. `type-scale` exports these sizes, including `figure-min: 7pt`.
+Authors must keep figure lettering at least 7 pt at the final placed size;
+SVG and plot text-size enforcement belongs to the later content guards.
+
+All metadata is optional: `title`, `short-title` (running header/footer text),
+`subtitle`, `authors` (a string or tuple of names),
+`date` (display content), `version`, `status`, and `doc-id`. A title block
+appears only for supplied values. Its first-page header is suppressed; the
+footer still shows the short title (or title), page total, and optional revision. Branding parameters are `accent` (a color),
+`logo` (a resolved Typst path), and `labels`
+(a dictionary with optional `doc-id`, `version`, `status`, and `date` labels).
+For project images use `logo: path("logo.svg")`; the `path` constructor resolves
+the resource in your document before passing it to the package. See the
+[Typst path reference](https://typst.app/docs/reference/foundations/path/).
+There is no default branding.
+The docs shell sets `TYPST_IGNORE_SYSTEM_FONTS=true`, including direct compiler
+calls. Tinymist 0.15 does not read this variable; the module bridges the policy
+to `--ignore-system-fonts` for its compile, preview, and LSP commands.
+
+Plain `table(...)` uses booktabs: top and bottom rules, a rule below a bold,
+repeating header, and no vertical rules. Declare headers with `table.header(...)`
+(including multiple rows). Without an explicit header, body cells remain in their
+original grid positions; no header is synthesized. Header `repeat` and `level`
+settings are preserved. User `hline` and `vline` decorations are replaced by the
+house rules, including lines inside or before a header. Table figures are
+breakable and repeat their headers across pages by default.
+Use `plain-table(...)` to opt out for one table: it accepts native table arguments
+and preserves explicit or contextual `stroke`, `inset`, and line decorations.
+A non-default `stroke` on an ordinary table also preserves native rendering.
+Explicit arguments, `set table(...)`, and `show table: set table(...)` are
+honored where Typst exposes their resolved values. A custom inset retains
+booktabs when the stroke remains at its native default. Use
+`booktabs-table(inset: 5pt, ...)` to request booktabs with any inset, including
+Typst's native 5 pt. Typst exposes resolved values, not whether a default value
+was explicitly supplied: an ordinary table with explicit `stroke: stroke()`
+or `inset: 5pt` is indistinguishable from an omitted argument. Use `plain-table`
+for exact native defaults, or `booktabs-table` for an explicit booktabs inset.
+User labels and references work on both helpers. A nested plain-table only
+opts out its own table; an enclosing ordinary table keeps booktabs.
+Table column widths and alignment are retained. `number(value)`
+right-aligns a numeric cell with tabular lining digits;
+`align: numeric-columns(1, 2)` right-aligns zero-based numeric columns.
+These helpers do not parse or round values or align decimal separators.
+
+`fig(body, caption: [...], ..options)` forwards figure options and fails when
+its caption is absent, empty, whitespace only, or solely hidden/zero-width
+content. References, citations, styled text, context, images, math and unknown
+content elements are accepted. Captions use 9 pt text in a
+centered block at 85% of the available width. Table captions appear above;
+other captions appear below. Direct `figure(...)` receives the style too;
+requiring captions on every direct figure is part of later content guards.
+
+`note(body, label: [Note], accent: ...)` and
+`warning(body, label: [Warning], accent: ...)` render callouts. Override their
+labels and colors explicitly for branding or translation.
+`revision-history((version: "1", date: "2026-11-03", description: "Initial"), ...)`
+accepts revision dictionaries; override its `labels` dictionary to translate
+`version`, `date`, and `description` column labels.
+`doc-ref(id, title: none, target: none)` prints an identifier and optional title;
+`target` adds a Typst link (URL or label). It does not resolve document registers.
+
+`fletcher` and `cetz` re-export the pinned upstream modules. Their complete
+transitive dependency closure is vendored, with licenses and update instructions
+in [the registry guide](../assets/typst/README.md).
+`checks.<system>.typst-house-style` compiles real fixtures through guards and
+recipes in a network-free Nix sandbox, checks PDF text and table rules, tests
+caption failures and offline imports, and compares canonical hashes.
+Plots, glossary rendering, slides, and content guards are separate later phases
+of [#1994](https://github.com/vig-os/devkit/issues/1994).
 
 #### Terminology register
 

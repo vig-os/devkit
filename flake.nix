@@ -907,6 +907,8 @@
         # agree on one formatting. Refs #777.
         treefmtEval = treefmt-nix.lib.evalModule pkgs {
           projectRootFile = "flake.nix";
+          # Keep vendored archives byte-identical to their recorded hashes.
+          settings.global.excludes = [ "assets/typst/vendor/**" ];
           programs = {
             nixfmt = {
               enable = true;
@@ -1336,6 +1338,35 @@
                 export PREK_HOME="$TMPDIR/prek"
                 export FONTCONFIG_FILE=${pkgs.makeFontsConf { fontDirectories = [ pkgs.liberation_ttf ]; }}
                 python ${./tests/typst_canary.py} ${./assets/docs-hooks.json} ${./assets/justfile.d/docs.justfile} ${./assets} ${pkgs.liberation_ttf}
+                touch "$out"
+              '';
+
+          typst-house-style =
+            let
+              registry = import ./nix/typst-packages.nix pkgs;
+              docs = capabilityModules.docs pkgs { };
+            in
+            assert !(pkgs.lib.hasInfix "assets/typst/vendor" hooksModule.portable.scaffold.exclude);
+            assert !(builtins.elem "^assets/typst/vendor/" (hooksModule.consumer pkgs { }).excludes);
+            pkgs.runCommand "typst-house-style"
+              {
+                nativeBuildInputs = docs.packages ++ [
+                  pkgs.python314
+                  pkgs.git
+                  pkgs.prek
+                  pkgs.just
+                  pkgs.vig-utils
+                ];
+                TYPST_PACKAGE_PATH = toString registry;
+                TYPST_IGNORE_SYSTEM_FONTS = docs.env.TYPST_IGNORE_SYSTEM_FONTS or "false";
+                FONTCONFIG_FILE = pkgs.makeFontsConf { fontDirectories = [ pkgs.liberation_ttf ]; };
+              }
+              ''
+                export PREK_HOME="$TMPDIR/prek"
+                python ${./tests/typst_house_style.py} ${registry} ${./assets/justfile.d/docs.justfile} ${./assets/docs-hooks.json} ${./assets/typst/devkit-docs/typst.toml}
+                python ${./tests/typst_house_style_regressions.py} ${registry} ${./docs/NIX.md} ${
+                  (hooksModule.consumer pkgs { docs = true; }).hooks.typst-compile.entry
+                } ${./assets/justfile.d/docs.justfile}
                 touch "$out"
               '';
 

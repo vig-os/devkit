@@ -275,7 +275,7 @@ let
             pkgs.writeShellScript "${id}" ''
               export PATH=${
                 lib.makeBinPath [
-                  pkgs.typst
+                  (import ./docs-typst.nix pkgs)
                   pkgs.typstyle
                 ]
               }:"$PATH"
@@ -1270,7 +1270,7 @@ let
         );
     in
     {
-      exclude = yamlExclude;
+      exclude = yamlExclude + lib.optionalString includeAll "|^assets/typst/vendor/";
       # Build python-language hooks with the project interpreter (3.14) so
       # PEP 758 syntax never false-flags under an older parser (#803).
       default_language_version.python = "python3.14";
@@ -1306,7 +1306,7 @@ in
   # Arguments for git-hooks.nix `run` building the sandbox-pure
   # `checks.pre-commit` gate. ctx: { pkgs, treefmtWrapper, vigUtils, python }.
   checkArgs = ctx: {
-    excludes = baseExcludes;
+    excludes = baseExcludes ++ [ "^assets/typst/vendor/" ];
     hooks = collectFor "check" "checkName" ctx;
   };
 

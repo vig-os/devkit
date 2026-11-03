@@ -11,6 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from vig_utils.typst_packages import package_environment, stabilize_dependencies
+
 ENTRY_PATTERN = r"(?m)^[ \t]*//[ \t]*devkit:[ \t]*entry[ \t]*$"
 
 
@@ -108,9 +110,16 @@ def compile_document(path, output, rev=None, deps=False):
         argv += ["--input", f"rev={rev}"]
     if deps:
         argv += ["--deps", str(output.with_suffix(".deps.json"))]
-    result = subprocess.run(
-        [*argv, str(path), str(output)], env=env, capture_output=True, text=True
-    )
+    with package_environment(env) as compiler_env:
+        result = subprocess.run(
+            [*argv, str(path), str(output)],
+            check=False,
+            env=compiler_env,
+            capture_output=True,
+            text=True,
+        )
+        if deps and result.returncode == 0:
+            stabilize_dependencies(output.with_suffix(".deps.json"))
     sys.stderr.write(result.stderr)
     return int(result.returncode != 0 or "warning:" in result.stderr)
 
