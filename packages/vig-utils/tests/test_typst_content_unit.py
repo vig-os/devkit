@@ -47,3 +47,10 @@ def test_svg_css_specificity(tmp_path):
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><style>#small {font-size:5px} .large {font-size:20px}</style><text id="small" class="large">Text</text></svg>'
     )
     assert svg_text(path)[0] == 5
+
+
+def test_nested_font_feature_is_not_a_family_override():
+    origins = {}
+    source = '#set text(features: (font: 1))\n#set text(font: "Libertinus Serif")'
+    instrument(source, "a.typ", origins)
+    assert origins["bypasses"] == [("a.typ", 2, set())]
