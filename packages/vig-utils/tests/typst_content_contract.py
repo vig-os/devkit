@@ -34,6 +34,9 @@ def doc(tmp_path, monkeypatch):
         '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" '
         'viewBox="0 0 100 50"><text x="1" y="20" font-size="10">Chart</text></svg>'
     )
+    (tmp_path / "refs.bib").write_text(
+        "@book{k, title={Book}, author={Example, A}, year={2026}}"
+    )
     return tmp_path
 
 
@@ -67,7 +70,14 @@ def test_blank_captions(doc, capsys, caption):
 
 @pytest.mark.parametrize(
     "caption",
-    ["[Caption]", "[#text(red)[Styled]]", "[$x$]", '[#image("chart.svg")]', "[@sec]"],
+    [
+        "[Caption]",
+        "[#text(red)[Styled]]",
+        "[$x$]",
+        '[#image("chart.svg")]',
+        "[@sec]",
+        "[#cite(<k>)]",
+    ],
 )
 def test_visible_captions(doc, caption):
     write(
@@ -75,6 +85,9 @@ def test_visible_captions(doc, caption):
         + caption
         + ")"
     )
+    if "cite" in caption:
+        with Path("main.typ").open("a") as stream:
+            stream.write('\n#bibliography("refs.bib")\n')
     assert run("figure-caption") == 0
 
 

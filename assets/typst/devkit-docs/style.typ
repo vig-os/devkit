@@ -302,5 +302,15 @@
     accent: accent,
     labels: labels,
   )
-  body
+  if sys.inputs.at("devkit-guard-measure", default: "false") == "true" {
+    show image: it => layout(size => {
+      let width = measure(it, width: size.width, height: size.height).width
+      metadata((
+        kind: "devkit-image", path: it.source, width: width,
+        label: it.at("label", default: none), location: here().position(),
+      ))
+      it
+    })
+    body
+  } else { body }
 }

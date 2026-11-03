@@ -228,6 +228,10 @@ let
       mode = "compile";
       files = "\\.typ$|^\\.vig-os$";
     };
+    typst-content = {
+      mode = "content";
+      files = "";
+    };
     typst-preview-pins = {
       mode = "pins";
       files = "\\.typ$";
@@ -249,6 +253,7 @@ let
         lib.optionalAttrs
           (builtins.elem spec.mode [
             "compile"
+            "content"
             "pdf"
             "schema"
             "terms"

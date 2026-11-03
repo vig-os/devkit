@@ -11,6 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from vig_utils.typst_content import MODES, content_guards
 from vig_utils.typst_packages import package_environment, stabilize_dependencies
 
 ENTRY_PATTERN = r"(?m)^[ \t]*//[ \t]*devkit:[ \t]*entry[ \t]*$"
@@ -207,12 +208,24 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "mode",
-        choices=["format", "compile", "pins", "pdf", "build", "canonical", "probe"],
+        choices=[
+            "format",
+            "compile",
+            "pins",
+            "pdf",
+            "build",
+            "canonical",
+            "probe",
+            "content",
+            *MODES,
+        ],
     )
     parser.add_argument("files", nargs="*")
     parser.add_argument("--deps", action="store_true")
     args = parser.parse_args(argv)
     try:
+        if args.mode in ("content", *MODES):
+            return content_guards(args.mode)
         if args.mode == "format":
             return subprocess.run(
                 ["typstyle", "--check", *args.files], check=False

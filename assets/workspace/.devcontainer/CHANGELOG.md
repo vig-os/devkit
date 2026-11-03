@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Bound footer extraction and measurement to 400 graphemes, retain apostrophes, and separate cases and vertical spacing.
   - Synthesize readable script glyphs and provide bookmark-safe bound glossary terms with actionable setup errors and non-empty register validation.
   - Add a branded 16:9 slide layout with title, section and content slides, booktabs, captions and revision footers; retain older package imports.
+- **Opt-in Typst content guards** ([#1994](https://github.com/vig-os/devkit/issues/1994))
+  - Check figure captions, table headers, house-style overrides and SVG text below 7 pt at its placed size, with skip globs and source-line suppression.
+  - Retain prior house-style imports and add 0.1.2 guard-only layout measurements without changing normal PDF output.
 
 - **Offline Typst house-style package** ([#1994](https://github.com/vig-os/devkit/issues/1994))
   - Add the versioned, neutral devkit-docs package with document layout, booktabs tables, captions, callouts, revisions, and document references.

@@ -7,6 +7,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import tomllib
 from contextlib import suppress
 from pathlib import Path
 
@@ -157,7 +158,10 @@ def registry(tmp_path):
     root = tmp_path / "registry"
     shutil.copytree(assets / "vendor/preview", root / "preview")
     shutil.copytree(assets / "releases/devkit-docs", root / "local/devkit-docs")
-    shutil.copytree(assets / "devkit-docs", root / "local/devkit-docs/0.2.0")
+    version = tomllib.loads((assets / "devkit-docs/typst.toml").read_text())["package"][
+        "version"
+    ]
+    shutil.copytree(assets / "devkit-docs", root / "local/devkit-docs" / version)
     shutil.copy(assets / "devkit-docs.lock.json", root)
     if (assets / "released-packages.json").exists():
         shutil.copy(assets / "released-packages.json", root)

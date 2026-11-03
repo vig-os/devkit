@@ -1592,6 +1592,7 @@ def test_docs_hook_asset_matches_definition(rendered_portable):
     assert ids == {
         "typstyle-check",
         "typst-compile",
+        "typst-content",
         "typst-preview-pins",
         "forbid-generated-pdf",
         "glossary-schema",

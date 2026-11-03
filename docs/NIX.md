@@ -232,7 +232,7 @@ the default scaffold flake forwards docs activation. Other flakes, including
 preserved and language-pack flakes, must also enable the module themselves. Enter the project toolchain before installing or upgrading:
 reconciling a committed config requires its `reconcile-preserved-hooks` command on PATH.
 
-`nix/hooks.nix` defines the four guards once. Its `portable.docs` render is committed
+`nix/hooks.nix` defines the docs guards once. Its `portable.docs` render is committed
 as `assets/docs-hooks.json`; CI checks that asset for drift. The installer adds an
 owned block to committed hook configs and leaves generated store symlinks to the
 flake. This keeps the module contract at packages/env/shellHook and supports both
@@ -342,11 +342,68 @@ CLI formatting options with an 80-column default and no config-file option, so n
 `typstyle.toml` is scaffolded. The real-tool canary is `checks.<system>.typst-canary`.
 
 
+#### Content guards
+
+The docs-only `typst-content` hook runs all four checks on declared entries,
+including their dependencies, on every commit. It shares `DEVKIT_TYPST_SKIP`
+(comma-separated repository-relative globs) with the compile guard. Skipped
+includes still compile but produce no content findings. Templates get the
+existing smoke compile rather than content checks. Non-docs consumers receive
+no hook or configuration changes.
+
+| Check | Rejected content | Suppression on the opening or closing line |
+| --- | --- | --- |
+| `figure-caption` | Missing, empty, whitespace or hidden/zero-width-only captions | `// figure-caption: ignore` |
+| `table-header` | A table without `table.header` | `// table-header: ignore` |
+| `house-style-bypass` | Direct `set page(...)` or `set text(font: ...)` in entry sources and their local dependencies | `// house-style-bypass: ignore` |
+| `figure-text-size` | SVG text smaller than 7 pt at its placed width | `// figure-text-size: ignore` |
+
+Run `typst-guard content` for all checks or `typst-guard <check>` individually.
+Captions follow `fig()` blankness: references, citations, styled visible text,
+images and math count as content. The source scan skips comments, strings and
+raw examples. Package source is outside the consumer scan. Use house-style
+parameters for branding and layout overrides.
+
+Guard runs use an ephemeral source tree and add labels to direct builtin
+figure/table/image calls and `fig()` for file/line diagnostics and suppression.
+Existing labels are preserved. Calls produced by other package helpers may
+have only an entry-file diagnostic; use skip globs for those entries. Suppression
+is attached to the source call, including when a helper executes repeatedly.
+Consumer sources and normal builds are untouched. A compile error or document
+warning fails the guard before content checking.
+
+With `@local/devkit-docs:0.1.2` and its document show rule, the guard-only input
+`devkit-guard-measure=true` enables image measurement metadata. It resolves
+percentages, automatic sizing, grids, columns and figure bodies in their layout
+context. Without that input, the package emits no measurement metadata and
+canonical PDFs remain byte-identical to 0.1.1. Older imports remain available.
+
+Without measurement metadata, absolute image widths are used directly;
+percentages use the page width minus margins, with A4 and 2.5 cm margins as
+the fallback. Automatic width uses the SVG intrinsic width capped at the page
+text width. This fallback does not infer grid or column widths. Unresolved
+sizes emit a warning naming the source file and do not fail the guard.
+The SVG check reads viewBox width (or intrinsic dimensions), inherited
+font-size, inline styles and simple tag/class/id CSS rules. SVG px are user
+units; absolute font units are converted before applying the placed scale.
+Scale transforms are applied; rotations and translations preserve size. Complex
+CSS selectors, affine/skew transforms and unresolved font units emit a warning
+rather than an inaccurate measurement. Text converted to outlines cannot be
+identified as lettering. Raster images are skipped: prefer SVG or native plots
+for charts.
+
+The real-compiler contract runs in `checks.<system>.typst-content`, so the
+default non-docs test environment does not need Typst.
+
+Each entry uses one dependency compile and one combined Typst JSON query,
+with at most two compiler workers. To reproduce the medium-document timing,
+run `uv run python packages/vig-utils/tests/benchmark_typst_content.py`.
+
 #### House-style package
 
 The `docs` shell exposes an immutable registry through its Typst and Tinymist
 wrappers; `DEVKIT_TYPST_PACKAGE_PATH` identifies that registry. Import
-`@local/devkit-docs:0.2.0`. Its own SemVer is independent of devkit releases.
+`@local/devkit-docs:0.1.2`. Its own SemVer is independent of devkit releases.
 Shipped versions remain available after an upgrade, and a content-hash lock
 checks their integrity. See the [version policy and registry layout](../assets/typst/README.md#local-package-versions).
 A package upgrade is explicit: read its changes and update imports together.
@@ -376,7 +433,7 @@ A minimal entry document:
 
 ```typst
 // devkit: entry
-#import "@local/devkit-docs:0.2.0": *
+#import "@local/devkit-docs:0.1.2": *
 #show: devkit-document.with(title: "Example report", authors: ("Example Author",))
 
 = Results
@@ -390,8 +447,9 @@ body content to `.with(...)` gives an explicit show-rule usage error. Glob impor
 title and page `n / N`. Stamped builds also show `rev`; canonical builds omit
 it. Monospaced text uses DejaVu Sans Mono and math uses Typst's built-in
 New Computer Modern. `type-scale` exports these sizes, including `figure-min: 7pt`.
-Authors must keep figure lettering at least 7 pt at the final placed size;
-The plot helper enforces this minimum; checking external SVGs belongs to the later content guards.
+Authors must keep figure lettering at least 7 pt at the final placed size.
+The content guard checks SVG text at its placed size. Prefer SVG or native plots
+for charts; raster images cannot be checked.
 
 All metadata is optional: `title`, `short-title` (running header/footer text),
 `subtitle`, `authors` (a string or tuple of names),
@@ -439,7 +497,7 @@ content. References, citations, styled text, context, images, math and unknown
 content elements are accepted. Captions use 9 pt text in a
 centered block at 85% of the available width. Table captions appear above;
 other captions appear below. Direct `figure(...)` receives the style too;
-requiring captions on every direct figure is part of later content guards.
+the content guard also requires captions on direct figures.
 
 `note(body, label: [Note], accent: ...)` and
 `warning(body, label: [Warning], accent: ...)` render callouts. Override their
