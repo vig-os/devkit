@@ -218,13 +218,17 @@ def test_requoted_managed_exclusion_is_compared_semantically(tmp_path):
     assert path.read_text() == BASE
 
 
-def test_edited_owned_hook_is_retained_with_clear_advice(tmp_path):
+@pytest.mark.parametrize("edit", ["argument", "comment"])
+def test_edited_owned_hook_is_retained_with_clear_advice(tmp_path, edit):
     path = tmp_path / ".pre-commit-config.yaml"
     path.write_text(BASE)
     assert reconcile(path, True).returncode == 0
-    edited = path.read_text().replace(
-        "entry: typst-guard compile", "entry: typst-guard compile --deps"
+    replacement = (
+        "entry: typst-guard compile --deps"
+        if edit == "argument"
+        else "entry: typst-guard compile\n        # My consumer explanation"
     )
+    edited = path.read_text().replace("entry: typst-guard compile", replacement)
     path.write_text(edited)
     result = reconcile(path, False)
     assert result.returncode == 1
