@@ -3,6 +3,7 @@
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -43,7 +44,7 @@ with tempfile.TemporaryDirectory() as directory:
     run("git", "config", "user.name", "Example Author")
     Path(".gitignore").write_text("generated/\nhome/\ncache/\n")
     Path("guards.json").write_text(hooks.read_text())
-    prefix = f'#import "@local/devkit-docs:{version}": *\n'
+    prefix = f'// devkit: entry\n#import "@local/devkit-docs:{version}": *\n'
     source = (
         prefix
         + """#show: document.with(
@@ -76,7 +77,7 @@ with tempfile.TemporaryDirectory() as directory:
 #fletcher.diagram(fletcher.node((0, 0), [Offline diagram]))
 """
     )
-    Path("main.typ").write_text("// devkit: entry\n" + source)
+    Path("main.typ").write_text(source)
     run("typstyle", "-i", "main.typ")
     run("git", "add", ".")
     run("git", "commit", "-qm", "Fixture")
@@ -93,7 +94,7 @@ with tempfile.TemporaryDirectory() as directory:
     for index, page in enumerate(pages, 1):
         assert "House Style Contract" in page
         assert stamp in page
-        assert f"{index} / {len(pages)}" in page
+        assert re.search(rf"{index}\s*/\s*{len(pages)}", page), repr(page)
     for value in (
         "A neutral document",
         "Example Author",
@@ -113,10 +114,17 @@ with tempfile.TemporaryDirectory() as directory:
     assert text.count("Repeated header") >= 2
     assert "LibertinusSerif-Bold" in run("pdffonts", "generated/main.pdf")
     figures = json.loads(
-        run("typst", "query", "--ignore-system-fonts", "main.typ", "figure")
+        run(
+            "typst",
+            "eval",
+            "--ignore-system-fonts",
+            "--in",
+            "main.typ",
+            "query(figure.caption)",
+        )
     )
-    assert figures[0]["caption"]["position"] == "bottom"
-    assert figures[1]["caption"]["position"] == "top"
+    assert figures[0]["position"] == "bottom"
+    assert figures[1]["position"] == "top"
     # A single plain table, exported as SVG: exactly three horizontal rules,
     # no vertical borders. This proves the default show rule reaches table().
     Path("rules.typ").write_text(
@@ -139,10 +147,7 @@ with tempfile.TemporaryDirectory() as directory:
         if p.tag.endswith("path") and p.attrib.get("stroke") not in (None, "none")
     ]
     assert len(paths) == 3, paths
-    assert all(
-        "L" in p and p.split("L")[0].split()[-1] == p.split("L")[1].split()[-1]
-        for p in paths
-    ), paths
+    assert all(re.fullmatch(r"M 0 0h [0-9.]+", p) for p in paths), paths
     Path("rules.typ").unlink()
     Path("rules.svg").unlink()
     recipe("typst-canonical")

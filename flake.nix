@@ -1339,6 +1339,29 @@
                 touch "$out"
               '';
 
+          typst-house-style =
+            let
+              registry = import ./nix/typst-packages.nix pkgs;
+              docs = capabilityModules.docs pkgs { };
+            in
+            pkgs.runCommand "typst-house-style"
+              {
+                nativeBuildInputs = docs.packages ++ [
+                  pkgs.python314
+                  pkgs.git
+                  pkgs.prek
+                  pkgs.just
+                  pkgs.vig-utils
+                ];
+                inherit (docs.env) TYPST_PACKAGE_PATH;
+                PREK_HOME = "$TMPDIR/prek";
+              }
+              ''
+                export PREK_HOME="$TMPDIR/prek"
+                python ${./tests/typst_house_style.py} ${registry} ${./assets/justfile.d/docs.justfile} ${./assets/docs-hooks.json} ${registry.version}
+                touch "$out"
+              '';
+
           pre-commit = preCommitCheck;
 
           # The dev-shell evaluates and its closure builds.

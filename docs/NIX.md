@@ -335,12 +335,85 @@ canonical output. System fonts remain ignored even with project fonts enabled.
 Optional dependency lists are sibling `<stem>.deps.json` files. Ignore generated
 outputs in your project's `.gitignore` so they do not dirty subsequent stamped
 builds. Canonical hashes require identical source, packages, and pinned toolchains;
-documents must tolerate an absent `sys.inputs.rev`. Preview packages are not vendored
-in phase 1a and may need network access on first use. The pin guard conservatively
+documents must tolerate an absent `sys.inputs.rev`. The house-style diagram dependency closure is vendored. Other preview packages
+may need network access on first use. The pin guard conservatively
 checks preview references in source, including comments. Typstyle 0.15.2 exposes
 CLI formatting options with an 80-column default and no config-file option, so no
 `typstyle.toml` is scaffolded. The real-tool canary is `checks.<system>.typst-canary`.
 
+
+#### House-style package
+
+The `docs` shell exports an immutable `TYPST_PACKAGE_PATH`, shared by the
+compile hooks and recipes. Import `@local/devkit-docs:<devkit-version>` using the
+version of your pinned devkit input (`DEVKIT_VERSION` in devkit's release
+manifest). It requires no network. Updating the devkit pin also updates this
+version; update document imports in the same change. Additional packages remain
+consumer-owned. Outside the docs shell, set `TYPST_PACKAGE_PATH` explicitly to
+the same registry before invoking scaffolded hooks or recipes.
+
+A minimal entry document for devkit 1.18.1:
+
+```typst
+// devkit: entry
+#import "@local/devkit-docs:1.18.1": *
+#show: document.with(title: "Example report", authors: ("Example Author",))
+
+= Results
+#table(columns: 2, table.header([Item], [Value]), [Sample], number(12.3))
+#fig(rect(width: 20mm, height: 10mm), caption: [Example figure])
+```
+
+Use the `#show: document.with(...)` form so its set rules reach the whole
+body. The defaults are A4, 2.5 cm margins, Libertinus Serif body text at 11 pt,
+9 pt small text and captions, numbered headings at 20/16/13/11 pt, and a running
+title and page `n / N`. Stamped builds also show `rev`; canonical builds omit
+it. Monospaced text uses DejaVu Sans Mono and math uses Typst's built-in
+New Computer Modern. `scale` exports these sizes, including `figure-min: 7pt`.
+Authors must keep figure lettering at least 7 pt at the final placed size;
+SVG and plot text-size enforcement belongs to the later content guards.
+
+All metadata is optional: `title`, `subtitle`, `authors` (a tuple of names),
+`date` (display content), `version`, `status`, and `doc-id`. A title block
+appears only for supplied values. Branding parameters are `accent` (a color),
+`logo` (a resolved Typst path), and `labels`
+(a dictionary with optional `doc-id`, `version`, `status`, and `date` labels).
+For project images use `logo: path("logo.svg")`; the `path` constructor resolves
+the resource in your document before passing it to the package. See the
+[Typst path reference](https://typst.app/docs/reference/foundations/path/).
+There is no default branding.
+
+Plain `table(...)` uses booktabs: top and bottom rules, a rule below a bold,
+repeating header, and no vertical rules. Use `table.header(...)` for explicit
+headers (including multiple rows); without one, the first row becomes the
+header. Table column widths and alignment are retained. `number(value)`
+right-aligns a numeric cell with tabular lining digits;
+`align: numeric-columns(1, 2)` right-aligns zero-based numeric columns.
+These helpers do not parse or round values or align decimal separators.
+
+`fig(body, caption: [...], ..options)` forwards figure options and fails when
+its caption is absent, `none`, or empty content. Captions use 9 pt text in a
+centered block at 85% of the available width. Table captions appear above;
+other captions appear below. Direct `figure(...)` receives the style too;
+requiring captions on every direct figure is part of later content guards.
+
+`note(body, label: [Note], accent: ...)` and
+`warning(body, label: [Warning], accent: ...)` render callouts. Override their
+labels and colors explicitly for branding or translation.
+`revision-history((version: "1", date: "2026-11-03", description: "Initial"), ...)`
+accepts revision dictionaries; override its `labels` dictionary to translate
+`version`, `date`, and `description` column labels.
+`doc-ref(id, title: none, target: none)` prints an identifier and optional title;
+`target` adds a Typst link (URL or label). It does not resolve document registers.
+
+`fletcher` and `cetz` re-export the pinned upstream modules. Their complete
+transitive dependency closure is vendored, with licenses and update instructions
+in [the registry guide](../assets/typst/README.md).
+`checks.<system>.typst-house-style` compiles real fixtures through guards and
+recipes in a network-free Nix sandbox, checks PDF text and table rules, tests
+caption failures and offline imports, and compares canonical hashes.
+Plots, glossary rendering, slides, and content guards are separate later phases
+of [#1994](https://github.com/vig-os/devkit/issues/1994).
 
 #### Terminology register
 

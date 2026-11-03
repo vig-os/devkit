@@ -279,6 +279,7 @@ let
                   pkgs.typstyle
                 ]
               }:"$PATH"
+              export TYPST_PACKAGE_PATH=${import ./typst-packages.nix pkgs}
               exec ${import ./vig-utils.nix pkgs}/bin/${spec.command or "typst-guard"} ${spec.mode} "$@"
             ''
           );

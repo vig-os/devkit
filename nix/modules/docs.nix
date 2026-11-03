@@ -20,6 +20,7 @@
 # repo-owned), and Python doc-processing libs (pymupdf4llm, openpyxl) which
 # belong in the consumer's own pyproject.toml via uv, not in a nix module.
 pkgs: _options: {
+  env.TYPST_PACKAGE_PATH = toString (import ../typst-packages.nix pkgs);
   packages = with pkgs; [
     typst
     typstyle

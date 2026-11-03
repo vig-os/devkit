@@ -1,7 +1,8 @@
 ---
 # .pre-commit-config.yaml
 
-exclude: ^.github_data/|^docs/issues/|^docs/pull-requests/
+# Vendored Typst sources are byte-for-byte upstream archives; see assets/typst/README.md.
+exclude: ^.github_data/|^docs/issues/|^docs/pull-requests/|^assets/typst/vendor/
 
 # Build python-language hooks with the project interpreter (3.14) so PEP 758
 # syntax (bare except tuples) never false-flags under an older parser. Refs #803.

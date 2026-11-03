@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Offline Typst house-style package** ([#1994](https://github.com/vig-os/devkit/issues/1994))
+  - Add the versioned, neutral devkit-docs package with document layout, booktabs tables, captions, callouts, revisions, and document references.
+  - Share its immutable package registry across docs shells and hooks; vendor licensed diagram dependencies and verify real offline builds.
+
 - **Advisory glossary candidate discovery** ([#1994](https://github.com/vig-os/devkit/issues/1994))
   - Add JSON-line candidate reports and a just recipe for terminology review, with measured precision fixtures.
   - Reject dead rules, protect registered words across simple inline markup and partial overlaps, deduplicate overlapping hits, and clarify source diagnostics.
