@@ -1,9 +1,9 @@
 # Offline Typst registry
 
 The `docs` module sets `TYPST_PACKAGE_PATH` to the immutable registry built by
-[nix/typst-packages.nix](../../nix/typst-packages.nix). The local package manifest
-and directory version come directly from `.vig-os`'s `DEVKIT_VERSION`. The flake
-input pins both the package and compiler. Generated Nix hook wrappers export the
+[nix/typst-packages.nix](../../nix/typst-packages.nix). The local package has its own version in
+`devkit-docs/typst.toml` (currently 0.1.0), independent of devkit release bumps.
+The flake input pins both the package and compiler. Generated Nix hook wrappers export the
 same registry; scaffolded hooks and recipes inherit it from the docs shell.
 
 ## Vendored upstream packages

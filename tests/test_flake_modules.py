@@ -335,7 +335,7 @@ def test_docs_toolchain_tracks_unstable(current_system: str) -> None:
       }};
       unstable = import flake.inputs.nixpkgs-unstable {{ inherit system; }};
       names = [ "typst" "typstyle" "tinymist" ];
-      describe = p: {{ inherit (p) pname version drvPath; }};
+      describe = p: let upstream = p.unwrapped or p; in {{ inherit (upstream) pname version drvPath; }};
       select = packages: map describe
         (builtins.filter (p: builtins.elem (p.pname or "") names) packages);
     in {{

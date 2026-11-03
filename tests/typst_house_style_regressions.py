@@ -12,7 +12,7 @@ from pathlib import Path
 
 registry = Path(sys.argv[1])
 version = next((registry / "local/devkit-docs").iterdir()).name
-prefix = f'// devkit: entry\n#import "@local/devkit-docs:{version}": *\n#show: devkit-document()\n'
+prefix = f'// devkit: entry\n#import "@local/devkit-docs:{version}": *\n#show: devkit-document.with()\n'
 failures = []
 
 
@@ -140,7 +140,7 @@ def font_environment():
 
 def public_api_and_layout():
     global prefix
-    prefix = prefix.split("#show:")[0] + "#show: devkit-document()\n"
+    prefix = prefix.split("#show:")[0] + "#show: devkit-document.with()\n"
     build(
         '#set document(keywords: ("Builtin keyword",))\n#scale(50%)[Builtin scaling]\n#context assert.eq(type-scale.figure-min, 7pt)'
     )
@@ -150,16 +150,27 @@ def public_api_and_layout():
     result = subprocess.run(
         ["typst-guard", "compile"], check=False, capture_output=True, text=True
     )
-    assert result.returncode == 1 and "#show:" in result.stderr, result.stderr
+    assert (
+        result.returncode == 1 and "expected function, found module" in result.stderr
+    ), result.stderr
     Path("main.typ").write_text(prefix.split("#show:")[0] + "#devkit-document()")
     result = subprocess.run(
         ["typst-guard", "compile"], check=False, capture_output=True, text=True
     )
-    assert result.returncode == 1 and "function" in result.stderr, result.stderr
+    assert (
+        result.returncode == 1 and "expected function, found module" in result.stderr
+    ), result.stderr
+    Path("main.typ").write_text(
+        prefix.split("#show:")[0] + "#devkit-document.with()[Body]"
+    )
+    result = subprocess.run(
+        ["typst-guard", "compile"], check=False, capture_output=True, text=True
+    )
+    assert result.returncode == 1 and "#show:" in result.stderr, result.stderr
     build("")
     Path("main.typ").write_text(
         prefix.split("#show:")[0]
-        + '#show: devkit-document(title: "Long title", short-title: "Running title", authors: "Solo Author")\nBody\n#pagebreak()\nNext page'
+        + '#show: devkit-document.with(title: "Long title", short-title: "Running title", authors: "Solo Author")\nBody\n#pagebreak()\nNext page'
     )
     run("typst-guard", "compile")
     run("typst", "compile", "main.typ", "main.pdf")
@@ -173,7 +184,7 @@ def public_api_and_layout():
 def style_contract():
     Path("main.typ").write_text(
         prefix.split("#show:")[0]
-        + """#show: devkit-document(title: "Metadata title", authors: ("Metadata Author",))
+        + """#show: devkit-document.with(title: "Metadata title", authors: ("Metadata Author",))
 #context { assert.eq(text.lang, "en"); assert.eq(type-scale.figure-min, 7pt) }
 = #context assert.eq(text.size, 20pt) Headingone
 == #context assert.eq(text.size, 16pt) Headingtwo

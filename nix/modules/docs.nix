@@ -23,10 +23,11 @@
 # belong in the consumer's own pyproject.toml via uv, not in a nix module.
 pkgs: _options: {
   env.TYPST_PACKAGE_PATH = toString (import ../typst-packages.nix pkgs);
+  env.TYPST_IGNORE_SYSTEM_FONTS = "true";
   packages = with pkgs; [
     typst
     typstyle
-    tinymist
+    (import ../docs-tinymist.nix pkgs)
     poppler-utils
   ];
 }

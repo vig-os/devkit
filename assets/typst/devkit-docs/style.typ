@@ -1,6 +1,6 @@
 #let typst-document = document
 
-#let scale = (
+#let type-scale = (
   body: 11pt,
   small: 9pt,
   caption: 9pt,
@@ -149,19 +149,21 @@
         let label = labels.at(names.at(i), default: none)
         if label == none { all.at(i) } else { [#label: #all.at(i)] }
       })
-    text(size: scale.small, fields.join([ · ]))
+    text(size: type-scale.small, fields.join([ · ]))
     v(12pt)
   }
 }
 
 #let typography(body, accent: black) = {
-  set text(font: "Libertinus Serif", size: scale.body, lang: "en")
-  show raw: set text(font: "DejaVu Sans Mono", size: scale.small)
+  set text(font: "Libertinus Serif", size: type-scale.body, lang: "en")
+  show raw: set text(font: "DejaVu Sans Mono", size: type-scale.small)
   set math.equation(numbering: "(1)")
   set par(justify: true, leading: 0.65em)
   set heading(numbering: "1.1")
   show heading: it => text(
-    size: scale.heading.at(calc.min(it.level, scale.heading.len()) - 1),
+    size: type-scale.heading.at(
+      calc.min(it.level, type-scale.heading.len()) - 1,
+    ),
     fill: accent,
     weight: "bold",
     it,
@@ -169,16 +171,20 @@
   body
 }
 
-#let page-layout(body, title: none, accent: black) = {
+#let page-layout(body, title: none, accent: black, title-page: false) = {
   set page(
     paper: "a4",
     margin: 2.5cm,
-    header: context text(size: scale.small, fill: accent, if title == none {
-      []
-    } else { title }),
+    header: context {
+      if (
+        title != none and (not title-page or counter(page).get().first() != 1)
+      ) {
+        text(size: type-scale.small, fill: accent, title)
+      }
+    },
     footer: context {
       let stamp = sys.inputs.at("rev", default: "")
-      text(size: scale.small)[
+      text(size: type-scale.small)[
         #grid(
           columns: (1fr, auto, 1fr),
           if title == none { [] } else { title },
@@ -194,7 +200,7 @@
 #let figure-style(body) = {
   show table: booktabs
   show figure.caption: it => {
-    set text(size: scale.caption)
+    set text(size: type-scale.caption)
     align(center, block(width: 85%, it))
   }
   set figure.caption(position: bottom)
@@ -203,9 +209,10 @@
   body
 }
 
-#let document(
+#let render-document(
   body,
   title: none,
+  short-title: none,
   subtitle: none,
   authors: (),
   date: none,
@@ -216,9 +223,21 @@
   logo: none,
   labels: (:),
 ) = {
+  if type(authors) == str { authors = (authors,) }
+  assert(
+    type(authors) == array,
+    message: "authors must be a string or an array of names",
+  )
   set typst-document(title: title, author: authors)
   show: typography.with(accent: accent)
-  show: page-layout.with(title: title, accent: accent)
+  show: page-layout.with(
+    title: if short-title == none { title } else { short-title },
+    accent: accent,
+    title-page: (title, subtitle, date, version, status, doc-id, logo).any(
+      value => value != none,
+    )
+      or authors.len() > 0,
+  )
   show: figure-style
   title-block(
     title: title,

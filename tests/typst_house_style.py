@@ -12,8 +12,8 @@ import tomllib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-package_path, recipes, hooks, release_manifest = sys.argv[1:]
-version = re.search(r"(?m)^DEVKIT_VERSION=(.+)$", Path(release_manifest).read_text())[1]
+package_path, recipes, hooks, package_manifest = sys.argv[1:]
+version = tomllib.loads(Path(package_manifest).read_text())["package"]["version"]
 package_path = Path(package_path).resolve()
 recipes, hooks = Path(recipes).resolve(), Path(hooks).resolve()
 manifest = package_path / "local/devkit-docs" / version / "typst.toml"
@@ -50,7 +50,7 @@ with tempfile.TemporaryDirectory() as directory:
     prefix = f'// devkit: entry\n#import "@local/devkit-docs:{version}": *\n'
     source = (
         prefix
-        + """#show: document.with(
+        + """#show: devkit-document.with(
   title: "House Style Contract",
   subtitle: "A neutral document",
   authors: ("Example Author",),
@@ -87,8 +87,18 @@ with tempfile.TemporaryDirectory() as directory:
     for guard in ("typstyle-check", "typst-compile", "typst-preview-pins"):
         run("prek", "run", "--config", "guards.json", guard, "--all-files")
 
+    Path("justfile.devkit-docs").write_text(recipes.read_text())
+    Path("justfile").write_text("mod devkit-docs 'justfile.devkit-docs'\n")
+
     def recipe(name):
-        run("just", "--justfile", str(recipes), "--working-directory", directory, name)
+        run(
+            "just",
+            "--justfile",
+            str(Path("justfile").resolve()),
+            "--working-directory",
+            directory,
+            "devkit-docs::" + name,
+        )
 
     recipe("typst")
     stamp = run("git", "rev-parse", "--short=8", "HEAD").strip()
@@ -132,7 +142,7 @@ with tempfile.TemporaryDirectory() as directory:
     # no vertical borders. This proves the default show rule reaches table().
     Path("rules.typ").write_text(
         prefix
-        + "#show: document.with()\n#table(columns: 2, table.header([A], [B]), [C], [D])\n"
+        + "#show: devkit-document.with()\n#table(columns: 2, table.header([A], [B]), [C], [D])\n"
     )
     run(
         "typst",
@@ -164,7 +174,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert hashlib.sha256(Path("generated/main.pdf").read_bytes()).digest() == digest
     for argument in ("", ", caption: none", ", caption: []"):
         Path("main.typ").write_text(
-            prefix + "#show: document.with()\n#fig(rect()" + argument + ")\n"
+            prefix + "#show: devkit-document.with()\n#fig(rect()" + argument + ")\n"
         )
         result = subprocess.run(
             ["typst-guard", "compile"], check=False, capture_output=True, text=True
@@ -172,7 +182,9 @@ with tempfile.TemporaryDirectory() as directory:
         assert result.returncode == 1
         assert "caption" in result.stderr, result.stderr
     # All metadata is optional, including the title block.
-    Path("main.typ").write_text(prefix + "#show: document.with()\nOptional metadata\n")
+    Path("main.typ").write_text(
+        prefix + "#show: devkit-document.with()\nOptional metadata\n"
+    )
     run("typst-guard", "compile")
     Path("logo.svg").write_text(
         '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">'
@@ -180,7 +192,7 @@ with tempfile.TemporaryDirectory() as directory:
     )
     Path("main.typ").write_text(
         prefix
-        + """#show: document.with(
+        + """#show: devkit-document.with(
   title: "Branded example", logo: path("logo.svg"), accent: rgb("174f79"),
   doc-id: "EX-003", labels: ("doc-id": [Identifier]),
 )
@@ -216,7 +228,7 @@ with tempfile.TemporaryDirectory() as directory:
     # Without an explicit header, the first row remains ordinary body cells.
     Path("main.typ").write_text(
         prefix
-        + """#show: document.with()
+        + """#show: devkit-document.with()
 #table(columns: 2, [Implicit header], [Value],
   ..range(100).map(n => ([Row #n], number(n))).flatten())
 """

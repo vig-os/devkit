@@ -141,13 +141,11 @@ let
 
   # Top-level exclude — one regex string in the committed YAML, a list for
   # git-hooks.nix (which joins with `|`). Same paths, two spellings.
-  yamlExclude = "^.github_data/|^docs/issues/|^docs/pull-requests/|^assets/typst/vendor/";
+  yamlExclude = "^.github_data/|^docs/issues/|^docs/pull-requests/";
   baseExcludes = [
     "^\\.github_data/"
     "^docs/issues/"
     "^docs/pull-requests/"
-    # Preserve the pinned upstream archives; see assets/typst/README.md.
-    "^assets/typst/vendor/"
   ];
 
   # Upstream repos (pinned revs) for the portable render of hooks that the
@@ -281,7 +279,7 @@ let
                   pkgs.typstyle
                 ]
               }:"$PATH"
-              export TYPST_PACKAGE_PATH=${import ./typst-packages.nix pkgs}
+              export TYPST_PACKAGE_PATH=${import ./typst-packages.nix pkgs}"''${TYPST_PACKAGE_PATH:+:$TYPST_PACKAGE_PATH}"
               exec ${import ./vig-utils.nix pkgs}/bin/${spec.command or "typst-guard"} ${spec.mode} "$@"
             ''
           );
@@ -1273,7 +1271,7 @@ let
         );
     in
     {
-      exclude = yamlExclude;
+      exclude = yamlExclude + lib.optionalString includeAll "|^assets/typst/vendor/";
       # Build python-language hooks with the project interpreter (3.14) so
       # PEP 758 syntax never false-flags under an older parser (#803).
       default_language_version.python = "python3.14";
@@ -1309,7 +1307,7 @@ in
   # Arguments for git-hooks.nix `run` building the sandbox-pure
   # `checks.pre-commit` gate. ctx: { pkgs, treefmtWrapper, vigUtils, python }.
   checkArgs = ctx: {
-    excludes = baseExcludes;
+    excludes = baseExcludes ++ [ "^assets/typst/vendor/" ];
     hooks = collectFor "check" "checkName" ctx;
   };
 

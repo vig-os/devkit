@@ -1346,6 +1346,8 @@
               registry = import ./nix/typst-packages.nix pkgs;
               docs = capabilityModules.docs pkgs { };
             in
+            assert !(pkgs.lib.hasInfix "assets/typst/vendor" hooksModule.portable.scaffold.exclude);
+            assert !(builtins.elem "^assets/typst/vendor/" (hooksModule.consumer pkgs { }).excludes);
             pkgs.runCommand "typst-house-style"
               {
                 nativeBuildInputs = docs.packages ++ [
@@ -1361,7 +1363,7 @@
               }
               ''
                 export PREK_HOME="$TMPDIR/prek"
-                python ${./tests/typst_house_style.py} ${registry} ${./assets/justfile.d/docs.justfile} ${./assets/docs-hooks.json} ${./.vig-os}
+                python ${./tests/typst_house_style.py} ${registry} ${./assets/justfile.d/docs.justfile} ${./assets/docs-hooks.json} ${./assets/typst/devkit-docs/typst.toml}
                 python ${./tests/typst_house_style_regressions.py} ${registry} ${./docs/NIX.md} ${
                   (hooksModule.consumer pkgs { docs = true; }).hooks.typst-compile.entry
                 }

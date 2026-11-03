@@ -345,43 +345,53 @@ CLI formatting options with an 80-column default and no config-file option, so n
 #### House-style package
 
 The `docs` shell exports an immutable `TYPST_PACKAGE_PATH`, shared by the
-compile hooks and recipes. Import `@local/devkit-docs:<devkit-version>` using the
-version of your pinned devkit input (`DEVKIT_VERSION` in devkit's release
-manifest). It requires no network. Updating the devkit pin also updates this
-version; update document imports in the same change. Additional packages remain
-consumer-owned. Outside the docs shell, set `TYPST_PACKAGE_PATH` explicitly to
-the same registry before invoking scaffolded hooks or recipes.
+compile hooks and recipes. Import `@local/devkit-docs:0.1.0`. Its own SemVer is
+independent of devkit releases: a devkit-only version bump keeps this import
+working. Package changes bump the version in its `typst.toml`; patches preserve
+the API, and incompatible changes increment the minor version while below 1.0
+(the major version thereafter). A package upgrade is explicit: read its changes
+and update imports together. If Typst reports `package not found`, enter the docs
+shell and update your import to `@local/devkit-docs:0.1.0`, the shipped version.
+Other packages remain consumer-owned. Nix hook wrappers prepend this registry;
+the guard composes colon-separated registry paths into a temporary directory,
+with the first namespace/name/version winning. Native Typst accepts only one
+package directory, so use a single path for direct compiler calls.
 
-A minimal entry document for devkit 1.18.1:
+A minimal entry document:
 
 ```typst
 // devkit: entry
-#import "@local/devkit-docs:1.18.1": *
-#show: document.with(title: "Example report", authors: ("Example Author",))
+#import "@local/devkit-docs:0.1.0": *
+#show: devkit-document.with(title: "Example report", authors: ("Example Author",))
 
 = Results
 #table(columns: 2, table.header([Item], [Value]), [Sample], number(12.3))
 #fig(rect(width: 20mm, height: 10mm), caption: [Example figure])
 ```
 
-Use the `#show: document.with(...)` form so its set rules reach the whole
-body. The defaults are A4, 2.5 cm margins, Libertinus Serif body text at 11 pt,
+Use the `#show: devkit-document.with(...)` namespace form. Calling the namespace directly is a type error; passing
+body content to `.with(...)` gives an explicit show-rule usage error. Glob imports preserve the built-in `document` and `scale` functions. The defaults are A4, 2.5 cm margins, Libertinus Serif body text at 11 pt,
 9 pt small text and captions, numbered headings at 20/16/13/11 pt, and a running
 title and page `n / N`. Stamped builds also show `rev`; canonical builds omit
 it. Monospaced text uses DejaVu Sans Mono and math uses Typst's built-in
-New Computer Modern. `scale` exports these sizes, including `figure-min: 7pt`.
+New Computer Modern. `type-scale` exports these sizes, including `figure-min: 7pt`.
 Authors must keep figure lettering at least 7 pt at the final placed size;
 SVG and plot text-size enforcement belongs to the later content guards.
 
-All metadata is optional: `title`, `subtitle`, `authors` (a tuple of names),
+All metadata is optional: `title`, `short-title` (running header/footer text),
+`subtitle`, `authors` (a string or tuple of names),
 `date` (display content), `version`, `status`, and `doc-id`. A title block
-appears only for supplied values. Branding parameters are `accent` (a color),
+appears only for supplied values. Its first-page header is suppressed; the
+footer still shows the short title (or title), page total, and optional revision. Branding parameters are `accent` (a color),
 `logo` (a resolved Typst path), and `labels`
 (a dictionary with optional `doc-id`, `version`, `status`, and `date` labels).
 For project images use `logo: path("logo.svg")`; the `path` constructor resolves
 the resource in your document before passing it to the package. See the
 [Typst path reference](https://typst.app/docs/reference/foundations/path/).
 There is no default branding.
+The docs shell sets `TYPST_IGNORE_SYSTEM_FONTS=true`, including direct compiler
+calls. Tinymist 0.15 does not read this variable; the module bridges the policy
+to `--ignore-system-fonts` for its compile, preview, and LSP commands.
 
 Plain `table(...)` uses booktabs: top and bottom rules, a rule below a bold,
 repeating header, and no vertical rules. Declare headers with `table.header(...)`
