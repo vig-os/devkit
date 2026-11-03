@@ -7,17 +7,22 @@ registry, then the standard data-directory `typst/packages`. First match wins
 per namespace/name/version. Hooks and recipes use the same composition.
 Typst 0.15 itself accepts only one directory and replaces data-dir lookup when
 `TYPST_PACKAGE_PATH` is supplied. Wrappers build a temporary symlink union and
-remove it after the child exits. SIGTERM and SIGINT are forwarded to the child,
+remove it after the child exits. SIGHUP, SIGTERM and SIGINT are forwarded to the child,
 including watch commands. Dependency flags accept both `--opt value` and
 `--opt=value`. JSON, Make and NUL-delimited (`zero`) dependencies are rewritten
 to stable source paths before cleanup, in files and with `--deps -` on stdout.
+Rewriting also runs after failed compiles and signal termination: the child's
+exit status is preserved, and any produced dependency artifacts are stabilized.
+A missing artifact is left absent without adding diagnostics.
 Dependency stdout is buffered until the child exits; other tool stdout streams
 normally. Make prefixes escape spaces, tabs, `#`, `$` and `:`. If a resolved package root
 contains CR, LF or backslash, Make output is preserved verbatim because that
 root cannot be encoded safely by this rewriter; its temporary paths can become
 dangling. JSON and `zero` are preferred for those paths. Artifact I/O errors
 are reported on stderr and leave the native file unchanged; they never turn a
-successful compile into failure. File replacement is atomic. Explicit CLI `--package-path` takes precedence over the wrapper
+successful compile into failure. File replacement is atomic at the resolved
+target; a symlinked dependency path is followed and the link is preserved.
+Explicit CLI `--package-path` takes precedence over the wrapper
 environment, as it does in native Typst.
 
 ## Local package versions
@@ -39,7 +44,11 @@ manifest version. Keep the old lock entry unchanged and add the new version's
 hash. Never modify or remove shipped version directories or lock entries.
 `released-packages.json` is an independent, append-only ledger of historical
 packages. Add versions when archiving a shipped package; never remove its
-entries. The check rejects removing a version together with its hash entry.
+entries. The guard checks the registry snapshot within a single commit only:
+it rejects removing a version and hash entry while the ledger still records it.
+It does not compare Git history or enforce append-only ledger edits. Editing
+the ledger can bypass removal detection, including by deleting its entry in an
+earlier commit; maintaining the append-only policy therefore requires review.
 The active 0.1.1 remains unpublished until this PR lands; its reviewed source
 and hash are updated together during review.
 The Nix registry includes retained directories alongside the active version;

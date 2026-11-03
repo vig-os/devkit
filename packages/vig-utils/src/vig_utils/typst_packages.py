@@ -124,7 +124,8 @@ def run_tool(argv, env, capture_stdout):
                 child.send_signal(signum)
 
         previous = {
-            s: signal.signal(s, forward) for s in (signal.SIGTERM, signal.SIGINT)
+            s: signal.signal(s, forward)
+            for s in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT)
         }
         try:
             stdout, _ = child.communicate()
@@ -139,6 +140,7 @@ def rewrite_dependency_file(path, fmt, package_path):
     """Replace artifacts atomically; preserve compiler success on I/O failure."""
     temporary = None
     try:
+        path = path.resolve()
         data = rewrite_dependencies(path.read_bytes(), fmt, package_path)
         with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as output:
             temporary = Path(output.name)
@@ -164,13 +166,12 @@ def main():
         with package_environment(dict(os.environ), registry) as env:
             code, stdout = run_tool([tool, *args], env, output == "-")
             if stdout is not None:
-                if code == 0:
-                    stdout = rewrite_dependencies(
-                        stdout, fmt, env.get("TYPST_PACKAGE_PATH")
-                    )
+                stdout = rewrite_dependencies(
+                    stdout, fmt, env.get("TYPST_PACKAGE_PATH")
+                )
                 sys.stdout.buffer.write(stdout)
                 sys.stdout.buffer.flush()
-            elif code == 0 and output is not None:
+            elif output is not None and Path(output).exists():
                 rewrite_dependency_file(
                     Path(output), fmt, env.get("TYPST_PACKAGE_PATH")
                 )

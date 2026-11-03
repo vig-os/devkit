@@ -364,8 +364,11 @@ inputs point to stable source files, including when `--deps` is used directly.
 Both spaced and equals forms of `--deps` and `--deps-format` work. JSON, Make
 and `zero` outputs are rewritten in files or on stdout (`--deps -`). See the
 [registry guide](../assets/typst/README.md) for exact escaping limits and
-artifact I/O behavior. SIGTERM/SIGINT reach the child compiler, and temporary
-registries are removed after it exits.
+artifact I/O behavior. SIGHUP/SIGTERM/SIGINT reach the child compiler, and
+temporary registries are removed after it exits. Produced dependencies are
+stabilized even after a failed compile or signal termination, without changing
+the child exit status. Symlinked dependency paths retain the link and update
+the resolved target.
 Explicit CLI `--package-path` overrides this composition. Compilation errors,
 including invalid registry directories, propagate to the caller.
 
