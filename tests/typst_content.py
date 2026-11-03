@@ -117,10 +117,12 @@ def test_plot_in_fig_requires_caption(project):
 
 def test_glossary_used_terms_and_acronym_first_use(project):
     project += '#show: glossary-setup.with(yaml("/glossary.yaml"))\n'
+    Path("shared.typ").write_text('#term("cpu"), #term("cpu"). #term("sample").')
     result = compile_source(
         project
         + """#show: devkit-document.with()
-#term("cpu"), #term("cpu"). #term("sample").
+#include "shared.typ"
+#term("cpu").
 #glossary()
 """
     )
@@ -258,7 +260,7 @@ def pdf_words():
 
 
 @pytest.mark.parametrize(
-    "label", ["#super[*]", "#sub(typographic: false)[2]", "$text(size: #4pt, x)$"]
+    "label", [r"#super[\*]", "#sub(typographic: false)[2]", "$text(size: #4pt, x)$"]
 )
 def test_plot_script_and_math_text_floor(project, label):
     result = compile_source(

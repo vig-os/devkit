@@ -100,6 +100,31 @@ with tempfile.TemporaryDirectory() as directory:
             "devkit-docs::" + name,
         )
 
+    # A register larger than Linux's per-argument limit works through every API.
+    Path("glossary.yaml").write_text(
+        "- id: large\n  term: Largemarker\n  definition: Large register\n  kind: term\n"
+        + "#"
+        + "padding" * 23000
+        + "\n"
+    )
+    Path("main.typ").write_text(
+        prefix + '#show: glossary-setup.with(yaml("/glossary.yaml"))\n#term("large")'
+    )
+    run("git", "add", "main.typ", "glossary.yaml")
+    run("prek", "run", "--config", "guards.json", "typst-compile", "--all-files")
+    recipe("typst-canonical")
+    run(
+        "typst",
+        "compile",
+        "--root",
+        ".",
+        "--ignore-system-fonts",
+        "main.typ",
+        "main.pdf",
+    )
+    assert "Largemarker" in run("pdftotext", "main.pdf", "-")
+    Path("main.typ").write_text(source)
+
     recipe("typst")
     stamp = run("git", "rev-parse", "--short=8", "HEAD").strip()
     text = run("pdftotext", "-layout", "generated/main.pdf", "-")
