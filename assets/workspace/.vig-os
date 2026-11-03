@@ -30,9 +30,13 @@ DEVKIT_PROJECT=
 DEVKIT_ORG=
 DEVKIT_REPO=
 
-# Reserved: space-separated capability modules for the project dev-shell,
+# Space-separated capability modules for the project dev-shell,
 # mirroring mkProjectShell's `modules = [ ... ]` in flake.nix (#884).
 DEVKIT_MODULES=""
+# docs only: comma-separated repository-relative Typst skip globs.
+DEVKIT_TYPST_SKIP=""
+# docs only: colon-separated existing repo-relative font directories (branding).
+DEVKIT_TYPST_FONT_PATHS=""
 
 # Release tag prefix applied ONLY at the publishing edge — the pushed tag name
 # and the changelog release link. Empty (default) => bare X.Y.Z tags (no change

@@ -312,6 +312,7 @@ _mutant_runner() {
     cp -a "$PROJECT_ROOT/tests/." "$copy/tests/"
     cp "$PROJECT_ROOT/install.sh" "$copy/install.sh"
     cp "$PROJECT_ROOT/assets/init-workspace.sh" "$copy/assets/init-workspace.sh"
+    cp "$PROJECT_ROOT/assets/preserved-hooks.sh" "$copy/assets/preserved-hooks.sh"
     RENDER_CELL="$copy/scripts/consumer-matrix/render-cell.sh"
     python3 - "$copy" "$mutation" <<'PYEDIT'
 import sys

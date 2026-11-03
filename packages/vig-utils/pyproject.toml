@@ -16,6 +16,8 @@ authors = [
 ]
 
 [project.scripts]
+reconcile-preserved-hooks = "vig_utils.preserved_hooks:main"
+typst-guard = "vig_utils.typst_guard:main"
 site-leak-check = "vig_utils.site_leak_check:main"
 check-hardcoded-endpoints = "vig_utils.check_hardcoded_endpoints:main"
 check-site-config = "vig_utils.site_config:main"

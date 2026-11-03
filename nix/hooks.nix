@@ -207,6 +207,73 @@ let
   ];
   dotenvFiles = "(^|/)(\\.env(\\.[^/]*)?|[^/]+\\.env)$";
 
+  # Module-owned entries have one portable definition and a store-path wrapper.
+  # The installer consumes portable.docs; ordinary runner/scaffold renders omit it.
+  docsSpecs = {
+    typstyle-check = {
+      mode = "format";
+      files = "\\.typ$";
+    };
+    typst-compile = {
+      mode = "compile";
+      files = "\\.typ$|^\\.vig-os$";
+    };
+    typst-preview-pins = {
+      mode = "pins";
+      files = "\\.typ$";
+    };
+    forbid-generated-pdf = {
+      mode = "pdf";
+      files = "(?i)(^|/)generated/.*\\.pdf$";
+    };
+  };
+  docsHook =
+    id: spec:
+    let
+      common = {
+        name = id;
+        language = "system";
+        inherit (spec) files;
+      }
+      //
+        lib.optionalAttrs
+          (builtins.elem spec.mode [
+            "compile"
+            "pdf"
+          ])
+          {
+            always_run = true;
+            pass_filenames = false;
+          }
+      // lib.optionalAttrs (spec.mode != "pdf") {
+        exclude = "(^|/)generated/";
+      };
+    in
+    {
+      yaml = common // {
+        entry = "typst-guard ${spec.mode}";
+      };
+      consumer =
+        pkgs:
+        (builtins.removeAttrs common [ "exclude" ])
+        // {
+          excludes = lib.optional (spec.mode != "pdf") "(^|/)generated/";
+          enable = true;
+          entry = toString (
+            pkgs.writeShellScript "${id}" ''
+              export PATH=${
+                lib.makeBinPath [
+                  pkgs.typst
+                  pkgs.typstyle
+                ]
+              }:"$PATH"
+              exec ${import ./vig-utils.nix pkgs}/bin/typst-guard ${spec.mode} "$@"
+            ''
+          );
+        };
+    };
+  docsDefs = lib.mapAttrs docsHook docsSpecs;
+
   hookDefs = {
     # Site-private rules are absent in hosted/fork checkouts: a silent no-op.
     # Files passed by pre-commit cover its staged snapshot or --all-files tree.
@@ -1216,6 +1283,12 @@ in
   portable = {
     runner = portableFor true;
     scaffold = portableFor false;
+    docs.repos = [
+      {
+        repo = "local";
+        hooks = lib.mapAttrsToList (id: d: { inherit id; } // d.yaml) docsDefs;
+      }
+    ];
   };
 
   # Arguments for git-hooks.nix `run` building the sandbox-pure
@@ -1252,9 +1325,12 @@ in
       commitTypes ? null,
       refsPolicy ? null,
       refsOptionalTypes ? null,
+      docs ? false,
     }:
     let
-      base = collectFor "consumer" "consumerName" pkgs;
+      base =
+        collectFor "consumer" "consumerName" pkgs
+        // lib.optionalAttrs docs (lib.mapAttrs (_: d: d.consumer pkgs) docsDefs);
       # validate-commit-msg argv: commit-types (#1431) and the Refs policy
       # (#1282) feed one computation, because `optional` mirrors the resolved
       # types list.
@@ -1271,6 +1347,11 @@ in
       excludes = baseExcludes;
       hooks =
         base
+        // lib.optionalAttrs docs (
+          lib.genAttrs [ "end-of-file-fixer" "trim-trailing-whitespace" "mixed-line-endings" ] (
+            name: base.${name} // { excludes = [ "(^|/)generated/" ]; }
+          )
+        )
         // lib.optionalAttrs (effectiveBranchArgs != defaultValidateBranchNameArgs) {
           validate-branch-name = base.validate-branch-name // {
             args = effectiveBranchArgs;

@@ -439,8 +439,10 @@
           # the shell stays byte-identical to the no-hooks builder (parity:
           # tests/test_flake_devshell.py, tests/test_flake_hooks.py).
           # ------------------------------------------------------------------
+          docsEnabled = builtins.any (entry: (normalizeModuleEntry entry).name == "docs") modules;
           hooksEnabled = hooks != null || hooksExcludes != [ ];
           consumerHooksBase = hooksModule.consumer pkgs {
+            docs = docsEnabled;
             inherit
               workflow
               branchTypes
@@ -1314,6 +1316,29 @@
 
           # The sandbox-pure subset of the pre-commit hooks, run by the prek
           # runner via git-hooks.nix (see preCommitCheck above). Refs #778.
+          typst-canary =
+            pkgs.runCommand "typst-canary"
+              {
+                nativeBuildInputs = [
+                  pkgs.python314
+                  pkgs.git
+                  pkgs.prek
+                  pkgs.just
+                  pkgs.vig-utils
+                  pkgs.typst
+                  pkgs.typstyle
+                  pkgs.tinymist
+                  pkgs.poppler-utils
+                  pkgs.bash
+                ];
+              }
+              ''
+                export PREK_HOME="$TMPDIR/prek"
+                export FONTCONFIG_FILE=${pkgs.makeFontsConf { fontDirectories = [ pkgs.liberation_ttf ]; }}
+                python ${./tests/typst_canary.py} ${./assets/docs-hooks.json} ${./assets/justfile.d/docs.justfile} ${./assets} ${pkgs.liberation_ttf}
+                touch "$out"
+              '';
+
           pre-commit = preCommitCheck;
 
           # The dev-shell evaluates and its closure builds.

@@ -406,6 +406,8 @@ MANIFEST_PROJECT="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_PROJECT || tru
 MANIFEST_ORG="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_ORG || true)"
 MANIFEST_REPO="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REPO || true)"
 MANIFEST_MODULES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_MODULES || true)"
+MANIFEST_TYPST_SKIP="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TYPST_SKIP || true)"
+MANIFEST_TYPST_FONT_PATHS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TYPST_FONT_PATHS || true)"
 MANIFEST_TAG_PREFIX="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TAG_PREFIX || true)"
 MANIFEST_RELEASE_REQUIRED_APPROVALS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_RELEASE_REQUIRED_APPROVALS || true)"
 if [[ -n "$MANIFEST_RELEASE_REQUIRED_APPROVALS" && ! "$MANIFEST_RELEASE_REQUIRED_APPROVALS" =~ ^[0-9]+$ ]]; then
@@ -2830,45 +2832,8 @@ render_actionlint_optout() {
 # Used on the template (to read the block to write) and on the consumer's file
 # (to find the anchor entry to write after), hence the whitespace tolerance. Only
 # the START moves: the anchor path reads the END, which is unchanged.
-hook_block_range() {
-    awk -v id="$2" '
-        # Exact id, never a prefix (#1727): the token after the marker is
-        # extracted and compared as a STRING, so on this sentinel path `id` is
-        # never interpolated into a regex and a metacharacter in a hook id cannot
-        # change what matches. (The structural branch below still builds its
-        # `- id:` pattern from `id`; hook ids are plain words.)
-        function sentinel(line, dir,    tok) {
-            if (!match(line, /^[[:space:]]*# (>>>|<<<) devkit:[^[:space:]]+/)) return 0
-            tok = substr(line, RSTART, RLENGTH)
-            sub(/^[[:space:]]*/, "", tok)
-            return tok == "# " dir " devkit:" id
-        }
-        { L[NR] = $0 }
-        sentinel($0, ">>>") { ss = NR }
-        sentinel($0, "<<<") { se = NR }
-        END {
-            if (ss && se && se >= ss) { print ss, se; exit 0 }
-            for (i = 1; i <= NR; i++) {
-                if (L[i] ~ /^[[:space:]]*-[[:space:]]+repo:/) cur = i
-                if (cur && L[i] ~ ("^[[:space:]]*-[[:space:]]+id:[[:space:]]+" id "[[:space:]]*$")) {
-                    entry = cur
-                    break
-                }
-            }
-            if (!entry) exit 1
-            e = NR
-            for (i = entry + 1; i <= NR; i++)
-                if (L[i] ~ /^[[:space:]]*-[[:space:]]+repo:/) { e = i - 1; break }
-            while (e > entry && (L[e] ~ /^[[:space:]]*$/ || L[e] ~ /^[[:space:]]*#/)) e--
-            start = entry
-            while (start > 1 && L[start - 1] ~ /^[[:space:]]*#/ &&
-                   !index(L[start - 1], "# >>> devkit:") &&
-                   !index(L[start - 1], "# <<< devkit:"))
-                start--
-            print start, e
-        }
-    ' "$1"
-}
+# shellcheck source=assets/preserved-hooks.sh
+source "$(dirname "${BASH_SOURCE[0]}")/preserved-hooks.sh"
 
 # The template's current block for hook $1, verbatim. Read from the RENDERED
 # template, never re-derived: the committed scaffold YAML is generated from
@@ -2934,34 +2899,9 @@ verbatim_block_range() {
 # file with mktemp's 0600 inode, silently de-group-reading a tracked file (and
 # breaking a hardlink). precommit_render_target has already refused a symlink,
 # so the target is a regular file whose mode and inode this preserves.
-splice_lines() {
-    local file="$1" start="$2" end="$3" text="$4"
-    local tmp
-    tmp="$(mktemp)"
-    if [[ "$start" -gt 1 ]]; then
-        head -n "$((start - 1))" "$file" > "$tmp"
-    else
-        : > "$tmp"
-    fi
-    printf '%s\n' "$text" >> "$tmp"
-    tail -n +"$((end + 1))" "$file" >> "$tmp"
-    cat "$tmp" > "$file"
-    rm -f "$tmp"
-}
 
 # Rewrite $1 without lines $2..$3 (inclusive). Same copy-back as splice_lines,
 # for the same mode/inode reason.
-delete_lines() {
-    local file="$1" start="$2" end="$3"
-    local tmp
-    tmp="$(mktemp)"
-    {
-        head -n "$((start - 1))" "$file"
-        tail -n +"$((end + 1))" "$file"
-    } > "$tmp"
-    cat "$tmp" > "$file"
-    rm -f "$tmp"
-}
 
 # Print "ANCHOR END" for template hook $2 in file $1: the nearest hook the
 # template places before it that the file carries (#1725), and the last line of
@@ -3277,6 +3217,59 @@ insert_missing_hook_blocks() {
     done < <(inserted_hook_blocks)
 }
 
+plan_docs_module() {
+    local recipes="$WORKSPACE_DIR/justfile.devkit-docs"
+    case " $MANIFEST_MODULES " in
+        *" docs "*)
+            reconcile_plan_header
+            echo "  +  insert/reconcile docs hooks in .pre-commit-config.yaml; managed justfile.devkit-docs and justfile import"
+            ;;
+        *)
+            if [[ -e "$recipes" ]]; then
+                reconcile_plan_header
+                echo "  -  managed docs hooks, justfile.devkit-docs and justfile import"
+            fi
+            ;;
+    esac
+}
+
+# Module-owned hooks extend preserved-config reconciliation; store symlinks stay
+# owned by mkProjectShell. Reconciliation warnings must not abort an upgrade.
+render_docs_module() {
+    local enabled=false pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
+    local recipes="$WORKSPACE_DIR/justfile.devkit-docs"
+    local justfile="$WORKSPACE_DIR/justfile" tmp managed=false
+    if [[ "${1:-apply}" == plan ]]; then
+        plan_docs_module
+        return 0
+    fi
+    case " $MANIFEST_MODULES " in *" docs "*) enabled=true ;; esac
+    if [[ -L "$recipes" ]] || { [[ -e "$recipes" ]] && ! head -n 1 "$recipes" | grep -q '^# Managed by vigOS devkit'; }; then
+        echo "Notice: consumer-owned justfile.devkit-docs retained; add document recipes by hand if needed." >&2
+    elif [[ "$enabled" == true ]]; then
+        cp "$TEMPLATE_DIR/../justfile.d/docs.justfile" "$recipes"
+        managed=true
+    else
+        rm -f "$recipes"
+    fi
+    if [[ -f "$justfile" && ! -L "$justfile" ]]; then
+        tmp="$(mktemp)"
+        awk -v line="import? 'justfile.devkit-docs'" '$0 != line' "$justfile" > "$tmp"
+        if [[ "$managed" == true ]]; then
+            printf "import? 'justfile.devkit-docs'\n" >> "$tmp"
+        fi
+        cat "$tmp" > "$justfile"
+        rm -f "$tmp"
+    fi
+    if [[ "$enabled" == true ]] || { [[ -f "$pc" && ! -L "$pc" ]] && grep -qE '^[[:space:]]*# >>> devkit:docs([[:space:]]|$)' "$pc"; }; then
+        if ! command -v reconcile-preserved-hooks >/dev/null 2>&1; then
+            echo "Warning: enter the devkit toolchain to reconcile docs hooks; see docs/NIX.md." >&2
+        elif ! reconcile-preserved-hooks "$WORKSPACE_DIR" "$TEMPLATE_DIR/../docs-hooks.json" "$enabled"; then
+            echo "Warning: docs hook reconciliation declined; installer continues. Follow the manual advice above." >&2
+        fi
+    fi
+}
+
 # One pass, two gates. `apply` rewrites; `plan` reports what a real run would do
 # and touches nothing (the --preview contract, #886). Both refuse the same two
 # targets through precommit_render_target (#1640): an absent config, and a
@@ -3285,9 +3278,11 @@ insert_missing_hook_blocks() {
 reconcile_preserved_hooks() {
     local mode="${1:-apply}"
     local pc
-    pc="$(precommit_render_target)" || return 0
-    fold_retired_hook_blocks "$mode" "$pc"
-    insert_missing_hook_blocks "$mode" "$pc"
+    if pc="$(precommit_render_target)"; then
+        fold_retired_hook_blocks "$mode" "$pc"
+        insert_missing_hook_blocks "$mode" "$pc"
+    fi
+    render_docs_module "$mode"
 }
 
 # Excise the release recipes when the release feature is disabled (#1656). Every
@@ -4575,6 +4570,12 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     write_manifest_value DEVKIT_PROJECT "$SHORT_NAME"
     write_manifest_value DEVKIT_ORG "$ORG_NAME"
     write_manifest_value DEVKIT_REPO "$GITHUB_REPOSITORY"
+    if [[ -n "$MANIFEST_TYPST_FONT_PATHS" ]]; then
+        write_manifest_value DEVKIT_TYPST_FONT_PATHS "\"$MANIFEST_TYPST_FONT_PATHS\""
+    fi
+    if [[ -n "$MANIFEST_TYPST_SKIP" ]]; then
+        write_manifest_value DEVKIT_TYPST_SKIP "\"$MANIFEST_TYPST_SKIP\""
+    fi
     if [[ -n "$MANIFEST_MODULES" ]]; then
         write_manifest_value DEVKIT_MODULES "\"$MANIFEST_MODULES\""
     fi
