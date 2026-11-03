@@ -43,6 +43,7 @@ jobs:
       runner-json: ${{ steps.resolve.outputs.runner-json }}
       tag-prefix: ${{ steps.resolve.outputs.tag-prefix }}
       floating-tags: ${{ steps.resolve.outputs.floating-tags }}
+      release-required-approvals: ${{ steps.resolve.outputs.release-required-approvals }}
       prerelease-format: ${{ steps.resolve.outputs.prerelease-format }}
     steps:
       - name: Checkout repository
@@ -226,6 +227,7 @@ jobs:
 
       - name: Find and verify release PR
         env:
+          DEVKIT_RELEASE_REQUIRED_APPROVALS: ${{ needs.resolve-toolchain.outputs.release-required-approvals }}
           VERSION: ${{ steps.vars.outputs.version }}
           GH_TOKEN: ${{ steps.release_app_token.outputs.token }}
         run: |
@@ -260,9 +262,7 @@ jobs:
           # rulesets only, not classic branch protection — a classic-protection
           # repo skips here and degrades to the platform's own merge-time
           # refusal (fail-late, never fail-open).
-          REQUIRED_APPROVALS=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh api \
-            "repos/${GITHUB_REPOSITORY}/rules/branches/main" \
-            | jq '[.[] | select(.type == "pull_request") | .parameters.required_approving_review_count // 0] | max // 0')
+          source .github/scripts/release-required-approvals.sh
           if [ "$REQUIRED_APPROVALS" -eq 0 ]; then
             echo "Base branch requires no approving reviews — approval gate skipped (#1506)"
           elif [ "$REVIEW_DECISION" = "APPROVED" ]; then
@@ -272,8 +272,8 @@ jobs:
               --paginate --slurp \
               "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews" \
               | jq 'add | map(select(.state == "APPROVED")) | length')
-            if [ "$APPROVED_COUNT" -eq 0 ]; then
-              echo "ERROR: PR #$PR_NUMBER is not approved (reviewDecision: $REVIEW_DECISION, approved reviews: 0)"
+            if [ "$APPROVED_COUNT" -lt "$REQUIRED_APPROVALS" ]; then
+              echo "ERROR: PR #$PR_NUMBER is not approved (reviewDecision: $REVIEW_DECISION, approved reviews: $APPROVED_COUNT, required: $REQUIRED_APPROVALS)"
               exit 1
             fi
             echo "reviewDecision='$REVIEW_DECISION' but $APPROVED_COUNT approved review(s) found"
@@ -457,6 +457,7 @@ jobs:
       - name: Find and verify release PR
         id: pr
         env:
+          DEVKIT_RELEASE_REQUIRED_APPROVALS: ${{ needs.resolve-toolchain.outputs.release-required-approvals }}
           VERSION: ${{ needs.validate.outputs.version }}
           GH_TOKEN: ${{ steps.release_app_token.outputs.token }}
         run: |
@@ -494,9 +495,7 @@ jobs:
 
           # Protection-aware approval gate (#1506) — same skip as validate;
           # PR state can change between the jobs, so the merge copy re-checks.
-          REQUIRED_APPROVALS=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh api \
-            "repos/${GITHUB_REPOSITORY}/rules/branches/main" \
-            | jq '[.[] | select(.type == "pull_request") | .parameters.required_approving_review_count // 0] | max // 0')
+          source .github/scripts/release-required-approvals.sh
           if [ "$REQUIRED_APPROVALS" -eq 0 ]; then
             echo "Base branch requires no approving reviews — approval gate skipped (#1506)"
           elif [ "$REVIEW_DECISION" = "APPROVED" ]; then
@@ -506,7 +505,7 @@ jobs:
               --paginate --slurp \
               "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews" \
               | jq 'add | map(select(.state == "APPROVED")) | length')
-            if [ "$APPROVED_COUNT" -eq 0 ]; then
+            if [ "$APPROVED_COUNT" -lt "$REQUIRED_APPROVALS" ]; then
               echo "ERROR: PR #$PR_NUMBER does not have approvals"
               exit 1
             fi

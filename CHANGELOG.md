@@ -99,6 +99,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Promote releases on plan-limited private repositories** ([#1851](https://github.com/vig-os/devkit/issues/1851))
+  - Stop retrying rulesets HTTP 403 responses and require one approval by default in both promote gates.
+  - Add `DEVKIT_RELEASE_REQUIRED_APPROVALS` for the 403 fallback; solo consumers can set 0, while real ruleset requirements retain precedence.
+
 - **Recover promotion after a manually merged release PR** ([#1990](https://github.com/vig-os/devkit/issues/1990))
   - Verify approval and main ancestry, skip the completed merge, and allow recovery from main or dev after branch deletion.
 

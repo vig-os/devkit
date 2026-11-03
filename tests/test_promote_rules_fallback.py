@@ -21,6 +21,7 @@ from tests.workflow_scaffold import WORKFLOWS, WORKSPACE
         (403, "2", 2, 2, True, 1),
         (200, "0", 0, 1, False, 1),
         (200, "0", 1, 1, True, 1),
+        (200, "2", 0, 0, True, 1),
         (500, "0", 1, 1, False, 3),
     ],
 )
@@ -32,7 +33,7 @@ def test_rules_gate(tmp_path, job, status, knob, approvals, required, ok, calls)
         " with open(os.environ['CALLS'], 'a') as f: f.write('call\\n')\n"
         " if os.environ['STATUS'] != '200':\n"
         "  print('gh: plan limit (HTTP '+os.environ['STATUS']+')',file=sys.stderr); sys.exit(1)\n"
-        " print(json.dumps([{'type':'pull_request','parameters':{'required_approving_review_count':1}}]))\n"
+        " print(json.dumps([{'type':'pull_request','parameters':{'required_approving_review_count':int(os.environ['REQUIRED'])}}]))\n"
         "elif a[:2]==['pr','list']: print(os.environ['PRS'])\n"
         'elif a[:2]==[\'pr\',\'view\']: print(\'{"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN"}\')\n'
         "else: print(json.dumps([[{'state':'APPROVED'}]*int(os.environ['APPROVALS'])]))\n"
@@ -47,7 +48,7 @@ def test_rules_gate(tmp_path, job, status, knob, approvals, required, ok, calls)
     pr = {
         "number": 42,
         "isDraft": False,
-        "reviewDecision": None,
+        "reviewDecision": "APPROVED" if approvals else None,
         "statusCheckRollup": [{"name": "CI", "conclusion": "SUCCESS"}],
     }
     replay = Replay(
@@ -67,6 +68,7 @@ def test_rules_gate(tmp_path, job, status, knob, approvals, required, ok, calls)
         base_env={
             "PATH": f"{tmp_path}:{os.environ['PATH']}",
             "STATUS": str(status),
+            "REQUIRED": str(required),
             "CALLS": str(tmp_path / "calls"),
             "PRS": json.dumps([pr]),
             "APPROVALS": str(approvals),

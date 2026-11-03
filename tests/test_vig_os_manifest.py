@@ -91,7 +91,7 @@ def test_release_approvals_manifest(tmp_path, value):
     from tests.workflow_scaffold import exec_resolve_toolchain, scaffold
 
     valid = value in {"", "0", "2"}
-    manifest = f"DEVKIT_MODE=bare\nDEVKIT_RELEASE_REQUIRED_APPROVALS={value}\n"
+    manifest = f"DEVKIT_MODE=both\nDEVKIT_VERSION=1.2.3\nDEVKIT_RELEASE_REQUIRED_APPROVALS={value}\n"
     resolve_dir = tmp_path / "resolve"
     resolve_dir.mkdir()
     proc, outputs = exec_resolve_toolchain(resolve_dir, manifest)
