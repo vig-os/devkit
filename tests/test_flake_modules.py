@@ -315,31 +315,73 @@ def test_node_module_rejects_unknown_option(current_system: str) -> None:
 
 # ---------------------------------------------------------------------------
 # docs module (#1178) — the document-edition capability. v1 contract (packages
-# only): `typst` and `typstyle` on the dev-shell PATH so a document-oriented
-# consumer (exo-pet/vault, future qms, EXOMA presentations/grants) opts in with
-# `modules = [ "docs" ]` instead of a PyPI typst pin. No version option in v1 —
-# nixpkgs carries a single typst per pin and the module tracks that pin. See
+# only): the unstable Typst toolchain on the dev-shell PATH for document-oriented
+# consumers opting in with `modules = [ "docs" ]`. No version option in v1. See
 # docs/rfcs/ADR-capability-modules.md. #1573 adds the reading side of the same
 # capability (`poppler-utils`); OCR stays deliberately out (see that test).
 # ---------------------------------------------------------------------------
 
 
-def test_docs_module_provides_typst_and_typstyle(current_system: str) -> None:
-    """The ``docs`` module puts ``typst`` and ``typstyle`` on PATH (#1178).
+def test_docs_toolchain_tracks_unstable(current_system: str) -> None:
+    """All docs entry points use the same unstable Typst minor (#1993)."""
+    expr = f"""
+    let
+      flake = builtins.getFlake "path:{REPO_ROOT}";
+      system = "{current_system}";
+      pkgs = import flake.inputs.nixpkgs {{
+        inherit system;
+        overlays = [ flake.overlays.default ];
+        config.allowUnfree = true;
+      }};
+      unstable = import flake.inputs.nixpkgs-unstable {{ inherit system; }};
+      names = [ "typst" "typstyle" "tinymist" ];
+      describe = p: {{ inherit (p) pname version drvPath; }};
+      select = packages: map describe
+        (builtins.filter (p: builtins.elem (p.pname or "") names) packages);
+    in {{
+      unstable = map (name: describe unstable.${{name}}) names;
+      overlay = map (name: describe pkgs.${{name}}) names;
+      module = select ((import (flake.outPath + "/nix/modules/docs.nix")) pkgs {{}}).packages;
+      shell = select (flake.lib.mkProjectShell {{
+        inherit pkgs;
+        modules = [ "docs" ];
+      }}).nativeBuildInputs;
+      check = select flake.checks.${{system}}.module-docs.nativeBuildInputs;
+    }}
+    """
+    result = subprocess.run(
+        ["nix", "eval", "--impure", "--json", "--expr", expr],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stderr
+    paths = json.loads(result.stdout)
+    expected = {p["pname"]: p for p in paths.pop("unstable")}
+    assert len({".".join(p["version"].split(".")[:2]) for p in expected.values()}) == 1
+    for entry, packages in paths.items():
+        assert {p["pname"]: p for p in packages} == expected, (
+            f"{entry} must provide all three tools from unstable: {packages!r}"
+        )
+
+
+def test_docs_module_provides_typst_typstyle_and_tinymist(current_system: str) -> None:
+    """The ``docs`` module puts the Typst toolchain on PATH (#1178, #1993).
 
     The plain-string ``modules = [ "docs" ]`` form (exercised through the
     registry-generated ``module-docs`` check — which is also the proof the
-    registry resolves the name) contributes the nixpkgs-pinned ``typst`` and
-    ``typstyle``; both must resolve from the shell's own PATH, not the host's.
+    registry resolves the name) contributes unstable ``typst``, ``typstyle``,
+    and ``tinymist``; all must resolve from the shell's own PATH, not the host's.
     """
     proc = _develop_module(
         current_system,
         "docs",
-        "command -v typst && command -v typstyle "
-        "&& typst --version && typstyle --version",
+        "command -v typst && command -v typstyle && command -v tinymist "
+        "&& typst --version && typstyle --version && tinymist --version",
     )
     assert proc.returncode == 0, (
-        "docs-module devshell is missing typst/typstyle: "
+        "docs-module devshell is missing typst/typstyle/tinymist: "
         f"rc={proc.returncode} stdout={proc.stdout.strip()!r} "
         f"stderr={proc.stderr.strip()[:300]}"
     )
@@ -349,8 +391,7 @@ def test_docs_module_provides_poppler_utils(current_system: str) -> None:
     """The ``docs`` module puts ``pdftotext`` and ``pdftoppm`` on PATH (#1573).
 
     ``typst``/``typstyle`` cover writing documents; ``poppler-utils`` covers
-    *reading* them, which every named ``docs`` consumer needs (exo-pet/vault's
-    corpus is largely vendor PDFs, and qms/EXOMA share that profile).
+    *reading* them, which document-oriented consumers need.
     ``pdftoppm`` is the concrete blocker: it is what an agent's file reader
     shells out to in order to render a PDF page, so without it a ``docs``
     consumer cannot open a PDF at all. Both binaries must resolve from the
@@ -359,8 +400,7 @@ def test_docs_module_provides_poppler_utils(current_system: str) -> None:
     OCR (``tesseract`` at 1.11 GB, ``ocrmypdf`` at 1.68 GB) is deliberately NOT
     here — it would charge every ``docs`` consumer an order of magnitude more
     than ``poppler-utils``' 139 MB for a capability most never use; it stays
-    repo-local until a second consumer justifies its own module
-    (exo-pet/vault#70).
+    repo-local until a dedicated capability is justified.
     """
     proc = _develop_module(
         current_system,
