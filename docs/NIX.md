@@ -364,13 +364,21 @@ images and math count as content. The source scan skips comments, strings and
 raw examples. Package source is outside the consumer scan. Use house-style
 parameters for branding and layout overrides.
 
-Guard runs use an ephemeral source tree and add labels to direct builtin
-figure/table/image calls and `fig()` for file/line diagnostics and suppression.
-Existing labels are preserved. Calls produced by other package helpers may
-have only an entry-file diagnostic; use skip globs for those entries. Suppression
-is attached to the source call, including when a helper executes repeatedly.
-Consumer sources and normal builds are untouched. A compile error or document
-warning fails the guard before content checking.
+Guard runs share one ephemeral source tree across all entries. Image calls retain
+native image values; path-valued arguments retain the calling source file, so
+included parts and nested documents resolve assets correctly. Leading `/` uses
+the repository root. Query-only show rules emit image/page metadata. Direct
+figure/table calls and `fig()`, `booktabs-table()` and `plain-table()` get source
+labels for diagnostics and suppression. Unlabelled tables derived by the
+package are excluded from findings. Local template functions that set page or
+font count as bypasses, including multi-line `#let` signatures.
+
+If instrumentation fails or warns, the guard validates a clean plain compile
+before falling back for that entry with a warning. A plain compile failure
+still fails the guard. The fallback queries native figures and source-located
+tables and uses the documented image sizing fallback. Some custom helpers can
+have only an entry-file diagnostic; skip globs remain available. Compiler
+outputs live outside the mirrored assets so consumer files cannot be overwritten.
 
 With `@local/devkit-docs:0.1.2` and its document show rule, the guard-only input
 `devkit-guard-measure=true` enables image measurement metadata. It resolves
@@ -383,20 +391,28 @@ percentages use the page width minus margins, with A4 and 2.5 cm margins as
 the fallback. Automatic width uses the SVG intrinsic width capped at the page
 text width. This fallback does not infer grid or column widths. Unresolved
 sizes emit a warning naming the source file and do not fail the guard.
+Image sizing composes width and height, `contain`/`cover`/`stretch`, and SVG
+`preserveAspectRatio` meet/slice/none with the viewBox. Height-only images use
+their natural aspect ratio. A native Typst `scale(...)` around an image emits
+a warning instead of claiming a physical font size.
 The SVG check reads viewBox width (or intrinsic dimensions), inherited
 font-size, inline styles and simple tag/class/id CSS rules. SVG px are user
 units; absolute font units are converted before applying the placed scale.
 Scale transforms are applied; rotations and translations preserve size. Complex
 CSS selectors, affine/skew transforms and unresolved font units emit a warning
 rather than an inaccurate measurement. Text converted to outlines cannot be
-identified as lettering. Raster images are skipped: prefer SVG or native plots
-for charts.
+identified as lettering. Unused `<defs>` and hidden text are ignored; local
+`<use>` references are followed. Matplotlib DOCTYPEs are accepted without
+allowing entities or external XML references. Raster images are skipped: prefer
+SVG or native plots for charts. The hardened parser is a shared vig-utils runtime
+dependency (also installed for non-docs consumers); guard activation stays opt-in.
 
 The real-compiler contract runs in `checks.<system>.typst-content`, so the
 default non-docs test environment does not need Typst.
 
-Each entry uses one dependency compile and one combined Typst JSON query,
-with at most two compiler workers. To reproduce the medium-document timing,
+Normally each entry uses one dependency compile and one combined Typst JSON query,
+with at most two compiler workers. A fallback also validates the plain compile.
+To reproduce timing for 20 entries and 30,000 unrelated files,
 run `uv run python packages/vig-utils/tests/benchmark_typst_content.py`.
 
 #### House-style package

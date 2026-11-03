@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Opt-in Typst content guards** ([#1994](https://github.com/vig-os/devkit/issues/1994))
   - Check figure captions, table headers, house-style overrides and SVG text below 7 pt at its placed size, with skip globs and source-line suppression.
   - Retain prior house-style imports and add 0.1.2 guard-only layout measurements without changing normal PDF output.
+  - Preserve native image values with a validated plain-compile fallback; resolve source-relative SVGs, Matplotlib DOCTYPEs, fit/height/viewBox sizing, hidden text and local template overrides. Reuse one mirror per run.
+  - Keep defusedxml in the shared vig-utils runtime, including non-docs consumers, to guarantee the same hardened XML parser in dynamically enabled docs hooks and recipes without a second Python environment. Guard activation remains docs-only.
 
 - **Offline Typst house-style package** ([#1994](https://github.com/vig-os/devkit/issues/1994))
   - Add the versioned, neutral devkit-docs package with document layout, booktabs tables, captions, callouts, revisions, and document references.

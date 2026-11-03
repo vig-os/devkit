@@ -9,12 +9,13 @@ import subprocess
 import sys
 import tempfile
 import unicodedata
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from functools import partial
 from pathlib import Path
 
-from defusedxml.ElementTree import ParseError, parse
+from defusedxml.ElementTree import ParseError
 
+from vig_utils import typst_svg
 from vig_utils.typst_packages import package_environment
 
 MODES = ("figure-caption", "table-header", "house-style-bypass", "figure-text-size")
@@ -70,6 +71,10 @@ def in_code(i, lex, pairs, source):
         if lex[opening][0] == "[":
             return False
         return in_code(opening, lex, pairs, source)
+    if lex[i][0] == "{" and i > 2 and lex[i - 1][0] == "=":
+        signature = next((a for a, b in pairs.items() if b == i - 2), None)
+        if signature is not None and signature >= 2 and lex[signature - 2][0] == "let":
+            return True
     if lex[i][0] in ("(", "{") and i:
         return in_code(i - 1, lex, pairs, source)
     line = source[source.rfind("\n", 0, lex[i][1]) + 1 : lex[i][1]]
@@ -81,7 +86,15 @@ def call_spans(source):
     lex = tokens(source)
     pairs = delimiter_pairs(lex)
     for i, (word, start, _) in enumerate(lex[:-1]):
-        if word not in ("figure", "fig", "table", "image", "set"):
+        if word not in (
+            "figure",
+            "fig",
+            "table",
+            "booktabs-table",
+            "plain-table",
+            "image",
+            "set",
+        ):
             continue
         if i and lex[i - 1][0] in (".", "set", "let"):
             continue
@@ -149,13 +162,38 @@ def instrument(source, path, origins):
         if existing:
             label = existing[1]
         origins[f"<{label}>"] = (path, line, suppressed)
-        prefix = "[#("
         if kind == "image":
-            prefix = (
-                '[#context metadata((kind: "devkit-page", id: '
-                + json.dumps(f"<{label}>")
-                + ", width: page.width, margin: page.margin))#("
-            )
+            record = {
+                "id": f"<{label}>",
+                "origin": (path, line, suppressed),
+                "raw": None,
+                "path": None,
+            }
+            first = tokens(args)
+            if first and first[0][0].startswith('"'):
+                try:
+                    raw = json.loads(first[0][0])
+                    canonical = (
+                        raw.lstrip("/")
+                        if raw.startswith("/")
+                        else str(Path(path).parent / raw)
+                    )
+                    canonical = os.path.normpath(canonical)
+                    record.update(raw=raw, path=canonical)
+                    offset = source.index(args, start, end)
+                    edits.extend(
+                        [(offset + first[0][1], "path("), (offset + first[0][2], ")")]
+                    )
+                    # path() is evaluated at the original call site and retains
+                    # its file identity in query JSON, without changing image's type.
+                except ValueError:
+                    pass
+            origins.setdefault("image_calls", []).append(record)
+            continue
+        origins.setdefault(
+            "figure_calls" if kind in ("figure", "fig") else "table_calls", []
+        ).append(f"<{label}>")
+        prefix = "[#("
         suffix = ")]" if existing else ")#label(" + json.dumps(label) + ")]"
         edits.extend([(start, prefix), (end, suffix)])
     for offset, text in sorted(edits, reverse=True):
@@ -174,11 +212,15 @@ def prepare_tree(tree, origins):
             ".git", ".venv", "node_modules", "generated", ".registry"
         ),
     )
+    originals, written = {}, {}
     for path in tree.rglob("*.typ"):
         name = path.relative_to(tree).as_posix()
         source = path.read_text()
         path.unlink()
-        path.write_text(instrument(source, name, origins))
+        originals[name] = source
+        written[name] = instrument(source, name, origins)
+        path.write_text(written[name])
+    return originals, written
 
 
 def run_typst(command, flags, tree, env, entry):
@@ -202,54 +244,103 @@ def run_typst(command, flags, tree, env, entry):
     return result.stdout
 
 
-def query_document(entry):
-    """Compile dependencies and query all guards once per entry, with two jobs."""
+SIDECAR = """#show image: it => context {
+  metadata((kind: "devkit-source-image", element: it,
+    page: (width: page.width, height: page.height, margin: page.margin)))
+  it
+}
+#show scale: it => context {
+  metadata((kind: "devkit-transform", element: it))
+  it
+}
+"""
+
+
+def compiler_flags():
+    """Use the same deterministic compiler settings as the compile guard."""
     from vig_utils.typst_guard import project_font_paths
 
-    origins = {}
-    env = dict(os.environ, SOURCE_DATE_EPOCH="0", TZ="UTC")
-    env.pop("TYPST_FONT_PATHS", None)
-    flags = [
-        "--root",
-        ".",
-        "--ignore-system-fonts",
-        "--jobs",
-        "2",
-        "--input",
-        "devkit-guard-measure=true",
-    ]
+    flags = ["--root", ".", "--ignore-system-fonts", "--jobs", "2"]
     for font in project_font_paths():
         flags += ["--font-path", str(Path(font).resolve())]
-    with tempfile.TemporaryDirectory(prefix="devkit-content-") as directory:
-        tree = Path(directory) / "source"
-        prepare_tree(tree, origins)
-        with package_environment(env) as compiler_env:
-            execute = partial(
-                run_typst, flags=flags, tree=tree, env=compiler_env, entry=entry
-            )
+    return flags
 
-            # Outputs must not follow mirrored asset symlinks into the consumer.
-            output = Path(directory) / "guard.pdf"
-            deps_path = Path(directory) / "guard.deps.json"
-            execute(["compile", str(entry), str(output), "--deps", str(deps_path)])
-            deps = json.loads(deps_path.read_text())["inputs"]
-            active = set()
-            for name in deps:
-                p = Path(name)
-                p = p if p.is_absolute() else tree / p
-                if p.is_relative_to(tree):
-                    active.add(p.relative_to(tree).as_posix())
-            rows = json.loads(
-                execute(
-                    [
-                        "query",
-                        str(entry),
-                        "selector(figure).or(table).or(image).or(metadata)",
-                    ]
-                )
+
+def compile_query(entry, context, flags):
+    """Keep scratch outputs outside the mirrored source/asset tree."""
+    execute = partial(
+        run_typst, flags=flags, tree=context["tree"], env=context["env"], entry=entry
+    )
+    output, deps_path = context["output"], context["deps"]
+    execute(["compile", str(entry), str(output), "--deps", str(deps_path)])
+    rows = json.loads(
+        execute(["query", str(entry), "selector(figure).or(table).or(metadata)"])
+    )
+    active = set()
+    for name in json.loads(deps_path.read_text())["inputs"]:
+        path = Path(name)
+        path = path if path.is_absolute() else context["tree"] / path
+        if path.is_relative_to(context["tree"]):
+            active.add(path.relative_to(context["tree"]).as_posix())
+    return rows, active
+
+
+def restore_sources(context, sources):
+    """Switch only Typst sources; the single asset mirror stays in place."""
+    for name, source in sources.items():
+        (context["tree"] / name).write_text(source)
+
+
+def plain_fallback(entry, context, failure):
+    """Only accept fallback after the unmodified document compiles cleanly."""
+    restore_sources(context, context["originals"])
+    execute = partial(
+        run_typst,
+        flags=context["flags"],
+        tree=context["tree"],
+        env=context["env"],
+        entry=entry,
+    )
+    execute(["compile", str(entry), str(context["output"])])
+    print(
+        f"warning: {entry}: guard instrumentation failed; using plain fallback: {failure}",
+        file=sys.stderr,
+    )
+    path = context["tree"] / entry
+    path.write_text(SIDECAR + context["originals"][str(entry)])
+    try:
+        return compile_query(entry, context, context["flags"])
+    except ValueError as error:
+        # A custom show rule can also reject the query-only sidecar. Preserve
+        # the successful plain compile and retain native semantic queries.
+        print(f"warning: {entry}: image metadata unavailable: {error}", file=sys.stderr)
+        path.write_text(context["originals"][str(entry)])
+        return compile_query(entry, context, context["flags"])
+
+
+def query_document(entry, context):
+    """Query one entry in the shared mirror; restore it even after a failure."""
+    path = context["tree"] / entry
+    path.write_text(SIDECAR + context["written"][str(entry)])
+    fallback = False
+    try:
+        try:
+            rows, active = compile_query(
+                entry,
+                context,
+                [*context["flags"], "--input", "devkit-guard-measure=true"],
             )
-    bypasses = [row for row in origins.pop("bypasses", []) if row[0] in active]
-    return rows, origins, bypasses
+        except ValueError as failure:
+            fallback = True
+            rows, active = plain_fallback(entry, context, failure)
+    finally:
+        if fallback:
+            restore_sources(context, context["written"])
+        else:
+            path.write_text(context["written"][str(entry)])
+    origins = dict(context["origins"])
+    bypasses = [row for row in origins.get("bypasses", []) if row[0] in active]
+    return rows, origins, bypasses, active, fallback
 
 
 def blank(value):
@@ -270,149 +361,36 @@ def blank(value):
     return False
 
 
-def points(value):
-    """Convert absolute Typst lengths; unresolved relative lengths stay unknown."""
-    value = re.sub(r"^0%\s*\+\s*", "", str(value))
-    match = re.fullmatch(r"\s*([\d.]+)(pt|mm|cm|in|px)?\s*", value)
-    return (
-        float(match[1])
-        * {
-            None: 0.75,
-            "px": 0.75,
-            "pt": 1,
-            "mm": 72 / 25.4,
-            "cm": 720 / 25.4,
-            "in": 72,
-        }[match[2]]
-        if match
-        else None
-    )
-
-
 def fallback_width(image, page, intrinsic):
     """Resolve absolute/%/auto widths against page text width (never columns)."""
     text_width = 160 / 25.4 * 72
-    if page and (width := points(page.get("width"))) is not None:
+    if page and (width := typst_svg.points(page.get("width"))) is not None:
         margin = page.get("margin")
         if isinstance(margin, dict):
-            left = points(
+            left = typst_svg.points(
                 margin.get("left", margin.get("x", margin.get("rest", "25mm")))
             )
-            right = points(
+            right = typst_svg.points(
                 margin.get("right", margin.get("x", margin.get("rest", "25mm")))
             )
         else:
-            left = right = points(margin)
+            left = right = typst_svg.points(margin)
         if left is not None and right is not None:
             text_width = width - left - right
     width = image.get("width", "auto")
     if width == "auto":
+        height = typst_svg.points(image.get("height", "auto"))
+        if height is not None and image.get("_intrinsic_height"):
+            return min(height * intrinsic / image["_intrinsic_height"], text_width)
         return min(intrinsic, text_width) if intrinsic else None
-    if (absolute := points(width)) is not None:
+    if (absolute := typst_svg.points(width)) is not None:
         return absolute
     match = re.fullmatch(r"([\d.]+)%\s*(?:\+\s*([\d.]+pt))?", str(width))
     return (
-        float(match[1]) / 100 * text_width + (points(match[2]) if match[2] else 0)
+        float(match[1]) / 100 * text_width
+        + (typst_svg.points(match[2]) if match[2] else 0)
         if match
         else None
-    )
-
-
-def svg_rules(root):
-    """Support simple SVG CSS; report selectors requiring a full CSS engine."""
-    rules = []
-    for node in root.iter():
-        if node.tag.split("}")[-1] == "style":
-            for selectors, declarations in re.findall(
-                r"([^{}]+)\{([^{}]+)\}", node.text or ""
-            ):
-                selectors = [selector.strip() for selector in selectors.split(",")]
-                if not all(
-                    re.fullmatch(r"[.#]?[\w-]+", selector) for selector in selectors
-                ):
-                    raise ValueError("unresolved SVG CSS selector")
-                rules.append((selectors, declarations))
-    return rules
-
-
-def svg_font(node, inherited, rules):
-    """Resolve font-size using inheritance, CSS and then inline declarations."""
-    style = node.get("font-size", str(inherited))
-    names = (
-        node.tag.split("}")[-1],
-        "#" + node.get("id", ""),
-        *("." + c for c in node.get("class", "").split()),
-    )
-    matching = []
-    for order, (selectors, declarations) in enumerate(rules):
-        scores = [
-            2 if selector.startswith("#") else 1 if selector.startswith(".") else 0
-            for selector in selectors
-            if selector in names
-        ]
-        if scores:
-            matching.append((max(scores), order, declarations))
-    for _, _, declarations in [*sorted(matching), (3, 0, node.get("style", ""))]:
-        if match := re.search(r"(?:^|;)\s*font-size\s*:\s*([^;]+)", declarations):
-            style = match[1].strip()
-    if style in ("inherit", "unset"):
-        return inherited
-    if style.endswith("%"):
-        return inherited * float(style[:-1]) / 100
-    if style.endswith("em"):
-        return inherited * float(style[:-2])
-    size = points(style)
-    if size is None:
-        raise ValueError(f"unresolved SVG font-size {style}")
-    return size / 0.75
-
-
-def svg_scale(node):
-    """Track scale transforms; rotations and translations preserve text size."""
-    scale = 1
-    for function, args in re.findall(r"(\w+)\(([^)]*)\)", node.get("transform", "")):
-        if function == "scale":
-            scale *= min(abs(float(n)) for n in re.split(r"[,\s]+", args.strip()))
-        elif function not in ("translate", "rotate"):
-            raise ValueError(f"unresolved SVG transform {function}")
-    return scale
-
-
-def svg_text(path):
-    """Read the smallest SVG text in viewBox units and its intrinsic width."""
-    root = parse(path, forbid_dtd=True).getroot()
-    viewbox = root.get("viewBox", "").replace(",", " ").split()
-    intrinsic = points(root.get("width", ""))
-    canvas = (
-        float(viewbox[2])
-        if len(viewbox) == 4
-        else (intrinsic / 0.75 if intrinsic else None)
-    )
-    rules, sizes = svg_rules(root), []
-
-    def visit(node, inherited=16, scale=1):
-        if node.get("display") == "none" or node.get("visibility") == "hidden":
-            return
-        size = svg_font(node, inherited, rules)
-        scale *= svg_scale(node)
-        if (
-            node.tag.split("}")[-1] in ("text", "tspan", "textPath")
-            and (node.text or "").strip()
-        ):
-            sizes.append(size * scale)
-        for child in node:
-            visit(child, size, scale)
-            if (
-                node.tag.split("}")[-1] in ("text", "tspan")
-                and (child.tail or "").strip()
-            ):
-                sizes.append(size * scale)
-
-    visit(root)
-    return (
-        min(sizes) if sizes else None,
-        canvas,
-        intrinsic or (canvas * 0.75 if canvas else None),
     )
 
 
@@ -430,32 +408,128 @@ def diagnostic(entry, origins, skips, mode, guard, label, message, warning=False
     return int(not warning)
 
 
-def check_svg(row, measured, pages, report):
-    """Compare the smallest SVG text with the placed-size readability floor."""
+def svg_text(path):
+    """Keep the existing SVG inspection interface while sharing viewport logic."""
+    return typst_svg.svg_text(path)
+
+
+def image_path(value):
+    """Decode Typst's path-valued source without losing its calling file."""
+    if value.startswith("path(") and value.endswith(")"):
+        value = json.loads(value[5:-1])
+    return os.path.normpath(value.lstrip("/"))
+
+
+def image_rows(rows, origins, active):
+    """Attribute rendered images to their native source calls and page settings."""
+    calls = [
+        call for call in origins.get("image_calls", []) if call["origin"][0] in active
+    ]
+    used = defaultdict(int)
+    result = []
+    for row in rows:
+        value = row.get("value", {}) if row.get("func") == "metadata" else {}
+        if not isinstance(value, dict) or value.get("kind") != "devkit-source-image":
+            continue
+        element = dict(value["element"])
+        source = str(element.get("source", ""))
+        canonical = image_path(source)
+        candidates = [call for call in calls if call["path"] == canonical]
+        if not candidates:
+            candidates = [
+                call for call in calls if call["raw"] == source or call["raw"] is None
+            ]
+        if candidates:
+            call = candidates[min(used[source], len(candidates) - 1)]
+            used[source] += 1
+            element["label"] = call["id"]
+            origins[call["id"]] = call["origin"]
+            if not source.startswith("path(") and not source.startswith("/"):
+                canonical = os.path.normpath(
+                    str(Path(call["origin"][0]).parent / source)
+                )
+        element["source"] = canonical
+        element["_page"] = value["page"]
+        element["_transformed"] = value.get("transformed", False)
+        result.append(element)
+    return result
+
+
+def nested_images(value):
+    """Find images inside native scale bodies, including figures and sequences."""
+    if isinstance(value, dict):
+        if value.get("func") == "image":
+            yield image_path(str(value.get("source", "")))
+        for child in value.values():
+            yield from nested_images(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from nested_images(child)
+
+
+def query_dimensions(rows):
+    """Match scale bodies to image occurrences, without tainting other uses."""
+    measured, pending = defaultdict(deque), Counter()
+    for row in rows:
+        value = row.get("value") if row.get("func") == "metadata" else None
+        if not isinstance(value, dict):
+            continue
+        if value.get("kind") == "devkit-image":
+            measured[image_path(value["path"])].append(value)
+        elif value.get("kind") == "devkit-transform":
+            for path, count in Counter(nested_images(value["element"])).items():
+                # Nested scales cover a subset of an outer scale's remaining
+                # body; counting it twice would affect a later plain image.
+                pending[path] = max(pending[path], count)
+        elif value.get("kind") == "devkit-source-image":
+            path = image_path(str(value["element"].get("source", "")))
+            value["transformed"] = pending[path] > 0
+            if pending[path]:
+                pending[path] -= 1
+    return measured
+
+
+def check_svg(row, measured, report):
+    """Use painted dimensions, including fit and SVG viewport/viewBox mapping."""
     path, label = str(row.get("source", "")), row.get("label")
     if not path.casefold().endswith(".svg"):
         return 0
-    try:
-        smallest, canvas, intrinsic = svg_text(Path(path.lstrip("/")))
-        placed = (
-            points(measured[label].popleft()["width"])
-            if measured[label]
-            else fallback_width(
-                row, pages[label].popleft() if pages[label] else None, intrinsic
-            )
+    placed = measured[path].popleft() if measured[path] else None
+    if row.get("_transformed"):
+        return report(
+            "figure-text-size",
+            label,
+            f"{path}: image under a scale transform; physical text size is unresolved",
+            warning=True,
         )
-        if placed is None or not canvas:
+    try:
+        metrics = typst_svg.svg_metrics(Path(path))
+        if placed is None:
+            row["_intrinsic_height"] = metrics["height"]
+            width = fallback_width(row, row.get("_page"), metrics["width"])
+            height = typst_svg.points(row.get("height", "auto"))
+            if height is None and width is not None:
+                height = width * metrics["height"] / metrics["width"]
+        else:
+            width, height = (
+                typst_svg.points(placed["width"]),
+                typst_svg.points(placed["height"]),
+            )
+        if width is None or height is None:
             return report(
                 "figure-text-size",
                 label,
                 f"cannot resolve placed size of {path}",
                 warning=True,
             )
-        if smallest is not None and smallest * placed / canvas < 7:
+        size = typst_svg.effective_text_size(
+            metrics, width, height, row.get("fit", "cover")
+        )
+        if size is not None and size < 7:
             return report(
                 "figure-text-size",
                 label,
-                f"{path}: smallest text is {smallest * placed / canvas:g} pt at placed width {placed:g} pt; minimum is 7 pt",
+                f"{path}: smallest text is {size:g} pt at placed size {width:g} × {height:g} pt; minimum is 7 pt",
             )
     except (OSError, ValueError, ParseError) as error:
         return report(
@@ -464,9 +538,9 @@ def check_svg(row, measured, pages, report):
     return 0
 
 
-def check_entry(entry, skips, mode):
+def check_entry(entry, skips, mode, context):
     """Combine semantic checks with source attribution and scoped suppression."""
-    rows, origins, bypasses = query_document(entry)
+    rows, origins, bypasses, active, fallback = query_document(entry, context)
     report = partial(diagnostic, entry, origins, skips, mode)
     failed = 0
     for path, line, suppressed in bypasses:
@@ -476,35 +550,59 @@ def check_entry(entry, skips, mode):
             "bypass",
             "use the house-style parameters instead of direct page/font settings",
         )
-    values = [
-        row["value"]
-        for row in rows
-        if row.get("func") == "metadata" and isinstance(row.get("value"), dict)
-    ]
-    measured, pages = defaultdict(deque), defaultdict(deque)
-    for value in values:
-        if value.get("kind") == "devkit-image":
-            measured[value.get("label")].append(value)
-        elif value.get("kind") == "devkit-page":
-            pages[value.get("id")].append(value)
+    measured = query_dimensions(rows)
+    figures = iter(origins.get("figure_calls", []))
     for row in rows:
         kind, label = row.get("func"), row.get("label")
+        if fallback and kind == "figure" and label not in origins:
+            label = next(figures, label)
         if kind == "figure" and blank(row.get("caption")):
             failed |= report(
                 "figure-caption", label, "figure requires a non-empty caption"
             )
-        if kind == "table" and not any(
-            child.get("func") == "header" for child in row.get("children", [])
+        # The package's show rule creates unlabelled derived tables. Only the
+        # source call (including both public helpers) owns a finding/ignore.
+        if (
+            kind == "table"
+            and label in origins
+            and not any(
+                child.get("func") == "header" for child in row.get("children", [])
+            )
         ):
             failed |= report("table-header", label, "table requires table.header")
-        if kind == "image" and mode in ("content", "figure-text-size"):
-            failed |= check_svg(row, measured, pages, report)
+    if mode in ("content", "figure-text-size"):
+        for row in image_rows(rows, origins, active):
+            failed |= check_svg(row, measured, report)
     return failed
 
 
 def content_guards(mode):
-    """Use the shared entry marker and skip-glob policy."""
+    """Build the repository mirror and package environment once per run."""
     from vig_utils.typst_guard import documents, skip_globs
 
     entries, _ = documents()
-    return int(sum(check_entry(entry, skip_globs(), mode) for entry in entries) > 0)
+    if not entries:
+        return 0
+    env = dict(os.environ, SOURCE_DATE_EPOCH="0", TZ="UTC")
+    env.pop("TYPST_FONT_PATHS", None)
+    with (
+        tempfile.TemporaryDirectory(prefix="devkit-content-") as directory,
+        package_environment(env) as compiler_env,
+    ):
+        root = Path(directory)
+        origins = {}
+        originals, written = prepare_tree(root / "source", origins)
+        context = {
+            "tree": root / "source",
+            "origins": origins,
+            "originals": originals,
+            "written": written,
+            "env": compiler_env,
+            "flags": compiler_flags(),
+            "output": root / "guard.pdf",
+            "deps": root / "guard.deps.json",
+        }
+        return int(
+            sum(check_entry(entry, skip_globs(), mode, context) for entry in entries)
+            > 0
+        )

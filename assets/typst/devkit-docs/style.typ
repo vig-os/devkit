@@ -304,9 +304,10 @@
   )
   if sys.inputs.at("devkit-guard-measure", default: "false") == "true" {
     show image: it => layout(size => {
-      let width = measure(it, width: size.width, height: size.height).width
+      let placed = measure(it, width: size.width, height: size.height)
       metadata((
-        kind: "devkit-image", path: it.source, width: width,
+        kind: "devkit-image", path: it.source, width: placed.width,
+        height: placed.height,
         label: it.at("label", default: none), location: here().position(),
       ))
       it
