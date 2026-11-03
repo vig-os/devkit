@@ -40,7 +40,7 @@ repos:
         for h in r["hooks"]
     ]
     assert any(h["id"] == "typst-compile" for h in hooks) == enabled
-    assert (dest / "justfile.docs").exists() == enabled
+    assert (dest / "justfile.devkit-docs").exists() == enabled
     assert "# consumer comment" in (dest / config.name).read_text()
     if enabled:
         fixer = next(hook for hook in hooks if hook["id"] == "trailing-whitespace")
@@ -52,7 +52,7 @@ repos:
         (dest / ".vig-os").write_text('DEVKIT_MODULES=""\n')
         scaffold(tmp_path, name="workspace")
         assert (dest / config.name).read_text() == original
-        assert not (dest / "justfile.docs").exists()
+        assert not (dest / "justfile.devkit-docs").exists()
     else:
         assert (dest / config.name).read_text() == original
 
@@ -91,8 +91,10 @@ def test_consumer_owned_docs_justfile_survives_upgrade(tmp_path, enabled):
     (seed / ".vig-os").write_text(f'DEVKIT_MODULES="{"docs" if enabled else ""}"\n')
     original = "# Consumer recipes\ncustom:\n    echo mine\n"
     (seed / "justfile.docs").write_text(original)
-    result = scaffold(tmp_path, seed=seed)
-    assert "notice" in (result.stdout + result.stderr).lower()
+    scaffold(tmp_path, seed=seed)
+    assert (
+        "import? 'justfile.docs'" not in (tmp_path / "workspace/justfile").read_text()
+    )
     assert (tmp_path / "workspace/justfile.docs").read_text() == original
 
 
@@ -104,3 +106,12 @@ def test_reconciliation_failure_does_not_abort_installer(tmp_path):
     (seed / ".pre-commit-config.yaml").write_text(original)
     scaffold(tmp_path, seed=seed)
     assert (tmp_path / "workspace/.pre-commit-config.yaml").read_text() == original
+
+
+def test_docs_preview_reports_hooks_and_recipes(tmp_path):
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    (seed / ".vig-os").write_text('DEVKIT_MODULES="docs"\n')
+    result = scaffold(tmp_path, seed=seed, preview=True)
+    assert "docs hooks" in result.stdout
+    assert "justfile.devkit-docs" in result.stdout

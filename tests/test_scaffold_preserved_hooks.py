@@ -1235,3 +1235,9 @@ def test_preview_reports_the_planned_guard_fold_and_writes_nothing(
     assert "preserved-hook-drift:" not in proc.stdout
     assert "preserved-hook-fold:" not in proc.stdout
     assert _config(tmp_path, "guard-preview") == before
+
+
+def test_last_marker_pair_wins(tmp_path):
+    first = "# >>> devkit:actionlint\nfirst\n# <<< devkit:actionlint\n"
+    last = first.replace("first", "last")
+    assert _hook_block_range(tmp_path, first + last, "actionlint") == last.rstrip()

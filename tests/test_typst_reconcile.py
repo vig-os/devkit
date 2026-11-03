@@ -2,6 +2,7 @@
 
 import re
 import subprocess
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,18 @@ LAYOUTS = {
     "exclude-first": BASE.replace(
         "      - id:", "      - exclude: '^vendor/'\n        id:"
     ).encode(),
+    "four-space": BASE.replace("  - repo", "    - repo")
+    .replace("    hooks:", "      hooks:")
+    .replace("      - id", "          - id")
+    .replace("        name", "            name")
+    .replace("        entry", "            entry")
+    .replace("        language", "            language")
+    .encode(),
+    "mixed-step": BASE.replace("      - id", "        - id")
+    .replace("        name", "          name")
+    .replace("        entry", "          entry")
+    .replace("        language", "          language")
+    .encode(),
     "crlf": BASE.replace("\n", "\r\n").encode(),
 }
 
@@ -65,13 +78,13 @@ def lint_findings(path):
         text=True,
     )
     assert result.returncode in (0, 1, 2), result.stderr
-    findings = set()
+    findings = Counter()
     for line in result.stdout.splitlines():
         match = re.fullmatch(
             r".*?:\d+:\d+: \[(?:warning|error)\] (.*) \(([^()]*)\)", line
         )
         assert match, line
-        findings.add((match[2], match[1]))
+        findings[(match[2], match[1])] += 1
     return findings
 
 
@@ -288,4 +301,132 @@ def test_sample_config_style_and_bounded_markers(tmp_path, consistent):
     )
     assert "\n-   repo: local\n" in path.read_text()
     assert reconcile(path, False).returncode == 0
+    assert path.read_text() == original
+
+
+@pytest.mark.parametrize("layout", ["four-space", "mixed-step"])
+def test_consistent_sequence_indent(tmp_path, layout):
+    path = tmp_path / ".pre-commit-config.yaml"
+    path.write_bytes(LAYOUTS[layout])
+    config = tmp_path / "lint.yaml"
+    config.write_text(
+        "extends: default\nrules:\n  indentation:\n    indent-sequences: consistent\n"
+    )
+
+    def findings():
+        result = subprocess.run(
+            ["yamllint", "-f", "parsable", "-c", str(config), str(path)],
+            capture_output=True,
+            text=True,
+        )
+        return Counter(
+            re.sub(r"^.*?:\d+:\d+: ", "", line) for line in result.stdout.splitlines()
+        )
+
+    before = findings()
+    assert reconcile(path, True).returncode == 0
+    assert findings() <= before
+
+
+@pytest.mark.parametrize("edit", ["delete", "repo", "exclude-first", "comment"])
+@pytest.mark.parametrize("enabled", [True, False])
+def test_fixer_edits_are_safe(tmp_path, edit, enabled):
+    path = tmp_path / ".pre-commit-config.yaml"
+    original = BASE.replace(
+        "repo: local", "repo: https://example.com/hooks\n    rev: v1"
+    )
+    path.write_text(original)
+    assert reconcile(path, True).returncode == 0
+    text = path.read_text()
+    if edit == "delete":
+        start = text.index("      - id: trailing-whitespace")
+        text = text[:start]
+    elif edit == "repo":
+        text = text.replace(
+            "https://example.com/hooks", "https://example.com/hooks.git"
+        )
+    elif edit == "exclude-first":
+        text = text.replace(
+            "      - id: trailing-whitespace",
+            '      - exclude: "(^|/)generated/"\n        id: trailing-whitespace',
+        ).replace('        exclude: "(^|/)generated/"\n', "")
+    else:
+        text = text.replace(
+            'exclude: "(^|/)generated/"', 'exclude: "(^|/)generated/"  # keep me'
+        )
+    path.write_text(text)
+    result = reconcile(path, enabled)
+    if result.returncode:
+        assert "Add the hooks by hand" not in result.stderr
+        assert {
+            "delete": "trailing-whitespace",
+            "repo": "repository",
+            "exclude-first": "exclude",
+            "comment": "comment",
+        }[edit] in result.stderr
+        assert path.read_text() == text
+    else:
+        if edit == "comment":
+            assert "# keep me" in path.read_text()
+
+
+def test_handwritten_docs_id_is_not_a_managed_block(tmp_path):
+    path = tmp_path / ".pre-commit-config.yaml"
+    original = BASE.replace("trailing-whitespace", "docs")
+    path.write_text(original)
+    result = reconcile(path, True)
+    assert result.returncode == 0, result.stderr
+    assert reconcile(path, False).returncode == 0
+    assert path.read_text() == original
+
+
+def test_publication_keeps_inode(tmp_path):
+    path = tmp_path / ".pre-commit-config.yaml"
+    path.write_text(BASE)
+    inode = path.stat().st_ino
+    assert reconcile(path, True).returncode == 0
+    assert path.stat().st_ino == inode
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "# >>> devkit:docs\n",
+        "# <<< devkit:docs\n",
+        BASE.replace("hooks:", "hooks: &hooks")
+        + "  - repo: local\n    hooks: *hooks\n",
+    ],
+)
+def test_invalid_markers_and_aliases_are_refused(tmp_path, bad):
+    path = tmp_path / ".pre-commit-config.yaml"
+    original = BASE + bad if bad.startswith("#") else bad
+    path.write_text(original)
+    result = reconcile(path, True)
+    assert result.returncode == 1
+    assert path.read_text() == original
+
+
+def test_null_hooks_has_clear_error(tmp_path):
+    from vig_utils.preserved_hooks import hooks
+
+    with pytest.raises(ValueError, match="hooks must.*sequence"):
+        list(hooks("repos:\n  - repo: local\n    hooks:\n"))
+
+
+def test_fixer_identity_includes_repository(tmp_path):
+    path = tmp_path / ".pre-commit-config.yaml"
+    original = BASE + BASE.removeprefix("repos:\n").replace(
+        "repo: local", "repo: https://example.com/hooks\n    rev: v1"
+    )
+    path.write_text(original)
+    assert reconcile(path, True).returncode == 0
+    assert reconcile(path, False).returncode == 0
+    assert path.read_text() == original
+
+
+def test_duplicate_fixer_is_refused(tmp_path):
+    path = tmp_path / ".pre-commit-config.yaml"
+    original = BASE + BASE.removeprefix("repos:\n")
+    path.write_text(original)
+    assert reconcile(path, True).returncode == 1
     assert path.read_text() == original
