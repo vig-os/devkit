@@ -196,9 +196,11 @@ fallback: real ruleset requirements always win, and classic protection continues
 to be enforced by GitHub at merge time. Other API errors, including rate-limit,
 permission, and SAML 403s, retry and fail if attempts are exhausted. A transient
 error followed by a successful response can recover. When counting reviews,
-both gates count distinct reviewers whose latest review is APPROVED on the
-current PR head, excluding the PR author. Later changes requested or dismissed
-reviews cancel that reviewer's approval; approvals on older heads do not count.
+both gates consider only APPROVED, CHANGES_REQUESTED, and DISMISSED reviews,
+then count distinct reviewers whose latest such review is APPROVED on the
+current PR head, excluding the PR author. COMMENTED and PENDING reviews are
+ignored. Later CHANGES_REQUESTED or DISMISSED reviews cancel that reviewer's
+approval; approvals on older heads do not count.
 
 
 **Upstream (`vig-os/devcontainer`) only:** Root `promote-release.yml` also prunes GHCR RC package versions via the org Packages API using **`GITHUB_TOKEN`** with **repo Admin** on the `devcontainer` package (one-time **Manage Actions access** grant). See [GitHub App Configuration](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#github-app-configuration) and [Registry and cleanup tokens](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#registry-and-cleanup-tokens-upstream) in `docs/RELEASE_CYCLE.md`.
