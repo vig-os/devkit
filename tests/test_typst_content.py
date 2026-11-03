@@ -188,3 +188,40 @@ def test_slides_layout_branding_stamp_and_tables(project):
 def test_slides_fig_requires_caption(project):
     result = compile_source(project + "#show: slides.with()\n#slide()[#fig(rect())]")
     assert result.returncode != 0 and "caption" in result.stderr, result.stderr
+
+
+@pytest.mark.parametrize("label", ["text(size: 6pt)[Tiny]", "text(size: 0.5em)[Tiny]"])
+def test_plot_rejects_undersized_label_text(project, label):
+    result = compile_source(
+        project + f"#plot((0, 1), (0, 1), xlabel: {label}, ylabel: [Y])"
+    )
+    assert result.returncode != 0 and "7 pt" in result.stderr, result.stderr
+
+
+def test_plot_dimensions_preserve_text_size(project):
+    result = compile_source(
+        project
+        + """#set text(size: 5pt)
+#plot((0, 1), (0, 1), width: 3cm, height: 2cm, xlabel: [X], ylabel: [Y])
+"""
+    )
+    assert result.returncode == 0, result.stderr
+    subprocess.run(
+        ["pdftohtml", "-xml", "-zoom", "1", "main.pdf", "small.xml"],
+        check=True,
+        capture_output=True,
+    )
+    sizes = [float(n.attrib["size"]) for n in ET.parse("small.xml").iter("fontspec")]
+    assert sizes and min(sizes) >= 7
+
+
+def test_empty_glossary_and_canonical_slides(project):
+    source = (
+        project + "#show: slides.with(title: [Canonical])\n#slide()[Body #glossary()]"
+    )
+    result = compile_source(source)
+    assert result.returncode == 0, result.stderr
+    first = Path("main.pdf").read_bytes()
+    assert "Glossary" not in pdf_text()
+    assert compile_source(source).returncode == 0
+    assert Path("main.pdf").read_bytes() == first
