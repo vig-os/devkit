@@ -119,7 +119,7 @@ def write_entries(root, entries):
         ("US", "United States", "us", "the US market", 0),
         ("US", "United States", "us", "contact us", 1),
         ("Feed Pump", "Supply Pump", "pump", "Feed Pump and Supply Pump", 0),
-        ("Feed Pump", "Supply Pump", "pump", "feed pump and supply pump", 0),
+        ("Feed Pump", "Supply Pump", "pump", "feed pump and supply pump", 1),
         ("Feed Pump", "Supply Pump", "pump", "the pump", 1),
         ("Repository", "GitHub", "Github", "GitHub", 0),
         ("Repository", "GitHub", "Github", "Github", 1),
@@ -576,3 +576,167 @@ def test_nearest_is_cached_across_files(register, capsys, monkeypatch):
     assert glossary.main(["candidates"]) == 0
     assert len(calls) == 1
     assert len(capsys.readouterr().out.splitlines()) == 2
+
+
+@pytest.mark.parametrize("suffix", ["md", "typ"])
+@pytest.mark.parametrize(
+    "text", ["Two `FP-101`s failed.", "Two `input pump`s failed.", "`pre`input pump"]
+)
+def test_code_delimiters_preserve_blocking_boundaries(register, suffix, text):
+    root, _ = register
+    (root / f"source.{suffix}").write_text(text)
+    track(root)
+    assert glossary.main(["terms"]) == 1
+    view = glossary.transparent_text(text)
+    assert len(view) == len(text) and "`" not in view
+
+
+@pytest.mark.parametrize(
+    "span,bad,text,expected",
+    [
+        ("Valve A", "regulating valve", "the regulating valve a little", 1),
+        ("Valve Seat", "regulating valve", "the regulating valve seat", 1),
+        ("Pump Station", "Feed pump", "the Feed pump station", 1),
+        ("Pump Station", "feed pump", "the feed pump station", 1),
+        ("Feed Pump", "the feed", "the Feed Pump", 0),
+        ("Feed Pump", "pump", "the `Feed` Pump", 0),
+    ],
+)
+def test_only_exact_case_spans_protect(register, span, bad, text, expected):
+    root, entries = register
+    entries[0].update(
+        term="Feed Pump",
+        aliases=[span] if span != "Feed Pump" else [],
+        forbidden=[{"term": bad, "use": "Feed Pump"}],
+    )
+    write_entries(root, entries)
+    (root / "source.md").write_text(text)
+    track(root)
+    assert glossary.main(["terms"]) == expected
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("Data Historian The", {"Data Historian"}),
+        ("Cooling Loop And Bypass Line", {"Cooling Loop", "Bypass Line"}),
+        ("Thermal\nValve", {"Thermal Valve"}),
+        ("Thermal Valve\n\nControl Unit", {"Thermal Valve", "Control Unit"}),
+        ("Thermal Valve\n- Control Unit", {"Thermal Valve", "Control Unit"}),
+        ("Thermal Valve\n# Control Unit", {"Thermal Valve"}),
+        ("Thermal Valve\nAlex Morgan", {"Thermal Valve", "Alex Morgan"}),
+    ],
+)
+def test_phrase_boundaries(register, capsys, text, expected):
+    root, _ = register
+    (root / "source.md").write_text(text)
+    track(root)
+    assert glossary.main(["candidates"]) == 0
+    assert {
+        json.loads(line)["candidate"] for line in capsys.readouterr().out.splitlines()
+    } == expected
+
+
+@pytest.mark.parametrize(
+    "noise",
+    [
+        "flow_Controller",
+        "---\nname: FrontmatterName\nrevision: 1\n---",
+        "[ReferenceName]: https://example.com",
+        "The Valve",
+        "System Overview\n===",
+        "EN-123",
+        '#link("manual.pdf")[Service Guide]',
+    ],
+)
+def test_isolated_candidate_filters(register, capsys, noise):
+    root, _ = register
+    text = noise + "\n\nNovelValve"
+    (root / "source.typ").write_text(text)
+    track(root)
+    assert glossary.main(["candidates"]) == 0
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [row["candidate"] for row in rows] == ["NovelValve"]
+    view, _ = glossary.candidate_view(text, ".typ")
+    assert view.count("\n") == text.count("\n")
+
+
+def test_context_maps_after_distant_markup(register, capsys):
+    root, _ = register
+    text = "#emph[plain] " * 30 + "\nNovelValve"
+    (root / "source.typ").write_text(text)
+    track(root)
+    assert glossary.main(["candidates"]) == 0
+    row = json.loads(capsys.readouterr().out)
+    assert (
+        row["line"] == 2
+        and row["context"] == text[text.index("NovelValve") - 40 :].strip()
+    )
+
+
+def test_allow_overrides_stopwords_and_standards(register, capsys):
+    root, _ = register
+    (root / "source.md").write_text("CD EN EN-123 JSON")
+    track(root)
+    assert glossary.main(["candidates", "--stopwords", "CD", "--allow", "cd,EN"]) == 0
+    assert [
+        json.loads(line)["candidate"] for line in capsys.readouterr().out.splitlines()
+    ] == ["CD", "EN", "EN-123"]
+
+
+@pytest.mark.parametrize(
+    "terms",
+    [["ab", "ac", "zzzzzzzzzzzzzzzz", "zz"], ["ac", "ab", "zzzzzzzzzzzzzzzz", "zz"]],
+)
+def test_nearest_ties_and_prefilters(monkeypatch, terms):
+    calls = []
+    original = glossary.SequenceMatcher
+
+    class Matcher(original):
+        def real_quick_ratio(self):
+            calls.append("real_quick")
+            return super().real_quick_ratio()
+
+        def quick_ratio(self):
+            calls.append("quick")
+            return super().quick_ratio()
+
+        def ratio(self):
+            calls.append("ratio")
+            return super().ratio()
+
+    monkeypatch.setattr(glossary, "SequenceMatcher", Matcher)
+    nearest = glossary.nearest_matcher([{"term": term} for term in terms])
+    assert nearest("aa") == (0.5, "ac")
+    assert (
+        calls.count("real_quick") == 4
+        and calls.count("quick") == 3
+        and calls.count("ratio") == 2
+    )
+
+
+def test_review_corpus_precision_and_recall(register, capsys):
+    root, _ = register
+    fixtures = Path(__file__).parent / "fixtures/glossary/review"
+    for source in fixtures.iterdir():
+        shutil.copyfile(source, root / source.name)
+    track(root)
+    assert glossary.main(["candidates"]) == 0
+    actual = {
+        json.loads(line)["candidate"] for line in capsys.readouterr().out.splitlines()
+    }
+    expected = {
+        "Cooling Loop",
+        "Bypass Line",
+        "Data Historian",
+        "Operator Panel",
+        "FlowController",
+        "AB-200",
+        "Thermal Valve",
+        "Differential Pressure",
+        "Safety Relay",
+        "NASA",
+        "service manifold",
+    }
+    assert len(actual & expected) / len(actual) >= 0.75
+    assert len(actual & expected) / len(expected) >= 0.75
