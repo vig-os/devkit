@@ -119,6 +119,21 @@ def ignored(source, start, end, mode):
     return False
 
 
+def sets_font(args):
+    """Only the top-level font argument changes the text's font family."""
+    lex, depth = tokens(args), 0
+    for i, (word, _, _) in enumerate(lex):
+        if word in ("(", "[", "{"):
+            depth += 1
+        elif word in (")", "]", "}"):
+            depth -= 1
+        elif (
+            depth == 0 and word == "font" and i + 1 < len(lex) and lex[i + 1][0] == ":"
+        ):
+            return True
+    return False
+
+
 def instrument(source, path, origins):
     """Label queried calls in an ephemeral tree, preserving existing labels."""
     edits = []
@@ -126,17 +141,11 @@ def instrument(source, path, origins):
         line = source.count("\n", 0, start) + 1
         suppressed = {mode for mode in MODES if ignored(source, start, end, mode)}
         if kind == "set":
-            if target == "page" or (
-                target == "text"
-                and any(
-                    a[0] == "font" and b[0] == ":"
-                    for a, b in zip(tokens(args), tokens(args)[1:], strict=False)
-                )
-            ):
+            if target == "page" or (target == "text" and sets_font(args)):
                 origins.setdefault("bypasses", []).append((path, line, suppressed))
             continue
         label = f"devkit-guard-{len(origins)}-{start}"
-        existing = re.match(r"\s*<([\w:-]+)>", source[end:])
+        existing = re.match(r"\s*<([^<>\s]+)>", source[end:])
         if existing:
             label = existing[1]
         origins[f"<{label}>"] = (path, line, suppressed)
