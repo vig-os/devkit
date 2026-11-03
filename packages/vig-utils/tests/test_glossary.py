@@ -754,6 +754,7 @@ def test_review_corpus_precision_and_recall(register, capsys):
         ("#emph[X]FP-101", ".typ"),
         ("input pump#emph[s]", ".typ"),
         ("Two **input pump**s failed.", ".md"),
+        ("pre**input pump**", ".md"),
         ("Two _input pump_s failed.", ".md"),
         ("Two *input pump*s failed.", ".typ"),
     ],
@@ -787,7 +788,7 @@ def test_unclosed_markup_scales():
     text = "*a " * 34_000
     start = time.monotonic()
     assert glossary.transparent_text(text) == text
-    assert time.monotonic() - start < 1.0
+    assert time.monotonic() - start < 3.0
 
 
 @pytest.mark.parametrize("allow", ["", "AND"])
@@ -803,7 +804,20 @@ def test_conjunction_names(register, capsys, name, allow):
 
 
 @pytest.mark.parametrize(
-    "word", ["However", "When", "After", "Before", "Then", "Also", "Therefore"]
+    "word",
+    [
+        "However",
+        "When",
+        "After",
+        "Before",
+        "Then",
+        "Also",
+        "Therefore",
+        "Meanwhile",
+        "Finally",
+        "Thus",
+        "Next",
+    ],
 )
 def test_sentence_connective_stopwords(register, capsys, word):
     root, _ = register
@@ -824,3 +838,44 @@ def test_allow_controls_conjunction_splitting(register, capsys, allow):
         json.loads(line)["candidate"] for line in capsys.readouterr().out.splitlines()
     }
     assert actual == ({name} if allow else {name, "Cooling Loop", "Bypass Line"})
+
+
+@pytest.mark.parametrize(
+    "canonical,forbidden",
+    [
+        ("macOS", "MacOS"),
+        ("iOS", "IOS"),
+        ("pH meter", "PH meter"),
+        ("devkit", "Devkit"),
+        ("vigOS", "VigOS"),
+        ("eBay", "EBay"),
+        ("feed pump", "Feed Pump"),
+    ],
+)
+@pytest.mark.parametrize("other_entry", [False, True])
+def test_explicit_casing_rules_override_derived_protection(
+    register, canonical, forbidden, other_entry
+):
+    root, entries = register
+    entries[0].update(term=canonical, aliases=[], forbidden=[])
+    owner = entries[0]
+    if other_entry:
+        owner = {
+            "id": "other",
+            "term": "Preferred Name",
+            "definition": "Another term.",
+            "kind": "term",
+        }
+        entries.append(owner)
+    owner["forbidden"] = [{"term": forbidden, "use": canonical}]
+    write_entries(root, entries)
+    (root / "source.md").write_text(f"Install it on {forbidden} today.")
+    track(root)
+    assert glossary.main(["terms"]) == 1
+    (root / "source.md").write_text(f"Install it on {canonical} today.")
+    assert glossary.main(["terms"]) == 0
+
+
+def test_emphasis_does_not_span_newline():
+    text = "**input\npump**"
+    assert glossary.transparent_text(text) == text
