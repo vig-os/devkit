@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import tomllib
@@ -10,8 +11,12 @@ from pathlib import Path
 import pytest
 from vig_utils import typst_guard
 
-ROOT = Path(__file__).resolve().parents[3]
-ACTIVE = ROOT / "assets/typst/devkit-docs"
+ASSETS = (
+    Path(os.environ["DEVKIT_TYPST_TEST_ASSETS"])
+    if "DEVKIT_TYPST_TEST_ASSETS" in os.environ
+    else Path(__file__).resolve().parents[3] / "assets/typst"
+)
+ACTIVE = ASSETS / "devkit-docs"
 VERSION = tomllib.loads((ACTIVE / "typst.toml").read_text())["package"]["version"]
 
 
@@ -21,7 +26,7 @@ def doc(tmp_path, monkeypatch):
     package = registry / "local/devkit-docs" / VERSION
     package.parent.mkdir(parents=True)
     shutil.copytree(ACTIVE, package)
-    shutil.copytree(ROOT / "assets/typst/vendor/preview", registry / "preview")
+    shutil.copytree(ASSETS / "vendor/preview", registry / "preview")
     monkeypatch.setenv("TYPST_PACKAGE_PATH", str(registry))
     monkeypatch.setenv("SOURCE_DATE_EPOCH", "0")
     monkeypatch.chdir(tmp_path)
@@ -172,7 +177,7 @@ def test_package_resolved_widths(doc, source, width):
 
 def test_normal_output_unchanged_and_old_package_retained(doc):
     old = "0.1.1"
-    old_source = ROOT / "assets/typst/releases/devkit-docs" / old
+    old_source = ASSETS / "releases/devkit-docs" / old
     assert old_source.is_dir(), "Archive the shipped package before changing it"
     shutil.copytree(old_source, doc / ".registry/local/devkit-docs" / old)
     source = '#figure(image("chart.svg", width: 80pt), caption: [Example])'
@@ -269,3 +274,10 @@ def test_raster_is_skipped(doc):
     )
     write('#image("chart.png", width: 1pt)')
     assert run("figure-text-size") == 0
+
+
+def test_source_settings_prose_and_unbalanced_markup(doc):
+    write(
+        "#set figure(gap: 10pt)\n#set table(inset: 5pt)\nA prose example: figure(example).\n#figure([A (literal], caption: [Caption])\n#table(table.header([Name]), [Value])"
+    )
+    assert run("content") == 0
