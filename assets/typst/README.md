@@ -86,3 +86,7 @@ Run `nix build .#checks.x86_64-linux.typst-house-style --no-link -L` to prove
 imports work without network or a populated cache, and review license changes.
 
 See [the user guide](../../docs/NIX.md#house-style-package) for the public API.
+
+Glossary consumers load their own register with
+`#show: glossary-setup.with(yaml("/glossary.yaml"))`; no compiler input is needed.
+See [the helper API and limits](../../docs/NIX.md) for plots, glossary and slides.

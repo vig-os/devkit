@@ -117,7 +117,9 @@ def test_plot_in_fig_requires_caption(project):
 
 def test_glossary_used_terms_and_acronym_first_use(project):
     project += '#show: glossary-setup.with(yaml("/glossary.yaml"))\n'
-    Path("shared.typ").write_text('#term("cpu"), #term("cpu"). #term("sample").')
+    Path("shared.typ").write_text(
+        project.split("#show:")[0] + '#term("cpu"), #term("cpu"). #term("sample").'
+    )
     result = compile_source(
         project
         + """#show: devkit-document.with()
@@ -298,11 +300,14 @@ def test_plot_ticks_and_labels_use_small_scale(project):
             assert sizes[node.attrib["font"]] == 9
 
 
-def test_glossary_body_first_use_and_sorted_unique_appendix(project):
+@pytest.mark.parametrize("wrapper", ["= Using {}", "#fig(rect(), caption: [Using {}])"])
+def test_glossary_body_first_use_and_sorted_unique_appendix(project, wrapper):
     project += '#show: glossary-setup.with(yaml("/glossary.yaml"))\n'
     result = compile_source(
         project
-        + '\n#outline()\n#outline(target: figure)\n= Using #term("cpu")\n#fig(rect(), caption: [About #term("sample")])\n#term("sample"). #term("cpu").\n#glossary()'
+        + '\n#outline()\n#outline(target: figure)\n= Using #term("cpu")\n#fig(rect(), caption: [About #term("sample")])\n#term("sample"). #term("cpu").\n#glossary()'.replace(
+            '= Using #term("cpu")', wrapper.format('#term("cpu")')
+        )
     )
     assert result.returncode == 0, result.stderr
     text = " ".join(pdf_text().split())
@@ -314,17 +319,12 @@ def test_glossary_body_first_use_and_sorted_unique_appendix(project):
     assert appendix.count("Sample") == 1
 
 
-@pytest.mark.parametrize("mode", ["plain", "compile", "canonical"])
-def test_large_glossary_builds(project, mode):
+def test_large_glossary_plain_compile(project):
     project += '#show: glossary-setup.with(yaml("/glossary.yaml"))\n'
     path = Path("glossary.yaml")
     path.write_text(path.read_text() + "#" + "padding" * 23000 + "\n")
     result = compile_source(project + '#term("sample")')
     assert result.returncode == 0, result.stderr
-    if mode != "plain":
-        from vig_utils import typst_guard
-
-        assert typst_guard.main([mode]) == 0
 
 
 @pytest.mark.parametrize("duplicate", [False, True])

@@ -461,9 +461,10 @@ caption failures and offline imports, and compares canonical hashes.
 native line plot using vendored lilaq 0.5.0. The coordinate arrays must satisfy
 lilaq's data requirements. Both axis labels must contain visible content;
 missing or blank labels panic. Tick and label text inherits `type-scale.small`
-(9 pt); explicit label text below 7 pt panics. Plot math uses
-`type-scale.figure-math` (14 pt), so New Computer Modern's smallest script
-style (50%) remains at least 7 pt. Dimensions change the data area,
+(9 pt); explicit label or math text below 7 pt panics. Synthesized `super`
+and `sub` text uses 7 pt. Attached math scripts use a 14 pt base so New Computer
+Modern's smallest script style (50%) stays at least 7 pt; ordinary math ticks
+remain 9 pt. Dimensions change the data area,
 without shrinking lettering. Wrap the result in `fig` with a caption:
 
 ```typst
@@ -474,7 +475,10 @@ without shrinking lettering. Wrap the result in `fig` with a caption:
 ```
 
 Do not shrink plots or label content with `scale`, `resize`, or transforms:
-those can change final lettering size after the helper checks it. Prefer SVG
+those can change final lettering size after the helper checks it. Arbitrary
+user math (fractions, custom functions, contextual content, or manual math-size
+styles) cannot be checked generically; authors must verify its final PDF text.
+The helper checks explicit text styles and sizes ordinary attached scripts. Prefer SVG
 or native plots for charts; raster chart lettering cannot be checked.
 The helper intentionally exposes a single line series and dimensions. For other
 plot types use an explicitly pinned lilaq import; its upstream API does not
@@ -495,18 +499,20 @@ The #term("sample") was examined.
 #glossary()
 ```
 
-Recipes and compile guards read `DEVKIT_GLOSSARY` from `.vig-os` (default
-`glossary.yaml`) and pass its UTF-8 YAML text as `--input devkit-glossary=...`.
-The package parses that text natively with `yaml(bytes(...))`. Package filesystem
-isolation prevents a package-relative path from reading consumer files. Paths
-must stay inside the repository, including symlink targets. An explicitly
-configured missing file fails; an absent default file supplies no register.
-Direct compiler and editor preview calls must supply the same input, for example
-`typst compile --ignore-system-fonts --input "devkit-glossary=$(cat glossary.yaml)" main.typ main.pdf`.
-The shell example assumes a small register: command-line input size is bounded
-by the operating system's argument limit. Register edits are picked up on each
-recipe invocation; watch/editor workflows must refresh the input after edits.
-`glossary-schema` remains the schema validator; the helper does not replace it.
+Load the register explicitly from the entry document's filesystem scope:
+
+```typst
+#show: glossary-setup.with(yaml("/glossary.yaml"))
+```
+
+Place this after the package import and before any terms, including outlines.
+For a custom `DEVKIT_GLOSSARY`, pass that same file to `yaml` instead.
+Hooks and recipes pass no glossary input arguments: large registers, plain
+`typst compile --root . --ignore-system-fonts main.typ main.pdf`, and editor
+previews all use this API and track file changes natively. `glossary-schema`
+validates the configured register independently. Calling `term` without setup
+reports “no glossary loaded”; setup rejects duplicate IDs. Outline and figure
+outline copies use short forms and never consume the first body expansion.
 
 For presentations, use the same import with `#show: slides.with(...)`:
 
@@ -523,7 +529,8 @@ The layout is 256 × 144 mm (16:9), with 12 mm margins. A title slide is emitted
 when metadata is provided. `section-slide` centers its title; `slide` starts a
 content page with an optional heading. The same type scale, booktabs rules,
 figure captions, branding (`accent`, `logo`, `labels`), metadata, `short-title`,
-page totals and revision footer apply. Sizes remain in points: choose slide
+page totals and revision footer apply. Footer titles render as plain text and
+truncate with an ellipsis to fit one line. Sizes remain in points: choose slide
 content for the intended viewing distance. Content must fit a slide; there is
 no automatic shrinking or overflow clipping. Canonical builds omit the stamp.
 

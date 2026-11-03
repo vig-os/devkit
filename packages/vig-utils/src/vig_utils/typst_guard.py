@@ -87,17 +87,6 @@ def documents():
     return entries, templates
 
 
-def glossary_input():
-    """Transport consumer YAML across Typst's package filesystem boundary."""
-    configured = manifest_value("DEVKIT_GLOSSARY")
-    path = Path(configured or "glossary.yaml")
-    if path.is_absolute() or not path.resolve().is_relative_to(Path.cwd()):
-        raise ValueError("DEVKIT_GLOSSARY must be repository-relative")
-    if not configured and not path.exists():
-        return []
-    return ["--input", "devkit-glossary=" + path.read_text()]
-
-
 def compile_document(path, output, rev=None, deps=False):
     """Use embedded fonts, a fixed epoch and a bounded compiler worker pool."""
     env = dict(os.environ, SOURCE_DATE_EPOCH="0", TZ="UTC")
@@ -117,7 +106,6 @@ def compile_document(path, output, rev=None, deps=False):
     ]
     for font_path in project_font_paths():
         argv += ["--font-path", font_path]
-    argv += glossary_input()
     if rev is not None:
         argv += ["--input", f"rev={rev}"]
     if deps:

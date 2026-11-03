@@ -1,6 +1,23 @@
 #import "style.typ": (
-  figure-style, title-block, type-scale, typography, typst-document,
+  figure-style, plain-text, title-block, type-scale, typography, typst-document,
 )
+
+// A plain-text footer must occupy one line, even for unbroken titles.
+#let footer-title(body) = layout(size => {
+  let value = plain-text(body)
+  if measure(value).width <= size.width { value } else {
+    let low = 0
+    let clusters = value.clusters()
+    let high = clusters.len()
+    while low < high {
+      let middle = calc.ceil((low + high) / 2)
+      if measure(clusters.slice(0, middle).join() + "…").width <= size.width {
+        low = middle
+      } else { high = middle - 1 }
+    }
+    clusters.slice(0, low).join() + "…"
+  }
+})
 
 #let render(
   body,
@@ -27,7 +44,7 @@
     footer: context text(size: type-scale.small)[
       #grid(
         columns: (1fr, auto, 1fr),
-        if short-title == none { title } else { short-title },
+        footer-title(if short-title == none { title } else { short-title }),
         [#counter(page).get().first() / #counter(page).final().first()],
         align(right, text(font: "DejaVu Sans Mono", sys.inputs.at(
           "rev",
