@@ -58,12 +58,12 @@ def documents():
     skips = skip_globs()
     seen = False
     for path in sorted(Path().rglob("*.typ")):
+        seen = True
         if any(
             part.startswith(".") or part in {"generated", "parts", "node_modules"}
             for part in path.parts
         ):
             continue
-        seen = True
         if any(fnmatch.fnmatchcase(path.as_posix(), glob) for glob in skips):
             continue
         if "templates" in path.parts:

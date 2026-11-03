@@ -212,9 +212,13 @@ def main():
             "final": text.endswith("\n"),
         }
         text = text.replace("\r\n", "\n")
-        if "\r" in text or any(
-            isinstance(token, (yaml.tokens.AnchorToken, yaml.tokens.AliasToken))
-            for token in yaml.scan(text)
+        if (
+            "\r" in text
+            or (formatting["eol"] == "\r\n" and raw.count(b"\n") != raw.count(b"\r\n"))
+            or any(
+                isinstance(token, (yaml.tokens.AnchorToken, yaml.tokens.AliasToken))
+                for token in yaml.scan(text)
+            )
         ):
             raise ValueError("mixed/legacy newlines and YAML aliases are not supported")
         validate(path)

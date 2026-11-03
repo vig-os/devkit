@@ -240,6 +240,8 @@ config paths without teaching capability modules to overwrite consumer files.
 Removing `docs` and rerunning the installer removes its block and recipes, restoring
 consumer whitespace exclusions. Comments and other hooks are preserved. Whitespace
 configs must use block-style repositories and hook mappings without YAML aliases.
+Mixed or legacy line endings are rejected without rewriting; uniform LF and CRLF
+are preserved.
 The owned markers record reversible source edits and should be left intact. Both
 staged and installed output pass `prek validate-config`; failures retain the original
 bytes and print instructions for adding hooks by hand. Reconciliation preserves
