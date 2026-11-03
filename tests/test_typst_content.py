@@ -37,6 +37,12 @@ def project(tmp_path, monkeypatch):
 
 
 def compile_source(source, *inputs):
+    if Path("glossary.yaml").exists():
+        inputs = (
+            "--input",
+            "devkit-glossary=" + Path("glossary.yaml").read_text(),
+            *inputs,
+        )
     Path("main.typ").write_text("// devkit: entry\n" + source)
     return subprocess.run(
         [
@@ -130,11 +136,13 @@ def test_glossary_unknown_id_fails(project):
     )
 
 
-def test_glossary_custom_root_path_from_nested_entry(project):
+def test_glossary_custom_register_input(project):
     Path("terms.yaml").write_text(Path("glossary.yaml").read_text())
     Path("glossary.yaml").unlink()
     result = compile_source(
-        project + '#term("sample")', "--input", "glossary=/terms.yaml"
+        project + '#term("sample")',
+        "--input",
+        "devkit-glossary=" + Path("terms.yaml").read_text(),
     )
     assert result.returncode == 0, result.stderr
     assert "Sample" in pdf_text()
