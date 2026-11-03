@@ -198,14 +198,16 @@ def phrase_rules(entries):
     variants = [item for e in entries for item in e.get("forbidden", [])]
     folded_names = {n.casefold() for n in names}
     forbidden, registered = [{}, {}], [set(), set()]
+    exact_forbidden = {normalized(item["term"]) for item in variants}
+    registered[0].update(names)
     registered[0].update(
         variant
         for name in names
         for variant in (
-            name,
             name[:1].upper() + name[1:],
             " ".join(word[:1].upper() + word[1:] for word in name.split()),
         )
+        if variant not in exact_forbidden
     )
     for item in variants:
         name = normalized(item["term"])
@@ -320,7 +322,7 @@ def transparent_text(text):
 COMMON_WORDS = (
     "a an the this that these those and or but nor yet so of in on for to with from "
     "is are it we you set use see read more please "
-    "however when after before then also therefore "
+    "however when after before then also therefore meanwhile finally thus next "
     "TODO NOTE JSON YAML XML HTML HTTP HTTPS URL API MIT BSD GPL SPDX "
     "PR CI CD AM PM UTC CPU GPU RAM UTF SHA ISO ANSI RFC IEEE IEC DIN EN"
 )

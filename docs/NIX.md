@@ -392,7 +392,8 @@ Typst expressions are not parsed. Emphasis is limited to a single line and
 is unwrapped only at word boundaries so adjacent prefixes/plurals stay visible. Backticks become spaces, preserving code
 boundaries and offsets (for example, a plural after a code span cannot hide a
 forbidden term). Registered terms/aliases protect their exact spelling plus sentence-case
-and title-case forms. ALLCAPS forms are not protected; use the per-line
+and title-case forms, unless a derived form is explicitly forbidden by any
+entry. Literal registered names remain protected. ALLCAPS forms are not protected; use the per-line
 suppression marker above for intentional ALLCAPS headings. Other case variants
 remain unprotected; incidental lowercase matches such as `valve a little` do not.
 A registered span suppresses a forbidden hit only if it contains the hit or crosses one of its edges. This protects
@@ -432,8 +433,8 @@ names such as Research And Development. Joining stops at blank
 lines, list items, headings and standalone two/three-word title-case name lines.
 Prepared/reviewed/approved/signed/author labels followed by names are filtered.
 This conservative name-line boundary can also separate a wrapped domain name.
-Sentence-start connectives However, When, After, Before, Then, Also and Therefore
-are default stopwords. Common words/acronyms such as TODO, NOTE, JSON, MIT, PR, CI, AM and PM are skipped;
+Sentence-start connectives However, When, After, Before, Then, Also, Therefore,
+Meanwhile, Finally, Thus and Next are default stopwords. Common words/acronyms such as TODO, NOTE, JSON, MIT, PR, CI, AM and PM are skipped;
 add project-specific names with `glossary-candidates --stopwords NASA,FlowController`
 (case-insensitive, comma-separated, additive to the built-in list in
 `vig_utils.glossary.STOPWORDS`). The same option works with

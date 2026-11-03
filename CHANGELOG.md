@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Preserve forbidden rules containing registered names; filter candidate markup/code noise, join wrapped names, retain source context, and allow extra stopwords.
   - Cache and prefilter nearest-term comparisons; report measured precision, recall and benchmarks.
   - Preserve code and markup word boundaries; protect exact, sentence-case and title-case names, and bound emphasis scanning.
+  - Give explicit casing corrections precedence over derived sentence/title-case protection across the register.
   - Retain joined conjunction names alongside split candidates, honor allow overrides, and filter common sentence-start connectives.
 
 - **Opt-in terminology register checks** ([#1994](https://github.com/vig-os/devkit/issues/1994))
