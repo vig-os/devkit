@@ -1365,7 +1365,7 @@
                 export PREK_HOME="$TMPDIR/prek"
                 DEVKIT_TYPST_ASSETS=${./assets/typst} ${
                   pkgs.python314.withPackages (ps: [ ps.pytest ])
-                }/bin/python -m pytest -q -o cache_dir="$TMPDIR/pytest-cache" ${./tests/test_typst_content.py}
+                }/bin/python -m pytest -q -o cache_dir="$TMPDIR/pytest-cache" ${./tests/typst_content.py}
                 python ${./tests/typst_house_style.py} ${registry} ${./assets/justfile.d/docs.justfile} ${./assets/docs-hooks.json} ${./assets/typst/devkit-docs/typst.toml}
                 python ${./tests/typst_house_style_regressions.py} ${registry} ${./docs/NIX.md} ${
                   (hooksModule.consumer pkgs { docs = true; }).hooks.typst-compile.entry
