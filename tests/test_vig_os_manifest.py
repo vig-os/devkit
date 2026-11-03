@@ -20,6 +20,7 @@ from tests.workflow_scaffold import RESOLVE_ACTION, WORKSPACE, load_workflow
 
 # (key, issue) — every scaffold-manifest knob, all shipping empty by default.
 MANIFEST_KEYS = [
+    ("DEVKIT_RELEASE_REQUIRED_APPROVALS", "#1851"),
     ("DEVKIT_WORKFLOW", "#1207"),
     ("DEVKIT_TAG_PREFIX", "#1044"),
     ("DEVKIT_FLOATING_TAGS", "#1045"),
@@ -46,6 +47,7 @@ MANIFEST_KEYS = [
 # (output, issue) — outputs the resolve-toolchain composite action must declare
 # for the scaffolded workflows to consume.
 RESOLVE_OUTPUTS = [
+    ("release-required-approvals", "#1851"),
     ("tag-prefix", "#1044"),
     ("floating-tags", "#1045"),
     ("runner-json", "#1173"),
@@ -82,3 +84,32 @@ def test_resolve_toolchain_declares_output(output: str, issue: str) -> None:
     assert output in action["outputs"], (
         f"resolve-toolchain must declare the `{output}` output ({issue})"
     )
+
+
+@pytest.mark.parametrize("value", ["", "0", "2", "-1", "1.5", "abc"])
+def test_release_approvals_manifest(tmp_path, value):
+    from tests.workflow_scaffold import exec_resolve_toolchain, scaffold
+
+    valid = value in {"", "0", "2"}
+    manifest = f"DEVKIT_MODE=both\nDEVKIT_VERSION=1.2.3\nDEVKIT_RELEASE_REQUIRED_APPROVALS={value}\n"
+    resolve_dir = tmp_path / "resolve"
+    resolve_dir.mkdir()
+    proc, outputs = exec_resolve_toolchain(resolve_dir, manifest)
+    assert (proc.returncode == 0) == valid, proc.stdout + proc.stderr
+    if valid:
+        assert outputs["release-required-approvals"] == (value or "1")
+    else:
+        assert "DEVKIT_RELEASE_REQUIRED_APPROVALS" in proc.stdout + proc.stderr
+        assert "non-negative integer" in proc.stdout + proc.stderr
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / ".vig-os").write_text(manifest)
+    result = scaffold(tmp_path, check=False)
+    assert (result.returncode == 0) == valid, result.stdout + result.stderr
+    if valid:
+        assert (
+            f"DEVKIT_RELEASE_REQUIRED_APPROVALS={value}\n"
+            in (workspace / ".vig-os").read_text()
+        )
+    else:
+        assert "non-negative integer" in result.stderr
