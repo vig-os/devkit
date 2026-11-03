@@ -315,3 +315,160 @@ def test_guard_outputs_never_overwrite_consumer_assets(doc):
         Path(name).write_bytes(content)
     assert run("content") == 0
     assert {name: Path(name).read_bytes() for name in assets} == assets
+
+
+@pytest.mark.parametrize("location", ["docs/main.typ", "parts/body.typ"])
+def test_image_paths_follow_the_calling_source(doc, capsys, location):
+    source = Path(location)
+    source.parent.mkdir()
+    source.with_name("c.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" viewBox="0 0 100 50"><text x="0" y="20" font-size="4">Tiny</text></svg>'
+    )
+    Path("c.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" viewBox="0 0 100 50"><text x="0" y="20" font-size="30">Decoy</text></svg>'
+    )
+    if location.startswith("docs"):
+        source.write_text('// devkit: entry\n#image("c.svg", width: 100pt)')
+    else:
+        source.write_text('#image("c.svg", width: 100pt)')
+        write('#include "parts/body.typ"')
+    assert run("figure-text-size") == 1
+    assert location in capsys.readouterr().err
+    source.write_text(source.read_text().replace('"c.svg"', '"/c.svg"'))
+    assert run("figure-text-size") == 0
+
+
+@pytest.mark.parametrize("helper", ["table", "booktabs-table", "plain-table"])
+def test_package_table_suppression_and_single_finding(doc, capsys, helper):
+    write(f"#{helper}([Cell])", package=True)
+    assert run("table-header") == 1
+    error = capsys.readouterr().err
+    assert error.count("table requires table.header") == 1
+    assert "main.typ:4" in error
+    write(f"#{helper}([Cell]) // table-header: ignore", package=True)
+    assert run("table-header") == 0
+
+
+def test_multiline_local_template_is_a_bypass(doc, capsys):
+    template = '#let conf(\n title: none,\n doc,\n) = {\n set page(margin: 1cm)\n set text(font: "Libertinus Serif")\n doc\n}\n#show: conf.with()\nText'
+    write(template)
+    assert run("house-style-bypass") == 1
+    error = capsys.readouterr().err
+    assert "main.typ:6" in error and "main.typ:7" in error
+    write(
+        template.replace(
+            "set page(margin: 1cm)",
+            "set page(margin: 1cm) // house-style-bypass: ignore",
+        ).replace(
+            'set text(font: "Libertinus Serif")',
+            'set text(font: "Libertinus Serif") // house-style-bypass: ignore',
+        )
+    )
+    assert run("house-style-bypass") == 0
+
+
+@pytest.mark.parametrize("package", [False, True])
+@pytest.mark.parametrize(
+    "source",
+    [
+        '#show figure: it => { assert(it.body.func() == image); it }\n#figure(image("chart.svg", width: 100pt), caption: [Chart])',
+        '#let im = image("chart.svg", width: 100pt)\n#im.source\n#im',
+        "#let f = figure(rect(), caption: [Chart])\n#f <stored.figure>",
+    ],
+)
+def test_instrumentation_preserves_valid_element_values(doc, source, package):
+    write(source, package=package)
+    assert run("content") == 0
+
+
+def test_instrumented_compile_failure_uses_plain_fallback(doc, monkeypatch, capsys):
+    from vig_utils import typst_content
+
+    write("Hello")
+    original = typst_content.instrument
+    monkeypatch.setattr(
+        typst_content,
+        "instrument",
+        lambda *args: '#panic("guard-only failure")\n' + original(*args),
+    )
+    assert run("content") == 0
+    assert "warning:" in capsys.readouterr().err
+    write("#undefined()")
+    assert run("content") == 1
+
+
+def test_one_mirror_for_all_entries(doc, monkeypatch):
+    from vig_utils import typst_content
+
+    write("Hello")
+    Path("second.typ").write_text("// devkit: entry\nSecond")
+    calls = []
+    original = typst_content.prepare_tree
+
+    def prepare(*args):
+        calls.append(args[0])
+        return original(*args)
+
+    monkeypatch.setattr(typst_content, "prepare_tree", prepare)
+    assert run("content") == 0
+    assert len(calls) == 1
+
+
+def test_typst_scale_warns_about_unresolved_physical_size(doc, capsys):
+    write('#scale(50%)[#image("chart.svg", width: 100pt)]', package=True)
+    assert run("figure-text-size") == 0
+    error = capsys.readouterr().err
+    assert "warning:" in error and "scale" in error
+
+
+@pytest.mark.parametrize("fit,expected", [("contain", 1), ("stretch", 1), ("cover", 0)])
+@pytest.mark.parametrize("package", [False, True])
+def test_image_fit_uses_both_dimensions(doc, fit, expected, package):
+    write(
+        f'#image("chart.svg", width: 100pt, height: 10pt, fit: "{fit}")',
+        package=package,
+    )
+    assert run("figure-text-size") == expected
+
+
+def test_height_only_and_viewbox_meet(doc):
+    write('#image("chart.svg", height: 10pt)')
+    assert run("figure-text-size") == 1
+    Path("chart.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="50" viewBox="0 0 100 100"><text x="0" y="20" font-size="20">Tiny after meet</text></svg>'
+    )
+    write('#image("chart.svg", width: 100pt)')
+    assert run("figure-text-size") == 1
+
+
+def test_boundary_and_measured_grid_width(doc):
+    write('#image("chart.svg", width: 70pt)')
+    assert run("figure-text-size") == 0  # Exactly seven points is readable.
+    write(
+        '#grid(columns: (60pt, 1fr), image("chart.svg", width: 100%), [Cell])',
+        package=True,
+    )
+    assert run("figure-text-size") == 1  # The page-width fallback would pass.
+    write("#grid(columns: 2, [A], [B])", package=True)
+    assert run("table-header") == 0
+
+
+def test_auto_width_caps_large_intrinsic_images(doc):
+    Path("chart.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="2000" height="1000" viewBox="0 0 2000 1000"><text x="0" y="20" font-size="10">Tiny after cap</text></svg>'
+    )
+    write('#image("chart.svg")')
+    assert run("figure-text-size") == 1
+
+
+def test_matplotlib_doctype_is_measured(doc, capsys):
+    fixtures = (
+        Path(os.environ["DEVKIT_TYPST_CONTENT_FIXTURES"])
+        if "DEVKIT_TYPST_CONTENT_FIXTURES" in os.environ
+        else Path(__file__).parent / "fixtures/typst-content"
+    )
+    shutil.copyfile(fixtures / "matplotlib.svg", "chart.svg")
+    write('#image("chart.svg", width: 144pt)')
+    assert run("figure-text-size") == 1
+    error = capsys.readouterr().err
+    assert "DOCTYPE" not in error and "cannot measure" not in error

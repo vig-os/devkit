@@ -1,5 +1,6 @@
 """Medium document query benchmark: 20 entries, 400 figures and 400 tables."""
 
+import argparse
 import json
 import os
 import tempfile
@@ -7,6 +8,10 @@ import time
 from pathlib import Path
 
 from vig_utils import typst_guard
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument("--unrelated-files", type=int, default=30000)
+args = parser.parse_args()
 
 with tempfile.TemporaryDirectory(prefix="typst-content-benchmark-") as directory:
     os.chdir(directory)
@@ -25,12 +30,17 @@ with tempfile.TemporaryDirectory(prefix="typst-content-benchmark-") as directory
             )
             * 20
         )
+    Path("unrelated").mkdir()
+    for i in range(args.unrelated_files):
+        Path(f"unrelated/file-{i:05}.dat").touch()
+    print(f"Prepared 20 entries and {args.unrelated_files} unrelated files", flush=True)
     start = time.perf_counter()
     code = typst_guard.main(["content"])
     print(
         json.dumps(
             {
                 "entries": 20,
+                "unrelated_files": args.unrelated_files,
                 "figures": 400,
                 "tables": 400,
                 "compiles": 20,
