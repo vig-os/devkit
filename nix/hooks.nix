@@ -275,11 +275,10 @@ let
             pkgs.writeShellScript "${id}" ''
               export PATH=${
                 lib.makeBinPath [
-                  pkgs.typst
+                  (import ./docs-typst.nix pkgs)
                   pkgs.typstyle
                 ]
               }:"$PATH"
-              export TYPST_PACKAGE_PATH=${import ./typst-packages.nix pkgs}"''${TYPST_PACKAGE_PATH:+:$TYPST_PACKAGE_PATH}"
               exec ${import ./vig-utils.nix pkgs}/bin/${spec.command or "typst-guard"} ${spec.mode} "$@"
             ''
           );

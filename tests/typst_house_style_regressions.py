@@ -12,7 +12,10 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 registry = Path(sys.argv[1])
-version = next((registry / "local/devkit-docs").iterdir()).name
+version = max(
+    (p.name for p in (registry / "local/devkit-docs").iterdir()),
+    key=lambda v: tuple(map(int, v.split("."))),
+)
 prefix = f'// devkit: entry\n#import "@local/devkit-docs:{version}": *\n#show: devkit-document.with()\n'
 failures = []
 
@@ -116,7 +119,7 @@ def rules():
 def labelled_plain_table():
     for label in ("", " <mine>"):
         build(
-            "#plain-table(columns: 2, stroke: red, inset: 20pt, "
+            '#set page(numbering: "1")\n#plain-table(columns: 2, stroke: red, inset: 20pt, '
             "table.header([Head], [Value]), [Insetmarker], [B])"
             + label
             + (
@@ -173,9 +176,29 @@ def ordinary_overrides():
         assert "LibertinusSerif-Bold" in run("pdffonts", "main.pdf")
         run("typst", "compile", "--format", "svg", "main.typ", "main.svg")
         assert Path("main.svg").read_text().count('stroke-width="0.8"') == 2
+    build(
+        '#set page(numbering: "1")\n#booktabs-table(inset: 5pt, columns: 2, table.header([A], [B]), [Insetmarker], [D]) <mine>\n#ref(<mine>, form: "page")'
+    )
+    assert 75 < positions()["Insetmarker"]["xMin"] < 76.5
 
 
 def header_positions():
+    style = (
+        Path(os.environ["TYPST_PACKAGE_PATH"])
+        / "local/devkit-docs"
+        / version
+        / "style.typ"
+    )
+    raw = json.loads(
+        run(
+            "typst",
+            "eval",
+            "--root",
+            "/",
+            f'{{ import "{style}": header-cell; header-cell([Rawheader]) }}',
+        )
+    )
+    assert raw["func"] == "strong", raw
     build(
         "#table(columns: 3, table.header(table.cell(x: 2)[Last], "
         "table.cell(x: 0)[First], table.cell(x: 1)[Middle]), [A], [B], [C])"
@@ -204,6 +227,12 @@ def version_policy():
                 digest.update(path.relative_to(root).as_posix().encode() + b"\0")
                 digest.update(path.read_bytes() + b"\0")
         assert digest.hexdigest() == expected, release
+        Path("old.typ").write_text(
+            f'#import "@local/devkit-docs:{release}": *\n#show: devkit-document.with()\nRetained import'
+        )
+        run("typst", "compile", "old.typ", "old.pdf")
+    Path("old.typ").unlink()
+    assert set(lock) == {p.name for p in (registry / "local/devkit-docs").iterdir()}
     assert f"@local/devkit-docs:{version}" in Path(sys.argv[2]).read_text()
 
 
@@ -304,7 +333,10 @@ def kill_style_mutants():
         shutil.copytree(registry, copy)
         style = copy / "local/devkit-docs" / version / "style.typ"
         original = style.read_text()
+        library = style.with_name("lib.typ")
+        library_original = library.read_text()
         style.chmod(0o600)
+        library.chmod(0o600)
         mutants = (
             (
                 "heading sizes",
@@ -347,8 +379,8 @@ def kill_style_mutants():
             ),
             (
                 "m09 builtin image/link",
-                "#let typst-document = document",
-                "#let typst-document = document\n#let image(..args) = []\n#let link(..args) = []",
+                '#import "devkit-document.typ" as devkit-document',
+                '#import "devkit-document.typ" as devkit-document\n#let image(..args) = []\n#let link(..args) = []',
             ),
             (
                 "m11 header thickness",
@@ -360,13 +392,20 @@ def kill_style_mutants():
         try:
             os.environ["TYPST_PACKAGE_PATH"] = str(copy)
             for name, before, after in mutants:
-                assert before in original, name
-                style.write_text(original.replace(before, after))
+                style.write_text(original)
+                library.write_text(library_original)
+                target, source = (
+                    (library, library_original)
+                    if name.startswith("m09")
+                    else (style, original)
+                )
+                assert before in source, name
+                target.write_text(source.replace(before, after))
                 try:
                     if name.startswith(("m02", "m05", "m11", "m14")):
                         header_positions()
                     elif name.startswith("m03"):
-                        empty_caption("[ ]")
+                        empty_caption('"  "')
                     elif name.startswith("m04"):
                         empty_caption("[#strong[ ]]")
                     elif name.startswith("m09"):
@@ -439,7 +478,7 @@ with tempfile.TemporaryDirectory() as directory:
         ("long table figure", long_figure),
         *(
             ("empty caption " + caption, lambda c=caption: empty_caption(c))
-            for caption in ("[ ]", '""', '[#""]', "figure.caption[]")
+            for caption in ("[ ]", '"  "', '""', '[#""]', "figure.caption[]")
         ),
         ("table overrides", overrides),
         ("labelled plain table", labelled_plain_table),
@@ -475,7 +514,7 @@ with tempfile.TemporaryDirectory() as directory:
         ("public API and running titles", public_api_and_layout),
         ("style and metadata contracts", style_contract),
         ("consumer package registry", package_paths),
-        ("nine style mutants", kill_style_mutants),
+        ("sixteen style mutants", kill_style_mutants),
     ):
         try:
             test()

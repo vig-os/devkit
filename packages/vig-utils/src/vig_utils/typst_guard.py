@@ -9,9 +9,9 @@ import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
-from contextlib import contextmanager
 from pathlib import Path
+
+from vig_utils.typst_packages import package_environment, stabilize_dependencies
 
 ENTRY_PATTERN = r"(?m)^[ \t]*//[ \t]*devkit:[ \t]*entry[ \t]*$"
 
@@ -87,34 +87,6 @@ def documents():
     return entries, templates
 
 
-@contextmanager
-def package_environment(env):
-    """Compose guard path lists for Typst's single-path native interface.
-
-    Earlier registries win per namespace/name/version; all links are temporary.
-    A native single path is forwarded unchanged.
-    """
-    paths = env.get("TYPST_PACKAGE_PATH", "").split(os.pathsep)
-    if len(paths) < 2:
-        yield env
-        return
-    with tempfile.TemporaryDirectory(prefix="devkit-typst-packages-") as directory:
-        union = Path(directory)
-        for name in paths:
-            root = Path(name)
-            if not name or not root.is_dir():
-                raise ValueError(
-                    f"TYPST_PACKAGE_PATH requires existing registries: {name}"
-                )
-            for package in root.glob("*/*/*"):
-                if package.is_dir():
-                    link = union / package.relative_to(root)
-                    if not link.exists():
-                        link.parent.mkdir(parents=True, exist_ok=True)
-                        link.symlink_to(package.resolve(), target_is_directory=True)
-        yield dict(env, TYPST_PACKAGE_PATH=str(union))
-
-
 def compile_document(path, output, rev=None, deps=False):
     """Use embedded fonts, a fixed epoch and a bounded compiler worker pool."""
     env = dict(os.environ, SOURCE_DATE_EPOCH="0", TZ="UTC")
@@ -146,6 +118,8 @@ def compile_document(path, output, rev=None, deps=False):
             capture_output=True,
             text=True,
         )
+        if deps and result.returncode == 0:
+            stabilize_dependencies(output.with_suffix(".deps.json"))
     sys.stderr.write(result.stderr)
     return int(result.returncode != 0 or "warning:" in result.stderr)
 

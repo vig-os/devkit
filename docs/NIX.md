@@ -344,24 +344,31 @@ CLI formatting options with an 80-column default and no config-file option, so n
 
 #### House-style package
 
-The `docs` shell exports an immutable `TYPST_PACKAGE_PATH`, shared by the
-compile hooks and recipes. Import `@local/devkit-docs:0.1.0`. Its own SemVer is
-independent of devkit releases: a devkit-only version bump keeps this import
-working. Package changes bump the version in its `typst.toml`; patches preserve
-the API, and incompatible changes increment the minor version while below 1.0
-(the major version thereafter). A package upgrade is explicit: read its changes
-and update imports together. If Typst reports `package not found`, enter the docs
-shell and update your import to `@local/devkit-docs:0.1.0`, the shipped version.
-Other packages remain consumer-owned. Nix hook wrappers prepend this registry;
-the guard composes colon-separated registry paths into a temporary directory,
-with the first namespace/name/version winning. Native Typst accepts only one
-package directory, so use a single path for direct compiler calls.
+The `docs` shell exposes an immutable registry through its Typst and Tinymist
+wrappers; `DEVKIT_TYPST_PACKAGE_PATH` identifies that registry. Import
+`@local/devkit-docs:0.1.1`. Its own SemVer is independent of devkit releases.
+Shipped versions remain available after an upgrade, and a content-hash lock
+checks their integrity. See the [version policy and registry layout](../assets/typst/README.md#local-package-versions).
+A package upgrade is explicit: read its changes and update imports together.
+If Typst reports `package not found`, enter the docs shell and check the version
+in your import. Other packages remain consumer-owned.
+
+Direct compiler calls, Tinymist, compile hooks and recipes search the consumer's
+`TYPST_PACKAGE_PATH` path list first, then the devkit registry, then standard
+Typst data-dir packages (`$XDG_DATA_HOME/typst/packages`, defaulting to
+`~/.local/share/typst/packages` on Linux; `~/Library/Application Support/typst/packages`
+on macOS). Typst 0.15 natively uses one path and skips the data directory when
+that path is set; the wrappers compose these registries temporarily and clean
+up after the process exits. First namespace/name/version wins. JSON dependency
+inputs point to stable source files, including when `--deps` is used directly.
+Explicit CLI `--package-path` overrides this composition. Compilation errors,
+including invalid registry directories, propagate to the caller.
 
 A minimal entry document:
 
 ```typst
 // devkit: entry
-#import "@local/devkit-docs:0.1.0": *
+#import "@local/devkit-docs:0.1.1": *
 #show: devkit-document.with(title: "Example report", authors: ("Example Author",))
 
 = Results
@@ -402,13 +409,25 @@ house rules, including lines inside or before a header. Table figures are
 breakable and repeat their headers across pages by default.
 Use `plain-table(...)` to opt out for one table: it accepts native table arguments
 and preserves explicit or contextual `stroke`, `inset`, and line decorations.
+A non-default `stroke` on an ordinary table also preserves native rendering.
+Explicit arguments, `set table(...)`, and `show table: set table(...)` are
+honored where Typst exposes their resolved values. A custom inset retains
+booktabs when the stroke remains at its native default. Use
+`booktabs-table(inset: 5pt, ...)` to request booktabs with any inset, including
+Typst's native 5 pt. Typst exposes resolved values, not whether a default value
+was explicitly supplied: an ordinary table with explicit `stroke: stroke()`
+or `inset: 5pt` is indistinguishable from an omitted argument. Use `plain-table`
+for exact native defaults, or `booktabs-table` for an explicit booktabs inset.
+User labels and references work on both helpers.
 Table column widths and alignment are retained. `number(value)`
 right-aligns a numeric cell with tabular lining digits;
 `align: numeric-columns(1, 2)` right-aligns zero-based numeric columns.
 These helpers do not parse or round values or align decimal separators.
 
 `fig(body, caption: [...], ..options)` forwards figure options and fails when
-its caption is absent or its plain text is empty or whitespace only. Captions use 9 pt text in a
+its caption is absent, empty, whitespace only, or solely hidden/zero-width
+content. References, citations, styled text, context, images, math and unknown
+content elements are accepted. Captions use 9 pt text in a
 centered block at 85% of the available width. Table captions appear above;
 other captions appear below. Direct `figure(...)` receives the style too;
 requiring captions on every direct figure is part of later content guards.

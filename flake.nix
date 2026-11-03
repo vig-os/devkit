@@ -1357,7 +1357,7 @@
                   pkgs.just
                   pkgs.vig-utils
                 ];
-                inherit (docs.env) TYPST_PACKAGE_PATH;
+                TYPST_PACKAGE_PATH = toString registry;
                 TYPST_IGNORE_SYSTEM_FONTS = docs.env.TYPST_IGNORE_SYSTEM_FONTS or "false";
                 FONTCONFIG_FILE = pkgs.makeFontsConf { fontDirectories = [ pkgs.liberation_ttf ]; };
               }

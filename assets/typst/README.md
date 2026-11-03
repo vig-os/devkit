@@ -1,10 +1,35 @@
 # Offline Typst registry
 
-The `docs` module sets `TYPST_PACKAGE_PATH` to the immutable registry built by
-[nix/typst-packages.nix](../../nix/typst-packages.nix). The local package has its own version in
-`devkit-docs/typst.toml` (currently 0.1.0), independent of devkit release bumps.
-The flake input pins both the package and compiler. Generated Nix hook wrappers export the
-same registry; scaffolded hooks and recipes inherit it from the docs shell.
+The `docs` module wraps Typst and Tinymist with the immutable registry built by
+[nix/typst-packages.nix](../../nix/typst-packages.nix). The compiler and language
+server search the consumer's `TYPST_PACKAGE_PATH` (a path list), then this
+registry, then the standard data-directory `typst/packages`. First match wins
+per namespace/name/version. Hooks and recipes use the same composition.
+Typst 0.15 itself accepts only one directory and replaces data-dir lookup when
+`TYPST_PACKAGE_PATH` is supplied. Wrappers build a temporary symlink union and
+remove it on exit; JSON dependency inputs are resolved to stable source paths
+before cleanup. Explicit CLI `--package-path` takes precedence over the wrapper
+environment, as it does in native Typst.
+
+## Local package versions
+
+The active source lives in `devkit-docs/`, with independent SemVer in
+`devkit-docs/typst.toml`. The registry retains the initial 0.1.0 snapshot alongside 0.1.1.
+`devkit-docs.lock.json` maps each shipped version to its SHA-256 content hash.
+Hash sorted file paths relative to each version directory followed by NUL,
+then file bytes followed by NUL. Exclude the injected root `LICENSE`, whose
+source is devkit's license. The sandbox check verifies every locked version
+and compiles every retained import; source changes without a new version and
+lock entry fail the check.
+
+When changing a shipped package, first copy its exact source to
+`releases/devkit-docs/<old-version>/`, then edit the active source and bump its
+manifest version. Keep the old lock entry unchanged and add the new version's
+hash. Never modify or remove shipped version directories or lock entries.
+The Nix registry includes retained directories alongside the active version;
+patch upgrades therefore preserve older imports. Devkit-only release bumps
+never change package versions. API-compatible changes use patch bumps;
+incompatible changes bump the minor version before 1.0, the major thereafter.
 
 ## Vendored upstream packages
 

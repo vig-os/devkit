@@ -4,8 +4,9 @@
 # (the Typst language server with diagnostics and preview), and `poppler-utils`
 # (PDF reading) on the dev-shell PATH. Document-oriented consumers opt in with
 # `modules = [ "docs" ]` instead of a PyPI typst pin or hand-wiring packages.
-# The immutable offline registry is shared with Nix hook wrappers through
-# TYPST_PACKAGE_PATH (#1994). Recipes inherit the same shell environment.
+# Compiler wrappers compose the immutable offline registry with consumer
+# TYPST_PACKAGE_PATH and standard data-dir packages (#1994). Recipes and hooks
+# use the same wrappers; DEVKIT_TYPST_PACKAGE_PATH identifies the registry.
 #
 # `poppler-utils` (#1573) supplies `pdftotext`/`pdftoppm` for PDF reading.
 # OCR tools carry much larger closures and remain consumer-owned until a
@@ -22,10 +23,10 @@
 # repo-owned), and Python doc-processing libs (pymupdf4llm, openpyxl) which
 # belong in the consumer's own pyproject.toml via uv, not in a nix module.
 pkgs: _options: {
-  env.TYPST_PACKAGE_PATH = toString (import ../typst-packages.nix pkgs);
+  env.DEVKIT_TYPST_PACKAGE_PATH = toString (import ../typst-packages.nix pkgs);
   env.TYPST_IGNORE_SYSTEM_FONTS = "true";
   packages = with pkgs; [
-    typst
+    (import ../docs-typst.nix pkgs)
     typstyle
     (import ../docs-tinymist.nix pkgs)
     poppler-utils

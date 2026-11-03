@@ -18,9 +18,9 @@ pkgs.symlinkJoin {
         compile|preview|lsp)
           mode="''${1:-lsp}"
           if [ "$#" -gt 0 ]; then shift; fi
-          exec ${pkgs.tinymist}/bin/tinymist "''${flags[@]}" "$mode" --ignore-system-fonts "$@"
+          exec ${import ./vig-utils.nix pkgs}/bin/typst-with-packages ${import ./typst-packages.nix pkgs} ${pkgs.tinymist}/bin/tinymist "''${flags[@]}" "$mode" --ignore-system-fonts "$@"
           ;;
-        *) exec ${pkgs.tinymist}/bin/tinymist "''${flags[@]}" "$@" ;;
+        *) exec ${import ./vig-utils.nix pkgs}/bin/typst-with-packages ${import ./typst-packages.nix pkgs} ${pkgs.tinymist}/bin/tinymist "''${flags[@]}" "$@" ;;
       esac
     ''} "$out/bin/tinymist"
   '';

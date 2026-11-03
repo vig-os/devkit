@@ -15,15 +15,24 @@
   right
 } else { left }
 
+// Return a visible token for opaque content: references, context, images,
+// citations and future elements must not be mistaken for empty text.
 #let plain-text(value) = {
-  if type(value) == str { return value }
-  if type(value) != content { return "" }
-  if value.has("text") { return value.text }
+  if value == none { return "" }
+  if type(value) == str {
+    return value.replace(regex("[\\p{Cf}]"), "")
+  }
+  if type(value) != content { return "visible" }
+  if value.func() in (hide, metadata, [ ].func(), parbreak, linebreak) {
+    return ""
+  }
+  if value.has("text") { return plain-text(value.text) }
+  if value.has("child") { return plain-text(value.child) }
+  if value.has("body") { return plain-text(value.body) }
   if value.has("children") {
     return value.children.fold("", (text, child) => text + plain-text(child))
   }
-  if value.has("body") { return plain-text(value.body) }
-  ""
+  "visible"
 }
 
 #let fig(body, caption: none, ..options) = {
@@ -69,7 +78,33 @@
 )
 
 // The explicit opt-out preserves native table settings and user rules.
-#let plain-table(..args) = [#table(..args)<devkit-plain-table>]
+#let mark-plain(cell) = {
+  if cell.func() in (table.hline, table.vline) { return cell }
+  if cell.func() in (table.header, table.footer) {
+    let fields = cell.fields()
+    let children = fields.remove("children")
+    return (cell.func())(..fields, ..children.map(mark-plain))
+  }
+  if cell.func() == table.cell {
+    let fields = cell.fields()
+    let body = fields.remove("body")
+    return table.cell(..fields, metadata("devkit-plain-table") + body)
+  }
+  metadata("devkit-plain-table") + cell
+}
+#let plain-table(..args) = table(..args.named(), ..args.pos().map(mark-plain))
+
+#let has-plain-marker(value) = {
+  if type(value) != content { return false }
+  if value.func() == metadata {
+    return value.value == "devkit-plain-table"
+  }
+  if value.has("body") { return has-plain-marker(value.body) }
+  if value.has("child") { return has-plain-marker(value.child) }
+  if value.has("children") { return value.children.any(has-plain-marker) }
+  false
+}
+
 
 #let header-cell(cell) = {
   if cell.func() != table.cell { return strong(cell) }
@@ -80,16 +115,23 @@
 
 // Only explicit headers are styled. Never infer grid positions from children.
 // User hline/vline decorations are replaced by booktabs rules; plain-table
-// retains them. A private label prevents recursive reconstruction.
-#let booktabs(it) = {
-  if (
-    it.at("label", default: none) in (<devkit-booktabs>, <devkit-plain-table>)
-  ) { return it }
+// retains them. Rebuilt booktabs tables have stroke: none and are left intact.
+#let booktabs(it, inset: none) = {
+  if has-plain-marker(it) { return it }
   let fields = it.fields()
+  // Resolved fields include explicit arguments and contextual set/show-set
+  // rules. Typst cannot distinguish an explicit native default from omission.
+  if inset == none and fields.stroke != stroke() {
+    return it
+  }
   let children = fields.remove("children")
   let _ = fields.remove("label", default: none)
   fields.stroke = none
-  fields.inset = (x: 6pt, y: 5pt)
+  if inset != none {
+    fields.inset = inset
+  } else if fields.inset == 5pt {
+    fields.inset = (x: 6pt, y: 5pt)
+  }
   let decoration(cell) = cell.func() in (table.hline, table.vline)
   let result = table(
     ..fields,
@@ -108,8 +150,15 @@
       }),
     table.hline(stroke: 0.8pt),
   )
-  [#result<devkit-booktabs>]
+  result
 }
+
+// Explicit helper also supports an inset equal to Typst's native default.
+#let booktabs-table(..args) = booktabs(
+  table(..args),
+  inset: args.named().at("inset", default: (x: 6pt, y: 5pt)),
+)
+
 
 #let title-block(
   title: none,
