@@ -15,7 +15,9 @@ def test_scaffold_docs_activation_and_reconciliation(tmp_path, enabled):
     seed = tmp_path / "seed"
     seed.mkdir()
     manifest = seed / ".vig-os"
-    manifest.write_text(f'DEVKIT_MODULES="{"docs" if enabled else ""}"\n')
+    manifest.write_text(
+        f'DEVKIT_MODULES="{"docs" if enabled else ""}"\nDEVKIT_TYPST_SKIP="drafts/**"\n'
+    )
     config = seed / ".pre-commit-config.yaml"
     original = """# consumer comment
 repos:
@@ -29,6 +31,7 @@ repos:
     config.write_text(original)
     scaffold(tmp_path, seed=seed)
     dest = tmp_path / "workspace"
+    assert 'DEVKIT_TYPST_SKIP="drafts/**"' in (dest / ".vig-os").read_text()
     hooks = [
         h
         for r in yaml.safe_load((dest / config.name).read_text())["repos"]
