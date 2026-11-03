@@ -387,8 +387,11 @@ that intentionally contain forbidden text. URLs and paths are also ordinary
 text for forbidden phrases (only part-number detection excludes URLs).
 Simple Markdown emphasis (`*`, `**`, `_`, `__`), code delimiters and Typst
 `#strong[...]` / `#emph[...]` are transparent; nested markup, links and arbitrary
-Typst expressions are not parsed. A registered span suppresses a forbidden hit
-only if it contains the hit or crosses one of its edges. This protects
+Typst expressions are not parsed. Backticks become spaces, preserving code
+boundaries and offsets (for example, a plural after a code span cannot hide a
+forbidden term). Only exact-case registered term/alias occurrences protect
+spans; incidental lowercase matches such as `valve a little` do not.
+A registered span suppresses a forbidden hit only if it contains the hit or crosses one of its edges. This protects
 `the feed` in `the Feed Pump` and `pump station` in `Feed Pump station`. A
 registered name contained inside the forbidden hit never suppresses it: with
 `Valve` registered, `regulating valve` is still forbidden.
@@ -418,18 +421,25 @@ An agent or reviewer goes through **each candidate** in the PR and answers:
 
 Extraction recognizes consecutive title-case words (also across a single line
 break, never a blank line), CamelCase, letter/digit part numbers and ALLCAPS
-acronyms. Leading stopwords are removed and single title-case words are ignored.
+acronyms. Leading and trailing stopwords are removed; coordinating conjunctions
+split phrases, and single title-case words are ignored. Joining stops at blank
+lines, list items, headings and standalone two/three-word title-case name lines.
+Prepared/reviewed/approved/signed/author labels followed by names are filtered.
+This conservative name-line boundary can also separate a wrapped domain name.
 Common words/acronyms such as TODO, NOTE, JSON, MIT, PR, CI, AM and PM are skipped;
 add project-specific names with `glossary-candidates --stopwords NASA,FlowController`
 (case-insensitive, comma-separated, additive to the built-in list in
 `vig_utils.glossary.STOPWORDS`). The same option works with
-`glossary-guard candidates --stopwords ...`.
+`glossary-guard candidates --stopwords ...`. Remove built-ins or additional
+stopwords with `--allow CD,EN` (case-insensitive; allow takes precedence).
+Allowing a standards prefix also reports its numbers, such as `EN-123`; other
+structural/code filters still apply. Both commands support these controls.
 
 Discovery filters YAML frontmatter, Markdown/Typst headings, Markdown pipe-table
 header rows, Markdown inline/reference links (including their text), URLs,
 backtick code spans/fences, underscore identifiers, citations (`[@key]`, `@key`),
-and Typst string literals. Table body prose and simple emphasized prose remain
-eligible. UTF, SHA, ISO, ANSI, RFC, IEEE, IEC, DIN and EN numeric standards are
+and Typst string literals and simple `#link(...)[text]` labels. Table body
+prose and simple emphasized prose remain eligible. UTF, SHA, ISO, ANSI, RFC, IEEE, IEC, DIN and EN numeric standards are
 filtered as standards rather than proposed parts. Deterministic terms mode
 continues scanning code, links and paths as described above.
 
@@ -446,7 +456,12 @@ URLs, code, citations, frontmatter, sentence-initial prose and Typst markup.
 They contain five distinct expected names: **precision 100% (5/5), recall 100%
 (5/5)**. Assertions also check repeated names, wrapped phrases, original-source
 context, sorted output and the closest choice among multiple registered terms.
-These are fixture results, not an accuracy claim for arbitrary documents.
+A second corpus in `fixtures/glossary/review/` models a README, commissioning
+report and Typst note with tables, citations, code and links. Measured distinct-name
+**precision is 100% (10/10), recall 90.9% (10/11)**; tests require ≥75% each.
+The lowercase `service manifold` is missed, reflecting the documented lexical
+limit rather than removing it from the expected set. These are fixture results,
+not an accuracy claim for arbitrary documents.
 
 Nearest-term comparisons are memoized per distinct candidate for each invocation.
 Reproduce the synthetic workload with
@@ -456,6 +471,12 @@ Single runs on the same shared host took **16.922 s before** (943a2f9b) and
 **1.112 s after**, about 15.2× faster. Timings vary with host load; the permanent
 cache regression asserts one comparison per term/name pair across files rather
 than imposing a machine-dependent time threshold.
+`uv run python packages/vig-utils/tests/benchmark_nearest.py` measures 2,000
+distinct names × 300 terms: **12.645 s before** (21bd9717), **6.774 s after**
+(about 1.9× faster, single shared-host runs). `real_quick_ratio` and `quick_ratio`
+upper bounds skip full comparisons only when strictly below the best score;
+equal-score ties retain the lexicographically greatest canonical spelling.
+Before/after result hashes match, including every score and term choice.
 
 For YAML language-server editor validation, put this header in the register,
 replacing `RELEASE_TAG` with an installed devkit release tag that includes the

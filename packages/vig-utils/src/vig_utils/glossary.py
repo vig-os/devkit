@@ -9,7 +9,7 @@ from bisect import bisect_right
 from difflib import SequenceMatcher
 from functools import cache
 from importlib.resources import files
-from itertools import accumulate
+from itertools import accumulate, groupby
 from pathlib import Path
 
 import yaml
@@ -197,11 +197,8 @@ def phrase_rules(entries):
     names = {normalized(n) for e in entries for n in [e["term"], *e.get("aliases", [])]}
     variants = [item for e in entries for item in e.get("forbidden", [])]
     folded_names = {n.casefold() for n in names}
-    clashes = {normalized(item["term"]).casefold() for item in variants} & folded_names
     forbidden, registered = [{}, {}], [set(), set()]
-    for name in names:
-        fold = name.casefold() not in clashes
-        registered[fold].add(name.casefold() if fold else name)
+    registered[0].update(names)
     for item in variants:
         name = normalized(item["term"])
         fold = name.casefold() not in folded_names
@@ -309,77 +306,24 @@ def transparent_view(text, chars=None):
 
 def transparent_text(text):
     """Make emphasis/code delimiters transparent for deterministic checks."""
-    return transparent_view(text)[0].replace("`", "")
+    return transparent_view(text)[0].replace("`", " ")
 
 
-STOPWORDS = frozenset(
-    word.casefold()
-    for word in [
-        "a",
-        "an",
-        "the",
-        "this",
-        "that",
-        "these",
-        "those",
-        "and",
-        "or",
-        "of",
-        "in",
-        "on",
-        "for",
-        "to",
-        "with",
-        "from",
-        "is",
-        "are",
-        "it",
-        "we",
-        "you",
-        "set",
-        "use",
-        "see",
-        "read",
-        "more",
-        "please",
-        "TODO",
-        "NOTE",
-        "JSON",
-        "YAML",
-        "XML",
-        "HTML",
-        "HTTP",
-        "HTTPS",
-        "URL",
-        "API",
-        "MIT",
-        "BSD",
-        "GPL",
-        "SPDX",
-        "PR",
-        "CI",
-        "CD",
-        "AM",
-        "PM",
-        "UTC",
-        "CPU",
-        "GPU",
-        "RAM",
-        "UTF",
-        "SHA",
-        "ISO",
-        "ANSI",
-        "RFC",
-        "IEEE",
-        "IEC",
-        "DIN",
-        "EN",
-    ]
+COMMON_WORDS = (
+    "a an the this that these those and or of in on for to with from "
+    "is are it we you set use see read more please "
+    "TODO NOTE JSON YAML XML HTML HTTP HTTPS URL API MIT BSD GPL SPDX "
+    "PR CI CD AM PM UTC CPU GPU RAM UTF SHA ISO ANSI RFC IEEE IEC DIN EN"
 )
+STOPWORDS = frozenset(COMMON_WORDS.casefold().split())
+STANDARD_PREFIXES = frozenset("UTF SHA ISO ANSI RFC IEEE IEC DIN EN".casefold().split())
+CONJUNCTIONS = {"and", "or", "but", "nor", "yet", "so"}
+NAME_LINE = r"(?:[A-Z][a-z]+[ \t]+){1,2}[A-Z][a-z]+[ \t]*(?:\n|$)"
 CANDIDATE = re.compile(
-    r"(?<![\w-])(?:[A-Z][a-z]+(?:(?:[ \t]+|[ \t]*\n[ \t]*)[A-Z][a-z]+)+"
+    rf"(?<![\w-])(?:[A-Z][a-z]+(?:(?:[ \t]+|[ \t]*\n(?![ \t]*{NAME_LINE})[ \t]*)[A-Z][a-z]+)+"
     r"|[A-Za-z]+-\d+[A-Za-z0-9-]*"
-    r"|[A-Z]{2,}\b|[A-Za-z]+[A-Z][A-Za-z0-9]*)(?![\w-])"
+    r"|[A-Z]{2,}\b|[A-Za-z]+[A-Z][A-Za-z0-9]*"
+    r"|[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+)(?![\w-])"
 )
 NOISE = [
     r"(?ms)\A---[ \t]*\n.*?^---[ \t]*(?:\n|$)",
@@ -393,14 +337,19 @@ NOISE = [
     URL.pattern,
     r"\[@[^\]\n]*\]|(?<!\w)@[\w:.-]+",
     r"(?<!\w)[A-Za-z]\w*_\w+(?!\w)",
-    r"\b(?:UTF|SHA|ISO|ANSI|RFC|IEEE|IEC|DIN|EN)-\d+[A-Za-z0-9.-]*\b",
+    rf"(?m)^[ \t]*(?:Prepared|Reviewed|Approved|Signed|Author)(?: by)?[ \t]*:[ \t]*(?:\n[ \t]*)?{NAME_LINE}",
 ]
 
 
-def candidate_view(text, suffix):
+def candidate_view(text, suffix, allow=frozenset()):
     """Mask structural/code noise before stripping inline prose markup."""
     chars = list(text)
-    patterns = [*NOISE, r'"(?:\\.|[^"\\])*"'] if suffix == ".typ" else NOISE
+    patterns = list(NOISE)
+    prefixes = "|".join(sorted(STANDARD_PREFIXES - allow))
+    if prefixes:
+        patterns.append(rf"(?i)\b(?:{prefixes})-\d+[A-Za-z0-9.-]*\b")
+    if suffix == ".typ":
+        patterns.extend([r'"(?:\\.|[^"\\])*"', r"#link\([^)]*\)\[[^\[\]]*\]"])
     for pattern in patterns:
         for match in re.finditer(pattern, text):
             for i in range(*match.span()):
@@ -415,19 +364,36 @@ def nearest_matcher(entries):
 
     @cache
     def nearest(name):
-        return max(
-            (
-                (SequenceMatcher(None, name.casefold(), term.casefold()).ratio(), term)
-                for term in terms
-            ),
-            default=(0.0, None),
-        )
+        best = (-1.0, "")
+        for term in terms:
+            matcher = SequenceMatcher(None, name.casefold(), term.casefold())
+            if matcher.real_quick_ratio() < best[0] or matcher.quick_ratio() < best[0]:
+                continue
+            best = max(best, (matcher.ratio(), term))
+        return best if terms else (0.0, None)
 
     return nearest
 
 
+def phrase_words(match, stopwords):
+    """Split conjunctions and trim stopwords at both ends of each phrase."""
+    words = re.finditer(r"\S+", match.group())
+    for conjunction, group in groupby(
+        words, lambda w: w.group().casefold() in CONJUNCTIONS
+    ):
+        if conjunction:
+            continue
+        words = list(group)
+        while words and words[0].group().casefold() in stopwords:
+            words.pop(0)
+        while words and words[-1].group().casefold() in stopwords:
+            words.pop()
+        if words:
+            yield words
+
+
 def candidate_names(text, known, stopwords):
-    """Group prose names after removing known spans and leading stopwords."""
+    """Group prose names after subtracting known spans and trimming stopwords."""
     protected = protected_ends(
         len(text),
         (
@@ -437,24 +403,23 @@ def candidate_names(text, known, stopwords):
     )
     groups = {}
     for match in CANDIDATE.finditer(text):
-        words = list(re.finditer(r"\S+", match.group()))
-        while words and words[0].group().casefold() in stopwords:
-            words.pop(0)
-        if not words:
-            continue
-        name = " ".join(word.group() for word in words)
-        start = match.start() + words[0].start()
-        if name.casefold() in stopwords or match.end() <= protected[start]:
-            continue
-        if len(words) == 1 and re.fullmatch(r"[A-Z][a-z]+", name):
-            continue
-        groups.setdefault(name, []).append((start, match.end()))
+        for words in phrase_words(match, stopwords):
+            name = " ".join(word.group() for word in words)
+            start, end = (
+                match.start() + words[0].start(),
+                match.start() + words[-1].end(),
+            )
+            if name.casefold() in stopwords or end <= protected[start]:
+                continue
+            if len(words) == 1 and re.fullmatch(r"[A-Z][a-z]+", name):
+                continue
+            groups.setdefault(name, []).append((start, end))
     return groups
 
 
-def candidate_rows(path, original, known, nearest, stopwords):
+def candidate_rows(path, original, known, nearest, stopwords, allow):
     """Report locations and context from original source, never masked text."""
-    text, offsets = candidate_view(original, path.suffix)
+    text, offsets = candidate_view(original, path.suffix, allow)
     for name, positions in sorted(candidate_names(text, known, stopwords).items()):
         start, end = offsets[positions[0][0]], offsets[positions[0][1] - 1] + 1
         score, canonical = nearest(name)
@@ -469,7 +434,7 @@ def candidate_rows(path, original, known, nearest, stopwords):
         }
 
 
-def candidates(entries, extra_stopwords=""):
+def candidates(entries, extra_stopwords="", allow_names=""):
     """Print advisory JSON lines, continuing after individual source errors."""
     names = {
         normalized(n).casefold()
@@ -478,9 +443,10 @@ def candidates(entries, extra_stopwords=""):
         if n
     }
     known, nearest = phrase_regex(names, overlapping=True), nearest_matcher(entries)
-    stopwords = STOPWORDS | {
-        word.strip().casefold() for word in extra_stopwords.split(",")
-    }
+    allow = {word.strip().casefold() for word in allow_names.split(",")}
+    stopwords = (
+        STOPWORDS | {word.strip().casefold() for word in extra_stopwords.split(",")}
+    ) - allow
     failed = False
     for path in sources("glossary-candidates"):
         try:
@@ -489,9 +455,21 @@ def candidates(entries, extra_stopwords=""):
             print(f"glossary-candidates: {error}", file=sys.stderr)
             failed = True
             continue
-        for row in candidate_rows(path, text, known, nearest, stopwords):
+        for row in candidate_rows(path, text, known, nearest, stopwords, allow):
             print(json.dumps(row, ensure_ascii=False))
     return int(failed)
+
+
+def candidate_options(parser):
+    """Share stoplist controls between the standalone and guard commands."""
+    parser.add_argument(
+        "--stopwords", default="", help="Additional comma-separated names to ignore"
+    )
+    parser.add_argument(
+        "--allow",
+        default="",
+        help="Remove comma-separated names and standard prefixes from filters",
+    )
 
 
 def candidates_main():
@@ -499,13 +477,9 @@ def candidates_main():
     parser = argparse.ArgumentParser(
         description="Report unregistered terminology as advisory JSON lines."
     )
-    parser.add_argument(
-        "--stopwords",
-        default="",
-        help="Additional comma-separated names to ignore (case-insensitive)",
-    )
+    candidate_options(parser)
     args = parser.parse_args()
-    return main(["candidates", "--stopwords", args.stopwords])
+    return main(["candidates", "--stopwords", args.stopwords, "--allow", args.allow])
 
 
 def scan(entries):
@@ -545,16 +519,12 @@ def main(argv=None):
     """Run schema validation or deterministic terminology checks."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=["schema", "terms", "candidates"])
-    parser.add_argument(
-        "--stopwords",
-        default="",
-        help="Additional candidate names to ignore, comma-separated",
-    )
+    candidate_options(parser)
     args = parser.parse_args(argv)
     try:
         entries = load_register()
         if args.mode == "candidates":
-            return candidates(entries, args.stopwords)
+            return candidates(entries, args.stopwords, args.allow)
         return scan(entries) if args.mode == "terms" and entries else 0
     except (OSError, ValueError, yaml.YAMLError, re.error) as error:
         tool = "glossary-candidates" if args.mode == "candidates" else "glossary-guard"
