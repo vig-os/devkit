@@ -267,9 +267,19 @@ def enable(text, asset, library):
             )
         else:
             owned.append(hook)
-    body = rendered_hooks(text, owned) if owned else ""
-    block = managed_block(body, records)
     sequence = repos_node(text)
+    local = next(
+        (repo for repo in sequence.value if fields(repo)["repo"][1].value == "local"),
+        None,
+    )
+    if local is not None:
+        # Extend the existing sequence: this also avoids multiplying findings
+        # from a consumer's indentless sequence or wide dash spacing.
+        sequence = fields(local)["hooks"][1]
+        body = yaml.dump(owned, Dumper=IndentedDumper, sort_keys=False) if owned else ""
+    else:
+        body = rendered_hooks(text, owned) if owned else ""
+    block = managed_block(body, records)
     indent = " " * sequence.start_mark.column
     block = "\n".join(indent + line for line in block.splitlines())
     line = sequence.start_mark.line + 1

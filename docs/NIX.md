@@ -250,6 +250,8 @@ Mixed or legacy line endings are rejected without rewriting; uniform LF and CRLF
 are preserved.
 The docs module extends the existing preserved-hook range/splice engine (#1654),
 using the same exact feature markers and insert/fold/drift report channels.
+It extends an existing local hook sequence when available; otherwise it adds a
+local repository block. This avoids repeating existing sequence lint findings.
 Reversible exclusion records use repository and hook IDs, so hook insertion and
 reordering are safe. Parsed values allow formatter re-quoting. Managed-block edits, including comments,
 are detected before replacement; the installer warns with manual advice and
