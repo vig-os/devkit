@@ -262,11 +262,21 @@ If a fixer hook is deleted or its repository URL changes (including adding
 switch ON. If `exclude` was moved before `id`, move it after `id` and retry.
 Added inline comments on an injected exclude line require moving the comment to
 its own line before retrying; reconciliation refuses them without dropping text.
+If a restored fixer is missing its managed `exclude`, restore that value before
+switching docs OFF. Keep the local repository containing the docs block until
+after switching docs OFF. If that repository is deleted, generated exclusions
+without a docs block trigger a warning and reconciliation retains the config.
+Restore the deleted repository/block and switch docs OFF before deleting it again.
+Without the block's recovery records, exclusions cannot be safely undone.
+Consumer-owned exclusions identical to the generated pattern are indistinguishable;
+remove those exclusions by hand before retrying reconciliation.
 The owned markers and state comments should be left intact. Both
 staged and installed output pass `prek validate-config`; failures retain the original
 bytes and print recovery instructions. Writes preserve the existing inode. Reconciliation preserves
 consumer indentation, line endings, and final-newline presence. Enabling docs adds
-no new strict scaffold yamllint rule/message finding (including counts); existing findings may remain. Existing `typst-compile` or
+no strict scaffold yamllint findings to configurations that were clean. Configurations
+with existing findings (such as wide dash spacing or indentless hook lists) may
+gain findings; review the result with your lint configuration. Existing `typst-compile` or
 `typstyle` hooks are retained with a notice rather than duplicated.
 Non-docs upgrades add empty `DEVKIT_TYPST_SKIP` and `DEVKIT_TYPST_FONT_PATHS`
 keys, without additional hooks or a document-recipe import.
@@ -290,12 +300,17 @@ repository-relative skip globs in `.vig-os`, for example
 `DEVKIT_TYPST_SKIP="drafts/**,templates/experimental/**"`. Matching uses Python
 fnmatch (including `/`); skips apply to entries and template smoke tests.
 
-With docs enabled, the installer manages `justfile.devkit-docs`:
+With docs enabled, the installer manages `justfile.devkit-docs`, loaded as
+`mod docs 'justfile.devkit-docs'`. Document recipes live in the `docs` namespace,
+so consumer recipes named `typst`, `typst-canonical`, or `typst-probe` remain usable.
+Upgrades replace the former flat import; use the namespaced commands below.
+Consumer-owned recipe files are retained and never loaded automatically:
 
-- `just typst [--deps]` builds sibling `generated/<stem>.pdf` files with
+
+- `just docs::typst [--deps]` builds sibling `generated/<stem>.pdf` files with
   `--input rev=<sha8>[-dirty]`; Git status determines the dirty suffix.
-- `just typst-canonical [--deps]` omits the revision input for hash comparisons.
-- `just typst-probe` prints JSON objects for Typst, typstyle, and tinymist, each
+- `just docs::typst-canonical [--deps]` omits the revision input for hash comparisons.
+- `just docs::typst-probe` prints JSON objects for Typst, typstyle, and tinymist, each
   containing a resolved binary `path`, single-line `version`, and `version_source`.
   Versions are parsed from each tool's own output. The pinned tinymist build omits
   its own version there, so its resolved Nix store version is reported explicitly

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+
+- **Typst docs guard reconciliation** ([#2011](https://github.com/vig-os/devkit/issues/2011))
+  - Namespace document recipes under `docs::`, correct preview ownership reports,
+    and retain configs with recovery advice after missing managed state or interrupted writes.
+
 ### Added
 
 - **Advisory glossary candidate discovery** ([#1994](https://github.com/vig-os/devkit/issues/1994))
