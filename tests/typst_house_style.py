@@ -12,11 +12,13 @@ import tomllib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-package_path, recipes, hooks, version = sys.argv[1:]
+package_path, recipes, hooks, release_manifest = sys.argv[1:]
+version = re.search(r"(?m)^DEVKIT_VERSION=(.+)$", Path(release_manifest).read_text())[1]
 package_path = Path(package_path).resolve()
 recipes, hooks = Path(recipes).resolve(), Path(hooks).resolve()
 manifest = package_path / "local/devkit-docs" / version / "typst.toml"
 assert tomllib.loads(manifest.read_text())["package"]["version"] == version
+assert os.environ["TYPST_PACKAGE_PATH"] == str(package_path)
 os.environ.update(
     TYPST_PACKAGE_PATH=str(package_path),
     SOURCE_DATE_EPOCH="0",

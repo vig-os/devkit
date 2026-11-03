@@ -1354,11 +1354,10 @@
                   pkgs.vig-utils
                 ];
                 inherit (docs.env) TYPST_PACKAGE_PATH;
-                PREK_HOME = "$TMPDIR/prek";
               }
               ''
                 export PREK_HOME="$TMPDIR/prek"
-                python ${./tests/typst_house_style.py} ${registry} ${./assets/justfile.d/docs.justfile} ${./assets/docs-hooks.json} ${registry.version}
+                python ${./tests/typst_house_style.py} ${registry} ${./assets/justfile.d/docs.justfile} ${./assets/docs-hooks.json} ${./.vig-os}
                 touch "$out"
               '';
 

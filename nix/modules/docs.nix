@@ -1,9 +1,11 @@
 # `docs` capability module (#1178): the document-edition dev-shell capability.
-# v1 contract (packages only, per docs/rfcs/ADR-capability-modules.md): puts
+# v1 packages + env contract (docs/rfcs/ADR-capability-modules.md): puts
 # `typst` (the document compiler), `typstyle` (its formatter), `tinymist`
 # (the Typst language server with diagnostics and preview), and `poppler-utils`
 # (PDF reading) on the dev-shell PATH. Document-oriented consumers opt in with
 # `modules = [ "docs" ]` instead of a PyPI typst pin or hand-wiring packages.
+# The immutable offline registry is shared with Nix hook wrappers through
+# TYPST_PACKAGE_PATH (#1994). Recipes inherit the same shell environment.
 #
 # `poppler-utils` (#1573) supplies `pdftotext`/`pdftoppm` for PDF reading.
 # OCR tools carry much larger closures and remain consumer-owned until a
