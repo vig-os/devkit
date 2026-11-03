@@ -41,6 +41,8 @@ count_release_approvals() {
     "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews" | jq \
     --arg head "$head" --arg author "$author" '
       add | map(select(.user.login != null))
+      | map(select(.state == "APPROVED" or .state == "CHANGES_REQUESTED"
+          or .state == "DISMISSED"))
       | group_by(.user.login | ascii_downcase)
       | map(max_by(.submitted_at, .id))
       | map(select(.state == "APPROVED" and .commit_id == $head
