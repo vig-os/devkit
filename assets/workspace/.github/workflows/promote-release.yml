@@ -235,7 +235,7 @@ jobs:
           PR_JSON=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh pr list \
             --head "release/$VERSION" \
             --base main \
-            --json number,isDraft,reviewDecision,statusCheckRollup \
+            --json number,isDraft,reviewDecision,statusCheckRollup,headRefOid,author \
             --limit 1)
 
           PR_COUNT=$(echo "$PR_JSON" | jq 'length')
@@ -268,10 +268,7 @@ jobs:
           elif [ "$REVIEW_DECISION" = "APPROVED" ]; then
             echo "PR #$PR_NUMBER is approved"
           elif [ "$REVIEW_DECISION" = "null" ] || [ -z "$REVIEW_DECISION" ]; then
-            APPROVED_COUNT=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh api \
-              --paginate --slurp \
-              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews" \
-              | jq 'add | map(select(.state == "APPROVED")) | length')
+            APPROVED_COUNT=$(count_release_approvals)
             if [ "$APPROVED_COUNT" -lt "$REQUIRED_APPROVALS" ]; then
               echo "ERROR: PR #$PR_NUMBER is not approved (reviewDecision: $REVIEW_DECISION, approved reviews: $APPROVED_COUNT, required: $REQUIRED_APPROVALS)"
               exit 1
@@ -467,7 +464,7 @@ jobs:
           PR_JSON=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh pr list \
             --head "$RELEASE_BRANCH" \
             --base main \
-            --json number,isDraft,reviewDecision,statusCheckRollup \
+            --json number,isDraft,reviewDecision,statusCheckRollup,headRefOid,author \
             --limit 1)
 
           PR_COUNT=$(echo "$PR_JSON" | jq 'length')
@@ -501,10 +498,7 @@ jobs:
           elif [ "$REVIEW_DECISION" = "APPROVED" ]; then
             echo "PR #$PR_NUMBER is approved"
           elif [ "$REVIEW_DECISION" = "null" ] || [ -z "$REVIEW_DECISION" ]; then
-            APPROVED_COUNT=$(retry --retries 3 --backoff 5 --max-backoff 30 -- gh api \
-              --paginate --slurp \
-              "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews" \
-              | jq 'add | map(select(.state == "APPROVED")) | length')
+            APPROVED_COUNT=$(count_release_approvals)
             if [ "$APPROVED_COUNT" -lt "$REQUIRED_APPROVALS" ]; then
               echo "ERROR: PR #$PR_NUMBER does not have approvals"
               exit 1

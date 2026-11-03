@@ -262,14 +262,15 @@ runs:
         # composing it onto tag names/URLs at the publishing edge.
         echo "tag-prefix=$TAG_PREFIX" >> "$GITHUB_OUTPUT"
 
-        # Candidate pre-release format (#1746): freeform here, empty by default
-        # (= rc{N}); validated loudly by release-version in release-core, the
-        # only consumer. Emitted for every mode.
+        # Approval fallback count: used only for the rulesets plan-limit 403.
         if ! [[ "$RELEASE_REQUIRED_APPROVALS" =~ ^[0-9]+$ ]]; then
           echo "::error::DEVKIT_RELEASE_REQUIRED_APPROVALS must be a non-negative integer"
           exit 1
         fi
         echo "release-required-approvals=$RELEASE_REQUIRED_APPROVALS" >> "$GITHUB_OUTPUT"
+        # Candidate pre-release format (#1746): freeform here, empty by default
+        # (= rc{N}); validated loudly by release-version in release-core, the
+        # only consumer. Emitted for every mode.
         echo "prerelease-format=$PRERELEASE_FORMAT" >> "$GITHUB_OUTPUT"
 
         # Floating tag levels (#1045): comma-separated subset of major,minor;

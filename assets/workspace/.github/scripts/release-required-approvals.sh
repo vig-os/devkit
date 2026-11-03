@@ -7,7 +7,8 @@
 if [ "${1:-}" = --query ]; then
   if rules=$(gh api "repos/${GITHUB_REPOSITORY}/rules/branches/main" 2>"$RUNNER_TEMP/rules.err"); then
     printf "%s\n" "$rules"
-  elif grep -q "HTTP 403" "$RUNNER_TEMP/rules.err"; then
+  elif grep -Fq "HTTP 403" "$RUNNER_TEMP/rules.err" &&
+    grep -Fq "Upgrade to GitHub Pro" "$RUNNER_TEMP/rules.err"; then
     echo PLAN_LIMIT
   else
     cat "$RUNNER_TEMP/rules.err" >&2
@@ -30,3 +31,18 @@ if [ "$RULES_JSON" = PLAN_LIMIT ]; then
 else
   REQUIRED_APPROVALS=$(echo "$RULES_JSON" | jq '[.[] | select(.type == "pull_request") | .parameters.required_approving_review_count // 0] | max // 0')
 fi
+
+# Used by both gates when reviewDecision is unavailable (including plan limits).
+count_release_approvals() {
+  local head author
+  head=$(echo "$PR_JSON" | jq -r '.[0].headRefOid')
+  author=$(echo "$PR_JSON" | jq -r '.[0].author.login | ascii_downcase')
+  retry --retries 3 --backoff 5 --max-backoff 30 -- gh api --paginate --slurp \
+    "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/reviews" | jq \
+    --arg head "$head" --arg author "$author" '
+      add | map(select(.user.login != null))
+      | group_by(.user.login | ascii_downcase)
+      | map(max_by(.submitted_at, .id))
+      | map(select(.state == "APPROVED" and .commit_id == $head
+          and (.user.login | ascii_downcase) != $author)) | length'
+}
