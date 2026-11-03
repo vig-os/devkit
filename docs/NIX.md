@@ -387,10 +387,14 @@ that intentionally contain forbidden text. URLs and paths are also ordinary
 text for forbidden phrases (only part-number detection excludes URLs).
 Simple Markdown emphasis (`*`, `**`, `_`, `__`), code delimiters and Typst
 `#strong[...]` / `#emph[...]` are transparent; nested markup, links and arbitrary
-Typst expressions are not parsed. Backticks become spaces, preserving code
+Typst expressions are not parsed. Emphasis is limited to a single line and
+1,024 content characters; longer spans retain their delimiters. Inline markup
+is unwrapped only at word boundaries so adjacent prefixes/plurals stay visible. Backticks become spaces, preserving code
 boundaries and offsets (for example, a plural after a code span cannot hide a
-forbidden term). Only exact-case registered term/alias occurrences protect
-spans; incidental lowercase matches such as `valve a little` do not.
+forbidden term). Registered terms/aliases protect their exact spelling plus sentence-case
+and title-case forms. ALLCAPS forms are not protected; use the per-line
+suppression marker above for intentional ALLCAPS headings. Other case variants
+remain unprotected; incidental lowercase matches such as `valve a little` do not.
 A registered span suppresses a forbidden hit only if it contains the hit or crosses one of its edges. This protects
 `the feed` in `the Feed Pump` and `pump station` in `Feed Pump station`. A
 registered name contained inside the forbidden hit never suppresses it: with
@@ -422,11 +426,14 @@ An agent or reviewer goes through **each candidate** in the PR and answers:
 Extraction recognizes consecutive title-case words (also across a single line
 break, never a blank line), CamelCase, letter/digit part numbers and ALLCAPS
 acronyms. Leading and trailing stopwords are removed; coordinating conjunctions
-split phrases, and single title-case words are ignored. Joining stops at blank
+split phrases while retaining the joined phrase as a candidate, and single
+title-case words are ignored. `--allow And` disables splitting at And, preserving
+names such as Research And Development. Joining stops at blank
 lines, list items, headings and standalone two/three-word title-case name lines.
 Prepared/reviewed/approved/signed/author labels followed by names are filtered.
 This conservative name-line boundary can also separate a wrapped domain name.
-Common words/acronyms such as TODO, NOTE, JSON, MIT, PR, CI, AM and PM are skipped;
+Sentence-start connectives However, When, After, Before, Then, Also and Therefore
+are default stopwords. Common words/acronyms such as TODO, NOTE, JSON, MIT, PR, CI, AM and PM are skipped;
 add project-specific names with `glossary-candidates --stopwords NASA,FlowController`
 (case-insensitive, comma-separated, additive to the built-in list in
 `vig_utils.glossary.STOPWORDS`). The same option works with

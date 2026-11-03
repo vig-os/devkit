@@ -198,7 +198,15 @@ def phrase_rules(entries):
     variants = [item for e in entries for item in e.get("forbidden", [])]
     folded_names = {n.casefold() for n in names}
     forbidden, registered = [{}, {}], [set(), set()]
-    registered[0].update(names)
+    registered[0].update(
+        variant
+        for name in names
+        for variant in (
+            name,
+            name[:1].upper() + name[1:],
+            " ".join(word[:1].upper() + word[1:] for word in name.split()),
+        )
+    )
     for item in variants:
         name = normalized(item["term"])
         fold = name.casefold() not in folded_names
@@ -287,8 +295,8 @@ def part_hits(families, text):
 
 
 INLINE_MARKUP = re.compile(
-    r"#(?:strong|emph)\[([^\[\]\n]*)\]"
-    r"|(?<!\w)(\*{1,2}|_{1,2})(?=\S)(.+?)(?<=\S)\2(?!\w)"
+    r"(?<!\w)#(?:strong|emph)\[([^\[\]\n]*)\](?!\w)"
+    r"|(?<!\w)(\*{1,2}|_{1,2})(?=\S)([^\n]{1,1024}?)(?<=\S)\2(?!\w)"
 )
 
 
@@ -310,8 +318,9 @@ def transparent_text(text):
 
 
 COMMON_WORDS = (
-    "a an the this that these those and or of in on for to with from "
+    "a an the this that these those and or but nor yet so of in on for to with from "
     "is are it we you set use see read more please "
+    "however when after before then also therefore "
     "TODO NOTE JSON YAML XML HTML HTTP HTTPS URL API MIT BSD GPL SPDX "
     "PR CI CD AM PM UTC CPU GPU RAM UTF SHA ISO ANSI RFC IEEE IEC DIN EN"
 )
@@ -376,14 +385,19 @@ def nearest_matcher(entries):
 
 
 def phrase_words(match, stopwords):
-    """Split conjunctions and trim stopwords at both ends of each phrase."""
-    words = re.finditer(r"\S+", match.group())
-    for conjunction, group in groupby(
-        words, lambda w: w.group().casefold() in CONJUNCTIONS
-    ):
-        if conjunction:
-            continue
-        words = list(group)
+    """Keep joined names alongside conjunction splits, trimming edge stopwords."""
+    words = list(re.finditer(r"\S+", match.group()))
+    conjunctions = CONJUNCTIONS - (STOPWORDS - stopwords)
+    parts = [words]
+    if any(word.group().casefold() in conjunctions for word in words):
+        parts.extend(
+            list(group)
+            for conjunction, group in groupby(
+                words, lambda word: word.group().casefold() in conjunctions
+            )
+            if not conjunction
+        )
+    for words in parts:
         while words and words[0].group().casefold() in stopwords:
             words.pop(0)
         while words and words[-1].group().casefold() in stopwords:
