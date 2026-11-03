@@ -148,6 +148,13 @@ Both use the `Expiration: YYYY-MM-DD` directive format and are validated by
 `check-expirations` (pre-commit hook and CI). Expired entries fail CI, forcing
 periodic review consistent with the IEC 62304 exception-register model.
 
+For `.vulnixignore`, a `CVE@pname@version` entry applies only to that exact
+package name and version in the scanner's JSON. Use this for a version-specific
+CPE collision so a genuinely vulnerable version remains blocking. Bare CVE
+entries keep their existing scope. The expiry validator reads either form as
+one entry under the preceding `Expiration:` directive. This scoped syntax is
+specific to `vulnix-gate`; do not use it in Trivy's register.
+
 #### Expiry dates land on a Wednesday
 
 **Convention:** pick every `Expiration:` date on a **Wednesday** — in both

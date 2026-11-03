@@ -17,9 +17,13 @@ three things on the host:
 
 | Prerequisite | Purpose |
 |--------------|---------|
-| **[Nix](https://nixos.org/download)** | Provides the entire dev toolchain (just, git, gh, uv, node, jq, tmux, ripgrep, claude, …) from the flake — no manual installs |
+| **[Nix](https://nixos.org/download)** | Provides the entire dev toolchain (just, git, gh, uv, node, jq, tmux, ripgrep, …) from the flake — no manual installs |
 | **[direnv](https://direnv.net/)** | Loads the flake dev-shell automatically on `cd` — **once its [shell hook](https://direnv.net/docs/hook.html) is installed** (e.g. `eval "$(direnv hook bash)"` in `~/.bashrc`). Without the hook, `direnv allow` still succeeds but nothing loads on `cd` and you silently fall back to host tools. Recommended; `nix develop` works without direnv |
 | **A working container runtime** (podman or Docker) | Building and testing the image needs a usable rootless runtime. The flake ships the `podman` CLI, but rootless operation depends on host setup — `subuid`/`subgid` + `uidmap` on Linux, or `podman machine` on macOS |
+
+The agent CLI is machine-level by default. Install `claude` on your machine or
+[opt in through the project shell](docs/NIX.md#agent-cli-opt-in); opting in shadows
+any system wrapper.
 
 Everything else comes from the flake. See the fast path below to get set up.
 

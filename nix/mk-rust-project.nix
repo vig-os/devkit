@@ -158,6 +158,8 @@
   # Additional capability modules, composed alongside `rust`.
   modules ? [ ],
   extraPackages ? [ ],
+  # Opt in to the machine-level CLI; shadows any system claude wrapper.
+  withAgentCli ? false,
   hooks ? null,
   hooksExcludes ? [ ],
   workflow ? "gitflow",
@@ -679,6 +681,7 @@ let
           inherit
             pkgs
             extraPackages
+            withAgentCli
             hooks
             hooksExcludes
             workflow

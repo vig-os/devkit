@@ -22,6 +22,6 @@
   ];
   options.vigos.packages.enable = lib.mkEnableOption "the vigOS toolchain (devTools) as home packages";
   config = lib.mkIf config.vigos.packages.enable {
-    home.packages = (import ../devtools.nix) pkgs;
+    home.packages = (import ../devtools.nix) pkgs ++ (import ../agent-tools.nix) pkgs;
   };
 }
