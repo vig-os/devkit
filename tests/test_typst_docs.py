@@ -106,7 +106,7 @@ def test_consumer_owned_docs_justfile_survives_upgrade(tmp_path, enabled):
     )
     assert parsed.returncode == 0, parsed.stderr
     assert (
-        "import? 'justfile.devkit-docs'"
+        "mod docs 'justfile.devkit-docs'"
         in (tmp_path / "workspace/justfile").read_text()
     ) == enabled
 
@@ -140,6 +140,46 @@ def test_unmanaged_reserved_recipe_file_is_not_imported(tmp_path, enabled):
     scaffold(tmp_path, seed=seed)
     assert (tmp_path / "workspace/justfile.devkit-docs").read_text() == original
     assert (
-        "import? 'justfile.devkit-docs'"
+        "mod docs 'justfile.devkit-docs'"
         not in (tmp_path / "workspace/justfile").read_text()
     )
+
+
+@pytest.mark.parametrize("recipe", ["typst", "typst-canonical", "typst-probe"])
+def test_consumer_recipe_names_do_not_clash(tmp_path, recipe):
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    (seed / ".vig-os").write_text('DEVKIT_MODULES="docs"\n')
+    (seed / "justfile.local").write_text(f"{recipe}:\n    @echo consumer\n")
+    scaffold(tmp_path, seed=seed)
+    justfile = tmp_path / "workspace/justfile"
+    for args in [["--list"], [recipe], ["--show", "docs::typst"]]:
+        result = subprocess.run(
+            ["just", "--justfile", str(justfile), *args], capture_output=True, text=True
+        )
+        assert result.returncode == 0, result.stderr
+
+
+def test_preview_removes_hooks_without_recipe_file(tmp_path):
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    (seed / ".vig-os").write_text('DEVKIT_MODULES="docs"\n')
+    scaffold(tmp_path, seed=seed)
+    dest = tmp_path / "workspace"
+    (dest / "justfile.devkit-docs").unlink()
+    (dest / ".vig-os").write_text('DEVKIT_MODULES=""\n')
+    result = scaffold(tmp_path, preview=True)
+    assert "  -  managed docs hooks" in result.stdout
+
+
+def test_preview_keeps_consumer_owned_recipe_file(tmp_path):
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    (seed / ".vig-os").write_text('DEVKIT_MODULES=""\n')
+    (seed / "justfile.devkit-docs").write_text("# Consumer recipes\n")
+    result = scaffold(tmp_path, seed=seed, preview=True)
+    assert not any(
+        "  -  " in line and "justfile.devkit-docs" in line
+        for line in result.stdout.splitlines()
+    )
+    assert "consumer-owned justfile.devkit-docs retained" in result.stdout
