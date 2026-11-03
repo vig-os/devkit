@@ -430,7 +430,7 @@ term or alias are rejected as dead rules; casing corrections remain valid.
 Unsupported suffixes in source pathspecs warn on stderr. Run `glossary-guard schema` or `glossary-guard terms`
 manually from the repository root.
 
-Run `glossary-candidates` (or `just glossary-candidates` with the docs module)
+Run `glossary-candidates` (or `just devkit-docs::glossary-candidates` with the docs module)
 from the repository root for advisory candidate discovery. It uses the same
 tracked source selection as terms mode, even without a register, and never
 installs a blocking hook. Invalid registers fail before scanning. Unreadable or
