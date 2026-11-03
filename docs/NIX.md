@@ -152,8 +152,31 @@ devShells.default = vigos.lib.mkProjectShell {
     applying `overlays.default`. They share Typst minor 0.15 (currently 0.15.1,
     0.15.2, and 0.15.10 respectively). Pass the overlaid `pkgs` to
     `mkProjectShell`; direct module imports also use the supplied package set.
-    Typst output can change between versions, so regenerate `generated/`
-    artifacts once under the updated pinned toolchain.
+
+    ### Migrating to Typst 0.15
+
+    This affects consumers of the `docs` module and `overlays.default`, plus
+    anyone formatting with the image's typstyle: the 0.14.4 → 0.15.2 update
+    can reformat `.typ` files. Rendered output changes too. Consumers comparing
+    canonical PDF hashes against issued documents will see hash drift.
+    Regenerate `generated/` deliberately in its own commit, review the output,
+    and re-issue documents where your process requires it. Documents relying
+    on Typst 0.14 behaviour may fail to compile; check the breaking changes in
+    the [upstream Typst 0.15 changelog](https://typst.app/docs/changelog/0.15.0/).
+
+    For stability, pin a devkit release tag and set
+    `DEVKIT_FLAKE_PIN_ADVANCE=false` to hold it. Lockstep pins now advance
+    with upgrades by default
+    ([#1856](https://github.com/vig-os/devkit/issues/1856)); `devkit-upgrade`
+    opens adoption PRs on a schedule. Typst tools now move with the weekly
+    nixpkgs-unstable bump, so patch releases can change rendered output
+    between devkit releases.
+
+    **Language-server cost:** tinymist adds about 258 MB beyond the combined
+    typst/typstyle closure on x86_64-linux (258,182,512 bytes at the current
+    pin, measured with cache-only `nix path-info -S` and deduplicated runtime
+    references). This cost applies to the opted-in docs shell; the image
+    includes only typstyle.
 
     **PDF reading is part of the capability.** `poppler-utils` puts `pdftotext`
     and `pdftoppm` on the shell PATH: without them there is no CLI path from a

@@ -65,7 +65,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Unstable Typst toolchain** ([#1993](https://github.com/vig-os/devkit/issues/1993))
   - Take typst 0.15.1, typstyle 0.15.2, and tinymist 0.15.10 from the locked nixpkgs-unstable input via fastMovers; add tinymist diagnostics and preview to the docs module.
-  - Consumers regenerate `generated/` artifacts once under the updated toolchain.
+  - Migration affects `docs` module and `overlays.default` consumers, plus anyone formatting with the image's typstyle (0.14.4 → 0.15.2), which can reformat `.typ` files.
+  - Rendered output changes: canonical PDF hashes compared against issued documents will drift. Regenerate `generated/` deliberately in its own commit and re-issue documents where the process requires it.
+  - Documents relying on Typst 0.14 behaviour may fail to compile; review the breaking changes in the [upstream Typst 0.15 changelog](https://typst.app/docs/changelog/0.15.0/) before migrating.
+  - For stability, pin a devkit release tag and set `DEVKIT_FLAKE_PIN_ADVANCE=false` to hold it: lockstep pins advance with upgrades by default ([#1856](https://github.com/vig-os/devkit/issues/1856)), and `devkit-upgrade` opens adoption PRs on a schedule.
+  - Typst tools now move with the weekly nixpkgs-unstable bump; patch releases can change rendered output between devkit releases.
 
 - **Default lockstep pin advancement** ([#1856](https://github.com/vig-os/devkit/issues/1856)): lockstep release pins advance unless `DEVKIT_FLAKE_PIN_ADVANCE=false`.
 
