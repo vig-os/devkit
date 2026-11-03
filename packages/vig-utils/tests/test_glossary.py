@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import time
 from importlib.resources import files
+from pathlib import Path
 
 import pytest
 import yaml
@@ -371,14 +372,17 @@ def test_dead_forbidden_rules(register, name):
         ("Feed Pump station", "pump station", 0),
         ("**Feed** Pump", "pump", 0),
         ("#strong[Feed] Pump", "pump", 0),
+        ("_Feed_ Pump", "pump", 0),
+        ("__Feed__ Pump", "pump", 0),
         ("ßßßßßßßßßß Feed Pump\npump", "pump", 1),
     ],
 )
-def test_protection_overlap_markup_and_offsets(register, text, bad, expected):
+@pytest.mark.parametrize("suffix", ["md", "typ"])
+def test_protection_overlap_markup_and_offsets(register, text, bad, expected, suffix):
     root, entries = register
     entries[0]["forbidden"] = [{"term": bad, "use": "Feed Pump"}]
     write_entries(root, entries)
-    (root / "source.md").write_text(text)
+    (root / f"source.{suffix}").write_text(text)
     track(root)
     assert glossary.main(["terms"]) == expected
 
@@ -421,33 +425,153 @@ def test_unsupported_sources_warn_and_utf8_path_once(register, capsys):
 
 
 def test_candidates_precision_recall_and_source_selection(register, capsys):
-    root, _ = register
-    documents = {
-        "source.md": "The Feed Pump uses Supply Pump and FP-100.\nThe Thermal Valve uses NASA and FlowController.\nSet flow_rate to AB-200.\nOrdinary prose starts here.\nThermal Valve supports NASA.\n",
-        "source.typ": "#strong[Feed] Pump connects Control Unit.\n",
-        "untracked.md": "WrongCandidate",
-        "generated/out.md": "WrongCandidate",
-    }
-    for name, text in documents.items():
-        path = root / name
-        path.parent.mkdir(exist_ok=True)
-        path.write_text(text)
-    track(root)
-    subprocess.run(["git", "reset", "-q", "--", "untracked.md"], check=True)
+    root, entries = register
+    entries.append(
+        {
+            "id": "valve",
+            "term": "Thermal Valve Assembly",
+            "definition": "Regulates flow.",
+            "kind": "component",
+        }
+    )
+    write_entries(root, entries)
+    fixtures = Path(__file__).parent / "fixtures/glossary"
+    for name in ("manual.md", "guide.typ"):
+        shutil.copyfile(fixtures / name, root / name)
+    (root / "untracked.md").write_text("WrongCandidate")
+    (root / "generated").mkdir()
+    (root / "generated/out.md").write_text("WrongCandidate")
+    subprocess.run(
+        ["git", "add", "manual.md", "guide.typ", "generated/out.md"], check=True
+    )
     assert glossary.main(["candidates"]) == 0
     rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
-    expected = {
-        "Thermal Valve",
-        "NASA",
-        "FlowController",
-        "flow_rate",
-        "AB-200",
-        "Control Unit",
-    }
+    expected = {"Thermal Valve", "NASA", "FlowController", "AB-200", "Control Unit"}
     actual = {row["candidate"] for row in rows}
-    assert len(actual & expected) / len(actual) == 1.0  # precision
-    assert len(actual & expected) / len(expected) == 1.0  # recall
-    thermal = next(row for row in rows if row["candidate"] == "Thermal Valve")
-    assert thermal["count"] == 2 and thermal["line"] == 2
-    assert thermal["file"] == "source.md" and thermal["context"]
-    assert thermal["nearest"] and 0 <= thermal["score"] <= 1
+    assert len(actual & expected) / len(actual) == 1.0  # precision: 5/5
+    assert len(actual & expected) / len(expected) == 1.0  # recall: 5/5
+    assert [(r["file"], r["candidate"]) for r in rows] == sorted(
+        (r["file"], r["candidate"]) for r in rows
+    )
+    thermal = next(
+        r
+        for r in rows
+        if r["candidate"] == "Thermal Valve" and r["file"] == "manual.md"
+    )
+    assert thermal["count"] == 3 and thermal["line"] == 8
+    assert thermal["nearest"] == "Thermal Valve Assembly" and thermal["score"] > 0.5
+    assert "Thermal\nValve" in thermal["context"]
+    typst = next(
+        r
+        for r in rows
+        if r["candidate"] == "Thermal Valve" and r["file"] == "guide.typ"
+    )
+    assert "#strong[Thermal] Valve" in typst["context"]
+    assert all(row["context"] for row in rows)
+
+
+@pytest.mark.parametrize(
+    "registered,bad,canonical,alias",
+    [
+        ("Valve", "regulating valve", "Control Valve", None),
+        ("Pump", "feeder pump", "Feed Pump", None),
+        ("Pump", "Feed pump", "Feed Pump", None),
+        (None, "FP unit", "Feed Pump", "FP"),
+    ],
+)
+def test_contained_registered_name_does_not_disable_rule(
+    register, capsys, registered, bad, canonical, alias
+):
+    root, entries = register
+    entries[0].update(
+        term=canonical,
+        aliases=[alias] if alias else [],
+        forbidden=[{"term": bad, "use": canonical}],
+    )
+    if registered:
+        entries.append(
+            {
+                "id": "other",
+                "term": registered,
+                "definition": "A component.",
+                "kind": "term",
+            }
+        )
+    write_entries(root, entries)
+    (root / "source.md").write_text(f"Open the {bad} slowly.")
+    track(root)
+    assert glossary.main(["schema"]) == 0
+    assert glossary.main(["terms"]) == 1
+    assert repr(bad) in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "rules,text,expected",
+    [
+        (["input", "input pump unit"], "input pump unit", "input pump unit"),
+        (["pump units", "input pump"], "input pump units", "input pump"),
+    ],
+)
+def test_overlap_longest_then_earliest(register, capsys, rules, text, expected):
+    root, entries = register
+    entries[0]["forbidden"] = [{"term": t, "use": "Feed Pump"} for t in rules]
+    write_entries(root, entries)
+    (root / "source.md").write_text(text)
+    track(root)
+    assert glossary.main(["terms"]) == 1
+    error = capsys.readouterr().err
+    assert error.count("is forbidden") == 1 and repr(expected) in error
+
+
+def test_candidate_stoplist_and_standard_families(register, capsys):
+    root, _ = register
+    (root / "source.md").write_text(
+        "NASA FlowController JSON NOTE ANSI-123 RFC-5737 SHA-512 AB-200.\n"
+    )
+    track(root)
+    assert glossary.main(["candidates", "--stopwords", "NASA,FlowController"]) == 0
+    rows = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [row["candidate"] for row in rows] == ["AB-200"]
+
+
+def test_candidates_continue_after_utf8_and_use_tool_name(register, capsys):
+    root, _ = register
+    (root / "a.md").write_bytes(b"\xff")
+    (root / "z.md").write_text("NovelValve")
+    track(root)
+    assert glossary.main(["candidates"]) == 1
+    captured = capsys.readouterr()
+    assert "NovelValve" in captured.out
+    assert "glossary-candidates:" in captured.err and captured.err.count("a.md") == 1
+    (root / "glossary.yaml").write_text("invalid")
+    assert glossary.main(["candidates"]) == 1
+    assert capsys.readouterr().err.startswith("glossary-candidates:")
+
+
+def test_brace_source_pathspec_does_not_warn(register, capsys):
+    root, _ = register
+    (root / ".vig-os").write_text('DEVKIT_GLOSSARY_SOURCES="*.{md,typ},*.yaml"\n')
+    (root / "source.md").write_text("NovelValve")
+    track(root)
+    assert glossary.main(["candidates"]) == 0
+    captured = capsys.readouterr()
+    assert captured.err.count("unsupported") == 1
+    assert "*.yaml" in captured.err and "{md" not in captured.err
+
+
+def test_nearest_is_cached_across_files(register, capsys, monkeypatch):
+    root, _ = register
+    for name in ("a.md", "b.md"):
+        (root / name).write_text("NovelValve")
+    track(root)
+    calls = []
+    original = glossary.SequenceMatcher
+
+    def record(*args):
+        calls.append(args)
+        return original(*args)
+
+    monkeypatch.setattr(glossary, "SequenceMatcher", record)
+    assert glossary.main(["candidates"]) == 0
+    assert len(calls) == 1
+    assert len(capsys.readouterr().out.splitlines()) == 2
