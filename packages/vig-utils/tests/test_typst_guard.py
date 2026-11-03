@@ -257,7 +257,7 @@ def test_compile_transports_configured_yaml_natively(repo, monkeypatch):
 
     monkeypatch.setattr(guard().subprocess, "run", run)
     assert guard().main(["compile"]) == 0
-    assert all("devkit-glossary=" + contents in argv for argv in calls)
+    assert all(not any("devkit-glossary=" in arg for arg in argv) for argv in calls)
 
 
 def test_compile_rejects_glossary_outside_repository(repo, capsys):
