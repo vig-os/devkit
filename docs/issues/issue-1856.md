@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-10-10T20:40:43Z
-updated: 2026-10-10T20:40:43Z
+updated: 2026-11-02T23:10:11Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1856
-comments: 0
+comments: 1
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-10-11T08:37:36.962Z
+synced: 2026-11-03T09:20:22.983Z
 ---
 
 # [Issue 1856]: [devkit-upgrade: commit step runs the NEW hook config inside the OLD project shell, so newly-added hooks cannot spawn](https://github.com/vig-os/devkit/issues/1856)
@@ -29,7 +29,7 @@ Any consumer crossing such a version is blocked, and the upgrade produces no PR.
 
 ## Observed
 
-Consumer `gerchowl/pidgy` (private, `DEVKIT_MODE=direnv`, Rust + Nix flake), upgrading
+A consumer (`DEVKIT_MODE=direnv`, Rust + Nix flake), upgrading
 **1.7.0 → 1.18.0** via `workflow_dispatch` with `version=1.18.0`:
 
 ```text
@@ -95,4 +95,14 @@ blocker on the same path.
 Happy to test a fix against this consumer — it reproduces on demand via `workflow_dispatch`.
 
 Refs: #1833 (cold adoption of devkit by a Rust project) looks adjacent.
+
+
+---
+
+# [Comment #1]() by [gerchowl]()
+
+_Posted on November 2, 2026 at 08:12 PM_
+
+Another consumer hit: devkit 1.7.0 → 1.18.0. `validate-branch-name` and `shellcheck-composite-actions` fail with "Failed to spawn … os error 2" in the commit step, which runs in the old project shell.
+
 
