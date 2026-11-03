@@ -475,12 +475,12 @@ runs:
               --backoff) backoff="$2"; shift 2 ;;
               --max-backoff) max_backoff="$2"; shift 2 ;;
               --) shift; break ;;
-              *) echo "ERROR: Unknown retry option '$1'"; return 2 ;;
+              *) echo "ERROR: Unknown retry option '$1'" >&2; return 2 ;;
             esac
           done
 
           if [ "$#" -eq 0 ]; then
-            echo "ERROR: retry requires a command after '--'"
+            echo "ERROR: retry requires a command after '--'" >&2
             return 2
           fi
 
@@ -494,14 +494,14 @@ runs:
               if [ "$wait" -gt "$max_backoff" ]; then
                 wait="$max_backoff"
               fi
-              echo "Retry $attempt/$retries failed (exit $rc), waiting ${wait}s..."
+              echo "Retry $attempt/$retries failed (exit $rc), waiting ${wait}s..." >&2
               sleep "$wait"
               current_backoff=$((current_backoff * 2))
             fi
             attempt=$((attempt + 1))
           done
 
-          echo "ERROR: Command failed after $retries attempts: $*"
+          echo "ERROR: Command failed after $retries attempts: $*" >&2
           return "$rc"
         }
         export -f retry

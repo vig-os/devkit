@@ -342,8 +342,10 @@ def test_validate_requeries_unknown_mergeability(copy: str) -> None:
 def test_scaffold_gate_skips_approval_when_none_required(job: str) -> None:
     """Both scaffold gate copies consult the branch rules and log the skip."""
     run = _pr_gate_run("scaffold", job)
-    assert "rules/branches" in run
-    assert "required_approving_review_count" in run
+    assert "source .github/scripts/release-required-approvals.sh" in run
+    helper = (WORKFLOWS.parent / "scripts/release-required-approvals.sh").read_text()
+    assert "rules/branches" in helper
+    assert "required_approving_review_count" in helper
     assert "approval gate skipped" in run
 
 

@@ -585,6 +585,7 @@ unknown keys:
 | `DEVCONTAINER_VERSION` | Scaffold/image version pin (managed by release automation; keeps its legacy name until the devkit rename, [#781](https://github.com/vig-os/devkit/issues/781)) |
 | `DEVKIT_MODE` | Delivery mode: `devcontainer` \| `direnv` \| `both` \| `bare` |
 | `DEVKIT_WORKFLOW` | Branching model: `gitflow` (default) \| `trunk`; written back only for `trunk` (see [Workflow models](#workflow-models), [#1205](https://github.com/vig-os/devkit/issues/1205)) |
+| `DEVKIT_RELEASE_REQUIRED_APPROVALS` | Non-negative integer, empty defaults to 1. Required release PR approvals only when the rulesets API returns HTTP 403 (Free-plan private repositories). Solo consumers may set 0; real ruleset counts always win, and classic protection is unchanged. See [Promote release](DOWNSTREAM_RELEASE.md#promote-release-final). |
 | `DEVKIT_PROJECT` | Persisted project short name (`SHORT_NAME`) |
 | `DEVKIT_ORG` | Persisted organization name (`ORG_NAME`) |
 | `DEVKIT_REPO` | Persisted GitHub `owner/repo` (Renovate preset) |
