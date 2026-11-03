@@ -73,10 +73,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Default lockstep pin advancement** ([#1856](https://github.com/vig-os/devkit/issues/1856)): lockstep release pins advance unless `DEVKIT_FLAKE_PIN_ADVANCE=false`.
 
-- **Project shells leave the agent CLI to the machine** ([#1967](https://github.com/vig-os/devkit/issues/1967))
-  - Repositories relying on the dev-shell's `claude` must install it machine-wide (or via the home module), or set `withAgentCli = true`; consumers of devkit's own `devShells` output can select `#with-agent-cli`.
-  - Opting in shadows any system `claude` wrapper. Home modules and the container image retain the CLI.
-
 - **Rewrite the self-hosted CI runner migration guide** ([#1933](https://github.com/vig-os/devkit/issues/1933))
   - `docs/MIGRATION.md`'s "Run CI on self-hosted runners" section now documents the shipped `CI_RUNNER_SMALL`/`LARGE`/`XLARGE` variables, the per-lane `DEVKIT_CI_LANE_SIZES` override, fork safety (including the private-fork remedy) and the full N/N+1/N+2 deprecation timeline, replacing the stale description of the deprecated `DEVKIT_CI_RUNNER`-only mechanism
   - Add "CI never starts on a private repo" and whitespace-only `CI_RUNNER_SMALL` symptom entries, and scrub the site-specific example label from the section and the manifest key table
@@ -146,10 +142,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Existing root clones that already carry skip-worktree state from older runs are not healed by this change; persistent-runner operators may need to clear them once
 
 ### Security
-
-- **Reconcile expired Nix image exceptions against rebuilt closures** ([#1847](https://github.com/vig-os/devkit/issues/1847))
-  - Advance the stable and unstable Nix inputs to ship available security fixes, including libmicrohttpd 1.0.10 and Unbound 1.26.1; remove their five cleared exceptions
-  - Re-verify all six glibc exceptions against the applied nixpkgs backports, replace deployment assumptions with per-CVE fix links, and schedule the next review for Wednesday 2026-11-25
 
 ## [1.19.0] - TBD
 
@@ -234,6 +226,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A Rust flake no longer has to drop or `# deadnix: skip` the manifest
     bindings it reads, which made the first commit touching `flake.nix` fail
     deadnix
+
+## [1.18.1](https://github.com/vig-os/devkit/releases/tag/1.18.1) - 2026-11-02
+
+### Changed
+
+- **Project shells leave the agent CLI to the machine** ([#1967](https://github.com/vig-os/devkit/issues/1967))
+  - Repositories relying on the dev-shell's `claude` must install it machine-wide (or via the home module), or set `withAgentCli = true`; consumers of devkit's own `devShells` output can select `#with-agent-cli`.
+  - Opting in shadows any system `claude` wrapper. Home modules and the container image retain the CLI.
+
+- **Upgrade uv 0.12.17 → 0.13.4 with the security input advance** ([#1847](https://github.com/vig-os/devkit/issues/1847))
+  - The nixpkgs-unstable bump carries uv 0.13; see the [uv 0.13.0 migration notes](https://github.com/astral-sh/uv/releases/tag/0.13.0) for breaking changes
+  - `--constraint`, `--override`, `--exclude` and `--build-constraint` values no longer split on spaces; repeat the option for multiple paths
+  - Included constraints files now honor `--require-hashes` and reject editable requirements; supply missing hashes and move editables to requirements files or `--editable`
+  - Stricter tar validation can reject previously accepted archives; `uv_build` sdist bytes and hashes may change. If `[build-system]` caps `uv_build<0.13`, raise that bound to allow 0.13 (e.g. `uv_build>=0.13.0,<0.14`)
+  - The new default Python 3.15 does not affect the devkit image: `UV_PYTHON` pins its interpreter and `UV_PYTHON_DOWNLOADS=never` disables downloads
+
+### Fixed
+
+- **Restore managed Python downloads with uv 0.13** ([#1976](https://github.com/vig-os/devkit/issues/1976))
+  - Derive the metadata URL's crate path from the packaged uv version so both CI setup actions use the correct layout, including arm64 release builds.
+
+### Security
+
+- **Fix Brotli decoder CVE-2026-111497** ([#1977](https://github.com/vig-os/devkit/issues/1977))
+  - The stable input ships Google Brotli 1.2.1; register the remaining Vulnix CPE false positive with evidence and an exact package/version exception that leaves 1.2.0 blocking.
+  - Remove the two SQLite exceptions fixed by SQLite 3.53.3; see [Nix dependency policy](docs/NIX.md#brotli-security-fix-in-1181).
+
+- **Reconcile expired Nix image exceptions against rebuilt closures** ([#1847](https://github.com/vig-os/devkit/issues/1847))
+  - Advance the stable and unstable Nix inputs to ship available security fixes, including libmicrohttpd 1.0.10 and Unbound 1.26.1; remove their five cleared exceptions
+  - Re-verify all six glibc exceptions against the applied nixpkgs backports, replace deployment assumptions with per-CVE fix links, and schedule the next review for Wednesday 2026-11-25
 
 ## [1.18.0](https://github.com/vig-os/devkit/releases/tag/1.18.0) - 2026-10-05
 
@@ -5909,7 +5931,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Update expected `gh` version in image tests from 2.87 to 2.88
 - **Manifest sync includes `sync-main-to-dev` workflow** ([#278](https://github.com/vig-os/devcontainer/issues/278))
   - Add `.github/workflows/sync-main-to-dev.yml` to `scripts/manifest.toml` so workspace sync includes the release-to-dev PR automation workflow
-
 
 ### Removed
 

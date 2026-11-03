@@ -3,10 +3,12 @@
 # Companion to .trivyignore for the Nix-built image. vulnix scans the image's
 # Nix-store package closure (flake `devcontainerImageEnv`); this register lists
 # CVEs accepted as non-blocking, each with a risk note and an expiration date.
-# Format is identical to .trivyignore and is validated by `check-expirations`
+# Expiration directives share .trivyignore's format; `check-expirations` validates
 # (pre-commit + CI): an `Expiration: YYYY-MM-DD` directive applies to every
 # entry below it until the next directive, and expired entries fail CI to force
 # periodic review (IEC 62304 exception-register model).
+# An entry may use CVE@pname@version for an exact package/version exception;
+# a bare CVE retains its register-wide scope.
 #
 # `vulnix-gate` consults this file: a HIGH/CRITICAL finding (CVSS v3 >= 7.0) is
 # blocking only when it is NOT covered by a non-expired entry here. This is the
@@ -117,6 +119,20 @@ CVE-2026-27820
 #   was corrected — exactly the outcome this block's yearly re-check waited
 #   for. If the feed ever regresses, the gate goes red and forces re-triage.)
 
+# Class 1, Google brotli 1.2.1 only — CPE collision, verified 2026-11-02 (#1977).
+#   vulnix 1.12.4 matches product names without the vendor. NVD also lists
+#   cpe:2.3:a:andybalholm:brotli:*:*:*:*:*:go:*:* below 1.2.7, which wrongly
+#   matches Google's fixed native library at 1.2.1. Google's affected 1.2
+#   range ends before 1.2.1; the advisory explicitly lists 1.2.1 as patched:
+#   https://nvd.nist.gov/vuln/detail/CVE-2026-111497
+#   https://github.com/advisories/GHSA-9v8h-qqgm-4m35
+#   The stable pin 08d3a975 ships Google's 1.2.1, not the Go port. Exact
+#   package/version scope keeps Google's vulnerable 1.2.0 blocking.
+#   Review 2026-11-25 against NVD/vendor matching; expires on its own Wednesday
+#   2026-12-02 (30 days after verification), rather than the yearly Class-1 grid.
+Expiration: 2026-12-02
+CVE-2026-111497@brotli@1.2.1
+
 # --- Class 2: recent CVEs vulnix matches by package version against the
 #     current-stable nixpkgs (26.05). Every package below is genuinely present
 #     in the image's runtime closure — confirmed via
@@ -210,34 +226,10 @@ CVE-2026-5928
 # (#1847): the stable pin advance cf5e7650 -> 1f607aa7 ships 1.0.10.
 # Both findings are absent from the local scan of the rebuilt closure.
 
-# --- sqlite 3.51.2. Both entries are FTS5 memory-corruption defects fixed in
-#     SQLite 3.53.2, reported by VulnCheck (no NIST analyst score). Both are
-#     CVSS:3.1/AV:L/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H — LOCAL vector requiring
-#     USER INTERACTION: the attacker must get a crafted database file opened
-#     and an FTS5 MATCH query run against it.
-#
-#     Provenance: in-closure via the python env and nix's own database.
-#     Neither opens a database supplied by an attacker; nix's store DB is
-#     local state, and the FTS5 path needs a MATCH query this image never
-#     issues against foreign data. Unchanged in substance from the 2026-06-23
-#     note, now with the vector verified rather than assumed.
-#
-#     Lever: FURTHEST of the register. nixpkgs master carries sqlite 3.53.3,
-#     past the fix, but nixos-26.05 and staging-26.05 both still ship 3.51.2
-#     and no 26.05 backport is open, so advancing the pin changes nothing and
-#     nothing is queued that would. 2026-11-11 is the longest window here and
-#     sits on its own Wednesday, one past the unbound block. If no backport
-#     has appeared by then, the next review renews on this same rationale
-#     rather than pretending a lever exists. ---
-Expiration: 2026-11-11
-# CVE-2026-11822 (7.8) — out-of-bounds read in fts5LeafSeek() plus a heap
-#   overflow write in fts5ChunkIterate() via crafted FTS5 page data. Needs a
-#   malicious database to be opened and MATCH-queried.
-CVE-2026-11822
-# CVE-2026-11824 (7.8) — heap overflow in fts5ChunkIterate() from a
-#   continuation page declaring szLeaf < 4; same prerequisites as
-#   CVE-2026-11822.
-CVE-2026-11824
+# sqlite CVE-2026-11822 and CVE-2026-11824 removed 2026-11-02 (#1977):
+#   stable pin 08d3a975 ships 3.53.3, past the upstream 3.53.2 fix for both.
+#   https://www.sqlite.org/cves.html
+#   https://www.sqlite.org/releaselog/3_53_3.html
 
 # ============================================================================
 # Triage 2026-07-04 — CVEs published after the 2026-06-23 baseline triage
