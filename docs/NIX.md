@@ -382,9 +382,44 @@ allowed; trailing text and markers in the other file type do not suppress.
 The marker suppresses that line; hard-wrapped matches cannot cross it.
 Typst `/* glossary: ignore */` is not supported. Inline code and fenced code
 are scanned as ordinary source text; use the same per-line marker for examples
-that intentionally contain forbidden text. These checks do not parse markup
-or discover synonyms. Run `glossary-guard schema` or `glossary-guard terms`
+that intentionally contain forbidden text. URLs and paths are also ordinary
+text for forbidden phrases (only part-number detection excludes URLs).
+Simple Markdown emphasis/code delimiters and Typst `#strong[...]` / `#emph[...]`
+are transparent; nested markup, links and arbitrary Typst expressions are not
+parsed. Any overlap covering a registered word suppresses a forbidden hit,
+including `the feed` in `the Feed Pump` and `pump station` in `Feed Pump station`.
+Overlapping forbidden hits are reported once, keeping the longest rule (ties
+prefer the earliest position). Exact forbidden spellings equal to any registered
+term or alias are rejected as dead rules; casing corrections remain valid.
+Unsupported suffixes in source pathspecs warn on stderr. Run `glossary-guard schema` or `glossary-guard terms`
 manually from the repository root.
+
+Run `glossary-candidates` (or `just glossary-candidates` with the docs module)
+from the repository root for advisory candidate discovery. It uses the same
+tracked source selection as terms mode, even without a register, and never
+installs a blocking hook. Invalid registers or unreadable sources still fail.
+Each JSON line contains `file`, first-occurrence `line`, `candidate`, per-file
+`count`, `nearest` registered spelling (or null), `score` (0–1 difflib similarity,
+not confidence), and a short `context` snippet. Aliases and registered part
+numbers are subtracted case-insensitively. Output is ordered by file and name.
+
+An agent or reviewer goes through **each candidate** in the PR and answers:
+
+- **Synonym of X → use the canonical term.** Replace the invented name.
+- **New term → add it to `glossary.yaml` in this PR.** Supply its definition,
+  kind and any accepted aliases, then rerun both commands.
+
+Extraction recognizes consecutive title-case words, CamelCase, underscore
+identifiers, letter/digit part numbers and ALLCAPS acronyms. Leading stopwords
+are removed and single title-case words are ignored, avoiding ordinary
+sentence-initial capitalization. This is a lexical heuristic, not a grammatical
+noun parser: lowercase names, single-word title-case names, nested markup and
+unusual identifier/part formats can be missed; capitalized prose can still
+need reviewer judgment. Ignore markers apply to deterministic checks only;
+candidate discovery includes examples for review.
+The two-document precision fixture in `packages/vig-utils/tests/test_glossary.py`
+contains six distinct expected names: **precision 100% (6/6), recall 100% (6/6)**.
+These are fixture results, not an accuracy claim for arbitrary documents.
 
 For YAML language-server editor validation, put this header in the register,
 replacing `RELEASE_TAG` with an installed devkit release tag that includes the

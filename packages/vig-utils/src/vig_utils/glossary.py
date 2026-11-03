@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 from bisect import bisect_right
+from difflib import SequenceMatcher
 from importlib.resources import files
 from itertools import accumulate
 from pathlib import Path
@@ -76,9 +77,13 @@ def validate_names(entries):
     for entry in entries:
         for item in entry.get("forbidden", []):
             name = normalized(item["term"])
-            if not name or aliases.get(name, entry["id"]) != entry["id"]:
+            if (
+                not name
+                or name in names
+                or aliases.get(name, entry["id"]) != entry["id"]
+            ):
                 raise ValueError(
-                    f"{entry['id']}: forbidden name {name!r} is another entry's alias"
+                    f"{entry['id']}: forbidden name {name!r} is already registered"
                 )
             if normalized(item["use"]) not in names:
                 raise ValueError(f"{entry['id']}: unknown replacement {item['use']!r}")
@@ -92,7 +97,9 @@ def part_patterns(entries):
             continue
         raw = entry["pattern"]
         try:
-            pattern, known = families.setdefault(raw, (re.compile(raw, re.I), set()))
+            pattern, known = families.setdefault(
+                raw, (re.compile(raw, re.IGNORECASE), set())
+            )
             if pattern.search("") is not None:
                 raise ValueError("pattern matches empty text")
             if "part-number" in entry:
@@ -130,6 +137,13 @@ def load_register():
 def sources():
     """Use Git pathspecs; never traverse untracked, hidden or generated directories."""
     globs = (manifest_value("DEVKIT_GLOSSARY_SOURCES") or "*.typ,*.md").split(",")
+    for glob in globs:
+        suffix = Path(glob.strip()).suffix
+        if suffix and suffix not in SUPPRESS:
+            print(
+                f"glossary-guard: unsupported source suffix in {glob!r}",
+                file=sys.stderr,
+            )
     result = subprocess.run(
         ["git", "ls-files", "-z", "--", *[g.strip() for g in globs if g.strip()]],
         capture_output=True,
@@ -173,7 +187,7 @@ def phrase_rules(entries):
         fold = name.casefold() not in folded_names
         forbidden[fold][name.casefold() if fold else name] = item
     return (
-        [(phrase_regex(items), items) for items in forbidden],
+        [(phrase_regex(items, overlapping=True), items) for items in forbidden],
         [phrase_regex(items, overlapping=True) for items in registered],
     )
 
@@ -216,11 +230,19 @@ def forbidden_hits(rules, registered, views):
         for s, e, _ in phrase_hits(p, v, overlapping=True)
     )
     protected = protected_ends(len(views[0][0]), spans)
+    hits = []
     for (pattern, items), view in zip(rules, views, strict=True):
-        for start, end, key in phrase_hits(pattern, view):
-            if end > protected[start]:
-                item = items[key]
-                yield start, f"{item['term']!r} is forbidden; use {item['use']!r}"
+        for start, end, key in phrase_hits(pattern, view, overlapping=True):
+            if not any(
+                protected[i] > i and WORD.match(views[0][0][i])
+                for i in range(start, end)
+            ):
+                hits.append((start, end, items[key]))
+    selected = []
+    for start, end, item in sorted(hits, key=lambda h: (h[0] - h[1], h[0])):
+        if not any(start < e and end > s for s, e in selected):
+            selected.append((start, end))
+            yield start, f"{item['term']!r} is forbidden; use {item['use']!r}"
 
 
 def part_hits(families, text):
@@ -246,6 +268,113 @@ def part_hits(families, text):
             yield start, f"unregistered part {match.group()!r}"
 
 
+def transparent_text(text):
+    """Remove simple inline delimiters without changing source line numbers."""
+    text = re.sub(r"#(?:strong|emph)\[([^\[\]\n]*)\]", r"\1", text)
+    return re.sub(r"\*\*|__|`|\*", "", text)
+
+
+STOPWORDS = frozenset(
+    [
+        "a",
+        "an",
+        "the",
+        "this",
+        "that",
+        "these",
+        "those",
+        "and",
+        "or",
+        "of",
+        "in",
+        "on",
+        "for",
+        "to",
+        "with",
+        "from",
+        "is",
+        "are",
+        "it",
+        "we",
+        "you",
+        "set",
+        "use",
+        "see",
+    ]
+)
+CANDIDATE = re.compile(
+    r"(?<![\w-])(?:[A-Z][a-z]+(?:[ \t]+[A-Z][a-z]+)+"
+    r"|[A-Za-z]+(?:-\d+)[A-Za-z0-9-]*"
+    r"|[A-Z]{2,}\b|[A-Za-z]+[A-Z][A-Za-z0-9]*"
+    r"|[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+)(?![\w-])"
+)
+
+
+def candidate_rows(entries, path, text):
+    """Group heuristic names per file, subtracting known spans and stopwords."""
+    names = {
+        normalized(n)
+        for e in entries
+        for n in [e["term"], *e.get("aliases", []), e.get("part-number", "")]
+        if n
+    }
+    known = phrase_regex({n.casefold() for n in names}, overlapping=True)
+    protected = protected_ends(
+        len(text),
+        (
+            (s, e)
+            for s, e, _ in phrase_hits(known, text_views(text)[1], overlapping=True)
+        ),
+    )
+    groups = {}
+    for match in CANDIDATE.finditer(text):
+        words = match.group().split()
+        while words and words[0].casefold() in STOPWORDS:
+            words.pop(0)
+        name = " ".join(words)
+        start = match.end() - len(name)
+        if not name or name.casefold() in STOPWORDS or match.end() <= protected[start]:
+            continue
+        if len(words) == 1 and re.fullmatch(r"[A-Z][a-z]+", name):
+            continue
+        groups.setdefault(name, []).append(start)
+    for name, positions in sorted(groups.items()):
+        start = positions[0]
+        score, nearest = max(
+            (
+                (SequenceMatcher(None, name.casefold(), n.casefold()).ratio(), n)
+                for n in (entry["term"] for entry in entries)
+            ),
+            default=(0.0, None),
+        )
+        yield {
+            "file": str(path),
+            "line": text.count("\n", 0, start) + 1,
+            "candidate": name,
+            "count": len(positions),
+            "nearest": nearest,
+            "score": round(score, 4),
+            "context": text[max(0, start - 40) : start + len(name) + 40].strip(),
+        }
+
+
+def candidates(entries):
+    """Print advisory JSON lines; discoveries never fail a terminology gate."""
+    for path in sources():
+        for row in candidate_rows(entries, path, transparent_text(read_text(path))):
+            print(json.dumps(row, ensure_ascii=False))
+    return 0
+
+
+def candidates_main():
+    """Entry point for the standalone advisory command."""
+    parser = argparse.ArgumentParser(
+        description="Report unregistered terminology as advisory JSON lines."
+    )
+    parser.parse_args()
+    return main(["candidates"])
+
+
 def scan(entries):
     """Scan tracked UTF-8 sources, reporting errors without abandoning other files."""
     rules, registered = phrase_rules(entries)
@@ -255,9 +384,13 @@ def scan(entries):
         try:
             text = read_text(path)
         except (OSError, ValueError) as error:
-            print(f"{path}: {error}", file=sys.stderr)
+            print(
+                str(error) if isinstance(error, ValueError) else f"{path}: {error}",
+                file=sys.stderr,
+            )
             failed = True
             continue
+        text = transparent_text(text)
         text = "".join(
             "".join(c if c in "\r\n" else "\0" for c in line)
             if SUPPRESS[path.suffix].search(line.rstrip("\r\n"))
@@ -278,10 +411,12 @@ def scan(entries):
 def main(argv=None):
     """Run schema validation or deterministic terminology checks."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["schema", "terms"])
+    parser.add_argument("mode", choices=["schema", "terms", "candidates"])
     args = parser.parse_args(argv)
     try:
         entries = load_register()
+        if args.mode == "candidates":
+            return candidates(entries)
         return scan(entries) if args.mode == "terms" and entries else 0
     except (OSError, ValueError, yaml.YAMLError, re.error) as error:
         print(f"glossary-guard: {error}", file=sys.stderr)

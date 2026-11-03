@@ -14,3 +14,8 @@ typst-canonical *args:
 [group('docs')]
 typst-probe:
     @typst-guard probe
+
+# List unregistered terminology for agent or reviewer triage (advisory).
+[group('docs')]
+glossary-candidates:
+    @glossary-candidates
