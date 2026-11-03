@@ -73,6 +73,7 @@
   }
   let fields = it.fields()
   let _ = fields.remove("children")
+  let _ = fields.remove("label", default: none)
   fields.stroke = none
   fields.inset = (x: 6pt, y: 5pt)
   let result = table(
@@ -81,7 +82,11 @@
     ..children.map(child => if child.func() == table.header {
       table.header(
         repeat: true,
-        ..child.children.map(cell => strong(cell)),
+        ..child.children.map(cell => if cell.func() == table.cell {
+          let fields = cell.fields()
+          let body = fields.remove("body")
+          table.cell(..fields, strong(body))
+        } else { strong(cell) }),
         table.hline(stroke: 0.4pt),
       )
     } else { child }),

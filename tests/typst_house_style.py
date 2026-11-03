@@ -1,5 +1,6 @@
 """Real-tool contract for the offline house style (also a sandboxed Nix check)."""
 
+import base64
 import hashlib
 import json
 import os
@@ -148,6 +149,9 @@ with tempfile.TemporaryDirectory() as directory:
     ]
     assert len(paths) == 3, paths
     assert all(re.fullmatch(r"M 0 0h [0-9.]+", p) for p in paths), paths
+    run("typst", "compile", "--ignore-system-fonts", "rules.typ", "rules.pdf")
+    assert "LibertinusSerif-Bold" in run("pdffonts", "rules.pdf")
+    Path("rules.pdf").unlink()
     Path("rules.typ").unlink()
     Path("rules.svg").unlink()
     recipe("typst-canonical")
@@ -156,7 +160,7 @@ with tempfile.TemporaryDirectory() as directory:
     os.environ.update(SOURCE_DATE_EPOCH="123456789", TZ="Pacific/Honolulu")
     recipe("typst-canonical")
     assert hashlib.sha256(Path("generated/main.pdf").read_bytes()).digest() == digest
-    for argument in ("", ", caption: none"):
+    for argument in ("", ", caption: none", ", caption: []"):
         Path("main.typ").write_text(
             prefix + "#show: document.with()\n#fig(rect()" + argument + ")\n"
         )
@@ -204,7 +208,9 @@ with tempfile.TemporaryDirectory() as directory:
         "brand.svg",
     )
     svg = Path("brand.svg").read_text()
-    assert "#174f79" in svg and "#ff00ff" in svg
+    assert "#174f79" in svg
+    embedded = re.findall(r"data:image/svg\+xml;base64,([^\"]+)", svg)
+    assert any(b"#ff00ff" in base64.b64decode(data) for data in embedded), svg
     # A plain table without explicit table.header still gets a repeated first row.
     Path("main.typ").write_text(
         prefix
