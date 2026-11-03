@@ -233,3 +233,20 @@ def test_empty_glossary_and_canonical_slides(project):
     assert "Glossary" not in pdf_text()
     assert compile_source(source).returncode == 0
     assert Path("main.pdf").read_bytes() == first
+
+
+def test_plot_scientific_ticks_and_math_labels_remain_readable(project):
+    result = compile_source(
+        project
+        + """#plot((1000000, 2000000), (0.0000001, 0.0000002), xlabel: [$x_1$], ylabel: [Y])"""
+    )
+    assert result.returncode == 0, result.stderr
+    subprocess.run(
+        ["pdftohtml", "-xml", "-zoom", "1", "main.pdf", "scientific.xml"],
+        check=True,
+        capture_output=True,
+    )
+    sizes = [
+        float(n.attrib["size"]) for n in ET.parse("scientific.xml").iter("fontspec")
+    ]
+    assert sizes and min(sizes) >= 7, sizes
