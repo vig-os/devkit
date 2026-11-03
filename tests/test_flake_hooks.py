@@ -1583,3 +1583,33 @@ class TestGithooksPathWiring:
         """The wiring only ever *sets* ``.githooks``; it never unsets/uninstalls (#908)."""
         assert "--unset" not in default_shellhook
         assert "uninstall" not in default_shellhook
+
+
+def test_docs_hook_asset_matches_definition(rendered_portable):
+    docs = rendered_portable["docs"]
+    assert docs == json.loads((REPO_ROOT / "assets/docs-hooks.json").read_text())
+    ids = {h["id"] for repo in docs["repos"] for h in repo["hooks"]}
+    assert ids == {
+        "typstyle-check",
+        "typst-compile",
+        "typst-preview-pins",
+        "forbid-generated-pdf",
+    }
+    assert not ids.intersection(_normalize(rendered_portable["scaffold"])["hooks"])
+
+
+def test_docs_module_activates_generated_hooks():
+    expr = f"""let
+      f = builtins.getFlake "path:{REPO_ROOT}";
+      pkgs = import f.inputs.nixpkgs {{ system = builtins.currentSystem; overlays = [ f.overlays.default ]; }};
+      shell = f.lib.mkProjectShell {{ inherit pkgs; modules = [ "docs" ]; }};
+    in shell.hooksConfigFile"""
+    result = _run_nix(
+        ["build", "--impure", "--no-link", "--print-out-paths", "--expr", expr],
+        timeout=1800,
+    )
+    assert result.returncode == 0, result.stderr
+    config = yaml.safe_load(Path(result.stdout.strip()).read_text())
+    hooks = _normalize(config)["hooks"]
+    assert "typst-compile" in hooks
+    assert "generated" in hooks["end-of-file-fixer"]["exclude"]
