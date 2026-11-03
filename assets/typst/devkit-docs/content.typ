@@ -8,6 +8,9 @@
     message: "plot requires non-empty x and y axis labels",
   )
   set text(size: calc.max(type-scale.small, type-scale.figure-min))
+  // New Computer Modern's smallest math style is 50% of its base size.
+  // Keep second-level scripts readable without inflating ordinary labels.
+  show math.equation: set text(size: type-scale.figure-math)
   show text: it => context {
     assert(
       text.size >= type-scale.figure-min,

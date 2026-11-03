@@ -238,7 +238,7 @@ def test_empty_glossary_and_canonical_slides(project):
 def test_plot_scientific_ticks_and_math_labels_remain_readable(project):
     result = compile_source(
         project
-        + """#plot((1000000, 2000000), (0.0000001, 0.0000002), xlabel: [$x_1$], ylabel: [Y])"""
+        + """#plot((1000000, 2000000), (0.0000001, 0.0000002), xlabel: [$x_(i_j)$], ylabel: [Y])"""
     )
     assert result.returncode == 0, result.stderr
     subprocess.run(

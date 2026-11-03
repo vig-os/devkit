@@ -28,7 +28,7 @@ environment, as it does in native Typst.
 ## Local package versions
 
 The active source lives in `devkit-docs/`, with independent SemVer in
-`devkit-docs/typst.toml`. The registry retains the initial 0.1.0 snapshot and 0.1.1 snapshots alongside 0.2.0.
+`devkit-docs/typst.toml`. The registry retains the 0.1.0 and 0.1.1 snapshots alongside 0.2.0.
 `devkit-docs.lock.json` maps each `namespace/name/version` to its SHA-256 content
 hash, covering the local package versions and every vendored preview package.
 Hash sorted file paths relative to each version directory followed by NUL,
@@ -70,7 +70,7 @@ incompatible changes bump the minor version before 1.0, the major thereafter.
 | komet | 0.1.0 | MIT | `3fd7d065f670de088a170603069788039ed52614c9fd81d5f7c923bedb355786` |
 | tiptoe | 0.3.1 | MIT | `37ab818826280327e843d819e1c1f2edbef5db40d32f35ff22226886a1216fc8` |
 
-Each package includes its upstream `LICENSE`. Fletcher imports CeTZ, which
+Each package includes its upstream license files. Fletcher imports CeTZ, which
 imports oxifmt. Lilaq imports elembic, zero and tiptoe, and optionally komet
 for computations; that plugin is included too. The complete dependency closure is present in the registry.
 Public package re-exports retain their upstream APIs and licenses.

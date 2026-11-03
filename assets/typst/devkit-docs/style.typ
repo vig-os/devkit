@@ -6,6 +6,7 @@
   caption: 9pt,
   heading: (20pt, 16pt, 13pt, 11pt),
   figure-min: 7pt,
+  figure-math: 14pt,
 )
 
 // Align entire numeric columns with numeric-columns(); use number() for

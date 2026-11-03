@@ -461,7 +461,9 @@ caption failures and offline imports, and compares canonical hashes.
 native line plot using vendored lilaq 0.5.0. The coordinate arrays must satisfy
 lilaq's data requirements. Both axis labels must contain visible content;
 missing or blank labels panic. Tick and label text inherits `type-scale.small`
-(9 pt); explicit label text below 7 pt panics. Dimensions change the data area,
+(9 pt); explicit label text below 7 pt panics. Plot math uses
+`type-scale.figure-math` (14 pt), so New Computer Modern's smallest script
+style (50%) remains at least 7 pt. Dimensions change the data area,
 without shrinking lettering. Wrap the result in `fig` with a caption:
 
 ```typst
