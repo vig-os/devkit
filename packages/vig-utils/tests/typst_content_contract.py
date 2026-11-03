@@ -472,3 +472,16 @@ def test_matplotlib_doctype_is_measured(doc, capsys):
     assert run("figure-text-size") == 1
     error = capsys.readouterr().err
     assert "DOCTYPE" not in error and "cannot measure" not in error
+
+
+@pytest.mark.parametrize("first", [True, False])
+@pytest.mark.parametrize("nested", [True, False])
+def test_scale_warning_does_not_hide_another_placement(doc, capsys, first, nested):
+    scaled = '#scale(50%)[#image("chart.svg", width: 100pt)]'
+    if nested:
+        scaled = "#scale(50%)[" + scaled + "]"
+    plain = '#image("chart.svg", width: 50pt)'
+    write("\n\n".join((scaled, plain) if first else (plain, scaled)), package=True)
+    assert run("figure-text-size") == 1
+    error = capsys.readouterr().err
+    assert "warning:" in error and "5 pt" in error
