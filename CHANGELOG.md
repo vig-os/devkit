@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Opt-in terminology register checks** ([#1994](https://github.com/vig-os/devkit/issues/1994))
   - Validate glossary YAML and reject forbidden names and unknown part numbers in document sources.
+  - Preserve registered names and casing corrections, scan tracked prose across whitespace, and reject ambiguous registers.
+  - Include jsonschema and its runtime dependencies in all images/toolchains via vig-utils, sharing the editor and hook schema validator; docs hooks remain opt-in.
 
 - **Opt-in Typst guards and reproducible builds** ([#1994](https://github.com/vig-os/devkit/issues/1994))
   - Enable module-gated formatting, warning-free compilation, package pins, and generated-PDF guards, with reversible scaffold reconciliation.

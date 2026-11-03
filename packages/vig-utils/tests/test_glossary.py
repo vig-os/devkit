@@ -179,6 +179,7 @@ def test_suppression_is_typed_and_at_line_end(register, suffix, marker, expected
 )
 def test_excluded_tracked_paths(register, name):
     root, _ = register
+    (root / ".vig-os").write_text('DEVKIT_GLOSSARY_SOURCES="*"\n')
     path = root / name
     path.parent.mkdir(exist_ok=True)
     path.write_text("input pump")

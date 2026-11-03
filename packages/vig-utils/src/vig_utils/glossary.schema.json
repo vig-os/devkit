@@ -1,5 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/vig-os/devkit/dev/packages/vig-utils/src/vig_utils/glossary.schema.json",
   "title": "Terminology register",
   "type": "array",
   "items": {
