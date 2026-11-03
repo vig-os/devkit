@@ -118,6 +118,7 @@ with tempfile.TemporaryDirectory() as directory:
     # Prove the fixture is a discovered system font, rather than an unknown font.
     assert "Liberation Sans" in run("typst", "fonts")
     assert "Liberation Sans" not in run("typst", "fonts", "--ignore-system-fonts")
+    os.environ["TYPST_FONT_PATHS"] = str(font_root)
     branded = '//devkit: entry  \n#set text(font: "Liberation Sans")\nBrand\n'
     Path("main.typ").write_text(branded)
     hook("typst-compile", 1)
@@ -128,6 +129,10 @@ with tempfile.TemporaryDirectory() as directory:
     for name in ("typst", "typst-canonical"):
         recipe(name)
         assert "LiberationSans" in run("pdffonts", "generated/main.pdf")
+    digest = hashlib.sha256(Path("generated/main.pdf").read_bytes()).digest()
+    os.environ.update(SOURCE_DATE_EPOCH="987654321", TZ="Pacific/Honolulu")
+    recipe("typst-canonical")
+    assert hashlib.sha256(Path("generated/main.pdf").read_bytes()).digest() == digest
     Path("main.typ").write_text(
         branded + '#set text(font: "Liberation Serif")\nSystem\n'
     )
@@ -151,7 +156,7 @@ with tempfile.TemporaryDirectory() as directory:
     os.environ.update(
         SOURCE_DATE_EPOCH="123456789",
         TZ="Pacific/Honolulu",
-        TYPST_FONT_PATHS="/missing",
+        TYPST_FONT_PATHS=str(font_root),
     )
     recipe("typst-canonical", "--deps")
     assert hashlib.sha256(Path("generated/main.pdf").read_bytes()).digest() == digest

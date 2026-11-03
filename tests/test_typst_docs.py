@@ -82,3 +82,25 @@ def test_docs_recipes_forward_arguments(tmp_path):
         )
         assert result.returncode == 0, result.stderr
         assert json.loads(result.stdout) == expected
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_consumer_owned_docs_justfile_survives_upgrade(tmp_path, enabled):
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    (seed / ".vig-os").write_text(f'DEVKIT_MODULES="{"docs" if enabled else ""}"\n')
+    original = "# Consumer recipes\ncustom:\n    echo mine\n"
+    (seed / "justfile.docs").write_text(original)
+    result = scaffold(tmp_path, seed=seed)
+    assert "notice" in (result.stdout + result.stderr).lower()
+    assert (tmp_path / "workspace/justfile.docs").read_text() == original
+
+
+def test_reconciliation_failure_does_not_abort_installer(tmp_path):
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    (seed / ".vig-os").write_text('DEVKIT_MODULES="docs"\n')
+    original = "repos: [{repo: local, hooks: [{id: mine, name: mine, entry: echo, language: system}]}]\n"
+    (seed / ".pre-commit-config.yaml").write_text(original)
+    scaffold(tmp_path, seed=seed)
+    assert (tmp_path / "workspace/.pre-commit-config.yaml").read_text() == original
