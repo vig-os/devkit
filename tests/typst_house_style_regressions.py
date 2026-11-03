@@ -69,13 +69,15 @@ def empty_caption(caption):
 
 def overrides():
     for settings, args in (
-        ("", "stroke: red, inset: 20pt,"),
-        ("#set table(stroke: red, inset: 20pt)\n", ""),
+        ("", 'stroke: rgb("ff0000"), inset: 20pt,'),
+        ('#set table(stroke: rgb("ff0000"), inset: 20pt)\n', ""),
     ):
         build(settings + "#plain-table(columns: 2, " + args + " [Insetmarker], [B])")
-        assert positions()["Insetmarker"]["xMin"] > 90
+        assert positions()["Insetmarker"]["xMin"] > 90, positions()
         run("typst", "compile", "--format", "svg", "main.typ", "main.svg")
-        assert 'stroke="#ff0000"' in Path("main.svg").read_text()
+        assert 'stroke="#ff0000"' in Path("main.svg").read_text(), Path(
+            "main.svg"
+        ).read_text()
     text = build(
         "#table(columns: 2, table.header(repeat: false, level: 2, [Onceheader], [Value]), ..range(120).map(n => ([Row#n], [Value])).flatten())"
     )
@@ -85,7 +87,7 @@ def overrides():
         "eval",
         "--in",
         "main.typ",
-        "query(table.header).map(h => (repeat: h.repeat, level: h.level))",
+        'query(table).map(t => t.children.filter(c => c.func() == table.header).map(h => (repeat: h.at("repeat", default: true), level: h.at("level", default: 1)))).flatten()',
     )
     assert '"repeat":false' in headers.replace(" ", "").replace("\n", "")
     assert '"level":2' in headers.replace(" ", "").replace("\n", "")

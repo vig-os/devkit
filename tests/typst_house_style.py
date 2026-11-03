@@ -170,7 +170,7 @@ with tempfile.TemporaryDirectory() as directory:
             ["typst-guard", "compile"], check=False, capture_output=True, text=True
         )
         assert result.returncode == 1
-        assert "caption" in result.stderr
+        assert "caption" in result.stderr, result.stderr
     # All metadata is optional, including the title block.
     Path("main.typ").write_text(prefix + "#show: document.with()\nOptional metadata\n")
     run("typst-guard", "compile")
@@ -213,7 +213,7 @@ with tempfile.TemporaryDirectory() as directory:
     assert "#174f79" in svg
     embedded = re.findall(r"data:image/svg\+xml;base64,([^\"]+)", svg)
     assert any(b"#ff00ff" in base64.b64decode(data) for data in embedded), svg
-    # A plain table without explicit table.header still gets a repeated first row.
+    # Without an explicit header, the first row remains ordinary body cells.
     Path("main.typ").write_text(
         prefix
         + """#show: document.with()
@@ -222,5 +222,5 @@ with tempfile.TemporaryDirectory() as directory:
 """
     )
     recipe("typst-canonical")
-    assert run("pdftotext", "generated/main.pdf", "-").count("Implicit header") >= 2
+    assert run("pdftotext", "generated/main.pdf", "-").count("Implicit header") == 1
 print("House-style contracts passed")

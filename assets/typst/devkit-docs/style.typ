@@ -15,8 +15,22 @@
   right
 } else { left }
 
+#let plain-text(value) = {
+  if type(value) == str { return value }
+  if type(value) != content { return "" }
+  if value.has("text") { return value.text }
+  if value.has("children") {
+    return value.children.fold("", (text, child) => text + plain-text(child))
+  }
+  if value.has("body") { return plain-text(value.body) }
+  ""
+}
+
 #let fig(body, caption: none, ..options) = {
-  assert(caption != none and caption != [], message: "fig requires a caption")
+  assert(
+    plain-text(caption).trim() != "",
+    message: "fig requires a non-empty caption",
+  )
   figure(body, caption: caption, ..options)
 }
 
@@ -54,38 +68,44 @@
     .flatten(),
 )
 
-// A table show rule sees resolved cells. Rebuild once with explicit booktabs
-// rules. A private label prevents reprocessing the reconstructed table.
+// The explicit opt-out preserves native table settings and user rules.
+#let plain-table(..args) = [#table(..args)<devkit-plain-table>]
+
+#let header-cell(cell) = {
+  if cell.func() != table.cell { return strong(cell) }
+  let fields = cell.fields()
+  let body = fields.remove("body")
+  table.cell(..fields, strong(body))
+}
+
+// Only explicit headers are styled. Never infer grid positions from children.
+// User hline/vline decorations are replaced by booktabs rules; plain-table
+// retains them. A private label prevents recursive reconstruction.
 #let booktabs(it) = {
-  if it.at("label", default: none) == <devkit-booktabs> { return it }
-  let children = it.children
-  let has-header = children.any(child => child.func() == table.header)
-  let cols = if type(it.columns) == int { it.columns } else { it.columns.len() }
-  if not has-header {
-    children = (
-      table.header(..children.slice(0, calc.min(cols, children.len()))),
-      ..children.slice(calc.min(cols, children.len())),
-    )
-  }
+  if (
+    it.at("label", default: none) in (<devkit-booktabs>, <devkit-plain-table>)
+  ) { return it }
   let fields = it.fields()
-  let _ = fields.remove("children")
+  let children = fields.remove("children")
   let _ = fields.remove("label", default: none)
   fields.stroke = none
   fields.inset = (x: 6pt, y: 5pt)
+  let decoration(cell) = cell.func() in (table.hline, table.vline)
   let result = table(
     ..fields,
     table.hline(stroke: 0.8pt),
-    ..children.map(child => if child.func() == table.header {
-      table.header(
-        repeat: true,
-        ..child.children.map(cell => if cell.func() == table.cell {
-          let fields = cell.fields()
-          let body = fields.remove("body")
-          table.cell(..fields, strong(body))
-        } else { strong(cell) }),
-        table.hline(stroke: 0.4pt),
-      )
-    } else { child }),
+    ..children
+      .filter(child => not decoration(child))
+      .map(child => {
+        if child.func() != table.header { return child }
+        let fields = child.fields()
+        let cells = fields.remove("children")
+        table.header(
+          ..fields,
+          ..cells.filter(cell => not decoration(cell)).map(header-cell),
+          table.hline(stroke: 0.4pt),
+        )
+      }),
     table.hline(stroke: 0.8pt),
   )
   [#result<devkit-booktabs>]
@@ -178,6 +198,7 @@
     align(center, block(width: 85%, it))
   }
   set figure.caption(position: bottom)
+  show figure.where(kind: table): set block(breakable: true)
   show figure.where(kind: table): set figure.caption(position: top)
   body
 }

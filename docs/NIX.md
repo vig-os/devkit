@@ -384,15 +384,21 @@ the resource in your document before passing it to the package. See the
 There is no default branding.
 
 Plain `table(...)` uses booktabs: top and bottom rules, a rule below a bold,
-repeating header, and no vertical rules. Use `table.header(...)` for explicit
-headers (including multiple rows); without one, the first row becomes the
-header. Table column widths and alignment are retained. `number(value)`
+repeating header, and no vertical rules. Declare headers with `table.header(...)`
+(including multiple rows). Without an explicit header, body cells remain in their
+original grid positions; no header is synthesized. Header `repeat` and `level`
+settings are preserved. User `hline` and `vline` decorations are replaced by the
+house rules, including lines inside or before a header. Table figures are
+breakable and repeat their headers across pages by default.
+Use `plain-table(...)` to opt out for one table: it accepts native table arguments
+and preserves explicit or contextual `stroke`, `inset`, and line decorations.
+Table column widths and alignment are retained. `number(value)`
 right-aligns a numeric cell with tabular lining digits;
 `align: numeric-columns(1, 2)` right-aligns zero-based numeric columns.
 These helpers do not parse or round values or align decimal separators.
 
 `fig(body, caption: [...], ..options)` forwards figure options and fails when
-its caption is absent, `none`, or empty content. Captions use 9 pt text in a
+its caption is absent or its plain text is empty or whitespace only. Captions use 9 pt text in a
 centered block at 85% of the available width. Table captions appear above;
 other captions appear below. Direct `figure(...)` receives the style too;
 requiring captions on every direct figure is part of later content guards.
