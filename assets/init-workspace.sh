@@ -792,7 +792,7 @@ case "$MANIFEST_DRIFT_CHECK" in
 esac
 
 # Pinned devkit flake-input advance (#1752): pure runtime toggle for install.sh's
-# host-side flake-bump (empty = false). No render here — only a value guard, so
+# host-side flake-bump (empty advances lockstep release pins). Only a value guard, so
 # a typo refuses loudly instead of silently leaving the pin behind.
 case "$MANIFEST_FLAKE_PIN_ADVANCE" in
     ""|true|false) ;;
