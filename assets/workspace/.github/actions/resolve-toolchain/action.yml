@@ -62,6 +62,9 @@ outputs:
   tag-prefix:
     description: Release tag prefix from DEVKIT_TAG_PREFIX (empty string => bare tags)
     value: ${{ steps.resolve.outputs.tag-prefix }}
+  release-required-approvals:
+    description: Release approval count used only when rulesets return HTTP 403
+    value: ${{ steps.resolve.outputs.release-required-approvals }}
   prerelease-format:
     description: >-
       Candidate pre-release format from DEVKIT_PRERELEASE_FORMAT (e.g. `alpha.{N}`).
@@ -143,6 +146,7 @@ runs:
         DEVKIT_VERSION=""
         LEGACY_VERSION=""
         TAG_PREFIX=""
+        RELEASE_REQUIRED_APPROVALS="1"
         PRERELEASE_FORMAT=""
         FLOATING_TAGS=""
         CI_RUNNER=""
@@ -164,7 +168,7 @@ runs:
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
 
             case "$line" in
-              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_PRERELEASE_FORMAT=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_DEV_PROFILE_PATH=*|DEVKIT_REFS_POLICY=*|DEVKIT_REFS_OPTIONAL_TYPES=*|DEVKIT_COMMIT_TYPES=*|DEVKIT_BRANCH_TYPES=*|DEVKIT_DRIFT_CHECK=*|DEVKIT_LANGUAGES=*)
+              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_RELEASE_REQUIRED_APPROVALS=*|DEVKIT_PRERELEASE_FORMAT=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_DEV_PROFILE_PATH=*|DEVKIT_REFS_POLICY=*|DEVKIT_REFS_OPTIONAL_TYPES=*|DEVKIT_COMMIT_TYPES=*|DEVKIT_BRANCH_TYPES=*|DEVKIT_DRIFT_CHECK=*|DEVKIT_LANGUAGES=*)
                 key="${line%%=*}"
                 value="${line#*=}"
                 value="${value#"${value%%[![:space:]]*}"}"
@@ -181,6 +185,7 @@ runs:
                   DEVKIT_VERSION) DEVKIT_VERSION="$value" ;;
                   DEVCONTAINER_VERSION) LEGACY_VERSION="$value" ;;
                   DEVKIT_TAG_PREFIX) TAG_PREFIX="$value" ;;
+                  DEVKIT_RELEASE_REQUIRED_APPROVALS) RELEASE_REQUIRED_APPROVALS="${value:-1}" ;;
                   DEVKIT_PRERELEASE_FORMAT) PRERELEASE_FORMAT="$value" ;;
                   DEVKIT_FLOATING_TAGS) FLOATING_TAGS="$value" ;;
                   DEVKIT_CI_RUNNER) CI_RUNNER="$value" ;;
@@ -221,6 +226,11 @@ runs:
         # Candidate pre-release format (#1746): freeform here, empty by default
         # (= rc{N}); validated loudly by release-version in release-core, the
         # only consumer. Emitted for every mode.
+        if ! [[ "$RELEASE_REQUIRED_APPROVALS" =~ ^[0-9]+$ ]]; then
+          echo "::error::DEVKIT_RELEASE_REQUIRED_APPROVALS must be a non-negative integer"
+          exit 1
+        fi
+        echo "release-required-approvals=$RELEASE_REQUIRED_APPROVALS" >> "$GITHUB_OUTPUT"
         echo "prerelease-format=$PRERELEASE_FORMAT" >> "$GITHUB_OUTPUT"
 
         # Floating tag levels (#1045): comma-separated subset of major,minor;

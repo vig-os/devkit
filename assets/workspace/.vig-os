@@ -279,3 +279,7 @@ DEVKIT_DRIFT_CHECK=
 # `nix` is declared but never gated (no single marker file). Written back only
 # for a non-empty value (#1478).
 DEVKIT_LANGUAGES=
+
+# Required release PR approvals when rulesets return HTTP 403 (plan limit).
+# Empty defaults to 1; solo consumers may set 0. Real rulesets take precedence.
+DEVKIT_RELEASE_REQUIRED_APPROVALS=
