@@ -3224,6 +3224,17 @@ docs_recipes_consumer_owned() {
     [[ -L "$recipes" ]] || { [[ -e "$recipes" ]] && ! head -n 1 "$recipes" | grep -q '^# Managed by vigOS devkit'; }
 }
 
+docs_module_name_clash() {
+    local file
+    for file in "$1" "$WORKSPACE_DIR/justfile.project" "$WORKSPACE_DIR/justfile.local"; do
+        [[ -f "$file" ]] || continue
+        if grep -qE '^[[:space:]]*(@?devkit-docs([[:space:]]|:)|alias[[:space:]]+devkit-docs[[:space:]]*:=|mod\??[[:space:]]+devkit-docs([[:space:]]|$))' "$file"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 plan_docs_module() {
     local recipes="$WORKSPACE_DIR/justfile.devkit-docs"
     local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
@@ -3236,7 +3247,7 @@ plan_docs_module() {
             reconcile_plan_header
             echo "  +  insert/reconcile docs hooks in .pre-commit-config.yaml"
             if ! docs_recipes_consumer_owned; then
-                echo "  +  managed justfile.devkit-docs and justfile docs module"
+                echo "  +  managed justfile.devkit-docs and justfile devkit-docs module"
             fi
             ;;
         *)
@@ -3246,7 +3257,7 @@ plan_docs_module() {
             fi
             if [[ -e "$recipes" ]] && ! docs_recipes_consumer_owned; then
                 reconcile_plan_header
-                echo "  -  managed justfile.devkit-docs and justfile docs module"
+                echo "  -  managed justfile.devkit-docs and justfile devkit-docs module"
             fi
             ;;
     esac
@@ -3273,14 +3284,18 @@ render_docs_module() {
     fi
     if [[ -f "$justfile" && ! -L "$justfile" ]]; then
         tmp="$(mktemp)"
-        awk -v old="import? 'justfile.devkit-docs'" -v module="mod docs 'justfile.devkit-docs'" '$0 != old && $0 != module' "$justfile" > "$tmp"
+        awk -v old="import? 'justfile.devkit-docs'" -v previous="mod docs 'justfile.devkit-docs'" -v module="mod devkit-docs 'justfile.devkit-docs'" '$0 != old && $0 != previous && $0 != module' "$justfile" > "$tmp"
         if [[ "$managed" == true ]]; then
-            printf "mod docs 'justfile.devkit-docs'\n" >> "$tmp"
+            if docs_module_name_clash "$tmp"; then
+                echo "Notice: devkit-docs name clash; document module not loaded. Please rename the consumer recipe, alias or module in justfile, justfile.project or justfile.local and rerun the installer." >&2
+            else
+                printf "mod devkit-docs 'justfile.devkit-docs'\n" >> "$tmp"
+            fi
         fi
         cat "$tmp" > "$justfile"
         rm -f "$tmp"
     fi
-    if [[ "$enabled" == true ]] || { [[ -f "$pc" && ! -L "$pc" ]] && grep -qE '^[[:space:]]*# >>> devkit:docs([[:space:]]|$)|generated/' "$pc"; }; then
+    if [[ "$enabled" == true ]] || { [[ -f "$pc" && ! -L "$pc" ]] && grep -qE '^[[:space:]]*# (>>>|<<<) devkit:docs([[:space:]]|$)|^[[:space:]]*# devkit-state:' "$pc"; }; then
         if ! command -v reconcile-preserved-hooks >/dev/null 2>&1; then
             echo "Warning: enter the devkit toolchain to reconcile docs hooks; see docs/NIX.md." >&2
         elif ! reconcile-preserved-hooks "$WORKSPACE_DIR" "$TEMPLATE_DIR/../docs-hooks.json" "$enabled"; then
