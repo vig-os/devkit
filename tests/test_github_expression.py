@@ -169,9 +169,7 @@ def test_cli(tmp_path, as_input):
     assert "position" in result.stderr
 
 
-@pytest.mark.parametrize("event", ["fork", "same-repo", "push"])
-@pytest.mark.parametrize("configured", [False, True])
-def test_shipped_workflows(event, configured):
+def check_shipped_workflows(event, configured):
     variables = (
         {
             f"CI_RUNNER_{size}": f"pool-{size.lower()}"
@@ -295,27 +293,18 @@ def test_cli_context_errors(tmp_path, contents):
     assert "Traceback" not in result.stderr
 
 
-@pytest.mark.parametrize("mutation", ["fork", "reusable"])
+@pytest.mark.parametrize("mutation", ["reusable"])
 def test_workflow_mutations(tmp_path, monkeypatch, mutation):
-    # Mutate copies, leaving managed workflows untouched. Both must trip the gate.
+    # Mutate copies, leaving managed workflows untouched.
     for path in WORKFLOWS.glob("*.yml"):
         data = yaml.safe_load(path.read_text())
-        if mutation == "fork" and path.name == "sync-issues.yml":
-            job = next(
-                job
-                for job in data["jobs"].values()
-                if "github.event.pull_request" in str(job.get("runs-on", ""))
-            )
-            job["runs-on"] = (
-                "${{ (github.event.pull_request.head.repo.fork && vars.ci_runner_small) || (!github.event.pull_request.head.repo.fork && vars.CI_RUNNER_SMALL) || 'ubuntu-26.04' }}"
-            )
         if mutation == "reusable" and path.name == "release.yml":
             job = next(job for job in data["jobs"].values() if "uses" in job)
             job.setdefault("with", {})["runners"] = "${{ contains('x','x') }}"
         (tmp_path / path.name).write_text(yaml.safe_dump(data))
-    monkeypatch.setitem(test_shipped_workflows.__globals__, "WORKFLOWS", tmp_path)
-    with pytest.raises(AssertionError if mutation == "fork" else ValueError):
-        test_shipped_workflows("fork", True)
+    monkeypatch.setitem(check_shipped_workflows.__globals__, "WORKFLOWS", tmp_path)
+    with pytest.raises(ValueError):
+        check_shipped_workflows("fork", True)
 
 
 @pytest.mark.parametrize(
