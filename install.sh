@@ -26,7 +26,8 @@
 #                     covered by the upgraded .gitignore (e.g. target/)
 #   --skip-pull       Use the already-present local image for --version (skip the
 #                     registry pull); e.g. a locally built :dev tag
-#   --dry-run         Show the container command that would run without executing
+#   --dry-run         Show an offline plan (container or direnv host scaffold);
+#                     defer remote checks, release resolution and runtime probes
 #   -h, --help        Show this help message
 #
 # Examples:
@@ -117,7 +118,9 @@ OPTIONS:
                       manifest, else the gitflow default)
     --smoke-test      Deploy smoke-test-specific assets
     --preview         Preview an upgrade: print the add/overwrite/preserve/delete
-                      file report and exit without changing any files
+                      file report and exit without changing any files. Use this
+                      to see the resolved release and check runtime health
+                      (container modes only).
     --prune-devcontainer
                       In direnv/bare mode, also remove a pre-existing
                       .devcontainer/ (a container->direnv/bare migration cleanup).
@@ -131,8 +134,12 @@ OPTIONS:
                       arrives with the upgrade)
     --skip-pull       Use the already-present local image for --version (skip the
                       registry pull); e.g. a locally built :dev tag
-    --dry-run         Show the container command that would run (unlike
-                      --preview, no file report is computed)
+    --dry-run         Show the container command (or direnv host scaffold)
+                      without network or runtime probes. Unlike --preview,
+                      no file report is computed. Remote
+                      branch checks and latest release resolution are deferred;
+                      use --version for an exact direnv release plan. Runtime
+                      selection uses PATH only (docker preferred), or explicit flags.
     -h, --help        Show this help
 
 EXAMPLES:
@@ -195,7 +202,8 @@ detect_runtime() {
     # consumer side, where devkit's own setup-env crun pin does not apply.
     # The daemon probe keeps a both-present host with a dead docker daemon on
     # podman; podman-only hosts are unchanged. --docker/--podman still win.
-    if command -v docker &> /dev/null && docker info &> /dev/null; then
+    if command -v docker &> /dev/null \
+        && { [ "$DRY_RUN" = true ] || docker info &> /dev/null; }; then
         echo "docker"
     elif command -v podman &> /dev/null; then
         echo "podman"
@@ -503,7 +511,7 @@ check_default_branch() {
         if [ -n "$url" ]; then
             # Origin exists but origin/HEAD is unset: ask GitHub, best-effort.
             # Must never hang or fail the preflight because gh failed/offline.
-            if command -v gh >/dev/null 2>&1 && repo="$(parse_github_remote "$url" 2>/dev/null)"; then
+            if [ "$DRY_RUN" = false ] && command -v gh >/dev/null 2>&1 && repo="$(parse_github_remote "$url" 2>/dev/null)"; then
                 if command -v timeout >/dev/null 2>&1; then
                     default_branch="$(timeout 5 gh api "repos/$repo" --jq .default_branch 2>/dev/null || true)"
                 else
@@ -824,7 +832,7 @@ fi
 # otherwise an existing .vig-os pin (an upgrade re-applies the repo's own pin),
 # otherwise the newest X.Y.Z release tag on the devkit remote. The result reaches
 # a flake ref and a sed replacement, so it is held to the release-tag charset.
-# Runs before --dry-run so the plan shows the real version.
+# Dry runs use local pins only; remote latest resolution is deferred.
 resolve_host_version() {
     local tag="$VERSION" pinned
     if [ "$tag" = "latest" ]; then
@@ -832,6 +840,8 @@ resolve_host_version() {
         if [ -n "$pinned" ] && [ "$pinned" != "latest" ]; then
             tag="$pinned"
             info "Devkit version from .vig-os manifest: $tag"
+        elif [ "$DRY_RUN" = true ]; then
+            info "Latest release resolution deferred until execution; pass --version for an exact plan"
         else
             tag="$(git ls-remote --tags --refs https://github.com/vig-os/devkit 2>/dev/null \
                 | sed -n 's|.*refs/tags/||p' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' \
@@ -933,6 +943,9 @@ fi
 
 # Detect container runtime
 if [ "$HOST_SCAFFOLD" = false ]; then
+    if [ "$DRY_RUN" = true ] && [ -z "$RUNTIME" ]; then
+        info "dry-run: runtime chosen from PATH only; a real run probes and may fall back"
+    fi
     RUNTIME=$(detect_runtime)
     if [ -z "$RUNTIME" ]; then
         err "No container runtime found!"
@@ -942,7 +955,7 @@ if [ "$HOST_SCAFFOLD" = false ]; then
     fi
 
     # Verify runtime is actually working
-    if ! $RUNTIME info >/dev/null 2>&1; then
+    if [ "$DRY_RUN" = false ] && ! $RUNTIME info >/dev/null 2>&1; then
         OS=$(detect_os)
         err "$RUNTIME is installed but not running!"
         echo ""
@@ -1052,13 +1065,23 @@ declare -a CMD=(
 )
 
 if [ "$DRY_RUN" = true ]; then
+    if [ "$HOST_SCAFFOLD" = true ]; then
+        info "dry-run: remote branch checks deferred until execution"
+    else
+        info "dry-run: remote branch checks and runtime health checks deferred until execution"
+    fi
     info "Would execute:"
     if [ "$HOST_SCAFFOLD" = true ]; then
         # Host path: nix fetches the pinned flake source; init-workspace.sh runs
         # from its assets/ against the target. No container runtime involved.
-        printf '  nix flake metadata --json github:vig-os/devkit/%s\n' "$VERSION"
+        PLAN_VERSION="$VERSION"
+        if [ "$PLAN_VERSION" = latest ]; then
+            PLAN_VERSION="<latest-release>"
+            info "<latest-release> is a placeholder; use --preview to resolve it before execution"
+        fi
+        printf '  nix flake metadata --json github:vig-os/devkit/%s\n' "$PLAN_VERSION"
         printf '  SHORT_NAME=%q ORG_NAME=%q GITHUB_REPOSITORY=%q VIG_OS_VERSION=%q ' \
-            "$PROJECT_NAME" "$ORG_NAME" "$GITHUB_REPOSITORY" "$VERSION"
+            "$PROJECT_NAME" "$ORG_NAME" "$GITHUB_REPOSITORY" "$PLAN_VERSION"
         printf 'WORKSPACE_DIR=%q bash <flake-source>/assets/init-workspace.sh' "$PROJECT_PATH"
         printf ' %q' "${INIT_ARGS[@]}"
         printf '\n'

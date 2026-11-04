@@ -12,6 +12,7 @@ tests/test_install_script.py and run under the test-integration CI job.
 """
 
 import importlib.util
+import os
 import re
 import subprocess
 from datetime import datetime
@@ -424,6 +425,72 @@ class TestInstallScriptUnit:
         # scaffold anything.
         assert not (tmp_path / ".devcontainer").exists()
         assert not any(tmp_path.iterdir())
+
+    @pytest.mark.parametrize("mode", ["both", "direnv", "bare", "devcontainer"])
+    def test_dry_run_avoids_network_and_runtime_probes(
+        self, install_script, tmp_path, mode
+    ):
+        """Planning must work offline even when installed tools cannot run."""
+        project = tmp_path / "project"
+        project.mkdir()
+        subprocess.run(["git", "init", "-b", "main", str(project)], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(project),
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/example/project.git",
+            ],
+            check=True,
+        )
+        shim_dir = tmp_path / "bin"
+        shim_dir.mkdir()
+        calls = tmp_path / "calls"
+        real_git = subprocess.check_output(["which", "git"], text=True).strip()
+        for tool in ("git", "curl", "gh", "nix", "docker", "podman"):
+            shim = shim_dir / tool
+            shim.write_text(
+                "#!/usr/bin/env bash\n"
+                + (
+                    f'if [[ " $* " != *" ls-remote "* ]]; then exec "{real_git}" "$@"; fi\n'
+                    if tool == "git"
+                    else ""
+                )
+                + f'echo "{tool} $*" >> "$PROBE_CALLS"\nexit 1\n'
+            )
+            shim.chmod(0o755)
+        result = subprocess.run(
+            [str(install_script), "--dry-run", "--mode", mode, str(project)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            env={
+                **os.environ,
+                "PATH": f"{shim_dir}{os.pathsep}{os.environ['PATH']}",
+                "PROBE_CALLS": str(calls),
+            },
+        )
+        assert not calls.exists(), calls.read_text() if calls.exists() else ""
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "Would execute:" in result.stdout
+        if mode == "direnv":
+            assert "github:vig-os/devkit/<latest-release>" in result.stdout
+            assert "github:vig-os/devkit/latest" not in result.stdout
+            assert "placeholder" in result.stdout
+            assert "deferred" in result.stdout
+            assert "runtime health checks" not in result.stdout
+        else:
+            assert "docker run" in result.stdout
+            assert (
+                "remote branch checks and runtime health checks deferred"
+                in result.stdout
+            )
+            assert "chosen from PATH only" in result.stdout
+            assert "real run probes and may fall back" in result.stdout
+        assert sorted(path.name for path in project.iterdir()) == [".git"]
 
     def test_name_sanitization_trims_trailing_separator(self, install_script):
         """Test --name sanitization trims trailing separators (#1044)."""

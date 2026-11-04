@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+### Fixed
+
+- **Offline, probe-free installer dry runs** ([#2021](https://github.com/vig-os/devkit/issues/2021))
+  - Defer remote branch checks, latest release resolution and runtime health probes until execution.
+  - Keep local version pins and explicit runtime choices in the plan; discover runtimes through PATH only.
+  - Label unresolved releases as placeholders and explain runtime fallback and preview verification.
+
 ### Added
 
 - **Typst plots, glossary and slides** ([#1994](https://github.com/vig-os/devkit/issues/1994))
