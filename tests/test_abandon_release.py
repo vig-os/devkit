@@ -213,3 +213,57 @@ def test_consumer_restoration_uses_pinned_host_utilities():
         setup["with"]["devkit-version"]
         == "${{ needs.resolve-toolchain.outputs.image-tag }}"
     )
+
+
+@pytest.mark.parametrize("copy", COPIES)
+def test_replay_checkout_sha_is_the_api_commit_base(tmp_path, copy):
+    import subprocess
+
+    from tests.workflow_replay import Replay
+
+    def git(*args):
+        return subprocess.check_output(
+            ["git", "-C", str(tmp_path), *args], text=True
+        ).strip()
+
+    git("init", "-q")
+    git(
+        "-c",
+        "user.name=Test User",
+        "-c",
+        "user.email=test@example.com",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--allow-empty",
+        "-qm",
+        "checkout",
+    )
+    checkout_sha = git("rev-parse", "HEAD")
+    replay = Replay(COPIES[copy], "unfreeze", {}, cwd=tmp_path)
+    replay.job.pop("timeout-minutes")
+    checkout_index = next(
+        i
+        for i, s in enumerate(replay.steps)
+        if "actions/checkout@" in s.get("uses", "")
+    )
+    capture = replay.steps[checkout_index + 1]
+    assert capture["id"] == "checkout-state"
+    replay.run(only=[capture["id"]])
+    git(
+        "-c",
+        "user.name=Test User",
+        "-c",
+        "user.email=test@example.com",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--allow-empty",
+        "-qm",
+        "concurrent dev update",
+    )
+    assert git("rev-parse", "HEAD") != checkout_sha
+    commit = next(s for s in replay.steps if "commit-action@" in s.get("uses", ""))
+    assert commit["env"]["BASE_SHA"] == "${{ steps.checkout-state.outputs.sha }}"
+    env = replay.resolve_env(commit, context={"steps": replay.step_context})
+    assert env["BASE_SHA"] == checkout_sha
