@@ -370,9 +370,9 @@ gh variable set CI_RUNNER_SMALL --body <label>
 
 #### Container-mode CI runners
 
-A `devcontainer` or `both` repo runs its lanes as `container:` jobs, and
-Scaffold Drift and `devkit-upgrade` drive a docker daemon on the runner, so
-its runners need a container runtime. An organization variable cannot say
+A `devcontainer` or `both` repo runs its lanes as `container:` jobs, and in
+those modes Scaffold Drift and `devkit-upgrade` drive a docker daemon on the
+runner, so its runners need a container runtime. An organization variable cannot say
 whether its pool has one: `vars.CI_RUNNER_*` resolves organization and
 repository variables alike, and nothing tells them apart. So a container-mode
 repo states it itself:
@@ -388,7 +388,8 @@ DEVKIT_CI_CONTAINER_RUNNERS=true
   `resolve-toolchain` prints a `::notice::` naming this key.
 - **`true`:** the variables place lanes as described in this section.
 - **Any other value** fails `resolve-toolchain` and the scaffold write path.
-- **`direnv` and `bare`** ignore the key; the variables always apply there.
+- **`direnv` and `bare`** ignore the key for placement (it is still
+  validated); the variables always apply there.
 - **Fork PRs** stay hosted either way.
 - **The legacy `DEVKIT_CI_RUNNER` key** still selects runners in container
   modes without the opt-in, as it did in 1.18.x. The upgrade keeps it until
@@ -397,11 +398,28 @@ DEVKIT_CI_CONTAINER_RUNNERS=true
 
 Set the key only once every `CI_RUNNER_*` pool the repo reaches can run
 container jobs; otherwise `container:` lanes fail at `Initialize containers`
-(`failed to connect to the docker API`). Scaffold Drift `docker run`s on the
-host in every mode, and `devkit-upgrade` runs the installer with docker in
-`bare` mode too, so a `direnv` or `bare` repo whose pool has no container
-runtime still needs a runtime for those two lanes. The decision and its
-rationale: [ADR §5](rfcs/ADR-site-agnostic-projects.md#5-lane-classes)
+(`failed to connect to the docker API`).
+
+What a self-hosted `CI_RUNNER_*` pool must provide, per mode:
+
+- **`direnv`:** no docker at all. Scaffold Drift fetches the pin's scaffold
+  with `nix flake prefetch`, and the upgrade runs the installer without a
+  runtime. The pool needs `nix`, `jq` and `rsync`.
+- **`bare`:** `ci.yml`'s Scaffold Drift (`docker login`, `docker pull`,
+  `docker run`) and `devkit-upgrade`'s `upgrade` job
+  (`install.sh --docker`) need a docker CLI and a daemon. The key does not
+  gate `bare`, so a pool without a container runtime fails those two lanes.
+- **`devcontainer`/`both`, without the key:** every lane is hosted, but the
+  `resolve-toolchain` jobs still run on the direct
+  `vars.CI_RUNNER_SMALL || vars.DEVKIT_CI_RESOLVE_RUNNER` expression. Their
+  image probe (`docker login`, `docker manifest inspect`) talks to the
+  registry from the client, so those runners need a docker CLI but no
+  daemon.
+- **`devcontainer`/`both`, with the key:** the pools need a container
+  runtime (docker CLI and daemon), as above.
+
+The decision and its rationale:
+[ADR §5](rfcs/ADR-site-agnostic-projects.md#5-lane-classes)
 ([#2045](https://github.com/vig-os/devkit/issues/2045)).
 
 #### Size classes and the lane override

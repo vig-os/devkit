@@ -556,9 +556,11 @@ repo states, in `.vig-os`:
   container-ish mode it probes the current pin's image like every resolve
   job, so an unreadable image (registry auth, rate limit) now fails the
   upgrade at that probe and files the tracking issue. A static test fails
-  any future job that needs a runtime (`container:`, a `docker://` or
-  `docker/*` action, a daemon command or the installer in `run:`) and
-  bypasses the output.
+  any future job that needs a runtime (`container:` or `services:`, a
+  `docker://` or `docker/*` action, any `docker`/`podman` CLI call or the
+  installer in `run:`, or a local composite action whose steps do any of
+  these) and bypasses the output. The resolve jobs below are its only,
+  explicitly listed, exception.
 - **Jobs that stay on the direct expression** need no daemon: the
   `resolve-toolchain` jobs (their image probe is `docker login` plus
   `docker manifest inspect`, which talk to the registry from the client;
@@ -566,11 +568,21 @@ repo states, in `.vig-os`:
   hooks (shell only; a consumer whose own hook needs a runtime routes it
   itself) and `devkit-upgrade`'s `report` job (`gh` only).
 
-**Known limit.** The gate is keyed on the delivery mode, as decided.
-Scaffold Drift `docker run`s on the host in **every** mode, and
-`devkit-upgrade` runs `install.sh --docker` in `bare` mode too, so a
-`direnv` or `bare` repo whose `CI_RUNNER_SMALL` pool has no container
-runtime still fails those two lanes.
+**Known limit.** The gate is keyed on the delivery mode, as decided, so
+what a self-hosted `CI_RUNNER_*` pool must provide still depends on the
+mode:
+
+- **`direnv`:** no docker at all. Scaffold Drift fetches the pin's flake
+  source with `nix flake prefetch` (#2040) and the upgrade runs
+  `install.sh` without a runtime; the pool needs `nix`, `jq` and `rsync`.
+- **`bare`:** `ci.yml`'s Scaffold Drift (`docker login`/`pull`/`run`) and
+  `devkit-upgrade`'s `upgrade` job (`install.sh --docker`) need a docker
+  CLI and daemon. The gate does not apply in `bare`, so a `bare` repo whose
+  pool has no container runtime fails those two lanes.
+- **`devcontainer`/`both`, gated:** every lane is hosted, but the
+  `resolve-toolchain` jobs stay on the direct
+  `vars.CI_RUNNER_SMALL || vars.DEVKIT_CI_RESOLVE_RUNNER` expression and
+  need a docker CLI (no daemon) for their image probe.
 
 ### 6. Migration
 
