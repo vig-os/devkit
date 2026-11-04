@@ -30,6 +30,9 @@
       fields.at("description", default: none),
     )
   }
+  if kind in (grid.cell, table.cell) {
+    return (" ", fields.at("body", default: none), " ")
+  }
   if kind in (grid, table, stack, math.vec) {
     return footer-separated(fields.at("children", default: ()))
   }
