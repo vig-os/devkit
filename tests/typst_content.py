@@ -53,6 +53,11 @@ def compile_source(source, *inputs):
             "--root",
             ".",
             "--ignore-system-fonts",
+            "--font-path",
+            os.environ.get(
+                "DEVKIT_TYPST_TEST_FONTS",
+                str(Path(__file__).resolve().parent / "fixtures/typst-fonts"),
+            ),
             "--jobs",
             "2",
             *inputs,
@@ -253,14 +258,17 @@ def test_plot_scientific_ticks_and_math_labels_remain_readable(project):
     assert sizes and min(sizes) >= 7, sizes
 
 
-def pdf_words():
+def pdf_words(*, last_page=False):
     result = subprocess.run(
         ["pdftotext", "-bbox", "main.pdf", "-"],
         check=True,
         capture_output=True,
         text=True,
     )
-    return list(ET.fromstring(result.stdout).iter("{http://www.w3.org/1999/xhtml}word"))
+    root = ET.fromstring(result.stdout)
+    if last_page:
+        root = list(root.iter("{http://www.w3.org/1999/xhtml}page"))[-1]
+    return list(root.iter("{http://www.w3.org/1999/xhtml}word"))
 
 
 @pytest.mark.parametrize(
@@ -443,9 +451,9 @@ def test_empty_yaml_register_has_clear_error(project, bound):
         ('#link("https://example.com")[Prefixmarker]', "Prefixmarker"),
         ('#raw("Prefixmarker")', "Prefixmarker"),
         ("$alpha$", "α"),
-        ("$dif A$", "dA"),
+        ("$dif A$", "d A"),
         ("$vec(x,y)$", "xy"),
-        ("$sum_(i=1)^n x_i$", "∑i=1nxi"),
+        ("$sum_(i=1)^n x_i$", "∑ni=1 xi"),
         ("#stack([Prefixmarker], [Second])", "PrefixmarkerSecond"),
         ("#grid([Prefixmarker], [Second])", "PrefixmarkerSecond"),
         ("#table([Prefixmarker], [Second])", "PrefixmarkerSecond"),
@@ -456,32 +464,34 @@ def test_empty_yaml_register_has_clear_error(project, bound):
         ("Prefixmarker#place[Hidden]", "Prefixmarker"),
         ("#rotate(20deg)[Prefixmarker]", "Prefixmarker"),
         ("#move(dx: 2pt)[Prefixmarker]", "Prefixmarker"),
-        ('"Prefixmarker"', "“Prefixmarker”"),
-        (r"Prefixmarker \\ Second", "Prefixmarker Second"),
+        ('"Prefixmarker"', "”Prefixmarker”"),
+        (r"Prefixmarker \ Second", "Prefixmarker Second"),
         ("Prefixmarker\n\nSecond", "Prefixmarker Second"),
         ('#image("tall.svg", height: 40pt) Prefixmarker', "Prefixmarker"),
         ("漢字" * 100, "漢字"),
-        ("😀" * 100, "😀"),
+        ("☺" * 100, "☺"),
         ("A" * 400, "AAAA"),
     ],
 )
-def test_plain_footer_prefix_and_bounds(project, value, expected):
+@pytest.mark.parametrize("option", ["title", "short-title"])
+def test_plain_footer_prefix_and_bounds(project, value, expected, option):
     Path("tall.svg").write_text(
         '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="40"/>'
     )
     result = compile_source(
         project
-        + f"#show: slides.with(short-title: [{value} extended research area facility "
+        + f"#show: slides.with({option}: [{value} extended research area facility "
         + "extended research area facility " * 30
         + "])\n#slide()[Body]"
     )
     assert result.returncode == 0, result.stderr
-    footer = [w for w in pdf_words() if float(w.attrib["yMin"]) > 350]
-    title = [w for w in footer if w.text not in {"1", "/"}]
+    # Check the content page independently of the optional title slide.
+    footer = [w for w in pdf_words(last_page=True) if float(w.attrib["yMin"]) > 350]
+    title = [w for w in footer if w.text != "/" and not (w.text or "").isdigit()]
     extracted = " ".join(w.text or "" for w in title)
     assert extracted.startswith(expected) and extracted.endswith("…"), extracted
     assert "Hidden" not in extracted
-    counter = next(w for w in footer if w.text == "1")
+    counter = next(w for w in footer if (w.text or "").isdigit())
     assert max(float(w.attrib["xMax"]) for w in title) + 2 * 72 / 25.4 <= float(
         counter.attrib["xMin"]
     )
@@ -492,15 +502,32 @@ def test_plain_footer_prefix_and_bounds(project, value, expected):
         - min(float(w.attrib["yMin"]) for w in footer)
         <= 11
     )
-    fonts = subprocess.run(
-        ["pdffonts", "main.pdf"], check=True, capture_output=True, text=True
-    ).stdout
-    assert "Bold" not in fonts and "Italic" not in fonts
+    subprocess.run(
+        ["pdftohtml", "-xml", "-zoom", "1", "main.pdf", "footer.xml"],
+        check=True,
+        capture_output=True,
+    )
+    root = ET.parse("footer.xml")
+    fonts = {n.attrib["id"]: n.attrib for n in root.iter("fontspec")}
+    for node in list(root.iter("page"))[-1].iter("text"):
+        if float(node.attrib["top"]) > 350:
+            spec = fonts[node.attrib["font"]]
+            assert float(spec["size"]) == 9
+            assert spec["color"] == "#000000"
+            assert "Bold" not in spec["family"] and "Italic" not in spec["family"]
+            assert node.find("b") is None and node.find("i") is None
 
 
 @pytest.mark.parametrize("option", ["title", "short-title"])
 @pytest.mark.parametrize(
-    "value,expected", [("", ""), ("Short", "Short"), ("$alpha$", "α"), ("#rect()", "□")]
+    "value,expected",
+    [
+        ("", ""),
+        ("Short", "Short"),
+        ("$alpha$", "α"),
+        ("#rect()", "□"),
+        ("$#h(1pt)$", "□"),
+    ],
 )
 def test_plain_footer_short_and_empty(project, option, value, expected):
     result = compile_source(
@@ -534,9 +561,35 @@ def test_plain_footer_rtl_bounds(project):
     ]
     assert title
     assert min(float(w.attrib["xMin"]) for w in title) >= 12 * 72 / 25.4 - 0.1
-    counter = next(w for w in footer if w.text == "1")
-    assert max(float(w.attrib["xMax"]) for w in title) + 2 * 72 / 25.4 <= float(
-        counter.attrib["xMin"]
+    counter = next(w for w in footer if (w.text or "").isdigit())
+    assert max(float(w.attrib["xMax"]) for w in title) <= (256 - 12) * 72 / 25.4 + 0.1
+    assert (
+        min(float(w.attrib["xMin"]) for w in title)
+        >= float(counter.attrib["xMax"]) + 2 * 72 / 25.4
     )
     ellipsis = next(w for w in title if "…" in (w.text or ""))
     assert float(ellipsis.attrib["xMin"]) == min(float(w.attrib["xMin"]) for w in title)
+
+
+@pytest.mark.parametrize(
+    "value", ["none", "42", "(a: [Hidden])", "([A], 42, (x: [Hidden]), [B])", "<label>"]
+)
+def test_footer_extractor_ignores_unknown_field_shapes(project, value):
+    expected = "AB" if value.startswith("([A]") else ""
+    result = compile_source(
+        project + f'#assert.eq(slides.footer-text({value}), "{expected}")'
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_footer_short_title_overrides_title_and_skips_effects(project):
+    result = compile_source(
+        project
+        + """#show: slides.with(title: [Deckmarker], short-title: [Shortmarker#footnote[Hidden]#metadata([Hidden])#context[Hidden]#context counter(page).display()#state("footer").update([Hidden])#place[Hidden]])
+#slide()[Body]
+"""
+    )
+    assert result.returncode == 0, result.stderr
+    footer = [w.text for w in pdf_words() if float(w.attrib["yMin"]) > 350]
+    assert footer.count("Shortmarker") == 2
+    assert "Deckmarker" not in footer and "Hidden" not in pdf_text()

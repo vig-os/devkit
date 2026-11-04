@@ -2,124 +2,66 @@
   figure-style, title-block, type-scale, typography, typst-document,
 )
 
-// Normalize tall pieces before measuring their available horizontal space.
-#let footer-inline(value) = {
-  let extent = measure(box(value))
-  let height = measure(box([Ag])).height
-  // Keep collapsible spaces outside boxes; wrap block-capable elements inline.
-  if extent.width == 0pt and extent.height == 0pt { return value }
-  if extent.height <= height { return box(value) }
-  box(baseline: (at: bottom, shift: 0.2 * text.size), scale(
-    (text.size / extent.height) * 100%,
-    origin: top + left,
-    reflow: true,
-    box(value),
-  ))
-}
-
-// Required positional fields follow their original field order. All remaining
-// fields are passed by name; no wrapper element types need to be enumerated.
-#let footer-rebuild(value, field, piece) = {
+// Read content fields only; never invoke or rebuild title elements.
+#let footer-text(value, math-mode: false) = {
+  if type(value) == str { return value }
+  if type(value) == array {
+    return value
+      .map(v => footer-text(v, math-mode: math-mode))
+      .join("", default: "")
+  }
+  if type(value) != content { return "" }
+  let kind = value.func()
+  if kind in (footnote, metadata, state, counter, place) { return "" }
+  if kind in ([ ].func(), linebreak, parbreak) { return " " }
   let fields = value.fields()
-  let positional = ()
-  for (key, original) in fields {
-    if key == field {
-      positional.push(if key == "children" { (piece,) } else { piece })
-      let _ = fields.remove(key)
-    } else if key in ("dest", "styles", "alignment", "angle") {
-      positional.push(original)
-      let _ = fields.remove(key)
+  if kind == smartquote {
+    return if fields.at("double", default: true) { "”" } else { "’" }
+  }
+  if kind == math.equation {
+    let result = footer-text(fields.at("body", default: none), math-mode: true)
+    return if result == "" { "□" } else { result }
+  }
+  for field in ("body", "children", "child", "text") {
+    if field in fields {
+      return footer-text(fields.at(field), math-mode: math-mode)
     }
   }
-  value.func()(..positional, ..fields)
+  // Math attachments and operators expose content in fields such as base/t/b.
+  if math-mode {
+    return fields
+      .values()
+      .filter(v => type(v) in (content, array))
+      .map(v => footer-text(v, math-mode: true))
+      .join("", default: "")
+  }
+  ""
 }
 
-// Split any content-bearing element and reconstruct every piece identically.
-#let footer-pieces(value, words: true) = {
-  if value == none { return () }
-  if type(value) == str {
-    return if words {
-      value.matches(regex("\\S+|\\s+")).map(m => m.text)
-    } else { value.clusters() }
-  }
-  let fields = value.fields()
-  if value.func() in (linebreak, parbreak) { return ([ ],) }
-  for field in ("body", "children", "child", "text") {
-    if field not in fields { continue }
-    let inner = fields.at(field)
-    if inner == none { return (value,) }
-    let pieces = if type(inner) == array {
-      inner.map(v => footer-pieces(v, words: words)).flatten()
-    } else { footer-pieces(inner, words: words) }
-    if pieces.len() == 0 { return (value,) }
-    return pieces.map(p => footer-rebuild(value, field, p))
-  }
-  (value,)
-}
-
-#let footer-prefix(pieces, width) = {
+#let footer-prefix(clusters, width) = {
   let low = 0
-  let high = pieces.len()
+  let high = clusters.len()
   while low < high {
     let middle = calc.ceil((low + high) / 2)
-    if measure(box(pieces.slice(0, middle).join() + […])).width <= width {
+    if (
+      measure(box(clusters.slice(0, middle).join("", default: "") + "…")).width
+        <= width
+    ) {
       low = middle
     } else { high = middle - 1 }
   }
-  low
-}
-
-#let footer-line(value, height) = {
-  let line = box(value)
-  let extent = measure(line)
-  if extent.height > height {
-    line = scale(
-      (height / extent.height) * 100%,
-      origin: top + left,
-      reflow: true,
-      line,
-    )
-  }
-  let result = block(height: height, place(top + left, line))
-  assert.eq(
-    measure(result).height,
-    height,
-    message: "footer must occupy exactly one line",
-  )
-  result
+  clusters.slice(0, low).join("", default: "") + "…"
 }
 
 #let footer-title(body) = layout(size => {
   set text(top-edge: "ascender", bottom-edge: "descender")
   let height = measure(box([Ag])).height
-  let pieces = footer-pieces(body).map(footer-inline)
-  let value = pieces.join()
+  let value = footer-text(body).replace(regex("\\s+"), " ").trim()
+  if value == "" and body != none and body != [] { value = "□" }
   if measure(box(value)).width > size.width {
-    let count = footer-prefix(pieces, size.width)
-    // An oversized word still gets a visible prefix in its original style.
-    if (
-      count < pieces.len()
-        and measure(box(pieces.at(count) + […])).width > size.width
-    ) {
-      let chars = footer-pieces(pieces.at(count), words: false)
-      pieces = pieces.slice(0, count) + chars
-      count = footer-prefix(pieces, size.width)
-    }
-    // An indivisible oversized atom must remain visible, even without text.
-    let suffix = […]
-    if (
-      count < pieces.len()
-        and measure(box(pieces.at(count) + suffix)).width > size.width
-    ) {
-      suffix = [□…]
-      count = footer-prefix(
-        pieces.slice(0, count),
-        size.width - measure(box([□])).width,
-      )
-    }
-    value = text(dir: text.dir, pieces.slice(0, count).join() + suffix)
+    value = footer-prefix(value.clusters(), size.width)
   }
-  footer-line(value, height)
+  block(height: height, place(top + start, box(value)))
 })
 
 #let render(

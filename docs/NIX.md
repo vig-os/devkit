@@ -560,21 +560,17 @@ The layout is 256 × 144 mm (16:9), with 12 mm margins. A title slide is emitted
 when metadata is provided. `section-slide` centers its title; `slide` starts a
 content page with an optional heading. The same type scale, booktabs rules,
 figure captions, branding (`accent`, `logo`, `labels`), metadata, `short-title`,
-page totals and revision footer apply. Footer titles preserve emphasis, colour,
-smallcaps, links, math, scripts, boxes, and images. Truncation prefers whole
-words and reconstructs content-bearing wrappers generically with their original
-fields, including decorations, scripts and inline raw text. An oversized word
-falls back to character prefixes. An indivisible atom that cannot fit becomes
-`□` before the ellipsis, rather than disappearing. The ellipsis follows the
-cut prefix in the current `text.dir`, including RTL text. A 2 mm column gap
-separates the title from the page counter.
+page totals and revision footer apply. The slide footer shows the plain text of
+`short-title` (fall back: `title`); styling is not carried into the footer;
+give a short plain `short-title` for best results. Containers contribute their
+text; math contributes text leaves (or `□` when there are none). Images and
+unknown atoms are omitted; a nonempty title with no extractable text shows `□`.
+Footnotes, metadata, state, counters and placed content are skipped. Smart
+quotes use right quote marks; line breaks and whitespace collapse to spaces.
 
-The footer occupies exactly one measured line (font ascender to descender).
-Explicit line and paragraph breaks become spaces. Pieces taller than the footer
-line scale uniformly to the footer font size before width measurement, including
-oversized text, images and text inside boxes. Keep tall boxes concise to avoid
-small lettering. Block-capable wrappers become inline pieces. The final line
-also fits its vertical extent without clipping or distorting content.
+The footer occupies one fixed line at the footer font size, without scaling.
+It truncates by measuring grapheme prefixes, adding `…` at the logical end,
+including for RTL text. A 2 mm gap separates it from the page counter.
 Sizes remain in points: choose slide
 content for the intended viewing distance. Content must fit a slide; there is
 no automatic shrinking or overflow clipping. Canonical builds omit the stamp.
