@@ -371,7 +371,10 @@ the repository root. Query-only show rules emit image/page metadata. Direct
 figure/table calls and `fig()`, `booktabs-table()` and `plain-table()` get source
 labels for diagnostics and suppression. Unlabelled tables derived by the
 package are excluded from findings. Local template functions that set page or
-font count as bypasses, including multi-line `#let` signatures.
+font count as bypasses, including multi-line `#let` signatures and `=> {`
+closures used by `#let`, `#show`, or imported local templates. Suppressions belong
+to individual source calls, even when labels are repeated. The fallback maps
+figures using only compiler-reported dependencies in document order.
 
 If instrumentation fails or warns, the guard validates a clean plain compile
 before falling back for that entry with a warning. A plain compile failure
@@ -379,6 +382,10 @@ still fails the guard. The fallback queries native figures and source-located
 tables and uses the documented image sizing fallback. Some custom helpers can
 have only an entry-file diagnostic; skip globs remain available. Compiler
 outputs live outside the mirrored assets so consumer files cannot be overwritten.
+Referenced assets under `generated/` remain available. Only dependency sources
+are instrumented; unrelated Typst sources are not scanned. Logo findings point
+to the template’s `logo:` argument and support suppression on that line.
+Measurements belong to individual placements, including repeated logo/body assets.
 
 With `@local/devkit-docs:0.1.2` and its document show rule, the guard-only input
 `devkit-guard-measure=true` enables image measurement metadata. It resolves
@@ -396,24 +403,34 @@ Image sizing composes width and height, `contain`/`cover`/`stretch`, and SVG
 their natural aspect ratio. A native Typst `scale(...)` around an image emits
 a warning instead of claiming a physical font size.
 The SVG check reads viewBox width (or intrinsic dimensions), inherited
-font-size, inline styles and simple tag/class/id CSS rules. SVG px are user
+font-size, CSS `font` shorthand (including Matplotlib 3.6–3.9), inline styles
+and simple tag/class/id CSS rules with specificity and `!important` precedence. SVG px are user
 units; absolute font units are converted before applying the placed scale.
 Scale transforms are applied; rotations and translations preserve size. Complex
 CSS selectors, affine/skew transforms and unresolved font units emit a warning
 rather than an inaccurate measurement. Text converted to outlines cannot be
 identified as lettering. Unused `<defs>` and hidden text are ignored; local
-`<use>` references are followed. Matplotlib DOCTYPEs are accepted without
+`<use>` references are followed, including nested SVG and symbol viewports.
+Zero-size text is ignored. Reference expansion is limited to 32 levels and
+4,096 uses per SVG; exceeding either limit emits a warning. Matplotlib DOCTYPEs are accepted without
 allowing entities or external XML references. Raster images are skipped: prefer
-SVG or native plots for charts. The hardened parser is a shared vig-utils runtime
+SVG or native plots for charts. Images supplied as bytes (for example
+`image(bytes(read(...)))`) have no inspectable source path and are skipped.
+Unresolved font shorthand or sizes always warn. The hardened parser is a shared vig-utils runtime
 dependency (also installed for non-docs consumers); guard activation stays opt-in.
 
 The real-compiler contract runs in `checks.<system>.typst-content`, so the
 default non-docs test environment does not need Typst.
 
-Normally each entry uses one dependency compile and one combined Typst JSON query,
-with at most two compiler workers. A fallback also validates the plain compile.
+Each entry first compiles unmodified sources to discover dependencies, then
+uses one instrumented compile and one combined Typst JSON query, with at most
+two compiler workers. A fallback also validates the plain compile.
 To reproduce timing for 20 entries and 30,000 unrelated files,
 run `uv run python packages/vig-utils/tests/benchmark_typst_content.py`.
+For a single large document, add
+`--entries 1 --figures-per-entry 4000 --unrelated-files 0` (4,000 figures and
+4,000 tables). The dependency pass adds a compile but avoids scanning unrelated
+sources and repeated scans of growing source prefixes.
 
 #### House-style package
 

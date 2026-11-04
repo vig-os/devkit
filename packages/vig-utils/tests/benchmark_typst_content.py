@@ -5,9 +5,10 @@ import json
 import os
 import tempfile
 import time
+from collections import Counter
 from pathlib import Path
 
-from vig_utils import typst_guard
+from vig_utils import typst_content, typst_guard
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--unrelated-files", type=int, default=30000)
@@ -39,6 +40,14 @@ with tempfile.TemporaryDirectory(prefix="typst-content-benchmark-") as directory
         f"Prepared {args.entries} entries and {args.unrelated_files} unrelated files",
         flush=True,
     )
+    commands = Counter()
+    original = typst_content.run_typst
+
+    def count(command, *positional, **keywords):
+        commands[command[0]] += 1
+        return original(command, *positional, **keywords)
+
+    typst_content.run_typst = count
     start = time.perf_counter()
     code = typst_guard.main(["content"])
     print(
@@ -48,8 +57,8 @@ with tempfile.TemporaryDirectory(prefix="typst-content-benchmark-") as directory
                 "unrelated_files": args.unrelated_files,
                 "figures": args.entries * args.figures_per_entry,
                 "tables": args.entries * args.figures_per_entry,
-                "compiles": args.entries,
-                "queries": args.entries,
+                "compiles": commands["compile"],
+                "queries": commands["query"],
                 "compiler_jobs": 2,
                 "seconds": round(time.perf_counter() - start, 3),
                 "exit": code,

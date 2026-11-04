@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unicodedata
+from bisect import bisect_right
 from collections import Counter, defaultdict, deque
 from functools import partial
 from pathlib import Path
@@ -30,9 +31,9 @@ def tokens(source, comments=False):
         offset = match.end()
         if word == "/*":
             depth = 1
-            while depth and (comment := re.search(r"/\*|\*/", source[offset:])):
+            while depth and (comment := re.compile(r"/\*|\*/").search(source, offset)):
                 depth += 1 if comment[0] == "/*" else -1
-                offset += comment.end()
+                offset = comment.end()
             if depth:
                 offset = len(source)
         elif word.startswith("`"):
@@ -45,46 +46,56 @@ def tokens(source, comments=False):
 
 def delimiter_pairs(lex):
     """Match code delimiters while tolerating literal punctuation in markup."""
-    pairs, stack = {}, []
+    pairs, stack, counts = {}, [], Counter()
     for i, (word, _, _) in enumerate(lex):
         if word in ("(", "[", "{"):
             stack.append(i)
+            counts[word] += 1
         elif word in (")", "]", "}") and stack:
             opening = {")": "(", "]": "[", "}": "{"}[word]
             if word == ")" and lex[stack[-1]][0] != "(":
                 continue
-            if not any(lex[j][0] == opening for j in stack):
+            if not counts[opening]:
                 continue
             while lex[stack[-1]][0] != opening:
-                stack.pop()
+                counts[lex[stack.pop()][0]] -= 1
+            counts[opening] -= 1
             pairs[stack.pop()] = i
     return pairs
 
 
-def in_code(i, lex, pairs, source):
-    """Distinguish markup prose from hash expressions and nested code blocks."""
-    if i and lex[i - 1][0] == "#":
-        return True
-    containers = [a for a, b in pairs.items() if a < i < b]
-    if containers:
-        opening = max(containers)
-        if lex[opening][0] == "[":
-            return False
-        return in_code(opening, lex, pairs, source)
-    if lex[i][0] == "{" and i > 2 and lex[i - 1][0] == "=":
-        signature = next((a for a, b in pairs.items() if b == i - 2), None)
-        if signature is not None and signature >= 2 and lex[signature - 2][0] == "let":
-            return True
-    if lex[i][0] in ("(", "{") and i:
-        return in_code(i - 1, lex, pairs, source)
-    line = source[source.rfind("\n", 0, lex[i][1]) + 1 : lex[i][1]]
-    return bool(re.search(r"#\s*(?:let|set|show|context)\b", line))
+def code_contexts(lex, pairs, source):
+    """Compute code/markup context once, including multiline closure bodies."""
+    flags, stack = [], []
+    line_code, previous_end = False, 0
+    for i, (word, start, end) in enumerate(lex):
+        if "\n" in source[previous_end:start]:
+            line_code = False
+        previous_end = end
+        if word == "#":
+            line_code = True
+        code = flags[stack[-1]] if stack else line_code
+        if stack and lex[stack[-1]][0] == "[":
+            code = line_code
+        if i and lex[i - 1][0] == "#":
+            code = True
+        if word == "{" and i >= 3 and lex[i - 1][0] == ">" and lex[i - 2][0] == "=":
+            code = flags[i - 3]
+        if word == "{" and i >= 2 and lex[i - 1][0] == "=":
+            code = code or flags[i - 2]
+        flags.append(code)
+        if i in pairs:
+            stack.append(i)
+        while stack and pairs[stack[-1]] == i:
+            stack.pop()
+    return flags
 
 
 def call_spans(source):
     """Find balanced builtin calls, including trailing content arguments."""
     lex = tokens(source)
     pairs = delimiter_pairs(lex)
+    code = code_contexts(lex, pairs, source)
     for i, (word, start, _) in enumerate(lex[:-1]):
         if word not in (
             "figure",
@@ -98,7 +109,7 @@ def call_spans(source):
             continue
         if i and lex[i - 1][0] in (".", "set", "let"):
             continue
-        if not in_code(i, lex, pairs, source):
+        if not code[i]:
             continue
         opening = i + (2 if word == "set" else 1)
         if opening not in pairs:
@@ -116,22 +127,6 @@ def call_spans(source):
         )
 
 
-def ignored(source, start, end, mode):
-    """End-of-line markers apply to the opening or closing line of a call."""
-    for offset in (start, end):
-        line = source[
-            source.rfind("\n", 0, offset) + 1 : source.find("\n", offset)
-            if "\n" in source[offset:]
-            else len(source)
-        ]
-        if any(
-            re.fullmatch(rf"//\s*{mode}: ignore\s*", word)
-            for word, _, _ in tokens(line, comments=True)
-        ):
-            return True
-    return False
-
-
 def sets_font(args):
     """Only the top-level font argument changes the text's font family."""
     lex, depth = tokens(args), 0
@@ -147,80 +142,130 @@ def sets_font(args):
     return False
 
 
+def source_index(source):
+    """Index line ends and suppression comments once per source."""
+    ends = [match.start() for match in re.finditer("\n", source)]
+    markers = defaultdict(set)
+    for word, start, _ in tokens(source, comments=True):
+        match = re.fullmatch(r"//\s*([\w-]+): ignore\s*", word)
+        if match and match[1] in MODES:
+            markers[bisect_right(ends, start) + 1].add(match[1])
+    return ends, markers
+
+
+def image_origin(args, path):
+    """Recognize literal strings and path values; retain dynamic source calls."""
+    first = tokens(args)
+    index = 2 if len(first) > 2 and first[0][0] == "path" else 0
+    if len(first) <= index or not first[index][0].startswith('"'):
+        return None, None
+    try:
+        raw = json.loads(first[index][0])
+        canonical = (
+            raw.lstrip("/") if raw.startswith("/") else str(Path(path).parent / raw)
+        )
+        return raw, os.path.normpath(canonical)
+    except ValueError:
+        return None, None
+
+
+def image_edits(source, start, end, args):
+    """Resolve strings at the calling file, preserving native image values/bytes."""
+    first = tokens(args)
+    if not first:
+        return []
+    # The first positional argument ends at a top-level comma.
+    depth, last = 0, len(args)
+    for word, offset, _ in first:
+        if word in ("(", "[", "{"):
+            depth += 1
+        elif word in (")", "]", "}"):
+            depth -= 1
+        elif word == "," and depth == 0:
+            last = offset
+            break
+    offset = source.index(args, start, end)
+    prefix = "(value => if type(value) == str { path(value) } else { value })("
+    return [(offset, prefix), (offset + last, ")")]
+
+
+def logo_calls(source, path, origins, ends, markers):
+    """Attribute the package's logo to the template argument that supplies it."""
+    lex = tokens(source)
+    for i, (word, start, _) in enumerate(lex[:-2]):
+        if word != "logo" or lex[i + 1][0] != ":":
+            continue
+        line = bisect_right(ends, start) + 1
+        last = min(i + 6, len(lex) - 1)
+        raw, canonical = image_origin(source[lex[i + 2][1] : lex[last][2]], path)
+        if canonical is None:
+            continue
+        key = f"<devkit-logo-{path}-{start}>"
+        origin = (path, line, markers[line])
+        origins[key] = origin
+        origins.setdefault("offsets", {})[key] = start
+        origins.setdefault("image_order", []).append(key)
+        origins.setdefault("image_calls", []).append(
+            {"id": key, "origin": origin, "raw": raw, "path": canonical, "logo": True}
+        )
+
+
 def instrument(source, path, origins):
-    """Label queried calls in an ephemeral tree, preserving existing labels."""
-    edits = []
+    """Instrument only active sources, with unique identities per call site."""
+    edits = defaultdict(list)
+    ends, markers = source_index(source)
     for kind, start, end, target, args in call_spans(source):
-        line = source.count("\n", 0, start) + 1
-        suppressed = {mode for mode in MODES if ignored(source, start, end, mode)}
+        line = bisect_right(ends, start) + 1
+        suppressed = markers[line] | markers[bisect_right(ends, end) + 1]
         if kind == "set":
             if target == "page" or (target == "text" and sets_font(args)):
                 origins.setdefault("bypasses", []).append((path, line, suppressed))
             continue
-        label = f"devkit-guard-{len(origins)}-{start}"
-        existing = re.match(r"\s*<([^<>\s]+)>", source[end:])
+        key = f"<devkit-guard-{len(origins)}-{start}>"
+        origins[key] = (path, line, suppressed)
+        origins.setdefault("offsets", {})[key] = start
+        origins.setdefault("call_order", []).append(key)
+        existing = re.compile(r"\s*<([^<>\s]+)>").match(source, end)
+        label = f"<{existing[1]}>" if existing else key
         if existing:
-            label = existing[1]
-        origins[f"<{label}>"] = (path, line, suppressed)
+            origins.setdefault(label, origins[key])
+        origins.setdefault("label_calls", {}).setdefault(label, []).append(key)
         if kind == "image":
-            record = {
-                "id": f"<{label}>",
-                "origin": (path, line, suppressed),
-                "raw": None,
-                "path": None,
-            }
-            first = tokens(args)
-            if first and first[0][0].startswith('"'):
-                try:
-                    raw = json.loads(first[0][0])
-                    canonical = (
-                        raw.lstrip("/")
-                        if raw.startswith("/")
-                        else str(Path(path).parent / raw)
-                    )
-                    canonical = os.path.normpath(canonical)
-                    record.update(raw=raw, path=canonical)
-                    offset = source.index(args, start, end)
-                    edits.extend(
-                        [(offset + first[0][1], "path("), (offset + first[0][2], ")")]
-                    )
-                    # path() is evaluated at the original call site and retains
-                    # its file identity in query JSON, without changing image's type.
-                except ValueError:
-                    pass
-            origins.setdefault("image_calls", []).append(record)
+            raw, canonical = image_origin(args, path)
+            origins.setdefault("image_order", []).append(key)
+            origins.setdefault("image_calls", []).append(
+                {"id": key, "origin": origins[key], "raw": raw, "path": canonical}
+            )
+            for offset, text in image_edits(source, start, end, args):
+                edits[offset].append(text)
             continue
         origins.setdefault(
             "figure_calls" if kind in ("figure", "fig") else "table_calls", []
-        ).append(f"<{label}>")
-        prefix = "[#("
-        suffix = ")]" if existing else ")#label(" + json.dumps(label) + ")]"
-        edits.extend([(start, prefix), (end, suffix)])
-    for offset, text in sorted(edits, reverse=True):
-        source = source[:offset] + text + source[offset:]
-    return source
+        ).append(key)
+        edits[start].append("[#(")
+        edits[end].append(
+            ")]" if existing else ")#label(" + json.dumps(key[1:-1]) + ")]"
+        )
+    logo_calls(source, path, origins, ends, markers)
+    return "".join(
+        "".join(edits.get(i, ())) + char for i, char in enumerate(source + "\0")
+    )[:-1]
 
 
 def prepare_tree(tree, origins):
-    """Mirror sources with cheap asset symlinks and instrumented Typst files."""
+    """Mirror assets once; source instrumentation waits for compiler dependencies."""
     shutil.copytree(
         Path.cwd(),
         tree,
-        copy_function=os.symlink,
-        symlinks=True,
-        ignore=shutil.ignore_patterns(
-            ".git", ".venv", "node_modules", "generated", ".registry"
+        copy_function=lambda source, target: (
+            shutil.copyfile(source, target)
+            if str(source).endswith(".typ")
+            else Path(target).symlink_to(source)
         ),
+        symlinks=True,
+        ignore=shutil.ignore_patterns(".git", ".venv", "node_modules", ".registry"),
     )
-    originals, written = {}, {}
-    for path in tree.rglob("*.typ"):
-        name = path.relative_to(tree).as_posix()
-        source = path.read_text()
-        path.unlink()
-        originals[name] = source
-        written[name] = instrument(source, name, origins)
-        path.write_text(written[name])
-    return originals, written
+    return {}, {}
 
 
 def run_typst(command, flags, tree, env, entry):
@@ -244,11 +289,13 @@ def run_typst(command, flags, tree, env, entry):
     return result.stdout
 
 
-SIDECAR = """#show image: it => context {
+SIDECAR = """#show image: it => layout(size => context {
+  let placed = measure(it, width: size.width, height: size.height)
   metadata((kind: "devkit-source-image", element: it,
+    width: placed.width, height: placed.height, location: here().position(),
     page: (width: page.width, height: page.height, margin: page.margin)))
   it
-}
+})
 #show scale: it => context {
   metadata((kind: "devkit-transform", element: it))
   it
@@ -276,13 +323,79 @@ def compile_query(entry, context, flags):
     rows = json.loads(
         execute(["query", str(entry), "selector(figure).or(table).or(metadata)"])
     )
+    return rows, dependency_paths(context)
+
+
+def dependency_paths(context):
+    """Normalize compiler dependency identities against the mirror root."""
     active = set()
-    for name in json.loads(deps_path.read_text())["inputs"]:
+    for name in json.loads(context["deps"].read_text())["inputs"]:
         path = Path(name)
         path = path if path.is_absolute() else context["tree"] / path
         if path.is_relative_to(context["tree"]):
             active.add(path.relative_to(context["tree"]).as_posix())
-    return rows, active
+    return active
+
+
+def entry_sources(entry, context):
+    """Discover dependencies from an unmodified compile before scanning sources."""
+    restore_sources(context, context["originals"])
+    run_typst(
+        ["compile", str(entry), str(context["output"]), "--deps", str(context["deps"])],
+        context["flags"],
+        context["tree"],
+        context["env"],
+        entry,
+    )
+    active = dependency_paths(context)
+    for name in sorted(active):
+        if not name.endswith(".typ") or name in context["written"]:
+            continue
+        path = context["tree"] / name
+        source = path.read_text()
+        path.unlink()
+        context["originals"][name] = source
+        context["written"][name] = instrument(source, name, context["origins"])
+    restore_sources(context, context["written"])
+    return active
+
+
+def ordered_calls(entry, context, active, kind):
+    """Flatten local imports/includes at their document position, ignoring inactive files."""
+    calls, seen = context["origins"].get(kind, []), set()
+    by_file = defaultdict(list)
+    for key in calls:
+        by_file[context["origins"][key][0]].append(key)
+
+    def visit(name):
+        if name in seen or name not in active:
+            return []
+        seen.add(name)
+        source = context["originals"].get(name, "")
+        events = [
+            (context["origins"]["offsets"][key], key, None) for key in by_file[name]
+        ]
+        lex = tokens(source)
+        for i, (word, start, _) in enumerate(lex[:-1]):
+            if word not in ("import", "include") or not lex[i + 1][0].startswith('"'):
+                continue
+            raw = json.loads(lex[i + 1][0])
+            target = os.path.normpath(
+                raw.lstrip("/") if raw.startswith("/") else str(Path(name).parent / raw)
+            )
+            events.append((start, "", target))
+        result = []
+        for _, key, target in sorted(events):
+            result.extend(visit(target) if target else [key])
+        return result
+
+    result = visit(str(entry))
+    included = set(result)
+    return result + [
+        key
+        for key in calls
+        if context["origins"][key][0] in active and key not in included
+    ]
 
 
 def restore_sources(context, sources):
@@ -320,6 +433,7 @@ def plain_fallback(entry, context, failure):
 
 def query_document(entry, context):
     """Query one entry in the shared mirror; restore it even after a failure."""
+    entry_sources(entry, context)
     path = context["tree"] / entry
     path.write_text(SIDECAR + context["written"][str(entry)])
     fallback = False
@@ -338,9 +452,35 @@ def query_document(entry, context):
             restore_sources(context, context["written"])
         else:
             path.write_text(context["written"][str(entry)])
-    origins = dict(context["origins"])
+    origins = active_origins(entry, context, active)
     bypasses = [row for row in origins.get("bypasses", []) if row[0] in active]
     return rows, origins, bypasses, active, fallback
+
+
+def active_origins(entry, context, active):
+    """Keep call identities and label aliases local to one entry's dependencies."""
+    origins = {
+        key: value
+        for key, value in context["origins"].items()
+        if not isinstance(value, tuple) or value[0] in active
+    }
+    origins["figure_calls"] = ordered_calls(entry, context, active, "figure_calls")
+    images = {call["id"]: call for call in origins.get("image_calls", [])}
+    origins["image_calls"] = [
+        images[key] for key in ordered_calls(entry, context, active, "image_order")
+    ]
+    order = {
+        key: index
+        for index, key in enumerate(ordered_calls(entry, context, active, "call_order"))
+    }
+    labels = {}
+    for label, keys in origins.get("label_calls", {}).items():
+        keys = sorted((key for key in keys if key in order), key=order.get)
+        if keys:
+            labels[label] = keys
+            origins[label] = origins[keys[0]]
+    origins["label_calls"] = labels
+    return origins
 
 
 def blank(value):
@@ -420,11 +560,20 @@ def image_path(value):
     return os.path.normpath(value.lstrip("/"))
 
 
-def image_rows(rows, origins, active):
+def image_rows(rows, origins, active, package=False):
     """Attribute rendered images to their native source calls and page settings."""
     calls = [
         call for call in origins.get("image_calls", []) if call["origin"][0] in active
     ]
+    calls.sort(key=lambda call: not call.get("logo", False))
+    by_path, by_raw, dynamic = defaultdict(list), defaultdict(list), defaultdict(list)
+    for call in calls:
+        if call["path"] is not None:
+            by_path[call["path"]].append(call)
+        if call["raw"] is not None:
+            by_raw[call["raw"]].append(call)
+        else:
+            dynamic[str(Path(call["origin"][0]).parent)].append(call)
     used = defaultdict(int)
     result = []
     for row in rows:
@@ -434,11 +583,9 @@ def image_rows(rows, origins, active):
         element = dict(value["element"])
         source = str(element.get("source", ""))
         canonical = image_path(source)
-        candidates = [call for call in calls if call["path"] == canonical]
-        if not candidates:
-            candidates = [
-                call for call in calls if call["raw"] == source or call["raw"] is None
-            ]
+        candidates = (
+            by_path[canonical] or by_raw[source] or dynamic[str(Path(canonical).parent)]
+        )
         if candidates:
             call = candidates[min(used[source], len(candidates) - 1)]
             used[source] += 1
@@ -449,6 +596,11 @@ def image_rows(rows, origins, active):
                     str(Path(call["origin"][0]).parent / source)
                 )
         element["source"] = canonical
+        element["_placed"] = (
+            value
+            if "width" in value and (package or (candidates and call.get("logo")))
+            else None
+        )
         element["_page"] = value["page"]
         element["_transformed"] = value.get("transformed", False)
         result.append(element)
@@ -494,7 +646,8 @@ def check_svg(row, measured, report):
     path, label = str(row.get("source", "")), row.get("label")
     if not path.casefold().endswith(".svg"):
         return 0
-    placed = measured[path].popleft() if measured[path] else None
+    queued = measured[path].popleft() if measured[path] else None
+    placed = row.get("_placed") or queued
     if row.get("_transformed"):
         return report(
             "figure-text-size",
@@ -552,10 +705,17 @@ def check_entry(entry, skips, mode, context):
         )
     measured = query_dimensions(rows)
     figures = iter(origins.get("figure_calls", []))
+    labels = {
+        label: deque(keys) for label, keys in origins.get("label_calls", {}).items()
+    }
     for row in rows:
         kind, label = row.get("func"), row.get("label")
-        if fallback and kind == "figure" and label not in origins:
-            label = next(figures, label)
+        if kind == "figure":
+            source_key = next(figures, label)
+            if fallback and label not in labels:
+                label = source_key
+        if labels.get(label):
+            label = labels[label].popleft()
         if kind == "figure" and blank(row.get("caption")):
             failed |= report(
                 "figure-caption", label, "figure requires a non-empty caption"
@@ -571,7 +731,7 @@ def check_entry(entry, skips, mode, context):
         ):
             failed |= report("table-header", label, "table requires table.header")
     if mode in ("content", "figure-text-size"):
-        for row in image_rows(rows, origins, active):
+        for row in image_rows(rows, origins, active, package=bool(measured)):
             failed |= check_svg(row, measured, report)
     return failed
 
