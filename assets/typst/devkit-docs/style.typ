@@ -222,11 +222,37 @@
   body
 }
 
+// Guard metadata is absent from normal builds. Page furniture observes page
+// settings and font; heading contexts also observe local body styles.
+#let guard-style() = context {
+  let margin = page.margin
+  let margins = if type(margin) == dictionary {
+    ("top", "bottom", "left", "right").map(side => margin.at(
+      side, default: margin.at(
+        if side in ("top", "bottom") { "y" } else { "x" },
+        default: margin.at("rest", default: auto),
+      ),
+    ))
+  } else { (margin,) }
+  let fonts = if type(text.font) == array { text.font } else { (text.font,) }
+  let changed = ()
+  if page.width != 210mm or page.height != 297mm { changed.push("paper") }
+  if margins.any(value => value != 2.5cm) { changed.push("margins") }
+  if fonts.map(lower) != ("libertinus serif",) { changed.push("font") }
+  metadata((
+    kind: "devkit-style", page: here().page(), changed: changed,
+    width: page.width, height: page.height, margin: margin, font: text.font,
+  ))
+}
+
 #let page-layout(body, title: none, accent: black, title-page: false) = {
   set page(
     paper: "a4",
     margin: 2.5cm,
     header: context {
+      if sys.inputs.at("devkit-guard-measure", default: "false") == "true" {
+        guard-style()
+      }
       if (
         title != none and (not title-page or counter(page).get().first() != 1)
       ) {
@@ -303,6 +329,7 @@
     labels: labels,
   )
   if sys.inputs.at("devkit-guard-measure", default: "false") == "true" {
+    show heading: it => { guard-style(); it }
     show image: it => layout(size => {
       let placed = measure(it, width: size.width, height: size.height)
       metadata((

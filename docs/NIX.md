@@ -358,6 +358,16 @@ no hook or configuration changes.
 | `house-style-bypass` | Direct `set page(...)` or `set text(font: ...)` in entry sources and their local dependencies | `// house-style-bypass: ignore` |
 | `figure-text-size` | SVG text smaller than 7 pt at its placed width | `// figure-text-size: ignore` |
 
+In package documents, guard mode also records effective paper dimensions, margins
+and text font at each page start and heading. Settings differing from A4,
+2.5 cm on every side, or Libertinus Serif produce a house-style bypass diagnostic
+saying `detected at runtime on page N`, including overrides through aliases that
+have no source finding. Use `// house-style-bypass: ignore-document` in the entry
+file to suppress runtime findings for that document. This marker does not suppress
+source findings; their individual line markers still apply. Markers in strings,
+raw examples or included files do not suppress entry-level runtime findings.
+Older package versions without style metadata only receive the source scan.
+
 Run `typst-guard content` for all checks or `typst-guard <check>` individually.
 Captions follow `fig()` blankness: references, citations, styled visible text,
 images and math count as content. The source scan skips comments, strings and
@@ -374,7 +384,7 @@ package are excluded from findings. Local template functions that set page or
 font count as bypasses, including multi-line `#let` signatures and `=> {`
 closures used by `#let`, `#show`, or imported local templates. Inline markup
 and caption prose remain markup even on lines containing `#` expressions;
-statement introducers (`let`, `set`, `show`, `context`, `import`, `if`, `for`,
+statement introducers (`let`, `set`, `show`, `context`, `import`, `include`, `if`, `for`,
 `while`) retain their code bodies. Suppressions belong
 to individual source calls, even when labels are repeated. The fallback maps
 figures using only compiler-reported dependencies in document order.
@@ -392,8 +402,8 @@ and support suppression on that line or the closing call line. Unrelated
 dictionary keys never supply logo attribution.
 Measurements belong to individual placements, including repeated logo/body assets.
 
-With `@local/devkit-docs:0.1.2` and its document show rule, the guard-only input
-`devkit-guard-measure=true` enables image measurement metadata. It resolves
+With `@local/devkit-docs:0.2.1` and its document show rule, the guard-only input
+`devkit-guard-measure=true` enables image measurement and effective-style metadata. It resolves
 percentages, automatic sizing, grids, columns and figure bodies in their layout
 context. Without that input, the package emits no measurement metadata and
 canonical PDFs remain byte-identical to 0.1.1. Older imports remain available.
@@ -418,7 +428,9 @@ identified as lettering. Unused `<defs>` and hidden text are ignored; local
 `<use>` references are followed, including nested SVG and symbol viewports.
 Zero-size text is ignored. Reference expansion is limited to 32 levels and
 32,768 visited nodes per SVG, including nodes revisited through `<use>`;
-exceeding either limit emits a warning. Matplotlib DOCTYPEs are accepted without
+exceeding either limit emits a warning. CSS selector count multiplied by XML node
+count is capped at 1,000,000 before cascading and across repeated reference visits; exceeding this work budget or
+an unclosed CSS rule emits a warning. Matplotlib DOCTYPEs are accepted without
 allowing entities or external XML references. Raster images are skipped: prefer
 SVG or native plots for charts. Images supplied as bytes (for example
 `image(bytes(read(...)))`) have no inspectable source path and are skipped.
@@ -446,7 +458,7 @@ are tokenized once per source and reused for each ordered call query.
 
 The `docs` shell exposes an immutable registry through its Typst and Tinymist
 wrappers; `DEVKIT_TYPST_PACKAGE_PATH` identifies that registry. Import
-`@local/devkit-docs:0.1.2`. Its own SemVer is independent of devkit releases.
+`@local/devkit-docs:0.2.1`. Its own SemVer is independent of devkit releases.
 Shipped versions remain available after an upgrade, and a content-hash lock
 checks their integrity. See the [version policy and registry layout](../assets/typst/README.md#local-package-versions).
 A package upgrade is explicit: read its changes and update imports together.
@@ -476,7 +488,7 @@ A minimal entry document:
 
 ```typst
 // devkit: entry
-#import "@local/devkit-docs:0.1.2": *
+#import "@local/devkit-docs:0.2.1": *
 #show: devkit-document.with(title: "Example report", authors: ("Example Author",))
 
 = Results

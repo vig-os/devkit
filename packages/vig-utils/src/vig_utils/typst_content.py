@@ -20,91 +20,139 @@ from vig_utils import typst_svg
 from vig_utils.typst_packages import package_environment
 
 MODES = ("figure-caption", "table-header", "house-style-bypass", "figure-text-size")
-CODE_INTRODUCERS = ("let", "set", "show", "context", "import", "if", "for", "while")
+CODE_INTRODUCERS = (
+    "let",
+    "set",
+    "show",
+    "context",
+    "import",
+    "include",
+    "if",
+    "for",
+    "while",
+)
 
 
-def tokens(source, comments=False):
-    """Keep source offsets while skipping nested comments, strings and raw text."""
-    pattern = re.compile(r'//[^\n]*|/\*|"(?:\\.|[^"\\])*"|`+|[\w-]+|[^\s]', re.DOTALL)
-    result, offset = [], 0
-    while match := pattern.search(source, offset):
-        word = match[0]
+class SourceTokens(list):
+    """Tokens and their lexical modes share one structural scan."""
+
+    def __init__(self):
+        super().__init__()
+        self.code, self.pairs, self.comments = [], {}, []
+
+
+class ModeStack:
+    """An open code brace survives newlines; content always starts in markup."""
+
+    def __init__(self, code=False):
+        self.frames = [[None, code, False, None]]
+        self.previous, self.closed_code = None, False
+
+    def newline(self):
+        self.frames[-1][2] = False
+
+    def mode(self, word, start):
+        previous = self.previous
+        adjacent = previous is not None and previous[2] == start
+        code = self.frames[-1][1] or self.frames[-1][2]
+        if previous and previous[0] == "#":
+            code = True
+            if word in CODE_INTRODUCERS:
+                self.frames[-1][2] = True
+        if (
+            previous
+            and previous[3]
+            and adjacent
+            and (word in ("(", ".", "[") or previous[0] == ".")
+        ):
+            code = True
+        if word == "else" and self.closed_code:
+            code = self.frames[-1][2] = True
+        return code
+
+    def advance(self, lex, word, start, end, code):
+        index = len(lex)
+        lex.append((word, start, end))
+        lex.code.append(code)
+        self.closed_code = False
+        if word == "[" or (word in ("(", "{") and code):
+            self.frames.append([word, word != "[", False, index])
+        elif word in (")", "]", "}"):
+            opening = {")": "(", "]": "[", "}": "{"}[word]
+            if self.frames[-1][0] == opening:
+                frame = self.frames.pop()
+                lex.pairs[frame[3]] = index
+                self.closed_code = opening == "{" and frame[1]
+        self.previous = (word, start, end, code)
+
+
+def tokens(source, comments=False, code=False):
+    """Tokenize code and markup together, retaining offsets, modes and pairs."""
+    pattern = re.compile(r"\s+|\\.|//|/\*|`+|[\w-]+|[^\s]", re.DOTALL)
+    comment_pattern = re.compile(r"/\*|\*/")
+    string_pattern = re.compile(r'"(?:\\.|[^"\\])*"', re.DOTALL)
+    url_pattern = re.compile(r"\S*")
+    result, state, offset = SourceTokens(), ModeStack(code), 0
+    while match := pattern.match(source, offset):
+        word, start = match[0], offset
         offset = match.end()
+        if word.isspace():
+            if "\n" in word:
+                state.newline()
+            continue
+        mode = state.mode(word, start)
         if word == "/*":
             depth = 1
-            while depth and (comment := re.compile(r"/\*|\*/").search(source, offset)):
+            while depth and (comment := comment_pattern.search(source, offset)):
                 depth += 1 if comment[0] == "/*" else -1
                 offset = comment.end()
-            if depth:
-                offset = len(source)
+            offset = len(source) if depth else offset
+            if "\n" in source[start:offset]:
+                state.newline()
+            continue
+        if word == "//":
+            if (
+                not mode
+                and start
+                and not source[start - 1].isspace()
+                and source[start - 1] not in "]}"
+            ):
+                url = url_pattern.match(source, offset)
+                offset = url.end()
+                continue
+            end = source.find("\n", offset)
+            offset = len(source) if end < 0 else end
+            comment = (source[start:offset], start, offset)
+            result.comments.append(comment)
+            if comments:
+                result.append(comment)
+                result.code.append(False)
+            continue
+        if word == '"' and mode:
+            string = string_pattern.match(source, start)
+            offset = string.end() if string else len(source)
+            word = source[start:offset]
         elif word.startswith("`"):
             end = source.find(word, offset)
             offset = len(source) if end < 0 else end + len(word)
-        elif not word.startswith("//") or comments:
-            result.append((word, match.start(), match.end()))
+            continue
+        state.advance(result, word, start, offset, mode)
     return result
 
 
 def delimiter_pairs(lex):
-    """Match code delimiters while tolerating literal punctuation in markup."""
-    pairs, stack, counts = {}, [], Counter()
-    for i, (word, _, _) in enumerate(lex):
-        if word in ("(", "[", "{"):
-            stack.append(i)
-            counts[word] += 1
-        elif word in (")", "]", "}") and stack:
-            opening = {")": "(", "]": "[", "}": "{"}[word]
-            if word == ")" and lex[stack[-1]][0] != "(":
-                continue
-            if not counts[opening]:
-                continue
-            while lex[stack[-1]][0] != opening:
-                counts[lex[stack.pop()][0]] -= 1
-            counts[opening] -= 1
-            pairs[stack.pop()] = i
-    return pairs
+    """Return delimiters recorded by the mode-aware tokenizer."""
+    return lex.pairs
 
 
 def code_contexts(lex, pairs, source):
-    """Only statements prolong code; inline calls and content keep their boundaries."""
-    flags, stack = [], []
-    line_code, previous_end = False, 0
-    for i, (word, start, end) in enumerate(lex):
-        if "\n" in source[previous_end:start]:
-            line_code = False
-        previous_end = end
-        # Control-flow statements, like let/set/show, can introduce multiline
-        # bodies with ordinary code calls. A bare inline #expression cannot.
-        if word == "#" and i + 1 < len(lex) and lex[i + 1][0] in CODE_INTRODUCERS:
-            line_code = True
-        code = flags[stack[-1]] if stack else line_code
-        if stack and lex[stack[-1]][0] == "[":
-            code = False
-        # Keep an inline call's arguments in code, without enabling later prose.
-        if (
-            i
-            and flags[i - 1]
-            and lex[i - 1][2] == start
-            and (word in ("(", ".") or lex[i - 1][0] == ".")
-        ):
-            code = True
-        if i and lex[i - 1][0] == "#":
-            code = True
-        if word == "{" and i >= 3 and lex[i - 1][0] == ">" and lex[i - 2][0] == "=":
-            code = flags[i - 3]
-        if word == "{" and i >= 2 and lex[i - 1][0] == "=":
-            code = code or flags[i - 2]
-        flags.append(code)
-        if i in pairs:
-            stack.append(i)
-        while stack and pairs[stack[-1]] == i:
-            stack.pop()
-    return flags
+    """Expose the same modes used for string and comment recognition."""
+    return lex.code
 
 
-def call_spans(source):
+def call_spans(source, lex=None):
     """Find balanced builtin calls, including trailing content arguments."""
-    lex = tokens(source)
+    lex = tokens(source) if lex is None else lex
     pairs = delimiter_pairs(lex)
     code = code_contexts(lex, pairs, source)
     for i, (word, start, _) in enumerate(lex[:-1]):
@@ -118,7 +166,7 @@ def call_spans(source):
             "set",
         ):
             continue
-        if i and lex[i - 1][0] in (".", "set", "let"):
+        if i and lex[i - 1][0] in ("set", "let"):
             continue
         if not code[i]:
             continue
@@ -129,6 +177,10 @@ def call_spans(source):
         if end_index + 1 in pairs and lex[end_index + 1][0] == "[":
             end_index = pairs[end_index + 1]
         end = lex[end_index][2]
+        root = i
+        while root >= 2 and lex[root - 1][0] == ".":
+            root -= 2
+        start = lex[root][1]
         yield (
             word,
             start,
@@ -140,7 +192,7 @@ def call_spans(source):
 
 def sets_font(args):
     """Only the top-level font argument changes the text's font family."""
-    lex, depth = tokens(args), 0
+    lex, depth = tokens(args, code=True), 0
     for i, (word, _, _) in enumerate(lex):
         if word in ("(", "[", "{"):
             depth += 1
@@ -153,11 +205,11 @@ def sets_font(args):
     return False
 
 
-def source_index(source):
+def source_index(source, lex=None):
     """Index line ends and suppression comments once per source."""
     ends = [match.start() for match in re.finditer("\n", source)]
     markers = defaultdict(set)
-    for word, start, _ in tokens(source, comments=True):
+    for word, start, _ in (tokens(source) if lex is None else lex).comments:
         match = re.fullmatch(r"//\s*([\w-]+): ignore\s*", word)
         if match and match[1] in MODES:
             markers[bisect_right(ends, start) + 1].add(match[1])
@@ -166,7 +218,7 @@ def source_index(source):
 
 def image_origin(args, path):
     """Recognize literal strings and path values; retain dynamic source calls."""
-    first = tokens(args)
+    first = tokens(args, code=True)
     index = 2 if len(first) > 2 and first[0][0] == "path" else 0
     if len(first) <= index or not first[index][0].startswith('"'):
         return None, None
@@ -182,7 +234,7 @@ def image_origin(args, path):
 
 def image_edits(source, start, end, args):
     """Resolve strings at the calling file, preserving native image values/bytes."""
-    first = tokens(args)
+    first = tokens(args, code=True)
     if not first:
         return []
     # The first positional argument ends at a top-level comma.
@@ -200,9 +252,9 @@ def image_edits(source, start, end, args):
     return [(offset, prefix), (offset + last, ")")]
 
 
-def template_logos(source):
+def template_logos(source, lex=None):
     """Find direct logo arguments of devkit-document and its with() method."""
-    lex = tokens(source)
+    lex = tokens(source) if lex is None else lex
     pairs = delimiter_pairs(lex)
     code = code_contexts(lex, pairs, source)
     templates = {
@@ -233,9 +285,9 @@ def template_logos(source):
             stack.pop()
 
 
-def logo_calls(source, path, origins, ends, markers):
+def logo_calls(source, path, origins, ends, markers, lex=None):
     """Attribute only the template's own logo argument, including end-line ignores."""
-    for start, end, args in template_logos(source):
+    for start, end, args in template_logos(source, lex):
         line = bisect_right(ends, start) + 1
         raw, canonical = image_origin(args, path)
         if canonical is None:
@@ -253,8 +305,9 @@ def logo_calls(source, path, origins, ends, markers):
 def instrument(source, path, origins):
     """Instrument only active sources, with unique identities per call site."""
     edits = defaultdict(list)
-    ends, markers = source_index(source)
-    for kind, start, end, target, args in call_spans(source):
+    lex = tokens(source)
+    ends, markers = source_index(source, lex)
+    for kind, start, end, target, args in call_spans(source, lex):
         line = bisect_right(ends, start) + 1
         suppressed = markers[line] | markers[bisect_right(ends, end) + 1]
         if kind == "set":
@@ -286,7 +339,7 @@ def instrument(source, path, origins):
         edits[end].append(
             ")]" if existing else ")#label(" + json.dumps(key[1:-1]) + ")]"
         )
-    logo_calls(source, path, origins, ends, markers)
+    logo_calls(source, path, origins, ends, markers, lex)
     return "".join(
         "".join(edits.get(i, ())) + char for i, char in enumerate(source + "\0")
     )[:-1]
@@ -740,6 +793,30 @@ def check_svg(row, measured, report):
     return 0
 
 
+def runtime_bypasses(rows, entry, context, report):
+    """Report effective package styles once per page; only entry comments opt out."""
+    source = context["originals"][str(entry)]
+    if any(
+        re.fullmatch(r"//\s*house-style-bypass: ignore-document\s*", word)
+        for word, _, _ in tokens(source).comments
+    ):
+        return 0
+    pages = defaultdict(set)
+    for row in rows:
+        value = row.get("value")
+        if isinstance(value, dict) and value.get("kind") == "devkit-style":
+            pages[value["page"]].update(value["changed"])
+    failed = 0
+    for page, changed in sorted(pages.items()):
+        if changed:
+            failed |= report(
+                "house-style-bypass",
+                None,
+                f"detected at runtime on page {page}: effective {', '.join(sorted(changed))} differ from house style",
+            )
+    return failed
+
+
 def check_entry(entry, skips, mode, context):
     """Combine semantic checks with source attribution and scoped suppression."""
     rows, origins, bypasses, active, fallback = query_document(entry, context)
@@ -752,6 +829,7 @@ def check_entry(entry, skips, mode, context):
             "bypass",
             "use the house-style parameters instead of direct page/font settings",
         )
+    failed |= runtime_bypasses(rows, entry, context, report)
     measured = query_dimensions(rows)
     figures = iter(origins.get("figure_calls", []))
     labels = {

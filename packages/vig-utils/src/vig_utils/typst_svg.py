@@ -26,15 +26,22 @@ def svg_rules(root):
     rules = []
     for node in root.iter():
         if node.tag.split("}")[-1] == "style":
-            for selectors, declarations in re.findall(
-                r"([^{}]+)\{([^{}]+)\}", node.text or ""
-            ):
+            text = node.text or ""
+            blocks = list(re.finditer(r"([^{}]+)\{([^{}]*)\}", text))
+            if re.sub(r"([^{}]+)\{([^{}]*)\}", "", text).strip():
+                raise ValueError("unresolved SVG CSS block")
+            for block in blocks:
+                selectors, declarations = block.groups()
                 selectors = [selector.strip() for selector in selectors.split(",")]
                 if not all(
                     re.fullmatch(r"\*|[.#]?[\w-]+", selector) for selector in selectors
                 ):
                     raise ValueError("unresolved SVG CSS selector")
                 rules.append((selectors, declarations))
+    # Bound the complete selector/node product before starting the cascade.
+    cost = sum(len(selectors) for selectors, _ in rules) * sum(1 for _ in root.iter())
+    if cost > 1_000_000:
+        raise ValueError("SVG CSS rule work limit exceeded")
     return rules
 
 
@@ -163,6 +170,8 @@ class SvgText:
         self.root, self.rules, self.viewport = root, rules, viewport
         self.ids = {node.get("id"): node for node in root.iter() if node.get("id")}
         self.sizes, self.visited = [], 0
+        self.rule_cost = sum(len(selectors) for selectors, _ in rules)
+        self.css_work = 0
 
     def use(self, node, size, scale, visibility, references, viewport):
         target = node.get("href", node.get("{http://www.w3.org/1999/xlink}href", ""))
@@ -201,6 +210,9 @@ class SvgText:
         tag = node.tag.split("}")[-1]
         if tag == "defs" or (tag == "symbol" and override is None):
             return
+        self.css_work += self.rule_cost
+        if self.css_work > 1_000_000:
+            raise ValueError("SVG CSS rule work limit exceeded")
         style = svg_style(node, self.rules)
         if style.get("display") == "none":
             return

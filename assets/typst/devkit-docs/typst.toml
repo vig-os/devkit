@@ -1,6 +1,6 @@
 [package]
 name = "devkit-docs"
-version = "0.1.2"
+version = "0.2.1"
 entrypoint = "lib.typ"
 compiler = "0.15.0"
 authors = ["devkit contributors"]
