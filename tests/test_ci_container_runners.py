@@ -258,8 +258,12 @@ def test_gated_legacy_key_keeps_its_1_18_runners(
         if line.startswith("::warning::DEVKIT_CI_RUNNER is deprecated")
     )
     assert f"{KEY}=true" in migration
-    assert "gh variable set CI_RUNNER_SMALL --body <label>" in migration
+    # A visible variable is not "unset": the text names only what is missing.
+    unset_hint = "gh variable set CI_RUNNER_SMALL --body <label>"
+    assert (unset_hint in migration) == (not visible)
+    assert ("Unset required class" in migration) == (not visible)
     assert "already overrides" not in migration
+    assert "the key decides nothing" not in migration
     assert "legacy-pool" not in proc.stdout
 
 
@@ -302,7 +306,42 @@ def _is_resolver(job: dict) -> bool:
 def _needs_runtime(job: dict) -> bool:
     if "container" in job:
         return True
+    for step in job.get("steps", []):
+        uses = str(step.get("uses", ""))
+        # A container action (`docker://…`) or a docker/* action drives the
+        # daemon without any `run:` text.
+        if uses.startswith(("docker://", "docker/")):
+            return True
     return bool(_RUNTIME_RE.search(run_text_of_job(job)))
+
+
+@pytest.mark.parametrize(
+    "job",
+    [
+        {"container": {"image": "x"}},
+        {"steps": [{"run": "docker run --rm img true"}]},
+        {"steps": [{"run": "docker compose up -d"}]},
+        {"steps": [{"run": "curl -sSfL x/install.sh | bash"}]},
+        {"steps": [{"uses": "docker://alpine:3"}]},
+        {"steps": [{"uses": "docker/login-action@0123"}]},
+    ],
+    ids=[
+        "container",
+        "docker-run",
+        "compose",
+        "installer",
+        "docker-uses",
+        "docker-action",
+    ],
+)
+def test_runtime_predicate_catches_every_daemon_shape(job: dict) -> None:
+    assert _needs_runtime(job)
+
+
+def test_runtime_predicate_ignores_shell_only_jobs() -> None:
+    assert not _needs_runtime(
+        {"steps": [{"run": "gh pr list"}, {"uses": "actions/checkout@0"}]}
+    )
 
 
 def _callers(workflow: str) -> list[tuple[str, str, dict, dict]]:
@@ -394,7 +433,15 @@ def test_devkit_upgrade_resolves_before_installing() -> None:
             == f"${{{{ vars.CI_RUNNER_{size.upper()} }}}}"
         )
     assert resolve["outputs"]["runners"] == "${{ steps.resolve.outputs.runners }}"
+    # The gate reads the same branch the upgrade rewrites (dev, or main once
+    # the trunk retarget rewrites every `ref: dev` line), never the default
+    # branch's possibly different DEVKIT_MODE.
     upgrade = jobs["upgrade"]
+    base = next(s for s in upgrade["steps"] if s.get("name") == "Checkout base branch")
+    checkout = next(
+        s for s in resolve["steps"] if "actions/checkout" in str(s.get("uses"))
+    )
+    assert checkout["with"]["ref"] == base["with"]["ref"] == "dev"
     assert needs_of(upgrade) == ["resolve-toolchain"]
     assert upgrade["runs-on"] == (
         "${{ fromJSON(needs.resolve-toolchain.outputs.runners).small }}"
