@@ -448,6 +448,8 @@ def test_empty_yaml_register_has_clear_error(project, bound):
     ]
     + [
         ("#text(fill: red)[Prefixmarker]", "Prefixmarker"),
+        ("#text(size: 40pt)[Prefixmarker]", "Prefixmarker"),
+        ("#rect[Hidden] Prefixmarker", "Prefixmarker"),
         ('#link("https://example.com")[Prefixmarker]', "Prefixmarker"),
         ('#raw("Prefixmarker")', "Prefixmarker"),
         ("$alpha$", "α"),
