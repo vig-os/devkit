@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-10-14T20:18:57Z
-updated: 2026-10-14T20:18:57Z
+updated: 2026-11-03T09:28:29Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1892
-comments: 0
+comments: 1
 labels: feature, area:ci, effort:small
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-10-15T07:15:43.324Z
+synced: 2026-11-03T12:24:02.935Z
 ---
 
 # [Issue 1892]: [[FEATURE] Soft main guard: reusable workflow that alerts on commits reaching main without a merged PR](https://github.com/vig-os/devkit/issues/1892)
@@ -42,4 +42,20 @@ Branch protection and rulesets on private repos need GitHub Team. Repos on the F
 ## Impact
 
 New file only; no change to the release train or the scaffold. Consumers opt in by adding the caller snippet.
+
+---
+
+# [Comment #1]() by [gerchowl]()
+
+_Posted on November 3, 2026 at 09:28 AM_
+
+Field data from a consumer implementation: `exoma-ch/ravmatic` (private, Free org, gitflow) carries this tripwire as `.github/workflows/trunk-guard.yml`, built to almost exactly this spec. Notes for the reusable version:
+
+- **gitflow needs `dev` too.** Make `branch` a list (`main,dev`). In gitflow, `dev` is where stray pushes land.
+- **Allow by `sender.type == Bot`, not only `ignore-authors`.** The train pushes as several Apps (commit App, Release App, devkit-upgrade, Renovate). Matching on sender type covers them with no list to maintain. Keep `ignore-authors` for humans.
+- **Flag force-pushes and deletions separately.** `github.event.forced` gives a violation even when every new commit is PR-associated. A `delete` trigger filtered to the protected names catches branch deletion.
+- **The retry matters.** Verified true negative: a UI merge (#3 there) passed via `commits/SHA/pulls` with `merged_at` and `base.ref` matching. Verified true positive: an empty commit pushed with `--no-verify` failed the run and opened the issue with an @-mention of the pusher.
+- Gotcha: `body="$(printf '...:\n\n' ...)"` drops the trailing newlines, so append them after the substitution.
+
+The local half (pre-commit and pre-push gates) is proposed in #1996.
 

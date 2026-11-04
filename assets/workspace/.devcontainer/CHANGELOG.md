@@ -106,10 +106,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Migration affects `docs` module and `overlays.default` consumers, plus anyone formatting with the image's typstyle (0.14.4 → 0.15.2), which can reformat `.typ` files.
   - Rendered output changes: canonical PDF hashes compared against issued documents will drift. Regenerate `generated/` deliberately in its own commit and re-issue documents where the process requires it.
   - Documents relying on Typst 0.14 behaviour may fail to compile; review the breaking changes in the [upstream Typst 0.15 changelog](https://typst.app/docs/changelog/0.15.0/) before migrating.
-  - For stability, pin a devkit release tag and set `DEVKIT_FLAKE_PIN_ADVANCE=false` to hold it: lockstep pins advance with upgrades by default ([#1856](https://github.com/vig-os/devkit/issues/1856)), and `devkit-upgrade` opens adoption PRs on a schedule.
+  - For stability, pin a devkit release tag and set `DEVKIT_FLAKE_PIN_ADVANCE=false` to hold it; `devkit-upgrade` opens adoption PRs on a schedule.
   - Typst tools now move with the weekly nixpkgs-unstable bump; patch releases can change rendered output between devkit releases.
-
-- **Default lockstep pin advancement** ([#1856](https://github.com/vig-os/devkit/issues/1856)): lockstep release pins advance unless `DEVKIT_FLAKE_PIN_ADVANCE=false`.
 
 - **Rewrite the self-hosted CI runner migration guide** ([#1933](https://github.com/vig-os/devkit/issues/1933))
   - `docs/MIGRATION.md`'s "Run CI on self-hosted runners" section now documents the shipped `CI_RUNNER_SMALL`/`LARGE`/`XLARGE` variables, the per-lane `DEVKIT_CI_LANE_SIZES` override, fork safety (including the private-fork remedy) and the full N/N+1/N+2 deprecation timeline, replacing the stale description of the deprecated `DEVKIT_CI_RUNNER`-only mechanism
@@ -137,22 +135,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **Promote releases on plan-limited private repositories** ([#1851](https://github.com/vig-os/devkit/issues/1851))
-  - Stop retrying only rulesets plan-limit HTTP 403 responses and require one approval by default in both promote gates.
-  - Count distinct current-head approvals from each reviewer's latest APPROVED, CHANGES_REQUESTED, or DISMISSED review, ignoring COMMENTED and PENDING and excluding the PR author; keep host retry diagnostics out of API responses.
-  - Add `DEVKIT_RELEASE_REQUIRED_APPROVALS` for the 403 fallback; solo consumers can set 0, while real ruleset requirements retain precedence.
-
 - **Recover promotion after a manually merged release PR** ([#1990](https://github.com/vig-os/devkit/issues/1990))
   - Verify approval and main ancestry, skip the completed merge, and allow recovery from main or dev after branch deletion.
 
 - **Typst formatter documentation** ([#1993](https://github.com/vig-os/devkit/issues/1993))
   - Describe typstyle as the Typst formatter and document the docs module version source and language server.
-
-- **Advance lockstep release pins during upgrades** ([#1856](https://github.com/vig-os/devkit/issues/1856))
-  - The target installer advances release pins matching the pre-upgrade version by default, keeping the scaffold and dev shell aligned even through older upgrade workflows.
-  - Recognize qualified release refs, preserve `refs/tags/`, and report removal of a leading `v` to use published bare tags.
-  - Preserve explicit pin-advance settings; report every retained-pin mismatch, including failed updates and missing Nix, with manual-alignment advice that honors an explicit opt-out.
-  - Migration: affected direnv/both consumers can set `DEVKIT_FLAKE_PIN_ADVANCE=false` to opt out and align pins manually; see [the migration note](docs/MIGRATION.md#lockstep-flake-pins-during-upgrades).
 
 - **Harden GitHub App provisioning callbacks and inputs** ([#1919](https://github.com/vig-os/devkit/issues/1919))
   - Accept callbacks only once, including concurrent requests, and preserve the original result on replay
@@ -269,6 +256,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A Rust flake no longer has to drop or `# deadnix: skip` the manifest
     bindings it reads, which made the first commit touching `flake.nix` fail
     deadnix
+
+## [1.18.2](https://github.com/vig-os/devkit/releases/tag/1.18.2) - 2026-11-03
+
+### Changed
+
+- **Default lockstep pin advancement** ([#1856](https://github.com/vig-os/devkit/issues/1856)): lockstep release pins advance unless `DEVKIT_FLAKE_PIN_ADVANCE=false`.
+
+### Fixed
+
+- **Advance lockstep release pins during upgrades** ([#1856](https://github.com/vig-os/devkit/issues/1856))
+  - The target installer advances release pins matching the pre-upgrade version by default, keeping the scaffold and dev shell aligned even through older upgrade workflows.
+  - Recognize qualified release refs, preserve `refs/tags/`, and report removal of a leading `v` to use published bare tags.
+  - Preserve explicit pin-advance settings; report every retained-pin mismatch, including failed updates and missing Nix, with manual-alignment advice that honors an explicit opt-out.
+  - Migration: affected direnv/both consumers can set `DEVKIT_FLAKE_PIN_ADVANCE=false` to opt out and align pins manually; see [the migration note](docs/MIGRATION.md#lockstep-flake-pins-during-upgrades).
+
+- **Promote releases on plan-limited private repositories** ([#1851](https://github.com/vig-os/devkit/issues/1851))
+  - Stop retrying only rulesets plan-limit HTTP 403 responses and require one approval by default in both promote gates.
+  - Count distinct current-head approvals from each reviewer's latest APPROVED, CHANGES_REQUESTED, or DISMISSED review, ignoring COMMENTED and PENDING and excluding the PR author; keep host retry diagnostics out of API responses.
+  - Add `DEVKIT_RELEASE_REQUIRED_APPROVALS` for the 403 fallback; solo consumers can set 0, while real ruleset requirements retain precedence.
 
 ## [1.18.1](https://github.com/vig-os/devkit/releases/tag/1.18.1) - 2026-11-02
 
