@@ -640,6 +640,14 @@ def test_unknown_font_warns_and_default_cover_is_used(doc, capsys):
     )
     write('#image("chart.svg", width: 50pt, height: 100pt)')
     assert run("figure-text-size") == 0  # Default cover gives 20pt, contain 5pt.
+    assert (
+        check_svg(
+            {"source": "chart.svg", "_placed": {"width": "50pt", "height": "100pt"}},
+            defaultdict(deque),
+            lambda *args, **kwargs: 1,
+        )
+        == 0
+    )
 
 
 def test_only_dependency_sources_are_instrumented(doc, monkeypatch):
