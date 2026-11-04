@@ -551,7 +551,13 @@ repo states, in `.vig-os`:
   the resolver's `runners` output, directly or through a reusable workflow's
   `runners` input. `devkit-upgrade` gained a `resolve-toolchain` job for this,
   because its installer runs `install.sh --docker` in every mode but
-  `direnv`. A static test fails any future job that needs a runtime and
+  `direnv`. That job reads `.vig-os` from the branch the upgrade rewrites
+  (`dev`, or `main` under trunk), not the default branch, and in a
+  container-ish mode it probes the current pin's image like every resolve
+  job, so an unreadable image (registry auth, rate limit) now fails the
+  upgrade at that probe and files the tracking issue. A static test fails
+  any future job that needs a runtime (`container:`, a `docker://` or
+  `docker/*` action, a daemon command or the installer in `run:`) and
   bypasses the output.
 - **Jobs that stay on the direct expression** need no daemon: the
   `resolve-toolchain` jobs (their image probe is `docker login` plus

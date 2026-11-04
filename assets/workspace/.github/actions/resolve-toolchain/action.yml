@@ -386,18 +386,14 @@ runs:
           source=$(jq -r --arg size "$size" '.[$size]' <<< "$SOURCES")
           input_name="RUNNER_${size^^}"
           raw="${!input_name:-}"
-          # A gated variable is visible but places nothing, so it neither
-          # overrides the legacy key nor counts toward a required class.
-          placing=false
+          # A gated variable is visible but places nothing, so it never
+          # overrides the legacy key (and its source is never `variable`).
           if [[ "$raw" == *[![:space:]]* ]]; then
             visible=$((visible + 1))
-            if [[ "$RUNNER_GATE" == false ]]; then
-              placing=true
-              overrides+=("CI_RUNNER_${size^^}")
-            fi
+            [[ "$RUNNER_GATE" == false ]] && overrides+=("CI_RUNNER_${size^^}")
           fi
           if jq -e --arg size "$size" 'index($size) != null' <<< "$required" > /dev/null; then
-            if [[ "$placing" == false ]]; then
+            if [[ "$raw" != *[![:space:]]* ]]; then
               missing+=("CI_RUNNER_${size^^}")
             fi
             case "$source" in
@@ -419,10 +415,15 @@ runs:
           for variable in "${overrides[@]}"; do
             migration+=" $variable already overrides the key; the key no longer decides that class."
           done
+          migration+=" Use repository-level variables on a private GitHub Free repo."
           if [[ "$RUNNER_GATE" == true ]]; then
-            migration+=" In DEVKIT_MODE=$MODE the variables place lanes only with DEVKIT_CI_CONTAINER_RUNNERS=true in .vig-os; set it once those runners can run container jobs."
+            # Under the gate the key still decides every class, set variables
+            # or not, so "delete the key" would move the repo onto hosted.
+            migration+=" In DEVKIT_MODE=$MODE the variables place lanes only with DEVKIT_CI_CONTAINER_RUNNERS=true in .vig-os; until it is set the key still decides every class. Set it once those runners can run container jobs, then delete DEVKIT_CI_RUNNER from .vig-os."
+          else
+            migration+=" Once every required class is set, the key decides nothing; delete DEVKIT_CI_RUNNER from .vig-os."
           fi
-          echo "::warning::$migration Use repository-level variables on a private GitHub Free repo. Once every required class is set, the key decides nothing; delete DEVKIT_CI_RUNNER from .vig-os. See MIGRATION.md#run-ci-on-self-hosted-runners."
+          echo "::warning::$migration See MIGRATION.md#run-ci-on-self-hosted-runners."
         fi
         if [[ -n "${LEGACY_RESOLVE_RUNNER:-}" ]]; then
           echo "::warning::DEVKIT_CI_RESOLVE_RUNNER is deprecated in favour of CI_RUNNER_SMALL."
