@@ -249,10 +249,10 @@
   set page(
     paper: "a4",
     margin: 2.5cm,
+    background: if sys.inputs.at("devkit-guard-measure", default: "false") == "true" {
+      guard-style()
+    } else { none },
     header: context {
-      if sys.inputs.at("devkit-guard-measure", default: "false") == "true" {
-        guard-style()
-      }
       if (
         title != none and (not title-page or counter(page).get().first() != 1)
       ) {
