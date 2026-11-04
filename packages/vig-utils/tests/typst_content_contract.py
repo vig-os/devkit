@@ -665,3 +665,14 @@ def test_only_dependency_sources_are_instrumented(doc, monkeypatch):
     monkeypatch.setattr(typst_content, "instrument", instrument)
     assert run("content") == 0
     assert seen == ["main.typ"]
+
+
+def test_fallback_label_suppression_does_not_cross_entries(doc, capsys):
+    Path("a.typ").write_text(
+        "// devkit: entry\n#figure(rect()) <shared> // figure-caption: ignore\n"
+    )
+    write("#let f = figure(rect())\n#f <shared>")
+    assert run("figure-caption") == 1
+    output = capsys.readouterr().err
+    assert "main.typ:2: figure-caption:" in output
+    assert "a.typ:2: figure-caption:" not in output
