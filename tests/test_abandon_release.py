@@ -186,8 +186,11 @@ def test_replay_unfreeze_is_idempotent(tmp_path):
 def test_trunk_scaffold_omits_dev_restoration():
     from tests.workflow_scaffold import cached_tree
 
-    doc = load_workflow(cached_tree("trunk") / ".github/workflows/abandon-release.yml")
+    path = cached_tree("trunk") / ".github/workflows/abandon-release.yml"
+    doc = load_workflow(path)
     assert "unfreeze" not in jobs(doc)
+    assert path.read_bytes().endswith(b"\n")
+    assert not path.read_bytes().endswith(b"\n\n")
 
 
 @pytest.mark.parametrize("copy", COPIES)
