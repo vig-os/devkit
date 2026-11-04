@@ -182,3 +182,76 @@ jobs:
             exit 1
           fi
           echo "✓ Release $VERSION abandoned: draft Release, tag, PR, and branch are gone"
+
+  unfreeze:
+    name: Restore abandoned changelog on dev
+    needs: [validate, abandon]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout dev branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: dev
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Record checkout SHA
+        id: checkout-state
+        run: |
+          set -euo pipefail
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Set up environment
+        uses: ./.github/actions/setup-env
+        with:
+          sync-dependencies: 'true'
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      # Hotfix trains never froze dev; a missing pending section is a no-op.
+      - name: Restore pending entries to Unreleased
+        id: unfreeze
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          uv run prepare-changelog unfreeze "$VERSION" CHANGELOG.md
+          if ! git diff --quiet -- CHANGELOG.md; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Re-sync workspace mirror
+        if: steps.unfreeze.outputs.changed == 'true'
+        run: uv run python scripts/sync_manifest.py sync assets/workspace/
+
+      - name: Generate Commit App Token
+        if: steps.unfreeze.outputs.changed == 'true'
+        id: commit-app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
+        with:
+          client-id: ${{ secrets.COMMIT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.COMMIT_APP_PRIVATE_KEY }}
+
+      - name: Commit restored CHANGELOG to dev via API
+        if: steps.unfreeze.outputs.changed == 'true'
+        uses: vig-os/commit-action@7ba7e1ae17547813e708d4cc6a771a09f978f724  # v0.3.3
+        env:
+          GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TARGET_BRANCH: refs/heads/dev
+          # Pin the parent/tree to our checkout. A concurrent dev advance makes
+          # commit-action's force:false ref update fail instead of losing entries.
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
+          MAX_ATTEMPTS: "3"
+          COMMIT_MESSAGE: |-
+            chore: unfreeze changelog for abandoned release ${{ needs.validate.outputs.version }}
+
+            Restore pending entries to Unreleased for the next release train.
+          FILE_PATHS: CHANGELOG.md,assets/workspace/.devcontainer/CHANGELOG.md

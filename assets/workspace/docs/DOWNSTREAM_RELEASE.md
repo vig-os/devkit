@@ -214,6 +214,19 @@ This template does **not** implement upstream-only steps (GHCR `:latest`, cosign
 
 To **reject** a finalized-but-unpublished release instead of promoting it, run **`abandon-release.yml`** (or `just abandon-release X.Y.Z`; dispatches on `dev` by default — the release branch is about to be deleted, so it cannot be the dispatch ref; under the trunk model pass the ref explicitly: `just abandon-release X.Y.Z main`). As the Release App (tag-ruleset bypass, the same machinery as promote's RC prune) it deletes the **draft** GitHub Release, deletes the `<DEVKIT_TAG_PREFIX>X.Y.Z` tag, closes the release PR with an audit comment, and deletes `release/X.Y.Z`. The version number remains available for a re-cut; RC artifacts are **not** pruned (a re-cut of the same version reclaims them at its promote). Every step is idempotent, so a partially failed run can simply be re-dispatched.
 
+For a regular gitflow train, abandonment also folds dev's pending
+`## [X.Y.Z] - TBD` changelog entries back into Unreleased, combining categories
+and duplicate entries through `prepare-changelog unfreeze X.Y.Z`. The change
+uses the signed Commit App API path and the devkit-version-pinned host utility
+toolchain in every delivery mode (no project image or flake is required).
+Missing sections (including hotfix trains and completed reruns) are a no-op;
+trunk skips dev restoration. Restoration commits are pinned to the checkout SHA;
+if dev advances concurrently, the non-forced API update fails. Rerun abandonment
+from a fresh checkout. Dated releases are refused. The command preserves LF or
+CRLF line endings and entry spacing. Unsupported prose, comments or headings,
+and bullets outside recognised categories fail without rewriting the changelog:
+correct the reported section layout and rerun abandonment.
+
 This is the explicit, guarded exception to the no-tag-deletion rollback policy above: it is safe **only while the Release is a draft**, and the workflow hard-refuses a published release ([#1511](https://github.com/vig-os/devkit/issues/1511)). Publishing tombstones the tag name permanently — after promote, the only path is fixing forward with the next version.
 
 ## Hotfix lane (gitflow only)

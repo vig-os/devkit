@@ -125,3 +125,167 @@ def test_scaffold_copy_carries_no_devkit_issue_refs_in_comments_to_prs() -> None
     doc = load_workflow(SCAFFOLD_COPY)
     abandon_run = run_text_of_job(jobs(doc)["abandon"])
     assert "(#1504)" not in abandon_run
+
+
+@pytest.mark.parametrize("copy", COPIES)
+def test_unfreeze_uses_commit_app_and_api(copy):
+    doc = load_workflow(COPIES[copy])
+    job = jobs(doc)["unfreeze"]
+    assert "abandon" in needs_of(job)
+    steps = job["steps"]
+    commit = next(s for s in steps if "commit-action@" in s.get("uses", ""))
+    assert commit["env"]["TARGET_BRANCH"] == "refs/heads/dev"
+    assert "COMMIT_APP_CLIENT_ID" in str(steps)
+    assert "unfreeze" in run_text_of_job(job)
+    if copy == "devkit":
+        assert "scripts/sync_manifest.py sync assets/workspace/" in run_text_of_job(job)
+        assert (
+            "assets/workspace/.devcontainer/CHANGELOG.md" in commit["env"]["FILE_PATHS"]
+        )
+
+
+def test_replay_unfreeze_is_idempotent(tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    from tests.workflow_replay import Replay
+
+    replay = Replay(
+        DEVKIT_COPY,
+        "unfreeze",
+        {"needs": {"validate": {"outputs": {"version": "1.2.3"}}}},
+        cwd=tmp_path,
+        base_env={"PATH": os.environ["PATH"], "PYTHON": sys.executable},
+    )
+    # Scheduling and external actions are outside the replay contract.
+    replay.job.pop("timeout-minutes")
+    step = next(s for s in replay.steps if s.get("id") == "unfreeze")
+    # Replay the actual CLI; mirror generation is checked by the shape test.
+    cli = tmp_path / "uv"
+    cli.write_text(
+        '#!/bin/sh\nshift 2\nexec "$PYTHON" -m vig_utils.prepare_changelog "$@"\n'
+    )
+    cli.chmod(0o755)
+    replay.base_env["PATH"] = str(tmp_path) + os.pathsep + os.environ["PATH"]
+    path = tmp_path / "CHANGELOG.md"
+    path.write_text("## Unreleased\n\n## [1.2.3] - TBD\n\n### Fixed\n\n- restored\n")
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "CHANGELOG.md"], check=True)
+    records = replay.run(only=[step["id"]])
+    assert records[0]["outputs"]["changed"] == "true"
+    result = path.read_text()
+    assert "[1.2.3]" not in result
+    assert "- restored" in result
+    subprocess.run(["git", "-C", str(tmp_path), "add", "CHANGELOG.md"], check=True)
+    records = replay.run(only=[step["id"]])
+    assert "changed" not in records[0]["outputs"]
+    assert path.read_text() == result
+
+
+def test_trunk_scaffold_omits_dev_restoration():
+    from tests.workflow_scaffold import cached_tree
+
+    path = cached_tree("trunk") / ".github/workflows/abandon-release.yml"
+    doc = load_workflow(path)
+    assert "unfreeze" not in jobs(doc)
+    assert path.read_bytes().endswith(b"\n")
+    assert not path.read_bytes().endswith(b"\n\n")
+
+
+@pytest.mark.parametrize("copy", COPIES)
+def test_no_pending_change_skips_api_commit(copy):
+    steps = jobs(load_workflow(COPIES[copy]))["unfreeze"]["steps"]
+    for step in steps:
+        if (
+            "commit-action@" in step.get("uses", "")
+            or step.get("id") == "commit-app-token"
+        ):
+            assert step["if"] == "steps.unfreeze.outputs.changed == 'true'"
+
+
+def test_consumer_restoration_uses_pinned_host_utilities():
+    job = jobs(load_workflow(SCAFFOLD_COPY))["unfreeze"]
+    assert "container" not in job
+    setup = step_by_name(job["steps"], "Set up devkit toolchain")
+    assert setup["with"]["mode"] == "bare"
+    assert (
+        setup["with"]["devkit-version"]
+        == "${{ needs.resolve-toolchain.outputs.image-tag }}"
+    )
+
+
+@pytest.mark.parametrize("copy", COPIES)
+def test_replay_checkout_sha_is_the_api_commit_base(tmp_path, copy):
+    import subprocess
+
+    from tests.workflow_replay import Replay
+
+    def git(*args):
+        return subprocess.check_output(
+            ["git", "-C", str(tmp_path), *args], text=True
+        ).strip()
+
+    git("init", "-q")
+    git(
+        "-c",
+        "user.name=Test User",
+        "-c",
+        "user.email=test@example.com",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--allow-empty",
+        "-qm",
+        "checkout",
+    )
+    checkout_sha = git("rev-parse", "HEAD")
+    replay = Replay(COPIES[copy], "unfreeze", {}, cwd=tmp_path)
+    replay.job.pop("timeout-minutes")
+    checkout_index = next(
+        i
+        for i, s in enumerate(replay.steps)
+        if "actions/checkout@" in s.get("uses", "")
+    )
+    capture = replay.steps[checkout_index + 1]
+    assert capture["id"] == "checkout-state"
+    replay.run(only=[capture["id"]])
+    git(
+        "-c",
+        "user.name=Test User",
+        "-c",
+        "user.email=test@example.com",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--allow-empty",
+        "-qm",
+        "concurrent dev update",
+    )
+    assert git("rev-parse", "HEAD") != checkout_sha
+    commit = next(s for s in replay.steps if "commit-action@" in s.get("uses", ""))
+    assert commit["env"]["BASE_SHA"] == "${{ steps.checkout-state.outputs.sha }}"
+    env = replay.resolve_env(commit, context={"steps": replay.step_context})
+    assert env["BASE_SHA"] == checkout_sha
+
+
+@pytest.mark.parametrize("copy", COPIES)
+def test_replay_checkout_sha_failure_stops_restoration(tmp_path, copy):
+    import os
+    import subprocess
+
+    from tests.workflow_replay import Replay
+
+    git = tmp_path / "git"
+    git.write_text("#!/bin/sh\nexit 1\n")
+    git.chmod(0o755)
+    replay = Replay(
+        COPIES[copy],
+        "unfreeze",
+        {},
+        cwd=tmp_path,
+        base_env={"PATH": str(tmp_path) + os.pathsep + os.environ["PATH"]},
+    )
+    replay.job.pop("timeout-minutes")
+    with pytest.raises(subprocess.CalledProcessError):
+        replay.run(only=["checkout-state"])
