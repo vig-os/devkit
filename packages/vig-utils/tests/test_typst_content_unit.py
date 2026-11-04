@@ -205,3 +205,89 @@ def test_unknown_image_cannot_borrow_unrelated_path_suppression():
         }
     ]
     assert image_rows(rows, origins, {"main.typ"})[0].get("label") is None
+
+
+def test_shorthand_em_inherit_and_uppercase_important(tmp_path):
+    from vig_utils.typst_content import svg_text
+
+    path = tmp_path / "font-coverage.svg"
+    cases = [
+        ('<g font-size="20"><text style="font:0.5em sans-serif">x</text></g>', 10),
+        ('<g font-size="20"><text style="font:inherit">x</text></g>', 20),
+        ('<g font-size="20"><text style="font-size:inherit">x</text></g>', 20),
+        (
+            '<style>text {font:5px sans-serif !IMPORTANT}</style><text style="font-size:20px">x</text>',
+            5,
+        ),
+        (
+            '<style>#x {font-size:20px!important}</style><text id="x" style="font:5px sans-serif !IMPORTANT">x</text>',
+            5,
+        ),
+    ]
+    for body, expected in cases:
+        path.write_text(
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">{body}</svg>'
+        )
+        assert svg_text(path)[0] == expected
+
+
+def test_svg_use_work_is_bounded_by_visited_nodes(tmp_path, monkeypatch):
+    import pytest
+    from vig_utils import typst_svg
+
+    path = tmp_path / "many-texts.svg"
+    path.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><defs><g id="plot">'
+        + '<text font-size="10">x</text>' * 10000
+        + "</g></defs>"
+        + '<use href="#plot"/>' * 400
+        + "</svg>"
+    )
+    original = typst_svg.SvgText.visit
+    visited = 0
+
+    def visit(*args, **kwargs):
+        nonlocal visited
+        visited += 1
+        assert visited <= 100000, "SVG walker exceeded the bounded-work canary"
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(typst_svg.SvgText, "visit", visit)
+    with pytest.raises(ValueError, match="limit"):
+        typst_svg.svg_metrics(path)
+
+
+def test_real_code_blocks_remain_instrumented():
+    from vig_utils.typst_content import call_spans
+
+    for source in (
+        "#(figure(rect()))",
+        "#{ figure(rect()) }",
+        "#if true { figure(rect()) }",
+        "#for n in range(1) { figure(rect()) }",
+    ):
+        assert [call[0] for call in call_spans(source)] == ["figure"]
+
+
+def test_dependency_tokens_are_cached_across_call_orders(monkeypatch):
+    from vig_utils import typst_content
+
+    source = '#include "part.typ"\n#figure(image("chart.svg"), caption: [Chart])'
+    origins = {}
+    instrument(source, "main.typ", origins)
+    context = {
+        "origins": origins,
+        "originals": {"main.typ": source, "part.typ": "Hello"},
+    }
+    original = typst_content.tokens
+    seen = []
+
+    def tokenize(text, *args, **kwargs):
+        seen.append(text)
+        return original(text, *args, **kwargs)
+
+    monkeypatch.setattr(typst_content, "tokens", tokenize)
+    for kind in ("figure_calls", "image_order", "call_order"):
+        typst_content.ordered_calls("main.typ", context, {"main.typ", "part.typ"}, kind)
+    assert seen.count(source) == 1
+    assert seen.count("Hello") == 1

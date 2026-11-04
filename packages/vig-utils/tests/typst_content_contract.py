@@ -676,3 +676,84 @@ def test_fallback_label_suppression_does_not_cross_entries(doc, capsys):
     output = capsys.readouterr().err
     assert "main.typ:2: figure-caption:" in output
     assert "a.typ:2: figure-caption:" not in output
+
+
+def test_caption_prose_preserves_grid_measurement(doc, capsys):
+    write(
+        '#grid(columns: (63pt, 1fr), figure(image("chart.svg", width: 100%), caption: [Runs, see table(s) 2-3]), [Cell])',
+        package=True,
+    )
+    assert run("figure-text-size") == 1
+    output = capsys.readouterr().err
+    assert "smallest text is 6.3 pt" in output
+    assert "using plain fallback" not in output
+
+
+@pytest.mark.parametrize(
+    "prose",
+    ["the table(columns: 2) call", "figure(rect())", "never set page(margin: 1cm)"],
+)
+@pytest.mark.parametrize("nested", [False, True])
+def test_inline_markup_does_not_enable_prose_calls(doc, prose, nested):
+    write(f"#emph[{prose}]" if nested else f"#emph[Example] {prose}")
+    assert run("content") == 0
+
+
+@pytest.mark.parametrize("package", [False, True])
+def test_dictionary_logo_cannot_suppress_body_image(doc, capsys, package):
+    write(
+        '#let unrelated = (logo: path("chart.svg")) // figure-text-size: ignore\n#image("chart.svg", width: 20pt)',
+        package=package,
+    )
+    assert run("figure-text-size") == 1
+    assert "smallest text is 2 pt" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "css",
+    [
+        "FONT: 5px sans-serif",
+        "/* label */ font: 5px sans-serif",
+        "font: 5px sans-serif ! important",
+    ],
+)
+@pytest.mark.parametrize("inline", [True, False])
+def test_unsupported_css_font_syntax_warns(doc, capsys, css, inline):
+    body = (
+        f'<text style="{css}">x</text>'
+        if inline
+        else f"<style>text {{{css}}}</style><text>x</text>"
+    )
+    Path("chart.svg").write_text(
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" viewBox="0 0 100 50">{body}</svg>'
+    )
+    write('#image("chart.svg", width: 100pt)')
+    assert run("figure-text-size") == 0
+    output = capsys.readouterr().err
+    assert "warning:" in output
+    assert "cannot measure chart.svg" in output
+
+
+@pytest.mark.parametrize(
+    "mode,source",
+    [
+        ("figure-caption", "#figure(\n rect()\n)"),
+        ("table-header", "#table(\n [Cell]\n)"),
+        ("house-style-bypass", "#set page(\n margin: 1cm\n)"),
+        ("figure-text-size", '#image(\n "chart.svg", width: 20pt\n)'),
+    ],
+)
+def test_closing_line_suppression(doc, mode, source):
+    write(source)
+    assert run(mode) == 1
+    write(source + f" // {mode}: ignore")
+    assert run(mode) == 0
+
+
+def test_bypass_findings_are_scoped_to_each_entry(doc, capsys):
+    Path("a.typ").write_text("// devkit: entry\n#set page(margin: 1cm)\nExample\n")
+    write("Hello")
+    assert run("house-style-bypass") == 1
+    output = capsys.readouterr().err
+    assert output.count("a.typ:2: house-style-bypass:") == 1
+    assert "main.typ:" not in output
