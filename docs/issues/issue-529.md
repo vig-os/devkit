@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-11-03T10:59:28Z
+updated: 2026-11-04T05:29:23Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-11-03T12:24:04.633Z
+synced: 2026-11-04T08:54:33.837Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -66,9 +66,13 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 </details>
 
-<details><summary>.github/workflows/abandon-release.yml (3)</summary>
+<details><summary>.github/workflows/abandon-release.yml (7)</summary>
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
+ - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
+ - `ubuntu 26.04`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
 
@@ -408,10 +412,13 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 </details>
 
-<details><summary>assets/workspace/.github/workflows/abandon-release.yml (2)</summary>
+<details><summary>assets/workspace/.github/workflows/abandon-release.yml (5)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
+ - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
+ - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
+ - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
 
 </details>
 
@@ -576,7 +583,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 <details><summary>pyproject.toml (18)</summary>
 
- - `github-backup ==0.65.1` → [Updates: `==0.66.0`]
+ - `github-backup ==0.65.1` → [Updates: `==0.66.1`]
  - `jinja2 ==3.1.6`
  - `pexpect ==4.9.0`
  - `pytest ==9.1.1` → [Updates: `==9.2.0`]
