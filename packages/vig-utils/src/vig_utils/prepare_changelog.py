@@ -471,11 +471,9 @@ def unfreeze_changelog(version, filepath="CHANGELOG.md"):
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError(f"Invalid semantic version: {version}")
     path = Path(filepath)
-    original = path.read_text(newline="")
-    newline = "\r\n" if "\r\n" in original else "\n"
-    content = original.replace("\r\n", "\n")
+    content = path.read_text(newline="")
     pending = re.search(
-        rf"^## \[{re.escape(version)}\] - TBD[ \t]*$\n?(.*?)(?=^## |\Z)",
+        rf"^## \[{re.escape(version)}\] - TBD[ \t]*\r?$\n?(.*?)(?=^## |\Z)",
         content,
         re.MULTILINE | re.DOTALL,
     )
@@ -487,20 +485,29 @@ def unfreeze_changelog(version, filepath="CHANGELOG.md"):
                 f"Cannot unfreeze released [{version}] section; only '- TBD' is allowed"
             )
         return False
-    primary = _unfreeze_sections(_unreleased_body(content), "Unreleased section")
-    secondary = _unfreeze_sections(pending[1], f"[{version}] section")
+    # Normalize only parsed bodies; keep untouched header/history spans verbatim.
+    primary = _unfreeze_sections(
+        _unreleased_body(content.replace("\r\n", "\n")), "Unreleased section"
+    )
+    secondary = _unfreeze_sections(
+        pending[1].replace("\r\n", "\n"), f"[{version}] section"
+    )
     merged = _merge_entry_blocks(primary, secondary)
     remaining = content[: pending.start()] + content[pending.end() :]
     match = re.search(
-        r"^## Unreleased[ \t]*\n.*?(?=^## |\Z)", remaining, re.MULTILINE | re.DOTALL
+        r"^## Unreleased[ \t]*\r?\n.*?(?=^## |\Z)", remaining, re.MULTILINE | re.DOTALL
     )
+    newline = "\r\n" if match[0].partition("\n")[0].endswith("\r") else "\n"
     body = "## Unreleased\n\n"
     for category in STANDARD_SECTIONS:
         body += f"### {category}\n\n"
         if category in merged:
             body += merged[category] + "\n\n"
     path.write_text(
-        remaining[: match.start()] + body + remaining[match.end() :], newline=newline
+        remaining[: match.start()]
+        + body.replace("\n", newline)
+        + remaining[match.end() :],
+        newline="",
     )
     return True
 
