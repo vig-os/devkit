@@ -298,3 +298,10 @@ def test_dependency_tokens_are_cached_across_call_orders(monkeypatch):
         typst_content.ordered_calls("main.typ", context, {"main.typ", "part.typ"}, kind)
     assert seen.count(source) == 1
     assert seen.count("Hello") == 1
+
+
+def test_qualified_inline_call_arguments_keep_code_but_following_prose_does_not():
+    from vig_utils.typst_content import call_spans
+
+    source = '#helper.identity(figure(image("chart.svg"), caption: [see table(s)])) figure(rect())'
+    assert [call[0] for call in call_spans(source)] == ["figure", "image"]
