@@ -305,3 +305,141 @@ def test_qualified_inline_call_arguments_keep_code_but_following_prose_does_not(
 
     source = '#helper.identity(figure(image("chart.svg"), caption: [see table(s)])) figure(rect())'
     assert [call[0] for call in call_spans(source)] == ["figure", "image"]
+
+
+def test_else_blocks_and_chains_keep_code_across_lines():
+    from vig_utils.typst_content import call_spans
+
+    for source in (
+        "#if false {\n []\n} else {\n table([a])\n}",
+        "#if false {\n []\n} else if false {\n []\n} else {\n table([a])\n}",
+        "#let conf(doc) = if false {\n doc\n} else {\n set page(margin: 1cm)\n doc\n}",
+        "#context {\n table([a])\n}",
+    ):
+        assert [call[0] for call in call_spans(source)] == [
+            "set" if "set page" in source else "table"
+        ]
+
+
+def test_markup_quotes_urls_and_escaped_hash_do_not_hide_code():
+    from vig_utils.typst_content import call_spans
+
+    for prose in (
+        'A 27" monitor.',
+        "https://example.com/#table([fake])",
+        r"\#set page(margin: 1cm)",
+    ):
+        assert [call[0] for call in call_spans(prose + "\n#table([a])")] == ["table"]
+
+
+def test_qualified_builtin_calls_are_instrumented_from_their_root():
+    from vig_utils.typst_content import call_spans
+
+    source = "#std.table([a])\n#std.figure(rect())"
+    calls = list(call_spans(source))
+    assert [call[0] for call in calls] == ["table", "figure"]
+    rewritten = instrument(source, "a.typ", {})
+    assert "#std.[#(" not in rewritten
+    assert rewritten.count("std.") == 2
+
+
+def test_content_is_markup_even_in_statement_and_adjacency_matters():
+    from vig_utils.typst_content import call_spans
+
+    for source in (
+        "#let a = [table([a])]",
+        "#identity (table([a]))",
+        "#context [table([a])]",
+    ):
+        assert list(call_spans(source)) == []
+
+
+def test_logo_direct_form_and_closing_line_suppression():
+    for name in ("devkit-document", "devkit-document.with"):
+        origins = {}
+        instrument(
+            f'#{name}(\n logo: "logo.svg"\n) // figure-text-size: ignore',
+            "a.typ",
+            origins,
+        )
+        assert origins["image_calls"][0]["logo"]
+        assert origins["image_calls"][0]["origin"][2] == {"figure-text-size"}
+
+
+def test_instrument_tokenizes_source_once(monkeypatch):
+    from vig_utils import typst_content
+
+    source = "#figure(rect())"
+    original, seen = typst_content.tokens, []
+
+    def tokenize(text, *args, **kwargs):
+        seen.append(text)
+        return original(text, *args, **kwargs)
+
+    monkeypatch.setattr(typst_content, "tokens", tokenize)
+    instrument(source, "a.typ", {})
+    assert seen.count(source) == 1
+
+
+def test_unclosed_css_rule_warns(tmp_path):
+    import pytest
+    from vig_utils.typst_svg import svg_metrics
+
+    path = tmp_path / "chart.svg"
+    path.write_text(
+        '<svg viewBox="0 0 100 50"><style>text {font-size:5px</style><text>x</text></svg>'
+    )
+    with pytest.raises(ValueError, match="CSS"):
+        svg_metrics(path)
+
+
+def test_css_rule_work_is_bounded(tmp_path, monkeypatch):
+    import pytest
+    from vig_utils import typst_svg
+
+    path = tmp_path / "chart.svg"
+    path.write_text(
+        '<svg viewBox="0 0 100 50"><style>'
+        + "text {font-size:10px}" * 20000
+        + "</style>"
+        + "<text>x</text>" * 30000
+        + "</svg>"
+    )
+    original, calls = typst_svg.svg_style, 0
+
+    def style(*args):
+        nonlocal calls
+        calls += 1
+        assert calls < 100, "CSS work exceeded the bounded-work canary"
+        return original(*args)
+
+    monkeypatch.setattr(typst_svg, "svg_style", style)
+    with pytest.raises(ValueError, match="CSS.*limit"):
+        typst_svg.svg_metrics(path)
+
+
+def test_svg_reference_depth_is_bounded(tmp_path):
+    import pytest
+    from vig_utils.typst_svg import svg_metrics
+
+    path = tmp_path / "depth.svg"
+    definitions = '<text id="a0">x</text>' + "".join(
+        f'<g id="a{i}"><use href="#a{i - 1}"/></g>' for i in range(1, 33)
+    )
+    path.write_text(
+        f'<svg viewBox="0 0 100 50"><defs>{definitions}</defs><use href="#a32"/></svg>'
+    )
+    with pytest.raises(ValueError, match="depth limit"):
+        svg_metrics(path)
+
+
+def test_prose_quote_before_code_string_and_url_fragment():
+    from vig_utils.typst_content import call_spans
+
+    assert [
+        call[0]
+        for call in call_spans('A 27" monitor.\n#set text(font: "New Computer Modern")')
+    ] == ["set"]
+    assert [
+        call[0] for call in call_spans("https://example.com/#fake #table([a])")
+    ] == ["table"]

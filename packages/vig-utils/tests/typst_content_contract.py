@@ -757,3 +757,32 @@ def test_bypass_findings_are_scoped_to_each_entry(doc, capsys):
     output = capsys.readouterr().err
     assert output.count("a.typ:2: house-style-bypass:") == 1
     assert "main.typ:" not in output
+
+
+@pytest.mark.parametrize(
+    "setting",
+    ["page(margin: 1cm)", 'page(paper: "a5")', 'text(font: "New Computer Modern")'],
+)
+@pytest.mark.parametrize("heading", [False, True])
+def test_runtime_bypass_without_source_setting(doc, capsys, setting, heading):
+    # Alias calls deliberately evade the source scan; contextual metadata must
+    # observe the effective style at the page start and at headings.
+    name, args = setting.split("(", 1)
+    source = f"#let apply = {name}\n#show: body => {{ set apply({args}; body }}\n"
+    source += "= Changed\nText" if heading else "Text"
+    write(source, package=True)
+    assert run("house-style-bypass") == 1
+    assert "detected at runtime on page 1" in capsys.readouterr().err
+    Path("main.typ").write_text(
+        "// house-style-bypass: ignore-document\n" + Path("main.typ").read_text()
+    )
+    assert run("house-style-bypass") == 0
+
+
+def test_runtime_bypass_observes_later_page_and_heading(doc, capsys):
+    write(
+        '#let apply = text\nNormal\n#pagebreak()\n#show: body => { set apply(font: "New Computer Modern"); body }\n= Changed\nText',
+        package=True,
+    )
+    assert run("house-style-bypass") == 1
+    assert "detected at runtime on page 2" in capsys.readouterr().err
