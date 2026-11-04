@@ -197,3 +197,55 @@ def test_narrowed_capture_mutant_is_rejected(tmp_path, path, job, name):
     )
     with pytest.raises(AssertionError):
         assert_capture_contract(replay, name)
+
+
+def guard_for(replay, name):
+    commit = next(s for s in replay.steps if s.get("name") == name)
+    guard = replay.steps[replay.steps.index(commit) - 1]
+    assert guard["name"].startswith("Require pinned commit base for ")
+    assert guard["env"]["BASE_SHA"] == commit["env"]["BASE_SHA"]
+    assert guard.get("if") == commit.get("if")
+    return guard
+
+
+@pytest.mark.parametrize("path,job,name", CALLS)
+@pytest.mark.parametrize("sha", ["", "checkout-sha"])
+def test_runtime_commit_base_guard(tmp_path, path, job, name, sha):
+    replay = replay_for(path, job, tmp_path)
+    guard = guard_for(replay, name)
+    capture_id = guard["env"]["BASE_SHA"].split("steps.")[1].split(".outputs")[0]
+    replay.context = {"steps": {capture_id: {"outputs": {"sha": sha}}}}
+    guard.pop("if", None)  # Exercise the run body whenever its commit is eligible.
+    replay.steps.append({"name": "API boundary", "run": "touch api-reached"})
+    if sha:
+        replay.run(only=[guard["name"], "API boundary"])
+        assert (tmp_path / "api-reached").exists()
+    else:
+        with pytest.raises(subprocess.CalledProcessError) as error:
+            replay.run(only=[guard["name"], "API boundary"])
+        assert error.value.returncode == 1
+        assert "::error::" in error.value.stdout
+        assert not (tmp_path / "api-reached").exists()
+
+
+@pytest.mark.parametrize(
+    "prefix", [".github/workflows", "assets/workspace/.github/workflows"]
+)
+def test_sync_issues_future_output_capture_mutant_fails_at_runtime(tmp_path, prefix):
+    replay = replay_for(ROOT / prefix / "sync-issues.yml", "sync", tmp_path)
+    name = "Commit and push changes via API"
+    guard = guard_for(replay, name)
+    capture, _ = capture_for(replay, name)
+    capture["if"] = "steps.sync.outputs.modified-files != ''"
+    replay.run(only=[capture["id"]])
+    assert replay.step_context[capture["id"]]["outcome"] == "skipped"
+    replay.context = {
+        "steps": {
+            **replay.step_context,
+            "sync": {"outputs": {"modified-files": "docs/issues/1.md"}},
+        }
+    }
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        replay.run(only=[guard["name"]])
+    assert error.value.returncode == 1
+    assert "::error::" in error.value.stdout
