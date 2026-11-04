@@ -11,6 +11,8 @@ from vig_utils import typst_guard
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--unrelated-files", type=int, default=30000)
+parser.add_argument("--entries", type=int, default=20)
+parser.add_argument("--figures-per-entry", type=int, default=20)
 args = parser.parse_args()
 
 with tempfile.TemporaryDirectory(prefix="typst-content-benchmark-") as directory:
@@ -19,7 +21,7 @@ with tempfile.TemporaryDirectory(prefix="typst-content-benchmark-") as directory
         '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" '
         'viewBox="0 0 100 50"><text x="1" y="20" font-size="10">Chart</text></svg>'
     )
-    for i in range(20):
+    for i in range(args.entries):
         Path(f"document-{i:02}.typ").write_text(
             "// devkit: entry\n"
             + (
@@ -28,23 +30,26 @@ with tempfile.TemporaryDirectory(prefix="typst-content-benchmark-") as directory
                 + "A medium document paragraph with representative body text.\n"
                 * 10
             )
-            * 20
+            * args.figures_per_entry
         )
     Path("unrelated").mkdir()
     for i in range(args.unrelated_files):
         Path(f"unrelated/file-{i:05}.dat").touch()
-    print(f"Prepared 20 entries and {args.unrelated_files} unrelated files", flush=True)
+    print(
+        f"Prepared {args.entries} entries and {args.unrelated_files} unrelated files",
+        flush=True,
+    )
     start = time.perf_counter()
     code = typst_guard.main(["content"])
     print(
         json.dumps(
             {
-                "entries": 20,
+                "entries": args.entries,
                 "unrelated_files": args.unrelated_files,
-                "figures": 400,
-                "tables": 400,
-                "compiles": 20,
-                "queries": 20,
+                "figures": args.entries * args.figures_per_entry,
+                "tables": args.entries * args.figures_per_entry,
+                "compiles": args.entries,
+                "queries": args.entries,
                 "compiler_jobs": 2,
                 "seconds": round(time.perf_counter() - start, 3),
                 "exit": code,

@@ -110,3 +110,98 @@ def test_svg_entities_remain_forbidden(tmp_path):
     )
     with pytest.raises(ValueError):
         svg_text(path)
+
+
+def test_font_shorthand_cascade_and_unresolved(tmp_path):
+    import pytest
+    from vig_utils.typst_content import svg_text
+
+    path = tmp_path / "fonts.svg"
+    cases = [
+        (
+            "<text style=\"font: italic small-caps 700 5px/1.2 'DejaVu Sans'\">x</text>",
+            5,
+        ),
+        ("<style>text {font: 5px sans-serif}</style><text>x</text>", 5),
+        (
+            '<style>#x {font-size:20px}</style><text id="x" style="font:5px sans-serif">x</text>',
+            5,
+        ),
+        (
+            '<style>text {font:5px sans-serif !important}</style><text style="font-size:20px">x</text>',
+            5,
+        ),
+        (
+            '<style>#x {font-size:20px!important}</style><text id="x" style="font:5px sans-serif!important">x</text>',
+            5,
+        ),
+        ('<text style="font:20px sans-serif;font-size:5px">x</text>', 5),
+        ('<text style="font-size:20px;font:5px sans-serif">x</text>', 5),
+    ]
+    for body, expected in cases:
+        path.write_text(
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">{body}</svg>'
+        )
+        assert svg_text(path)[0] == expected
+    for value in ("caption", "bold var(--size) sans-serif", "medium sans-serif"):
+        path.write_text(
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><text style="font:{value}">x</text></svg>'
+        )
+        with pytest.raises(ValueError, match="font"):
+            svg_text(path)
+
+
+def test_svg_nested_viewports_symbols_and_zero_text(tmp_path):
+    from vig_utils.typst_content import svg_text
+
+    path = tmp_path / "viewports.svg"
+    for body in (
+        '<svg width="50" height="25" viewBox="0 0 100 50"><text font-size="10">x</text></svg>',
+        '<defs><symbol id="plot" viewBox="0 0 100 50"><text font-size="10">x</text></symbol></defs><use href="#plot" width="50" height="25"/>',
+    ):
+        path.write_text(
+            f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">{body}<text font-size="0">invisible</text></svg>'
+        )
+        assert svg_text(path)[0] == 5
+
+
+def test_svg_use_expansion_is_bounded(tmp_path):
+    import pytest
+    from vig_utils.typst_content import svg_text
+
+    path = tmp_path / "use.svg"
+    definitions = '<text id="a0" font-size="10">x</text>' + "".join(
+        f'<g id="a{i}"><use href="#a{i - 1}"/><use href="#a{i - 1}"/></g>'
+        for i in range(1, 15)
+    )
+    path.write_text(
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><defs>{definitions}</defs><use href="#a14"/></svg>'
+    )
+    with pytest.raises(ValueError, match="limit"):
+        svg_text(path)
+
+
+def test_unknown_image_cannot_borrow_unrelated_path_suppression():
+    from vig_utils.typst_content import image_rows
+
+    origins = {
+        "image_calls": [
+            {
+                "id": "<x>",
+                "origin": ("main.typ", 1, {"figure-text-size"}),
+                "raw": None,
+                "path": None,
+            }
+        ]
+    }
+    rows = [
+        {
+            "func": "metadata",
+            "value": {
+                "kind": "devkit-source-image",
+                "element": {"source": 'path("/other/logo.svg")'},
+                "page": {},
+            },
+        }
+    ]
+    assert image_rows(rows, origins, {"main.typ"})[0].get("label") is None

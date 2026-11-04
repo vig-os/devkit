@@ -485,3 +485,175 @@ def test_scale_warning_does_not_hide_another_placement(doc, capsys, first, neste
     assert run("figure-text-size") == 1
     error = capsys.readouterr().err
     assert "warning:" in error and "5 pt" in error
+
+
+@pytest.mark.parametrize("version", ["3.6", "3.8", "3.9", "3.10"])
+def test_matplotlib_font_forms(doc, capsys, version):
+    # Representative text emitted by Matplotlib with svg.fonttype='none'.
+    size = (
+        "font-size: 5px; font-family: 'DejaVu Sans'"
+        if version == "3.10"
+        else "font: 5px 'DejaVu Sans'"
+    )
+    Path("chart.svg").write_text(
+        '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="72pt" height="36pt" viewBox="0 0 100 50"><text style="{size}" x="10" y="20">0.5</text></svg>'
+    )
+    write('#image("chart.svg", width: 69.4pt)')
+    assert run("figure-text-size") == 1
+    assert "3.47 pt" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "#let conf = (\n doc,\n) => {\n set page(margin: 1cm)\n doc\n}\n#show: conf",
+        '#show: (\n doc\n) => {\n set text(font: "Libertinus Serif")\n doc\n}',
+        '#import "closure.typ": conf\n#show: conf',
+    ],
+)
+def test_multiline_closure_bypass(doc, source):
+    Path("closure.typ").write_text(
+        "#let conf = (\n doc,\n) => {\n set page(margin: 1cm)\n doc\n}"
+    )
+    write(source)
+    assert run("house-style-bypass") == 1
+    Path("closure.typ").write_text(
+        Path("closure.typ")
+        .read_text()
+        .replace(
+            "set page(margin: 1cm)",
+            "set page(margin: 1cm) // house-style-bypass: ignore",
+        )
+    )
+    write(
+        source.replace(
+            "set page(margin: 1cm)",
+            "set page(margin: 1cm) // house-style-bypass: ignore",
+        ).replace(
+            'set text(font: "Libertinus Serif")',
+            'set text(font: "Libertinus Serif") // house-style-bypass: ignore',
+        )
+    )
+    assert run("house-style-bypass") == 0
+
+
+def test_fallback_figure_origins_only_active_files_in_document_order(doc, capsys):
+    Path("unused.typ").write_text("#figure(rect()) // figure-caption: ignore")
+    Path("z.typ").write_text("#let z = figure(rect())\n#z <stored.z>")
+    Path("a.typ").write_text(
+        "#let a = figure(rect()) // figure-caption: ignore\n#a <stored.a>"
+    )
+    write('#include "z.typ"\n#include "a.typ"')
+    assert run("figure-caption") == 1
+    output = capsys.readouterr().err
+    assert "z.typ:1: figure-caption:" in output
+    assert "a.typ:1: figure-caption:" not in output
+
+
+@pytest.mark.parametrize("first", [True, False])
+def test_duplicate_labels_have_independent_suppression(doc, capsys, first):
+    calls = [
+        "#figure(rect()) <same> // figure-caption: ignore",
+        "#figure(rect()) <same>",
+    ]
+    write("\n".join(calls if first else reversed(calls)))
+    assert run("figure-caption") == 1
+    output = capsys.readouterr().err
+    assert f"main.typ:{3 if first else 2}: figure-caption:" in output
+    assert output.count("figure requires a non-empty caption") == 1
+
+
+def test_generated_assets_and_variable_source_paths(doc, capsys):
+    Path("generated").mkdir()
+    Path("docs").mkdir()
+    Path("generated/plot.svg").write_text(Path("chart.svg").read_text())
+    Path("docs/chart.svg").write_text(
+        Path("chart.svg").read_text().replace('font-size="10"', 'font-size="5"')
+    )
+    Path("docs/part.typ").write_text('#let p = "chart.svg"\n#image(p, width: 100pt)')
+    write('#image("generated/plot.svg", width: 50pt)\n#include "docs/part.typ"')
+    assert run("figure-text-size") == 1
+    output = capsys.readouterr().err
+    assert "generated/plot.svg: smallest text is 5 pt" in output
+    assert "docs/chart.svg: smallest text is 5 pt" in output
+    assert "cannot measure" not in output
+
+
+@pytest.mark.parametrize("suppress", [False, True])
+def test_logo_origin_and_independent_body_measurement(doc, capsys, suppress):
+    Path("chart.svg").write_text(
+        Path("chart.svg")
+        .read_text()
+        .replace('height="50"', 'height="100"')
+        .replace("0 0 100 50", "0 0 100 100")
+    )
+    marker = " // figure-text-size: ignore" if suppress else ""
+    Path("main.typ").write_text(
+        f'// devkit: entry\n#import "@local/devkit-docs:{VERSION}": *\n'
+        f'#show: devkit-document.with(logo: path("chart.svg")){marker}\n'
+        '#image("chart.svg", width: 100pt)\n'
+    )
+    assert run("figure-text-size") == (0 if suppress else 1)
+    output = capsys.readouterr().err
+    if not suppress:
+        assert "main.typ:3: figure-text-size:" in output
+        assert output.count("minimum is 7 pt") == 1
+    else:
+        assert "minimum is 7 pt" not in output
+
+
+def test_instrumentation_warning_triggers_plain_fallback(doc, monkeypatch, capsys):
+    from vig_utils import typst_content
+
+    write("Hello")
+    original = typst_content.instrument
+    monkeypatch.setattr(
+        typst_content,
+        "instrument",
+        lambda *args: '#text(font: "Nonexistent Guard Font")[X]\n' + original(*args),
+    )
+    assert run("content") == 0
+    assert "using plain fallback" in capsys.readouterr().err
+
+
+def test_unknown_font_warns_and_default_cover_is_used(doc, capsys):
+    Path("chart.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" viewBox="0 0 100 50"><text style="font: caption">x</text></svg>'
+    )
+    # Typst itself cannot decode unknown font shorthand; validate guard warnings
+    # via the same SVG inspection/reporting path independently of the compiler.
+    from collections import defaultdict, deque
+
+    from vig_utils.typst_content import check_svg
+
+    findings = []
+
+    def report(*args, **kwargs):
+        findings.append((args, kwargs))
+        return 0
+
+    check_svg({"source": "chart.svg", "width": "100pt"}, defaultdict(deque), report)
+    assert findings[0][1]["warning"]
+    Path("chart.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" viewBox="0 0 100 50"><text font-size="10">x</text></svg>'
+    )
+    write('#image("chart.svg", width: 50pt, height: 100pt)')
+    assert run("figure-text-size") == 0  # Default cover gives 20pt, contain 5pt.
+
+
+def test_only_dependency_sources_are_instrumented(doc, monkeypatch):
+    from vig_utils import typst_content
+
+    write("Hello")
+    Path("unrelated.typ").write_text("#figure(rect())")
+    original = typst_content.instrument
+    seen = []
+
+    def instrument(source, name, origins):
+        seen.append(name)
+        return original(source, name, origins)
+
+    monkeypatch.setattr(typst_content, "instrument", instrument)
+    assert run("content") == 0
+    assert seen == ["main.typ"]
