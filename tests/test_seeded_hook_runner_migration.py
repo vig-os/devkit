@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from typing import TYPE_CHECKING
 
@@ -303,9 +304,60 @@ def test_migration_docs_and_changelog_match_the_new_contract(
                 0
             ]
         )
-    changelog = migration_changelog.split("## Unreleased", 1)[1].split("\n## ", 1)[0]
-    assert "[#1929]" in changelog.split("### Added", 1)[1].split("\n### ", 1)[0]
-    assert "[#1929]" not in changelog.split("### Fixed", 1)[1].split("\n### ", 1)[0]
+    categories = _current_changelog_categories(migration_changelog)
+    assert "[#1929]" in categories.get("Added", "")
+    assert "[#1929]" not in categories.get("Fixed", "")
+
+
+def _current_changelog_categories(changelog: str) -> dict[str, str]:
+    """Collect categories from Unreleased, pending, and the newest release."""
+    categories: dict[str, str] = {}
+    release_seen = False
+    sections = re.split(r"^## (.+)$", changelog, flags=re.MULTILINE)
+    for heading, body in zip(sections[1::2], sections[2::2], strict=True):
+        is_release = re.match(r"\[\d+\.\d+\.\d+\]", heading) is not None
+        eligible = heading == "Unreleased" or (
+            is_release and (not release_seen or heading.endswith(" - TBD"))
+        )
+        release_seen = release_seen or is_release
+        if not eligible:
+            continue
+        blocks = re.split(r"^### (.+)$", body, flags=re.MULTILINE)
+        for category, text in zip(blocks[1::2], blocks[2::2], strict=True):
+            categories[category] = categories.get(category, "") + text
+    return categories
+
+
+@pytest.mark.parametrize(
+    ("changelog", "added", "fixed"),
+    [
+        (
+            "## Unreleased\n### Fixed\n- [#1929]\n### Added\n- other\n",
+            False,
+            True,
+        ),
+        (
+            "## Unreleased\n### Added\n- other\n"
+            "## [1.19.0] - TBD\n### Changed\n- other\n"
+            "## [1.18.0] - 2026-10-05\n### Added\n- [#1929]\n",
+            False,
+            False,
+        ),
+        (
+            "## Unreleased\n### Added\n- [#1929]\n"
+            "## [1.19.0] - TBD\n### Fixed\n- [#1929]\n",
+            True,
+            True,
+        ),
+    ],
+    ids=["category-order", "exclude-older-release", "fixed-in-another-section"],
+)
+def test_current_changelog_category_boundaries(
+    changelog: str, added: bool, fixed: bool
+) -> None:
+    categories = _current_changelog_categories(changelog)
+    assert ("[#1929]" in categories.get("Added", "")) is added
+    assert ("[#1929]" in categories.get("Fixed", "")) is fixed
 
 
 @pytest.mark.parametrize("small", ["", "   "])
