@@ -293,3 +293,60 @@ def test_migration_docs_and_changelog_match_the_new_contract() -> None:
     )
     assert "[#1929]" in changelog.split("### Added", 1)[1].split("\n### ", 1)[0]
     assert "[#1929]" not in changelog.split("### Fixed", 1)[1].split("\n### ", 1)[0]
+
+
+@pytest.mark.parametrize("small", ["", "   "])
+def test_hosted_only_upgrade_folds_without_pending(tmp_path: Path, small: str) -> None:
+    proc, ws = _upgrade(
+        tmp_path,
+        {HOOKS[0]: _hook(STOCK[-1])},
+        {"DEVKIT_UPGRADE_CONTEXT": "1", "DEVKIT_UPGRADE_CI_RUNNER_SMALL": small},
+    )
+    assert (ws / f".github/workflows/{HOOKS[0]}.yml").read_bytes() == _hook(TARGET)
+    assert "Seeded hook pending:" not in proc.stdout
+
+
+@pytest.mark.parametrize("quote", ["'", '"'])
+def test_quoted_stock_runner_folds(tmp_path: Path, quote: str) -> None:
+    proc, ws = _upgrade(
+        tmp_path, {HOOKS[0]: _hook(f"{quote}ubuntu-26.04{quote}")}, VALID
+    )
+    assert (ws / f".github/workflows/{HOOKS[0]}.yml").read_bytes() == _hook(TARGET)
+    assert "Seeded hook drift:" not in proc.stdout
+
+
+@pytest.mark.parametrize("mixed", [False, True])
+def test_reusable_workflow_jobs_need_no_runner_migration(
+    tmp_path: Path, mixed: bool
+) -> None:
+    original = b"name: Hook\non: workflow_call\njobs:\n  reusable:\n    uses: ./.github/workflows/custom.yml\n"
+    if mixed:
+        original += b"  local:\n    runs-on: ubuntu-26.04\n    steps:\n      - uses: actions/checkout@v4\n"
+    proc, ws = _upgrade(
+        tmp_path,
+        {HOOKS[0]: original},
+        {**VALID, "DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER": "pool-old"},
+    )
+    assert "Seeded hook drift:" not in proc.stdout
+    assert "delete the old variable" in proc.stdout
+    assert (ws / f".github/workflows/{HOOKS[0]}.yml").read_bytes() == original.replace(
+        b"ubuntu-26.04", TARGET.encode()
+    )
+
+
+def test_valid_small_and_custom_runner_message_requests_review(tmp_path: Path) -> None:
+    proc, _ = _upgrade(
+        tmp_path,
+        {HOOKS[0]: _hook("custom-pool")},
+        {**VALID, "DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER": "pool-old"},
+    )
+    assert "Set CI_RUNNER_SMALL" not in proc.stdout
+    assert "custom runner preserved; review" in proc.stdout
+    assert "migrate this workflow job" not in proc.stdout
+    assert "keep DEVKIT_CI_RESOLVE_RUNNER" in proc.stdout
+
+
+def test_retired_precommit_blocks_keep_precise_manual_fold_instruction() -> None:
+    workflow = (WORKSPACE / ".github/workflows/devkit-upgrade.yml").read_text()
+    assert "fold these in by hand" in workflow
+    assert "the upgrade rewrote `.pre-commit-config.yaml`; review the hunk" in workflow
