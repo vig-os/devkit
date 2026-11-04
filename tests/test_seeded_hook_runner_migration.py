@@ -343,10 +343,37 @@ def test_valid_small_and_custom_runner_message_requests_review(tmp_path: Path) -
     assert "Set CI_RUNNER_SMALL" not in proc.stdout
     assert "custom runner preserved; review" in proc.stdout
     assert "migrate this workflow job" not in proc.stdout
-    assert "keep DEVKIT_CI_RESOLVE_RUNNER" in proc.stdout
+    assert (
+        "keep DEVKIT_CI_RESOLVE_RUNNER only while jobs still rely on it" in proc.stdout
+    )
+    assert "until every seeded hook job is reconciled" not in proc.stdout
 
 
 def test_retired_precommit_blocks_keep_precise_manual_fold_instruction() -> None:
     workflow = (WORKSPACE / ".github/workflows/devkit-upgrade.yml").read_text()
     assert "fold these in by hand" in workflow
     assert "the upgrade rewrote `.pre-commit-config.yaml`; review the hunk" in workflow
+
+
+def test_hosted_only_upgrade_with_small_unset(tmp_path: Path) -> None:
+    proc, ws = _upgrade(
+        tmp_path, {HOOKS[0]: _hook(STOCK[-1])}, {"DEVKIT_UPGRADE_CONTEXT": "1"}
+    )
+    assert (ws / f".github/workflows/{HOOKS[0]}.yml").read_bytes() == _hook(TARGET)
+    assert "Seeded hook pending:" not in proc.stdout
+
+
+def test_step_uses_does_not_classify_a_job_without_runs_on(tmp_path: Path) -> None:
+    original = (
+        b"name: Hook\non: workflow_call\njobs:\n  missing-runner:\n"
+        b"    steps:\n      - name: Checkout\n        uses: actions/checkout@v4\n"
+    )
+    proc, ws = _upgrade(
+        tmp_path,
+        {HOOKS[0]: original},
+        {**VALID, "DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER": "pool-old"},
+    )
+    assert "Seeded hook drift: missing-runner" in proc.stdout
+    assert "no job runs-on could be classified" in proc.stdout
+    assert "delete the old variable" not in proc.stdout
+    assert (ws / f".github/workflows/{HOOKS[0]}.yml").read_bytes() == original
