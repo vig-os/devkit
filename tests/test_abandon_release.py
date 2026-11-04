@@ -267,3 +267,25 @@ def test_replay_checkout_sha_is_the_api_commit_base(tmp_path, copy):
     assert commit["env"]["BASE_SHA"] == "${{ steps.checkout-state.outputs.sha }}"
     env = replay.resolve_env(commit, context={"steps": replay.step_context})
     assert env["BASE_SHA"] == checkout_sha
+
+
+@pytest.mark.parametrize("copy", COPIES)
+def test_replay_checkout_sha_failure_stops_restoration(tmp_path, copy):
+    import os
+    import subprocess
+
+    from tests.workflow_replay import Replay
+
+    git = tmp_path / "git"
+    git.write_text("#!/bin/sh\nexit 1\n")
+    git.chmod(0o755)
+    replay = Replay(
+        COPIES[copy],
+        "unfreeze",
+        {},
+        cwd=tmp_path,
+        base_env={"PATH": str(tmp_path) + os.pathsep + os.environ["PATH"]},
+    )
+    replay.job.pop("timeout-minutes")
+    with pytest.raises(subprocess.CalledProcessError):
+        replay.run(only=["checkout-state"])
