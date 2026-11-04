@@ -2199,6 +2199,20 @@ render_workflow_model() {
         sed -i 's|# sync merge and can never be silently dropped.*Keep a Changelog$|# releases land directly on main. Keep a Changelog|' "$pr"
     fi
 
+    # Trunk freezes on the release branch, so abandoning it has no dev
+    # changelog to restore. Remove the job structurally, like other model renders.
+    local abandon="$wf/abandon-release.yml"
+    if [[ -f "$abandon" ]]; then
+        local abandon_render
+        abandon_render=$(mktemp "${abandon}.XXXXXX")
+        awk '
+            /^  unfreeze:$/ { skip = 1; next }
+            /^  [[:alnum:]_-]+:$/ { skip = 0 }
+            !skip { print }
+        ' "$abandon" > "$abandon_render"
+        mv "$abandon_render" "$abandon"
+    fi
+
     # promote-release.yml — no behavioral `dev` literals, but two comments name
     # sync-main-to-dev, which is copy-excluded in trunk (EXCLUDE_ARGS). Drop the
     # parentheticals so a trunk repo carries no prose referencing a workflow it

@@ -7,22 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-### Fixed
-
-- **Clean consumer changelog seed** ([#2025](https://github.com/vig-os/devkit/issues/2025))
-  - Restore the empty workspace changelog skeleton and guard it against devkit release entries.
-  - Document the root changelog, generated mirror and first-deploy seed responsibilities.
-
-- **Upgrade hook runner migration follow-ups** ([#1955](https://github.com/vig-os/devkit/issues/1955))
-  - Fold hosted-only and quoted stock runners, skip reusable-workflow calls,
-    preserve custom runners with review advice, and restore precise retired-hook instructions.
-  - Clarify runner precedence and foreign-run tombstones in migration documentation.
-
-- **Typst docs guard reconciliation** ([#2011](https://github.com/vig-os/devkit/issues/2011))
-  - Namespace document recipes under `devkit-docs::`, skip conflicting consumer names,
-    leave docs-OFF consumer exclusions untouched, and correct preview ownership reports,
-    and retain configs with recovery advice after missing managed state or interrupted writes.
-
 ### Added
 
 - **Typst plots, glossary and slides** ([#1994](https://github.com/vig-os/devkit/issues/1994))
@@ -34,7 +18,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Bound footer extraction and measurement to 400 graphemes, retain apostrophes, and separate cases and vertical spacing.
   - Synthesize readable script glyphs and provide bookmark-safe bound glossary terms with actionable setup errors and non-empty register validation.
   - Add a branded 16:9 slide layout with title, section and content slides, booktabs, captions and revision footers; retain older package imports.
-
 - **Opt-in Typst content guards** ([#1994](https://github.com/vig-os/devkit/issues/1994))
   - Check figure captions, table headers, house-style overrides and SVG text below 7 pt at its placed size, with skip globs and source-line suppression.
   - Retain prior house-style imports and add 0.2.1 guard-only layout measurements without changing normal PDF output.
@@ -44,7 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Preserve prose and caption markup around inline expressions so content checks retain layout measurements; scope logo attribution to template parameters, warn on unsupported CSS font syntax, cap SVG traversal by visited nodes, and cache dependency-edge tokenization.
   - Track code and markup structurally across else bodies, prose quotes, URLs and escaped hashes; inspect qualified calls once per source. Add runtime page/font bypass checks with document suppression and bounded CSS work.
   - Keep defusedxml in the shared vig-utils runtime, including non-docs consumers, to guarantee the same hardened XML parser in dynamically enabled docs hooks and recipes without a second Python environment. Guard activation remains docs-only.
-
 - **Offline Typst house-style package** ([#1994](https://github.com/vig-os/devkit/issues/1994))
   - Add the versioned, neutral devkit-docs package with document layout, booktabs tables, captions, callouts, revisions, and document references.
   - Share its immutable package registry across docs shells and hooks; vendor licensed diagram dependencies and verify real offline builds.
@@ -53,7 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Preserve dependency paths after failed or terminated compiles, forward SIGHUP, and follow symlinked dependency outputs without replacing the link.
   - Stabilize every dependency output format and flag spelling, forward compiler signals, verify vendored hashes and retained releases, and scope nested table opt-outs.
   - Give the package independent SemVer, preserve built-in names, add short titles, and share font isolation and consumer registries across document tools.
-
 - **Advisory glossary candidate discovery** ([#1994](https://github.com/vig-os/devkit/issues/1994))
   - Add JSON-line candidate reports and a just recipe for terminology review, with measured precision fixtures.
   - Reject dead rules, protect registered words across simple inline markup and partial overlaps, deduplicate overlapping hits, and clarify source diagnostics.
@@ -62,12 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Preserve code and markup word boundaries; protect exact, sentence-case and title-case names, and bound emphasis scanning.
   - Give explicit casing corrections precedence over derived sentence/title-case protection across the register.
   - Retain joined conjunction names alongside split candidates, honor allow overrides, and filter common sentence-start connectives.
-
 - **Opt-in terminology register checks** ([#1994](https://github.com/vig-os/devkit/issues/1994))
   - Validate glossary YAML and reject forbidden names and unknown part numbers in document sources.
   - Preserve registered names and casing corrections, scan tracked prose across whitespace, and reject ambiguous registers.
   - Include jsonschema and its runtime dependencies in all images/toolchains via vig-utils, sharing the editor and hook schema validator; docs hooks remain opt-in.
-
 - **Opt-in Typst guards and reproducible builds** ([#1994](https://github.com/vig-os/devkit/issues/1994))
   - Enable module-gated formatting, warning-free compilation, package pins, and generated-PDF guards, with reversible scaffold reconciliation.
   - Add stamped/canonical just recipes, dependency lists, toolchain probing, and built-in-font deterministic builds.
@@ -75,14 +54,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Support explicit project branding fonts, flexible entry markers, resolved tool identities, and case-insensitive generated-PDF guards.
   - Preserve four-space indentation and file inodes; isolate managed docs recipe imports, report preview changes, and give safe edit-recovery advice.
   - Share preserved-hook reconciliation primitives, retain consumer recipe files and managed-block edits, and restore exclusions by repository/hook identity.
-
 - **Release N runner migration matrix** ([#1935](https://github.com/vig-os/devkit/issues/1935))
   - Gate key-only, variables-only, and gitflow adoption with dev ahead of main; verify managed workflow runner wiring, fork isolation, and the full migration warning through isolated pre-N workflow steps and the installer.
-
 - **Safe CI runner migration during devkit upgrades** ([#1929](https://github.com/vig-os/devkit/issues/1929))
   - Remove the legacy runner key only when visible variables cover every required class; preserve local and older-workflow installs with actionable migration text.
   - Reconcile stock seeded release-hook runner lines and report customised content for review.
-
 - **Site leak-check hook** ([#1932](https://github.com/vig-os/devkit/issues/1932))
   - Enable private gitleaks rules for staged and working-tree scans, with silent
     success when no site patterns exist and redacted finding diagnostics.
@@ -94,118 +70,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     and report filesystem failures with paths and OS reasons without file contents.
   - Scan symlink link text without reading targets and finish snapshot cleanup
     despite repeated termination signals.
-
 - **Env-only endpoint lint** ([#1931](https://github.com/vig-os/devkit/issues/1931))
   - Enable the ADR §10 endpoint and credential assignment checks by default in
     devkit and consumer hooks.
-
 - **Per-lane CI runner size overrides** ([#1927](https://github.com/vig-os/devkit/issues/1927))
   - Add `DEVKIT_CI_LANE_SIZES` for project lanes opting into LARGE or XLARGE;
     validate entries and duplicate lanes in CI and at scaffold time, and preserve
     overrides across forced upgrades. Every lane defaults to SMALL.
-
 - **Actionable CI runner diagnostics** ([#1926](https://github.com/vig-os/devkit/issues/1926))
   - Warn about legacy runner settings, whitespace-only variables and missing opted-in classes; report private-repository configuration gaps and class sources without printing labels
-
 - **GitHub App organization secrets and Nix entry point** ([#1915](https://github.com/vig-os/devkit/issues/1915))
   - Store App credentials as organization secrets with selected-repository visibility using `--org-secret --repos`
   - Run provisioning through `nix run .#app-provision` and document masked App tokens appended to existing Nix configuration
   - Show a terminal-state page for callbacks after a rejected or failed provisioning attempt
-
 - **Fork-safe CI runner classes** ([#1925](https://github.com/vig-os/devkit/issues/1925))
   - Resolve independent runner variables and route CI lanes through validated class outputs.
-
 - **Per-clone site bindings and initializer hook** ([#1930](https://github.com/vig-os/devkit/issues/1930))
   - Validate site configuration and initialize bindings from PATH or an unbound template.
   - Discover only external initializers, validate supported location forms, and accept gitleaks pattern definitions separately from site bindings.
   - Anchor site operations to the git worktree, reject unsafe locations and reserved names, inspect recursive writes, and share self-contained pattern validation with the leak checker.
-
 - **GitHub App provisioning CLI** ([#1909](https://github.com/vig-os/devkit/issues/1909))
   - Add `gh-app-provision` to create an App through GitHub’s manifest flow and store repository secrets, with a network-free `--dry-run`, reverse-proxy `--base-url`, exclusive private-key `--pem-out`, and `--no-secrets`
   - Add the [GitHub App provisioning guide](docs/GITHUB_APP_PROVISIONING.md), linked from `docs/WORKFLOW_SECURITY.md`, and the `/devkit:app-provision` agent skill
-
 - **Release train honours `DEVKIT_CI_RUNNER`** ([#1863](https://github.com/vig-os/devkit/issues/1863))
   - `prepare-release`, `prepare-hotfix`, `release`, `release-core`, `release-publish`, `promote-release`, `abandon-release` and `sync-main-to-dev` route their jobs through resolve-toolchain's `runner-json`, defaulting to hosted `ubuntu-26.04`
   - The seeded extension hooks (`prepare-release-extension`, `release-extension`, `publish-release-extension`) run on `DEVKIT_CI_RESOLVE_RUNNER`; callers pass them no new input, so existing consumer-owned copies keep working unchanged
-
-### Changed
-
-- **Unstable Typst toolchain** ([#1993](https://github.com/vig-os/devkit/issues/1993))
-  - Take typst 0.15.1, typstyle 0.15.2, and tinymist 0.15.10 from the locked nixpkgs-unstable input via fastMovers; add tinymist diagnostics and preview to the docs module.
-  - Migration affects `docs` module and `overlays.default` consumers, plus anyone formatting with the image's typstyle (0.14.4 → 0.15.2), which can reformat `.typ` files.
-  - Rendered output changes: canonical PDF hashes compared against issued documents will drift. Regenerate `generated/` deliberately in its own commit and re-issue documents where the process requires it.
-  - Documents relying on Typst 0.14 behaviour may fail to compile; review the breaking changes in the [upstream Typst 0.15 changelog](https://typst.app/docs/changelog/0.15.0/) before migrating.
-  - For stability, pin a devkit release tag and set `DEVKIT_FLAKE_PIN_ADVANCE=false` to hold it; `devkit-upgrade` opens adoption PRs on a schedule.
-  - Typst tools now move with the weekly nixpkgs-unstable bump; patch releases can change rendered output between devkit releases.
-
-- **Rewrite the self-hosted CI runner migration guide** ([#1933](https://github.com/vig-os/devkit/issues/1933))
-  - `docs/MIGRATION.md`'s "Run CI on self-hosted runners" section now documents the shipped `CI_RUNNER_SMALL`/`LARGE`/`XLARGE` variables, the per-lane `DEVKIT_CI_LANE_SIZES` override, fork safety (including the private-fork remedy) and the full N/N+1/N+2 deprecation timeline, replacing the stale description of the deprecated `DEVKIT_CI_RUNNER`-only mechanism
-  - Add "CI never starts on a private repo" and whitespace-only `CI_RUNNER_SMALL` symptom entries, and scrub the site-specific example label from the section and the manifest key table
-
-- **Fork-safe runners across scaffolded workflows** ([#1928](https://github.com/vig-os/devkit/issues/1928))
-  - Route release, sync, upgrade and new seeded hook jobs through runner variables
-    with fork protection; managed release reusables consume runner classes and lanes.
-
-### Deprecated
-
-- **Legacy CI runner settings** ([#1934](https://github.com/vig-os/devkit/issues/1934))
-  - The `.vig-os` `DEVKIT_CI_RUNNER` key and `DEVKIT_CI_RESOLVE_RUNNER` variable
-    remain supported in releases N and N+1 with per-run warnings; migrate to
-    `CI_RUNNER_SMALL`/`LARGE`/`XLARGE`.
-  - At N+2, the key stops selecting runners and the resolver's `runner-json` output is removed.
-    A key still needed by any required class produces `::error::`; an inert key or a
-    foreign run only warns. The `DEVKIT_CI_RESOLVE_RUNNER` term stays permanently
-    before the hosted default in resolve jobs: on non-foreign runs it produces
-    `::error::` when set without `CI_RUNNER_SMALL`, and only warns when SMALL is set.
-  - See the [deprecation timeline](https://github.com/vig-os/devkit/blob/dev/docs/MIGRATION.md#deprecation-timeline) and
-    [seeded hook migration](https://github.com/vig-os/devkit/blob/dev/docs/MIGRATION.md#seeded-hook-runner-migration).
-
-### Removed
-
-### Fixed
-
-- **Recover promotion after a manually merged release PR** ([#1990](https://github.com/vig-os/devkit/issues/1990))
-  - Verify approval and main ancestry, skip the completed merge, and allow recovery from main or dev after branch deletion.
-
-- **Typst formatter documentation** ([#1993](https://github.com/vig-os/devkit/issues/1993))
-  - Describe typstyle as the Typst formatter and document the docs module version source and language server.
-
-- **Harden GitHub App provisioning callbacks and inputs** ([#1919](https://github.com/vig-os/devkit/issues/1919))
-  - Accept callbacks only once, including concurrent requests, and preserve the original result on replay
-  - Validate reverse-proxy URLs and reject combining `--host` with `--base-url`; cover exchange timeout and malformed JSON errors without exposing secrets
-  - Check the chosen secret prefix before the provisioning skill creates another App
-
-- **Preserve runner Nix configuration in the toolchain action** ([#1907](https://github.com/vig-os/devkit/issues/1907))
-  - With preinstalled host Nix in direnv mode, preserve valid ambient `NIX_CONFIG`, including runner caches and CPU limits, and add devkit's features and cache settings; `extra-experimental-features` extends the host `nix.conf` feature list instead of replacing it
-  - Mask ambient access tokens and URL values containing userinfo or queries before export so later step environment headers do not expose credentials
-  - Validate with the command supported by host Nix (including `show-config` before Nix 2.20); fail explicitly if neither command is available. Drop malformed ambient configuration with a warning that redacts diagnostic values; keep the exported configuration valid and the environment delimiter collision-safe
-
-- **Managed security and commit documentation follows the consumer manifest** ([#1910](https://github.com/vig-os/devkit/issues/1910))
-  - Disabling `scanning` removes CodeQL and Scorecard claims and accepted findings from `SECURITY.md`; disabling `renovate` removes its monitoring claim
-  - The commit standard describes the resolved Refs policy, including custom exempt types; re-scaffolding remains drift-free without local edits or disabling Scaffold Drift
-  - Known gaps tracked separately: `SECURITY.md` dependency-review claim for private repos ([#1913](https://github.com/vig-os/devkit/issues/1913)); approved-types table for custom `DEVKIT_COMMIT_TYPES` ([#1914](https://github.com/vig-os/devkit/issues/1914))
-
-- **install.sh and devkit-upgrade no longer need Docker in direnv mode** ([#1871](https://github.com/vig-os/devkit/issues/1871))
-  - With `DEVKIT_MODE=direnv` (persisted, or `--mode direnv`), `install.sh` skips container-runtime detection and runs `init-workspace.sh` on the host from the pinned devkit flake source (`nix flake metadata` -> `assets/`, image bake steps replayed), so scaffold and `--force` upgrade need only nix, jq and rsync; the version defaults to the `.vig-os` `DEVKIT_VERSION` pin (upgrade) or the newest `X.Y.Z` release tag (fresh install), and the scaffold runs inside the release's own dev-shell with a clean environment so macOS hosts (BSD sed, bash 3.2) work; `--docker`/`--podman` are ignored with a warning
-  - `devkit-upgrade.yml` and the direnv smoke lane (which now installs Nix before the scaffold) drop `--docker` for direnv repos; devcontainer, both and bare modes keep the image path unchanged
-  - A repo's upgrade picks this up once its target release ships the new `install.sh` (the installer comes from the target tag)
-
-- **Scaffold Drift no longer needs Docker in direnv mode** ([#1861](https://github.com/vig-os/devkit/issues/1861))
-  - With `DEVKIT_MODE=direnv`, ci.yml's `scaffold-drift` job runs the pinned scaffold from the devkit flake source via nix in a scratch clone under `RUNNER_TEMP` (removed afterwards) instead of `docker login/pull/run`; devcontainer, both and bare modes keep the container path
-  - `rsync` joins the dev-shell tools, which the host-side scaffold needs
-  - Still container-dependent in direnv mode: `devkit-upgrade.yml` (runs `install.sh --docker`; not changed here)
-
-- **resolve-toolchain sparse checkout no longer poisons a persistent runner's workspace** ([#1860](https://github.com/vig-os/devkit/issues/1860))
-  - The sparse `actions/checkout` in every managed `resolve-toolchain` job now uses `path: .devkit-resolve`, so later jobs sharing `_work/<repo>/<repo>` get a fully materialized tree
-  - `resolve-toolchain` action gains a `working-directory` input (default `.`); `ci.yml` gate steps run from the new path
-  - Existing root clones that already carry skip-worktree state from older runs are not healed by this change; persistent-runner operators may need to clear them once
-
-### Security
-
-## [1.19.0] - TBD
-
-### Added
-
 - **Rust cold adoption: a Cargo repo gets a working Rust setup from the scaffold**
   ([#1496](https://github.com/vig-os/devkit/issues/1496))
   - The first scaffold of a repo with a `Cargo.toml` seeds a cargo
@@ -228,7 +117,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The consumer matrix's `rust` cell now passes, and a new `rust-flake` cell
     runs the whole direnv path (`nix flake check`, hooks, `just lint`/`just
     test` in the flake's shell) on every PR
-
 - **`mkRustProject` `sandboxExcludes` for tests the Nix sandbox cannot run**
   ([#1834](https://github.com/vig-os/devkit/issues/1834))
   - A list of nextest filterset expressions (e.g. `[ "test(pty_)" "binary(supervisor)" ]`)
@@ -240,6 +128,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Unstable Typst toolchain** ([#1993](https://github.com/vig-os/devkit/issues/1993))
+  - Take typst 0.15.1, typstyle 0.15.2, and tinymist 0.15.10 from the locked nixpkgs-unstable input via fastMovers; add tinymist diagnostics and preview to the docs module.
+  - Migration affects `docs` module and `overlays.default` consumers, plus anyone formatting with the image's typstyle (0.14.4 → 0.15.2), which can reformat `.typ` files.
+  - Rendered output changes: canonical PDF hashes compared against issued documents will drift. Regenerate `generated/` deliberately in its own commit and re-issue documents where the process requires it.
+  - Documents relying on Typst 0.14 behaviour may fail to compile; review the breaking changes in the [upstream Typst 0.15 changelog](https://typst.app/docs/changelog/0.15.0/) before migrating.
+  - For stability, pin a devkit release tag and set `DEVKIT_FLAKE_PIN_ADVANCE=false` to hold it; `devkit-upgrade` opens adoption PRs on a schedule.
+  - Typst tools now move with the weekly nixpkgs-unstable bump; patch releases can change rendered output between devkit releases.
+- **Rewrite the self-hosted CI runner migration guide** ([#1933](https://github.com/vig-os/devkit/issues/1933))
+  - `docs/MIGRATION.md`'s "Run CI on self-hosted runners" section now documents the shipped `CI_RUNNER_SMALL`/`LARGE`/`XLARGE` variables, the per-lane `DEVKIT_CI_LANE_SIZES` override, fork safety (including the private-fork remedy) and the full N/N+1/N+2 deprecation timeline, replacing the stale description of the deprecated `DEVKIT_CI_RUNNER`-only mechanism
+  - Add "CI never starts on a private repo" and whitespace-only `CI_RUNNER_SMALL` symptom entries, and scrub the site-specific example label from the section and the manifest key table
+- **Fork-safe runners across scaffolded workflows** ([#1928](https://github.com/vig-os/devkit/issues/1928))
+  - Route release, sync, upgrade and new seeded hook jobs through runner variables
+    with fork protection; managed release reusables consume runner classes and lanes.
 - **Documented, tested stanza for flakes that consume a devkit project's packages**
   ([#1832](https://github.com/vig-os/devkit/issues/1832))
   - New `docs/MIGRATION.md` section "Projects that ship packages to other
@@ -251,7 +152,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     devkit adds an input the stanza does not cover or starts reading one it
     drops. The scaffolded `flake.nix` keeps following devkit's nixpkgs, and
     points at the section
-
 - **Rust adopters are pointed at the Rust pack, not a bare compiler**
   ([#1831](https://github.com/vig-os/devkit/issues/1831))
   - `docs/MIGRATION.md` no longer calls `rust` an unshipped candidate module or
@@ -263,8 +163,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     that does not use `mkRustProject`, or a `justfile.project` that never runs
     cargo, naming the doc section that fixes it
 
+### Deprecated
+
+- **Legacy CI runner settings** ([#1934](https://github.com/vig-os/devkit/issues/1934))
+  - The `.vig-os` `DEVKIT_CI_RUNNER` key and `DEVKIT_CI_RESOLVE_RUNNER` variable
+    remain supported in releases N and N+1 with per-run warnings; migrate to
+    `CI_RUNNER_SMALL`/`LARGE`/`XLARGE`.
+  - At N+2, the key stops selecting runners and the resolver's `runner-json` output is removed.
+    A key still needed by any required class produces `::error::`; an inert key or a
+    foreign run only warns. The `DEVKIT_CI_RESOLVE_RUNNER` term stays permanently
+    before the hosted default in resolve jobs: on non-foreign runs it produces
+    `::error::` when set without `CI_RUNNER_SMALL`, and only warns when SMALL is set.
+  - See the [deprecation timeline](https://github.com/vig-os/devkit/blob/dev/docs/MIGRATION.md#deprecation-timeline) and
+    [seeded hook migration](https://github.com/vig-os/devkit/blob/dev/docs/MIGRATION.md#seeded-hook-runner-migration).
+
+### Removed
+
 ### Fixed
 
+- **Restore abandoned release changelogs** ([#2003](https://github.com/vig-os/devkit/issues/2003))
+  - Fold pending release entries back into Unreleased when abandoning a regular release train.
+
+- **Clean consumer changelog seed** ([#2025](https://github.com/vig-os/devkit/issues/2025))
+  - Restore the empty workspace changelog skeleton and guard it against devkit release entries.
+  - Document the root changelog, generated mirror and first-deploy seed responsibilities.
+- **Upgrade hook runner migration follow-ups** ([#1955](https://github.com/vig-os/devkit/issues/1955))
+  - Fold hosted-only and quoted stock runners, skip reusable-workflow calls,
+    preserve custom runners with review advice, and restore precise retired-hook instructions.
+  - Clarify runner precedence and foreign-run tombstones in migration documentation.
+- **Typst docs guard reconciliation** ([#2011](https://github.com/vig-os/devkit/issues/2011))
+  - Namespace document recipes under `devkit-docs::`, skip conflicting consumer names,
+    leave docs-OFF consumer exclusions untouched, and correct preview ownership reports,
+    and retain configs with recovery advice after missing managed state or interrupted writes.
+- **Recover promotion after a manually merged release PR** ([#1990](https://github.com/vig-os/devkit/issues/1990))
+  - Verify approval and main ancestry, skip the completed merge, and allow recovery from main or dev after branch deletion.
+- **Typst formatter documentation** ([#1993](https://github.com/vig-os/devkit/issues/1993))
+  - Describe typstyle as the Typst formatter and document the docs module version source and language server.
+- **Harden GitHub App provisioning callbacks and inputs** ([#1919](https://github.com/vig-os/devkit/issues/1919))
+  - Accept callbacks only once, including concurrent requests, and preserve the original result on replay
+  - Validate reverse-proxy URLs and reject combining `--host` with `--base-url`; cover exchange timeout and malformed JSON errors without exposing secrets
+  - Check the chosen secret prefix before the provisioning skill creates another App
+- **Preserve runner Nix configuration in the toolchain action** ([#1907](https://github.com/vig-os/devkit/issues/1907))
+  - With preinstalled host Nix in direnv mode, preserve valid ambient `NIX_CONFIG`, including runner caches and CPU limits, and add devkit's features and cache settings; `extra-experimental-features` extends the host `nix.conf` feature list instead of replacing it
+  - Mask ambient access tokens and URL values containing userinfo or queries before export so later step environment headers do not expose credentials
+  - Validate with the command supported by host Nix (including `show-config` before Nix 2.20); fail explicitly if neither command is available. Drop malformed ambient configuration with a warning that redacts diagnostic values; keep the exported configuration valid and the environment delimiter collision-safe
+- **Managed security and commit documentation follows the consumer manifest** ([#1910](https://github.com/vig-os/devkit/issues/1910))
+  - Disabling `scanning` removes CodeQL and Scorecard claims and accepted findings from `SECURITY.md`; disabling `renovate` removes its monitoring claim
+  - The commit standard describes the resolved Refs policy, including custom exempt types; re-scaffolding remains drift-free without local edits or disabling Scaffold Drift
+  - Known gaps tracked separately: `SECURITY.md` dependency-review claim for private repos ([#1913](https://github.com/vig-os/devkit/issues/1913)); approved-types table for custom `DEVKIT_COMMIT_TYPES` ([#1914](https://github.com/vig-os/devkit/issues/1914))
+- **install.sh and devkit-upgrade no longer need Docker in direnv mode** ([#1871](https://github.com/vig-os/devkit/issues/1871))
+  - With `DEVKIT_MODE=direnv` (persisted, or `--mode direnv`), `install.sh` skips container-runtime detection and runs `init-workspace.sh` on the host from the pinned devkit flake source (`nix flake metadata` -> `assets/`, image bake steps replayed), so scaffold and `--force` upgrade need only nix, jq and rsync; the version defaults to the `.vig-os` `DEVKIT_VERSION` pin (upgrade) or the newest `X.Y.Z` release tag (fresh install), and the scaffold runs inside the release's own dev-shell with a clean environment so macOS hosts (BSD sed, bash 3.2) work; `--docker`/`--podman` are ignored with a warning
+  - `devkit-upgrade.yml` and the direnv smoke lane (which now installs Nix before the scaffold) drop `--docker` for direnv repos; devcontainer, both and bare modes keep the image path unchanged
+  - A repo's upgrade picks this up once its target release ships the new `install.sh` (the installer comes from the target tag)
+- **Scaffold Drift no longer needs Docker in direnv mode** ([#1861](https://github.com/vig-os/devkit/issues/1861))
+  - With `DEVKIT_MODE=direnv`, ci.yml's `scaffold-drift` job runs the pinned scaffold from the devkit flake source via nix in a scratch clone under `RUNNER_TEMP` (removed afterwards) instead of `docker login/pull/run`; devcontainer, both and bare modes keep the container path
+  - `rsync` joins the dev-shell tools, which the host-side scaffold needs
+  - Still container-dependent in direnv mode: `devkit-upgrade.yml` (runs `install.sh --docker`; not changed here)
+- **resolve-toolchain sparse checkout no longer poisons a persistent runner's workspace** ([#1860](https://github.com/vig-os/devkit/issues/1860))
+  - The sparse `actions/checkout` in every managed `resolve-toolchain` job now uses `path: .devkit-resolve`, so later jobs sharing `_work/<repo>/<repo>` get a fully materialized tree
+  - `resolve-toolchain` action gains a `working-directory` input (default `.`); `ci.yml` gate steps run from the new path
+  - Existing root clones that already carry skip-worktree state from older runs are not healed by this change; persistent-runner operators may need to clear them once
 - **Untracked build output no longer blocks the upgrade that ignores it**
   ([#1826](https://github.com/vig-os/devkit/issues/1826))
   - The `install.sh --force` preflight refused any untracked file, so a repo
@@ -274,7 +232,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     are named and left in place, any other one still refuses, by name
   - New `--allow-untracked` flag runs the upgrade with untracked files present;
     tracked changes still refuse
-
 - **`mkRustProject` forwards the `.vig-os` hook settings**
   ([#1810](https://github.com/vig-os/devkit/issues/1810))
   - `lib.mkRustProject` accepts `branchTypes`, `commitTypes`, `refsPolicy` and
@@ -285,6 +242,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A Rust flake no longer has to drop or `# deadnix: skip` the manifest
     bindings it reads, which made the first commit touching `flake.nix` fail
     deadnix
+
+### Security
 
 ## [1.18.2](https://github.com/vig-os/devkit/releases/tag/1.18.2) - 2026-11-03
 
