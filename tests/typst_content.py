@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import time
 import tomllib
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -44,7 +45,7 @@ def project(tmp_path, monkeypatch):
     return f'#import "@local/devkit-docs:{version}": *\n'
 
 
-def compile_source(source, *inputs):
+def compile_source(source, *inputs, timeout=None):
     Path("main.typ").write_text("// devkit: entry\n" + source)
     return subprocess.run(
         [
@@ -67,6 +68,7 @@ def compile_source(source, *inputs):
         capture_output=True,
         text=True,
         check=False,
+        timeout=timeout,
     )
 
 
@@ -654,5 +656,92 @@ def test_footer_separates_grouped_cells(project, kind):
     value = f"{kind}({kind}.header([A1], [B2]), [C3], {kind}.footer([D4], [E5]))"
     result = compile_source(
         project + f'#assert.eq(slides.footer-text({value}), "A1 B2 C3 D4 E5")'
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "value,prefix",
+    [
+        ("range(5000).map(_ => [Prefixword ]).join()", "Prefixword Prefixword"),
+        ("{ let c = [Endmarker]; for _ in range(1000) { c = [a #c b] }; c }", "a a a"),
+        ("range(3000).map(_ => emph[Emphword ]).join()", "Emphword Emphword"),
+        ('[#("Research " * 10000)]', "Research Research"),
+    ],
+    ids=["5000-children", "1000-levels", "3000-emphasised-words", "10000-words"],
+)
+def test_footer_large_titles_are_bounded_and_fast(project, value, prefix):
+    started = time.monotonic()
+    result = compile_source(
+        project
+        + f"#let value = {value}\n"
+        + f'#assert(slides.footer-text(value).starts-with("{prefix}"))\n'
+        + "#assert(slides.footer-text(value).clusters().len() <= 400)\n"
+        + '#assert(slides.footer-text(value).ends-with("…"))\n'
+        + "#show: slides.with(short-title: value)\n#slide()[Body]",
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert time.monotonic() - started < 30
+    title = [
+        w.text or ""
+        for w in pdf_words(last_page=True)
+        if float(w.attrib["yMin"]) > 350
+        and w.text != "/"
+        and not (w.text or "").isdigit()
+    ]
+    extracted = " ".join(title)
+    assert extracted.startswith(prefix) and extracted.endswith("…"), extracted
+
+
+def test_footer_for_loop_handles_many_skipped_children(project):
+    result = compile_source(
+        project
+        + "#let value = [#range(15000).map(_ => hide[Hidden]).join()Prefixmarker]\n"
+        + '#assert.eq(slides.footer-text(value), "Prefixmarker")',
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("count", [399, 400, 401])
+def test_footer_cap_preserves_graphemes(project, count):
+    cluster = "e\u0301"
+    expected = cluster * count if count <= 400 else cluster * 399 + "…"
+    result = compile_source(
+        project
+        + f"#assert.eq(slides.footer-text({json.dumps(cluster * count, ensure_ascii=False)}), {json.dumps(expected, ensure_ascii=False)})"
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("don't", "don’t"),
+        ('It\'s the "best" plan', "It’s the “best” plan"),
+        ("'Tis the 'season' rock'n'roll", "‘Tis the ‘season’ rock’n’roll"),
+        ("1990's", "1990’s"),
+    ],
+)
+def test_footer_apostrophes_match_typst_rendering(project, value, expected):
+    result = compile_source(
+        project
+        + f"#let value = [{value}]\n"
+        + f"#assert.eq(slides.footer-text(value), {json.dumps(expected, ensure_ascii=False)})\n"
+        + "#show: slides.with(short-title: value)\n#slide()[#value]"
+    )
+    assert result.returncode == 0, result.stderr
+    text = " ".join(pdf_text().split())
+    assert text.count(expected) == 2, text
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [("[$cases(x,y)$]", "x y"), ("[A#v(1cm)B]", "A B"), ("[A#v(0pt)B]", "AB")],
+)
+def test_footer_cases_and_vertical_spacing(project, value, expected):
+    result = compile_source(
+        project + f'#assert.eq(slides.footer-text({value}), "{expected}")'
     )
     assert result.returncode == 0, result.stderr
