@@ -432,45 +432,64 @@ def _merge_entry_blocks(primary, secondary):
                 if entry and entry not in entries:
                     entries.append(entry)
         if entries:
-            merged[category] = "\n".join(entries)
+            merged[category] = "\n\n".join(entries)
     return merged
 
 
-def _unfreeze_sections(body):
-    """Collect all category blocks, including repeated headings, without loss."""
+def _unfreeze_sections(body, where):
+    """Collect category entries, refusing content the merger cannot preserve."""
     if body is None:
         raise ValueError("No '## Unreleased' section found in CHANGELOG")
     if _find_loose_bullets(body):
-        _reject_unparsable_body(body)
+        _reject_unparsable_body(body, where=where)
+    blocks = list(
+        re.finditer(r"^### ([^\n]+)\n(.*?)(?=^### |\Z)", body, re.MULTILINE | re.DOTALL)
+    )
+    preamble = body[: blocks[0].start()] if blocks else body
+    if preamble.strip():
+        raise ValueError(f"{where} has prose or comments outside recognised categories")
     sections = {}
-    for block in re.finditer(
-        r"^### ([^\n]+)\n(.*?)(?=^### |\Z)", body, re.MULTILINE | re.DOTALL
-    ):
+    for block in blocks:
         category = block[1].strip()
-        if category in STANDARD_SECTIONS and block[2].strip():
+        if category not in STANDARD_SECTIONS:
+            raise ValueError(f"{where} has unsupported heading '### {category}'")
+        entry = re.search(r"^- ", block[2], re.MULTILINE)
+        prefix = block[2][: entry.start()] if entry else block[2]
+        if prefix.strip():
+            raise ValueError(f"{where} has prose or comments before its entries")
+        if block[2].strip():
             sections = _merge_entry_blocks(sections, {category: block[2].strip("\n")})
     return sections
 
 
 def unfreeze_changelog(version, filepath="CHANGELOG.md"):
-    """Restore a pending version to Unreleased; absent/dated is a no-op.
+    """Restore a pending version to Unreleased; an absent version is a no-op.
 
-    Combine repeated categories and deduplicate whole entries, preserving nested
-    details, the file header and release history. Loose bullets fail before write.
+    Preserve entry spacing, line endings, the header and release history. Refuse
+    released sections and unsupported prose before writing, rather than lose it.
     """
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         raise ValueError(f"Invalid semantic version: {version}")
     path = Path(filepath)
-    content = path.read_text()
+    original = path.read_text(newline="")
+    newline = "\r\n" if "\r\n" in original else "\n"
+    content = original.replace("\r\n", "\n")
     pending = re.search(
         rf"^## \[{re.escape(version)}\] - TBD[ \t]*$\n?(.*?)(?=^## |\Z)",
         content,
         re.MULTILINE | re.DOTALL,
     )
     if not pending:
+        if re.search(
+            rf"^## \[{re.escape(version)}\](?:\([^)]*\))? - .+$", content, re.MULTILINE
+        ):
+            raise ValueError(
+                f"Cannot unfreeze released [{version}] section; only '- TBD' is allowed"
+            )
         return False
-    primary = _unfreeze_sections(_unreleased_body(content))
-    merged = _merge_entry_blocks(primary, _unfreeze_sections(pending[1]))
+    primary = _unfreeze_sections(_unreleased_body(content), "Unreleased section")
+    secondary = _unfreeze_sections(pending[1], f"[{version}] section")
+    merged = _merge_entry_blocks(primary, secondary)
     remaining = content[: pending.start()] + content[pending.end() :]
     match = re.search(
         r"^## Unreleased[ \t]*\n.*?(?=^## |\Z)", remaining, re.MULTILINE | re.DOTALL
@@ -480,7 +499,9 @@ def unfreeze_changelog(version, filepath="CHANGELOG.md"):
         body += f"### {category}\n\n"
         if category in merged:
             body += merged[category] + "\n\n"
-    path.write_text(remaining[: match.start()] + body + remaining[match.end() :])
+    path.write_text(
+        remaining[: match.start()] + body + remaining[match.end() :], newline=newline
+    )
     return True
 
 

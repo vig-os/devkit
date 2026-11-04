@@ -1310,12 +1310,18 @@ For a regular gitflow train, abandon also runs `prepare-changelog unfreeze X.Y.Z
 on dev, merging the pending `## [X.Y.Z] - TBD` entries into Unreleased by
 category, retaining entry order and removing duplicate entries. It re-syncs the
 workspace mirror and commits both files through the same signed, verified
-Commit App API path as prepare-release. Missing pending sections are a no-op,
-including re-runs and hotfix trains, which never froze dev. Dated release
-sections are never folded. Repeated categories are combined; bullets outside a
-recognised category fail without rewriting the file. Correct the reported layout
-and re-run abandon. Consumer gitflow workflows use
-the same command; trunk workflows skip dev restoration.
+Commit App API path as prepare-release. Both workflows capture the checkout SHA
+immediately after checkout and pass it as `BASE_SHA`: the API commit uses that
+parent and a non-forced ref update. If dev advances concurrently, the update
+fails instead of overwriting entries; rerun abandonment from a fresh checkout.
+Missing sections are a no-op, including re-runs and hotfix trains, which never
+froze dev. A dated release section is refused with a non-zero exit code.
+Repeated categories are combined and entries keep blank-line separation. The
+command preserves LF or CRLF line endings and leaves other release sections
+unchanged. Bullets outside recognised categories, unknown headings, and prose
+or comments before categories or their entries fail without rewriting the file.
+Correct the reported section layout and rerun abandon. Consumer gitflow
+workflows use the same command; trunk workflows skip dev restoration.
 
 ```bash
 uv run prepare-changelog unfreeze X.Y.Z [CHANGELOG.md]

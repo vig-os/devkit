@@ -216,10 +216,13 @@ For a regular gitflow train, abandonment also folds dev's pending
 and duplicate entries through `prepare-changelog unfreeze X.Y.Z`. The change
 uses the signed Commit App API path and the devkit-version-pinned host utility
 toolchain in every delivery mode (no project image or flake is required).
-Missing pending sections (including
-hotfix trains and completed reruns) are a no-op; trunk skips dev restoration.
-Dated releases are left intact. Bullets outside recognised categories fail
-without rewriting the changelog: correct the layout and rerun abandonment.
+Missing sections (including hotfix trains and completed reruns) are a no-op;
+trunk skips dev restoration. Restoration commits are pinned to the checkout SHA;
+if dev advances concurrently, the non-forced API update fails. Rerun abandonment
+from a fresh checkout. Dated releases are refused. The command preserves LF or
+CRLF line endings and entry spacing. Unsupported prose, comments or headings,
+and bullets outside recognised categories fail without rewriting the changelog:
+correct the reported section layout and rerun abandonment.
 
 This is the explicit, guarded exception to the no-tag-deletion rollback policy above: it is safe **only while the Release is a draft**, and the workflow hard-refuses a published release ([#1511](https://github.com/vig-os/devkit/issues/1511)). Publishing tombstones the tag name permanently — after promote, the only path is fixing forward with the next version.
 
