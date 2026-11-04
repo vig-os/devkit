@@ -215,6 +215,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Realise direnv scaffold sources on Nix 2.35** ([#2039](https://github.com/vig-os/devkit/issues/2039))
+  - Fetch installer and Scaffold Drift sources with `nix flake prefetch` so their assets exist before copying; show the same command in the installer dry-run plan.
+
 - **Offline, probe-free installer dry runs** ([#2021](https://github.com/vig-os/devkit/issues/2021))
   - Defer remote branch checks, latest release resolution and runtime health probes until execution.
   - Keep local version pins and explicit runtime choices in the plan; discover runtimes through PATH only.

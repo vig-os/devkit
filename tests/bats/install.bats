@@ -947,7 +947,8 @@ _run_install_stubbed() {
     cat >"$stub/nix" <<STUB
 #!/usr/bin/env bash
 case " \$* " in
-    *" flake metadata "*) printf '%s' '{"path":"$PROJECT_ROOT"}' ;;
+    *" flake metadata "*) printf '%s' '{"path":"$BATS_TEST_TMPDIR/unrealised-source"}' ;;
+    *" flake prefetch "*) printf '%s' '{"storePath":"$PROJECT_ROOT"}' ;;
     *" develop "*) while [ "\$1" != "-c" ]; do shift; done; shift; exec "\$@" ;;
 esac
 STUB
