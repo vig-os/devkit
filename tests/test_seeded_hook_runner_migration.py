@@ -270,7 +270,7 @@ def test_hook_findings_use_the_migration_channel_under_both_body_builders(
         assert ANCHOR in text
 
 
-@pytest.fixture(params=["repository", "unreleased", "pending", "released"])
+@pytest.fixture(params=["repository", "unreleased", "pending", "released", "older"])
 def migration_changelog(request: pytest.FixtureRequest) -> str:
     """Exercise the real freeze and populated development/release layouts."""
     if request.param == "repository":
@@ -280,6 +280,17 @@ def migration_changelog(request: pytest.FixtureRequest) -> str:
     older = "## [1.18.0] - 2026-10-05\n\n" + empty
     if request.param == "unreleased":
         return "## Unreleased\n\n" + entry + "### Fixed\n\n" + older
+    if request.param == "older":
+        return (
+            "## Unreleased\n\n"
+            + empty
+            + "## [1.21.0] - 2026-12-04\n\n"
+            + empty
+            + "## [1.20.0] - 2026-11-20\n\n"
+            + empty
+            + "## [1.19.0] - 2026-11-04\n\n"
+            + entry
+        )
     release = (
         "[1.19.0] - TBD" if request.param == "pending" else "[1.19.0] - 2026-11-04"
     )
@@ -307,6 +318,25 @@ def test_migration_docs_and_changelog_match_the_new_contract(
     categories = _current_changelog_categories(migration_changelog)
     assert "[#1929]" in categories.get("Added", "")
     assert "[#1929]" not in categories.get("Fixed", "")
+
+
+@pytest.mark.parametrize(
+    "changelog",
+    [
+        "## Unreleased\n### Added\n- unrelated\n",
+        "## Unreleased\n### Added\n- [#1929]\n"
+        "## [1.19.0] - TBD\n### Fixed\n- [#1929]\n",
+        "## Unreleased\n### Added\n- [#1929]\n"
+        "## [1.20.0] - 2026-11-20\n### Added\n- unrelated\n"
+        "## [1.19.0] - 2026-11-04\n### Changed\n- [#1929]\n",
+    ],
+    ids=["missing-entry", "fixed-in-another-section", "older-wrong-category"],
+)
+def test_migration_changelog_rejects_missing_or_miscategorized_entries(
+    changelog: str,
+) -> None:
+    with pytest.raises(AssertionError):
+        test_migration_docs_and_changelog_match_the_new_contract(changelog)
 
 
 def _current_changelog_categories(changelog: str) -> dict[str, str]:
