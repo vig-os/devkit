@@ -199,3 +199,14 @@ def test_no_pending_change_skips_api_commit(copy):
             or step.get("id") == "commit-app-token"
         ):
             assert step["if"] == "steps.unfreeze.outputs.changed == 'true'"
+
+
+def test_consumer_restoration_uses_pinned_host_utilities():
+    job = jobs(load_workflow(SCAFFOLD_COPY))["unfreeze"]
+    assert "container" not in job
+    setup = step_by_name(job["steps"], "Set up devkit toolchain")
+    assert setup["with"]["mode"] == "bare"
+    assert (
+        setup["with"]["devkit-version"]
+        == "${{ needs.resolve-toolchain.outputs.image-tag }}"
+    )
