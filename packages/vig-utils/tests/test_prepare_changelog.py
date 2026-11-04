@@ -2462,3 +2462,30 @@ class TestUnfreeze:
         )
         unfreeze_changelog("1.2.3", path)
         assert "- current\n\n- pending\n" in path.read_text()
+
+    @pytest.mark.parametrize(
+        "newline,history_newline", [("\r\n", "\n"), ("\n", "\r\n")]
+    )
+    def test_other_release_line_endings_are_untouched(
+        self, tmp_path, newline, history_newline
+    ):
+        from vig_utils.prepare_changelog import unfreeze_changelog
+
+        path = tmp_path / "CHANGELOG.md"
+        pending = (
+            (
+                "## Unreleased\n\n### Fixed\n\n- current\n\n"
+                "## [1.2.3] - TBD\n\n### Fixed\n\n- pending\n\n"
+            )
+            .replace("\n", newline)
+            .encode()
+        )
+        history = "## [1.2.2] - 2026-01-01\n\n### Fixed\n\n- old\n".replace(
+            "\n", history_newline
+        ).encode()
+        path.write_bytes(pending + history)
+        unfreeze_changelog("1.2.3", path)
+        result = path.read_bytes()
+        assert result.endswith(history)
+        restored = result[: -len(history)]
+        assert f"- current{newline}{newline}- pending{newline}".encode() in restored
