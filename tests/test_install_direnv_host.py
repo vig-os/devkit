@@ -219,6 +219,7 @@ def test_fresh_latest_resolves_the_newest_release_tag(tmp_path: Path) -> None:
             check=True,
         )
     bindir, _ = _runtime_stubs(tmp_path, working=False)
+    _nix_stub(bindir)
     project = tmp_path / "fresh"
     project.mkdir()
     env = _env(bindir) | {
@@ -230,7 +231,7 @@ def test_fresh_latest_resolves_the_newest_release_tag(tmp_path: Path) -> None:
         [
             "bash",
             str(INSTALL),
-            "--dry-run",
+            "--preview",
             "--skip-preflight",
             "--mode",
             "direnv",
@@ -243,7 +244,9 @@ def test_fresh_latest_resolves_the_newest_release_tag(tmp_path: Path) -> None:
     )
     out = proc.stdout + proc.stderr
     assert proc.returncode == 0, out
-    assert "github:vig-os/devkit/1.10.0" in out
+    assert "Latest devkit release: 1.10.0" in out
+    assert "Fetching devkit 1.10.0 via nix" in out
+    assert (bindir / "develop.cwd").exists()
 
 
 def test_unresolvable_latest_is_a_clear_error(tmp_path: Path) -> None:
@@ -259,7 +262,7 @@ def test_unresolvable_latest_is_a_clear_error(tmp_path: Path) -> None:
         [
             "bash",
             str(INSTALL),
-            "--dry-run",
+            "--preview",
             "--skip-preflight",
             "--mode",
             "direnv",
