@@ -146,6 +146,7 @@ def test_unfreeze_uses_commit_app_and_api(copy):
 
 def test_replay_unfreeze_is_idempotent(tmp_path):
     import os
+    import subprocess
     import sys
 
     from tests.workflow_replay import Replay
@@ -163,15 +164,38 @@ def test_replay_unfreeze_is_idempotent(tmp_path):
     # Replay the actual CLI; mirror generation is checked by the shape test.
     cli = tmp_path / "uv"
     cli.write_text(
-        '#!/bin/sh\nshift\nexec "$PYTHON" -m vig_utils.prepare_changelog "$@"\n'
+        '#!/bin/sh\nshift 2\nexec "$PYTHON" -m vig_utils.prepare_changelog "$@"\n'
     )
     cli.chmod(0o755)
     replay.base_env["PATH"] = str(tmp_path) + os.pathsep + os.environ["PATH"]
     path = tmp_path / "CHANGELOG.md"
     path.write_text("## Unreleased\n\n## [1.2.3] - TBD\n\n### Fixed\n\n- restored\n")
-    replay.run(only=[step["id"]])
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "CHANGELOG.md"], check=True)
+    records = replay.run(only=[step["id"]])
+    assert records[0]["outputs"]["changed"] == "true"
     result = path.read_text()
     assert "[1.2.3]" not in result
     assert "- restored" in result
-    replay.run(only=[step["id"]])
+    subprocess.run(["git", "-C", str(tmp_path), "add", "CHANGELOG.md"], check=True)
+    records = replay.run(only=[step["id"]])
+    assert "changed" not in records[0]["outputs"]
     assert path.read_text() == result
+
+
+def test_trunk_scaffold_omits_dev_restoration():
+    from tests.workflow_scaffold import cached_tree
+
+    doc = load_workflow(cached_tree("trunk") / ".github/workflows/abandon-release.yml")
+    assert "unfreeze" not in jobs(doc)
+
+
+@pytest.mark.parametrize("copy", COPIES)
+def test_no_pending_change_skips_api_commit(copy):
+    steps = jobs(load_workflow(COPIES[copy]))["unfreeze"]["steps"]
+    for step in steps:
+        if (
+            "commit-action@" in step.get("uses", "")
+            or step.get("id") == "commit-app-token"
+        ):
+            assert step["if"] == "steps.unfreeze.outputs.changed == 'true'"
