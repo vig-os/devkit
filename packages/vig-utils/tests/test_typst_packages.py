@@ -157,7 +157,7 @@ def registry(tmp_path):
     root = tmp_path / "registry"
     shutil.copytree(assets / "vendor/preview", root / "preview")
     shutil.copytree(assets / "releases/devkit-docs", root / "local/devkit-docs")
-    shutil.copytree(assets / "devkit-docs", root / "local/devkit-docs/0.1.1")
+    shutil.copytree(assets / "devkit-docs", root / "local/devkit-docs/0.2.0")
     shutil.copy(assets / "devkit-docs.lock.json", root)
     if (assets / "released-packages.json").exists():
         shutil.copy(assets / "released-packages.json", root)

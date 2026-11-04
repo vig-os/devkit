@@ -879,3 +879,27 @@ def test_explicit_casing_rules_override_derived_protection(
 def test_emphasis_does_not_span_newline():
     text = "**input\npump**"
     assert glossary.transparent_text(text) == text
+
+
+@pytest.mark.parametrize("scalar", ["1e3", "0o17", "123", "true", "2026-01-01"])
+@pytest.mark.parametrize("field", ["term", "aliases", "forbidden"])
+def test_schema_rejects_non_string_yaml_scalars(register, scalar, field):
+    root, _ = register
+    value = {
+        "term": scalar,
+        "aliases": f"[{scalar}]",
+        "forbidden": f"[{{term: {scalar}, use: Feed Pump}}]",
+    }[field]
+    (root / "glossary.yaml").write_text(
+        "- id: pump\n  definition: Moves fluid\n  kind: part\n"
+        + ("" if field == "term" else "  term: Feed Pump\n")
+        + f"  {field}: {value}\n"
+    )
+    assert glossary.main(["schema"]) == 1
+
+
+@pytest.mark.parametrize("contents", ["", "[]\n"])
+def test_empty_register_rejected_by_schema(register, contents):
+    root, _ = register
+    (root / "glossary.yaml").write_text(contents)
+    assert glossary.main(["schema"]) == 1

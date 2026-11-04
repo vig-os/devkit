@@ -44,6 +44,20 @@ class UniqueLoader(yaml.SafeLoader):
         return super().construct_mapping(node, deep=deep)
 
 
+# SafeLoader's YAML 1.1 patterns miss YAML 1.2 exponent and octal scalars.
+# Resolve these before schema validation so Typst and the guard agree on types.
+UniqueLoader.add_implicit_resolver(
+    "tag:yaml.org,2002:float",
+    re.compile(r"^[-+]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)[eE][-+]?[0-9]+$"),
+    list("-+0123456789."),
+)
+UniqueLoader.add_implicit_resolver(
+    "tag:yaml.org,2002:int",
+    re.compile(r"^[-+]?0o[0-7]+$"),
+    list("-+0"),
+)
+
+
 def normalized(text):
     """Normalize phrase whitespace without changing punctuation or case."""
     return " ".join(text.split())

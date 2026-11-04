@@ -346,7 +346,7 @@ CLI formatting options with an 80-column default and no config-file option, so n
 
 The `docs` shell exposes an immutable registry through its Typst and Tinymist
 wrappers; `DEVKIT_TYPST_PACKAGE_PATH` identifies that registry. Import
-`@local/devkit-docs:0.1.1`. Its own SemVer is independent of devkit releases.
+`@local/devkit-docs:0.2.0`. Its own SemVer is independent of devkit releases.
 Shipped versions remain available after an upgrade, and a content-hash lock
 checks their integrity. See the [version policy and registry layout](../assets/typst/README.md#local-package-versions).
 A package upgrade is explicit: read its changes and update imports together.
@@ -376,7 +376,7 @@ A minimal entry document:
 
 ```typst
 // devkit: entry
-#import "@local/devkit-docs:0.1.1": *
+#import "@local/devkit-docs:0.2.0": *
 #show: devkit-document.with(title: "Example report", authors: ("Example Author",))
 
 = Results
@@ -391,7 +391,7 @@ title and page `n / N`. Stamped builds also show `rev`; canonical builds omit
 it. Monospaced text uses DejaVu Sans Mono and math uses Typst's built-in
 New Computer Modern. `type-scale` exports these sizes, including `figure-min: 7pt`.
 Authors must keep figure lettering at least 7 pt at the final placed size;
-SVG and plot text-size enforcement belongs to the later content guards.
+The plot helper enforces this minimum; checking external SVGs belongs to the later content guards.
 
 All metadata is optional: `title`, `short-title` (running header/footer text),
 `subtitle`, `authors` (a string or tuple of names),
@@ -456,8 +456,142 @@ in [the registry guide](../assets/typst/README.md).
 `checks.<system>.typst-house-style` compiles real fixtures through guards and
 recipes in a network-free Nix sandbox, checks PDF text and table rules, tests
 caption failures and offline imports, and compares canonical hashes.
-Plots, glossary rendering, slides, and content guards are separate later phases
-of [#1994](https://github.com/vig-os/devkit/issues/1994).
+
+`plot(x, y, xlabel: [...], ylabel: [...], width: 9cm, height: 5cm)` renders a
+native line plot using vendored lilaq 0.5.0. The coordinate arrays must satisfy
+lilaq's data requirements. Both axis labels must contain visible content;
+missing or blank labels panic. Tick and label text inherits `type-scale.small`
+(9 pt); explicit label or math text below 7 pt panics. Synthesized `super`
+and `sub` text uses 7 pt. Attached math scripts use a 14 pt base so New Computer
+Modern's smallest script style (50%) stays at least 7 pt; ordinary math ticks
+remain 9 pt. Dimensions change the data area,
+without shrinking lettering. Wrap the result in `fig` with a caption:
+
+```typst
+#fig(
+  plot((0, 1, 2), (1, 3, 2), xlabel: [Time (s)], ylabel: [Distance (m)]),
+  caption: [Measured trajectory],
+)
+```
+
+Do not shrink plots or label content with `scale`, `resize`, or transforms:
+those can change final lettering size after the helper checks it. Arbitrary
+user math (fractions, custom functions, contextual content, or manual math-size
+styles) cannot be checked generically; authors must verify its final PDF text.
+In particular, `$x^#text(size: 8pt)[k]$` can render the explicit text at 5.6 pt:
+the explicit 8 pt style overrides the helper's script base before math shrinking.
+Use ordinary attachments without explicit text sizes, or verify the final PDF.
+The helper checks explicit text styles and sizes ordinary attached scripts. Prefer SVG
+or native plots for charts; raster chart lettering cannot be checked.
+The helper intentionally exposes a single line series and dimensions. For other
+plot types use an explicitly pinned lilaq import; its upstream API does not
+provide the helper's label and size checks. All transitive packages, including
+optional computational plugins, are vendored and content locked.
+
+`term("id")` reads the canonical term from the consumer register. Unknown or
+duplicate IDs fail compilation. For an `acronym`, the first occurrence prints
+`definition (term)`; later occurrences print the canonical term. Supply the
+expanded name as the definition for acronym entries. `glossary()` renders only
+used entries, sorted by canonical term, with definitions. Place it at the end
+of the document as an appendix; `glossary(title: [Terminology])` changes its title.
+An empty used-term set produces no heading. Usage and first-use state are local
+to each compiled document, including terms in included files.
+
+```typst
+The #term("sample") was examined.
+#glossary()
+```
+
+Load the register explicitly from the entry document's filesystem scope:
+
+```typst
+#show: glossary-setup.with(yaml("/glossary.yaml"))
+```
+
+Place this after the package import and before any terms, including outlines.
+For a custom `DEVKIT_GLOSSARY`, pass that same file to `yaml` instead.
+Hooks and recipes pass no glossary input arguments: large registers, plain
+`typst compile --root . --ignore-system-fonts main.typ main.pdf`, and editor
+previews all use this API and track file changes natively. `glossary-schema`
+validates the configured register independently. Calling `term` without setup
+reports “no glossary loaded”; setup rejects duplicate IDs. Outline and figure
+outline copies use short forms and never consume the first body expansion.
+Place custom `show outline.entry` rules **before** `glossary-setup`: rules added
+after setup can replace its copy tracking and consume expansion in the TOC.
+First usage includes footnotes: if the first `term` call is in a footnote, its
+expansion appears in that footnote, and subsequent body calls use the short form.
+Both `term` and `glossary` require setup; an empty YAML file or empty register
+is an error. The glossary schema likewise requires at least one entry.
+
+PDF bookmarks cannot evaluate the legacy state-based `term` function. For
+headings with terms, bind the register before layout so bookmarks retain the
+canonical spelling:
+
+```typst
+#let g = glossary-tools(yaml("/glossary.yaml"))
+#let term = g.term
+#show: g.setup
+
+#outline()
+= Using #term("cpu")
+#glossary()
+```
+
+`glossary-tools` returns `term` and `setup` functions. Its setup validates the
+register and installs the same outline-copy tracking; place custom outline
+show rules before `#show: g.setup`. Keep the bound `term` in scope in each
+included source (or export it from a consumer-owned shared module). The original
+`glossary-setup` API remains supported, but its contextual terms have no PDF
+bookmark text. Bound terms keep static canonical text in bookmarks while
+retaining contextual first-use expansion in the body.
+
+For presentations, use the same import with `#show: slides.with(...)`:
+
+```typst
+#show: slides.with(title: [Example deck], authors: ("Example Author",))
+#section-slide[Results]
+#slide(title: [Measurements])[
+  #table(columns: 2, table.header([Item], [Value]), [Sample], number(12.3))
+  #fig(rect(width: 20mm, height: 10mm), caption: [Example figure])
+]
+```
+
+The layout is 256 × 144 mm (16:9), with 12 mm margins. A title slide is emitted
+when metadata is provided. `section-slide` centers its title; `slide` starts a
+content page with an optional heading. The same type scale, booktabs rules,
+figure captions, branding (`accent`, `logo`, `labels`), metadata, `short-title`,
+page totals and revision footer apply. The slide footer shows the plain text of
+`short-title` (fall back: `title`); styling is not carried into the footer;
+give a short plain `short-title` for best results. Containers contribute their
+text; math contributes text leaves (or `□` when there are none). Images, shapes and
+unknown atoms are omitted; a nonempty title with no extractable text shows `□`.
+Hidden content, footnotes, metadata, state, counters and placed content are
+skipped. Double smart quotes alternate opening and closing marks. A single
+quote after a letter or digit becomes an apostrophe (`’`) without changing
+quote state; single quotes at the start or after whitespace open a quotation.
+Same-type nested double quotes are not tracked by nesting depth: for example,
+`"a "b" c"` becomes `“a ”b“ c”` in the footer. Alternate single and double
+quotes, or provide a plain `short-title`, for nested quotations.
+Term-list items contribute `Term: Description`. Nonzero horizontal or vertical
+spacing, grid/table/stack cells, matrix and cases entries, and math attachments
+separate leaves with spaces; line breaks and whitespace collapse to single
+spaces. Extraction uses an explicit work stack, so nested containers do not
+consume recursive function-call depth. It visits at most one million work
+items and stops once the plain prefix exceeds 400 graphemes. Truncated
+extraction returns at most 400 graphemes including `…`; the remainder is not
+inspected. Footer width measurement therefore uses only this bounded prefix.
+
+The footer occupies one fixed line at the footer font size, without scaling.
+It truncates by measuring grapheme prefixes, adding `…` at the logical end,
+including for RTL text. A 2 mm gap separates it from the page counter.
+Sizes remain in points: choose slide
+content for the intended viewing distance. Content must fit a slide; there is
+no automatic shrinking or overflow clipping. Canonical builds omit the stamp.
+
+The network-free `typst-house-style` check also exercises these helpers with
+an empty package cache and inspects rendered PDF font sizes. Content guards
+(captions, table headers, style bypass and external SVG lettering) remain the
+next part of [#1994](https://github.com/vig-os/devkit/issues/1994).
 
 #### Terminology register
 

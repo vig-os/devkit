@@ -8,3 +8,8 @@
 #import "@preview/cetz:0.3.4"
 
 #import "devkit-document.typ" as devkit-document
+
+#import "content.typ": (
+  glossary, glossary-setup, glossary-tools, plot, section-slide, slide, term,
+)
+#import "slides.typ" as slides

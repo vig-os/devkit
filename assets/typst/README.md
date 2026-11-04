@@ -1,5 +1,20 @@
 # Offline Typst registry
 
+Start glossary documents with the **bound API** so PDF bookmarks retain terms:
+
+```typst
+#import "@local/devkit-docs:0.2.0": *
+#let g = glossary-tools(yaml("/glossary.yaml"))
+#let term = g.term
+#show: g.setup
+
+= Using #term("cpu")
+#glossary()
+```
+
+The register must contain at least one entry. No compiler input is needed.
+See [the helper API and limits](../../docs/NIX.md#house-style-package).
+
 The `docs` module wraps Typst and Tinymist with the immutable registry built by
 [nix/typst-packages.nix](../../nix/typst-packages.nix). The compiler and language
 server search the consumer's `TYPST_PACKAGE_PATH` (a path list), then this
@@ -28,7 +43,7 @@ environment, as it does in native Typst.
 ## Local package versions
 
 The active source lives in `devkit-docs/`, with independent SemVer in
-`devkit-docs/typst.toml`. The registry retains the initial 0.1.0 snapshot alongside 0.1.1.
+`devkit-docs/typst.toml`. The registry retains the 0.1.0 and 0.1.1 snapshots alongside 0.2.0.
 `devkit-docs.lock.json` maps each `namespace/name/version` to its SHA-256 content
 hash, covering the local package versions and every vendored preview package.
 Hash sorted file paths relative to each version directory followed by NUL,
@@ -49,8 +64,7 @@ it rejects removing a version and hash entry while the ledger still records it.
 It does not compare Git history or enforce append-only ledger edits. Editing
 the ledger can bypass removal detection, including by deleting its entry in an
 earlier commit; maintaining the append-only policy therefore requires review.
-The active 0.1.1 remains unpublished until this PR lands; its reviewed source
-and hash are updated together during review.
+The active 0.2.0 source and hash are updated together during review.
 The Nix registry includes retained directories alongside the active version;
 patch upgrades therefore preserve older imports. Devkit-only release bumps
 never change package versions. API-compatible changes use patch bumps;
@@ -65,9 +79,15 @@ incompatible changes bump the minor version before 1.0, the major thereafter.
 | fletcher | 0.5.8 | MIT | `a61883a4af4ca923a37c597900e674f40dad3f7bde3f2a3d8fe8042e6ca8a66b` |
 | cetz | 0.3.4 | LGPL-3.0-or-later | `4f4b5a8d311d519e749940a766fe50521e40c041129e1c91af0c42e61f307514` |
 | oxifmt | 0.2.1 | MIT-0 | `16fac2923032c59727de01e84d42cac45e8790da28df56effca49f4de41b09d9` |
+| lilaq | 0.5.0 | MIT | `15c0ccd70264675711c167dbdb3602cfbd203e047379f27c259221879c5328a3` |
+| elembic | 1.1.1 | MIT OR Apache-2.0 | `e3a8ec6b2ad5f43d93ae31dd5742de7256c57719675636179cd818f26ca7bb88` |
+| zero | 0.5.0 | MIT | `c864e885ace3d471ae0b63bd9193a2402943a694d91f6835463d566205233650` |
+| komet | 0.1.0 | MIT | `3fd7d065f670de088a170603069788039ed52614c9fd81d5f7c923bedb355786` |
+| tiptoe | 0.3.1 | MIT | `37ab818826280327e843d819e1c1f2edbef5db40d32f35ff22226886a1216fc8` |
 
-Each package includes its upstream `LICENSE`. Fletcher imports CeTZ, which
-imports oxifmt. The complete dependency closure is present in the registry.
+Each package includes its upstream license files. Fletcher imports CeTZ, which
+imports oxifmt. Lilaq imports elembic, zero and tiptoe, and optionally komet
+for computations; that plugin is included too. The complete dependency closure is present in the registry.
 Public package re-exports retain their upstream APIs and licenses.
 
 To update, download `https://packages.typst.org/preview/<name>-<version>.tar.gz`,
@@ -81,3 +101,7 @@ Run `nix build .#checks.x86_64-linux.typst-house-style --no-link -L` to prove
 imports work without network or a populated cache, and review license changes.
 
 See [the user guide](../../docs/NIX.md#house-style-package) for the public API.
+
+The **legacy glossary API**, `#show: glossary-setup.with(yaml("/glossary.yaml"))`,
+remains supported, but its contextual `term` calls lose their text in PDF
+bookmarks. Prefer the bound API above for new documents.
