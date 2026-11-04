@@ -585,3 +585,90 @@ def test_empty_yaml_register_has_clear_error(project, bound):
     assert result.returncode != 0 and "empty glossary register" in result.stderr, (
         result.stderr
     )
+
+
+@pytest.mark.parametrize(
+    "wrapper",
+    [
+        "underline",
+        "highlight",
+        "strike",
+        "overline",
+        "super",
+        "sub",
+        "box",
+        "raw",
+        "math",
+        "pad",
+    ],
+)
+@pytest.mark.parametrize("mixed", [False, True])
+def test_generic_footer_prefix(project, wrapper, mixed):
+    value = "Prefixmarker" + " extended research area facility" * 30
+    if wrapper == "raw":
+        title = f'#raw("{value}")'
+    elif wrapper == "math":
+        title = "$" + "x+" * 250 + "x$"
+    elif wrapper == "pad":
+        assert "pad" not in (ASSETS / "devkit-docs/slides.typ").read_text()
+        title = f"#pad(left: 1pt, right: 1pt)[{value}]"
+    else:
+        title = f"#{wrapper}[{value}]"
+    if mixed:
+        title = "Intro " + title + " After"
+    result = compile_source(
+        project + f"#show: slides.with(short-title: [{title}])\n#slide()[Body]"
+    )
+    assert result.returncode == 0, result.stderr
+    footer = [w for w in pdf_words() if float(w.attrib["yMin"]) > 350]
+    title_words = [w for w in footer if w.text not in {"1", "/"}]
+    extracted = " ".join(w.text or "" for w in title_words)
+    assert "…" in extracted, extracted
+    assert ("Prefixmarker" if wrapper != "math" else "□") in extracted, extracted
+    if mixed:
+        assert "Intro" in extracted, extracted
+    counter = next(w for w in footer if w.text == "1")
+    assert max(float(w.attrib["xMax"]) for w in title_words) + 2 <= float(
+        counter.attrib["xMin"]
+    )
+
+
+def test_oversized_footer_measures_rendered_prefix(project):
+    result = compile_source(
+        project
+        + "#show: slides.with(short-title: text(size: 40pt)[Prefixmarker extended research area facility "
+        + "extended research area facility " * 30
+        + "])\n#slide()[Body]"
+    )
+    assert result.returncode == 0, result.stderr
+    footer = [
+        w
+        for w in pdf_words()
+        if float(w.attrib["yMin"]) > 350 and w.text not in {"1", "/"}
+    ]
+    extracted = " ".join(w.text or "" for w in footer)
+    assert "Prefixmarker" in extracted and "…" in extracted, extracted
+    assert (
+        max(float(w.attrib["xMax"]) for w in footer)
+        - min(float(w.attrib["xMin"]) for w in footer)
+        > 130
+    )
+
+
+def test_rtl_footer_ellipsis_at_cut_end(project):
+    result = compile_source(
+        project
+        + '#set text(lang: "he", dir: rtl)\n#show: slides.with(short-title: ['
+        + "שלום עולם " * 100
+        + "])\n#slide()[Body]"
+    )
+    assert result.returncode == 0, result.stderr
+    footer = [w for w in pdf_words() if float(w.attrib["yMin"]) > 350]
+    ellipsis = next(w for w in footer if "…" in (w.text or ""))
+    hebrew = [
+        w for w in footer if any("\u0590" <= c <= "\u05ff" for c in (w.text or ""))
+    ]
+    assert hebrew
+    assert float(ellipsis.attrib["xMax"]) <= min(
+        float(w.attrib["xMin"]) for w in hebrew
+    )
