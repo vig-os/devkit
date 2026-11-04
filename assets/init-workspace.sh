@@ -420,6 +420,7 @@ MANIFEST_PRERELEASE_FORMAT="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_PRER
 MANIFEST_FLOATING_TAGS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FLOATING_TAGS || true)"
 MANIFEST_CI_RUNNER="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_CI_RUNNER || true)"
 MANIFEST_CI_LANE_SIZES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_CI_LANE_SIZES || true)"
+MANIFEST_CI_CONTAINER_RUNNERS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_CI_CONTAINER_RUNNERS || true)"
 MANIFEST_DEV_PROFILE_PATH="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_DEV_PROFILE_PATH || true)"
 MANIFEST_WORKFLOW="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_WORKFLOW || true)"
 MANIFEST_SYNC_TARGET="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_TARGET || true)"
@@ -828,6 +829,17 @@ case "$MANIFEST_DRIFT_CHECK" in
     ""|true|false) ;;
     *)
         echo "Error: Invalid DEVKIT_DRIFT_CHECK in $VIG_OS_MANIFEST: $MANIFEST_DRIFT_CHECK (expected: true | false)" >&2
+        exit 1
+        ;;
+esac
+
+# Container-mode runner opt-in (#2045): runtime-only, read by resolve-toolchain
+# (which refuses the same bad literals) and by the legacy-key migration below.
+# Only a value guard, so a typo refuses loudly instead of silently gating.
+case "$MANIFEST_CI_CONTAINER_RUNNERS" in
+    ""|true|false) ;;
+    *)
+        echo "Error: Invalid DEVKIT_CI_CONTAINER_RUNNERS in $VIG_OS_MANIFEST: $MANIFEST_CI_CONTAINER_RUNNERS (expected: true | false)" >&2
         exit 1
         ;;
 esac
@@ -4444,6 +4456,13 @@ upgrade_has_runner_variable() {
 migrate_ci_runner_key() {
     local size entry legacy_action="Set CI_RUNNER_SMALL; " classes="small" missing="" commands="" visible="" availability="missing or invalid variables"
     local -a overrides=()
+    # In a container-ish mode without the opt-in, resolve-toolchain ignores the
+    # variables (#2045): the key is never inert there, and stripping it would
+    # move every lane onto hosted runners.
+    local gated=false
+    if [[ ( "$MODE" == devcontainer || "$MODE" == both ) && "$MANIFEST_CI_CONTAINER_RUNNERS" != true ]]; then
+        gated=true
+    fi
     IFS=',' read -ra overrides <<< "$MANIFEST_CI_LANE_SIZES"
     for entry in "${overrides[@]}"; do
         size="${entry#*=}"
@@ -4465,12 +4484,17 @@ migrate_ci_runner_key() {
         fi
     done
     if [[ -n "$MANIFEST_CI_RUNNER" ]]; then
-        if [[ -z "$missing" ]]; then
+        if [[ -z "$missing" && "$gated" == false ]]; then
             echo "ci-runner-migration: DEVKIT_CI_RUNNER removed from .vig-os; runners now come from variables for every required class; nothing to do."
         else
             write_manifest_value DEVKIT_CI_RUNNER "$MANIFEST_CI_RUNNER"
-            if [[ "${DEVKIT_UPGRADE_CONTEXT:-}" != 1 ]]; then availability="variables unknown (no CI upgrade context); required variables"; fi
-            echo "ci-runner-migration: DEVKIT_CI_RUNNER kept; $availability:$missing; set them at repository level on private GitHub Free repos.$commands Until N+2 the key keeps working; after that CI fails until the required variables are set. Then delete the key. See MIGRATION.md#seeded-hook-runner-migration."
+            if [[ -n "$missing" ]]; then
+                if [[ "${DEVKIT_UPGRADE_CONTEXT:-}" != 1 ]]; then availability="variables unknown (no CI upgrade context); required variables"; fi
+                echo "ci-runner-migration: DEVKIT_CI_RUNNER kept; $availability:$missing; set them at repository level on private GitHub Free repos.$commands Until N+2 the key keeps working; after that CI fails until the required variables are set. Then delete the key. See MIGRATION.md#seeded-hook-runner-migration."
+            fi
+            if [[ "$gated" == true ]]; then
+                echo "ci-runner-migration: DEVKIT_CI_RUNNER kept; in DEVKIT_MODE=$MODE the CI_RUNNER_* variables place lanes only with DEVKIT_CI_CONTAINER_RUNNERS=true in .vig-os. Set it once those runners can run container jobs; the next upgrade then removes the key. See MIGRATION.md#container-mode-ci-runners."
+            fi
         fi
     elif [[ "${DEVKIT_UPGRADE_CONTEXT:-}" == 1 ]]; then
         if [[ -n "${DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER:-}" ]]; then
@@ -4670,6 +4694,12 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     # Project lane sizes (#1927) survive the managed template overwrite.
     if [[ -n "$MANIFEST_CI_LANE_SIZES" ]]; then
         write_manifest_value DEVKIT_CI_LANE_SIZES "$MANIFEST_CI_LANE_SIZES"
+    fi
+    # Container-mode runner opt-in (#2045): bare in the template, so an
+    # explicit value is written back — losing `true` on upgrade would move a
+    # container repo's lanes back onto hosted runners.
+    if [[ -n "$MANIFEST_CI_CONTAINER_RUNNERS" ]]; then
+        write_manifest_value DEVKIT_CI_CONTAINER_RUNNERS "$MANIFEST_CI_CONTAINER_RUNNERS"
     fi
     # Dev-shell gcroot path (#1601): same shape as the runner override above —
     # bare in the template, and a runner-host fact the consumer set once. Losing

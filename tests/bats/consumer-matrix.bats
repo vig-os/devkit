@@ -56,8 +56,9 @@ _manifest() {
 }
 
 @test "knob cells seed their knob" {
+    # Mode `both`: the variables place lanes only with the opt-in (#2045).
     run "$RENDER_CELL" seed ci-runner
-    assert_output ""
+    assert_output "DEVKIT_CI_CONTAINER_RUNNERS=true"
     run "$RENDER_CELL" seed tag-prefix
     assert_output "DEVKIT_TAG_PREFIX=v"
     run "$RENDER_CELL" seed language-guard
