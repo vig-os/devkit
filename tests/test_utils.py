@@ -477,10 +477,19 @@ class TestInstallScriptUnit:
         assert result.returncode == 0, result.stdout + result.stderr
         assert "Would execute:" in result.stdout
         if mode == "direnv":
-            assert "latest" in result.stdout
+            assert "github:vig-os/devkit/<latest-release>" in result.stdout
+            assert "github:vig-os/devkit/latest" not in result.stdout
+            assert "placeholder" in result.stdout
             assert "deferred" in result.stdout
+            assert "runtime health checks" not in result.stdout
         else:
             assert "docker run" in result.stdout
+            assert (
+                "remote branch checks and runtime health checks deferred"
+                in result.stdout
+            )
+            assert "chosen from PATH only" in result.stdout
+            assert "real run probes and may fall back" in result.stdout
         assert sorted(path.name for path in project.iterdir()) == [".git"]
 
     def test_name_sanitization_trims_trailing_separator(self, install_script):
