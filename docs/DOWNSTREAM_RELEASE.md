@@ -214,7 +214,9 @@ To **reject** a finalized-but-unpublished release instead of promoting it, run *
 For a regular gitflow train, abandonment also folds dev's pending
 `## [X.Y.Z] - TBD` changelog entries back into Unreleased, combining categories
 and duplicate entries through `prepare-changelog unfreeze X.Y.Z`. The change
-uses the signed Commit App API path. Missing pending sections (including
+uses the signed Commit App API path and the devkit-version-pinned host utility
+toolchain in every delivery mode (no project image or flake is required).
+Missing pending sections (including
 hotfix trains and completed reruns) are a no-op; trunk skips dev restoration.
 Dated releases are left intact. Bullets outside recognised categories fail
 without rewriting the changelog: correct the layout and rerun abandonment.
