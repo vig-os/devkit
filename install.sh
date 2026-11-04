@@ -879,7 +879,7 @@ host_scaffold() {
     scratch="$(mktemp -d "${TMPDIR:-/tmp}/devkit-scaffold.XXXXXX")" || return 1
     info "Fetching devkit $tag via nix..."
     if ! src="$(nix --extra-experimental-features "nix-command flakes" \
-        flake metadata --json "github:vig-os/devkit/$tag" | jq -er .path)"; then
+        flake prefetch --json "github:vig-os/devkit/$tag" | jq -er .storePath)"; then
         err "Could not fetch github:vig-os/devkit/$tag via nix"
         rm -rf "$scratch"
         return 1
@@ -1079,7 +1079,7 @@ if [ "$DRY_RUN" = true ]; then
             PLAN_VERSION="<latest-release>"
             info "<latest-release> is a placeholder; use --preview to resolve it before execution"
         fi
-        printf '  nix flake metadata --json github:vig-os/devkit/%s\n' "$PLAN_VERSION"
+        printf '  nix flake prefetch --json github:vig-os/devkit/%s | jq -er .storePath\n' "$PLAN_VERSION"
         printf '  SHORT_NAME=%q ORG_NAME=%q GITHUB_REPOSITORY=%q VIG_OS_VERSION=%q ' \
             "$PROJECT_NAME" "$ORG_NAME" "$GITHUB_REPOSITORY" "$PLAN_VERSION"
         printf 'WORKSPACE_DIR=%q bash <flake-source>/assets/init-workspace.sh' "$PROJECT_PATH"

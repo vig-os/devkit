@@ -228,7 +228,7 @@ def _run_nix_drift(
     stub.mkdir(exist_ok=True)
     nix = stub / "nix"
     nix.write_text(
-        f"#!/usr/bin/env bash\nprintf '%s' '{json.dumps({'path': str(REPO_ROOT)})}'\n",
+        f"#!/usr/bin/env bash\nprintf '%s' '{json.dumps({'storePath': str(REPO_ROOT)})}'\n",
         encoding="utf-8",
     )
     nix.chmod(0o755)

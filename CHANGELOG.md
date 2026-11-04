@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Realise direnv scaffold sources on Nix 2.35** ([#2039](https://github.com/vig-os/devkit/issues/2039))
+  - Fetch installer and Scaffold Drift sources with `nix flake prefetch` so their assets exist before copying; show the same command in the installer dry-run plan.
+
 ### Security
 
 ## [1.19.0] - TBD
