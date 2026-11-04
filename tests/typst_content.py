@@ -680,7 +680,12 @@ def test_rtl_footer_ellipsis_at_cut_end(project):
 
 
 @pytest.mark.parametrize(
-    "atom", ["rect(none, width: 1000pt, height: 4pt)", 'image("wide.svg")']
+    "atom",
+    [
+        "rect(none, width: 1000pt, height: 4pt)",
+        "rect([], width: 1000pt, height: 4pt)",
+        'image("wide.svg")',
+    ],
 )
 @pytest.mark.parametrize("mixed", [False, True])
 def test_oversized_footer_atom_stays_visible(project, atom, mixed):
