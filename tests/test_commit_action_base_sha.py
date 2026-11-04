@@ -24,7 +24,8 @@ for directory in (
 
 def replay_for(path, job, tmp_path):
     replay = Replay(path, job, {}, cwd=tmp_path)
-    for key in ("if", "timeout-minutes", "outputs"):
+    # Replay only capture scripts; scheduling and container setup are external.
+    for key in ("if", "timeout-minutes", "outputs", "container"):
         replay.job.pop(key, None)
     return replay
 
@@ -78,7 +79,10 @@ def test_api_commit_preserves_checkout_base(tmp_path, path, job, name):
     replay.run(only=[capture["id"]])
     commit()
     assert git("rev-parse", "HEAD") != sha
-    env = replay.resolve_env(api_commit, context={"steps": replay.step_context})
+    env = replay.resolve_env(
+        {"env": {"BASE_SHA": api_commit["env"]["BASE_SHA"]}},
+        context={"steps": replay.step_context},
+    )
     assert env["BASE_SHA"] == sha
 
 

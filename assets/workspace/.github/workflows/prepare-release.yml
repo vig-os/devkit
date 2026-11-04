@@ -224,6 +224,13 @@ jobs:
           ref: dev
           fetch-depth: 0
 
+      - name: Record checkout SHA
+        id: checkout-state
+        run: |
+          set -euo pipefail
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Set up devkit toolchain
         uses: ./.github/actions/setup-devkit-toolchain
         with:
@@ -233,11 +240,9 @@ jobs:
       - name: Capture pre-prepare dev SHA
         id: pre_state
         env:
-          GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
+          PREPARE_START_SHA: ${{ steps.checkout-state.outputs.sha }}
         run: |
           set -euo pipefail
-          PREPARE_START_SHA=$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
-            gh api "repos/${{ github.repository }}/git/ref/heads/dev" --jq '.object.sha')
           echo "prepare_start_sha=$PREPARE_START_SHA" >> "$GITHUB_OUTPUT"
 
       # The release branch is cut from the base BEFORE the changelog freeze, so
@@ -349,6 +354,7 @@ jobs:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/dev
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
             chore: freeze changelog for release ${{ needs.validate.outputs.version }}
@@ -593,6 +599,15 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: dev
+
+      - name: Record checkout SHA
+        id: checkout-state
+        run: |
+          set -euo pipefail
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Set up devkit toolchain
         uses: ./.github/actions/setup-devkit-toolchain
@@ -651,6 +666,7 @@ jobs:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/dev
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
             chore: rollback failed prepare-release ${{ needs.validate.outputs.version }}

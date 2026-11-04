@@ -214,6 +214,14 @@ jobs:
             git push origin "${SYNC_BRANCH}"
           echo "Sync branch ${SYNC_BRANCH} pushed from main at ${MAIN_SHA}"
 
+      - name: Record checkout SHA
+        if: steps.existing-pr.outputs.count == '0' && steps.recheck.outputs.up_to_date != 'true'
+        id: checkout-state
+        run: |
+          set -euo pipefail
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
+
       # docs/issues and docs/pull-requests snapshots are generated
       # independently on dev (nightly sync-issues) and on the release branch
       # (release-time sync-issues), so a release produces add/add conflicts on
@@ -303,6 +311,7 @@ jobs:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/${{ env.SYNC_BRANCH }}
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
           MAX_ATTEMPTS: "3"
           ALLOW_EMPTY: "true"
           COMMIT_MESSAGE: "chore: align generated doc snapshots with dev for a clean sync"

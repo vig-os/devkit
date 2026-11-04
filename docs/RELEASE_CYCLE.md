@@ -141,6 +141,17 @@ gh pr create --base dev --head chore/<short-summary>
 
 ## Release Workflow Overview
 
+API file commits pin `BASE_SHA` to the SHA recorded immediately after the relevant
+checkout, before generating files. This applies to prepare, rollback, hotfix,
+finalization, extension hooks, issue snapshots, sync conflict resolution and
+lock updates in devkit and the consumer workflows. A failed SHA capture stops
+the job. If the target advances before the API commit, the update fails rather
+than replacing concurrent changes with stale files; rerun from a fresh checkout
+after reviewing the failed phase and any partial release state. Prepare also
+uses that checkout SHA as its rollback baseline. Newly created or reset branches
+use their source checkout SHA; the extension fallback records dev after its
+second checkout, and sync records the newly checked-out sync branch.
+
 ### Release Lifecycle
 
 ```mermaid

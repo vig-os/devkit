@@ -210,6 +210,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Protect workflow file commits from concurrent branch updates** ([#2028](https://github.com/vig-os/devkit/issues/2028))
+  - Pin API commits to the checkout SHA in devkit and consumer workflows; fail closed when capture fails or the target advances.
+
 - **Restore abandoned release changelogs** ([#2003](https://github.com/vig-os/devkit/issues/2003))
   - Fold pending release entries back into Unreleased when abandoning a regular release train.
   - Pin restoration commits to their checkout SHA and refuse unsupported content without losing entries or line endings.

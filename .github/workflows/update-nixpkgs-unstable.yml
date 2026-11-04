@@ -44,6 +44,13 @@ jobs:
           ref: dev
           token: ${{ steps.generate-token.outputs.token }}
 
+      - name: Record checkout SHA
+        id: checkout-state
+        run: |
+          set -euo pipefail
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Install Nix (upstream CppNix)
         uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31.11.1
         with:
@@ -90,6 +97,7 @@ jobs:
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/chore/update-nixpkgs-unstable
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: "chore(nix): bump nixpkgs-unstable + home-manager master"
           FILE_PATHS: flake.lock

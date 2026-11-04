@@ -235,6 +235,13 @@ jobs:
           ref: main
           persist-credentials: false
 
+      - name: Record checkout SHA
+        id: checkout-state
+        run: |
+          set -euo pipefail
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Set up environment
         uses: ./.github/actions/setup-env
         with:
@@ -311,6 +318,7 @@ jobs:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/release/${{ needs.validate.outputs.version }}
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
             chore: ${{ needs.validate.outputs.changelog_mode }} changelog for hotfix ${{ needs.validate.outputs.version }}

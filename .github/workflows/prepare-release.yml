@@ -233,6 +233,13 @@ jobs:
           ref: dev
           fetch-depth: 0
 
+      - name: Record checkout SHA
+        id: checkout-state
+        run: |
+          set -euo pipefail
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Set up environment
         uses: ./.github/actions/setup-env
         with:
@@ -243,11 +250,9 @@ jobs:
       - name: Capture pre-prepare dev SHA
         id: pre-state
         env:
-          GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
+          PREPARE_START_SHA: ${{ steps.checkout-state.outputs.sha }}
         run: |
           set -euo pipefail
-          PREPARE_START_SHA=$(uv run retry --retries 3 --backoff 5 --max-backoff 60 -- \
-            gh api "repos/${{ github.repository }}/git/ref/heads/dev" --jq '.object.sha')
           echo "prepare_start_sha=$PREPARE_START_SHA" >> "$GITHUB_OUTPUT"
           echo "✓ Captured pre-prepare dev SHA: $PREPARE_START_SHA"
 
@@ -295,6 +300,7 @@ jobs:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/dev
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
             chore: freeze changelog for release ${{ needs.validate.outputs.version }}
@@ -515,6 +521,13 @@ jobs:
           ref: dev
           fetch-depth: 0
 
+      - name: Record checkout SHA
+        id: checkout-state
+        run: |
+          set -euo pipefail
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Set up environment
         uses: ./.github/actions/setup-env
         with:
@@ -587,6 +600,7 @@ jobs:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/dev
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
             chore: rollback failed prepare-release ${{ needs.validate.outputs.version }}

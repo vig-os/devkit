@@ -114,6 +114,13 @@ jobs:
           ref: ${{ github.event.inputs.target-branch || 'dev' }}
           persist-credentials: false
 
+      - name: Record checkout SHA
+        id: checkout-state
+        run: |
+          set -euo pipefail
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Set up devkit toolchain
         uses: ./.github/actions/setup-devkit-toolchain
         with:
@@ -203,6 +210,7 @@ jobs:
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/${{ github.event.inputs.target-branch || 'dev' }}
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: "${{ github.event.inputs.commit-msg || 'chore: sync issues and PRs' }}"
           FILE_PATHS: ${{ steps.sync.outputs.modified-files }}

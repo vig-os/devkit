@@ -112,6 +112,13 @@ jobs:
           ref: ${{ inputs.release_branch }}
           fetch-depth: 0
 
+      - name: Record checkout SHA
+        id: checkout-state
+        run: |
+          set -euo pipefail
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Set up environment
         uses: ./.github/actions/setup-env
         with:
@@ -132,6 +139,7 @@ jobs:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/${{ inputs.release_branch }}
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
             chore: sync workspace manifest for release ${{ inputs.version }}
@@ -193,6 +201,14 @@ jobs:
           git checkout --detach origin/dev
           echo "✓ Working tree now at dev head $(git rev-parse HEAD)"
 
+      - name: Record checkout SHA
+        if: ${{ steps.dev-ff.outputs.ff_done != 'true' }}
+        id: dev-checkout-state
+        run: |
+          set -euo pipefail
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Sync workspace manifest against dev
         id: dev-sync
         if: ${{ steps.dev-ff.outputs.ff_done != 'true' }}
@@ -214,6 +230,7 @@ jobs:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/dev
+          BASE_SHA: ${{ steps.dev-checkout-state.outputs.sha }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
             chore: reconcile workspace changelog mirror after freeze for ${{ inputs.version }}
