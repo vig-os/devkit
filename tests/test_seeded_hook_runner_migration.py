@@ -315,9 +315,7 @@ def test_migration_docs_and_changelog_match_the_new_contract(
                 0
             ]
         )
-    categories = _current_changelog_categories(migration_changelog)
-    assert "[#1929]" in categories.get("Added", "")
-    assert "[#1929]" not in categories.get("Fixed", "")
+    _assert_migration_changelog_contract(migration_changelog)
 
 
 @pytest.mark.parametrize(
@@ -336,58 +334,39 @@ def test_migration_changelog_rejects_missing_or_miscategorized_entries(
     changelog: str,
 ) -> None:
     with pytest.raises(AssertionError):
-        test_migration_docs_and_changelog_match_the_new_contract(changelog)
-
-
-def _current_changelog_categories(changelog: str) -> dict[str, str]:
-    """Collect categories from Unreleased, pending, and the newest release."""
-    categories: dict[str, str] = {}
-    release_seen = False
-    sections = re.split(r"^## (.+)$", changelog, flags=re.MULTILINE)
-    for heading, body in zip(sections[1::2], sections[2::2], strict=True):
-        is_release = re.match(r"\[\d+\.\d+\.\d+\]", heading) is not None
-        eligible = heading == "Unreleased" or (
-            is_release and (not release_seen or heading.endswith(" - TBD"))
-        )
-        release_seen = release_seen or is_release
-        if not eligible:
-            continue
-        blocks = re.split(r"^### (.+)$", body, flags=re.MULTILINE)
-        for category, text in zip(blocks[1::2], blocks[2::2], strict=True):
-            categories[category] = categories.get(category, "") + text
-    return categories
+        _assert_migration_changelog_contract(changelog)
 
 
 @pytest.mark.parametrize(
-    ("changelog", "added", "fixed"),
+    "changelog",
     [
-        (
-            "## Unreleased\n### Fixed\n- [#1929]\n### Added\n- other\n",
-            False,
-            True,
-        ),
-        (
-            "## Unreleased\n### Added\n- other\n"
-            "## [1.19.0] - TBD\n### Changed\n- other\n"
-            "## [1.18.0] - 2026-10-05\n### Added\n- [#1929]\n",
-            False,
-            False,
-        ),
-        (
-            "## Unreleased\n### Added\n- [#1929]\n"
-            "## [1.19.0] - TBD\n### Fixed\n- [#1929]\n",
-            True,
-            True,
-        ),
+        "## Unreleased\n### Fixed\n- unrelated\n### Added\n- [#1929]\n",
+        "## Unreleased\n### Added\n- [#1929]\n"
+        "## [1.19.0] - 2026-11-04\n### Added\n- [#1929]\n",
     ],
-    ids=["category-order", "exclude-older-release", "fixed-in-another-section"],
+    ids=["category-order", "multiple-matching-sections"],
 )
-def test_current_changelog_category_boundaries(
-    changelog: str, added: bool, fixed: bool
+def test_migration_changelog_accepts_each_correctly_categorized_section(
+    changelog: str,
 ) -> None:
-    categories = _current_changelog_categories(changelog)
-    assert ("[#1929]" in categories.get("Added", "")) is added
-    assert ("[#1929]" in categories.get("Fixed", "")) is fixed
+    _assert_migration_changelog_contract(changelog)
+
+
+def _assert_migration_changelog_contract(changelog: str) -> None:
+    """Require every section mentioning #1929 to classify it only as Added."""
+    marker = "[#1929]"
+    sections = re.split(r"^## .+$", changelog, flags=re.MULTILINE)[1:]
+    matching = [section for section in sections if marker in section]
+    assert matching, "Missing #1929 changelog entry"
+    for section in matching:
+        blocks = re.split(r"^### (.+)$", section, flags=re.MULTILINE)
+        assert marker not in blocks[0], "#1929 must be under a category heading"
+        categories = {
+            category
+            for category, text in zip(blocks[1::2], blocks[2::2], strict=True)
+            if marker in text
+        }
+        assert categories == {"Added"}, f"#1929 appears under {categories}"
 
 
 @pytest.mark.parametrize("small", ["", "   "])
