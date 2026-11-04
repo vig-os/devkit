@@ -4460,7 +4460,7 @@ migrate_ci_runner_key() {
             if [[ "$CI_RUNNER_HOOKS_RECONCILED" == true ]]; then
                 echo "ci-runner-migration: ${legacy_action}delete the old variable DEVKIT_CI_RESOLVE_RUNNER; every seeded hook job is reconciled. See MIGRATION.md#seeded-hook-runner-migration."
             else
-                echo "ci-runner-migration: ${legacy_action}keep DEVKIT_CI_RESOLVE_RUNNER until every seeded hook job is reconciled. See MIGRATION.md#seeded-hook-runner-migration."
+                echo "ci-runner-migration: ${legacy_action}review preserved jobs; keep DEVKIT_CI_RESOLVE_RUNNER only while jobs still rely on it. A deliberate custom runner does not rely on that variable. See MIGRATION.md#seeded-hook-runner-migration."
             fi
         elif [[ "${DEVKIT_UPGRADE_REPO_PRIVATE:-}" == true && -z "$visible" ]]; then
             echo "ci-runner-migration: CI runs hosted; organization variables do not reach private repos on GitHub Free. Set repository variables, or set them to ubuntu-26.04 to declare hosted on purpose. See MIGRATION.md#seeded-hook-runner-migration."
@@ -4518,7 +4518,7 @@ track_hook_runner_job() {
 
 # Return the replacement in HOOK_RUNNER_REPLACEMENT; status stays in this shell.
 classify_hook_runner() {
-    local value="$1" target="$2" job="$3" path="$4" stock
+    local value="$1" target="$2" job="$3" path="$4" stock small="${DEVKIT_UPGRADE_CI_RUNNER_SMALL:-}"
     HOOK_RUNNER_REPLACEMENT="$value"
     # YAML scalar quotes do not change the runner value.
     if [[ "$value" == \'*\' || "$value" == \"*\" ]]; then
@@ -4528,7 +4528,7 @@ classify_hook_runner() {
     for stock in "${CI_RUNNER_HOOK_STOCK[@]}"; do
         if [[ "$value" == "$stock" ]]; then
             if upgrade_has_runner_variable small ||
-                [[ "${DEVKIT_UPGRADE_CONTEXT:-}" == 1 && -z "${DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER:-}" && -z "${DEVKIT_UPGRADE_CI_RUNNER_SMALL//[[:space:]]/}" ]]; then
+                [[ "${DEVKIT_UPGRADE_CONTEXT:-}" == 1 && -z "${DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER:-}" && -z "${small//[[:space:]]/}" ]]; then
                 HOOK_RUNNER_REPLACEMENT="$target"
                 report_hook_runner reconciled "$job" "$path" "stock runner replaced by the SMALL expression; review this workflow diff."
             else
