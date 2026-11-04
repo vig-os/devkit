@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Changed
+
+### Deprecated
+
+### Removed
+
+### Fixed
+
+### Security
+
+## [1.19.0] - TBD
+
+### Added
+
 - **Typst plots, glossary and slides** ([#1994](https://github.com/vig-os/devkit/issues/1994))
   - Ship devkit-docs 0.2.0 with licensed, offline lilaq plots, required axis labels and a 7 pt text minimum.
   - Load consumer glossary YAML directly, reject duplicate IDs, and reserve acronym expansion for body occurrences.
@@ -199,8 +213,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - See the [deprecation timeline](https://github.com/vig-os/devkit/blob/dev/docs/MIGRATION.md#deprecation-timeline) and
     [seeded hook migration](https://github.com/vig-os/devkit/blob/dev/docs/MIGRATION.md#seeded-hook-runner-migration).
 
-### Removed
-
 ### Fixed
 
 - **Offline, probe-free installer dry runs** ([#2021](https://github.com/vig-os/devkit/issues/2021))
@@ -287,8 +299,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A Rust flake no longer has to drop or `# deadnix: skip` the manifest
     bindings it reads, which made the first commit touching `flake.nix` fail
     deadnix
-
-### Security
 
 ## [1.18.2](https://github.com/vig-os/devkit/releases/tag/1.18.2) - 2026-11-03
 
