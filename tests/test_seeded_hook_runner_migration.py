@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from typing import TYPE_CHECKING
 
@@ -269,7 +270,36 @@ def test_hook_findings_use_the_migration_channel_under_both_body_builders(
         assert ANCHOR in text
 
 
-def test_migration_docs_and_changelog_match_the_new_contract() -> None:
+@pytest.fixture(params=["repository", "unreleased", "pending", "released", "older"])
+def migration_changelog(request: pytest.FixtureRequest) -> str:
+    """Exercise the real freeze and populated development/release layouts."""
+    if request.param == "repository":
+        return (REPO_ROOT / "CHANGELOG.md").read_text()
+    entry = "### Added\n\n- **Runner migration** ([#1929](https://example.com/1929))\n"
+    empty = "### Added\n\n### Fixed\n\n"
+    older = "## [1.18.0] - 2026-10-05\n\n" + empty
+    if request.param == "unreleased":
+        return "## Unreleased\n\n" + entry + "### Fixed\n\n" + older
+    if request.param == "older":
+        return (
+            "## Unreleased\n\n"
+            + empty
+            + "## [1.21.0] - 2026-12-04\n\n"
+            + empty
+            + "## [1.20.0] - 2026-11-20\n\n"
+            + empty
+            + "## [1.19.0] - 2026-11-04\n\n"
+            + entry
+        )
+    release = (
+        "[1.19.0] - TBD" if request.param == "pending" else "[1.19.0] - 2026-11-04"
+    )
+    return "## Unreleased\n\n" + empty + f"## {release}\n\n" + entry + older
+
+
+def test_migration_docs_and_changelog_match_the_new_contract(
+    migration_changelog: str,
+) -> None:
     docs = (REPO_ROOT / "docs/MIGRATION.md").read_text()
     assert "### Seeded hook runner migration" in docs
     for word in (
@@ -285,14 +315,58 @@ def test_migration_docs_and_changelog_match_the_new_contract() -> None:
                 0
             ]
         )
-    changelog = (
-        (REPO_ROOT / "CHANGELOG.md")
-        .read_text()
-        .split("## Unreleased", 1)[1]
-        .split("\n## ", 1)[0]
-    )
-    assert "[#1929]" in changelog.split("### Added", 1)[1].split("\n### ", 1)[0]
-    assert "[#1929]" not in changelog.split("### Fixed", 1)[1].split("\n### ", 1)[0]
+    _assert_migration_changelog_contract(migration_changelog)
+
+
+@pytest.mark.parametrize(
+    "changelog",
+    [
+        "## Unreleased\n### Added\n- unrelated\n",
+        "## Unreleased\n### Added\n- [#1929]\n"
+        "## [1.19.0] - TBD\n### Fixed\n- [#1929]\n",
+        "## Unreleased\n### Added\n- [#1929]\n"
+        "## [1.20.0] - 2026-11-20\n### Added\n- unrelated\n"
+        "## [1.19.0] - 2026-11-04\n### Changed\n- [#1929]\n",
+    ],
+    ids=["missing-entry", "fixed-in-another-section", "older-wrong-category"],
+)
+def test_migration_changelog_rejects_missing_or_miscategorized_entries(
+    changelog: str,
+) -> None:
+    with pytest.raises(AssertionError):
+        _assert_migration_changelog_contract(changelog)
+
+
+@pytest.mark.parametrize(
+    "changelog",
+    [
+        "## Unreleased\n### Fixed\n- unrelated\n### Added\n- [#1929]\n",
+        "## Unreleased\n### Added\n- [#1929]\n"
+        "## [1.19.0] - 2026-11-04\n### Added\n- [#1929]\n",
+    ],
+    ids=["category-order", "multiple-matching-sections"],
+)
+def test_migration_changelog_accepts_each_correctly_categorized_section(
+    changelog: str,
+) -> None:
+    _assert_migration_changelog_contract(changelog)
+
+
+def _assert_migration_changelog_contract(changelog: str) -> None:
+    """Require every section mentioning #1929 to classify it only as Added."""
+    marker = "[#1929]"
+    sections = re.split(r"^## .+$", changelog, flags=re.MULTILINE)[1:]
+    matching = [section for section in sections if marker in section]
+    assert matching, "Missing #1929 changelog entry"
+    for section in matching:
+        blocks = re.split(r"^### (.+)$", section, flags=re.MULTILINE)
+        assert marker not in blocks[0], "#1929 must be under a category heading"
+        categories = {
+            category
+            for category, text in zip(blocks[1::2], blocks[2::2], strict=True)
+            if marker in text
+        }
+        assert categories == {"Added"}, f"#1929 appears under {categories}"
 
 
 @pytest.mark.parametrize("small", ["", "   "])
