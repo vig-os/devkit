@@ -608,7 +608,7 @@ def test_generic_footer_prefix(project, wrapper, mixed):
     if wrapper == "raw":
         title = f'#raw("{value}")'
     elif wrapper == "math":
-        title = "$" + "x+" * 250 + "x$"
+        title = '$frac("' + "x" * 500 + '", y)$'
     elif wrapper == "pad":
         assert "pad" not in (ASSETS / "devkit-docs/slides.typ").read_text()
         title = f"#pad(left: 1pt, right: 1pt)[{value}]"
