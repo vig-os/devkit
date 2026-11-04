@@ -786,3 +786,31 @@ def test_runtime_bypass_observes_later_page_and_heading(doc, capsys):
     )
     assert run("house-style-bypass") == 1
     assert "detected at runtime on page 2" in capsys.readouterr().err
+
+
+def test_runtime_marker_is_entry_scoped_and_keeps_source_findings(doc, capsys):
+    marker = "// house-style-bypass: ignore-document"
+    Path("part.typ").write_text(marker + "\nIncluded")
+    write(
+        '#let apply = text\n#show: body => { set apply(font: "New Computer Modern"); body }\n#include "part.typ"',
+        package=True,
+    )
+    assert run("house-style-bypass") == 1
+    assert "detected at runtime" in capsys.readouterr().err
+    write(
+        f'#let example = "{marker}"\n#set page(margin: 1cm)\nText\n{marker}',
+        package=True,
+    )
+    assert run("house-style-bypass") == 1
+    output = capsys.readouterr().err
+    assert "main.typ:5: house-style-bypass:" in output
+    assert "detected at runtime" not in output
+
+
+def test_runtime_heading_sees_midpage_font_override(doc, capsys):
+    write(
+        'Normal\n\n#let apply = text\n#set apply(font: "New Computer Modern")\n= Changed\nText',
+        package=True,
+    )
+    assert run("house-style-bypass") == 1
+    assert "detected at runtime on page 1" in capsys.readouterr().err

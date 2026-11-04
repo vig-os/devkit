@@ -4,7 +4,7 @@ from vig_utils.typst_content import blank, fallback_width, instrument, tokens
 
 
 def test_strings_nested_comments_and_raw_examples():
-    source = '/* outer /* nested */ text */ "#set page()" `#set page()`\n#set text(font: "Example")'
+    source = '/* outer /* nested */ text */ #let quoted = "#set page()" `#set page()`\n#set text(font: "Example")'
     assert [word for word, _, _ in tokens(source)].count("set") == 1
     origins = {}
     instrument(source, "main.typ", origins)
@@ -443,3 +443,30 @@ def test_prose_quote_before_code_string_and_url_fragment():
     assert [
         call[0] for call in call_spans("https://example.com/#fake #table([a])")
     ] == ["table"]
+
+
+def test_css_budget_counts_repeated_reference_visits(tmp_path, monkeypatch):
+    import pytest
+    from vig_utils import typst_svg
+
+    path = tmp_path / "reused.svg"
+    path.write_text(
+        '<svg viewBox="0 0 100 50"><style>'
+        + "text {font-size:10px}" * 1000
+        + '</style><defs><g id="plot">'
+        + "<text>x</text>" * 100
+        + "</g></defs>"
+        + '<use href="#plot"/>' * 20
+        + "</svg>"
+    )
+    original, calls = typst_svg.svg_style, 0
+
+    def style(*args):
+        nonlocal calls
+        calls += 1
+        assert calls <= 1000, "CSS work exceeded the bounded-work canary"
+        return original(*args)
+
+    monkeypatch.setattr(typst_svg, "svg_style", style)
+    with pytest.raises(ValueError, match="CSS.*limit"):
+        typst_svg.svg_metrics(path)
