@@ -118,3 +118,59 @@ def test_prepare_rollback_baseline_is_checkout(tmp_path, prefix, step_id):
     assert (
         replay.step_context[step_id]["outputs"]["prepare_start_sha"] == "checkout-sha"
     )
+
+
+def assert_capture_contract(replay, name):
+    commit = next(s for s in replay.steps if s.get("name") == name)
+    capture_id = commit["env"]["BASE_SHA"].split("steps.")[1].split(".outputs")[0]
+    capture = next(s for s in replay.steps if s.get("id") == capture_id)
+    assert "if" not in capture
+    capture, commit = capture_for(replay, name)
+    checkout = replay.steps[replay.steps.index(capture) - 1]
+    target = commit["env"]["TARGET_BRANCH"].removeprefix("refs/heads/")
+    source = checkout.get("with", {}).get("ref")
+    if checkout["name"] == "Check out dev at its current head":
+        source = "dev"
+    elif checkout["name"] == "Create sync branch from main":
+        source = "${{ env.SYNC_BRANCH }}"
+    elif replay.workflow["name"] == "Prepare Hotfix":
+        target = "main"  # New release branch is created from validated main.
+    elif target.startswith("chore/update-nixpkgs"):
+        target = "dev"  # Chore branch is created/reset at the dev checkout.
+    assert source == target, (source, target)
+
+
+@pytest.mark.parametrize("path,job,name", CALLS)
+def test_capture_matches_target_and_cannot_be_narrowed(tmp_path, path, job, name):
+    replay = replay_for(path, job, tmp_path)
+    # Capture is unconditional within the job: a later commit gate cannot
+    # allow an API write after this capture was skipped.
+    commit = next(s for s in replay.steps if s.get("name") == name)
+    capture_id = commit["env"]["BASE_SHA"].split("steps.")[1].split(".outputs")[0]
+    capture = next(s for s in replay.steps if s.get("id") == capture_id)
+    assert "if" not in capture
+    assert_capture_contract(replay, name)
+
+
+def test_wrong_extension_capture_mutant_is_rejected(tmp_path):
+    replay = replay_for(
+        ROOT / ".github/workflows/prepare-release-extension.yml",
+        "sync-manifest",
+        tmp_path,
+    )
+    name = "Commit reconciled mirror to dev via API"
+    commit = next(s for s in replay.steps if s.get("name") == name)
+    commit["env"]["BASE_SHA"] = "${{ steps.checkout-state.outputs.sha }}"
+    with pytest.raises(AssertionError):
+        assert_capture_contract(replay, name)
+
+
+def test_narrowed_capture_mutant_is_rejected(tmp_path):
+    path, job, name = CALLS[0]
+    replay = replay_for(path, job, tmp_path)
+    capture, _ = capture_for(replay, name)
+    capture["if"] = "false"
+    replay.run(only=[capture["id"]])
+    assert replay.step_context[capture["id"]]["outcome"] == "skipped"
+    with pytest.raises(AssertionError):
+        assert_capture_contract(replay, name)
