@@ -672,3 +672,39 @@ def test_rtl_footer_ellipsis_at_cut_end(project):
     assert float(ellipsis.attrib["xMax"]) <= min(
         float(w.attrib["xMin"]) for w in hebrew
     )
+
+
+@pytest.mark.parametrize(
+    "atom", ["rect(none, width: 1000pt, height: 4pt)", 'image("wide.svg")']
+)
+@pytest.mark.parametrize("mixed", [False, True])
+def test_oversized_footer_atom_stays_visible(project, atom, mixed):
+    Path("wide.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="4"><rect width="1000" height="4"/></svg>'
+    )
+    title = ("Intro " if mixed else "") + f"#{atom}"
+    result = compile_source(
+        project + f"#show: slides.with(short-title: [{title}])\n#slide()[Body]"
+    )
+    assert result.returncode == 0, result.stderr
+    extracted = " ".join(
+        w.text or "" for w in pdf_words() if float(w.attrib["yMin"]) > 350
+    )
+    assert "□…" in extracted, extracted
+    if mixed:
+        assert "Intro" in extracted, extracted
+
+
+def test_long_inline_math_footer_keeps_prefix(project):
+    result = compile_source(
+        project
+        + "#show: slides.with(short-title: [Intro $"
+        + "x+" * 200
+        + "x$])\n#slide()[Body]"
+    )
+    assert result.returncode == 0, result.stderr
+    extracted = unicodedata.normalize(
+        "NFKC",
+        " ".join(w.text or "" for w in pdf_words() if float(w.attrib["yMin"]) > 350),
+    )
+    assert "Intro" in extracted and "x" in extracted and "..." in extracted, extracted
