@@ -9,46 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **Typst plots, glossary and slides** ([#1994](https://github.com/vig-os/devkit/issues/1994))
-  - Ship devkit-docs 0.2.0 with licensed, offline lilaq plots, required axis labels and a 7 pt text minimum.
-  - Load consumer glossary YAML directly, reject duplicate IDs, and reserve acronym expansion for body occurrences.
-  - Keep plot ticks at 9 pt, enforce script and explicit math text minimums, and fit long slide footer titles.
-  - Preserve rich slide footer content, synthesize readable script glyphs, and provide bookmark-safe bound glossary terms with actionable setup errors.
-  - Keep styled footer prefixes and a single bounded line, with a counter gap, explicit tall-object sizing, and matching non-empty glossary validation.
-  - Split footer wrappers generically, retain oversized atoms visibly, measure scaled prefixes accurately, and respect RTL truncation.
-  - Add a branded 16:9 slide layout with title, section and content slides, booktabs, captions and revision footers; retain older package imports.
-
-- **Opt-in Typst content guards** ([#1994](https://github.com/vig-os/devkit/issues/1994))
-  - Check figure captions, table headers, house-style overrides and SVG text below 7 pt at its placed size, with skip globs and source-line suppression.
-  - Retain prior house-style imports and add 0.2.1 guard-only layout measurements without changing normal PDF output.
-  - Preserve native image values with a validated plain-compile fallback; resolve source-relative SVGs, Matplotlib DOCTYPEs, fit/height/viewBox sizing, hidden text and local template overrides. Reuse one mirror per run.
-  - Resolve Matplotlib font shorthand and CSS importance; warn on unknown sizes and bounded SVG use expansion. Scale nested viewports, ignore zero-size text, and document byte-source images as skipped.
-  - Scope instrumentation to document dependencies, preserve generated assets, detect closure templates, and keep repeated-label suppression and logo/body measurements specific to each source placement.
-  - Preserve prose and caption markup around inline expressions so content checks retain layout measurements; scope logo attribution to template parameters, warn on unsupported CSS font syntax, cap SVG traversal by visited nodes, and cache dependency-edge tokenization.
-  - Track code and markup structurally across else bodies, prose quotes, URLs and escaped hashes; inspect qualified calls once per source. Add runtime page/font bypass checks with document suppression and bounded CSS work.
-  - Keep defusedxml in the shared vig-utils runtime, including non-docs consumers, to guarantee the same hardened XML parser in dynamically enabled docs hooks and recipes without a second Python environment. Guard activation remains docs-only.
-
-- **Offline Typst house-style package** ([#1994](https://github.com/vig-os/devkit/issues/1994))
-  - Add the versioned, neutral devkit-docs package with document layout, booktabs tables, captions, callouts, revisions, and document references.
-  - Share its immutable package registry across docs shells and hooks; vendor licensed diagram dependencies and verify real offline builds.
-  - Preserve spanned table layouts and explicit header settings, provide native-table opt-out, paginate table figures, and reject blank captions.
-  - Preserve labelled plain-table opt-outs and table overrides, accept visible non-text captions, lock package contents, retain old versions, and share consumer/data-dir registries with stable dependency paths.
-  - Preserve dependency paths after failed or terminated compiles, forward SIGHUP, and follow symlinked dependency outputs without replacing the link.
-  - Stabilize every dependency output format and flag spelling, forward compiler signals, verify vendored hashes and retained releases, and scope nested table opt-outs.
-  - Give the package independent SemVer, preserve built-in names, add short titles, and share font isolation and consumer registries across document tools.
-
-- **Advisory glossary candidate discovery** ([#1994](https://github.com/vig-os/devkit/issues/1994))
-  - Add JSON-line candidate reports and a just recipe for terminology review, with measured precision fixtures.
-  - Reject dead rules, protect registered words across simple inline markup and partial overlaps, deduplicate overlapping hits, and clarify source diagnostics.
-  - Preserve forbidden rules containing registered names; filter candidate markup/code noise, join wrapped names, retain source context, and allow extra stopwords.
-  - Cache and prefilter nearest-term comparisons; report measured precision, recall and benchmarks.
-  - Preserve code boundaries, protect only exact-case names, refine phrase boundaries, and allow projects to override acronym/standard filters.
-
-- **Opt-in terminology register checks** ([#1994](https://github.com/vig-os/devkit/issues/1994))
-  - Validate glossary YAML and reject forbidden names and unknown part numbers in document sources.
-  - Preserve registered names and casing corrections, scan tracked prose across whitespace, and reject ambiguous registers.
-  - Include jsonschema and its runtime dependencies in all images/toolchains via vig-utils, sharing the editor and hook schema validator; docs hooks remain opt-in.
-
 ### Changed
 
 ### Deprecated
@@ -56,10 +16,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 ### Fixed
-
-- **Promote releases on plan-limited private repositories** ([#1851](https://github.com/vig-os/devkit/issues/1851))
-  - Stop retrying only rulesets plan-limit HTTP 403 responses and require one approval by default in both promote gates.
-  - Count distinct current-head approvals from each reviewer's latest APPROVED, CHANGES_REQUESTED, or DISMISSED review, ignoring COMMENTED and PENDING and excluding the PR author; keep host retry diagnostics out of API responses.
-  - Add `DEVKIT_RELEASE_REQUIRED_APPROVALS` for the 403 fallback; solo consumers can set 0, while real ruleset requirements retain precedence.
 
 ### Security
