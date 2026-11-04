@@ -53,10 +53,16 @@ def font_shorthand(value):
 
 def declarations(text):
     """Expand font at its declaration position before resolving the cascade."""
+    if "/*" in text or "*/" in text:
+        raise ValueError("unresolved SVG CSS comment in declarations")
     for declaration in text.split(";"):
         if ":" not in declaration:
             continue
         name, value = (part.strip() for part in declaration.split(":", 1))
+        if name.lower() in ("font", "font-size") and name != name.lower():
+            raise ValueError(f"unresolved SVG CSS property {name}")
+        if re.search(r"!\s+important\s*$", value, re.IGNORECASE):
+            raise ValueError("unresolved SVG CSS spaced importance marker")
         important = bool(re.search(r"\s*!important\s*$", value, re.IGNORECASE))
         value = re.sub(r"\s*!important\s*$", "", value, flags=re.IGNORECASE)
         if name == "font":
@@ -156,7 +162,7 @@ class SvgText:
     def __init__(self, root, rules, viewport):
         self.root, self.rules, self.viewport = root, rules, viewport
         self.ids = {node.get("id"): node for node in root.iter() if node.get("id")}
-        self.sizes, self.expansions = [], 0
+        self.sizes, self.visited = [], 0
 
     def use(self, node, size, scale, visibility, references, viewport):
         target = node.get("href", node.get("{http://www.w3.org/1999/xlink}href", ""))
@@ -166,9 +172,8 @@ class SvgText:
             or target in references
         ):
             raise ValueError("unresolved or cyclic SVG use reference")
-        self.expansions += 1
-        if len(references) >= 32 or self.expansions > 4096:
-            raise ValueError("SVG use expansion limit exceeded")
+        if len(references) >= 32:
+            raise ValueError("SVG use depth limit exceeded")
         override = (node.get("width", "100%"), node.get("height", "100%"))
         self.visit(
             self.ids[target[1:]],
@@ -190,6 +195,9 @@ class SvgText:
         viewport=None,
         override=None,
     ):
+        self.visited += 1
+        if self.visited > 32768:
+            raise ValueError("SVG visited node limit exceeded")
         tag = node.tag.split("}")[-1]
         if tag == "defs" or (tag == "symbol" and override is None):
             return

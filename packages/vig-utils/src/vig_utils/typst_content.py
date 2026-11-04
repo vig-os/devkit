@@ -65,18 +65,37 @@ def delimiter_pairs(lex):
 
 
 def code_contexts(lex, pairs, source):
-    """Compute code/markup context once, including multiline closure bodies."""
+    """Only statements prolong code; inline calls and content keep their boundaries."""
     flags, stack = [], []
     line_code, previous_end = False, 0
     for i, (word, start, end) in enumerate(lex):
         if "\n" in source[previous_end:start]:
             line_code = False
         previous_end = end
-        if word == "#":
+        # Control-flow statements, like let/set/show, can introduce multiline
+        # bodies with ordinary code calls. A bare inline #expression cannot.
+        if (
+            word == "#"
+            and i + 1 < len(lex)
+            and lex[i + 1][0]
+            in (
+                "let",
+                "set",
+                "show",
+                "context",
+                "import",
+                "if",
+                "for",
+                "while",
+            )
+        ):
             line_code = True
         code = flags[stack[-1]] if stack else line_code
         if stack and lex[stack[-1]][0] == "[":
-            code = line_code
+            code = False
+        # Keep an inline call's arguments in code, without enabling later prose.
+        if word == "(" and i and flags[i - 1] and lex[i - 1][2] == start:
+            code = True
         if i and lex[i - 1][0] == "#":
             code = True
         if word == "{" and i >= 3 and lex[i - 1][0] == ">" and lex[i - 2][0] == "=":
@@ -189,19 +208,48 @@ def image_edits(source, start, end, args):
     return [(offset, prefix), (offset + last, ")")]
 
 
-def logo_calls(source, path, origins, ends, markers):
-    """Attribute the package's logo to the template argument that supplies it."""
+def template_logos(source):
+    """Find direct logo arguments of devkit-document and its with() method."""
     lex = tokens(source)
-    for i, (word, start, _) in enumerate(lex[:-2]):
-        if word != "logo" or lex[i + 1][0] != ":":
-            continue
+    pairs = delimiter_pairs(lex)
+    code = code_contexts(lex, pairs, source)
+    templates = {
+        opening
+        for opening in pairs
+        if lex[opening][0] == "("
+        and code[opening]
+        and (
+            lex[opening - 1][0] == "devkit-document"
+            or [word for word, _, _ in lex[max(0, opening - 3) : opening]]
+            == ["devkit-document", ".", "with"]
+        )
+    }
+    stack = []
+    for i, (word, start, _) in enumerate(lex):
+        if (
+            word == "logo"
+            and stack
+            and stack[-1] in templates
+            and i + 2 < len(lex)
+            and lex[i + 1][0] == ":"
+        ):
+            closing = pairs[stack[-1]]
+            yield start, lex[closing][2], source[lex[i + 2][1] : lex[closing][1]]
+        if i in pairs:
+            stack.append(i)
+        while stack and pairs[stack[-1]] == i:
+            stack.pop()
+
+
+def logo_calls(source, path, origins, ends, markers):
+    """Attribute only the template's own logo argument, including end-line ignores."""
+    for start, end, args in template_logos(source):
         line = bisect_right(ends, start) + 1
-        last = min(i + 6, len(lex) - 1)
-        raw, canonical = image_origin(source[lex[i + 2][1] : lex[last][2]], path)
+        raw, canonical = image_origin(args, path)
         if canonical is None:
             continue
         key = f"<devkit-logo-{path}-{start}>"
-        origin = (path, line, markers[line])
+        origin = (path, line, markers[line] | markers[bisect_right(ends, end) + 1])
         origins[key] = origin
         origins.setdefault("offsets", {})[key] = start
         origins.setdefault("image_order", []).append(key)
@@ -360,6 +408,20 @@ def entry_sources(entry, context):
     return active
 
 
+def source_imports(source, name):
+    """Read local dependency edges once; ordering still follows each entry."""
+    lex, imports = tokens(source), []
+    for i, (word, start, _) in enumerate(lex[:-1]):
+        if word not in ("import", "include") or not lex[i + 1][0].startswith('"'):
+            continue
+        raw = json.loads(lex[i + 1][0])
+        target = os.path.normpath(
+            raw.lstrip("/") if raw.startswith("/") else str(Path(name).parent / raw)
+        )
+        imports.append((start, target))
+    return imports
+
+
 def ordered_calls(entry, context, active, kind):
     """Flatten local imports/includes at their document position, ignoring inactive files."""
     calls, seen = context["origins"].get(kind, []), set()
@@ -375,15 +437,10 @@ def ordered_calls(entry, context, active, kind):
         events = [
             (context["origins"]["offsets"][key], key, None) for key in by_file[name]
         ]
-        lex = tokens(source)
-        for i, (word, start, _) in enumerate(lex[:-1]):
-            if word not in ("import", "include") or not lex[i + 1][0].startswith('"'):
-                continue
-            raw = json.loads(lex[i + 1][0])
-            target = os.path.normpath(
-                raw.lstrip("/") if raw.startswith("/") else str(Path(name).parent / raw)
-            )
-            events.append((start, "", target))
+        imports = context.setdefault("source_imports", {})
+        if name not in imports:
+            imports[name] = source_imports(source, name)
+        events.extend((start, "", target) for start, target in imports[name])
         result = []
         for _, key, target in sorted(events):
             result.extend(visit(target) if target else [key])

@@ -372,7 +372,10 @@ figure/table calls and `fig()`, `booktabs-table()` and `plain-table()` get sourc
 labels for diagnostics and suppression. Unlabelled tables derived by the
 package are excluded from findings. Local template functions that set page or
 font count as bypasses, including multi-line `#let` signatures and `=> {`
-closures used by `#let`, `#show`, or imported local templates. Suppressions belong
+closures used by `#let`, `#show`, or imported local templates. Inline markup
+and caption prose remain markup even on lines containing `#` expressions;
+statement introducers (`let`, `set`, `show`, `context`, `import`, `if`, `for`,
+`while`) retain their code bodies. Suppressions belong
 to individual source calls, even when labels are repeated. The fallback maps
 figures using only compiler-reported dependencies in document order.
 
@@ -384,7 +387,9 @@ have only an entry-file diagnostic; skip globs remain available. Compiler
 outputs live outside the mirrored assets so consumer files cannot be overwritten.
 Referenced assets under `generated/` remain available. Only dependency sources
 are instrumented; unrelated Typst sources are not scanned. Logo findings point
-to the template’s `logo:` argument and support suppression on that line.
+to a direct `logo:` argument of `devkit-document` or `devkit-document.with`
+and support suppression on that line or the closing call line. Unrelated
+dictionary keys never supply logo attribution.
 Measurements belong to individual placements, including repeated logo/body assets.
 
 With `@local/devkit-docs:0.1.2` and its document show rule, the guard-only input
@@ -412,11 +417,15 @@ rather than an inaccurate measurement. Text converted to outlines cannot be
 identified as lettering. Unused `<defs>` and hidden text are ignored; local
 `<use>` references are followed, including nested SVG and symbol viewports.
 Zero-size text is ignored. Reference expansion is limited to 32 levels and
-4,096 uses per SVG; exceeding either limit emits a warning. Matplotlib DOCTYPEs are accepted without
+32,768 visited nodes per SVG, including nodes revisited through `<use>`;
+exceeding either limit emits a warning. Matplotlib DOCTYPEs are accepted without
 allowing entities or external XML references. Raster images are skipped: prefer
 SVG or native plots for charts. Images supplied as bytes (for example
 `image(bytes(read(...)))`) have no inspectable source path and are skipped.
-Unresolved font shorthand or sizes always warn. The hardened parser is a shared vig-utils runtime
+Unresolved font shorthand or sizes always warn. Uppercase font property names,
+CSS comments inside declaration blocks, and spaced `! important` markers are
+currently unsupported and emit a warning instead of assuming a default size.
+The supported `!important` suffix is case-insensitive. The hardened parser is a shared vig-utils runtime
 dependency (also installed for non-docs consumers); guard activation stays opt-in.
 
 The real-compiler contract runs in `checks.<system>.typst-content`, so the
@@ -430,7 +439,8 @@ run `uv run python packages/vig-utils/tests/benchmark_typst_content.py`.
 For a single large document, add
 `--entries 1 --figures-per-entry 4000 --unrelated-files 0` (4,000 figures and
 4,000 tables). The dependency pass adds a compile but avoids scanning unrelated
-sources and repeated scans of growing source prefixes.
+sources and repeated scans of growing source prefixes. Import/include edges
+are tokenized once per source and reused for each ordered call query.
 
 #### House-style package
 

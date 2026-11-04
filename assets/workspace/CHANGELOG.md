@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Preserve native image values with a validated plain-compile fallback; resolve source-relative SVGs, Matplotlib DOCTYPEs, fit/height/viewBox sizing, hidden text and local template overrides. Reuse one mirror per run.
   - Resolve Matplotlib font shorthand and CSS importance; warn on unknown sizes and bounded SVG use expansion. Scale nested viewports, ignore zero-size text, and document byte-source images as skipped.
   - Scope instrumentation to document dependencies, preserve generated assets, detect closure templates, and keep repeated-label suppression and logo/body measurements specific to each source placement.
+  - Preserve prose and caption markup around inline expressions so content checks retain layout measurements; scope logo attribution to template parameters, warn on unsupported CSS font syntax, cap SVG traversal by visited nodes, and cache dependency-edge tokenization.
   - Keep defusedxml in the shared vig-utils runtime, including non-docs consumers, to guarantee the same hardened XML parser in dynamically enabled docs hooks and recipes without a second Python environment. Guard activation remains docs-only.
 
 - **Offline Typst house-style package** ([#1994](https://github.com/vig-os/devkit/issues/1994))
