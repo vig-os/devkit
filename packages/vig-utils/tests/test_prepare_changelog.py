@@ -2371,3 +2371,27 @@ class TestUnfreeze:
         with patch("sys.argv", ["prepare-changelog", "unfreeze", "1.2.3", str(path)]):
             main()
         assert "[1.2.3]" not in path.read_text()
+
+    def test_merge_repeated_categories(self, tmp_path):
+        from vig_utils.prepare_changelog import unfreeze_changelog
+
+        path = tmp_path / "CHANGELOG.md"
+        path.write_text(
+            "## Unreleased\n\n### Fixed\n\n- first\n\n### Added\n\n- added\n\n"
+            "### Fixed\n\n- second\n\n## [1.2.3] - TBD\n\n### Fixed\n\n- third\n"
+        )
+        unfreeze_changelog("1.2.3", path)
+        text = path.read_text()
+        assert text.count("### Fixed") == 1
+        assert text.index("- first") < text.index("- second") < text.index("- third")
+
+    @pytest.mark.parametrize("body", ["- loose\n", "### Unknown\n\n- hidden\n"])
+    def test_malformed_pending_section_is_unchanged(self, tmp_path, body):
+        from vig_utils.prepare_changelog import unfreeze_changelog
+
+        path = tmp_path / "CHANGELOG.md"
+        original = "## Unreleased\n\n## [1.2.3] - TBD\n\n" + body
+        path.write_text(original)
+        with pytest.raises(ValueError, match="outside"):
+            unfreeze_changelog("1.2.3", path)
+        assert path.read_text() == original

@@ -125,3 +125,53 @@ def test_scaffold_copy_carries_no_devkit_issue_refs_in_comments_to_prs() -> None
     doc = load_workflow(SCAFFOLD_COPY)
     abandon_run = run_text_of_job(jobs(doc)["abandon"])
     assert "(#1504)" not in abandon_run
+
+
+@pytest.mark.parametrize("copy", COPIES)
+def test_unfreeze_uses_commit_app_and_api(copy):
+    doc = load_workflow(COPIES[copy])
+    job = jobs(doc)["unfreeze"]
+    assert "abandon" in needs_of(job)
+    steps = job["steps"]
+    commit = next(s for s in steps if "commit-action@" in s.get("uses", ""))
+    assert commit["env"]["TARGET_BRANCH"] == "refs/heads/dev"
+    assert "COMMIT_APP_CLIENT_ID" in str(steps)
+    assert "unfreeze" in run_text_of_job(job)
+    if copy == "devkit":
+        assert "scripts/sync_manifest.py sync assets/workspace/" in run_text_of_job(job)
+        assert (
+            "assets/workspace/.devcontainer/CHANGELOG.md" in commit["env"]["FILE_PATHS"]
+        )
+
+
+def test_replay_unfreeze_is_idempotent(tmp_path):
+    import os
+    import sys
+
+    from tests.workflow_replay import Replay
+
+    replay = Replay(
+        DEVKIT_COPY,
+        "unfreeze",
+        {"needs": {"validate": {"outputs": {"version": "1.2.3"}}}},
+        cwd=tmp_path,
+        base_env={"PATH": os.environ["PATH"], "PYTHON": sys.executable},
+    )
+    # Scheduling and external actions are outside the replay contract.
+    replay.job.pop("timeout-minutes")
+    step = next(s for s in replay.steps if s.get("id") == "unfreeze")
+    # Replay the actual CLI; mirror generation is checked by the shape test.
+    cli = tmp_path / "uv"
+    cli.write_text(
+        '#!/bin/sh\nshift\nexec "$PYTHON" -m vig_utils.prepare_changelog "$@"\n'
+    )
+    cli.chmod(0o755)
+    replay.base_env["PATH"] = str(tmp_path) + os.pathsep + os.environ["PATH"]
+    path = tmp_path / "CHANGELOG.md"
+    path.write_text("## Unreleased\n\n## [1.2.3] - TBD\n\n### Fixed\n\n- restored\n")
+    replay.run(only=[step["id"]])
+    result = path.read_text()
+    assert "[1.2.3]" not in result
+    assert "- restored" in result
+    replay.run(only=[step["id"]])
+    assert path.read_text() == result
