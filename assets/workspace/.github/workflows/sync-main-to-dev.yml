@@ -268,7 +268,6 @@ jobs:
           echo "Sync branch ${SYNC_BRANCH} pushed from main at ${MAIN_SHA}"
 
       - name: Record checkout SHA
-        if: steps.existing-pr.outputs.count == '0' && steps.recheck.outputs.up_to_date != 'true'
         id: checkout-state
         run: |
           set -euo pipefail

@@ -4,6 +4,7 @@ import base64
 import os
 
 import pytest
+import yaml
 
 from tests.github_expression import render_input
 from tests.test_commit_action_base_sha import ROOT, replay_for
@@ -19,7 +20,9 @@ def test_freeze_output_survives_branch_creation_failure(tmp_path):
         if s.get("name") == "Commit prepared CHANGELOG to dev via API"
     )
     assert freeze.get("id")
-    output = replay.workflow["jobs"]["prepare"]["outputs"]["freeze_sha"]
+    output = yaml.safe_load(
+        (ROOT / ".github/workflows/prepare-release.yml").read_text()
+    )["jobs"]["prepare"]["outputs"]["freeze_sha"]
     assert (
         render_input(
             output, {"steps": {freeze["id"]: {"outputs": {"commit-sha": "freeze"}}}}
@@ -55,6 +58,21 @@ else:
     return bin_dir
 
 
+def rollback_context(freeze):
+    return {
+        "github": {"repository": "example/project"},
+        "needs": {
+            "prepare": {
+                "outputs": {"prepare_start_sha": "checkout", "freeze_sha": freeze}
+            },
+            "validate": {
+                "outputs": {"version": "1.2.3", "release_branch": "release/1.2.3"}
+            },
+        },
+        "steps": {"commit-app-token": {"outputs": {"token": "test-token"}}},
+    }
+
+
 @pytest.mark.parametrize(
     "freeze,current,restore,message",
     [
@@ -72,18 +90,7 @@ def test_prepare_rollback_only_restores_its_own_freeze(
     replay = replay_for(
         ROOT / ".github/workflows/prepare-release.yml", "rollback", tmp_path
     )
-    replay.context = {
-        "github": {"repository": "example/project"},
-        "needs": {
-            "prepare": {
-                "outputs": {"prepare_start_sha": "checkout", "freeze_sha": freeze}
-            },
-            "validate": {
-                "outputs": {"version": "1.2.3", "release_branch": "release/1.2.3"}
-            },
-        },
-        "steps": {"commit-app-token": {"outputs": {"token": "test-token"}}},
-    }
+    replay.context = rollback_context(freeze)
     replay.base_env.update(
         {
             "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],

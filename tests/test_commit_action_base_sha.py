@@ -120,18 +120,40 @@ def test_prepare_rollback_baseline_is_checkout(tmp_path, prefix, step_id):
     )
 
 
+def assert_capture_gate(capture, commit):
+    def condition(step):
+        return (
+            str(step.get("if", "true")).removeprefix("${{").removesuffix("}}").strip()
+        )
+
+    capture_condition = condition(capture)
+    commit_condition = condition(commit)
+    # A shared conjunct is required whenever the commit can run. Requiring
+    # exact conjuncts deliberately rejects unfamiliar gate shapes for review.
+    assert (
+        capture_condition == "true"
+        or capture_condition == commit_condition
+        or (
+            "||" not in commit_condition
+            and capture_condition in commit_condition.split(" && ")
+        )
+    )
+
+
 def assert_capture_contract(replay, name):
     commit = next(s for s in replay.steps if s.get("name") == name)
     capture_id = commit["env"]["BASE_SHA"].split("steps.")[1].split(".outputs")[0]
     capture = next(s for s in replay.steps if s.get("id") == capture_id)
-    assert "if" not in capture
+    assert_capture_gate(capture, commit)
     capture, commit = capture_for(replay, name)
     checkout = replay.steps[replay.steps.index(capture) - 1]
     target = commit["env"]["TARGET_BRANCH"].removeprefix("refs/heads/")
     source = checkout.get("with", {}).get("ref")
     if checkout["name"] == "Check out dev at its current head":
+        assert "git checkout --detach origin/dev" in checkout["run"]
         source = "dev"
     elif checkout["name"] == "Create sync branch from main":
+        assert 'git checkout -b "${SYNC_BRANCH}" origin/main' in checkout["run"]
         source = "${{ env.SYNC_BRANCH }}"
     elif replay.workflow["name"] == "Prepare Hotfix":
         target = "main"  # New release branch is created from validated main.
@@ -143,12 +165,6 @@ def assert_capture_contract(replay, name):
 @pytest.mark.parametrize("path,job,name", CALLS)
 def test_capture_matches_target_and_cannot_be_narrowed(tmp_path, path, job, name):
     replay = replay_for(path, job, tmp_path)
-    # Capture is unconditional within the job: a later commit gate cannot
-    # allow an API write after this capture was skipped.
-    commit = next(s for s in replay.steps if s.get("name") == name)
-    capture_id = commit["env"]["BASE_SHA"].split("steps.")[1].split(".outputs")[0]
-    capture = next(s for s in replay.steps if s.get("id") == capture_id)
-    assert "if" not in capture
     assert_capture_contract(replay, name)
 
 
@@ -165,12 +181,19 @@ def test_wrong_extension_capture_mutant_is_rejected(tmp_path):
         assert_capture_contract(replay, name)
 
 
-def test_narrowed_capture_mutant_is_rejected(tmp_path):
-    path, job, name = CALLS[0]
+@pytest.mark.parametrize("path,job,name", CALLS)
+def test_narrowed_capture_mutant_is_rejected(tmp_path, path, job, name):
     replay = replay_for(path, job, tmp_path)
-    capture, _ = capture_for(replay, name)
+    capture, commit = capture_for(replay, name)
     capture["if"] = "false"
     replay.run(only=[capture["id"]])
     assert replay.step_context[capture["id"]]["outcome"] == "skipped"
+    assert (
+        replay.resolve_env(
+            {"env": {"BASE_SHA": commit["env"]["BASE_SHA"]}},
+            context={"steps": replay.step_context},
+        )["BASE_SHA"]
+        == ""
+    )
     with pytest.raises(AssertionError):
         assert_capture_contract(replay, name)

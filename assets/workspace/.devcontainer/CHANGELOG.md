@@ -7,13 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
-### Fixed
-
-- **Offline, probe-free installer dry runs** ([#2021](https://github.com/vig-os/devkit/issues/2021))
-  - Defer remote branch checks, latest release resolution and runtime health probes until execution.
-  - Keep local version pins and explicit runtime choices in the plan; discover runtimes through PATH only.
-  - Label unresolved releases as placeholders and explain runtime fallback and preview verification.
-
 ### Added
 
 - **Typst plots, glossary and slides** ([#1994](https://github.com/vig-os/devkit/issues/1994))
@@ -210,8 +203,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Offline, probe-free installer dry runs** ([#2021](https://github.com/vig-os/devkit/issues/2021))
+  - Defer remote branch checks, latest release resolution and runtime health probes until execution.
+  - Keep local version pins and explicit runtime choices in the plan; discover runtimes through PATH only.
+  - Label unresolved releases as placeholders and explain runtime fallback and preview verification.
+
 - **Protect workflow file commits from concurrent branch updates** ([#2028](https://github.com/vig-os/devkit/issues/2028))
   - Pin API commits to the checkout SHA in devkit and consumer workflows; fail closed when capture fails or the target advances.
+  - Restore failed prepare freezes only when dev still matches the freeze action’s confirmed commit; preserve concurrent changes when the freeze was rejected.
 
 - **Restore abandoned release changelogs** ([#2003](https://github.com/vig-os/devkit/issues/2003))
   - Fold pending release entries back into Unreleased when abandoning a regular release train.
