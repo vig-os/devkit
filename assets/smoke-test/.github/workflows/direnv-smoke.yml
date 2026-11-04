@@ -19,12 +19,11 @@ name: Direnv Smoke
 # from that root exactly as the managed ci.yml invokes it — same call site, same
 # inputs — so the lane validates the real shipped action, not a copy.
 #
-# Two legs force BOTH host-Nix branches of the composite:
-#   - fresh-install : no Nix on the runner  -> the install-nix-action branch runs
-#   - preinstalled  : Nix put on PATH first  -> "Detect host Nix" sees it and the
-#                     "Configure host Nix" branch runs. That is the self-hosted
-#                     DEVKIT_CI_RUNNER + preinstalled-Nix path that hit #1192,
-#                     faked here on a hosted runner so a public gate can cover it.
+# Nix is installed BEFORE the scaffold (install-nix-action): in direnv mode
+# install.sh scaffolds on the host from the devkit flake source via nix, with no
+# container runtime (#1871), so nix must already exist when it runs. The
+# composite therefore takes its "Configure host Nix" branch here (the #1192 path);
+# its install-nix-action branch is exercised by every hosted-runner consumer CI.
 #
 # NOTE (persistence): the smoke repo tree is fully regenerated on every
 # `--smoke-test` deploy (init-workspace.sh does `rsync --delete` from the devkit
@@ -96,16 +95,10 @@ jobs:
           echo "Devkit version under test: ${VERSION}"
 
   direnv-smoke:
-    name: Direnv smoke (${{ matrix.leg }})
+    name: Direnv smoke
     needs: [resolve-version]
     runs-on: ubuntu-26.04
     timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        # fresh-install -> install-nix-action branch; preinstalled -> the
-        # Detect/Configure host-Nix branch (#1192).
-        leg: [fresh-install, preinstalled]
     env:
       DEVKIT_VERSION: ${{ needs.resolve-version.outputs.version }}
     steps:
@@ -119,12 +112,10 @@ jobs:
           git config --global commit.gpgsign false
           git config --global init.defaultBranch main
 
-      # preinstalled leg only: put Nix on PATH BEFORE the toolchain composite runs
-      # so its "Detect host Nix" step sees it and takes the "Configure host Nix"
-      # branch instead of installing — the #1192 code path, faked on a hosted
-      # runner. The fresh-install leg skips this, leaving the composite to install.
-      - name: Fake a preinstalled-Nix runner
-        if: matrix.leg == 'preinstalled'
+      # install.sh's direnv path runs the pinned scaffold from the devkit flake
+      # source (nix), so Nix must be on PATH first (#1871). Same installer pin as
+      # the composite's own install step.
+      - name: Install Nix
         uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31.11.1
         with:
           extra_nix_config: |
@@ -143,7 +134,7 @@ jobs:
           ATTEMPT=1
           MAX_ATTEMPTS=3
           until [ "${ATTEMPT}" -gt "${MAX_ATTEMPTS}" ]; do
-            if curl -sSf "${INSTALL_URL}" | bash -s -- --version "${TAG}" --mode direnv --smoke-test --force --docker .; then
+            if curl -sSf "${INSTALL_URL}" | bash -s -- --version "${TAG}" --mode direnv --smoke-test --force .; then
               break
             fi
             if [ "${ATTEMPT}" -eq "${MAX_ATTEMPTS}" ]; then
@@ -155,22 +146,9 @@ jobs:
             sleep 5
           done
 
-          # The docker scaffold writes bind-mounted files as root, so the whole
-          # tree is root-owned on a hosted runner. Repair ownership unconditionally
-          # (not just readability): `nix develop` must WRITE flake.lock, which a
-          # root-owned file/dir refuses ("Permission denied").
-          sudo chown -R "$(id -u):$(id -g)" .
-
-          # install.sh's own host-side git setup runs BEFORE this ownership
-          # repair and fails on the still-root-owned tree (".git: Permission
-          # denied") — its git phase warns rather than aborts. Initialize the
-          # repo here instead: `prek run --all-files` needs a git work tree
-          # with tracked files.
-          if [ ! -d .git ]; then
-            git init -b main
-            git add -A
-            git commit -m "chore: initial project scaffold"
-          fi
+          # The host scaffold runs as this user (no container, no root-owned
+          # files) and install.sh's git phase has initialised the repo.
+          test -d .git
 
           # Sanity: the direnv scaffold must ship the composite action and a
           # repo-root flake for the dev-shell build.
@@ -231,4 +209,4 @@ jobs:
             echo "ERROR: direnv smoke lane failed"
             exit 1
           fi
-          echo "Direnv smoke lane passed (both legs)."
+          echo "Direnv smoke lane passed."

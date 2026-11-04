@@ -153,6 +153,13 @@ PRESERVE_FILES=(
     # ships none (#929); a Python consumer brings their own (e.g. via the opt-in
     # `nix flake init -t ...#python` template, #930), and it is preserved here.
     "pyproject.toml"
+    # The Rust pack's base tool configs (#1496 L1): seeded once from
+    # lang.d/rust/ by seed_language_statics, consumer-owned from then on —
+    # rustfmt/clippy/deny policy is per-repo (#1400's ~30% deliberate
+    # divergence), so an upgrade must never reset it.
+    "rustfmt.toml"
+    "clippy.toml"
+    "deny.toml"
     # The consumer owns its hook configuration (#878): repos carry repo-specific
     # global/per-hook `exclude:` patterns (data tables, generated files, PEM
     # marker literals) that a template overwrite silently destroyed — the hook
@@ -399,6 +406,10 @@ MANIFEST_PROJECT="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_PROJECT || tru
 MANIFEST_ORG="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_ORG || true)"
 MANIFEST_REPO="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_REPO || true)"
 MANIFEST_MODULES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_MODULES || true)"
+MANIFEST_GLOSSARY="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_GLOSSARY || true)"
+MANIFEST_GLOSSARY_SOURCES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_GLOSSARY_SOURCES || true)"
+MANIFEST_TYPST_SKIP="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TYPST_SKIP || true)"
+MANIFEST_TYPST_FONT_PATHS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TYPST_FONT_PATHS || true)"
 MANIFEST_TAG_PREFIX="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_TAG_PREFIX || true)"
 MANIFEST_RELEASE_REQUIRED_APPROVALS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_RELEASE_REQUIRED_APPROVALS || true)"
 if [[ -n "$MANIFEST_RELEASE_REQUIRED_APPROVALS" && ! "$MANIFEST_RELEASE_REQUIRED_APPROVALS" =~ ^[0-9]+$ ]]; then
@@ -408,6 +419,7 @@ fi
 MANIFEST_PRERELEASE_FORMAT="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_PRERELEASE_FORMAT || true)"
 MANIFEST_FLOATING_TAGS="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_FLOATING_TAGS || true)"
 MANIFEST_CI_RUNNER="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_CI_RUNNER || true)"
+MANIFEST_CI_LANE_SIZES="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_CI_LANE_SIZES || true)"
 MANIFEST_DEV_PROFILE_PATH="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_DEV_PROFILE_PATH || true)"
 MANIFEST_WORKFLOW="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_WORKFLOW || true)"
 MANIFEST_SYNC_TARGET="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_SYNC_TARGET || true)"
@@ -449,6 +461,30 @@ PREVIOUS_PIN="$(read_manifest_value "$VIG_OS_MANIFEST" DEVKIT_VERSION \
 # The OWNER/REPO placeholder (written when no origin was resolvable) must not
 # mask a now-detectable git origin on a later upgrade.
 [[ "$MANIFEST_REPO" == "OWNER/REPO" ]] && MANIFEST_REPO=""
+
+# Project lane sizes (#1927): validate before any scaffold write. Keep this
+# grammar aligned with resolve-toolchain; neither path tolerates duplicate lanes.
+validate_lane_sizes() {
+    local remaining="$1," entry lane seen=","
+    [[ -n "$1" ]] || return 0
+    while [[ -n "$remaining" ]]; do
+        entry="${remaining%%,*}"
+        remaining="${remaining#*,}"
+        entry="${entry#"${entry%%[![:space:]]*}"}"
+        entry="${entry%"${entry##*[![:space:]]}"}"
+        if [[ ! "$entry" =~ ^(lint|test|extension|release-test)=(small|large|xlarge)$ ]]; then
+            echo "Error: invalid DEVKIT_CI_LANE_SIZES: expected comma-separated lane=size entries (lint, test, extension, release-test; small, large, xlarge)." >&2
+            return 1
+        fi
+        lane="${entry%%=*}"
+        if [[ "$seen" == *",$lane,"* ]]; then
+            echo "Error: Duplicate lane $lane in DEVKIT_CI_LANE_SIZES." >&2
+            return 1
+        fi
+        seen+="$lane,"
+    done
+}
+validate_lane_sizes "$MANIFEST_CI_LANE_SIZES" || exit 1
 
 # A corrupt persisted mode must not silently fall back to "both" — that would
 # reshape the repo. Refuse loudly instead.
@@ -845,6 +881,11 @@ if [[ -n "$MANIFEST_LANGUAGES" ]]; then
     done
 fi
 
+# The languages the manifest declared BEFORE this run (#1496): a language not in
+# here is being adopted by this scaffold, which is when its pack's base tool
+# configs are seeded (seed_language_statics).
+MANIFEST_DECLARED_LANGUAGES=(${DECLARED_LANGUAGES[@]+"${DECLARED_LANGUAGES[@]}"})
+
 # Get SHORT_NAME - from env var, manifest, or prompt (#885)
 if [[ -z "${SHORT_NAME:-}" && -n "$MANIFEST_PROJECT" ]]; then
     SHORT_NAME="$MANIFEST_PROJECT"
@@ -931,7 +972,7 @@ infer_legacy_mode() {
     if [[ "$has_devc" == "true" && "$has_direnv" == "true" ]]; then
         MODE="both"
         if [[ -f "$WORKSPACE_DIR/flake.nix" ]] \
-            && ! grep -q 'vigos.lib.mkProjectShell' "$WORKSPACE_DIR/flake.nix" 2>/dev/null; then
+            && ! grep -Eq 'vigos\.lib\.mk(ProjectShell|RustProject)' "$WORKSPACE_DIR/flake.nix" 2>/dev/null; then
             echo "Note: flake.nix does not look like the scaffold stub (consumer-authored?);"
             echo "      resolving the ambiguity to the wider mode. Your flake.nix/.envrc are"
             echo "      preserved files and stay untouched (#859)."
@@ -1277,6 +1318,86 @@ if find "$WORKSPACE_DIR" \
     DETECTED_LANGUAGES+=("nix")
 fi
 
+# The rules render_gitignore appends to the template base, printed: one
+# fragment per detected language (#1024), then the consumer's .gitignore.project.
+# Shared with preflight_untracked_guard (#1826), which must judge untracked
+# paths against exactly the .gitignore this run writes.
+#
+# Consumer-owned durable root ignores (#1092): .gitignore.project is a
+# PRESERVE_FILE — the only committed home git honors for repo-ROOT ignores,
+# since git reads root ignores solely from this regenerated root .gitignore.
+# It goes LAST so consumer entries survive every regeneration.
+emit_gitignore_additions() {
+    local lang frag proj="$WORKSPACE_DIR/.gitignore.project"
+    for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
+        frag="$SCRIPT_DIR/gitignore.d/$lang.gitignore"
+        if [[ -f "$frag" ]]; then
+            printf '\n'
+            cat "$frag"
+        fi
+    done
+    if [[ -f "$proj" ]]; then
+        printf '\n'
+        cat "$proj"
+    fi
+}
+
+# True when the generated .pre-commit-config.yaml must be ignored (#1092): it is
+# already a /nix/store symlink, or this run defaults to / keeps flake-generated
+# hooks (FLAKE_HOOKS_DEFAULT #1167, FLAKE_HOOKS_CONSUMER #1255).
+flake_hooks_ignore_wanted() {
+    local pcc="$WORKSPACE_DIR/.pre-commit-config.yaml"
+    { [[ -L "$pcc" ]] && readlink "$pcc" | grep -q '/nix/store/'; } \
+        || [[ "${FLAKE_HOOKS_DEFAULT:-false}" == "true" ]] \
+        || [[ "${FLAKE_HOOKS_CONSUMER:-false}" == "true" ]]
+}
+
+# ── upgrade preflight, untracked half (#1826) ──────────────────────────────────
+# install.sh refuses tracked changes host-side, but forwards UNTRACKED paths
+# here (DEVKIT_PREFLIGHT_UNTRACKED, one per line, directories with a trailing
+# slash). Build output such as a Rust repo's target/ is often untracked only
+# because the fragment that ignores it arrives WITH this upgrade, and only this
+# side knows the fragments and the detected languages. Each path is matched
+# against the root .gitignore this run will write — the template base, the
+# detected languages' gitignore.d fragments and .gitignore.project, exactly as
+# render_gitignore assembles it, via the same helpers — using git's own matcher
+# in a scratch repo
+# (the workspace's .git may be an unmounted worktree pointer). Covered paths
+# are named and left in place; any other path refuses the upgrade here, before
+# the first file is written. Unset (fresh install, CI, --skip-preflight): no-op.
+preflight_untracked_guard() {
+    [[ -n "${DEVKIT_PREFLIGHT_UNTRACKED:-}" ]] || return 0
+    local probe path
+    local -a covered=() uncovered=()
+    probe="$(mktemp -d)"
+    git -C "$probe" init -q
+    {
+        if [[ -f "$TEMPLATE_DIR/.gitignore" ]]; then cat "$TEMPLATE_DIR/.gitignore"; fi
+        emit_gitignore_additions
+        if flake_hooks_ignore_wanted; then printf '\n.pre-commit-config.yaml\n'; fi
+    } >"$probe/.gitignore"
+    while IFS= read -r path; do
+        [[ -n "$path" ]] || continue
+        if git -C "$probe" check-ignore -q --no-index -- "$path"; then
+            covered+=("$path")
+        else
+            uncovered+=("$path")
+        fi
+    done <<<"$DEVKIT_PREFLIGHT_UNTRACKED"
+    rm -rf "$probe"
+    if ((${#uncovered[@]} > 0)); then
+        echo "Error: preflight: refusing to upgrade on a dirty tree." >&2
+        echo "  These untracked paths are not ignored by the upgraded .gitignore either, so they would end up in the upgrade's diff. Commit, remove or ignore them first (.gitignore.project is the durable home for repo ignores):" >&2
+        printf '    %s\n' "${uncovered[@]}" >&2
+        echo "  Re-run install.sh with --allow-untracked to leave them as they are, or --skip-preflight to bypass the guard." >&2
+        exit 1
+    fi
+    if ((${#covered[@]} > 0)); then
+        echo "preflight: untracked build output the upgraded .gitignore will ignore, left in place: ${covered[*]}"
+    fi
+}
+preflight_untracked_guard
+
 # ── declared languages: seed from detection, never narrow (#1478) ─────────────
 # DETECTED_LANGUAGES above is live truth and keeps driving every scaffold render
 # (.gitignore fragments, codeql.yml's language matrix, the Node justfile.project
@@ -1325,33 +1446,139 @@ for lang in ${DECLARED_LANGUAGES[@]+"${DECLARED_LANGUAGES[@]}"}; do
     fi
 done
 
-# Seed npm-mapped justfile.project recipes on the FIRST scaffold of a Node
-# consumer (#1027). justfile.project is a PRESERVE_FILE: the stock template
-# ships uv/pyproject recipes, so a Node repo's `just sync` / `just test` (which
-# ci.yml calls in every mode) would no-op against `uv`. When `node` is detected
-# AND the consumer had no justfile.project before this scaffold (the template
-# copy above just placed the default), replace that fresh default with the Node
-# seed — `sync` = `npm ci`, plus lint/test/build (tsc)/bundle (ncc). Guarded on
-# JUSTFILE_PROJECT_PREEXISTED so an EXISTING consumer-owned justfile.project is
-# NEVER touched (same preserve semantics as the #877 repair path). The seed
-# lives beside init-workspace.sh in the image ($SCRIPT_DIR), so it is an
-# install-time input; it carries the same {{SHORT_NAME}} token the template
-# does and is placed BEFORE the substitution pass so that pass resolves it. A
-# full replacement (not an append like the .gitignore fragments): appending npm
-# recipes onto the uv template would redeclare recipe names and break `just`.
-seed_node_justfile_project() {
-    local seed="$SCRIPT_DIR/justfile.d/node.justfile.project"
-    local dst="$WORKSPACE_DIR/justfile.project"
-    # Only on a first scaffold (never over a consumer-owned file) of a Node repo.
-    [[ "$JUSTFILE_PROJECT_PREEXISTED" == "true" ]] && return 0
-    [[ -f "$seed" && -f "$dst" ]] || return 0
-    local lang is_node=false
+# Replace a freshly-copied template file with a per-language variant on a FIRST
+# scaffold (#1027 Node justfile.project, #1496 Rust justfile.project and
+# flake.nix). Both targets are PRESERVE_FILES whose stock template is shaped for
+# another language: the uv/pyproject justfile.project no-ops `just lint|test` in
+# a Node or Rust repo (CI then goes green on nothing), and the mkProjectShell
+# flake.nix never reaches the Rust pack's checks. When a detected language
+# ships a variant AND the consumer had no file before this scaffold (the copy
+# above just placed the default), the variant replaces that fresh default.
+# Guarded on the PREEXISTED flag, so an EXISTING consumer-owned file is NEVER
+# touched (same preserve semantics as the #877 repair path).
+#
+#   $1  fragment dir beside this script ($SCRIPT_DIR/$1, an install-time input)
+#   $2  variant suffix: the variant is $SCRIPT_DIR/$1/<lang>$2
+#   $3  workspace-relative target path
+#   $4  "true" when the target existed before this scaffold
+#
+# Languages are tried in DETECTED_LANGUAGES order (VALID_LANGUAGES: python,
+# node, rust, nix), so Node keeps winning over Rust exactly as before #1496.
+# Only one variant can win; a second detected language that also ships one is
+# named, never silently dropped. A full replacement, not an append: appending
+# recipes onto the template would redeclare recipe names and break `just`.
+# Runs BEFORE the substitution pass, so a variant's {{SHORT_NAME}} token is
+# resolved like every other managed file (it sits at a template-shipped path).
+seed_language_variant() {
+    local dir="$1" suffix="$2" rel="$3" preexisted="$4"
+    local dst="$WORKSPACE_DIR/$rel" lang seed chosen=""
+    [[ "$preexisted" == "true" ]] && return 0
+    [[ -f "$dst" ]] || return 0
     for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
-        [[ "$lang" == "node" ]] && is_node=true
+        seed="$SCRIPT_DIR/$dir/$lang$suffix"
+        [[ -f "$seed" ]] || continue
+        if [[ -z "$chosen" ]]; then
+            chosen="$lang"
+            echo "Seeding the $lang $rel for this first scaffold (#1027, #1496)..."
+            cp "$seed" "$dst"
+        else
+            echo "Notice: $lang also ships a $rel variant; the $chosen one was seeded. Merge the $lang parts in by hand." >&2
+        fi
     done
-    [[ "$is_node" == "true" ]] || return 0
-    echo "Seeding npm-mapped justfile.project recipes for the Node consumer (#1027)..."
-    cp "$seed" "$dst"
+}
+
+# Seed a language pack's base tool configs (#1496 L1): every file under
+# $SCRIPT_DIR/lang.d/<lang>/, at the same relative path, for each language this
+# run ADOPTS — detected now, not declared in .vig-os before (#1478 has persisted
+# the declaration since 1.9.0, the release the Rust pack shipped in). An
+# existing Rust consumer therefore never receives them on an upgrade: it owns
+# its policy, and a deny.toml dropped into it would silently switch on
+# mkRustProject's `deny` check, which keys on the file's presence. A repo that
+# gains a Cargo.toml later is adopting rust, and does get them.
+#
+# Scaffold-once and never over an equivalent: a file is skipped when the repo
+# already has it under any name the tool reads (lang_static_present). They are
+# PRESERVE_FILES too, so no later copy reaches them, and #1400 assigns their
+# ownership to the pack, so a guardrails-era deny.toml is simply kept.
+seed_language_statics() {
+    local lang src rel
+    while IFS= read -r -d '' lang && IFS= read -r -d '' src && IFS= read -r -d '' rel; do
+        mkdir -p "$(dirname "$WORKSPACE_DIR/$rel")"
+        cp "$src" "$WORKSPACE_DIR/$rel"
+        echo "Seeding $rel ($lang pack base config, #1496)"
+    done < <(emit_language_statics)
+}
+
+# The configs seed_language_statics will write, as NUL-separated
+# <lang> <source> <relative path> triples: the one decision, shared with the
+# --preview report so the preview never promises (or hides) a different set.
+emit_language_statics() {
+    local lang root src rel
+    for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
+        root="$SCRIPT_DIR/lang.d/$lang"
+        [[ -d "$root" ]] || continue
+        _in_list "$lang" ${MANIFEST_DECLARED_LANGUAGES[@]+"${MANIFEST_DECLARED_LANGUAGES[@]}"} && continue
+        while IFS= read -r -d '' src; do
+            rel="${src#"$root"/}"
+            lang_static_present "$rel" && continue
+            printf '%s\0%s\0%s\0' "$lang" "$src" "$rel"
+        done < <(find "$root" -type f -print0 | sort -z)
+    done
+}
+
+# True when $1 is one of the remaining arguments.
+_in_list() {
+    local needle="$1" item
+    shift
+    for item in "$@"; do
+        [[ "$item" == "$needle" ]] && return 0
+    done
+    return 1
+}
+
+# True when the workspace already has tool config $1 (a lang.d relative path)
+# under any name its tool reads: the path itself, its dot-prefixed twin
+# (rustfmt and clippy read .rustfmt.toml / .clippy.toml too), or for deny.toml
+# the .cargo/ location cargo-deny also searches. Seeding beside one of those
+# would leave two configs to disagree.
+lang_static_present() {
+    local rel="$1" dir base
+    dir="$(dirname "$rel")"
+    base="$(basename "$rel")"
+    if [[ "$dir" == "." ]]; then dir=""; else dir="$dir/"; fi
+    path_present "$WORKSPACE_DIR/$rel" && return 0
+    path_present "$WORKSPACE_DIR/$dir.$base" && return 0
+    if [[ "$rel" == "deny.toml" ]] && path_present "$WORKSPACE_DIR/.cargo/deny.toml"; then
+        return 0
+    fi
+    return 1
+}
+
+# Name the gap when a Rust repo keeps PRESERVED files that bypass the Rust pack
+# (#1831). flake.nix and justfile.project are only seeded on a first scaffold
+# (seed_language_variant), so a repo that gained its Cargo.toml later, or was
+# scaffolded before #1496, keeps a flake that never reaches lib.mkRustProject
+# (no fmt/clippy/nextest/deny checks) and recipes that never run cargo (`just
+# test` skips, CI stays green). The scaffold must not rewrite either file, so it
+# says what is missing and where the fix is documented. Silent on a fresh
+# scaffold, where the seeds already landed.
+notice_rust_pack_bypass() {
+    local lang is_rust=false
+    for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
+        [[ "$lang" == "rust" ]] && is_rust=true
+    done
+    [[ "$is_rust" == "true" ]] || return 0
+    # Absolute: the consumer repo has no docs/MIGRATION.md of its own.
+    local doc="https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md#rust-projects-the-rust-pack"
+    local flake="$WORKSPACE_DIR/flake.nix" recipes="$WORKSPACE_DIR/justfile.project"
+    if [[ "$FLAKE_PREEXISTED" == "true" && -f "$flake" ]] \
+        && ! grep -q 'mkRustProject' "$flake"; then
+        echo "Notice: this is a Rust repo (Cargo.toml) but flake.nix does not use vigos.lib.mkRustProject, so the Rust pack's checks (fmt, clippy, nextest, doctests, cargo-deny) are not wired. flake.nix is preserved; port it by hand: $doc (#1831)." >&2
+    fi
+    if [[ "$JUSTFILE_PROJECT_PREEXISTED" == "true" && -f "$recipes" ]] \
+        && ! grep -Eq '^[[:space:]]+[^#[:space:]].*\bcargo\b' "$recipes"; then
+        echo "Notice: this is a Rust repo (Cargo.toml) but justfile.project never runs cargo, so \`just lint\` / \`just test\` do not compile or test the crate. justfile.project is preserved; take the cargo recipes by hand: $doc (#1831)." >&2
+    fi
 }
 
 # Render the managed .gitignore as the language-neutral base (already copied
@@ -1362,24 +1589,7 @@ seed_node_justfile_project() {
 render_gitignore() {
     local gi="$WORKSPACE_DIR/.gitignore"
     [[ -f "$gi" ]] || return 0
-    local lang frag
-    for lang in ${DETECTED_LANGUAGES[@]+"${DETECTED_LANGUAGES[@]}"}; do
-        frag="$SCRIPT_DIR/gitignore.d/$lang.gitignore"
-        if [[ -f "$frag" ]]; then
-            printf '\n' >>"$gi"
-            cat "$frag" >>"$gi"
-        fi
-    done
-
-    # Consumer-owned durable root ignores (#1092): .gitignore.project is a
-    # PRESERVE_FILE — the only committed home git honors for repo-ROOT ignores,
-    # since git reads root ignores solely from this regenerated root .gitignore.
-    # Append its contents LAST so consumer entries survive every regeneration.
-    local proj="$WORKSPACE_DIR/.gitignore.project"
-    if [[ -f "$proj" ]]; then
-        printf '\n' >>"$gi"
-        cat "$proj" >>"$gi"
-    fi
+    emit_gitignore_additions >>"$gi"
 
     # flake-hooks opt-in seed (#1092): a consumer that opts into flake-generated
     # hooks (hooks = { } in flake.nix) gets .pre-commit-config.yaml installed as
@@ -1395,10 +1605,7 @@ render_gitignore() {
     # shell entry would leave the store symlink dirtying git status.
     # Idempotent: skip when the assembled ignore (incl. .gitignore.project)
     # already lists it.
-    local pcc="$WORKSPACE_DIR/.pre-commit-config.yaml"
-    if { [[ -L "$pcc" ]] && readlink "$pcc" | grep -q '/nix/store/'; } \
-        || [[ "${FLAKE_HOOKS_DEFAULT:-false}" == "true" ]] \
-        || [[ "${FLAKE_HOOKS_CONSUMER:-false}" == "true" ]]; then
+    if flake_hooks_ignore_wanted; then
         if ! grep -qxF '.pre-commit-config.yaml' "$gi"; then
             {
                 printf '\n# flake-hooks opt-in (#1092): the generated'
@@ -1678,7 +1885,7 @@ license_is_stock_apache() {
 }
 
 # Render the proprietary LICENSE when DEVKIT_LICENSE=proprietary (#1651). Called
-# BEFORE the placeholder substitution pass, exactly like seed_node_justfile_project
+# BEFORE the placeholder substitution pass, exactly like seed_language_variant
 # (#1027): the file lands at a template-shipped path, which is exactly the set
 # that pass walks, so {{ORG_NAME}} is resolved alongside every other managed
 # file — no second substitution site.
@@ -2627,45 +2834,8 @@ render_actionlint_optout() {
 # Used on the template (to read the block to write) and on the consumer's file
 # (to find the anchor entry to write after), hence the whitespace tolerance. Only
 # the START moves: the anchor path reads the END, which is unchanged.
-hook_block_range() {
-    awk -v id="$2" '
-        # Exact id, never a prefix (#1727): the token after the marker is
-        # extracted and compared as a STRING, so on this sentinel path `id` is
-        # never interpolated into a regex and a metacharacter in a hook id cannot
-        # change what matches. (The structural branch below still builds its
-        # `- id:` pattern from `id`; hook ids are plain words.)
-        function sentinel(line, dir,    tok) {
-            if (!match(line, /^[[:space:]]*# (>>>|<<<) devkit:[^[:space:]]+/)) return 0
-            tok = substr(line, RSTART, RLENGTH)
-            sub(/^[[:space:]]*/, "", tok)
-            return tok == "# " dir " devkit:" id
-        }
-        { L[NR] = $0 }
-        sentinel($0, ">>>") { ss = NR }
-        sentinel($0, "<<<") { se = NR }
-        END {
-            if (ss && se && se >= ss) { print ss, se; exit 0 }
-            for (i = 1; i <= NR; i++) {
-                if (L[i] ~ /^[[:space:]]*-[[:space:]]+repo:/) cur = i
-                if (cur && L[i] ~ ("^[[:space:]]*-[[:space:]]+id:[[:space:]]+" id "[[:space:]]*$")) {
-                    entry = cur
-                    break
-                }
-            }
-            if (!entry) exit 1
-            e = NR
-            for (i = entry + 1; i <= NR; i++)
-                if (L[i] ~ /^[[:space:]]*-[[:space:]]+repo:/) { e = i - 1; break }
-            while (e > entry && (L[e] ~ /^[[:space:]]*$/ || L[e] ~ /^[[:space:]]*#/)) e--
-            start = entry
-            while (start > 1 && L[start - 1] ~ /^[[:space:]]*#/ &&
-                   !index(L[start - 1], "# >>> devkit:") &&
-                   !index(L[start - 1], "# <<< devkit:"))
-                start--
-            print start, e
-        }
-    ' "$1"
-}
+# shellcheck source=assets/preserved-hooks.sh
+source "$(dirname "${BASH_SOURCE[0]}")/preserved-hooks.sh"
 
 # The template's current block for hook $1, verbatim. Read from the RENDERED
 # template, never re-derived: the committed scaffold YAML is generated from
@@ -2731,34 +2901,9 @@ verbatim_block_range() {
 # file with mktemp's 0600 inode, silently de-group-reading a tracked file (and
 # breaking a hardlink). precommit_render_target has already refused a symlink,
 # so the target is a regular file whose mode and inode this preserves.
-splice_lines() {
-    local file="$1" start="$2" end="$3" text="$4"
-    local tmp
-    tmp="$(mktemp)"
-    if [[ "$start" -gt 1 ]]; then
-        head -n "$((start - 1))" "$file" > "$tmp"
-    else
-        : > "$tmp"
-    fi
-    printf '%s\n' "$text" >> "$tmp"
-    tail -n +"$((end + 1))" "$file" >> "$tmp"
-    cat "$tmp" > "$file"
-    rm -f "$tmp"
-}
 
 # Rewrite $1 without lines $2..$3 (inclusive). Same copy-back as splice_lines,
 # for the same mode/inode reason.
-delete_lines() {
-    local file="$1" start="$2" end="$3"
-    local tmp
-    tmp="$(mktemp)"
-    {
-        head -n "$((start - 1))" "$file"
-        tail -n +"$((end + 1))" "$file"
-    } > "$tmp"
-    cat "$tmp" > "$file"
-    rm -f "$tmp"
-}
 
 # Print "ANCHOR END" for template hook $2 in file $1: the nearest hook the
 # template places before it that the file carries (#1725), and the last line of
@@ -3074,6 +3219,91 @@ insert_missing_hook_blocks() {
     done < <(inserted_hook_blocks)
 }
 
+docs_recipes_consumer_owned() {
+    local recipes="$WORKSPACE_DIR/justfile.devkit-docs"
+    [[ -L "$recipes" ]] || { [[ -e "$recipes" ]] && ! head -n 1 "$recipes" | grep -q '^# Managed by vigOS devkit'; }
+}
+
+docs_module_name_clash() {
+    local file
+    for file in "$1" "$WORKSPACE_DIR/justfile.project" "$WORKSPACE_DIR/justfile.local"; do
+        [[ -f "$file" ]] || continue
+        if grep -qE '^[[:space:]]*(@?devkit-docs([[:space:]]|:)|alias[[:space:]]+devkit-docs[[:space:]]*:=|mod\??[[:space:]]+devkit-docs([[:space:]]|$))' "$file"; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+plan_docs_module() {
+    local recipes="$WORKSPACE_DIR/justfile.devkit-docs"
+    local pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
+    if docs_recipes_consumer_owned; then
+        reconcile_plan_header
+        echo "  =  consumer-owned justfile.devkit-docs retained"
+    fi
+    case " $MANIFEST_MODULES " in
+        *" docs "*)
+            reconcile_plan_header
+            echo "  +  insert/reconcile docs hooks in .pre-commit-config.yaml"
+            if ! docs_recipes_consumer_owned; then
+                echo "  +  managed justfile.devkit-docs and justfile devkit-docs module"
+            fi
+            ;;
+        *)
+            if [[ -f "$pc" && ! -L "$pc" ]] && grep -qE '^[[:space:]]*# >>> devkit:docs([[:space:]]|$)' "$pc"; then
+                reconcile_plan_header
+                echo "  -  managed docs hooks in .pre-commit-config.yaml"
+            fi
+            if [[ -e "$recipes" ]] && ! docs_recipes_consumer_owned; then
+                reconcile_plan_header
+                echo "  -  managed justfile.devkit-docs and justfile devkit-docs module"
+            fi
+            ;;
+    esac
+}
+
+# Module-owned hooks extend preserved-config reconciliation; store symlinks stay
+# owned by mkProjectShell. Reconciliation warnings must not abort an upgrade.
+render_docs_module() {
+    local enabled=false pc="$WORKSPACE_DIR/.pre-commit-config.yaml"
+    local recipes="$WORKSPACE_DIR/justfile.devkit-docs"
+    local justfile="$WORKSPACE_DIR/justfile" tmp managed=false
+    if [[ "${1:-apply}" == plan ]]; then
+        plan_docs_module
+        return 0
+    fi
+    case " $MANIFEST_MODULES " in *" docs "*) enabled=true ;; esac
+    if docs_recipes_consumer_owned; then
+        echo "Notice: consumer-owned justfile.devkit-docs retained; add document recipes by hand if needed." >&2
+    elif [[ "$enabled" == true ]]; then
+        cp "$TEMPLATE_DIR/../justfile.d/docs.justfile" "$recipes"
+        managed=true
+    else
+        rm -f "$recipes"
+    fi
+    if [[ -f "$justfile" && ! -L "$justfile" ]]; then
+        tmp="$(mktemp)"
+        awk -v old="import? 'justfile.devkit-docs'" -v previous="mod docs 'justfile.devkit-docs'" -v module="mod devkit-docs 'justfile.devkit-docs'" '$0 != old && $0 != previous && $0 != module' "$justfile" > "$tmp"
+        if [[ "$managed" == true ]]; then
+            if docs_module_name_clash "$tmp"; then
+                echo "Notice: devkit-docs name clash; document module not loaded. Please rename the consumer recipe, alias or module in justfile, justfile.project or justfile.local and rerun the installer." >&2
+            else
+                printf "mod devkit-docs 'justfile.devkit-docs'\n" >> "$tmp"
+            fi
+        fi
+        cat "$tmp" > "$justfile"
+        rm -f "$tmp"
+    fi
+    if [[ "$enabled" == true ]] || { [[ -f "$pc" && ! -L "$pc" ]] && grep -qE '^[[:space:]]*# (>>>|<<<) devkit:docs([[:space:]]|$)|^[[:space:]]*# devkit-state:' "$pc"; }; then
+        if ! command -v reconcile-preserved-hooks >/dev/null 2>&1; then
+            echo "Warning: enter the devkit toolchain to reconcile docs hooks; see docs/NIX.md." >&2
+        elif ! reconcile-preserved-hooks "$WORKSPACE_DIR" "$TEMPLATE_DIR/../docs-hooks.json" "$enabled"; then
+            echo "Warning: docs hook reconciliation declined; installer continues. Follow the manual advice above." >&2
+        fi
+    fi
+}
+
 # One pass, two gates. `apply` rewrites; `plan` reports what a real run would do
 # and touches nothing (the --preview contract, #886). Both refuse the same two
 # targets through precommit_render_target (#1640): an absent config, and a
@@ -3082,9 +3312,11 @@ insert_missing_hook_blocks() {
 reconcile_preserved_hooks() {
     local mode="${1:-apply}"
     local pc
-    pc="$(precommit_render_target)" || return 0
-    fold_retired_hook_blocks "$mode" "$pc"
-    insert_missing_hook_blocks "$mode" "$pc"
+    if pc="$(precommit_render_target)"; then
+        fold_retired_hook_blocks "$mode" "$pc"
+        insert_missing_hook_blocks "$mode" "$pc"
+    fi
+    render_docs_module "$mode"
 }
 
 # Excise the release recipes when the release feature is disabled (#1656). Every
@@ -3120,6 +3352,85 @@ render_release_optout() {
     # by the consumer's end-of-file-fixer, then restored by the next upgrade.
     sed -i '${/^$/d}' "$jg"
     echo "Dropped the release recipes from .devcontainer/justfile.gh (feature disabled via DEVKIT_FEATURES_DISABLED, #1656)."
+}
+
+# Managed docs are rendered after the template copy, just like workflow knobs.
+# Keep the default text byte-identical; use the validator's resolved exemption
+# list so explicit DEVKIT_REFS_OPTIONAL_TYPES overrides the policy here too.
+render_commit_standard() {
+    local doc="$WORKSPACE_DIR/docs/COMMIT_MESSAGE_STANDARD.md" mode=some type exemptions branch_note start end
+    local -a _doc_types
+    [[ -f "$doc" ]] || return 0
+    [[ "$RESOLVED_REFS_OPTIONAL_TYPES" == chore && "$RESOLVED_COMMIT_TYPES" != chore ]] && return 0
+    if [[ "$RESOLVED_REFS_OPTIONAL_TYPES" == none ]]; then
+        mode=none
+        exemptions="No commit types are exempt from the Refs requirement."
+        # shellcheck disable=SC2016
+        branch_note='The issue-less `chore/<summary>` branch form ([#1767](https://github.com/vig-os/devkit/issues/1767)) remains allowed under every policy.'
+    else
+        mode=all
+        IFS=',' read -ra _doc_types <<< "$RESOLVED_COMMIT_TYPES"
+        for type in "${_doc_types[@]}"; do
+            if [[ ",$RESOLVED_REFS_OPTIONAL_TYPES," != *",$type,"* ]]; then
+                mode=some
+            fi
+        done
+        # shellcheck disable=SC2016
+        branch_note='Each exempt type also gets an issue-less `<type>/<summary>` branch form, as `chore/<summary>` has ([#1767](https://github.com/vig-os/devkit/issues/1767)).'
+        exemptions="The following commit types may omit the \`Refs:\` line:"
+        exemptions+=$'\n'
+        IFS=',' read -ra _doc_types <<< "$RESOLVED_REFS_OPTIONAL_TYPES"
+        for type in "${_doc_types[@]}"; do
+            if [[ "$type" == chore ]]; then
+                exemptions+=$'\n'"- **\`chore\`** — The \`Refs:\` line is **optional**. Maintenance commits (e.g. dependency bumps, sync operations, tooling updates) may not relate to a specific issue. When a related issue or PR exists, including \`Refs:\` is still recommended."
+            else
+                exemptions+=$'\n'"- **\`$type\`** — The \`Refs:\` line is optional."
+            fi
+        done
+    fi
+    start="$(grep -n '^The following commit types have a relaxed' "$doc" | cut -d: -f1)" || true
+    end="$(grep -n '^Additionally, the CI validator' "$doc" | cut -d: -f1)" || true
+    if [[ ! "$start" =~ ^[0-9]+$ || ! "$end" =~ ^[0-9]+$ ]] || ((start >= end)); then
+        echo "Error: $doc: missing or invalid Exemptions anchors" >&2
+        return 1
+    fi
+    exemptions+=$'\n\n'"$branch_note"
+    splice_lines "$doc" "$start" "$((end - 1))" "$exemptions"$'\n'
+    case "$mode" in
+        all)
+            # Markdown backticks below are literal, not shell substitutions.
+            # shellcheck disable=SC2016
+            sed -i \
+                -e 's/Mandatory for most types. Exactly one line/Optional for all approved types. When present, use exactly one line/' \
+                -e 's/provides mandatory traceability/provides optional traceability/' \
+                -e 's/Only one `Refs:` line is allowed/When present, only one `Refs:` line is allowed/' \
+                -e 's/^At least one reference to a GitHub issue must be present/When a Refs line is present, at least one reference to a GitHub issue must be present/' "$doc"
+            ;;
+        none)
+            # shellcheck disable=SC2016
+            sed -i \
+                -e 's/Mandatory for most types/Mandatory for all approved types/' \
+                -e 's/ See \[Exemptions\](#exemptions) for types where `Refs:` is optional\.//' "$doc"
+            ;;
+        some)
+            sed -i 's/Mandatory for most types/Required unless the type is listed under Exemptions/' "$doc"
+            ;;
+    esac
+}
+
+render_security_practices() {
+    local doc="$WORKSPACE_DIR/SECURITY.md"
+    [[ -f "$doc" ]] || return 0
+    if feature_disabled renovate; then
+        sed -i '/^- Renovate monitors dependencies/d' "$doc"
+    fi
+    feature_disabled scanning || return 0
+    sed -i \
+        -e '/^- OpenSSF Scorecard runs weekly/d' \
+        -e '/^- CodeQL static analysis scans/d' \
+        -e '/^### OpenSSF Scorecard accepted findings/,$d' "$doc"
+    # Removing the final section leaves its separating blank line behind.
+    sed -i '${/^$/d}' "$doc"
 }
 
 render_refs_policy() {
@@ -3386,6 +3697,21 @@ if [[ "$FORCE" == "true" ]]; then
             for added in "${ADDED[@]}"; do
                 echo "  +  $added"
             done
+            echo "─────────────────────────────────────────────────────────────"
+        fi
+        # Language pack base configs (#1496) live outside the template, so the
+        # ADDED listing above cannot see them; report them from the same
+        # decision seed_language_statics acts on.
+        _statics_report=""
+        while IFS= read -r -d '' _s_lang && IFS= read -r -d '' _s_src \
+            && IFS= read -r -d '' _s_rel; do
+            _statics_report+="  +  $_s_rel ($_s_lang pack base config)"$'\n'
+        done < <(emit_language_statics)
+        if [[ -n "$_statics_report" ]]; then
+            echo ""
+            echo "Language pack configs that will be SEEDED (yours from then on):"
+            echo "─────────────────────────────────────────────────────────────"
+            printf '%s' "$_statics_report"
             echo "─────────────────────────────────────────────────────────────"
         fi
         # Feature opt-outs (#1284): surface the disabled set so the preview is
@@ -3933,12 +4259,17 @@ if [[ "$NO_PROMPTS" != "true" ]]; then
     resolve_github_repository
 fi
 
-# Seed the Node justfile.project on a first scaffold BEFORE the substitution
-# pass below, so the seed's {{SHORT_NAME}} token is resolved like every other
-# managed file (the seed replaces the freshly-copied template at the same path,
-# so it is in the template-derived candidate set the pass walks). No-op for non-Node
-# consumers and for an existing (preserved) justfile.project. Refs #1027.
-seed_node_justfile_project
+# Seed the per-language justfile.project and flake.nix on a first scaffold
+# BEFORE the substitution pass below, so a seed's {{SHORT_NAME}} token is
+# resolved like every other managed file (each seed replaces the freshly-copied
+# template at the same path, so it is in the template-derived candidate set the
+# pass walks). No-op without a variant for the detected languages and for an
+# existing (preserved) file. The flake variant must also land before
+# activate_flake_hooks_default below, which edits it. Refs #1027, #1496.
+seed_language_variant justfile.d .justfile.project justfile.project "$JUSTFILE_PROJECT_PREEXISTED"
+seed_language_variant flake.d .flake.nix flake.nix "$FLAKE_PREEXISTED"
+seed_language_statics
+notice_rust_pack_bypass
 
 # Render the proprietary LICENSE before the same substitution pass (#1651): the
 # file lands at a template-shipped path, so its {{ORG_NAME}} resolves exactly
@@ -4069,6 +4400,10 @@ render_branch_types
 # the resolved Refs-optional set — its own line, distinct from
 # render_branch_types' and render_branch_guard_model's, so all compose.
 render_issueless_branch_types
+# Managed documentation (#1910): render resolved Refs exemptions and optional
+# security practices after copying their canonical templates.
+render_commit_standard
+render_security_practices
 # actionlint opt-out (#1660): a whole-block excision, not a value sed, so it runs
 # LAST of the .pre-commit-config.yaml renders — the anchors above no longer need
 # to exist once the block is gone, and any of them landing inside it is moot.
@@ -4079,6 +4414,179 @@ render_actionlint_optout
 # (both are idempotent), but dropping the superset last keeps that sed's
 # anchors intact when the feature is enabled.
 render_release_optout
+
+upgrade_has_runner_variable() {
+    local name="DEVKIT_UPGRADE_CI_RUNNER_${1^^}" value
+    value="${!name-}"
+    [[ "${DEVKIT_UPGRADE_CONTEXT:-}" == 1 && "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*$ ]]
+}
+
+# The upgrade's variables are authoritative only with its explicit CI context.
+# No API lookup: an older default-branch workflow (or local install) knows none.
+migrate_ci_runner_key() {
+    local size entry classes="small" missing="" commands="" visible="" availability="missing or invalid variables"
+    local -a overrides=()
+    IFS=',' read -ra overrides <<< "$MANIFEST_CI_LANE_SIZES"
+    for entry in "${overrides[@]}"; do
+        size="${entry#*=}"
+        size="${size//[[:space:]]/}"
+        case " $classes " in
+            *" $size "*) ;;
+            *) classes+=" $size" ;;
+        esac
+    done
+    for size in small large xlarge; do
+        if upgrade_has_runner_variable "$size"; then
+            visible+=" $size"
+        fi
+    done
+    for size in $classes; do
+        if [[ " $visible " != *" $size "* ]]; then
+            missing+=" CI_RUNNER_${size^^}"
+            commands+=" gh variable set CI_RUNNER_${size^^} --body <label>;"
+        fi
+    done
+    if [[ -n "$MANIFEST_CI_RUNNER" ]]; then
+        if [[ -z "$missing" ]]; then
+            echo "ci-runner-migration: DEVKIT_CI_RUNNER removed from .vig-os; runners now come from variables for every required class; nothing to do."
+        else
+            write_manifest_value DEVKIT_CI_RUNNER "$MANIFEST_CI_RUNNER"
+            if [[ "${DEVKIT_UPGRADE_CONTEXT:-}" != 1 ]]; then availability="variables unknown (no CI upgrade context); required variables"; fi
+            echo "ci-runner-migration: DEVKIT_CI_RUNNER kept; $availability:$missing; set them at repository level on private GitHub Free repos.$commands Until N+2 the key keeps working; after that CI fails until the required variables are set. Then delete the key. See MIGRATION.md#seeded-hook-runner-migration."
+        fi
+    elif [[ "${DEVKIT_UPGRADE_CONTEXT:-}" == 1 ]]; then
+        if [[ -n "${DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER:-}" ]]; then
+            if [[ "$CI_RUNNER_HOOKS_RECONCILED" == true ]]; then
+                echo "ci-runner-migration: Set CI_RUNNER_SMALL in place of DEVKIT_CI_RESOLVE_RUNNER, then delete the old variable; every seeded hook job is reconciled. See MIGRATION.md#seeded-hook-runner-migration."
+            else
+                echo "ci-runner-migration: Set CI_RUNNER_SMALL; keep DEVKIT_CI_RESOLVE_RUNNER until every seeded hook job is reconciled. See MIGRATION.md#seeded-hook-runner-migration."
+            fi
+        elif [[ "${DEVKIT_UPGRADE_REPO_PRIVATE:-}" == true && -z "$visible" ]]; then
+            echo "ci-runner-migration: CI runs hosted; organization variables do not reach private repos on GitHub Free. Set repository variables, or set them to ubuntu-26.04 to declare hosted on purpose. See MIGRATION.md#seeded-hook-runner-migration."
+        fi
+    fi
+}
+
+# Source: git log --all -p -- assets/workspace/.github/workflows/*release-extension.yml
+# (all tags, including 1.18.0/1.19.0-rc1, and pre-S2 dev builds).
+# S2's current SMALL expression is already reconciled, not another stock arm.
+CI_RUNNER_HOOK_STOCK=(
+    ubuntu-22.04 ubuntu-24.04 ubuntu-26.04
+    "\${{ fromJSON(inputs.runner-json) }}"
+    "\${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}"
+)
+
+report_hook_runner() {
+    echo "ci-runner-migration: Seeded hook $1: $2 in $3; $4 See MIGRATION.md#seeded-hook-runner-migration."
+    if [[ "$1" != reconciled ]]; then CI_RUNNER_HOOKS_RECONCILED=false; fi
+}
+
+finish_hook_runner_job() {
+    if [[ -n "$HOOK_RUNNER_JOB" && -z "$HOOK_RUNNER_JOB_SEEN" ]]; then
+        report_hook_runner drift "$HOOK_RUNNER_JOB" "$1" "no job runs-on could be classified; review this workflow manually."
+    fi
+}
+
+# Track the jobs mapping without requiring a YAML runtime in a bare scaffold.
+# Unknown layouts remain untouched and get an explicit finding, never a fold.
+track_hook_runner_job() {
+    local line="$1" path="$2" indent name
+    if [[ "$line" =~ ^([[:space:]]*)jobs:[[:space:]]*(#.*)?$ ]]; then
+        HOOK_RUNNER_JOBS_INDENT=${#BASH_REMATCH[1]}
+        HOOK_RUNNER_JOB_INDENT=-1
+    elif [[ "$line" =~ ^([[:space:]]*)[^[:space:]#] ]]; then
+        indent=${#BASH_REMATCH[1]}
+        if (( indent <= HOOK_RUNNER_JOBS_INDENT )); then
+            finish_hook_runner_job "$path"
+            HOOK_RUNNER_JOBS_INDENT=-1 HOOK_RUNNER_JOB=""
+        elif (( HOOK_RUNNER_JOBS_INDENT >= 0 )) && [[ "$line" =~ ^[[:space:]]*([^:#]+):[[:space:]]*(#.*)?$ ]]; then
+            name="${BASH_REMATCH[1]}"
+            if (( HOOK_RUNNER_JOB_INDENT < 0 || indent == HOOK_RUNNER_JOB_INDENT )); then
+                finish_hook_runner_job "$path"
+                name="${name%"${name##*[![:space:]]}"}"
+                name="${name#\"}" name="${name%\"}" name="${name#\'}" name="${name%\'}"
+                HOOK_RUNNER_JOB="$name" HOOK_RUNNER_JOB_INDENT=$indent
+                HOOK_RUNNER_PROPERTY_INDENT=-1 HOOK_RUNNER_JOB_SEEN=""
+            fi
+        fi
+        if [[ -n "$HOOK_RUNNER_JOB" ]] && (( indent > HOOK_RUNNER_JOB_INDENT && HOOK_RUNNER_PROPERTY_INDENT < 0 )); then
+            HOOK_RUNNER_PROPERTY_INDENT=$indent
+        fi
+    fi
+}
+
+# Return the replacement in HOOK_RUNNER_REPLACEMENT; status stays in this shell.
+classify_hook_runner() {
+    local value="$1" target="$2" job="$3" path="$4" stock
+    HOOK_RUNNER_REPLACEMENT="$value"
+    [[ "$value" != "$target" ]] || return 0
+    for stock in "${CI_RUNNER_HOOK_STOCK[@]}"; do
+        if [[ "$value" == "$stock" ]]; then
+            if upgrade_has_runner_variable small; then
+                HOOK_RUNNER_REPLACEMENT="$target"
+                report_hook_runner reconciled "$job" "$path" "stock runner replaced by the SMALL expression; review this workflow diff."
+            else
+                report_hook_runner pending "$job" "$path" "stock runner preserved; set CI_RUNNER_SMALL to a valid single label in the CI upgrade context and rerun the upgrade."
+            fi
+            return 0
+        fi
+    done
+    report_hook_runner drift "$job" "$path" "custom runner preserved; migrate this workflow job to the SMALL expression manually."
+}
+
+reconcile_release_runner_file() {
+    local path="$1" target="$2" line ending prefix value comment indent tmp changed="" count=0
+    HOOK_RUNNER_JOBS_INDENT=-1 HOOK_RUNNER_JOB_INDENT=-1 HOOK_RUNNER_PROPERTY_INDENT=-1
+    HOOK_RUNNER_JOB="" HOOK_RUNNER_JOB_SEEN=""
+    tmp="$(mktemp)"
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        ending=$'\n'
+        if [[ "$line" == *$'\r' ]]; then line="${line%$'\r'}"; ending=$'\r\n'; fi
+        track_hook_runner_job "$line" "$path"
+        if [[ "$line" =~ ^([[:space:]]*runs-on:[[:space:]]*)(.*)$ ]]; then
+            prefix="${BASH_REMATCH[1]}" value="${BASH_REMATCH[2]}" comment=""
+            indent="${line%%[![:space:]]*}"
+            count=$((count + 1))
+            if [[ "$value" =~ ([[:space:]]+#.*)$ ]]; then
+                comment="${BASH_REMATCH[1]}" value="${value%"${BASH_REMATCH[1]}"}"
+            fi
+            comment="${value##*[![:space:]]}$comment" value="${value%"${value##*[![:space:]]}"}"
+            if [[ -n "$HOOK_RUNNER_JOB" && ${#indent} -eq "$HOOK_RUNNER_PROPERTY_INDENT" ]]; then
+                HOOK_RUNNER_JOB_SEEN=1
+                classify_hook_runner "$value" "$target" "$HOOK_RUNNER_JOB" "$path"
+                if [[ "$value" != "$HOOK_RUNNER_REPLACEMENT" ]]; then
+                    line="$prefix$HOOK_RUNNER_REPLACEMENT$comment" changed=1
+                fi
+            else
+                report_hook_runner drift "${HOOK_RUNNER_JOB:-unclassified job}" "$path" "runs-on outside a recognised job mapping; review this workflow manually."
+            fi
+        fi
+        printf '%s%s' "$line" "$ending" >> "$tmp"
+    done < "$WORKSPACE_DIR/$path"
+    finish_hook_runner_job "$path"
+    if (( count == 0 )) && [[ -z "$HOOK_RUNNER_JOB" ]]; then report_hook_runner drift "unclassified job" "$path" "no runs-on lines found; review this workflow manually."; fi
+    if [[ -n "$changed" ]]; then
+        if [[ -n "$(tail -c1 "$WORKSPACE_DIR/$path")" ]]; then truncate -s -1 "$tmp"; fi
+        cat "$tmp" > "$WORKSPACE_DIR/$path"
+    fi
+    rm -f "$tmp"
+}
+
+reconcile_release_runner_hooks() {
+    local hook path target
+    CI_RUNNER_HOOKS_RECONCILED=true
+    for hook in prepare-release-extension release-extension publish-release-extension; do
+        path=".github/workflows/$hook.yml"
+        [[ -e "$WORKSPACE_DIR/$path" || -L "$WORKSPACE_DIR/$path" ]] || continue
+        if [[ ! -f "$WORKSPACE_DIR/$path" || -L "$WORKSPACE_DIR/$path" ]]; then
+            report_hook_runner drift "unclassified job" "$path" "not a regular owned file; review this workflow manually."
+            continue
+        fi
+        target="$(grep -m1 '^    runs-on:' "$TEMPLATE_DIR/$path")"
+        reconcile_release_runner_file "$path" "${target#*runs-on: }"
+    done
+}
+reconcile_release_runner_hooks
 
 # Persist the resolved manifest (#885). The scaffolded .vig-os is a managed
 # file (template-overwritten on upgrade), so the resolved delivery mode and
@@ -4096,6 +4604,18 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     write_manifest_value DEVKIT_PROJECT "$SHORT_NAME"
     write_manifest_value DEVKIT_ORG "$ORG_NAME"
     write_manifest_value DEVKIT_REPO "$GITHUB_REPOSITORY"
+    if [[ -n "$MANIFEST_TYPST_FONT_PATHS" ]]; then
+        write_manifest_value DEVKIT_TYPST_FONT_PATHS "\"$MANIFEST_TYPST_FONT_PATHS\""
+    fi
+    if [[ -n "$MANIFEST_GLOSSARY" ]]; then
+        write_manifest_value DEVKIT_GLOSSARY "\"$MANIFEST_GLOSSARY\""
+    fi
+    if [[ -n "$MANIFEST_GLOSSARY_SOURCES" ]]; then
+        write_manifest_value DEVKIT_GLOSSARY_SOURCES "\"$MANIFEST_GLOSSARY_SOURCES\""
+    fi
+    if [[ -n "$MANIFEST_TYPST_SKIP" ]]; then
+        write_manifest_value DEVKIT_TYPST_SKIP "\"$MANIFEST_TYPST_SKIP\""
+    fi
     if [[ -n "$MANIFEST_MODULES" ]]; then
         write_manifest_value DEVKIT_MODULES "\"$MANIFEST_MODULES\""
     fi
@@ -4116,11 +4636,12 @@ if [[ -f "$VIG_OS_MANIFEST" ]]; then
     if [[ -n "$MANIFEST_PRERELEASE_FORMAT" ]]; then
         write_manifest_value DEVKIT_PRERELEASE_FORMAT "$MANIFEST_PRERELEASE_FORMAT"
     fi
-    # CI runner override (#1173): bare in the template (DEVKIT_CI_RUNNER=), so a
-    # self-hosted consumer's label list is read before the overwrite and written
-    # back — else an upgrade silently resets ci.yml onto the hosted default.
-    if [[ -n "$MANIFEST_CI_RUNNER" ]]; then
-        write_manifest_value DEVKIT_CI_RUNNER "$MANIFEST_CI_RUNNER"
+    # Legacy key migration (#1929): preserve its runner selection unless the
+    # CI upgrade context proves every required class already overrides it.
+    migrate_ci_runner_key
+    # Project lane sizes (#1927) survive the managed template overwrite.
+    if [[ -n "$MANIFEST_CI_LANE_SIZES" ]]; then
+        write_manifest_value DEVKIT_CI_LANE_SIZES "$MANIFEST_CI_LANE_SIZES"
     fi
     # Dev-shell gcroot path (#1601): same shape as the runner override above —
     # bare in the template, and a runner-host fact the consumer set once. Losing

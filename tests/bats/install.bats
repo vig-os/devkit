@@ -81,13 +81,13 @@ setup() {
 }
 
 @test "dry-run includes image registry in command" {
-    run bash "$INSTALL_SH" --dry-run .
+    run bash "$INSTALL_SH" --dry-run "$BATS_TEST_TMPDIR"
     assert_success
     assert_output --partial "ghcr.io/vig-os/devcontainer"
 }
 
 @test "dry-run output is shell-quoted for safe copy-paste" {
-    run bash "$INSTALL_SH" --dry-run .
+    run bash "$INSTALL_SH" --dry-run "$BATS_TEST_TMPDIR"
     assert_success
     # The command is rendered from the real CMD array via printf '%q', so each
     # argument is shell-safe (quoted only when it contains special characters).
@@ -98,13 +98,13 @@ setup() {
 # ── version flag ──────────────────────────────────────────────────────────────
 
 @test "version flag appears in dry-run command" {
-    run bash "$INSTALL_SH" --dry-run --version 1.2.3 .
+    run bash "$INSTALL_SH" --dry-run --version 1.2.3 "$BATS_TEST_TMPDIR"
     assert_success
     assert_output --partial "ghcr.io/vig-os/devcontainer:1.2.3"
 }
 
 @test "default version is latest" {
-    run bash "$INSTALL_SH" --dry-run .
+    run bash "$INSTALL_SH" --dry-run "$BATS_TEST_TMPDIR"
     assert_success
     assert_output --partial "ghcr.io/vig-os/devcontainer:latest"
 }
@@ -202,7 +202,7 @@ _run_install_autodetect() {
     chmod +x "$stub/docker" "$stub/podman"
     _make_repo "$dir"
     run env PATH="$stub:$PATH" bash "$INSTALL_SH" \
-        --skip-pull --mode direnv "$dir" </dev/null
+        --skip-pull --mode both "$dir" </dev/null
 }
 
 @test "auto-detection prefers docker with a responsive daemon over podman (#1305)" {
@@ -433,14 +433,110 @@ _make_repo() {
     assert_output --partial "--skip-preflight"
 }
 
-@test "preflight: --force refuses on an untracked-unignored file (#886)" {
+# Untracked paths are judged INSIDE the container (#1826): build output such as
+# target/ is often untracked only because the ignore fragment that covers it
+# arrives with this very upgrade, and only the image knows the fragments and the
+# detected languages. The host forwards the paths; init-workspace.sh refuses any
+# the upgraded .gitignore will not cover (tests/bats/init-workspace.bats).
+@test "preflight: untracked paths are forwarded to the scaffold's check, not refused host-side (#1826)" {
     repo="$BATS_TEST_TMPDIR/dirty-untracked"
     _make_repo "$repo"
     echo "wip" > "$repo/untracked.txt"
+    mkdir -p "$repo/target/debug"
+    echo "x" > "$repo/target/debug/build"
+    run bash "$INSTALL_SH" --dry-run --force "$repo" </dev/null
+    assert_success
+    assert_output --partial "Would execute:"
+    assert_output --partial "DEVKIT_PREFLIGHT_UNTRACKED="
+    assert_output --partial "untracked.txt"
+    assert_output --partial "target/"
+}
+
+@test "preflight: a tracked change still refuses when untracked build output is present (#1826)" {
+    repo="$BATS_TEST_TMPDIR/dirty-mixed"
+    _make_repo "$repo"
+    echo "v1" > "$repo/file.txt"
+    _git -C "$repo" add file.txt
+    _git -C "$repo" commit -q -m "chore: add file"
+    echo "v2" >> "$repo/file.txt"
+    mkdir -p "$repo/target"
+    echo "x" > "$repo/target/out"
     run bash "$INSTALL_SH" --dry-run --force "$repo" </dev/null
     assert_failure
     assert_output --partial "dirty"
-    assert_output --partial "--skip-preflight"
+    assert_output --partial "file.txt"
+}
+
+@test "preflight: --allow-untracked proceeds and forwards nothing (#1826)" {
+    repo="$BATS_TEST_TMPDIR/allow-untracked"
+    _make_repo "$repo"
+    echo "wip" > "$repo/untracked.txt"
+    run bash "$INSTALL_SH" --dry-run --force --allow-untracked "$repo" </dev/null
+    assert_success
+    assert_output --partial "Would execute:"
+    assert_output --partial "untracked.txt"
+    refute_output --partial "DEVKIT_PREFLIGHT_UNTRACKED="
+}
+
+@test "preflight: --allow-untracked does not excuse a tracked change (#1826)" {
+    repo="$BATS_TEST_TMPDIR/allow-untracked-tracked"
+    _make_repo "$repo"
+    echo "v1" > "$repo/file.txt"
+    _git -C "$repo" add file.txt
+    _git -C "$repo" commit -q -m "chore: add file"
+    echo "v2" >> "$repo/file.txt"
+    run bash "$INSTALL_SH" --dry-run --force --allow-untracked "$repo" </dev/null
+    assert_failure
+    assert_output --partial "dirty"
+}
+
+@test "preflight: an empty untracked directory is not a change (#1826)" {
+    repo="$BATS_TEST_TMPDIR/empty-untracked-dir"
+    _make_repo "$repo"
+    mkdir -p "$repo/data"
+    run bash "$INSTALL_SH" --dry-run --force "$repo" </dev/null
+    assert_success
+    refute_output --partial "DEVKIT_PREFLIGHT_UNTRACKED="
+}
+
+@test "preflight: non-ASCII untracked paths are forwarded verbatim, not C-quoted (#1826)" {
+    repo="$BATS_TEST_TMPDIR/non-ascii-untracked"
+    _make_repo "$repo"
+    echo x >"$repo/café.log"
+    run bash "$INSTALL_SH" --dry-run --force "$repo" </dev/null
+    assert_success
+    # The shown command is printf %q-escaped, so assert on the info line that
+    # lists the forwarded paths: git C-quotes the name as octal escapes.
+    assert_output --partial "    café.log"
+}
+
+@test "preflight: an image that predates the untracked check refuses untracked paths (#1826)" {
+    # A new install.sh pulling an OLD image (--version <old>) must not lose the
+    # #886 untracked guard: the old init-workspace.sh ignores the forwarded list.
+    repo="$BATS_TEST_TMPDIR/old-image"
+    _make_repo "$repo"
+    echo wip >"$repo/notes.txt"
+    local stub="$BATS_TEST_TMPDIR/stub-old-image"
+    mkdir -p "$stub"
+    # `run ... grep -q DEVKIT_PREFLIGHT_UNTRACKED ...` is the capability probe:
+    # fail it, succeed everything else (info, image inspect, the scaffold run).
+    # shellcheck disable=SC2016  # literal stub script
+    printf '#!/usr/bin/env bash\nfor a in "$@"; do [ "$a" = DEVKIT_PREFLIGHT_UNTRACKED ] && exit 1; done\nexit 0\n' >"$stub/docker"
+    chmod +x "$stub/docker"
+    run env PATH="$stub:$PATH" bash "$INSTALL_SH" \
+        --docker --skip-pull --force "$repo" </dev/null
+    assert_failure
+    assert_output --partial "predates"
+    assert_output --partial "notes.txt"
+    assert_output --partial "--allow-untracked"
+}
+
+@test "preflight: a clean tree forwards no untracked list (#1826)" {
+    repo="$BATS_TEST_TMPDIR/clean-no-forward"
+    _make_repo "$repo"
+    run bash "$INSTALL_SH" --dry-run --force "$repo" </dev/null
+    assert_success
+    refute_output --partial "DEVKIT_PREFLIGHT_UNTRACKED="
 }
 
 @test "preflight: gitignored clutter does not count as dirty (#886)" {
@@ -840,7 +936,25 @@ _run_install_stubbed() {
 }
 
 @test "direnv install points at the direnv entrypoint, not VS Code (#1015)" {
-    _run_install_stubbed "$BATS_TEST_TMPDIR/next-direnv" direnv
+    # direnv scaffolds on the host from the flake source (#1871): nix is stubbed
+    # to this checkout, so no container runtime is involved.
+    if ! sed --version 2>/dev/null | grep -q GNU || ! command -v rsync >/dev/null \
+        || ! command -v jq >/dev/null; then
+        skip "the host scaffold needs GNU sed, rsync and jq"
+    fi
+    local stub="$BATS_TEST_TMPDIR/stub-nix" dir="$BATS_TEST_TMPDIR/next-direnv"
+    mkdir -p "$stub"
+    cat >"$stub/nix" <<STUB
+#!/usr/bin/env bash
+case " \$* " in
+    *" flake metadata "*) printf '%s' '{"path":"$PROJECT_ROOT"}' ;;
+    *" develop "*) while [ "\$1" != "-c" ]; do shift; done; shift; exec "\$@" ;;
+esac
+STUB
+    chmod +x "$stub/nix"
+    _make_repo "$dir"
+    run env PATH="$stub:$PATH" bash "$INSTALL_SH" \
+        --version 1.2.3 --mode direnv "$dir" </dev/null
     assert_success
     refute_output --partial "Open in VS Code"
     assert_output --partial "direnv allow"
@@ -899,7 +1013,7 @@ STUB
     fi
     _make_repo "$dir"
     run env PATH="$stub:$PATH" bash "$INSTALL_SH" \
-        "--$runtime" --skip-pull --mode direnv "$dir" </dev/null
+        "--$runtime" --skip-pull --mode both "$dir" </dev/null
 }
 
 @test "docker path chowns scaffold output to the invoking user (#1235)" {
@@ -955,13 +1069,13 @@ STUB
 # Exercised against a stub `docker` (scaffold no-op) + logging stub `nix`.
 
 # Build an upgradeable consumer fixture at $1: clean feature-branch repo with a
-# .vig-os manifest (mode $4, default direnv), a flake.nix whose vigos input is
+# .vig-os manifest (mode $4, default both), a flake.nix whose vigos input is
 # $2 (a full `vigos.url = ...` line), and — unless $3=nolock — a flake.lock.
 # Optional $5 writes DEVKIT_FLAKE_PIN_ADVANCE=$5 into .vig-os and optional $6
 # adds one more input line (e.g. a sibling `nixpkgs.url`), both BEFORE the
 # fixture commit (the --force preflight refuses a dirty tree, #1752).
 _make_flake_workspace() {
-    local dir="$1" url_line="$2" with_lock="${3:-lock}" mode="${4:-direnv}"
+    local dir="$1" url_line="$2" with_lock="${3:-lock}" mode="${4:-both}"
     local pin_advance="${5:-}" extra_line="${6:-}"
     _make_repo "$dir"
     printf 'DEVKIT_VERSION=1.4.1\nDEVKIT_MODE=%s\n' "$mode" >"$dir/.vig-os"
@@ -1201,7 +1315,7 @@ _run_install_no_nix() {
         echo "knob: '${knob}'"
         dir="$BATS_TEST_TMPDIR/pin-knob-off-${knob:-absent}"
         log="$BATS_TEST_TMPDIR/pin-knob-off-${knob:-absent}-nix.log"
-        _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock direnv "$knob"
+        _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock both "$knob"
         cp "$dir/flake.nix" "$BATS_TEST_TMPDIR/before.nix"
         _run_install_nix_stub "$dir" "$log" 0 --force
         assert_success
@@ -1218,7 +1332,7 @@ _run_install_no_nix() {
 @test "knob true advances a ?ref= pin and locks it (#1752)" {
     dir="$BATS_TEST_TMPDIR/pin-qref"
     log="$BATS_TEST_TMPDIR/pin-qref-nix.log"
-    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock direnv true
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock both true
     _run_install_nix_stub "$dir" "$log" 0 --force
     assert_success
     assert_output --partial "flake-bump: advanced pinned input 'vigos' 1.4.0 -> 1.4.1"
@@ -1231,7 +1345,7 @@ _run_install_no_nix() {
 @test "knob true advances a /X path pin, preserving the form (#1752)" {
     dir="$BATS_TEST_TMPDIR/pin-path"
     log="$BATS_TEST_TMPDIR/pin-path-nix.log"
-    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit/1.4.0";' lock direnv true
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit/1.4.0";' lock both true
     _run_install_nix_stub "$dir" "$log" 0 --force
     assert_success
     assert_output --partial "flake-bump: advanced pinned input 'vigos' 1.4.0 -> 1.4.1"
@@ -1244,7 +1358,7 @@ _run_install_no_nix() {
 @test "knob true advances a pinned input named devkit (#1752)" {
     dir="$BATS_TEST_TMPDIR/pin-renamed"
     log="$BATS_TEST_TMPDIR/pin-renamed-nix.log"
-    _make_flake_workspace "$dir" 'devkit.url = "github:vig-os/devkit?ref=1.4.0";' lock direnv true
+    _make_flake_workspace "$dir" 'devkit.url = "github:vig-os/devkit?ref=1.4.0";' lock both true
     _run_install_nix_stub "$dir" "$log" 0 --force
     assert_success
     assert_output --partial "flake-bump: advanced pinned input 'devkit' 1.4.0 -> 1.4.1"
@@ -1258,7 +1372,7 @@ _run_install_no_nix() {
     dir="$BATS_TEST_TMPDIR/pin-siblings"
     log="$BATS_TEST_TMPDIR/pin-siblings-nix.log"
     # A doc-comment carrying the OLD pin: an unaddressed rewrite would hit it.
-    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock direnv true \
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock both true \
         '# vigos.url = "github:vig-os/devkit?ref=1.4.0";'
     _run_install_nix_stub "$dir" "$log" 0 --force
     assert_success
@@ -1272,7 +1386,7 @@ _run_install_no_nix() {
 @test "an unusable TMPDIR aborts the advance with one line, nothing written (#1752)" {
     dir="$BATS_TEST_TMPDIR/pin-no-tmpdir"
     log="$BATS_TEST_TMPDIR/pin-no-tmpdir-nix.log"
-    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock direnv true
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock both true
     cp "$dir/flake.nix" "$BATS_TEST_TMPDIR/before.nix"
     INSTALL_TMPDIR="$BATS_TEST_TMPDIR/nonexistent" _run_install_nix_stub "$dir" "$log" 0 --force
     assert_success
@@ -1285,7 +1399,7 @@ _run_install_no_nix() {
 @test "an already-aligned pin is reported and not touched (#1752)" {
     dir="$BATS_TEST_TMPDIR/pin-aligned"
     log="$BATS_TEST_TMPDIR/pin-aligned-nix.log"
-    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.1";' lock direnv true
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.1";' lock both true
     cp "$dir/flake.nix" "$BATS_TEST_TMPDIR/before.nix"
     _run_install_nix_stub "$dir" "$log" 0 --force
     assert_success
@@ -1301,7 +1415,7 @@ _run_install_no_nix() {
         echo "url: $url"
         dir="$BATS_TEST_TMPDIR/pin-nonrelease-$i"
         log="$BATS_TEST_TMPDIR/pin-nonrelease-$((i++))-nix.log"
-        _make_flake_workspace "$dir" "vigos.url = \"$url\";" lock direnv true
+        _make_flake_workspace "$dir" "vigos.url = \"$url\";" lock both true
         cp "$dir/flake.nix" "$BATS_TEST_TMPDIR/before.nix"
         _run_install_nix_stub "$dir" "$log" 0 --force
         assert_success
@@ -1315,7 +1429,7 @@ _run_install_no_nix() {
 @test "a non-release DEVKIT_VERSION leaves the pin alone (#1752)" {
     dir="$BATS_TEST_TMPDIR/pin-latest"
     log="$BATS_TEST_TMPDIR/pin-latest-nix.log"
-    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock direnv true
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock both true
     sed -i 's/^DEVKIT_VERSION=.*/DEVKIT_VERSION=latest/' "$dir/.vig-os"
     _git -C "$dir" commit -q -am "chore: fixture latest"
     cp "$dir/flake.nix" "$BATS_TEST_TMPDIR/before.nix"
@@ -1330,7 +1444,7 @@ _run_install_no_nix() {
 @test "a failed lock update restores flake.nix and flake.lock (#1752)" {
     dir="$BATS_TEST_TMPDIR/pin-fail"
     log="$BATS_TEST_TMPDIR/pin-fail-nix.log"
-    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock direnv true
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock both true
     cp "$dir/flake.nix" "$BATS_TEST_TMPDIR/before.nix"
     cp "$dir/flake.lock" "$BATS_TEST_TMPDIR/before.lock"
     _run_install_nix_stub "$dir" "$log" 1 --force
@@ -1346,7 +1460,7 @@ _run_install_no_nix() {
 
 @test "no nix on PATH leaves the pin alone and says so (#1752)" {
     dir="$BATS_TEST_TMPDIR/pin-no-nix"
-    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock direnv true
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit?ref=1.4.0";' lock both true
     cp "$dir/flake.nix" "$BATS_TEST_TMPDIR/before.nix"
     _run_install_no_nix "$dir" --force
     assert_success
@@ -1360,7 +1474,7 @@ _run_install_no_nix() {
     # Green before #1752 too: the knob only governs PINNED inputs.
     dir="$BATS_TEST_TMPDIR/pin-knob-floating"
     log="$BATS_TEST_TMPDIR/pin-knob-floating-nix.log"
-    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit";' lock direnv true
+    _make_flake_workspace "$dir" 'vigos.url = "github:vig-os/devkit";' lock both true
     cp "$dir/flake.nix" "$BATS_TEST_TMPDIR/before.nix"
     _run_install_nix_stub "$dir" "$log" 0 --force
     assert_success

@@ -296,72 +296,249 @@ every delivery mode. A private consumer can skip it — the gate is neutral ther
 and starts working automatically if the repo is later flipped public
 ([#1166](https://github.com/vig-os/devkit/issues/1166)).
 
+### Seeded hook runner migration
+
+CI runner settings are moving to `CI_RUNNER_SMALL`, `CI_RUNNER_LARGE` and
+`CI_RUNNER_XLARGE` variables. Set them at repository level for private repos
+on GitHub Free; organization variables are not visible there. Every lane uses
+SMALL unless `DEVKIT_CI_LANE_SIZES` opts it into another class. A legacy
+`.vig-os` runner key is kept until the CI upgrade context proves every required
+class has a valid single-label variable. Local installs treat variables as
+unknown and keep the key.
+
+The upgrade checks every job in `prepare-release-extension.yml`,
+`release-extension.yml` and `publish-release-extension.yml`:
+
+- **reconciled:** a known seeded runner value was replaced by the fork-safe
+  SMALL expression. Review the workflow diff; indentation, comments and line
+  endings are preserved. The current SMALL expression needs no further change.
+- **pending:** the runner is preserved because this upgrade cannot see a valid
+  `CI_RUNNER_SMALL` in its CI context. Set that variable to one runner label
+  (or `ubuntu-26.04` for hosted runners) and rerun the upgrade from an updated
+  default-branch workflow. Local installs never fold hooks.
+- **drift:** customised or unclassified content is preserved. Review the named
+  file and job, then migrate its runner manually to the SMALL expression in
+  the current seeded template. Keep `DEVKIT_CI_RESOLVE_RUNNER` until every
+  seeded hook job is reconciled and `CI_RUNNER_SMALL` is configured.
+
+All findings use the `ci-runner-migration:` channel in logs and, with an
+updated default-branch upgrade workflow, the **CI runner migration** PR-body
+section. A pre-N workflow drops that channel instead of presenting it under
+unrelated preserved-hook headings. Per-run CI warnings remain the primary
+migration channel. A delete-the-legacy-variable hint appears only once every
+seeded hook job is reconciled.
+
 ### Run CI on self-hosted runners
 
 `ci.yml` defaults to GitHub-hosted `ubuntu-26.04` runners. A consumer whose org
-runs its CI on self-hosted runners (e.g. GitHub billing blocks hosted runners
-for heavy jobs) sets the optional `.vig-os` key `DEVKIT_CI_RUNNER` to a
-**comma-separated runner label list** instead of hand-editing the
-scaffold-managed workflow (hand-edits to `runs-on` are clobbered on the next
-upgrade):
+runs CI on self-hosted runners (e.g. GitHub billing blocks hosted runners for
+heavy jobs) sets the repository or organization variables `CI_RUNNER_SMALL`,
+`CI_RUNNER_LARGE` and `CI_RUNNER_XLARGE` — never a `.vig-os` key, and never by
+hand-editing a scaffold-managed `runs-on:` line (hand-edits are clobbered on
+the next upgrade). Each variable is **exactly one runner label**:
+
+```sh
+gh variable set CI_RUNNER_SMALL --body <label>
+```
+
+- **Repository level on GitHub Free.** Organization variables do not reach
+  private repositories on the Free plan. If no `CI_RUNNER_*` variable is
+  visible there at all, `resolve-toolchain` prints a `::notice::` annotation
+  plus a step-summary line saying CI runs hosted and naming the fix — this is
+  not silent. A Free-plan private repo must set the variables at
+  **repository** level; organization level works everywhere else (Team plan,
+  or any public repo).
+- **One label, not a list.** `a,b` is read as a single label literally named
+  `a,b`, never split. For `CI_RUNNER_LARGE`/`XLARGE`, a comma list, a JSON
+  list (`["pool-l"]`), or a label carrying leading, trailing or inner
+  whitespace fails `resolve-toolchain` with an `::error::` naming the
+  variable, before any lane that depends on it is scheduled. `CI_RUNNER_SMALL`
+  feeds `resolve-toolchain`'s own job directly, so the same kind of malformed
+  value queues that job on the literal label instead of ever reaching the
+  error — see [Known symptoms](#known-symptoms).
+- **Unset or empty** means the hosted default, `ubuntu-26.04` — no change for
+  a consumer that sets none of the three.
+
+#### Size classes and the lane override
+
+Every managed lane belongs to one size class, and **every lane defaults to
+SMALL**: `resolve-toolchain` itself, the toolchain lanes (`lint`, `test`, the
+`extension` hook), the release train's `release-test`, the seeded release
+hooks, `commit-checks`, `scaffold-drift`, `devkit-staleness`, `summary`,
+`sync-issues`/`sync-main-to-dev` and `devkit-upgrade`. `CI_RUNNER_LARGE` and
+`CI_RUNNER_XLARGE` serve no lane by default — a project opts `lint`, `test`,
+`extension` or `release-test` into LARGE or XLARGE itself, in `.vig-os`:
 
 ```ini
 # .vig-os
-DEVKIT_CI_RUNNER=self-hosted,linux,x64,meatgrinder
+DEVKIT_CI_LANE_SIZES=test=large,lint=large
 ```
 
-`resolve-toolchain` reads the key and emits a `runner-json` output — a JSON array
-of the labels (`["self-hosted","linux","x64","meatgrinder"]`), or
-`["ubuntu-26.04"]` when the key is absent — and the toolchain jobs (`lint`,
-`test`, `commit-checks`) plus the `summary` gate declare
-`runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}`. The
-scaffolded `sync-issues.yml`'s `sync` job (its daily-cron real work) routes
-through its own `resolve-toolchain`'s `runner-json` output the same way, so a
-self-hosted consumer no longer pays for that job on a hosted runner either
-([#1795](https://github.com/vig-os/devkit/issues/1795)). A single label still
-emits a valid one-element array. The key is persisted across re-scaffolds like
-the other manifest keys, so an upgrade preserves it with no flags. Absent =>
-unchanged behavior for every existing consumer
-([#1173](https://github.com/vig-os/devkit/issues/1173)).
+Comma-separated `lane=size` entries; whitespace around an entry is trimmed;
+duplicate lanes and an unknown lane or size name fail both the scaffold write
+path and `resolve-toolchain`. SMALL is the default for every lane because
+self-hosted pools usually hold far fewer large runners than small ones:
+putting the heavier lanes on LARGE by default let one PR occupy every LARGE
+slot while a second PR queued and the small slots sat idle. Moving a lane to
+a class whose `CI_RUNNER_*` variable is not set has two different outcomes:
+while the legacy `.vig-os` key `DEVKIT_CI_RUNNER` is still set, the class
+falls back to **the key's own labels** (source `legacy-key` — the key backs
+every class while it decides anything, not only SMALL), with no per-lane
+warning (the key-wide migration warning already names it); once the key is
+gone, or was never set, the lane falls to the hosted default instead — there
+is no cross-class fallback to another configured class — and every
+non-foreign run then carries a `::warning::` naming the variable and the
+lane until it is set.
 
-**The `resolve-toolchain` jobs take a repository variable, not this key.**
-Every `resolve-toolchain` job *produces* `runner-json` (a job cannot depend on
-its own output — chicken-and-egg), and `.vig-os` cannot be read before a runner
-exists. Each is a seconds-long sparse checkout, one per scaffolded workflow
-that declares it (`ci.yml`, `sync-issues.yml`, `sync-main-to-dev.yml`,
-`abandon-release.yml`, `prepare-hotfix.yml`, `promote-release.yml`,
-`release.yml`). On a **private** repo each is still billed as a full minute, so
-that cost scales with the number of workflow runs rather than with how long
-they take. To move them too, set the repository (or organization) **variable**
-`DEVKIT_CI_RESOLVE_RUNNER` — `vars` resolves server-side before any runner is
-provisioned, so there is no circularity
-([#1796](https://github.com/vig-os/devkit/issues/1796)):
+`resolve-toolchain` emits `runners` (a JSON object keyed by class and by every
+overridable lane, each a one-element label array) and `runner-sources`
+(`fork`, `variable`, `legacy-key` or `default` per class, printed as a
+step-summary table). Lanes declare
+`runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runners).test }}` (or
+`.small`, `.lint`, `.extension`, …); the release train
+(`prepare-release`, `prepare-hotfix`, `release` and its reusable
+`release-core`/`release-publish`, `promote-release`, `abandon-release`,
+`sync-main-to-dev`) and `sync-issues` route the same way. The deprecated
+`runner-json` output is kept as an alias of `runners.small`, for
+consumer-written jobs that still read it; it is removed in release N+2.
 
-```sh
-gh variable set DEVKIT_CI_RESOLVE_RUNNER --body meatgrinder
-```
+The seeded, consumer-owned release hooks (`prepare-release-extension.yml`,
+`release-extension.yml`, `publish-release-extension.yml`) take no runner
+input from their callers, so an upgrade never changes what an existing copy
+accepts — see [Seeded hook runner migration](#seeded-hook-runner-migration)
+for how they move onto `CI_RUNNER_SMALL`. `codeql`, `scorecard` and
+`dependency-review` stay hosted: they are public-repo-only (skipped on
+private repos) and need no toolchain, so a consumer whose org **cannot run
+any hosted job at all** still needs that lane handled separately (e.g. a
+repo-specific static render).
 
-Every `resolve-toolchain` job declares
-`runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}`; unset or
-empty => the hosted default, unchanged for every existing consumer.
+#### Fork safety
 
-- The value is **one runner label**, not a comma-separated list: `a,b` is read
-  as a single label named `a,b`. Pick a label only your intended runners carry
-  (e.g. the custom one in your `DEVKIT_CI_RUNNER` list).
-- **Nothing validates it.** The job has no runner to validate it on, so a label
-  no online runner carries does not fail fast: the run sits *queued* until
-  GitHub's job-queue ceiling, and every workflow that declares the job is stuck
-  behind it. If runs queue indefinitely after setting it, check the label
-  first; deleting the variable (`gh variable delete DEVKIT_CI_RESOLVE_RUNNER`)
-  restores the hosted default on the next run with no commit.
-- This is a billing knob, **not an outage fallback**: where the expensive jobs
-  run is still `DEVKIT_CI_RUNNER` in `.vig-os`, so recovering from a self-hosted
-  outage remains a commit to that file.
+Every `runs-on` that is not a literal hosted label evaluates the same
+predicate: a pull request is **foreign** when its head repository is a fork,
+or is not this repository at all. A foreign run always resolves to
+`ubuntu-26.04` in every class, whatever the variables say — the legacy
+`.vig-os` key is **ignored** for a foreign run, not just overridden.
 
-`dependency-review` stays hosted: it is public-repo-only (skipped on private
-repos), needs no toolchain, and reads GitHub's dependency-graph API. A consumer
-whose org **cannot run any hosted job at all** therefore still needs that lane
-handled separately (e.g. a repo-specific static render).
+This predicate is an accident-prevention layer, not the security boundary.
+On `pull_request` a fork controls the checked-out `ci.yml` content itself, so
+the predicate cannot be trusted as a defense against that content — it
+exists to route fork PRs to hosted runners so they still get CI, not to
+police what a fork's workflow asks for. The controls that actually keep
+untrusted code off a self-hosted pool belong to the runner operator:
+
+- a runner-side **job-start hook** (`ACTIONS_RUNNER_HOOK_JOB_STARTED`) that
+  rejects a job whose `head.repo` differs from `base.repo`;
+- the org setting **"Require approval for fork pull request workflows,"**
+  requiring approval for every external contributor;
+- optionally, keeping the self-hosted runner group's visibility restricted so
+  no public repository can reach it at all.
+
+Configure these on the runner host and in the org's settings; devkit's
+predicate does not, and cannot, substitute for either.
+
+Before publishing a private repository, follow the [going-public checklist](GOING_PUBLIC.md).
+
+**Forks of a private repo are foreign too**, even though only someone with
+read access can create one. A PR from such a fork gets no CI at all if the
+org cannot run any hosted job — the jobs are rejected or stay queued forever,
+and nothing turns the checks green. The remedy: have contributors push
+branches to the base repository instead (anyone with write access can), and
+turn off **"Allow forking of private repositories"** in the org's member
+privileges so such a PR cannot be opened in the first place.
+
+#### Deprecation timeline
+
+- **This release (N):** `CI_RUNNER_SMALL`/`LARGE`/`XLARGE` and the fork
+  predicate are live everywhere. The legacy `.vig-os` key `DEVKIT_CI_RUNNER`
+  and the legacy variable `DEVKIT_CI_RESOLVE_RUNNER` keep working — the
+  variable wins whenever both are set. A non-empty `DEVKIT_CI_RUNNER` carries
+  the **full actionable migration text** as a `::warning::` on every run;
+  this per-run warning is the primary migration channel, and it reaches
+  every consumer regardless of branch model or whether `devkit-upgrade.yml`
+  has run yet. A non-empty `DEVKIT_CI_RESOLVE_RUNNER` gets only a one-line
+  `::warning::` that it is deprecated in favour of `CI_RUNNER_SMALL` — not
+  the full text.
+- **N+1:** no new runner semantics — a second release of the per-run
+  warnings, and the window in which the migrating adoption below typically
+  runs.
+- **N+2 (removal):** `DEVKIT_CI_RUNNER` stops selecting runners and the
+  deprecated `runner-json` output disappears. **`DEVKIT_CI_RESOLVE_RUNNER`
+  does not disappear**: its term stays permanently as the last term before
+  the hosted default in every `resolve-toolchain` job's `runs-on` (e.g.
+  `ci.yml`, `release.yml`, `sync-issues.yml`), and it keeps selecting that
+  job's own runner whenever `CI_RUNNER_SMALL` is unset — dropping the term
+  would silently move a billing-blocked consumer's resolve job to a hosted
+  runner it may not be able to run at all. Two permanent tombstones replace
+  the per-run warnings:
+  - a `DEVKIT_CI_RUNNER` that would still decide a runner — some required
+    class with no visible variable — turns the run red with a loud
+    `::error::` naming the unset classes; one that is already inert (every
+    required class has a variable) gets only a `::warning::` asking to
+    delete it, and stays green;
+  - a non-empty `DEVKIT_CI_RESOLVE_RUNNER` with `CI_RUNNER_SMALL` unset, on a
+    non-foreign run, turns the run red with an `::error::` — the resolve job
+    is still running on the legacy variable's label, so the error is
+    reachable. With `CI_RUNNER_SMALL` set, the same variable gets only a
+    `::warning::`, because it may still serve pre-N seeded-hook copies (see
+    [Seeded hook runner migration](#seeded-hook-runner-migration)).
+
+  Neither tombstone is ever a silent move to hosted runners.
+
+**The migrating adoption** is the first `devkit-upgrade` run of release N or
+later from your **default branch** — scheduled and dispatched runs always
+use the default branch's own copy of the workflow. Under trunk that is N+1's
+adoption; under gitflow it is the first adoption *after your own next release
+to `main`*, which can land after N+1, after N+2, or never. The design does
+not depend on when, or whether, it runs — the per-run warnings above are the
+guarantee either way. When it does run, `init-workspace.sh` strips
+`DEVKIT_CI_RUNNER` from `.vig-os` automatically once every required class has
+a visible variable, and otherwise keeps the key and prints exactly which
+`CI_RUNNER_*` variables to set.
+
+#### Known symptoms
+
+- **CI never starts on a private repo.** If the repo cannot run hosted jobs
+  at all (a billing block, or included minutes exhausted), the
+  `resolve-toolchain` job itself never starts, or is rejected outright — so
+  neither the private-repo notice nor the migration warning ever prints.
+  What you see instead is GitHub's own billing or queue message on the
+  `Resolve toolchain` job. Why the job tried hosted at all differs by plan:
+  on a **Free**-plan private repo, organization variables simply never reach
+  it (it looks configured but isn't); on **any** plan, including Team (where
+  org variables do propagate), the repo just has no self-hosted variable
+  set. The fix is the same either way: set `CI_RUNNER_SMALL` (**repository**
+  level on GitHub Free; organization level elsewhere), and `LARGE`/`XLARGE`
+  if used, so the job never needs a hosted runner in the first place.
+- **A whitespace-only, or otherwise malformed, `CI_RUNNER_SMALL` queues
+  every run with no error.** `resolve-toolchain`'s own job is itself a
+  direct-expression lane on SMALL, so it cannot validate `CI_RUNNER_SMALL`
+  before using it: GitHub's `runs-on` expression treats any non-empty
+  string, whitespace-only included, as truthy, so the resolve job is
+  scheduled on that value verbatim. If it is not a label any runner carries,
+  the run shows a job queued on a blank or bogus label, with no error
+  anywhere — `CI_RUNNER_LARGE`/`XLARGE` have no such gap, because their only
+  consumers are the validated `resolve-toolchain` output. Fix the value, or
+  delete the variable to recover the hosted default immediately with no
+  commit required.
+
+In direnv mode with preinstalled host Nix, `setup-devkit-toolchain` preserves
+valid runner `NIX_CONFIG` settings, including local caches, trusted public keys,
+`cores` and `max-jobs`, in later steps. Ambient `access-tokens` are preserved;
+each token is registered with GitHub Actions masking before the config is
+exported, protecting later steps' environment headers. URL values containing
+userinfo or query parameters are also masked because they may carry credentials.
+`netrc-file` and `secret-key-files` contain paths rather than inline credentials
+(see the [Nix settings reference](https://nix.dev/manual/nix/2.34/command-ref/conf-file.html)).
+
+Devkit uses `extra-experimental-features` to add to the host `nix.conf` and ambient feature
+lists, and adds its public cache settings; it sets `accept-flake-config = true`
+so the consumer repository's flake can supply its own cache configuration.
+The action validates ambient `NIX_CONFIG` with `nix config show`, or `nix show-config` on older Nix.
+If neither validation command is available, the step fails explicitly. If the
+configuration is rejected, it drops that value with a warning and exports
+devkit's valid settings. Diagnostic values are redacted to protect access tokens
+([#1907](https://github.com/vig-os/devkit/issues/1907)).
 
 ### Keep the dev-shell gcroot across ephemeral self-hosted jobs
 
@@ -405,9 +582,11 @@ Notes for the runner host:
 - A value that could never persist — relative, or inside the runner's `_work` /
   `_temp` tree — is refused by `resolve-toolchain` itself, before any lane pays
   a realisation.
-- Only the lanes `DEVKIT_CI_RUNNER` can move onto your runner consume it.
-  Everything else in the scaffold stays on the hosted default, where
-  `RUNNER_TEMP` is the correct place for the root.
+- Only a lane that actually resolves onto your self-hosted runner (its class's
+  `CI_RUNNER_SMALL`/`LARGE`/`XLARGE` variable is set, see
+  [Run CI on self-hosted runners](#run-ci-on-self-hosted-runners)) consumes
+  it. A lane still on the hosted default stays on `RUNNER_TEMP`, which is the
+  correct place for the root there.
 
 ### Point sync-issues at an unprotected mirror branch (protected `main`)
 
@@ -590,15 +769,16 @@ unknown keys:
 | `DEVKIT_ORG` | Persisted organization name (`ORG_NAME`) |
 | `DEVKIT_REPO` | Persisted GitHub `owner/repo` (Renovate preset) |
 | `DEVKIT_MODULES` | Reserved: space-separated capability modules mirroring `mkProjectShell`'s `modules = [ … ]` ([#884](https://github.com/vig-os/devkit/issues/884)) |
-| `DEVKIT_CI_RUNNER` | Comma-separated runner label list for the scaffolded `ci.yml` toolchain jobs and the `sync-issues.yml` `sync` job; empty (default) => the hosted `ubuntu-26.04` runner ([#1173](https://github.com/vig-os/devkit/issues/1173), [#1795](https://github.com/vig-os/devkit/issues/1795)) |
+| `DEVKIT_CI_RUNNER` | **Deprecated**, removed in release N+2: a comma-separated runner label list that once fed every lane directly. Self-hosted runners now come from the `CI_RUNNER_SMALL`/`LARGE`/`XLARGE` repository or organization variables; the key is kept only for the two-release compatibility window and is stripped automatically once those variables cover every required class (see [Run CI on self-hosted runners](#run-ci-on-self-hosted-runners), [#1173](https://github.com/vig-os/devkit/issues/1173), [#1908](https://github.com/vig-os/devkit/issues/1908)) |
+| `DEVKIT_CI_LANE_SIZES` | Comma-separated `lane=size` overrides (`lint`, `test`, `extension`, `release-test`; `small`, `large`, `xlarge`) that move a lane off the SMALL default; empty (default) => every lane SMALL. Labels still come from the `CI_RUNNER_*` variables (see [Size classes and the lane override](#size-classes-and-the-lane-override), [#1908](https://github.com/vig-os/devkit/issues/1908)) |
 | `DEVKIT_DEV_PROFILE_PATH` | Absolute path for the direnv-mode dev-shell gcroot profile on the runner host; empty (default) => `$RUNNER_TEMP/devkit-dev-profile`. An ephemeral self-hosted runner sets a persistent path outside its work tree so the closure survives the job (see [Keep the dev-shell gcroot across ephemeral self-hosted jobs](#keep-the-dev-shell-gcroot-across-ephemeral-self-hosted-jobs), [#1601](https://github.com/vig-os/devkit/issues/1601)) |
 | `DEVKIT_SYNC_TARGET` | Branch the scaffolded sync-issues job commits to; empty (default) => the workflow-model default (`dev`/`main`). A protected-`main` consumer sets an unprotected mirror branch, e.g. `sync/issue-mirror` (see [Point sync-issues at an unprotected mirror branch](#point-sync-issues-at-an-unprotected-mirror-branch-protected-main), [#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_SYNC_SCHEDULE` | Cron override (5-field) for the sync-issues schedule trigger; empty (default) => the daily `0 2 * * *` ([#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_COMMIT_APP_ENVIRONMENT` | GitHub deployment environment the jobs that MINT the commit App token are bound to, so `COMMIT_APP_CLIENT_ID`/`COMMIT_APP_PRIVATE_KEY` can live as environment secrets behind a deployment branch policy instead of as org/repo secrets any branch can read; empty (default) => no binding, rendered exactly as today. Create the environment BEFORE upgrading — a bound job auto-creates an unprotected one (see [Bind the commit-App token-minting jobs to a deployment environment](#bind-the-commit-app-token-minting-jobs-to-a-deployment-environment), [#1710](https://github.com/vig-os/devkit/issues/1710)) |
 | `DEVKIT_FEATURES_DISABLED` | Comma-separated scaffold feature groups this repo opts OUT of; empty (default) => every group is scaffolded. A disabled group is never shipped and a prior scaffold's copy is pruned on upgrade (see [Scaffold feature opt-outs](#scaffold-feature-opt-outs), [#1284](https://github.com/vig-os/devkit/issues/1284)) |
-| `DEVKIT_REFS_POLICY` | Refs-line enforcement policy driving the `validate-commit-msg` hook — scaffolded **and** flake-generated ([#1434](https://github.com/vig-os/devkit/issues/1434)) — and CI's `validate-commit-range`: `chore-optional` (default/empty — only `chore` may omit `Refs:`) \| `optional` (never required) \| `required` (every type needs `Refs:`) ([#1282](https://github.com/vig-os/devkit/issues/1282)). Sugar over `DEVKIT_REFS_OPTIONAL_TYPES`, which wins when both are set ([#1633](https://github.com/vig-os/devkit/issues/1633)) |
+| `DEVKIT_REFS_POLICY` | Refs-line enforcement policy driving the `validate-commit-msg` hook — scaffolded **and** flake-generated ([#1434](https://github.com/vig-os/devkit/issues/1434)) — and CI's `validate-commit-range`: `chore-optional` (default/empty — only `chore` may omit `Refs:`) \| `optional` (never required) \| `required` (every type needs `Refs:`) ([#1282](https://github.com/vig-os/devkit/issues/1282)). Also renders the managed commit standard’s Refs wording and exemptions at scaffold time. Sugar over `DEVKIT_REFS_OPTIONAL_TYPES`, which wins when both are set ([#1633](https://github.com/vig-os/devkit/issues/1633)) |
 | `DEVKIT_COMMIT_TYPES` | Comma-separated FULL REPLACEMENT of the approved commit types, driving the `validate-commit-msg` hook's `--types` — scaffolded **and** flake-generated ([#1434](https://github.com/vig-os/devkit/issues/1434)) — and CI's `validate-commit-range`; empty (default) => the stock 11 types. Lowercase alphanumerics only; keep `chore`/`build` unless deliberate (bot commits — the scaffold prints a notice). `DEVKIT_REFS_POLICY=optional` mirrors this list ([#1431](https://github.com/vig-os/devkit/issues/1431)) |
-| `DEVKIT_REFS_OPTIONAL_TYPES` | Comma-separated FULL REPLACEMENT list of the commit types whose `Refs:` line is OPTIONAL, driving the `validate-commit-msg` hook — scaffolded **and** flake-generated — and CI's `validate-commit-range`; empty (default) => whatever `DEVKIT_REFS_POLICY` resolves to (`chore`). Entries must be lowercase alphanumerics AND a subset of the resolved `DEVKIT_COMMIT_TYPES`. **Wins over `DEVKIT_REFS_POLICY`** when both are set — the narrower key decides (the scaffold prints a notice); use `DEVKIT_REFS_POLICY=required` to exempt nothing ([#1633](https://github.com/vig-os/devkit/issues/1633)). Each exempt type also gets the issue-less `<type>/<summary>` branch form in the local guard, the flake-generated guard and CI's branch-name gate; `chore/<summary>` stays allowed under every policy, so the default is unchanged ([#1767](https://github.com/vig-os/devkit/issues/1767)) |
+| `DEVKIT_REFS_OPTIONAL_TYPES` | Comma-separated FULL REPLACEMENT list of the commit types whose `Refs:` line is OPTIONAL, driving the `validate-commit-msg` hook — scaffolded **and** flake-generated — and CI's `validate-commit-range`; empty (default) => whatever `DEVKIT_REFS_POLICY` resolves to (`chore`). Entries must be lowercase alphanumerics AND a subset of the resolved `DEVKIT_COMMIT_TYPES`. **Wins over `DEVKIT_REFS_POLICY`** when both are set — the narrower key decides (the scaffold prints a notice); use `DEVKIT_REFS_POLICY=required` to exempt nothing ([#1633](https://github.com/vig-os/devkit/issues/1633)). The resolved list also renders the managed commit standard’s Refs wording and exemptions at scaffold time. Each exempt type also gets the issue-less `<type>/<summary>` branch form in the local guard, the flake-generated guard and CI's branch-name gate; `chore/<summary>` stays allowed under every policy, so the default is unchanged ([#1767](https://github.com/vig-os/devkit/issues/1767)) |
 | `DEVKIT_BRANCH_TYPES` | Comma-separated FULL REPLACEMENT of the issue-numbered `<type>/<issue>-<summary>` branch-type set, driving the local `validate-branch-name` guard, the flake-generated consumer surface, and CI's branch-name gate — one vig-utils validator behind all three ([#1760](https://github.com/vig-os/devkit/issues/1760)); empty (default) => the stock set (`feature,bugfix,hotfix,release,docs,test,refactor`). The `renovate/`, `worktree/`, `release/X.Y.Z` shapes are never knob-driven; the issue-less `chore/` form extends to every `DEVKIT_REFS_OPTIONAL_TYPES` type ([#1767](https://github.com/vig-os/devkit/issues/1767)). Pre-#1432 direnv consumers hand-port the flake reader (see [Commit and branch policy on the flake surface](#commit-and-branch-policy-on-the-flake-surface-direnv-consumers), [#1432](https://github.com/vig-os/devkit/issues/1432)) |
 | `DEVKIT_AUTO_UPGRADE` | Opt-out for the scaffolded `devkit-upgrade.yml` weekly schedule; empty (default) or any value but `false` keeps the auto-adoption poll on. `false` disables only the schedule — manual `workflow_dispatch` always runs ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
 | `DEVKIT_UPGRADE_EXCLUDE` | Comma-separated (whitespace-tolerant) paths the `devkit-upgrade` workflow resets before the adoption commit, so generated-doc churn never rides along in the upgrade diff; empty (default) => no exclusions ([#1296](https://github.com/vig-os/devkit/issues/1296)) |
@@ -634,7 +814,8 @@ this key a repo that lost its whole Python project still reported a green
   older devkit has it seeded from detection on the adoption scaffold, and a
   language-neutral repo declares nothing and stays green.
 - The declaration drives the gate ONLY. `.gitignore` fragments, the `codeql.yml`
-  language matrix and the Node `justfile.project` seed keep rendering from live
+  language matrix, the Node and Rust `justfile.project` seeds, the Rust
+  `flake.nix` seed and the Rust tool configs keep rendering from live
   detection — divergence between declared and detected is exactly the signal the
   gate exists to surface.
 
@@ -669,12 +850,14 @@ The nine groups:
   `release` also removes the `DEVKIT_SYNC_TARGET` mirror's only fold-back to
   the trunk (a notice is printed,
   [#1758](https://github.com/vig-os/devkit/issues/1758)).
-- `renovate` — `renovate.json` and `.github/renovate-default.json`.
+- `renovate` — `renovate.json` and `.github/renovate-default.json`. Disabling
+  it also removes the Renovate monitoring claim from managed `SECURITY.md`.
 - `sync-issues` — `sync-issues.yml` and `.github/label-taxonomy.toml`. With this
   group disabled, `DEVKIT_SYNC_TARGET`/`DEVKIT_SYNC_SCHEDULE` become inert (a
   notice is printed).
 - `scanning` — `codeql.yml` and `scorecard.yml` (not `zizmor.yml`, a lint
-  config).
+  config). Disabling it also removes CodeQL/Scorecard claims and accepted
+  findings from managed `SECURITY.md` at scaffold time.
 - `gh-templates` — `.github/ISSUE_TEMPLATE/` and `pull_request_template.md`.
 - `skills` — every `.claude/skills/` directory except `worktree_*`.
 - `worktree` — the `.claude/skills/worktree_*` directories and
@@ -821,19 +1004,24 @@ The image stays deliberately minimal — it ships build automation, git/gh,
 language toolchains like Rust, Go, or a C/C++ compiler. Source extra tools
 **on-demand** rather than growing the base image:
 
-- **Per-project flake (preferred, reproducible).** In a `direnv`-mode project,
-  add them to `mkProjectShell`'s `extraPackages` (a plain list):
+- **A shipped language pack, when there is one.** For **Rust**, do not
+  hand-roll `cargo`/`rustc`: use the Rust pack (`vigos.lib.mkRustProject`),
+  which brings the pinned toolchain *and* the check suite. See
+  [Rust projects: the Rust pack](#rust-projects-the-rust-pack). For a C/C++
+  toolchain, enable the `native` module
+  ([The native-build contract](#the-native-build-contract)).
+- **Per-project flake (preferred, reproducible) for ad-hoc tools.** In a
+  `direnv`-mode project, add them to `mkProjectShell`'s `extraPackages` (a
+  plain list):
 
   ```nix
   vigos.lib.mkProjectShell {
     inherit pkgs;
-    extraPackages = [ pkgs.cargo pkgs.rustc pkgs.pkg-config pkgs.openssl ];
+    extraPackages = [ pkgs.protobuf pkgs.pkg-config pkgs.openssl ];
   };
   ```
 
-  or bring your own pinned toolchain (e.g. a `rust-overlay`) in the project
-  `flake.nix`. This is pinned, reproducible, and shared by `direnv`, `nix
-  develop`, and CI.
+  This is pinned, reproducible, and shared by `direnv`, `nix develop`, and CI.
 - **Ad-hoc inside the image.** The baked Nix has `nix-command`/`flakes` enabled,
   so `nix shell nixpkgs#<pkg> -c …` and `nix develop` work out of the box,
   including local builds. Good for one-offs; not a substitute for a pinned
@@ -879,8 +1067,10 @@ tiered contract:
 
    Capability modules are a **dev-shell / direnv-mode feature only**: enabling
    one changes nothing about the published image, which stays base-only.
-   `native` is the only module shipped today; `geant4`, `rust`,
-   `fortran`/`f2py`, and `root` are named candidates gated on a concrete
+   Shipped today: `native`, `node`, `docs`, `guardrails` and `rust`. `rust` is
+   meant to be used through `lib.mkRustProject`, not bare
+   ([Rust projects: the Rust pack](#rust-projects-the-rust-pack)). `geant4`,
+   `fortran`/`f2py` and `root` are named candidates gated on a concrete
    consumer ask.
 
 3. **Native deps, `devcontainer` mode (middle path).** No direnv migration
@@ -964,6 +1154,214 @@ The published image will **not** ship gcc/cmake:
 The in-image behavior when no toolchain is provided is tracked in
 [#879](https://github.com/vig-os/devkit/issues/879); the toolchain
 itself always comes from one of the tiers above.
+
+## Rust projects: the Rust pack
+
+The Rust pack is devkit's supported way to build a Rust repo
+([#1400](https://github.com/vig-os/devkit/issues/1400),
+[#1496](https://github.com/vig-os/devkit/issues/1496)). One call,
+`vigos.lib.mkRustProject`, returns the dev shell, the `nix flake check` suite
+and the `packages` together:
+
+| `checks.<system>.*` | what it runs |
+| --- | --- |
+| `fmt` | `cargo fmt --check` |
+| `clippy` | `cargo clippy --all-targets` with warnings denied |
+| `nextest` | `cargo nextest run` (minus `sandboxExcludes`, below) |
+| `doctest` | `cargo test --doc` (nextest cannot run doctests) |
+| `doc` | `cargo doc` with warnings denied (broken intra-doc links) |
+| `deny` | `cargo deny check bans licenses sources`, when `deny.toml` exists |
+| `<crate>` / `workspace` | the package build itself, `cargo auditable` by default |
+
+Hand-adding `pkgs.cargo`/`pkgs.rustc` to `extraPackages` gives you a compiler
+and none of that: CI then compiles nothing and reports success.
+
+### A new Rust repo
+
+Start from the template, then scaffold devkit on top:
+
+```bash
+mkdir my-crate && cd my-crate && git init
+nix flake init -t github:vig-os/devkit#rust
+curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --mode direnv .
+```
+
+The order matters: the scaffold detects `Cargo.toml` and then seeds
+
+- a `flake.nix` on `mkRustProject` (direnv and `both` modes), forwarding the
+  `.vig-os` hook settings like the stock flake does;
+- a cargo `justfile.project`: `just lint` is rustfmt plus clippy with warnings
+  denied, `just test` is `cargo test --workspace` (doctests included), and
+  `just sync` is `cargo fetch`;
+- base `rustfmt.toml`, `clippy.toml` and `deny.toml`.
+
+An existing Rust repo adopting devkit gets the same three on its first
+scaffold, because its `Cargo.toml` is already there (the flake only when the
+repo has no `flake.nix` of its own yet). The template
+is just a starter crate that already passes the whole suite.
+
+### A repo that was scaffolded before it was Rust
+
+`flake.nix` and `justfile.project` are preserved files, so they are only
+seeded on the **first** scaffold. A repo that gained its `Cargo.toml` later, or
+was scaffolded before devkit shipped the seeds, keeps its old ones, and the
+scaffold prints a notice naming each. The base tool configs are still seeded
+by the upgrade that first detects the `Cargo.toml`, wherever the repo has none.
+
+Port the two files by hand:
+
+- **`flake.nix`**: take
+  [`assets/flake.d/rust.flake.nix`](../assets/flake.d/rust.flake.nix) and
+  carry over your `extraPackages` and `hooks`. Its `.vig-os` reader block is
+  identical to the stock flake's, so only the `outputs` change: a
+  `rust = vigos.lib.mkRustProject { … };` binding, then
+  `devShells.default = rust.devShell;` and `inherit (rust) checks packages;`.
+- **`justfile.project`**: take the recipes from
+  [`assets/justfile.d/rust.justfile.project`](../assets/justfile.d/rust.justfile.project)
+  (`lint`, `test`, `sync` at least; `ci.yml` calls them in every mode).
+
+### Pinning the toolchain
+
+Without a `rust-toolchain.toml` the pack builds with the pinned nixpkgs Rust.
+Once you add one, `mkRustProject` builds with exactly that toolchain (dev shell
+and checks alike) and needs its content hash:
+
+```nix
+rust = vigos.lib.mkRustProject {
+  inherit pkgs;
+  src = ./.;
+  toolchainHash = pkgs.lib.fakeHash; # build once; use the `got:` hash it prints
+};
+```
+
+The evaluation error spells out the same steps. The hash changes whenever the
+channel or the component list in `rust-toolchain.toml` does, and the same error
+tells you.
+
+### Tests the Nix sandbox cannot run
+
+`checks.nextest` runs inside the Nix build sandbox: no PTY, no process-group or
+signal control, no network, no writable `$HOME`, and on darwin stricter still.
+Exclude such tests from the sandboxed check with nextest filter expressions
+([#1834](https://github.com/vig-os/devkit/issues/1834)):
+
+```nix
+rust = vigos.lib.mkRustProject {
+  inherit pkgs;
+  src = ./.;
+  sandboxExcludes = [ "test(pty_)" "binary(supervisor)" ];
+};
+```
+
+They are skipped by `checks.nextest` only. `just test` runs `cargo test
+--workspace` outside the sandbox, and CI runs `just test`, so the excluded
+tests still gate every PR. Prefer this to `nextest = false`, which also drops
+every test the sandbox *can* run.
+
+### The base tool configs
+
+The seeded `rustfmt.toml`, `clippy.toml` and `deny.toml` are a starting point,
+yours from the first commit: an upgrade never overwrites them. They are seeded
+only by the scaffold that adopts Rust (the first one that detects
+`Cargo.toml`), never into a repo that already declares `rust`, and never beside
+an equivalent the tool also reads (`.rustfmt.toml`, `.clippy.toml`,
+`.cargo/deny.toml`). `deny.toml`
+turns the `deny` check on; its licence allow-list is permissive-only and
+ignores `publish = false` crates. Advisories are not in the sandboxed check
+(they need the network), so run `cargo deny check advisories` in CI or by hand.
+Lint *levels* belong in `Cargo.toml`'s `[lints]` / `[workspace.lints]` (the
+template shows the shape); `clippy.toml` only tunes how lints behave.
+
+Every `mkRustProject` argument (`crates`, `cargoExtraArgs`, `tools`,
+`crateOverrides`, the performance ratchet, …) is documented at the top of
+[`nix/mk-rust-project.nix`](../nix/mk-rust-project.nix). For Renovate, add
+`cargo` to a preserved `renovate.json`
+([below](#renovate-add-cargo-to-a-rust-repos-renovatejson)).
+
+## Projects that ship packages to other flakes
+
+The scaffolded `flake.nix` follows devkit's pinned nixpkgs
+(`nixpkgs.follows = "vigos/nixpkgs"`). That is deliberate: the dev shell, the
+hooks and the image then resolve one tested nixpkgs. A project that also
+exposes `packages` (a Rust CLI built by `mkRustProject`, say) is a flake other
+flakes take as an input, and their lock then carries devkit's whole input
+tree: home-manager twice, the hook generator, the services stack and a second
+nixpkgs, none of which a package build reads
+([#1832](https://github.com/vig-os/devkit/issues/1832)).
+
+The project does not have to change anything. The consuming flake decides,
+with this stanza (replace `my-tool` with the project's input name):
+
+```nix
+{
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    my-tool.url = "github:my-org/my-tool";
+
+    # Build my-tool's packages with THIS flake's nixpkgs: one nixpkgs in the
+    # lock, and the package hits the same binary cache as everything else.
+    my-tool.inputs.nixpkgs.follows = "nixpkgs";
+    my-tool.inputs.vigos.inputs.nixpkgs.follows = "nixpkgs";
+
+    # Drop the devkit inputs a package build never reads. `follows = ""` is
+    # Nix's way to empty an input: it is neither locked nor fetched.
+    my-tool.inputs.vigos.inputs.nixpkgs-unstable.follows = "";
+    my-tool.inputs.vigos.inputs.home-manager.follows = "";
+    my-tool.inputs.vigos.inputs.home-manager-unstable.follows = "";
+    my-tool.inputs.vigos.inputs.git-hooks-nix.follows = "";
+    my-tool.inputs.vigos.inputs.treefmt-nix.follows = "";
+    my-tool.inputs.vigos.inputs.process-compose-flake.follows = "";
+    my-tool.inputs.vigos.inputs.services-flake.follows = "";
+  };
+
+  outputs =
+    { my-tool, ... }:
+    {
+      packages.x86_64-linux.default = my-tool.packages.x86_64-linux.default;
+    };
+}
+```
+
+The lock shrinks from devkit's full tree to `nixpkgs`, `crane`, `fenix` and
+`flake-utils`, the four inputs a package build uses, and the package is the
+same derivation either way. This is a contract devkit keeps:
+`tests/test_flake_package_consumers.py` builds a Rust project's package through
+this exact block on every PR, and fails if devkit ever adds an input the stanza
+does not cover, or starts reading one it drops.
+
+Why the scaffold does not flip the direction instead (`vigos` following the
+project's `nixpkgs`): devkit's tools, overlay and image are built and cached
+against its own pin, so a project that re-pinned them would rebuild the dev
+shell from source and test a toolchain devkit never tested. Keeping that choice
+with the consumer of the *package* scopes it to the one output that does not
+care.
+
+## Env-only endpoint lint
+
+The next upgrade that advances the flake pin to a release containing #1931
+installs the default-on endpoint lint when hooks are flake-generated. It scans
+shell, dotenv, Python, YAML, TOML and JSON; documentation files are outside its
+scope. Parse failures emit a notice and scan line-by-line, and only findings fail.
+
+For an intentional literal, put `# devkit: allow-endpoint` on the assignment line.
+To exclude a path, customize the preserved project `flake.nix`:
+
+```nix
+devShells.default = vigos.lib.mkProjectShell {
+  inherit pkgs;
+  hooks.no-hardcoded-endpoints.excludes = [ "^tests/fixtures/legacy\\.py$" ];
+};
+```
+
+Dotenv files use the companion `no-hardcoded-endpoints-dotenv` hook; set its
+`excludes` the same way for dotenv paths. These overrides survive upgrades.
+A preserved, committed `.pre-commit-config.yaml` is not replaced by an upgrade:
+copy both endpoint hook blocks from the updated template when adopting this
+lint, and use the hook's YAML `exclude` regex for path exceptions. Existing
+copies also need the updated language/path filters; upgrading the CLI alone
+does not change a preserved hook block. Generated configs pick up these changes
+on the next pin update and shell entry. See the
+[tool README](../packages/vig-utils/README.md#endpoint-lint) for CLI behavior.
 
 ## Customizing pre-commit hooks from the project flake (opt-in)
 
@@ -1101,13 +1499,25 @@ dedicated working branch as a single reviewable, revertible diff
   detached `HEAD`. On a protected branch with a clean tree the installer
   offers to create and switch to `chore/devkit-upgrade-<version>` for you;
   non-interactively it refuses with that command as the hint.
-- **Dirty trees refuse** — `git status --porcelain` must be empty (staged,
-  unstaged, or untracked-unignored changes all count; gitignored clutter such
-  as `.venv/` does not). Commit or stash first.
+- **Dirty trees refuse** — staged or unstaged changes to tracked files always
+  refuse. Commit or stash first.
+- **Untracked paths pass only if the upgrade will ignore them**
+  ([#1826](https://github.com/vig-os/devkit/issues/1826)). Build output is often
+  untracked only because its ignore rule arrives with the upgrade: a repo that
+  just gained a `Cargo.toml` has a `target/`, and the Rust `.gitignore` fragment
+  comes with the upgrade that detects it. The scaffold matches every untracked
+  path against the root `.gitignore` it is about to write (template base,
+  fragments for the detected languages, your `.gitignore.project`). It names
+  the covered paths and leaves them in place; any other untracked path refuses
+  the upgrade, by name, before a file is written. Already-gitignored clutter
+  (`.venv/`) never counts, nor does an empty directory. `--allow-untracked`
+  lets the upgrade run with untracked paths regardless; tracked changes still
+  refuse. Upgrading to an image older than this check (`--version <old>`)
+  refuses untracked paths outright, as before.
 - **Non-git directories warn** — there is no VCS safety net, so the installer
   asks for explicit confirmation before continuing.
-- **`--skip-preflight` bypasses** both checks; `--smoke-test` runs and fresh
-  installs (no `--force`) are exempt.
+- **`--skip-preflight` bypasses** all of these checks; `--smoke-test` runs and
+  fresh installs (no `--force`) are exempt.
 
 To see what an upgrade would change before running it, use `--preview`:
 
@@ -1706,3 +2116,35 @@ upgrade ([#1263](https://github.com/vig-os/devkit/issues/1263)). `install.sh
 --force` runs `nix flake update vigos` for you when it can (direnv/`both` mode,
 host `nix` available), and the dev shell warns at entry whenever its own release
 differs from the `.vig-os` `DEVKIT_VERSION` pin — see [Updating](#updating).
+
+## Site leak-check hook
+
+The default-on `site-leak-check` hook loads private gitleaks rules from the
+absolute `$DEVKIT_LEAK_PATTERNS` path, otherwise `.site/leak-patterns.toml`.
+Without a pattern file it exits silently. No patterns ship with devkit.
+Generated hooks update on shell entry; preserved portable hook configs need the
+`site-leak-check` block from the updated workspace template. The hook selects
+text files and symlinks with `types: []` and `types_or: [text, symlink]`, clearing
+the runner's default file-only filter. Symlink link text is
+scanned without following or reading its target. It needs gitleaks in the
+development environment. S6 uses S4's shared validator; see the S4 pattern-file
+clarification in the [ADR Amendments](rfcs/ADR-site-agnostic-projects.md#decisions).
+Repository `.gitleaksignore` and `.gitleaks.toml` cannot suppress this hook.
+
+Linked git worktrees, including those made by `just worktree-start`, have no
+`.site/` at their root unless provisioned separately. Set `DEVKIT_LEAK_PATTERNS`
+to an absolute private file path or provide `.site/leak-patterns.toml` in each
+worktree to enable the check there.
+
+Use `gitleaks:allow` on an intentional matching line or the private config's
+allowlist. A generated hook can exclude an entire path:
+
+```nix
+hooks.site-leak-check.excludes = [ "^tests/fixtures/legacy\\.txt$" ];
+```
+
+Portable hooks use their `exclude` field. Rule IDs must be safe for public logs;
+findings print only file, line and ID. Matching file paths are printed as-is,
+even if a path contains a private name. See the
+[tool README](../packages/vig-utils/README.md#site-leak-check) for lookup safety,
+scan modes, exit codes and private error diagnosis.

@@ -15,7 +15,11 @@
     # "Home-manager modules - versioning & release policy".
     vigos.url = "github:vig-os/devkit";
     # Follow vigos's pinned nixpkgs + flake-utils so your tools match the
-    # toolchain exactly (one resolved nixpkgs, no drift).
+    # toolchain exactly (one resolved nixpkgs, no drift). If other flakes
+    # consume this project's `packages`, THEY choose the nixpkgs and drop the
+    # devkit inputs a package never reads — the stanza is in
+    # https://github.com/vig-os/devkit/blob/main/docs/MIGRATION.md
+    # ("Projects that ship packages to other flakes", #1832).
     nixpkgs.follows = "vigos/nixpkgs";
     flake-utils.follows = "vigos/flake-utils";
   };
@@ -118,6 +122,11 @@
         devShells.default = vigos.lib.mkProjectShell (
           {
             inherit pkgs;
+            modules = nixpkgs.lib.optional (builtins.elem "docs" (
+              nixpkgs.lib.splitString " " (
+                builtins.replaceStrings [ "\"" "'" ] [ "" "" ] (vigOsValue "DEVKIT_MODULES")
+              )
+            )) "docs";
             extraPackages = extraPackages pkgs;
 
             # Agent CLI is machine-level by default. Opting in shadows any

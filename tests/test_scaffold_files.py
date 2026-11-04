@@ -9,7 +9,7 @@ scaffold placeholder, so the walk skips ``.git/`` entirely (#1815).
 
 import subprocess
 
-from .conftest import scaffold_files
+from .conftest import disable_git_auto_maintenance, scaffold_files
 
 
 def _git(cwd, *args):
@@ -35,6 +35,7 @@ def test_scaffold_files_skips_git_directory(tmp_path):
     (tmp_path / "sub").mkdir()
     (tmp_path / "sub" / "script.sh").write_text("echo hi\n")
     _git(tmp_path, "init", "-q", "-b", "main")
+    disable_git_auto_maintenance(tmp_path)
     _git(tmp_path, "add", "-A")
     _git(tmp_path, "commit", "-qm", "init")
 

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/vig-os/devkit/dev/packages/vig-utils/src/vig_utils/glossary.schema.json",
+  "title": "Terminology register",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["id", "term", "definition", "kind"],
+    "properties": {
+      "id": {"type": "string", "minLength": 1},
+      "term": {"type": "string", "minLength": 1},
+      "definition": {"type": "string", "minLength": 1},
+      "kind": {"enum": ["term", "part", "component", "acronym", "role"]},
+      "aliases": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+      "forbidden": {
+        "type": "array",
+        "items": {
+          "type": "object", "additionalProperties": false,
+          "required": ["term", "use"],
+          "properties": {
+            "term": {"type": "string", "minLength": 1},
+            "use": {"type": "string", "minLength": 1}
+          }
+        }
+      },
+      "part-number": {"type": "string", "minLength": 1},
+      "pattern": {"type": "string", "minLength": 1},
+      "status": {"enum": ["active", "deprecated"]}
+    }
+  }
+}

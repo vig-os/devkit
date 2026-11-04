@@ -61,6 +61,9 @@ curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bas
 curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --org MyOrg ~/my-project
 
 # Choose the delivery mode: devcontainer | direnv | both (default: both)
+# direnv runs without Docker/Podman: it needs nix, jq and rsync, and scaffolds from the
+# devkit flake source at the .vig-os pin (upgrade) or the newest release (fresh install);
+# a direnv --force without --version keeps the .vig-os pin (container mode moves to latest)
 curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --mode direnv ~/my-project
 
 # Preview without executing
@@ -140,6 +143,9 @@ Available recipes:
     build no_cache=""                          # Build local development image
     clean version="dev"                        # Remove image (default: dev)
     clean-test-containers                      # Clean up lingering test containers
+
+    [docs]
+    glossary-candidates                        # List unregistered terminology for agent or reviewer triage (advisory).
 
     [git]
     gh-branch                                  # Show current branch + list recent branches
@@ -239,11 +245,15 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 
 > The image provides Python + uv, but the scaffold is **language-neutral** and ships no `pyproject.toml`. Add a Python package layout on demand with `nix flake init -t github:vig-os/devcontainer#python`.
 
+### **Rust**
+
+> A repo with a `Cargo.toml` gets the **Rust pack** on its first scaffold: a `flake.nix` on `vigos.lib.mkRustProject` (dev shell plus a `nix flake check` suite of fmt, clippy, nextest, doctests, rustdoc and cargo-deny), cargo `just lint` / `just test` recipes, and base `rustfmt.toml` / `clippy.toml` / `deny.toml`. Start a new crate with `nix flake init -t github:vig-os/devkit#rust`. See [Rust projects: the Rust pack](docs/MIGRATION.md#rust-projects-the-rust-pack).
+
 ### **Development Tools**
 
 - **pre-commit** - Git hook framework for code quality
 - **ruff** - Fast Python linter and formatter (replaces Black, isort, flake8, and more)
-- **typstyle** - Typo and style checks (e.g. in docs and prose)
+- **typstyle** - Typst document formatter
 - **just** - Command runner for task automation
 - **precommit alias** - Shortcut command for running pre-commit hooks
 

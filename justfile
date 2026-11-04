@@ -363,3 +363,8 @@ clean-test-containers:
 import 'justfile.podman'
 import 'justfile.gh'
 import 'justfile.worktree'
+
+# List unregistered terminology for agent or reviewer triage (advisory).
+[group('docs')]
+glossary-candidates:
+    @uv run glossary-candidates

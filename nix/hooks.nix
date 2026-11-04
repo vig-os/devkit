@@ -197,7 +197,185 @@ let
   # scaffold copy and the consumer surface unchanged.
   compositeActionFiles = "(^|/)\\.github/actions/[^/]+/action\\.ya?ml$";
 
+  # Dotfiles such as .env have no identify language tag; select them by path.
+  endpointTypes = [
+    "shell"
+    "python"
+    "yaml"
+    "toml"
+    "json"
+  ];
+  dotenvFiles = "(^|/)(\\.env(\\.[^/]*)?|[^/]+\\.env)$";
+
+  # Module-owned entries have one portable definition and a store-path wrapper.
+  # The installer consumes portable.docs; ordinary runner/scaffold renders omit it.
+  docsSpecs = {
+    glossary-schema = {
+      command = "glossary-guard";
+      mode = "schema";
+      files = "";
+    };
+    glossary-terms = {
+      command = "glossary-guard";
+      mode = "terms";
+      files = "";
+    };
+    typstyle-check = {
+      mode = "format";
+      files = "\\.typ$";
+    };
+    typst-compile = {
+      mode = "compile";
+      files = "\\.typ$|^\\.vig-os$";
+    };
+    typst-preview-pins = {
+      mode = "pins";
+      files = "\\.typ$";
+    };
+    forbid-generated-pdf = {
+      mode = "pdf";
+      files = "(?i)(^|/)generated/.*\\.pdf$";
+    };
+  };
+  docsHook =
+    id: spec:
+    let
+      common = {
+        name = id;
+        language = "system";
+        inherit (spec) files;
+      }
+      //
+        lib.optionalAttrs
+          (builtins.elem spec.mode [
+            "compile"
+            "pdf"
+            "schema"
+            "terms"
+          ])
+          {
+            always_run = true;
+            pass_filenames = false;
+          }
+      // lib.optionalAttrs (spec.mode != "pdf") {
+        exclude = "(^|/)generated/";
+      };
+    in
+    {
+      yaml = common // {
+        entry = "${spec.command or "typst-guard"} ${spec.mode}";
+      };
+      consumer =
+        pkgs:
+        (builtins.removeAttrs common [ "exclude" ])
+        // {
+          excludes = lib.optional (spec.mode != "pdf") "(^|/)generated/";
+          enable = true;
+          entry = toString (
+            pkgs.writeShellScript "${id}" ''
+              export PATH=${
+                lib.makeBinPath [
+                  (import ./docs-typst.nix pkgs)
+                  pkgs.typstyle
+                ]
+              }:"$PATH"
+              exec ${import ./vig-utils.nix pkgs}/bin/${spec.command or "typst-guard"} ${spec.mode} "$@"
+            ''
+          );
+        };
+    };
+  docsDefs = lib.mapAttrs docsHook docsSpecs;
+
   hookDefs = {
+    # Site-private rules are absent in hosted/fork checkouts: a silent no-op.
+    # Files passed by pre-commit cover its staged snapshot or --all-files tree.
+    site-leak-check = {
+      scaffold = true;
+      yaml = {
+        name = "site-leak-check";
+        entry = "uv run site-leak-check";
+        args = [ "--" ];
+        language = "system";
+        types = [ ];
+        types_or = [
+          "text"
+          "symlink"
+        ];
+      };
+      check = { vigUtils, pkgs, ... }: {
+        enable = true;
+        name = "site-leak-check";
+        entry = "${vigUtils}/bin/site-leak-check --gitleaks ${pkgs.gitleaks}/bin/gitleaks";
+        args = [ "--" ];
+        language = "system";
+        types = [ ];
+        types_or = [
+          "text"
+          "symlink"
+        ];
+      };
+      consumer = pkgs: {
+        enable = true;
+        name = "site-leak-check";
+        entry = "${import ./vig-utils.nix pkgs}/bin/site-leak-check --gitleaks ${pkgs.gitleaks}/bin/gitleaks";
+        args = [ "--" ];
+        language = "system";
+        types = [ ];
+        types_or = [
+          "text"
+          "symlink"
+        ];
+      };
+    };
+    no-hardcoded-endpoints = {
+      scaffold = true;
+      yaml = {
+        name = "no-hardcoded-endpoints";
+        entry = "uv run check-hardcoded-endpoints";
+        language = "system";
+        types_or = endpointTypes;
+      };
+      check = { vigUtils, ... }: {
+        enable = true;
+        name = "no-hardcoded-endpoints";
+        entry = "${vigUtils}/bin/check-hardcoded-endpoints";
+        language = "system";
+        types_or = endpointTypes;
+      };
+      consumer = pkgs: {
+        enable = true;
+        name = "no-hardcoded-endpoints";
+        entry = "${import ./vig-utils.nix pkgs}/bin/check-hardcoded-endpoints";
+        language = "system";
+        types_or = endpointTypes;
+      };
+    };
+    no-hardcoded-endpoints-dotenv = {
+      scaffold = true;
+      yaml = {
+        name = "no-hardcoded-endpoints-dotenv";
+        entry = "uv run check-hardcoded-endpoints";
+        language = "system";
+        types = [ "text" ];
+        files = dotenvFiles;
+      };
+      check = { vigUtils, ... }: {
+        enable = true;
+        name = "no-hardcoded-endpoints-dotenv";
+        entry = "${vigUtils}/bin/check-hardcoded-endpoints";
+        language = "system";
+        types = [ "text" ];
+        files = dotenvFiles;
+      };
+      consumer = pkgs: {
+        enable = true;
+        name = "no-hardcoded-endpoints-dotenv";
+        entry = "${import ./vig-utils.nix pkgs}/bin/check-hardcoded-endpoints";
+        language = "system";
+        types = [ "text" ];
+        files = dotenvFiles;
+      };
+    };
     # ── Formatting ──────────────────────────────────────────────────────
     # The gate runs ONE treefmt hook (nixfmt-rfc-style + ruff-format +
     # taplo) reusing the flake's treefmt wrapper — the same formatting
@@ -1092,7 +1270,7 @@ let
         );
     in
     {
-      exclude = yamlExclude;
+      exclude = yamlExclude + lib.optionalString includeAll "|^assets/typst/vendor/";
       # Build python-language hooks with the project interpreter (3.14) so
       # PEP 758 syntax never false-flags under an older parser (#803).
       default_language_version.python = "python3.14";
@@ -1117,12 +1295,18 @@ in
   portable = {
     runner = portableFor true;
     scaffold = portableFor false;
+    docs.repos = [
+      {
+        repo = "local";
+        hooks = lib.mapAttrsToList (id: d: { inherit id; } // d.yaml) docsDefs;
+      }
+    ];
   };
 
   # Arguments for git-hooks.nix `run` building the sandbox-pure
   # `checks.pre-commit` gate. ctx: { pkgs, treefmtWrapper, vigUtils, python }.
   checkArgs = ctx: {
-    excludes = baseExcludes;
+    excludes = baseExcludes ++ [ "^assets/typst/vendor/" ];
     hooks = collectFor "check" "checkName" ctx;
   };
 
@@ -1153,9 +1337,12 @@ in
       commitTypes ? null,
       refsPolicy ? null,
       refsOptionalTypes ? null,
+      docs ? false,
     }:
     let
-      base = collectFor "consumer" "consumerName" pkgs;
+      base =
+        collectFor "consumer" "consumerName" pkgs
+        // lib.optionalAttrs docs (lib.mapAttrs (_: d: d.consumer pkgs) docsDefs);
       # validate-commit-msg argv: commit-types (#1431) and the Refs policy
       # (#1282) feed one computation, because `optional` mirrors the resolved
       # types list.
@@ -1172,6 +1359,11 @@ in
       excludes = baseExcludes;
       hooks =
         base
+        // lib.optionalAttrs docs (
+          lib.genAttrs [ "end-of-file-fixer" "trim-trailing-whitespace" "mixed-line-endings" ] (
+            name: base.${name} // { excludes = [ "(^|/)generated/" ]; }
+          )
+        )
         // lib.optionalAttrs (effectiveBranchArgs != defaultValidateBranchNameArgs) {
           validate-branch-name = base.validate-branch-name // {
             args = effectiveBranchArgs;

@@ -23,6 +23,15 @@ let
     inherit pkgs;
     withAgentCli = true;
   };
+  rust = flake.lib.mkRustProject {
+    inherit pkgs;
+    src = ../templates/rust;
+  };
+  rustOptedIn = flake.lib.mkRustProject {
+    inherit pkgs;
+    src = ../templates/rust;
+    withAgentCli = true;
+  };
   machine = lib.evalModules {
     specialArgs = { inherit pkgs; };
     modules = [
@@ -50,6 +59,8 @@ assert !hasAgent (flake.lib.devTools pkgs);
 assert hasAgent optedIn.nativeBuildInputs;
 assert builtins.elem pkgs.claude-code optedIn.nativeBuildInputs;
 assert hasAgent flake.devShells.${system}.with-agent-cli.nativeBuildInputs;
+assert !hasAgent rust.devShell.nativeBuildInputs;
+assert hasAgent rustOptedIn.devShell.nativeBuildInputs;
 assert hasAgent home.config.home.packages;
 assert hasAgent machine.config.environment.systemPackages;
 {
