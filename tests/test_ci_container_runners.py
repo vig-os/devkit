@@ -24,6 +24,7 @@ import re
 from typing import TYPE_CHECKING
 
 import pytest
+import yaml
 
 from tests.workflow_scaffold import (
     WORKFLOWS,
@@ -341,6 +342,61 @@ def test_runtime_predicate_catches_every_daemon_shape(job: dict) -> None:
 def test_runtime_predicate_ignores_shell_only_jobs() -> None:
     assert not _needs_runtime(
         {"steps": [{"run": "gh pr list"}, {"uses": "actions/checkout@0"}]}
+    )
+
+
+@pytest.mark.parametrize(
+    "job",
+    [
+        {"services": {"db": {"image": "postgres:17"}}},
+        {"steps": [{"run": "docker buildx build --push ."}]},
+        {"steps": [{"run": "docker info"}]},
+        {"steps": [{"run": "docker push ghcr.io/example/img:1"}]},
+        {"steps": [{"run": "set -e\npodman image ls"}]},
+    ],
+    ids=["services", "buildx", "docker-info", "docker-push", "podman-image"],
+)
+def test_runtime_predicate_catches_any_cli_subcommand(job: dict) -> None:
+    """Mutation guard: every daemon/CLI shape the run text can take is caught."""
+    assert _needs_runtime(job)
+
+
+def _composite(root: Path, name: str, steps: list[dict]) -> str:
+    action = root / ".github" / "actions" / name / "action.yml"
+    action.parent.mkdir(parents=True)
+    action.write_text(
+        yaml.safe_dump({"runs": {"using": "composite", "steps": steps}}),
+        encoding="utf-8",
+    )
+    return f"./.github/actions/{name}"
+
+
+@pytest.mark.parametrize(
+    "steps",
+    [
+        [{"shell": "bash", "run": "docker info"}],
+        [{"shell": "bash", "run": "docker manifest inspect img"}],
+        [{"uses": "docker/setup-buildx-action@0123"}],
+    ],
+    ids=["run-cli", "registry-probe", "docker-action"],
+)
+def test_runtime_predicate_resolves_local_composites(
+    tmp_path: Path, steps: list[dict]
+) -> None:
+    """A local composite action's own steps count as the calling job's."""
+    uses = _composite(tmp_path, "probe", steps)
+    assert _needs_runtime({"steps": [{"uses": uses}]}, root=tmp_path)
+
+
+def test_runtime_predicate_passes_shell_only_composites(tmp_path: Path) -> None:
+    uses = _composite(tmp_path, "shell", [{"shell": "bash", "run": "gh pr list"}])
+    assert not _needs_runtime({"steps": [{"uses": uses}]}, root=tmp_path)
+
+
+def test_runtime_predicate_ignores_comments() -> None:
+    """Prose about docker in a comment is not an invocation."""
+    assert not _needs_runtime(
+        {"steps": [{"run": "# docker is present on hosted runners\ngh pr list"}]}
     )
 
 
