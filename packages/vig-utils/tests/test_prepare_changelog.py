@@ -2324,3 +2324,50 @@ class TestCLISubprocess:
         first = re.search(r"^## .+$", f.read_text(), re.MULTILINE)
         assert first is not None
         assert first.group(0) == "## Unreleased"
+
+
+class TestUnfreeze:
+    @pytest.mark.parametrize("empty", [False, True])
+    def test_merge_and_repeat(self, tmp_path, empty):
+        from vig_utils.prepare_changelog import unfreeze_changelog
+
+        path = tmp_path / "CHANGELOG.md"
+        current = "" if empty else "- current\n  - shared detail\n"
+        frozen = "" if empty else "- frozen\n  - shared detail\n"
+        path.write_text(
+            "# Custom header\n\n## Unreleased\n\n### Fixed\n\n"
+            + current
+            + "\n## [1.2.3] - TBD\n\n### Added\n\n- added\n\n### Fixed\n\n"
+            + current
+            + frozen
+            + "\n## [1.2.2] - 2026-01-01\n\n### Fixed\n\n- history\n"
+        )
+        assert unfreeze_changelog("1.2.3", path)
+        result = path.read_text()
+        assert "[1.2.3]" not in result
+        assert result.startswith("# Custom header\n\n## Unreleased\n")
+        assert result.count("- added") == 1
+        if not empty:
+            assert result.count("- current") == 1
+            assert result.count("  - shared detail") == 2
+            assert result.index("- current") < result.index("- frozen")
+        assert result.endswith("## [1.2.2] - 2026-01-01\n\n### Fixed\n\n- history\n")
+        assert not unfreeze_changelog("1.2.3", path)
+        assert path.read_text() == result
+
+    @pytest.mark.parametrize("heading", ["", "## [1.2.3] - 2026-01-01\n"])
+    def test_absent_pending_section_is_unchanged(self, tmp_path, heading):
+        from vig_utils.prepare_changelog import unfreeze_changelog
+
+        path = tmp_path / "CHANGELOG.md"
+        original = "## Unreleased\n\n" + heading
+        path.write_text(original)
+        assert not unfreeze_changelog("1.2.3", path)
+        assert path.read_text() == original
+
+    def test_cli(self, tmp_path):
+        path = tmp_path / "CHANGELOG.md"
+        path.write_text("## Unreleased\n\n## [1.2.3] - TBD\n")
+        with patch("sys.argv", ["prepare-changelog", "unfreeze", "1.2.3", str(path)]):
+            main()
+        assert "[1.2.3]" not in path.read_text()
