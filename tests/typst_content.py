@@ -454,11 +454,11 @@ def test_empty_yaml_register_has_clear_error(project, bound):
         ('#raw("Prefixmarker")', "Prefixmarker"),
         ("$alpha$", "α"),
         ("$dif A$", "d A"),
-        ("$vec(x,y)$", "xy"),
-        ("$sum_(i=1)^n x_i$", "∑ni=1 xi"),
-        ("#stack([Prefixmarker], [Second])", "PrefixmarkerSecond"),
-        ("#grid([Prefixmarker], [Second])", "PrefixmarkerSecond"),
-        ("#table([Prefixmarker], [Second])", "PrefixmarkerSecond"),
+        ("$vec(x,y)$", "x y"),
+        ("$sum_(i=1)^n x_i$", "∑ n i=1 x i"),
+        ("#stack([Prefixmarker], [Second])", "Prefixmarker Second"),
+        ("#grid([Prefixmarker], [Second])", "Prefixmarker Second"),
+        ("#table([Prefixmarker], [Second])", "Prefixmarker Second"),
         ("#emph[Prefixmarker] <label>", "Prefixmarker"),
         ("#enum.item[Prefixmarker]", "Prefixmarker"),
         ("#columns(2)[Prefixmarker]", "Prefixmarker"),
@@ -466,7 +466,7 @@ def test_empty_yaml_register_has_clear_error(project, bound):
         ("Prefixmarker#place[Hidden]", "Prefixmarker"),
         ("#rotate(20deg)[Prefixmarker]", "Prefixmarker"),
         ("#move(dx: 2pt)[Prefixmarker]", "Prefixmarker"),
-        ('"Prefixmarker"', "”Prefixmarker”"),
+        ('"Prefixmarker"', "“Prefixmarker”"),
         (r"Prefixmarker \ Second", "Prefixmarker Second"),
         ("Prefixmarker\n\nSecond", "Prefixmarker Second"),
         ('#image("tall.svg", height: 40pt) Prefixmarker', "Prefixmarker"),
@@ -595,3 +595,55 @@ def test_footer_short_title_overrides_title_and_skips_effects(project):
     footer = [w.text for w in pdf_words() if float(w.attrib["yMin"]) > 350]
     assert footer.count("Shortmarker") == 2
     assert "Deckmarker" not in footer and "Hidden" not in pdf_text()
+
+
+@pytest.mark.parametrize("option", ["title", "short-title"])
+def test_footer_deep_sequences_are_iterative(project, option):
+    result = compile_source(
+        project
+        + """#let nest(n, f) = {
+  let result = [Endmarker]
+  for _ in range(n) { result = f(result) }
+  result
+}
+#let nested = nest(200, c => [x#c])
+#assert.eq(slides.footer-text(nested), "x" * 200 + "Endmarker")
+"""
+        + f"#show: slides.with({option}: nested)\n#slide()[Body]"
+    )
+    assert result.returncode == 0, result.stderr
+    footer = [w for w in pdf_words(last_page=True) if float(w.attrib["yMin"]) > 350]
+    title = next(w for w in footer if (w.text or "").startswith("xxxxx"))
+    assert (title.text or "").endswith("…")
+    counter = next(w for w in footer if (w.text or "").isdigit())
+    assert float(title.attrib["xMax"]) + 2 * 72 / 25.4 <= float(counter.attrib["xMin"])
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        ("[Before#hide[Hidden] After]", "Before After"),
+        ("terms.item([Term], [Desc])", "Term: Desc"),
+        ("[A#h(1cm)B]", "A B"),
+        ("[A#h(0pt)B]", "AB"),
+        ("[A#h(0em)B]", "AB"),
+        ("[A#h(0%)B]", "AB"),
+        ("[A#h(1fr)B]", "A B"),
+        ("grid([A1], [B2])", "A1 B2"),
+        ("table([A1], [B2])", "A1 B2"),
+        ("stack([A1], 1cm, [B2])", "A1 B2"),
+        ("[$mat(1,2;3,4)$]", "1 2 3 4"),
+        ("[$x_1^2$]", "x 2 1"),
+        ("[$vec(x,y)$]", "x y"),
+        ("[A $#h(1pt)$ B]", "A □ B"),
+        ('["One" "Two"]', "“One” “Two”"),
+        ("['Single']", "‘Single’"),
+        ("[\"Outer 'inner' words\"]", "“Outer ‘inner’ words”"),
+    ],
+)
+def test_footer_plain_leaf_separators_and_quotes(project, value, expected):
+    result = compile_source(
+        project
+        + f"#assert.eq(slides.footer-text({value}), {json.dumps(expected, ensure_ascii=False)})"
+    )
+    assert result.returncode == 0, result.stderr
