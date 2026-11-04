@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-07-08T11:23:40Z
-updated: 2026-07-08T15:05:25Z
+updated: 2026-11-03T11:50:34Z
 author: c-vigo
 author_url: https://github.com/c-vigo
 url: https://github.com/vig-os/devkit/issues/927
-comments: 1
+comments: 2
 labels: discussion, area:workspace, area:workflow, effort:large
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-07-11T13:33:23.360Z
+synced: 2026-11-03T12:24:04.038Z
 ---
 
 # [Issue 927]: [[DISCUSSION] Standardize org Claude config via a plugin + private marketplace (retire per-repo .claude/ copies)](https://github.com/vig-os/devkit/issues/927)
@@ -82,4 +82,12 @@ _Posted on July 8, 2026 at 03:05 PM_
 yes - it's always a question where/how things should live
 
 there is also claude config nix flake - which then in turn makes adding plugins/mcps/.. manually ephemeral ..
+
+---
+
+# [Comment #2]() by [gerchowl]()
+
+_Posted on November 3, 2026 at 11:50 AM_
+
+Consumer data point (`exoma-ch/ravmatic`, 1.18.0, direnv): `.claude/settings.json` is devkit-managed (overwritten on upgrade, checked by scaffold drift). So a consumer has **no committed place for a team-wide Claude Code config**. That includes a permission allowlist (`Bash(just *)`, `Bash(gh pr *)`, `Bash(nix develop *)`) and a SessionStart hook that warns when the session is outside the dev shell, which the git hooks require. The only option left is each contributor's own `.claude/settings.local.json`. A preserved `.claude/settings.project.json`, merged at scaffold time like `.gitignore.project`, or the plugin route discussed here, would close that.
 

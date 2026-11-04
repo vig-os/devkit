@@ -189,6 +189,23 @@ gh -R <owner>/<repo> pr review <PR_NUMBER> --approve
 
 On a repository whose `main` ruleset requires **no** approving reviews (solo projects), promote's gates skip the approval assertion — explicitly, logged — and this step disappears ([#1506](https://github.com/vig-os/devkit/issues/1506)). Full reasoning and the upstream runbook: [`docs/RELEASE_CYCLE.md`](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#phase-5-post-release-cleanup).
 
+Private repositories on a Free-plan organization cannot query rulesets (HTTP
+403 with `Upgrade to GitHub Pro`). Both promote gates stop retrying only that
+response and require **1** approving
+review by default. Solo consumers who cannot collect a review can set
+`DEVKIT_RELEASE_REQUIRED_APPROVALS=0` in `.vig-os`; teams can set a larger
+non-negative integer. Empty means 1. This count applies **only** to the 403
+fallback: real ruleset requirements always win, and classic protection continues
+to be enforced by GitHub at merge time. Other API errors, including rate-limit,
+permission, and SAML 403s, retry and fail if attempts are exhausted. A transient
+error followed by a successful response can recover. When counting reviews,
+both gates consider only APPROVED, CHANGES_REQUESTED, and DISMISSED reviews,
+then count distinct reviewers whose latest such review is APPROVED on the
+current PR head, excluding the PR author. COMMENTED and PENDING reviews are
+ignored. Later CHANGES_REQUESTED or DISMISSED reviews cancel that reviewer's
+approval; approvals on older heads do not count.
+
+
 **Upstream (`vig-os/devcontainer`) only:** Root `promote-release.yml` also prunes GHCR RC package versions via the org Packages API using **`GITHUB_TOKEN`** with **repo Admin** on the `devcontainer` package (one-time **Manage Actions access** grant). See [GitHub App Configuration](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#github-app-configuration) and [Registry and cleanup tokens](https://github.com/vig-os/devkit/blob/main/docs/RELEASE_CYCLE.md#registry-and-cleanup-tokens-upstream) in `docs/RELEASE_CYCLE.md`.
 
 This template does **not** implement upstream-only steps (GHCR `:latest`, cosign, cross-repo smoke-test gate). Projects that need registry or deploy promotion after merge should run separate automation or extend their `release-extension.yml` / own workflows; see [Extension Hook](#extension-hook).
@@ -571,4 +588,6 @@ Two independent staleness axes are reported in CI ([#1497](https://github.com/vi
 - **Scaffold drift** (`scaffold-drift` job, gate): the working tree diverges from what the *pinned* `DEVKIT_VERSION` would scaffold. Opt out with `DEVKIT_DRIFT_CHECK=false`.
 - **Pin staleness** (`devkit-staleness` job, warn-only): the pin itself is behind the latest devkit release — invisible to the drift gate by construction, since it compares the pin against itself. The report is a `::warning` annotation plus a step-summary block; it never fails the build and is not silenced by the drift opt-out.
 
-The flake-input axis is reported by the upgrade lane itself: `install.sh --force` prints one `flake-bump:` line per run — advanced (any input name at the floating `github:vig-os/devkit` URL, or a pinned release ref in either `?ref=X` or `/X` form when `.vig-os` sets `DEVKIT_FLAKE_PIN_ADVANCE=true`, [#1752](https://github.com/vig-os/devkit/issues/1752)), already aligned, failed, or skipped with the reason (without the knob a pinned ref is never auto-bumped) — and `devkit-upgrade.yml` carries that line into the adoption PR body. A pinned release ref that lags `DEVKIT_VERSION` fails the `resolve-toolchain` job's `Check flake pin lockstep` step.
+The flake-input axis is reported by the upgrade lane itself: `install.sh --force` prints exactly one `flake-bump:` line per run — advanced, already aligned, failed, or skipped with a reason — and `devkit-upgrade.yml` carries that line into the adoption PR body. Floating `github:vig-os/devkit` inputs advance as before, regardless of input name. Release pins in either `?ref=X` or `/X` form now advance by default when they match the **pre-upgrade** `DEVKIT_VERSION` ([#1856](https://github.com/vig-os/devkit/issues/1856)). Lockstep comparisons normalize `refs/tags/` and a leading `v`. Advances preserve the URL form and `refs/tags/` qualification; a leading `v` is removed and reported in the same `flake-bump:` line because devkit publishes bare `X.Y.Z` tags (for example, `?ref=refs/tags/1.17.0` becomes `?ref=refs/tags/1.18.0`, while `?ref=v1.17.0` becomes `?ref=1.18.0`). In `.vig-os`, empty `DEVKIT_FLAKE_PIN_ADVANCE` selects that default, `true` advances any release pin, and `false` explicitly opts out; upgrades preserve the configured value. The target installer implements this behavior, so consumers running an older upgrade workflow benefit immediately when adopting the release containing it.
+
+A non-lockstep release pin with the default knob, or an explicit `false`, stays put. Every outcome leaving a release pin different from the new scaffold version warns that the upgrade is incomplete, including a missing Nix executable, a failed lock update, and internal update failures. Fix: align the pin manually and run `nix flake update <input>` before committing. This honors an explicit `false`; consumers who want to advance a non-lockstep pin automatically can instead set `DEVKIT_FLAKE_PIN_ADVANCE=true` and re-run the upgrade. The pin and lock advance atomically; a failed lock update restores both files. Branch and revision pins remain unchanged. The `resolve-toolchain` job's `Check flake pin lockstep` step rejects mismatched bare release refs; qualified refs currently receive its non-release-ref warning, so the installer also reports incomplete upgrades for those spellings. See the [migration note](https://github.com/vig-os/devkit/blob/dev/docs/MIGRATION.md#lockstep-flake-pins-during-upgrades) for opting out of the changed default.

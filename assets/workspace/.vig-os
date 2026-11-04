@@ -238,19 +238,18 @@ DEVKIT_AUTO_UPGRADE=
 # non-empty value (#1296).
 DEVKIT_UPGRADE_EXCLUDE=
 
-# Advance a PINNED devkit flake input with upgrades: true | false. Empty (=
-# unset, default) or false => a pinned input (`?ref=X` or the `/X` path form)
-# is never touched, as before. true => on an install.sh --force upgrade (direnv
-# and both modes, with a flake.lock and a release-shaped DEVKIT_VERSION) a
-# RELEASE pin is rewritten to the new DEVKIT_VERSION, keeping its form,
-# atomically with `nix flake update <input>` — if the lock update fails both
-# files are restored (non-fatal).
-# Release pins only: `main`, `rev=<sha>`, `refs/tags/X` are left as is. Every
-# outcome prints one `flake-bump:` line, surfaced in the adoption PR. A pin that
-# lags DEVKIT_VERSION fails ci.yml's resolve-toolchain job; the first adoption
-# of this knob on a pinned consumer is remedied in one commit: bump the pin, run
-# `nix flake update <input>`, set this key. Written back only for a non-empty
-# value (#1752).
+# Advance a PINNED devkit flake input with upgrades: true | false (#1856).
+# Empty (default) advances a release pin matching the pre-upgrade DEVKIT_VERSION
+# to the target version. true advances any release pin; false explicitly opts
+# out. Your value is preserved. Applies to install.sh --force in direnv/both
+# modes with flake.lock. ?ref=X and /X forms and refs/tags/ are preserved;
+# a leading v is removed to use devkit's published bare X.Y.Z tags. The URL and
+# lock update atomically; a failed lock update restores both files (non-fatal).
+# Non-release refs are not advanced. Every outcome prints one flake-bump: line.
+# A retained release pin differing from DEVKIT_VERSION can break commit hooks.
+# Every skipped or failed advance leaving this mismatch warns explicitly.
+# Fix: manually align the pin and run nix flake update <input> before committing.
+# CI rejects mismatched bare release refs. Your explicit false is preserved.
 DEVKIT_FLAKE_PIN_ADVANCE=
 
 # Scaffold-drift CI gate: true (default) | false. Empty (= unset) resolves to
@@ -280,3 +279,7 @@ DEVKIT_DRIFT_CHECK=
 # `nix` is declared but never gated (no single marker file). Written back only
 # for a non-empty value (#1478).
 DEVKIT_LANGUAGES=
+
+# Required release PR approvals when rulesets return HTTP 403 (plan limit).
+# Empty defaults to 1; solo consumers may set 0. Real rulesets take precedence.
+DEVKIT_RELEASE_REQUIRED_APPROVALS=
