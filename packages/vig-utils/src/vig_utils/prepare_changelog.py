@@ -420,6 +420,80 @@ def unprepare_changelog(filepath="CHANGELOG.md"):
     return True
 
 
+def _merge_entry_blocks(primary, secondary):
+    """Merge whole top-level bullets, preserving nested details and entry order."""
+    merged = {}
+    for category in STANDARD_SECTIONS:
+        entries = []
+        for source in (primary, secondary):
+            body = source.get(category, "")
+            for entry in re.split(r"(?m)(?=^- )", body):
+                entry = entry.strip("\n")
+                if entry and entry not in entries:
+                    entries.append(entry)
+        if entries:
+            merged[category] = "\n".join(entries)
+    return merged
+
+
+def _unfreeze_sections(body):
+    """Collect all category blocks, including repeated headings, without loss."""
+    if body is None:
+        raise ValueError("No '## Unreleased' section found in CHANGELOG")
+    if _find_loose_bullets(body):
+        _reject_unparsable_body(body)
+    sections = {}
+    for block in re.finditer(
+        r"^### ([^\n]+)\n(.*?)(?=^### |\Z)", body, re.MULTILINE | re.DOTALL
+    ):
+        category = block[1].strip()
+        if category in STANDARD_SECTIONS and block[2].strip():
+            sections = _merge_entry_blocks(sections, {category: block[2].strip("\n")})
+    return sections
+
+
+def unfreeze_changelog(version, filepath="CHANGELOG.md"):
+    """Restore a pending version to Unreleased; absent/dated is a no-op.
+
+    Combine repeated categories and deduplicate whole entries, preserving nested
+    details, the file header and release history. Loose bullets fail before write.
+    """
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise ValueError(f"Invalid semantic version: {version}")
+    path = Path(filepath)
+    content = path.read_text()
+    pending = re.search(
+        rf"^## \[{re.escape(version)}\] - TBD[ \t]*$\n?(.*?)(?=^## |\Z)",
+        content,
+        re.MULTILINE | re.DOTALL,
+    )
+    if not pending:
+        return False
+    primary = _unfreeze_sections(_unreleased_body(content))
+    merged = _merge_entry_blocks(primary, _unfreeze_sections(pending[1]))
+    remaining = content[: pending.start()] + content[pending.end() :]
+    match = re.search(
+        r"^## Unreleased[ \t]*\n.*?(?=^## |\Z)", remaining, re.MULTILINE | re.DOTALL
+    )
+    body = "## Unreleased\n\n"
+    for category in STANDARD_SECTIONS:
+        body += f"### {category}\n\n"
+        if category in merged:
+            body += merged[category] + "\n\n"
+    path.write_text(remaining[: match.start()] + body + remaining[match.end() :])
+    return True
+
+
+def cmd_unfreeze(args):
+    """Handle idempotent pending-release restoration."""
+    changed = unfreeze_changelog(args.version, args.file)
+    print(
+        "Restored pending entries to Unreleased"
+        if changed
+        else "No pending section to restore"
+    )
+
+
 def prepare_changelog(version, filepath="CHANGELOG.md"):
     """
     Prepare CHANGELOG for release.
@@ -852,6 +926,13 @@ Examples:
         help="Path to CHANGELOG file (default: CHANGELOG.md)",
     )
     prepare_parser.set_defaults(func=cmd_prepare)
+
+    unfreeze_parser = subparsers.add_parser(
+        "unfreeze", help="Fold a pending [version] - TBD section into Unreleased"
+    )
+    unfreeze_parser.add_argument("version", help="Semantic version (e.g., 1.0.0)")
+    unfreeze_parser.add_argument("file", nargs="?", default="CHANGELOG.md")
+    unfreeze_parser.set_defaults(func=cmd_unfreeze)
 
     # seed command
     seed_parser = subparsers.add_parser(
