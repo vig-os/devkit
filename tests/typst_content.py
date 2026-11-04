@@ -721,7 +721,6 @@ def test_footer_cap_preserves_graphemes(project, count):
         ("don't", "don’t"),
         ('It\'s the "best" plan', "It’s the “best” plan"),
         ("'Tis the 'season' rock'n'roll", "‘Tis the ‘season’ rock’n’roll"),
-        ("1990's", "1990’s"),
     ],
 )
 def test_footer_apostrophes_match_typst_rendering(project, value, expected):
@@ -743,5 +742,12 @@ def test_footer_apostrophes_match_typst_rendering(project, value, expected):
 def test_footer_cases_and_vertical_spacing(project, value, expected):
     result = compile_source(
         project + f'#assert.eq(slides.footer-text({value}), "{expected}")'
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_footer_digit_apostrophe_uses_right_quote(project):
+    result = compile_source(
+        project + '#assert.eq(slides.footer-text([1990\'s]), "1990’s")'
     )
     assert result.returncode == 0, result.stderr

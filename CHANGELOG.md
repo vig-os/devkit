@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Keep plot ticks at 9 pt, enforce script and explicit math text minimums, and fit long slide footer titles.
   - Show plain slide footer text with measured grapheme truncation, a fixed line and a 2 mm counter gap, including RTL titles.
   - Extract deeply nested footer content iteratively, skip hidden text, separate cells and math leaves, and preserve term-item text and paired smart quotes.
+  - Bound footer extraction and measurement to 400 graphemes, retain apostrophes, and separate cases and vertical spacing.
   - Synthesize readable script glyphs and provide bookmark-safe bound glossary terms with actionable setup errors and non-empty register validation.
   - Add a branded 16:9 slide layout with title, section and content slides, booktabs, captions and revision footers; retain older package imports.
 

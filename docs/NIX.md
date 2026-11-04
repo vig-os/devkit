@@ -566,12 +566,20 @@ give a short plain `short-title` for best results. Containers contribute their
 text; math contributes text leaves (or `□` when there are none). Images, shapes and
 unknown atoms are omitted; a nonempty title with no extractable text shows `□`.
 Hidden content, footnotes, metadata, state, counters and placed content are
-skipped. Smart quotes alternate opening and closing marks independently for
-single and double quotes. Term-list items contribute `Term: Description`.
-Nonzero horizontal spacing, grid/table/stack cells, matrix entries and math
-attachments separate leaves with spaces; line breaks and whitespace collapse
-to single spaces. Extraction uses an explicit work stack, so nested containers
-do not consume recursive function-call depth.
+skipped. Double smart quotes alternate opening and closing marks. A single
+quote after a letter or digit becomes an apostrophe (`’`) without changing
+quote state; single quotes at the start or after whitespace open a quotation.
+Same-type nested double quotes are not tracked by nesting depth: for example,
+`"a "b" c"` becomes `“a ”b“ c”` in the footer. Alternate single and double
+quotes, or provide a plain `short-title`, for nested quotations.
+Term-list items contribute `Term: Description`. Nonzero horizontal or vertical
+spacing, grid/table/stack cells, matrix and cases entries, and math attachments
+separate leaves with spaces; line breaks and whitespace collapse to single
+spaces. Extraction uses an explicit work stack, so nested containers do not
+consume recursive function-call depth. It visits at most one million work
+items and stops once the plain prefix exceeds 400 graphemes. Truncated
+extraction returns at most 400 graphemes including `…`; the remainder is not
+inspected. Footer width measurement therefore uses only this bounded prefix.
 
 The footer occupies one fixed line at the footer font size, without scaling.
 It truncates by measuring grapheme prefixes, adding `…` at the logical end,
