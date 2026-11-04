@@ -119,7 +119,7 @@ def test_container_modes_still_plan_the_image_run(tmp_path: Path, mode: str) -> 
     assert proc.returncode == 0, out
     assert "run --rm" in out
     assert "ghcr.io/vig-os/devcontainer:1.2.3" in out
-    assert "nix flake prefetch" not in out
+    assert "flake " not in out
 
 
 def _gnu_sed() -> bool:
