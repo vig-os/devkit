@@ -20,6 +20,7 @@ from vig_utils import typst_svg
 from vig_utils.typst_packages import package_environment
 
 MODES = ("figure-caption", "table-header", "house-style-bypass", "figure-text-size")
+CODE_INTRODUCERS = ("let", "set", "show", "context", "import", "if", "for", "while")
 
 
 def tokens(source, comments=False):
@@ -74,27 +75,18 @@ def code_contexts(lex, pairs, source):
         previous_end = end
         # Control-flow statements, like let/set/show, can introduce multiline
         # bodies with ordinary code calls. A bare inline #expression cannot.
-        if (
-            word == "#"
-            and i + 1 < len(lex)
-            and lex[i + 1][0]
-            in (
-                "let",
-                "set",
-                "show",
-                "context",
-                "import",
-                "if",
-                "for",
-                "while",
-            )
-        ):
+        if word == "#" and i + 1 < len(lex) and lex[i + 1][0] in CODE_INTRODUCERS:
             line_code = True
         code = flags[stack[-1]] if stack else line_code
         if stack and lex[stack[-1]][0] == "[":
             code = False
         # Keep an inline call's arguments in code, without enabling later prose.
-        if word == "(" and i and flags[i - 1] and lex[i - 1][2] == start:
+        if (
+            i
+            and flags[i - 1]
+            and lex[i - 1][2] == start
+            and (word in ("(", ".") or lex[i - 1][0] == ".")
+        ):
             code = True
         if i and lex[i - 1][0] == "#":
             code = True
