@@ -269,6 +269,13 @@ def test_real_code_blocks_remain_instrumented():
         assert [call[0] for call in call_spans(source)] == ["figure"]
 
 
+def test_inline_calls_keep_native_argument_code_and_markup_captions():
+    from vig_utils.typst_content import call_spans
+
+    source = '#figure(image("chart.svg"), caption: [see table(s)])'
+    assert [call[0] for call in call_spans(source)] == ["figure", "image"]
+
+
 def test_dependency_tokens_are_cached_across_call_orders(monkeypatch):
     from vig_utils import typst_content
 
