@@ -253,7 +253,10 @@ jobs:
       # delivery mode; it needs neither the consumer image nor its project flake.
       - name: Record checkout SHA
         id: checkout-state
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Set up devkit toolchain
         uses: ./.github/actions/setup-devkit-toolchain
