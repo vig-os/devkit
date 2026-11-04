@@ -1,7 +1,7 @@
 """install.sh scaffolds in direnv mode without a container runtime (#1871).
 
 direnv mode runs the pinned ``init-workspace.sh`` on the host from the devkit
-flake source (``nix flake metadata`` -> ``assets/``, bake steps replayed), the
+flake source (``nix flake prefetch`` -> ``assets/``, bake steps replayed), the
 same replay as ci.yml's drift check (#1861). Container modes keep the image
 path unchanged.
 
@@ -47,13 +47,14 @@ def _runtime_stubs(tmp_path: Path, *, working: bool) -> tuple[Path, Path]:
 
 
 def _nix_stub(bindir: Path) -> None:
-    """`nix` stand-in: metadata -> this checkout, develop -> run the command, rest logged."""
+    """`nix` stand-in: prefetch -> this checkout; metadata -> unrealised source, develop -> run the command, rest logged."""
     log = bindir / "nix.log"
     _stub(
         bindir / "nix",
         f"""args=" $* "
 case "$args" in
-  *" flake metadata "*) printf '%s' '{json.dumps({"path": str(REPO_ROOT)})}' ;;
+  *" flake metadata "*) printf '%s' '{json.dumps({"path": str(bindir / "unrealised-source")})}' ;;
+  *" flake prefetch "*) printf '%s' '{json.dumps({"storePath": str(REPO_ROOT)})}' ;;
   *" develop "*)
     # Like the real dev-shell hook: configure whatever repo it starts in.
     pwd > "{bindir}/develop.cwd"
@@ -100,7 +101,10 @@ def test_direnv_dry_run_plans_a_host_scaffold_without_a_runtime(
     proc = _dry_run(_project(tmp_path, "direnv"), _env(bindir))
     out = proc.stdout + proc.stderr
     assert proc.returncode == 0, out
-    assert "nix flake metadata --json github:vig-os/devkit/1.2.3" in out
+    assert (
+        "nix flake prefetch --json github:vig-os/devkit/1.2.3 | jq -er .storePath"
+        in out
+    )
     assert "init-workspace.sh" in out and "--mode direnv" in out
     assert "no container runtime" in out
     assert "run --rm" not in out
@@ -115,7 +119,7 @@ def test_container_modes_still_plan_the_image_run(tmp_path: Path, mode: str) -> 
     assert proc.returncode == 0, out
     assert "run --rm" in out
     assert "ghcr.io/vig-os/devcontainer:1.2.3" in out
-    assert "nix flake metadata" not in out
+    assert "nix flake prefetch" not in out
 
 
 def _gnu_sed() -> bool:
@@ -516,7 +520,8 @@ def test_migration_environment_crosses_installer_boundary(
     _stub(
         bindir / "nix",
         f"""case " $* " in
-  *" flake metadata "*) printf '%s' '{json.dumps({"path": str(src)})}' ;;
+  *" flake metadata "*) printf '%s' '{json.dumps({"path": str(bindir / "unrealised-source")})}' ;;
+  *" flake prefetch "*) printf '%s' '{json.dumps({"storePath": str(src)})}' ;;
   *" develop "*) while [ "$1" != -c ]; do shift; done; shift; exec "$@" ;;
 esac""",
     )

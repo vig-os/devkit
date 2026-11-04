@@ -177,7 +177,10 @@ def test_nix_drift_step_is_direnv_only_and_container_free() -> None:
     nix_step = next(x for x in steps if x.get("name") == NIX_STEP)
     assert nix_step["if"] == "needs.resolve-toolchain.outputs.mode == 'direnv'"
     assert not CONTAINER_RUNTIMES.search(nix_step["run"])
-    assert "nix flake metadata" in nix_step["run"]
+    assert (
+        'nix flake prefetch --json "github:vig-os/devkit/${IMAGE_TAG}" | jq -er .storePath'
+        in nix_step["run"]
+    )
     assert "github:vig-os/devkit/${IMAGE_TAG}" in nix_step["run"]
     # the scaffold must not execute via its /bin/bash shebang (absent on NixOS)
     assert 'bash "$scratch/assets/init-workspace.sh"' in nix_step["run"]
