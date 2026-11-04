@@ -507,7 +507,7 @@ Contract inputs — every one `required: false`, so devkit can add an input late
 - `image-tag` — resolved devkit image tag
 - `runner-json` — JSON label array from the resolved `extension` lane
   (`runners.extension`), passed by managed `ci.yml`. Every lane defaults to SMALL;
-  The `.vig-os` key `DEVKIT_CI_LANE_SIZES=extension=large` opts this lane into `CI_RUNNER_LARGE`.
+  the `.vig-os` key `DEVKIT_CI_LANE_SIZES=extension=large` opts this lane into `CI_RUNNER_LARGE`.
   The stub uses `runs-on: ${{ fromJSON(inputs.runner-json) }}` and keeps a hosted
   default for direct calls. The input name remains `runner-json` for compatibility;
   managed workflows consume the resolver's `runners` object by lane.

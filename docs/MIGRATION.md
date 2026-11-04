@@ -312,14 +312,19 @@ The upgrade checks every job in `prepare-release-extension.yml`,
 - **reconciled:** a known seeded runner value was replaced by the fork-safe
   SMALL expression. Review the workflow diff; indentation, comments and line
   endings are preserved. The current SMALL expression needs no further change.
-- **pending:** the runner is preserved because this upgrade cannot see a valid
-  `CI_RUNNER_SMALL` in its CI context. Set that variable to one runner label
-  (or `ubuntu-26.04` for hosted runners) and rerun the upgrade from an updated
-  default-branch workflow. Local installs never fold hooks.
+- **pending:** the runner is preserved when the legacy
+  `DEVKIT_CI_RESOLVE_RUNNER` is set but `CI_RUNNER_SMALL` is not valid.
+  Set SMALL to a valid single label and rerun the upgrade. In the CI upgrade
+  context, stock values also fold when neither variable is set: the SMALL
+  expression keeps the hosted default. A malformed, nonempty SMALL value
+  also prevents folding. Local installs never fold hooks.
 - **drift:** customised or unclassified content is preserved. Review the named
-  file and job, then migrate its runner manually to the SMALL expression in
-  the current seeded template. Keep `DEVKIT_CI_RESOLVE_RUNNER` until every
-  seeded hook job is reconciled and `CI_RUNNER_SMALL` is configured.
+  file and job; an intentional custom runner can stay as-is. Keep
+  `DEVKIT_CI_RESOLVE_RUNNER` until all jobs that rely on it are reconciled.
+
+Single- and double-quoted stock labels are recognised. Jobs that only call a
+reusable workflow with `uses:` need no runner migration and do not block the
+legacy-variable deletion hint.
 
 All findings use the `ci-runner-migration:` channel in logs and, with an
 updated default-branch upgrade workflow, the **CI runner migration** PR-body
@@ -451,8 +456,9 @@ privileges so such a PR cannot be opened in the first place.
 
 - **This release (N):** `CI_RUNNER_SMALL`/`LARGE`/`XLARGE` and the fork
   predicate are live everywhere. The legacy `.vig-os` key `DEVKIT_CI_RUNNER`
-  and the legacy variable `DEVKIT_CI_RESOLVE_RUNNER` keep working — the
-  variable wins whenever both are set. A non-empty `DEVKIT_CI_RUNNER` carries
+  and the legacy variable `DEVKIT_CI_RESOLVE_RUNNER` keep working — a
+  `CI_RUNNER_*` variable wins over the `.vig-os` key. A non-empty
+  `DEVKIT_CI_RUNNER` carries
   the **full actionable migration text** as a `::warning::` on every run;
   this per-run warning is the primary migration channel, and it reaches
   every consumer regardless of branch model or whether `devkit-upgrade.yml`
@@ -475,7 +481,8 @@ privileges so such a PR cannot be opened in the first place.
     class with no visible variable — turns the run red with a loud
     `::error::` naming the unset classes; one that is already inert (every
     required class has a variable) gets only a `::warning::` asking to
-    delete it, and stays green;
+    delete it, and stays green; a foreign run only warns because the key
+    cannot select its runner;
   - a non-empty `DEVKIT_CI_RESOLVE_RUNNER` with `CI_RUNNER_SMALL` unset, on a
     non-foreign run, turns the run red with an `::error::` — the resolve job
     is still running on the legacy variable's label, so the error is

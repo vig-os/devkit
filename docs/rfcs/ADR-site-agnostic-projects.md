@@ -921,8 +921,10 @@ The rejected options are kept with the costs that ruled them out.
 - **2026-10-29, architect clarification of (d)-1 while reviewing S3:**
   stock includes every runner value ever seeded by a release or dev build,
   not only the legacy resolve-variable expression originally named below.
-  Fold only with a valid SMALL variable in the CI upgrade context; otherwise
-  preserve and report pending. Classify values independently of layout,
+  In the CI upgrade context, fold with a valid SMALL variable or when both
+  SMALL and the legacy resolve variable are unset. Otherwise preserve and
+  report pending. Reusable-workflow call jobs need no runner migration.
+  Classify values independently of layout,
   preserve indentation and line endings, and report custom or unclassified
   content as drift. Runner findings use the §6 migration channel so pre-N
   workflows do not mislabel them. Suggest deleting the legacy resolve variable
@@ -1044,12 +1046,16 @@ and never overwritten.
    endings. The stock set includes every value seeded by a release or dev
    build: the hosted `ubuntu-22.04`, `ubuntu-24.04` and `ubuntu-26.04` labels,
    `${{ fromJSON(inputs.runner-json) }}` and
-   `${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}`. Only with a valid
-   `CI_RUNNER_SMALL` in the CI upgrade context does it rewrite a stock value to
+   `${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}`. With a valid
+   `CI_RUNNER_SMALL`, or both SMALL and the legacy variable unset, in the CI
+   upgrade context it rewrites a stock value to
    the new SMALL direct expression (§3, the same for every seeded job),
    preserving indentation, comments and line endings. Otherwise it preserves
    the value and reports pending, asking to set SMALL; local installs never
-   fold. The current SMALL expression is already reconciled.
+   fold. Quoted stock scalars are normalised before comparison; jobs with
+   only `uses:` need no migration. Custom runners are preserved for review,
+   without requiring conversion. The current SMALL expression is already
+   reconciled.
    The rewrite target is SMALL, not LARGE, so a reconciled hook agrees with
    "every lane SMALL by default" (§5) and needs only the class every consumer
    already sets. It prints reconcile, pending and drift findings through the
