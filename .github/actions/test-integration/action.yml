@@ -221,12 +221,14 @@ runs:
       run: |
         set -euo pipefail
 
+        podman info --debug
+        podman network inspect podman
         echo "Running integration tests..."
         echo "Test image: ${{ inputs.registry }}:$TEST_CONTAINER_TAG"
 
         # Run integration tests with verbose output
         uv run pytest tests/test_integration.py tests/test_install_script.py \
-          -v \
+          -v -s \
           --tb=short \
           --color=yes \
           --maxfail=5 \

@@ -937,19 +937,28 @@ class TestDevContainerCLI:
 
         # Test SSH connection to GitHub
         # This verifies that SSH keys are properly configured
-        result = dc_exec(
-            devcontainer_up,
-            "ssh",
-            "-T",
-            "-o",
-            "StrictHostKeyChecking=no",
-            "-o",
-            "UserKnownHostsFile=/dev/null",
-            "-i",
-            "~/.ssh/id_ed25519_github",
-            "git@github.com",
-            timeout=10,
-        )
+        try:
+            result = dc_exec(
+                devcontainer_up,
+                "bash",
+                "-c",
+                "set -o pipefail; "
+                "echo SSH_START=$EPOCHREALTIME; "
+                "getent ahosts github.com; "
+                "echo DNS_DONE=$EPOCHREALTIME; "
+                "ssh -vvv -T -o StrictHostKeyChecking=no "
+                "-o UserKnownHostsFile=/dev/null "
+                "-i ~/.ssh/id_ed25519_github git@github.com "
+                "2> >(while IFS= read -r line; do "
+                'printf \'%s %s\n\' "$EPOCHREALTIME" "$line" >&2; done)',
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired as exc:
+            print(
+                f"SSH timeout diagnostics: stdout={exc.stdout!r} stderr={exc.stderr!r}"
+            )
+            raise
+        print(f"SSH diagnostics: stdout={result.stdout} stderr={result.stderr}")
 
         # SSH to GitHub returns exit code 1 on success (it's a test connection)
         # Exit code 255 means connection/auth failed
