@@ -215,6 +215,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Container-mode consumers opt in to `CI_RUNNER_*` runners** ([#2045](https://github.com/vig-os/devkit/issues/2045))
+  - New `.vig-os` key `DEVKIT_CI_CONTAINER_RUNNERS` (`true` | `false`, default `false`). In `devcontainer`/`both` mode, every lane stays on hosted `ubuntu-26.04`, as in 1.18.x, unless it is `true`; organization-level `CI_RUNNER_*` variables no longer move container lanes onto pools without a container runtime.
+  - `resolve-toolchain` prints a notice naming the key when it ignores a visible variable, and rejects any other value; `direnv`/`bare` and fork PRs are unchanged.
+  - `devkit-upgrade` resolves its installer runner through the same gate, and keeps a legacy `DEVKIT_CI_RUNNER` key until a container-mode repo opts in.
+
 - **Realise direnv scaffold sources on Nix 2.35** ([#2039](https://github.com/vig-os/devkit/issues/2039))
   - Fetch installer and Scaffold Drift sources with `nix flake prefetch` so their assets exist before copying; show the same command in the installer dry-run plan.
 

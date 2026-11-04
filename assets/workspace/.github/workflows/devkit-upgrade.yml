@@ -46,9 +46,49 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The upgrade runs install.sh --docker in every mode but direnv, so it needs a
+  # container runtime: it takes the runner the #2045 container-mode gate
+  # resolved, like every other container lane, never vars.CI_RUNNER_SMALL raw.
+  resolve-toolchain:
+    name: Resolve toolchain
+    runs-on: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
+    timeout-minutes: 2
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      runners: ${{ steps.resolve.outputs.runners }}
+      runner-sources: ${{ steps.resolve.outputs.runner-sources }}
+      runner-json: ${{ steps.resolve.outputs.runner-json }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .vig-os
+            .github/actions/resolve-toolchain
+          sparse-checkout-cone-mode: false
+          # Own path: on a persistent runner the sparse clone must not occupy the
+          # shared workspace root later jobs reuse (#1860).
+          path: .devkit-resolve
+
+      - name: Resolve toolchain
+        id: resolve
+        uses: ./.devkit-resolve/.github/actions/resolve-toolchain
+        with:
+          runner-small: ${{ vars.CI_RUNNER_SMALL }}
+          runner-large: ${{ vars.CI_RUNNER_LARGE }}
+          runner-xlarge: ${{ vars.CI_RUNNER_XLARGE }}
+          legacy-resolve-runner: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER }}
+          working-directory: .devkit-resolve
+          registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
+          registry-username: ${{ github.actor }}
+
   upgrade:
     name: Adopt newer devkit
-    runs-on: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || 'ubuntu-26.04' }}
+    needs: [resolve-toolchain]
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runners).small }}
     timeout-minutes: 30
     permissions:
       # The branch and PR are created with the minted App token (a dedicated
@@ -498,11 +538,12 @@ jobs:
   # `needs.upgrade.result` also reports nothing for a cancelled run.
   report:
     name: Report upgrade outcome
-    needs: upgrade
+    needs: [resolve-toolchain, upgrade]
     # The !cancelled() is load-bearing: a job-level `if` without a status-check
     # function gets an implicit success() gate, which would skip this job on
-    # exactly the failed runs it exists to report.
-    if: ${{ !cancelled() && (needs.upgrade.result == 'failure' || needs.upgrade.result == 'success') }}
+    # exactly the failed runs it exists to report. A failed resolve-toolchain
+    # job (e.g. an invalid .vig-os key) skips the upgrade, so it reports too.
+    if: ${{ !cancelled() && (needs.upgrade.result == 'failure' || needs.upgrade.result == 'success' || needs.resolve-toolchain.result == 'failure') }}
     runs-on: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || 'ubuntu-26.04' }}
     timeout-minutes: 10
     permissions:
@@ -528,7 +569,7 @@ jobs:
           permission-issues: write
 
       - name: File or update the upgrade-failure issue
-        if: needs.upgrade.result == 'failure'
+        if: needs.upgrade.result == 'failure' || needs.resolve-toolchain.result == 'failure'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.issues-token.outputs.token }}

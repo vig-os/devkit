@@ -69,7 +69,10 @@ inputs:
 
 outputs:
   runners:
-    description: JSON label arrays by class and lane; every lane defaults to SMALL
+    description: >-
+      JSON label arrays by class and lane; every lane defaults to SMALL. In the
+      container-ish modes (devcontainer, both) the CI_RUNNER_* variables place
+      lanes only when .vig-os sets DEVKIT_CI_CONTAINER_RUNNERS=true (#2045).
     value: ${{ steps.resolve.outputs.runners }}
   runner-sources:
     description: JSON source per class (fork, variable, legacy-key, default)
@@ -188,6 +191,7 @@ runs:
         FLOATING_TAGS=""
         CI_RUNNER=""
         CI_LANE_SIZES=""
+        CONTAINER_RUNNERS=""
         DEV_PROFILE_PATH=""
         REFS_POLICY=""
         REFS_OPTIONAL_TYPES_RAW=""
@@ -206,7 +210,7 @@ runs:
             [[ "$line" =~ ^[[:space:]]*# ]] && continue
 
             case "$line" in
-              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_RELEASE_REQUIRED_APPROVALS=*|DEVKIT_PRERELEASE_FORMAT=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_CI_LANE_SIZES=*|DEVKIT_DEV_PROFILE_PATH=*|DEVKIT_REFS_POLICY=*|DEVKIT_REFS_OPTIONAL_TYPES=*|DEVKIT_COMMIT_TYPES=*|DEVKIT_BRANCH_TYPES=*|DEVKIT_DRIFT_CHECK=*|DEVKIT_LANGUAGES=*)
+              DEVKIT_MODE=*|DEVKIT_VERSION=*|DEVCONTAINER_VERSION=*|DEVKIT_TAG_PREFIX=*|DEVKIT_RELEASE_REQUIRED_APPROVALS=*|DEVKIT_PRERELEASE_FORMAT=*|DEVKIT_FLOATING_TAGS=*|DEVKIT_CI_RUNNER=*|DEVKIT_CI_LANE_SIZES=*|DEVKIT_CI_CONTAINER_RUNNERS=*|DEVKIT_DEV_PROFILE_PATH=*|DEVKIT_REFS_POLICY=*|DEVKIT_REFS_OPTIONAL_TYPES=*|DEVKIT_COMMIT_TYPES=*|DEVKIT_BRANCH_TYPES=*|DEVKIT_DRIFT_CHECK=*|DEVKIT_LANGUAGES=*)
                 key="${line%%=*}"
                 value="${line#*=}"
                 value="${value#"${value%%[![:space:]]*}"}"
@@ -228,6 +232,7 @@ runs:
                   DEVKIT_FLOATING_TAGS) FLOATING_TAGS="$value" ;;
                   DEVKIT_CI_RUNNER) CI_RUNNER="$value" ;;
                   DEVKIT_CI_LANE_SIZES) CI_LANE_SIZES="$value" ;;
+                  DEVKIT_CI_CONTAINER_RUNNERS) CONTAINER_RUNNERS="$value" ;;
                   DEVKIT_DEV_PROFILE_PATH) DEV_PROFILE_PATH="$value" ;;
                   DEVKIT_REFS_POLICY) REFS_POLICY="$value" ;;
                   DEVKIT_REFS_OPTIONAL_TYPES) REFS_OPTIONAL_TYPES_RAW="$value" ;;
@@ -256,6 +261,27 @@ runs:
             ;;
         esac
         echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+
+        # Container-mode runner opt-in (#2045, ADR-site-agnostic-projects §5).
+        # vars.CI_RUNNER_* also resolves ORGANIZATION variables, and nothing
+        # here can tell an inherited one from a repository one. A container-ish
+        # mode's lanes need a container runtime on the runner (`container:`
+        # jobs, scaffold-drift's `docker run`, the upgrade's installer), which
+        # an inherited variable cannot vouch for. So those modes place lanes on
+        # the variables only when the repo itself says so; otherwise every lane
+        # stays hosted, as in 1.18.x. The fork predicate still wins, and the
+        # repo's own legacy DEVKIT_CI_RUNNER key keeps its 1.18.x meaning.
+        case "$CONTAINER_RUNNERS" in
+          ""|true|false) ;;
+          *)
+            echo "::error::Invalid DEVKIT_CI_CONTAINER_RUNNERS in .vig-os: $CONTAINER_RUNNERS (expected: true | false; empty means false)"
+            exit 1
+            ;;
+        esac
+        RUNNER_GATE=false
+        if [[ ( "$MODE" == devcontainer || "$MODE" == both ) && "$CONTAINER_RUNNERS" != true ]]; then
+          RUNNER_GATE=true
+        fi
 
         # Release tag prefix (#1044): freeform, empty by default (= bare tags).
         # Emitted for every mode; only the release/promote workflows consume it,
@@ -310,7 +336,7 @@ runs:
           source=default
           if [[ "$FOREIGN" == true ]]; then
             source=fork
-          elif [[ -n "$trimmed" ]]; then
+          elif [[ -n "$trimmed" && "$RUNNER_GATE" == false ]]; then
             labels=$(jq -cn --arg label "$raw" '[$label]')
             source=variable
           elif [[ "$LEGACY_LABELS" != '[]' ]]; then
@@ -321,7 +347,8 @@ runs:
           SOURCES=$(jq -c --arg size "$size" --arg source "$source" '.[$size] = $source' <<< "$SOURCES")
         done
         # Effective lane map (§5): only the four project lanes can opt in.
-        LANE_SIZES='{"lint":"small","test":"small","extension":"small","release-test":"small"}'
+        DEFAULT_LANE_SIZES='{"lint":"small","test":"small","extension":"small","release-test":"small"}'
+        LANE_SIZES="$DEFAULT_LANE_SIZES"
         if [[ -n "$CI_LANE_SIZES" ]]; then
           remaining="$CI_LANE_SIZES,"
           seen=","
@@ -344,6 +371,9 @@ runs:
             LANE_SIZES=$(jq -c --arg lane "$lane" --arg size "$size" '.[$lane] = $size' <<< "$LANE_SIZES")
           done
         fi
+        # Validated above either way; a gated run ignores the override for
+        # placement, since no class it names is reachable.
+        [[ "$RUNNER_GATE" == true ]] && LANE_SIZES="$DEFAULT_LANE_SIZES"
         RUNNERS=$(jq -c --argjson lanes "$LANE_SIZES" '. as $r | reduce ($lanes | to_entries[]) as $lane (. ; .[$lane.key] = $r[$lane.value])' <<< "$RUNNERS")
 
         # Diagnostics use only class/source names, never input label values.
@@ -356,12 +386,18 @@ runs:
           source=$(jq -r --arg size "$size" '.[$size]' <<< "$SOURCES")
           input_name="RUNNER_${size^^}"
           raw="${!input_name:-}"
+          # A gated variable is visible but places nothing, so it neither
+          # overrides the legacy key nor counts toward a required class.
+          placing=false
           if [[ "$raw" == *[![:space:]]* ]]; then
             visible=$((visible + 1))
-            overrides+=("CI_RUNNER_${size^^}")
+            if [[ "$RUNNER_GATE" == false ]]; then
+              placing=true
+              overrides+=("CI_RUNNER_${size^^}")
+            fi
           fi
           if jq -e --arg size "$size" 'index($size) != null' <<< "$required" > /dev/null; then
-            if [[ "$raw" != *[![:space:]]* ]]; then
+            if [[ "$placing" == false ]]; then
               missing+=("CI_RUNNER_${size^^}")
             fi
             case "$source" in
@@ -383,6 +419,9 @@ runs:
           for variable in "${overrides[@]}"; do
             migration+=" $variable already overrides the key; the key no longer decides that class."
           done
+          if [[ "$RUNNER_GATE" == true ]]; then
+            migration+=" In DEVKIT_MODE=$MODE the variables place lanes only with DEVKIT_CI_CONTAINER_RUNNERS=true in .vig-os; set it once those runners can run container jobs."
+          fi
           echo "::warning::$migration Use repository-level variables on a private GitHub Free repo. Once every required class is set, the key decides nothing; delete DEVKIT_CI_RUNNER from .vig-os. See MIGRATION.md#run-ci-on-self-hosted-runners."
         fi
         if [[ -n "${LEGACY_RESOLVE_RUNNER:-}" ]]; then
@@ -398,8 +437,14 @@ runs:
             jq -r 'to_entries[] | "| \(.key) | \(.value) |"' <<< "$SOURCES"
           } >> "$GITHUB_STEP_SUMMARY"
         fi
+        if [[ "$RUNNER_GATE" == true && "$FOREIGN" == false && "$visible" -gt 0 ]]; then
+          echo "::notice::CI_RUNNER_* variables are ignored in DEVKIT_MODE=$MODE: set DEVKIT_CI_CONTAINER_RUNNERS=true in .vig-os once those runners can run container jobs. Container lanes need a container runtime on the runner, and an organization variable a repository inherits cannot say whether its pool has one. See MIGRATION.md#container-mode-ci-runners."
+        fi
         if [[ "${REPOSITORY_PRIVATE:-false}" == true && "$FOREIGN" == false && "$visible" == 0 ]]; then
           notice='CI runs on hosted runners. On GitHub Free organization variables do not reach private repos; set repository-level variables CI_RUNNER_SMALL/LARGE/XLARGE.'
+          if [[ "$RUNNER_GATE" == true ]]; then
+            notice+=" In DEVKIT_MODE=$MODE also set DEVKIT_CI_CONTAINER_RUNNERS=true in .vig-os once those runners can run container jobs."
+          fi
           echo "::notice::$notice"
           if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
             echo "$notice" >> "$GITHUB_STEP_SUMMARY"

@@ -183,12 +183,25 @@ def test_requires_app_identity_and_never_uses_github_token_for_pr() -> None:
             "${{ steps.app-token.outputs.token }}"
         )
     # Checkout persists the minted token so the push authenticates as the App.
-    checkout_steps = [s for s in steps if "actions/checkout" in str(s.get("uses", ""))]
+    jobs = _jobs(text)
+    checkout_steps = [
+        s
+        for s in jobs["upgrade"]["steps"]
+        if "actions/checkout" in str(s.get("uses", ""))
+    ]
     assert checkout_steps, "no checkout step found"
     for s in checkout_steps:
         assert s.get("with", {}).get("token") == (
             "${{ steps.app-token.outputs.token }}"
         )
+    # The read-only resolve job (#2045) never sees the App identity.
+    resolve_checkout = next(
+        s
+        for s in jobs["resolve-toolchain"]["steps"]
+        if "actions/checkout" in str(s.get("uses", ""))
+    )
+    assert "token" not in resolve_checkout["with"]
+    assert resolve_checkout["with"]["persist-credentials"] is False
 
 
 def test_legacy_numeric_app_id_removed() -> None:
