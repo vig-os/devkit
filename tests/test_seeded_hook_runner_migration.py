@@ -269,7 +269,25 @@ def test_hook_findings_use_the_migration_channel_under_both_body_builders(
         assert ANCHOR in text
 
 
-def test_migration_docs_and_changelog_match_the_new_contract() -> None:
+@pytest.fixture(params=["repository", "unreleased", "pending", "released"])
+def migration_changelog(request: pytest.FixtureRequest) -> str:
+    """Exercise the real freeze and populated development/release layouts."""
+    if request.param == "repository":
+        return (REPO_ROOT / "CHANGELOG.md").read_text()
+    entry = "### Added\n\n- **Runner migration** ([#1929](https://example.com/1929))\n"
+    empty = "### Added\n\n### Fixed\n\n"
+    older = "## [1.18.0] - 2026-10-05\n\n" + empty
+    if request.param == "unreleased":
+        return "## Unreleased\n\n" + entry + "### Fixed\n\n" + older
+    release = (
+        "[1.19.0] - TBD" if request.param == "pending" else "[1.19.0] - 2026-11-04"
+    )
+    return "## Unreleased\n\n" + empty + f"## {release}\n\n" + entry + older
+
+
+def test_migration_docs_and_changelog_match_the_new_contract(
+    migration_changelog: str,
+) -> None:
     docs = (REPO_ROOT / "docs/MIGRATION.md").read_text()
     assert "### Seeded hook runner migration" in docs
     for word in (
@@ -285,12 +303,7 @@ def test_migration_docs_and_changelog_match_the_new_contract() -> None:
                 0
             ]
         )
-    changelog = (
-        (REPO_ROOT / "CHANGELOG.md")
-        .read_text()
-        .split("## Unreleased", 1)[1]
-        .split("\n## ", 1)[0]
-    )
+    changelog = migration_changelog.split("## Unreleased", 1)[1].split("\n## ", 1)[0]
     assert "[#1929]" in changelog.split("### Added", 1)[1].split("\n### ", 1)[0]
     assert "[#1929]" not in changelog.split("### Fixed", 1)[1].split("\n### ", 1)[0]
 
