@@ -600,6 +600,7 @@ def test_empty_yaml_register_has_clear_error(project, bound):
         "raw",
         "math",
         "pad",
+        "rotate",
     ],
 )
 @pytest.mark.parametrize("mixed", [False, True])
@@ -609,9 +610,13 @@ def test_generic_footer_prefix(project, wrapper, mixed):
         title = f'#raw("{value}")'
     elif wrapper == "math":
         title = '$frac("' + "x" * 500 + '", y)$'
-    elif wrapper == "pad":
-        assert "pad" not in (ASSETS / "devkit-docs/slides.typ").read_text()
-        title = f"#pad(left: 1pt, right: 1pt)[{value}]"
+    elif wrapper in {"pad", "rotate"}:
+        assert wrapper not in (ASSETS / "devkit-docs/slides.typ").read_text()
+        title = (
+            f"#pad(left: 1pt, right: 1pt)[{value}]"
+            if wrapper == "pad"
+            else f"#rotate(0deg, reflow: true)[{value}]"
+        )
     else:
         title = f"#{wrapper}[{value}]"
     if mixed:
