@@ -96,3 +96,21 @@ def test_failed_sha_capture_stops_job(tmp_path, path, job, name):
     assert error.value.returncode == 17
     assert replay.step_context[capture["id"]]["outputs"] == {}
     assert not (tmp_path / "continued").exists()
+
+
+@pytest.mark.parametrize(
+    "prefix,step_id",
+    [
+        (".github/workflows", "pre-state"),
+        ("assets/workspace/.github/workflows", "pre_state"),
+    ],
+)
+def test_prepare_rollback_baseline_is_checkout(tmp_path, prefix, step_id):
+    replay = replay_for(ROOT / prefix / "prepare-release.yml", "prepare", tmp_path)
+    replay.context = {"steps": {"checkout-state": {"outputs": {"sha": "checkout-sha"}}}}
+    step = next(s for s in replay.steps if s.get("id") == step_id)
+    assert replay.resolve_env(step)["PREPARE_START_SHA"] == "checkout-sha"
+    replay.run(only=[step_id])
+    assert (
+        replay.step_context[step_id]["outputs"]["prepare_start_sha"] == "checkout-sha"
+    )
