@@ -2,10 +2,8 @@
 
 import json
 import os
-import re
 import subprocess
 import tomllib
-import unicodedata
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -348,64 +346,6 @@ def test_glossary_diagnostics(project, duplicate):
     assert result.returncode != 0 and expected in result.stderr, result.stderr
 
 
-def test_slides_long_short_title_does_not_overlap_counter(project):
-    result = compile_source(
-        project
-        + "#show: slides.with(short-title: [ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZ])\n#slide()[Body]"
-    )
-    assert result.returncode == 0, result.stderr
-    words = pdf_words()
-    title = next(w for w in words if (w.text or "").startswith("ABC"))
-    counter = next(w for w in words if w.text == "1")
-    assert float(title.attrib["xMax"]) < float(counter.attrib["xMin"])
-    assert all(
-        float(w.attrib["yMax"]) <= float(counter.attrib["yMax"]) + 1
-        for w in words
-        if (w.text or "").startswith("ABC")
-    )
-
-
-@pytest.mark.parametrize(
-    "title",
-    [
-        "Results for *Q3* with $alpha$ decay",
-        "Water H#sub[2]O and m#super[2] data",
-        "Before #box[Boxmarker] after",
-        'Before #image("marker.svg", height: 8pt) after',
-    ],
-)
-def test_slide_footer_preserves_content(project, title):
-    Path("marker.svg").write_text(
-        '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="red"/></svg>'
-    )
-    result = compile_source(
-        project + f"#show: slides.with(short-title: [{title}])\n#slide()[Body]"
-    )
-    assert result.returncode == 0, result.stderr
-    text = unicodedata.normalize("NFKC", " ".join(pdf_text().split()))
-    if "Q3" in title:
-        assert "Results for Q3 with α decay" in text, text
-        fonts = subprocess.run(
-            ["pdffonts", "main.pdf"], check=True, capture_output=True, text=True
-        )
-        assert "Bold" in fonts.stdout
-    elif "Water" in title:
-        assert "Water H" in text and "O and m" in text and "data" in text, text
-        assert "2" in text, text
-    else:
-        assert "Before" in text and "after" in text and "visible" not in text, text
-        if "box" in title:
-            assert "Before Boxmarker after" in text, text
-        else:
-            # SVG is drawn as vectors; its red rectangle must survive export.
-            subprocess.run(
-                ["pdftocairo", "-svg", "main.pdf", "footer.svg"],
-                check=True,
-                capture_output=True,
-            )
-            assert "100%,0%,0%" in Path("footer.svg").read_text().replace(" ", "")
-
-
 @pytest.mark.parametrize("script", ["super", "sub"])
 def test_plot_uses_synthesized_scripts_at_seven_points(project, script):
     result = compile_source(
@@ -464,115 +404,6 @@ def test_register_bound_term_has_bookmark_text(project):
     assert text.index("Using CPU") < text.index("Using Central processing unit (CPU)")
 
 
-@pytest.mark.parametrize(
-    "wrapper,font",
-    [
-        ("strong", "Bold"),
-        ("emph", "Italic"),
-        ('text.with(fill: rgb("ff0000"))', None),
-        ("smallcaps", None),
-        ('link.with("https://example.com")', None),
-    ],
-)
-@pytest.mark.parametrize("single_word", [False, True])
-def test_long_styled_footer_keeps_prefix(project, wrapper, font, single_word):
-    value = "Prefixmarker" + (
-        "abcdefghij" * 80 if single_word else " extended research area facility" * 20
-    )
-    result = compile_source(
-        project
-        + f"#show: slides.with(short-title: {{ let style = {wrapper}; style([{value}]) }})\n#slide()[Body]"
-    )
-    assert result.returncode == 0, result.stderr
-    words = pdf_words()
-    footer = [w for w in words if float(w.attrib["yMin"]) > 350]
-    title = [w for w in footer if w.text not in {"1", "/"}]
-    extracted = " ".join(w.text or "" for w in title)
-    assert "PREFIXMARKER" in extracted.upper() and "…" in extracted, extracted
-    counter = next(w for w in footer if w.text == "1")
-    assert max(float(w.attrib["xMax"]) for w in title) + 2 <= float(
-        counter.attrib["xMin"]
-    )
-    assert max(float(w.attrib["yMax"]) for w in footer) <= 408.18896
-    if font:
-        fonts = subprocess.run(
-            ["pdffonts", "main.pdf"], check=True, capture_output=True, text=True
-        ).stdout
-        assert font in fonts, fonts
-    if "fill:" in wrapper:
-        subprocess.run(
-            ["pdftocairo", "-svg", "main.pdf", "footer.svg"],
-            check=True,
-            capture_output=True,
-        )
-        assert "100%,0%,0%" in Path("footer.svg").read_text().replace(" ", "")
-    if "link" in wrapper:
-        assert b"https://example.com" in Path("main.pdf").read_bytes()
-
-
-@pytest.mark.parametrize(
-    "title",
-    [
-        r"Alpha \ Beta",
-        r"Alpha \ Beta \ Gamma",
-        "Alpha\n\nBeta\n\nGamma",
-        '#box(height: 40pt, fill: rgb("ff0000"))[Boxmarker] After',
-        '#image("tall.svg", height: 40pt) After',
-    ],
-)
-@pytest.mark.parametrize("option", ["title", "short-title"])
-def test_footer_is_one_line_with_tall_content(project, title, option):
-    Path("tall.svg").write_text(
-        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="40"><rect width="10" height="40" fill="red"/></svg>'
-    )
-    result = compile_source(
-        project + f"#show: slides.with({option}: [{title}])\n#slide()[Body]"
-    )
-    assert result.returncode == 0, result.stderr
-    footer = [w for w in pdf_words() if float(w.attrib["yMin"]) > 350]
-    text = " ".join(w.text or "" for w in footer)
-    for marker in (
-        ["Boxmarker", "After"]
-        if "box" in title
-        else ["After"]
-        if "image" in title
-        else ["Alpha", "Beta"] + (["Gamma"] if "Gamma" in title else [])
-    ):
-        assert marker in text, text
-    assert (
-        max(float(w.attrib["yMax"]) for w in footer)
-        - min(float(w.attrib["yMin"]) for w in footer)
-        <= 11
-    )
-    assert max(float(w.attrib["yMax"]) for w in footer) <= 408.18896
-    last_page = str(len(pdf_text().rstrip("\n\f").split("\f")))
-    subprocess.run(
-        [
-            "pdftocairo",
-            "-svg",
-            "-f",
-            last_page,
-            "-l",
-            last_page,
-            "main.pdf",
-            "footer.svg",
-        ],
-        check=True,
-        capture_output=True,
-    )
-    root = ET.parse("footer.svg").getroot()
-    # No image/box can be laid out below the page; the red image is bounded too.
-    if "image" in title or "box" in title:
-        red = next(
-            n
-            for n in root.iter()
-            if "100%,0%,0%" in n.attrib.get("fill", "").replace(" ", "")
-        )
-        coords = [float(x) for x in re.findall(r"[-+]?\d+(?:\.\d+)?", red.attrib["d"])]
-        ys = coords[1::2]
-        assert max(ys) - min(ys) <= 11 and max(ys) <= 408.18896
-
-
 @pytest.mark.parametrize("bound", [False, True])
 def test_empty_yaml_register_has_clear_error(project, bound):
     Path("glossary.yaml").write_text("")
@@ -588,79 +419,105 @@ def test_empty_yaml_register_has_clear_error(project, bound):
 
 
 @pytest.mark.parametrize(
-    "wrapper",
+    "value,expected",
     [
-        "underline",
-        "highlight",
-        "strike",
-        "overline",
-        "super",
-        "sub",
-        "box",
-        "raw",
-        "math",
-        "pad",
-        "rotate",
+        (f"#{wrapper}[Prefixmarker]", "Prefixmarker")
+        for wrapper in (
+            "strong",
+            "emph",
+            "underline",
+            "highlight",
+            "strike",
+            "overline",
+            "smallcaps",
+            "super",
+            "sub",
+            "box",
+            "block",
+            "quote",
+            "heading",
+        )
+    ]
+    + [
+        ("#text(fill: red)[Prefixmarker]", "Prefixmarker"),
+        ('#link("https://example.com")[Prefixmarker]', "Prefixmarker"),
+        ('#raw("Prefixmarker")', "Prefixmarker"),
+        ("$alpha$", "α"),
+        ("$dif A$", "dA"),
+        ("$vec(x,y)$", "xy"),
+        ("$sum_(i=1)^n x_i$", "∑i=1nxi"),
+        ("#stack([Prefixmarker], [Second])", "PrefixmarkerSecond"),
+        ("#grid([Prefixmarker], [Second])", "PrefixmarkerSecond"),
+        ("#table([Prefixmarker], [Second])", "PrefixmarkerSecond"),
+        ("#emph[Prefixmarker] <label>", "Prefixmarker"),
+        ("#enum.item[Prefixmarker]", "Prefixmarker"),
+        ("#columns(2)[Prefixmarker]", "Prefixmarker"),
+        ("Prefixmarker#footnote[Hidden]", "Prefixmarker"),
+        ("Prefixmarker#place[Hidden]", "Prefixmarker"),
+        ("#rotate(20deg)[Prefixmarker]", "Prefixmarker"),
+        ("#move(dx: 2pt)[Prefixmarker]", "Prefixmarker"),
+        ('"Prefixmarker"', "“Prefixmarker”"),
+        (r"Prefixmarker \\ Second", "Prefixmarker Second"),
+        ("Prefixmarker\n\nSecond", "Prefixmarker Second"),
+        ('#image("tall.svg", height: 40pt) Prefixmarker', "Prefixmarker"),
+        ("漢字" * 100, "漢字"),
+        ("😀" * 100, "😀"),
+        ("A" * 400, "AAAA"),
     ],
 )
-@pytest.mark.parametrize("mixed", [False, True])
-def test_generic_footer_prefix(project, wrapper, mixed):
-    value = "Prefixmarker" + " extended research area facility" * 30
-    if wrapper == "raw":
-        title = f'#raw("{value}")'
-    elif wrapper == "math":
-        title = '$frac("' + "x" * 500 + '", y)$'
-    elif wrapper in {"pad", "rotate"}:
-        assert wrapper not in (ASSETS / "devkit-docs/slides.typ").read_text()
-        title = (
-            f"#pad(left: 1pt, right: 1pt)[{value}]"
-            if wrapper == "pad"
-            else f"#rotate(0deg, reflow: true)[{value}]"
-        )
-    else:
-        title = f"#{wrapper}[{value}]"
-    if mixed:
-        title = "Intro " + title + " After"
-    result = compile_source(
-        project + f"#show: slides.with(short-title: [{title}])\n#slide()[Body]"
+def test_plain_footer_prefix_and_bounds(project, value, expected):
+    Path("tall.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="40"/>'
     )
-    assert result.returncode == 0, result.stderr
-    footer = [w for w in pdf_words() if float(w.attrib["yMin"]) > 350]
-    title_words = [w for w in footer if w.text not in {"1", "/"}]
-    extracted = " ".join(w.text or "" for w in title_words)
-    assert "…" in extracted, extracted
-    assert ("Prefixmarker" if wrapper != "math" else "□") in extracted, extracted
-    if mixed:
-        assert "Intro" in extracted, extracted
-    counter = next(w for w in footer if w.text == "1")
-    assert max(float(w.attrib["xMax"]) for w in title_words) + 2 <= float(
-        counter.attrib["xMin"]
-    )
-
-
-def test_oversized_footer_measures_rendered_prefix(project):
     result = compile_source(
         project
-        + "#show: slides.with(short-title: text(size: 40pt)[Prefixmarker extended research area facility "
+        + f"#show: slides.with(short-title: [{value} extended research area facility "
         + "extended research area facility " * 30
         + "])\n#slide()[Body]"
     )
     assert result.returncode == 0, result.stderr
-    footer = [
-        w
-        for w in pdf_words()
-        if float(w.attrib["yMin"]) > 350 and w.text not in {"1", "/"}
-    ]
-    extracted = " ".join(w.text or "" for w in footer)
-    assert "Prefixmarker" in extracted and "…" in extracted, extracted
+    footer = [w for w in pdf_words() if float(w.attrib["yMin"]) > 350]
+    title = [w for w in footer if w.text not in {"1", "/"}]
+    extracted = " ".join(w.text or "" for w in title)
+    assert extracted.startswith(expected) and extracted.endswith("…"), extracted
+    assert "Hidden" not in extracted
+    counter = next(w for w in footer if w.text == "1")
+    assert max(float(w.attrib["xMax"]) for w in title) + 2 * 72 / 25.4 <= float(
+        counter.attrib["xMin"]
+    )
+    assert min(float(w.attrib["xMin"]) for w in title) >= 12 * 72 / 25.4 - 0.1
+    assert max(float(w.attrib["yMax"]) for w in footer) <= 144 * 72 / 25.4
     assert (
-        max(float(w.attrib["xMax"]) for w in footer)
-        - min(float(w.attrib["xMin"]) for w in footer)
-        > 130
+        max(float(w.attrib["yMax"]) for w in footer)
+        - min(float(w.attrib["yMin"]) for w in footer)
+        <= 11
+    )
+    fonts = subprocess.run(
+        ["pdffonts", "main.pdf"], check=True, capture_output=True, text=True
+    ).stdout
+    assert "Bold" not in fonts and "Italic" not in fonts
+
+
+@pytest.mark.parametrize("option", ["title", "short-title"])
+@pytest.mark.parametrize(
+    "value,expected", [("", ""), ("Short", "Short"), ("$alpha$", "α"), ("#rect()", "□")]
+)
+def test_plain_footer_short_and_empty(project, option, value, expected):
+    result = compile_source(
+        project + f"#show: slides.with({option}: [{value}])\n#slide()[Body]"
+    )
+    assert result.returncode == 0, result.stderr
+    # Inspect the last page, excluding any title slide.
+    words = pdf_words()
+    footer = [w.text or "" for w in words if float(w.attrib["yMin"]) > 350]
+    assert (
+        footer.count(expected) == (2 if option == "title" else 1)
+        if expected
+        else "…" not in footer
     )
 
 
-def test_rtl_footer_ellipsis_at_cut_end(project):
+def test_plain_footer_rtl_bounds(project):
     result = compile_source(
         project
         + '#set text(lang: "he", dir: rtl)\n#show: slides.with(short-title: ['
@@ -669,52 +526,17 @@ def test_rtl_footer_ellipsis_at_cut_end(project):
     )
     assert result.returncode == 0, result.stderr
     footer = [w for w in pdf_words() if float(w.attrib["yMin"]) > 350]
-    ellipsis = next(w for w in footer if "…" in (w.text or ""))
-    hebrew = [
-        w for w in footer if any("\u0590" <= c <= "\u05ff" for c in (w.text or ""))
+    title = [
+        w
+        for w in footer
+        if any("\u0590" <= c <= "\u05ff" for c in (w.text or ""))
+        or "…" in (w.text or "")
     ]
-    assert hebrew
-    assert float(ellipsis.attrib["xMax"]) <= min(
-        float(w.attrib["xMin"]) for w in hebrew
+    assert title
+    assert min(float(w.attrib["xMin"]) for w in title) >= 12 * 72 / 25.4 - 0.1
+    counter = next(w for w in footer if w.text == "1")
+    assert max(float(w.attrib["xMax"]) for w in title) + 2 * 72 / 25.4 <= float(
+        counter.attrib["xMin"]
     )
-
-
-@pytest.mark.parametrize(
-    "atom",
-    [
-        "rect(none, width: 1000pt, height: 4pt)",
-        "rect([], width: 1000pt, height: 4pt)",
-        'image("wide.svg")',
-    ],
-)
-@pytest.mark.parametrize("mixed", [False, True])
-def test_oversized_footer_atom_stays_visible(project, atom, mixed):
-    Path("wide.svg").write_text(
-        '<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="4"><rect width="1000" height="4"/></svg>'
-    )
-    title = ("Intro " if mixed else "") + f"#{atom}"
-    result = compile_source(
-        project + f"#show: slides.with(short-title: [{title}])\n#slide()[Body]"
-    )
-    assert result.returncode == 0, result.stderr
-    extracted = " ".join(
-        w.text or "" for w in pdf_words() if float(w.attrib["yMin"]) > 350
-    )
-    assert "□…" in extracted, extracted
-    if mixed:
-        assert "Intro" in extracted, extracted
-
-
-def test_long_inline_math_footer_keeps_prefix(project):
-    result = compile_source(
-        project
-        + "#show: slides.with(short-title: [Intro $"
-        + "x+" * 200
-        + "x$])\n#slide()[Body]"
-    )
-    assert result.returncode == 0, result.stderr
-    extracted = unicodedata.normalize(
-        "NFKC",
-        " ".join(w.text or "" for w in pdf_words() if float(w.attrib["yMin"]) > 350),
-    )
-    assert "Intro" in extracted and "x" in extracted and "..." in extracted, extracted
+    ellipsis = next(w for w in title if "…" in (w.text or ""))
+    assert float(ellipsis.attrib["xMin"]) == min(float(w.attrib["xMin"]) for w in title)
