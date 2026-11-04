@@ -3,7 +3,7 @@
 Start glossary documents with the **bound API** so PDF bookmarks retain terms:
 
 ```typst
-#import "@local/devkit-docs:0.2.0": *
+#import "@local/devkit-docs:0.2.1": *
 #let g = glossary-tools(yaml("/glossary.yaml"))
 #let term = g.term
 #show: g.setup
@@ -43,7 +43,8 @@ environment, as it does in native Typst.
 ## Local package versions
 
 The active source lives in `devkit-docs/`, with independent SemVer in
-`devkit-docs/typst.toml`. The registry retains the 0.1.0 and 0.1.1 snapshots alongside 0.2.0.
+`devkit-docs/typst.toml`. The registry retains the 0.1.0, 0.1.1 and 0.2.0 snapshots
+alongside 0.2.1.
 `devkit-docs.lock.json` maps each `namespace/name/version` to its SHA-256 content
 hash, covering the local package versions and every vendored preview package.
 Hash sorted file paths relative to each version directory followed by NUL,
@@ -64,7 +65,8 @@ it rejects removing a version and hash entry while the ledger still records it.
 It does not compare Git history or enforce append-only ledger edits. Editing
 the ledger can bypass removal detection, including by deleting its entry in an
 earlier commit; maintaining the append-only policy therefore requires review.
-The active 0.2.0 source and hash are updated together during review.
+The active 0.2.1 adds guard-only image measurement; normal builds preserve
+the 0.2.0 layout.
 The Nix registry includes retained directories alongside the active version;
 patch upgrades therefore preserve older imports. Devkit-only release bumps
 never change package versions. API-compatible changes use patch bumps;

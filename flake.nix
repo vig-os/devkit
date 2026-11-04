@@ -1373,6 +1373,24 @@
                 touch "$out"
               '';
 
+          typst-content =
+            let
+              docs = capabilityModules.docs pkgs { };
+            in
+            pkgs.runCommand "typst-content"
+              {
+                nativeBuildInputs = docs.packages ++ [
+                  pkgs.python314Packages.pytest
+                  pkgs.vig-utils
+                ];
+                DEVKIT_TYPST_TEST_ASSETS = ./assets/typst;
+                DEVKIT_TYPST_CONTENT_FIXTURES = ./packages/vig-utils/tests/fixtures/typst-content;
+              }
+              ''
+                pytest -q ${./packages/vig-utils/tests/typst_content_contract.py} --basetemp="$TMPDIR/content-tests"
+                touch "$out"
+              '';
+
           pre-commit = preCommitCheck;
 
           # The dev-shell evaluates and its closure builds.

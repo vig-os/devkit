@@ -26,6 +26,7 @@ pkgs.python314.pkgs.buildPythonPackage {
     pkgs.python314.pkgs.rich
     pkgs.python314.pkgs.pyyaml
     pkgs.python314.pkgs.jsonschema
+    pkgs.python314.pkgs.defusedxml
   ];
   pythonImportsCheck = [ "vig_utils" ];
   # The package's own tests need pytest + the repo; CI covers them.
