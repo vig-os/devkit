@@ -647,3 +647,12 @@ def test_footer_plain_leaf_separators_and_quotes(project, value, expected):
         + f"#assert.eq(slides.footer-text({value}), {json.dumps(expected, ensure_ascii=False)})"
     )
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("kind", ["table", "grid"])
+def test_footer_separates_grouped_cells(project, kind):
+    value = f"{kind}({kind}.header([A1], [B2]), [C3], {kind}.footer([D4], [E5]))"
+    result = compile_source(
+        project + f'#assert.eq(slides.footer-text({value}), "A1 B2 C3 D4 E5")'
+    )
+    assert result.returncode == 0, result.stderr
