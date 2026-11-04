@@ -6326,6 +6326,40 @@ _assert_consumer_tokens_intact_1693() {
     assert_success
 }
 
+@test "container runner opt-in persists across force upgrades (#2045)" {
+    ws="$BATS_TEST_TMPDIR/container-runners"
+    mkdir -p "$ws"
+    run _clone_shared both "$ws"
+    assert_success
+    grep -v '^DEVKIT_CI_CONTAINER_RUNNERS=' "$ws/.vig-os" >"$BATS_TEST_TMPDIR/base"
+    cp "$BATS_TEST_TMPDIR/base" "$ws/.vig-os"
+    printf '\nDEVKIT_CI_CONTAINER_RUNNERS=true\n' >>"$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -x 'DEVKIT_CI_CONTAINER_RUNNERS=true' "$ws/.vig-os"
+    assert_success
+}
+
+@test "container runner opt-in rejects invalid values before writing (#2045)" {
+    ws="$BATS_TEST_TMPDIR/container-runners-invalid"
+    mkdir -p "$ws"
+    run _clone_shared both "$ws"
+    assert_success
+    grep -v '^DEVKIT_CI_CONTAINER_RUNNERS=' "$ws/.vig-os" >"$BATS_TEST_TMPDIR/original-manifest"
+    local value
+    for value in yes True TRUE 1 on false,true maybe; do
+        cp "$BATS_TEST_TMPDIR/original-manifest" "$ws/.vig-os"
+        printf '\nDEVKIT_CI_CONTAINER_RUNNERS=%s\n' "$value" >>"$ws/.vig-os"
+        cp "$ws/.vig-os" "$BATS_TEST_TMPDIR/before"
+        run _upgrade_no_flags "$ws"
+        assert_failure
+        assert_output --partial 'Invalid DEVKIT_CI_CONTAINER_RUNNERS'
+        assert_output --partial 'true | false'
+        run cmp "$BATS_TEST_TMPDIR/before" "$ws/.vig-os"
+        assert_success
+    done
+}
+
 _runner_migration_upgrade() {
     local ws="$1"
     shift
@@ -6374,6 +6408,38 @@ _runner_migration_seed() {
         # Remove duplicate keys before the next independent case.
         grep -vE '^DEVKIT_CI_(RUNNER|LANE_SIZES)=' "$ws/.vig-os" >"$ws/manifest.tmp"
         mv "$ws/manifest.tmp" "$ws/.vig-os"
+    done
+}
+
+# In a container-ish mode the variables place lanes only with the opt-in key
+# (#2045), so a legacy key is inert there only when the repo also opted in:
+# stripping it otherwise would move every lane onto hosted runners.
+@test "runner migration keeps the legacy key in a gated container mode (#2045)" {
+    local repo="$BATS_TEST_TMPDIR/runner-migration-gated"
+    mkdir -p "$repo"
+    _clone_shared both "$repo"
+    unset DEVKIT_UPGRADE_CI_RUNNER_LARGE DEVKIT_UPGRADE_CI_RUNNER_XLARGE \
+        DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER DEVKIT_UPGRADE_REPO_PRIVATE
+    local opt_in expected
+    for spec in 'none|kept' 'false|kept' 'true|removed'; do
+        IFS='|' read -r opt_in expected <<<"$spec"
+        grep -vE '^DEVKIT_CI_(RUNNER|LANE_SIZES|CONTAINER_RUNNERS)=' "$repo/.vig-os" >"$repo/manifest.tmp"
+        mv "$repo/manifest.tmp" "$repo/.vig-os"
+        printf '\nDEVKIT_CI_RUNNER=private-pool\n' >>"$repo/.vig-os"
+        [[ "$opt_in" == none ]] || printf 'DEVKIT_CI_CONTAINER_RUNNERS=%s\n' "$opt_in" >>"$repo/.vig-os"
+        run _runner_migration_upgrade "$repo" DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_CI_RUNNER_SMALL=pool-s
+        assert_success
+        refute_output --partial 'private-pool'
+        if [[ "$expected" == removed ]]; then
+            assert_output --partial 'ci-runner-migration: DEVKIT_CI_RUNNER removed'
+            run grep '^DEVKIT_CI_RUNNER=private-pool$' "$repo/.vig-os"
+            assert_failure
+        else
+            assert_output --partial 'ci-runner-migration: DEVKIT_CI_RUNNER kept'
+            assert_output --partial 'DEVKIT_CI_CONTAINER_RUNNERS=true'
+            run grep -x 'DEVKIT_CI_RUNNER=private-pool' "$repo/.vig-os"
+            assert_success
+        fi
     done
 }
 
