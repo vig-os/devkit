@@ -26,7 +26,8 @@
 #                     covered by the upgraded .gitignore (e.g. target/)
 #   --skip-pull       Use the already-present local image for --version (skip the
 #                     registry pull); e.g. a locally built :dev tag
-#   --dry-run         Show the container command that would run without executing
+#   --dry-run         Show an offline plan (container or direnv host scaffold);
+#                     defer remote checks, release resolution and runtime probes
 #   -h, --help        Show this help message
 #
 # Examples:
@@ -117,7 +118,9 @@ OPTIONS:
                       manifest, else the gitflow default)
     --smoke-test      Deploy smoke-test-specific assets
     --preview         Preview an upgrade: print the add/overwrite/preserve/delete
-                      file report and exit without changing any files
+                      file report and exit without changing any files. Use this
+                      to see the resolved release and check runtime health
+                      (container modes only).
     --prune-devcontainer
                       In direnv/bare mode, also remove a pre-existing
                       .devcontainer/ (a container->direnv/bare migration cleanup).
@@ -940,6 +943,9 @@ fi
 
 # Detect container runtime
 if [ "$HOST_SCAFFOLD" = false ]; then
+    if [ "$DRY_RUN" = true ] && [ -z "$RUNTIME" ]; then
+        info "dry-run: runtime chosen from PATH only; a real run probes and may fall back"
+    fi
     RUNTIME=$(detect_runtime)
     if [ -z "$RUNTIME" ]; then
         err "No container runtime found!"
@@ -1059,14 +1065,23 @@ declare -a CMD=(
 )
 
 if [ "$DRY_RUN" = true ]; then
-    info "dry-run: remote branch checks and runtime health checks deferred until execution"
+    if [ "$HOST_SCAFFOLD" = true ]; then
+        info "dry-run: remote branch checks deferred until execution"
+    else
+        info "dry-run: remote branch checks and runtime health checks deferred until execution"
+    fi
     info "Would execute:"
     if [ "$HOST_SCAFFOLD" = true ]; then
         # Host path: nix fetches the pinned flake source; init-workspace.sh runs
         # from its assets/ against the target. No container runtime involved.
-        printf '  nix flake metadata --json github:vig-os/devkit/%s\n' "$VERSION"
+        PLAN_VERSION="$VERSION"
+        if [ "$PLAN_VERSION" = latest ]; then
+            PLAN_VERSION="<latest-release>"
+            info "<latest-release> is a placeholder; use --preview to resolve it before execution"
+        fi
+        printf '  nix flake metadata --json github:vig-os/devkit/%s\n' "$PLAN_VERSION"
         printf '  SHORT_NAME=%q ORG_NAME=%q GITHUB_REPOSITORY=%q VIG_OS_VERSION=%q ' \
-            "$PROJECT_NAME" "$ORG_NAME" "$GITHUB_REPOSITORY" "$VERSION"
+            "$PROJECT_NAME" "$ORG_NAME" "$GITHUB_REPOSITORY" "$PLAN_VERSION"
         printf 'WORKSPACE_DIR=%q bash <flake-source>/assets/init-workspace.sh' "$PROJECT_PATH"
         printf ' %q' "${INIT_ARGS[@]}"
         printf '\n'

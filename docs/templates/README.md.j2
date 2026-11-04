@@ -64,13 +64,22 @@ curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bas
 # a direnv --force without --version keeps the .vig-os pin (container mode moves to latest)
 curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --mode direnv ~/my-project
 
-# Preview without executing
+# Print an offline plan without network or runtime probes
 curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --dry-run ~/my-project
+
+# Resolve the release and check runtime health (container modes) without changing files
+curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --preview ~/my-project
 
 # Force specific runtime
 curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --docker ~/my-project
 curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --podman ~/my-project
 ```
+
+`--dry-run` uses local configuration and chooses a runtime from PATH only; a real
+run probes runtime health and may fall back from Docker to Podman. In direnv mode,
+an unresolved latest release appears as `<latest-release>`. Use `--preview` to
+see the resolved release and check runtime health in container modes; preview
+may access the network and fetch scaffold assets. Direnv mode uses no runtime.
 
 **Adopting solo?** For a single-user, private repo without the team/traceability
 layer (no release train, issue sync, or scanning), follow the
