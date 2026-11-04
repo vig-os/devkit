@@ -28,9 +28,9 @@ import yaml
 
 from tests.workflow_scaffold import (
     WORKFLOWS,
+    WORKSPACE,
     load_workflow,
     needs_of,
-    run_text_of_job,
 )
 from tests.workflow_scaffold import (
     exec_resolve_toolchain as _exec_resolve,
@@ -281,13 +281,15 @@ def test_opted_in_legacy_migration_is_unchanged(tmp_path, monkeypatch) -> None:
 
 # ── Static scan: no container lane bypasses the gate ──────────────────────────
 
-# A job needs a container runtime on its runner when it declares `container:`,
-# or a step talks to a daemon / runs the installer (which pulls the image in
-# every mode but direnv).
+# A job needs a container runtime (a CLI, and usually its daemon) on its runner
+# when it declares `container:` or `services:`, or a step invokes the docker or
+# podman CLI with any subcommand or runs the installer (which pulls the image in
+# every mode but direnv). Full-line shell comments are prose, not invocations.
 _RUNTIME_RE = re.compile(
-    r"\b(?:docker|podman)\s+(?:run|pull|create|exec|build|compose|load)\b"
+    r"(?<![\w./-])(?:docker|podman)\s+[a-z][a-z-]*\b"
     r"|\bdocker-compose\b|\binstall\.sh\b"
 )
+_COMMENT_RE = re.compile(r"^\s*#.*$", re.MULTILINE)
 _RESOLVER_LANE_RE = re.compile(
     r"^\$\{\{ fromJSON\(needs\.(?P<job>[a-z-]+)\.outputs\.runners\)"
     r"(?:\.[a-z]+|\['[a-z-]+'\]) \}\}$"
@@ -304,16 +306,58 @@ def _is_resolver(job: dict) -> bool:
     )
 
 
-def _needs_runtime(job: dict) -> bool:
-    if "container" in job:
-        return True
-    for step in job.get("steps", []):
+def _steps_need_runtime(steps: list) -> bool:
+    for step in steps:
         uses = str(step.get("uses", ""))
         # A container action (`docker://…`) or a docker/* action drives the
         # daemon without any `run:` text.
         if uses.startswith(("docker://", "docker/")):
             return True
-    return bool(_RUNTIME_RE.search(run_text_of_job(job)))
+        if _RUNTIME_RE.search(_COMMENT_RE.sub("", str(step.get("run", "")))):
+            return True
+    return False
+
+
+def _checkout_paths(steps: list) -> list[str]:
+    """Sub-paths this job checks its own repository out into (`with.path`)."""
+    return [
+        str(step["with"]["path"]).strip("/") + "/"
+        for step in steps
+        if "actions/checkout" in str(step.get("uses", ""))
+        and (step.get("with") or {}).get("path")
+    ]
+
+
+def _local_action_steps(uses: str, root: Path, checkouts: list[str]) -> list:
+    """A local composite action's steps (`uses: ./…`), resolved one level.
+
+    A job that checks the repo out under a sub-path calls `./<path>/…`; that
+    prefix maps back to the repository root.
+    """
+    rel = uses.removeprefix("./")
+    for prefix in checkouts:
+        rel = rel.removeprefix(prefix)
+    base = root / rel
+    action = next(
+        (base / n for n in ("action.yml", "action.yaml") if (base / n).is_file()),
+        None,
+    )
+    assert action, f"local action {uses!r} has no action.yml under {root}"
+    return (load_workflow(action).get("runs") or {}).get("steps") or []
+
+
+def _needs_runtime(job: dict, root: Path = WORKSPACE) -> bool:
+    if "container" in job or "services" in job:
+        return True
+    steps = job.get("steps") or []
+    checkouts = _checkout_paths(steps)
+    for step in steps:
+        uses = str(step.get("uses", ""))
+        if uses.startswith("./") and _steps_need_runtime(
+            _local_action_steps(uses, root, checkouts)
+        ):
+            return True
+    return _steps_need_runtime(steps)
 
 
 @pytest.mark.parametrize(
@@ -437,12 +481,50 @@ def _assert_gated(workflow: str, name: str, job: dict, jobs: dict) -> None:
     )
 
 
+# Jobs the detector flags that stay on the direct `vars.CI_RUNNER_SMALL || …`
+# expression on purpose: client-side registry probe. Each runs the
+# resolve-toolchain action, whose image probe (`docker login` + `docker manifest
+# inspect`) talks to the registry from the client, so it needs a `docker` CLI
+# but no daemon; and a resolver cannot take the `runners` output it computes
+# itself. ADR §5 "Jobs that stay on the direct expression" and MIGRATION.md
+# "Container-mode CI runners" document this.
+CLIENT_PROBE_JOBS = {
+    ("abandon-release.yml", "resolve-toolchain"),
+    ("ci.yml", "resolve-toolchain"),
+    ("devkit-upgrade.yml", "resolve-toolchain"),
+    ("prepare-hotfix.yml", "resolve-toolchain"),
+    ("prepare-release.yml", "validate"),
+    ("promote-release.yml", "resolve-toolchain"),
+    ("release.yml", "resolve-toolchain"),
+    ("sync-issues.yml", "resolve-toolchain"),
+    ("sync-main-to-dev.yml", "resolve-toolchain"),
+}
+
 CONTAINER_JOBS = sorted(
     (path.name, name)
     for path in WORKFLOWS.glob("*.yml")
     for name, job in (load_workflow(path).get("jobs") or {}).items()
-    if "runs-on" in job and job["runs-on"] != HOSTED and _needs_runtime(job)
+    if "runs-on" in job
+    and job["runs-on"] != HOSTED
+    and (path.name, name) not in CLIENT_PROBE_JOBS
+    and _needs_runtime(job)
 )
+
+
+@pytest.mark.parametrize(("workflow", "name"), sorted(CLIENT_PROBE_JOBS))
+def test_client_probe_allowlist_is_exact(workflow: str, name: str) -> None:
+    """An allowlisted job is a resolver whose only runtime use is the probe.
+
+    The detector must flag it (else the entry is stale), and nothing in the
+    job's own definition may need a runtime: a `container:`, `services:` or
+    CLI call added beside the probe would need a daemon and the gated lane.
+    """
+    job = load_workflow(WORKFLOWS / workflow)["jobs"][name]
+    assert _is_resolver(job)
+    assert _needs_runtime(job)
+    assert "container" not in job
+    assert "services" not in job
+    assert not _steps_need_runtime(job.get("steps") or [])
 
 
 def test_container_job_scan_finds_the_known_lanes() -> None:
