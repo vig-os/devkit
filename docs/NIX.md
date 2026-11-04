@@ -562,15 +562,19 @@ content page with an optional heading. The same type scale, booktabs rules,
 figure captions, branding (`accent`, `logo`, `labels`), metadata, `short-title`,
 page totals and revision footer apply. Footer titles preserve emphasis, colour,
 smallcaps, links, math, scripts, boxes, and images. Truncation prefers whole
-words and re-wraps each prefix in its original styles; an oversized word falls
-back to character prefixes. An ellipsis marks omitted content. A 2 mm column
-gap separates the title from the page counter.
+words and reconstructs content-bearing wrappers generically with their original
+fields, including decorations, scripts and inline raw text. An oversized word
+falls back to character prefixes. An indivisible atom that cannot fit becomes
+`□` before the ellipsis, rather than disappearing. The ellipsis follows the
+cut prefix in the current `text.dir`, including RTL text. A 2 mm column gap
+separates the title from the page counter.
 
 The footer occupies exactly one measured line (font ascender to descender).
-Explicit line and paragraph breaks become spaces. Inline images and boxes
-higher than the footer font size scale uniformly to that height, including
-text inside a box; keep such boxes concise to avoid small lettering. The final
-line also fits its vertical extent without clipping or distorting content.
+Explicit line and paragraph breaks become spaces. Pieces taller than the footer
+line scale uniformly to the footer font size before width measurement, including
+oversized text, images and text inside boxes. Keep tall boxes concise to avoid
+small lettering. Block-capable wrappers become inline pieces. The final line
+also fits its vertical extent without clipping or distorting content.
 Sizes remain in points: choose slide
 content for the intended viewing distance. Content must fit a slide; there is
 no automatic shrinking or overflow clipping. Canonical builds omit the stamp.

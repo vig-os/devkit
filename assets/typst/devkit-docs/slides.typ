@@ -2,22 +2,39 @@
   figure-style, title-block, type-scale, typography, typst-document,
 )
 
-// Scale inline objects uniformly to at most the footer font size.
+// Normalize tall pieces before measuring their available horizontal space.
 #let footer-inline(value) = {
-  let atom = box(value)
-  let extent = measure(atom)
-  if extent.height > text.size {
-    atom = scale(
-      (text.size / extent.height) * 100%,
-      origin: top + left,
-      reflow: true,
-      atom,
-    )
-  }
-  box(baseline: (at: bottom, shift: 0.2 * text.size), atom)
+  let extent = measure(box(value))
+  let height = measure(box([Ag])).height
+  // Keep collapsible spaces outside boxes; wrap block-capable elements inline.
+  if extent.width == 0pt and extent.height == 0pt { return value }
+  if extent.height <= height { return box(value) }
+  box(baseline: (at: bottom, shift: 0.2 * text.size), scale(
+    (text.size / extent.height) * 100%,
+    origin: top + left,
+    reflow: true,
+    box(value),
+  ))
 }
 
-// Split inside style wrappers and reconstruct each token with the same fields.
+// Required positional fields follow their original field order. All remaining
+// fields are passed by name; no wrapper element types need to be enumerated.
+#let footer-rebuild(value, field, piece) = {
+  let fields = value.fields()
+  let positional = ()
+  for (key, original) in fields {
+    if key == field {
+      positional.push(if key == "children" { (piece,) } else { piece })
+      let _ = fields.remove(key)
+    } else if key in ("dest", "styles", "alignment", "angle") {
+      positional.push(original)
+      let _ = fields.remove(key)
+    }
+  }
+  value.func()(..positional, ..fields)
+}
+
+// Split any content-bearing element and reconstruct every piece identically.
 #let footer-pieces(value, words: true) = {
   if value == none { return () }
   if type(value) == str {
@@ -27,30 +44,16 @@
   }
   let fields = value.fields()
   if value.func() in (linebreak, parbreak) { return ([ ],) }
-  if "children" in fields {
-    return value.children.map(v => footer-pieces(v, words: words)).flatten()
+  for field in ("body", "children", "child", "text") {
+    if field not in fields { continue }
+    let inner = fields.at(field)
+    if inner == none { return (value,) }
+    let pieces = if type(inner) == array {
+      inner.map(v => footer-pieces(v, words: words)).flatten()
+    } else { footer-pieces(inner, words: words) }
+    if pieces.len() == 0 { return (value,) }
+    return pieces.map(p => footer-rebuild(value, field, p))
   }
-  if "styles" in fields and "child" in fields {
-    return footer-pieces(value.child, words: words).map(p => value.func()(
-      p,
-      value.styles,
-    ))
-  }
-  if value.func() in (strong, emph, smallcaps, link) {
-    let pieces = footer-pieces(fields.remove("body"), words: words)
-    if value.func() == link {
-      let dest = fields.remove("dest")
-      return pieces.map(p => link(dest, p, ..fields))
-    }
-    return pieces.map(p => value.func()(p, ..fields))
-  }
-  if value.func() == text {
-    return footer-pieces(fields.remove("text"), words: words).map(p => text(
-      p,
-      ..fields,
-    ))
-  }
-  if value.func() in (image, box) { return (footer-inline(value),) }
   (value,)
 }
 
@@ -89,7 +92,7 @@
 #let footer-title(body) = layout(size => {
   set text(top-edge: "ascender", bottom-edge: "descender")
   let height = measure(box([Ag])).height
-  let pieces = footer-pieces(body)
+  let pieces = footer-pieces(body).map(footer-inline)
   let value = pieces.join()
   if measure(box(value)).width > size.width {
     let count = footer-prefix(pieces, size.width)
@@ -102,7 +105,19 @@
       pieces = pieces.slice(0, count) + chars
       count = footer-prefix(pieces, size.width)
     }
-    value = pieces.slice(0, count).join() + […]
+    // An indivisible oversized atom must remain visible, even without text.
+    let suffix = […]
+    if (
+      count < pieces.len()
+        and measure(box(pieces.at(count) + suffix)).width > size.width
+    ) {
+      suffix = [□…]
+      count = footer-prefix(
+        pieces.slice(0, count),
+        size.width - measure(box([□])).width,
+      )
+    }
+    value = text(dir: text.dir, pieces.slice(0, count).join() + suffix)
   }
   footer-line(value, height)
 })
