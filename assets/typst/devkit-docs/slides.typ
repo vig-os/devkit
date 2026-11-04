@@ -13,6 +13,7 @@
   if type(value) != content { return "" }
   let kind = value.func()
   if kind in (footnote, metadata, state, counter, place) { return "" }
+  if kind in (image, rect, square, circle, ellipse) { return "" }
   if kind in ([ ].func(), linebreak, parbreak) { return " " }
   let fields = value.fields()
   if kind == smartquote {

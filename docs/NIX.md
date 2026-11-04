@@ -563,7 +563,7 @@ figure captions, branding (`accent`, `logo`, `labels`), metadata, `short-title`,
 page totals and revision footer apply. The slide footer shows the plain text of
 `short-title` (fall back: `title`); styling is not carried into the footer;
 give a short plain `short-title` for best results. Containers contribute their
-text; math contributes text leaves (or `□` when there are none). Images and
+text; math contributes text leaves (or `□` when there are none). Images, shapes and
 unknown atoms are omitted; a nonempty title with no extractable text shows `□`.
 Footnotes, metadata, state, counters and placed content are skipped. Smart
 quotes use right quote marks; line breaks and whitespace collapse to spaces.
