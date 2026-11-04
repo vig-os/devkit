@@ -470,6 +470,14 @@ jobs:
         if: ${{ inputs.release_kind == 'final' }}
         uses: ./.github/actions/build-bundle
 
+      - name: Require pinned commit base for API write 1
+        if: ${{ inputs.release_kind == 'final' }}
+        env:
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$BASE_SHA" || { echo "::error::BASE_SHA is empty; refusing unpinned API commit"; exit 1; }
+
       - name: Commit and push finalization changes via API
         if: ${{ inputs.release_kind == 'final' }}
         id: finalize_commit

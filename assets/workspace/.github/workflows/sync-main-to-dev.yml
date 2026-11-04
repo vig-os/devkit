@@ -356,6 +356,14 @@ jobs:
           echo "eligible=true" >> "$GITHUB_OUTPUT"
           echo "Auto-resolving ${#conflicted[@]} snapshot path(s) to dev's content."
 
+      - name: Require pinned commit base for API write 1
+        if: steps.auto-resolve.outputs.eligible == 'true'
+        env:
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$BASE_SHA" || { echo "::error::BASE_SHA is empty; refusing unpinned API commit"; exit 1; }
+
       - name: Commit dev-side doc snapshots
         if: steps.auto-resolve.outputs.eligible == 'true'
         uses: vig-os/commit-action@7ba7e1ae17547813e708d4cc6a771a09f978f724  # v0.3.3

@@ -146,7 +146,10 @@ checkout, before generating files. This applies to prepare, rollback, hotfix,
 finalization, extension hooks, issue snapshots, sync conflict resolution and
 lock updates in devkit and the consumer workflows. Capture steps run
 unconditionally or use a condition that also gates the commit, so a commit
-cannot run after a skipped capture. A failed SHA capture stops the job. If the
+cannot normally run after a skipped capture. Immediately before every API file
+commit, a runtime guard checks the same `BASE_SHA` input and fails if it is empty,
+including when a capture was skipped because a referenced output did not exist
+yet. A failed SHA capture also stops the job. If the
 target advances before the API commit, the update fails rather
 than replacing concurrent changes with stale files; rerun from a fresh checkout
 after reviewing the failed phase and any partial release state. Prepare also
@@ -156,6 +159,10 @@ freeze action, and restores only while dev still equals that SHA. An empty
 freeze SHA or subsequent dev update skips restoration with a diagnostic; the
 pinned rollback commit also rejects updates arriving after that check. This
 keeps an earlier checkout baseline from undoing changes the run did not write.
+Both workflow copies export the freeze action’s `commit-sha` directly; the
+consumer visibility wait accepts only that exact SHA, never a concurrent tip.
+If the freeze target has advanced, rollback preserves it and reports that manual
+review of the release branch may be needed.
 Newly created or reset branches use their source checkout SHA; the extension fallback records dev after its
 second checkout, and sync records the newly checked-out sync branch.
 

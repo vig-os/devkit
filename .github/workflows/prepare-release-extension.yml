@@ -132,6 +132,13 @@ jobs:
           uv run python scripts/sync_manifest.py sync assets/workspace/
           echo "✓ Synced workspace manifest on ${{ inputs.release_branch }}"
 
+      - name: Require pinned commit base for API write 1
+        env:
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$BASE_SHA" || { echo "::error::BASE_SHA is empty; refusing unpinned API commit"; exit 1; }
+
       - name: Commit synced manifest to release branch via API
         id: release-commit
         uses: vig-os/commit-action@7ba7e1ae17547813e708d4cc6a771a09f978f724  # v0.3.3
@@ -222,6 +229,14 @@ jobs:
             echo "mirror_dirty=true" >> "$GITHUB_OUTPUT"
             echo "✓ dev changelog mirror is stale after the freeze; reconciling"
           fi
+
+      - name: Require pinned commit base for API write 2
+        if: ${{ steps.dev-ff.outputs.ff_done != 'true' && steps.dev-sync.outputs.mirror_dirty == 'true' }}
+        env:
+          BASE_SHA: ${{ steps.dev-checkout-state.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$BASE_SHA" || { echo "::error::BASE_SHA is empty; refusing unpinned API commit"; exit 1; }
 
       - name: Commit reconciled mirror to dev via API
         if: ${{ steps.dev-ff.outputs.ff_done != 'true' && steps.dev-sync.outputs.mirror_dirty == 'true' }}

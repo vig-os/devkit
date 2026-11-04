@@ -311,6 +311,13 @@ jobs:
             echo "✓ CHANGELOG seeded with an empty [$VERSION] - TBD section (the fix PR fills it)"
           fi
 
+      - name: Require pinned commit base for API write 1
+        env:
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$BASE_SHA" || { echo "::error::BASE_SHA is empty; refusing unpinned API commit"; exit 1; }
+
       - name: Commit seeded CHANGELOG to the release branch via API
         id: seed-commit
         uses: vig-os/commit-action@7ba7e1ae17547813e708d4cc6a771a09f978f724  # v0.3.3

@@ -211,6 +211,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Protect workflow file commits from concurrent branch updates** ([#2028](https://github.com/vig-os/devkit/issues/2028))
   - Pin API commits to the checkout SHA in devkit and consumer workflows; fail closed when capture fails or the target advances.
   - Restore failed prepare freezes only when dev still matches the freeze action’s confirmed commit; preserve concurrent changes when the freeze was rejected.
+  - Export the exact consumer freeze commit and reject empty commit bases at runtime before every API file commit.
 
 - **Restore abandoned release changelogs** ([#2003](https://github.com/vig-os/devkit/issues/2003))
   - Fold pending release entries back into Unreleased when abandoning a regular release train.

@@ -161,6 +161,9 @@ def test_consumer_prepare_rollback(tmp_path, freeze, current, restore, message):
     )
     assert ("contents/CHANGELOG.md" in (tmp_path / "gh.log").read_text()) == restore
 
+    if not freeze:
+        assert "git/ref/heads/dev" not in (tmp_path / "gh.log").read_text()
+
 
 @pytest.mark.parametrize("current,accepted", [("freeze", True), ("concurrent", False)])
 def test_consumer_wait_accepts_only_confirmed_freeze(tmp_path, current, accepted):
