@@ -565,8 +565,13 @@ page totals and revision footer apply. The slide footer shows the plain text of
 give a short plain `short-title` for best results. Containers contribute their
 text; math contributes text leaves (or `□` when there are none). Images, shapes and
 unknown atoms are omitted; a nonempty title with no extractable text shows `□`.
-Footnotes, metadata, state, counters and placed content are skipped. Smart
-quotes use right quote marks; line breaks and whitespace collapse to spaces.
+Hidden content, footnotes, metadata, state, counters and placed content are
+skipped. Smart quotes alternate opening and closing marks independently for
+single and double quotes. Term-list items contribute `Term: Description`.
+Nonzero horizontal spacing, grid/table/stack cells, matrix entries and math
+attachments separate leaves with spaces; line breaks and whitespace collapse
+to single spaces. Extraction uses an explicit work stack, so nested containers
+do not consume recursive function-call depth.
 
 The footer occupies one fixed line at the footer font size, without scaling.
 It truncates by measuring grapheme prefixes, adding `…` at the logical end,

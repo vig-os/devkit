@@ -2,41 +2,97 @@
   figure-style, title-block, type-scale, typography, typst-document,
 )
 
-// Read content fields only; never invoke or rebuild title elements.
-#let footer-text(value, math-mode: false) = {
-  if type(value) == str { return value }
-  if type(value) == array {
-    return value
-      .map(v => footer-text(v, math-mode: math-mode))
-      .join("", default: "")
+// Separators are work items too; whitespace is collapsed after traversal.
+#let footer-separated(values) = {
+  if type(values) != array { return () }
+  let result = ()
+  for value in values {
+    if result.len() > 0 { result.push(" ") }
+    result.push(value)
   }
-  if type(value) != content { return "" }
+  result
+}
+
+// Read only the next level of fields; never rebuild or lay out title elements.
+#let footer-children(value, math-mode) = {
   let kind = value.func()
-  if kind in (footnote, metadata, state, counter, place) { return "" }
-  if kind in (image, rect, square, circle, ellipse) { return "" }
-  if kind in ([ ].func(), linebreak, parbreak) { return " " }
+  if kind in (hide, footnote, metadata, state, counter, place) { return () }
+  if kind in (image, rect, square, circle, ellipse) { return () }
+  if kind in ([ ].func(), linebreak, parbreak) { return (" ",) }
   let fields = value.fields()
-  if kind == smartquote {
-    return if fields.at("double", default: true) { "”" } else { "’" }
+  if kind == h {
+    return if fields.at("amount", default: 0pt) == 0pt { () } else { (" ",) }
   }
-  if kind == math.equation {
-    let result = footer-text(fields.at("body", default: none), math-mode: true)
-    return if result == "" { "□" } else { result }
+  if kind == terms.item {
+    return (
+      fields.at("term", default: none),
+      ": ",
+      fields.at("description", default: none),
+    )
+  }
+  if kind in (grid, table, stack, math.vec) {
+    return footer-separated(fields.at("children", default: ()))
+  }
+  if math-mode and kind == math.mat {
+    let rows = fields.at("rows", default: ())
+    if type(rows) != array { return () }
+    return footer-separated(rows.map(footer-separated))
   }
   for field in ("body", "children", "child", "text") {
-    if field in fields {
-      return footer-text(fields.at(field), math-mode: math-mode)
+    if field in fields { return (fields.at(field),) }
+  }
+  // Attachments expose base/top/bottom content, in field order.
+  if math-mode {
+    return footer-separated(fields
+      .values()
+      .filter(v => type(v) in (content, array)))
+  }
+  ()
+}
+
+#let footer-text(value, math-mode: false) = {
+  let work = ((value: value, math-mode: math-mode),)
+  let output = ""
+  let quotes = (false, false)
+  while work.len() > 0 {
+    let entry = work.pop()
+    // An equation's closing marker detects math with no text leaves.
+    if "fallback" in entry {
+      if output.slice(entry.fallback).trim() == "" {
+        output = output.slice(0, entry.fallback) + "□"
+      }
+      continue
+    }
+    let current = entry.value
+    if type(current) == str {
+      output += current
+      continue
+    }
+    let children = ()
+    if type(current) == array {
+      children = current
+    } else if type(current) == content {
+      let kind = current.func()
+      if kind == smartquote {
+        let double = current.fields().at("double", default: true)
+        let index = if double { 0 } else { 1 }
+        let marks = if double { ("“", "”") } else { ("‘", "’") }
+        output += marks.at(if quotes.at(index) { 1 } else { 0 })
+        quotes.at(index) = not quotes.at(index)
+        continue
+      }
+      if kind == math.equation {
+        entry.math-mode = true
+        work.push((value: none, math-mode: true, fallback: output.len()))
+      }
+      children = footer-children(current, entry.math-mode)
+    }
+    // LIFO work preserves document order by pushing children in reverse.
+    for child in children.rev() {
+      work.push((value: child, math-mode: entry.math-mode))
     }
   }
-  // Math attachments and operators expose content in fields such as base/t/b.
-  if math-mode {
-    return fields
-      .values()
-      .filter(v => type(v) in (content, array))
-      .map(v => footer-text(v, math-mode: true))
-      .join("", default: "")
-  }
-  ""
+  output.replace(regex("\\s+"), " ").trim()
 }
 
 #let footer-prefix(clusters, width) = {
@@ -57,7 +113,7 @@
 #let footer-title(body) = layout(size => {
   set text(top-edge: "ascender", bottom-edge: "descender")
   let height = measure(box([Ag])).height
-  let value = footer-text(body).replace(regex("\\s+"), " ").trim()
+  let value = footer-text(body)
   if value == "" and body != none and body != [] { value = "□" }
   if measure(box(value)).width > size.width {
     value = footer-prefix(value.clusters(), size.width)
