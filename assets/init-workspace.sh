@@ -2208,7 +2208,11 @@ render_workflow_model() {
         awk '
             /^  unfreeze:$/ { skip = 1; next }
             /^  [[:alnum:]_-]+:$/ { skip = 0 }
-            !skip { print }
+            !skip {
+                if ($0 ~ /^[[:space:]]*$/) { blanks = blanks $0 ORS; next }
+                printf "%s%s\n", blanks, $0
+                blanks = ""
+            }
         ' "$abandon" > "$abandon_render"
         mv "$abandon_render" "$abandon"
     fi
