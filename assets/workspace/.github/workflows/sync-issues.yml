@@ -114,6 +114,13 @@ jobs:
           ref: ${{ github.event.inputs.target-branch || 'dev' }}
           persist-credentials: false
 
+      - name: Record checkout SHA
+        id: checkout-state
+        run: |
+          set -euo pipefail
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Set up devkit toolchain
         uses: ./.github/actions/setup-devkit-toolchain
         with:
@@ -194,6 +201,14 @@ jobs:
           state-file: '.sync-state/last-sync.txt'
           updated-since: ${{ (github.event.inputs.force-update == 'true' && '1970-01-01T00:00:00Z') || steps.cutoff.outputs.updated-since }}
 
+      - name: Require pinned commit base for API write 1
+        if: steps.sync.outputs.modified-files != ''
+        env:
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$BASE_SHA" || { echo "::error::BASE_SHA is empty; refusing unpinned API commit"; exit 1; }
+
       - name: Commit and push changes via API
         id: commit
         if: steps.sync.outputs.modified-files != ''
@@ -203,6 +218,7 @@ jobs:
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/${{ github.event.inputs.target-branch || 'dev' }}
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: "${{ github.event.inputs.commit-msg || 'chore: sync issues and PRs' }}"
           FILE_PATHS: ${{ steps.sync.outputs.modified-files }}

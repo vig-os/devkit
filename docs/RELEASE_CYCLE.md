@@ -141,6 +141,31 @@ gh pr create --base dev --head chore/<short-summary>
 
 ## Release Workflow Overview
 
+API file commits pin `BASE_SHA` to the SHA recorded immediately after the relevant
+checkout, before generating files. This applies to prepare, rollback, hotfix,
+finalization, extension hooks, issue snapshots, sync conflict resolution and
+lock updates in devkit and the consumer workflows. Capture steps run
+unconditionally or use a condition that also gates the commit, so a commit
+cannot normally run after a skipped capture. Immediately before every API file
+commit, a runtime guard checks the same `BASE_SHA` input and fails if it is empty,
+including when a capture was skipped because a referenced output did not exist
+yet. A failed SHA capture also stops the job. If the
+target advances before the API commit, the update fails rather
+than replacing concurrent changes with stale files; rerun from a fresh checkout
+after reviewing the failed phase and any partial release state. Prepare also
+uses that checkout SHA as its rollback baseline. A rejected freeze cannot trigger
+a changelog restore: rollback requires the exact SHA exported by the successful
+freeze action, and restores only while dev still equals that SHA. An empty
+freeze SHA or subsequent dev update skips restoration with a diagnostic; the
+pinned rollback commit also rejects updates arriving after that check. This
+keeps an earlier checkout baseline from undoing changes the run did not write.
+Both workflow copies export the freeze action’s `commit-sha` directly; the
+consumer visibility wait accepts only that exact SHA, never a concurrent tip.
+If the freeze target has advanced, rollback preserves it and reports that manual
+review of the release branch may be needed.
+Newly created or reset branches use their source checkout SHA; the extension fallback records dev after its
+second checkout, and sync records the newly checked-out sync branch.
+
 ### Release Lifecycle
 
 ```mermaid
@@ -930,7 +955,7 @@ gh workflow run prepare-release.yml --ref dev -f "version=1.0.0" -f "dry-run=tru
 - Audit trail in GitHub Actions logs
 - No dependency on local developer environment
 - Dispatch is pinned to `dev` (`--ref dev`) so workflow behavior matches the development branch
-- On failure, rollback removes partial release branch state and restores `CHANGELOG.md` on `dev`
+- On failure, rollback removes partial release branch state. It restores `CHANGELOG.md` on `dev` only when the freeze action exported its commit SHA and dev still equals that exact SHA
 
 #### release.yml (Unified Release Workflow)
 

@@ -54,6 +54,13 @@ jobs:
           ref: dev
           token: ${{ steps.generate-token.outputs.token }}
 
+      - name: Record checkout SHA
+        id: checkout-state
+        run: |
+          set -euo pipefail
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Install Nix (upstream CppNix)
         uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31.11.1
         with:
@@ -93,6 +100,14 @@ jobs:
       # Commit via the GitHub API (vig-os/commit-action) so the commit carries
       # GitHub's verified signature - the repo rules reject unsigned git-CLI
       # pushes.
+      - name: Require pinned commit base for API write 1
+        if: steps.detect.outputs.changed == 'true'
+        env:
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$BASE_SHA" || { echo "::error::BASE_SHA is empty; refusing unpinned API commit"; exit 1; }
+
       - name: Commit the lock bump via API
         if: steps.detect.outputs.changed == 'true'
         uses: vig-os/commit-action@7ba7e1ae17547813e708d4cc6a771a09f978f724  # v0.3.3
@@ -100,6 +115,7 @@ jobs:
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/chore/update-nixpkgs
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
             build(nix): advance pinned nixpkgs rev (weekly refresh)

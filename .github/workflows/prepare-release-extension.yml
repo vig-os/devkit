@@ -112,6 +112,13 @@ jobs:
           ref: ${{ inputs.release_branch }}
           fetch-depth: 0
 
+      - name: Record checkout SHA
+        id: checkout-state
+        run: |
+          set -euo pipefail
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Set up environment
         uses: ./.github/actions/setup-env
         with:
@@ -125,6 +132,13 @@ jobs:
           uv run python scripts/sync_manifest.py sync assets/workspace/
           echo "✓ Synced workspace manifest on ${{ inputs.release_branch }}"
 
+      - name: Require pinned commit base for API write 1
+        env:
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$BASE_SHA" || { echo "::error::BASE_SHA is empty; refusing unpinned API commit"; exit 1; }
+
       - name: Commit synced manifest to release branch via API
         id: release-commit
         uses: vig-os/commit-action@7ba7e1ae17547813e708d4cc6a771a09f978f724  # v0.3.3
@@ -132,6 +146,7 @@ jobs:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/${{ inputs.release_branch }}
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
             chore: sync workspace manifest for release ${{ inputs.version }}
@@ -193,6 +208,14 @@ jobs:
           git checkout --detach origin/dev
           echo "✓ Working tree now at dev head $(git rev-parse HEAD)"
 
+      - name: Record checkout SHA
+        if: ${{ steps.dev-ff.outputs.ff_done != 'true' }}
+        id: dev-checkout-state
+        run: |
+          set -euo pipefail
+          CHECKOUT_SHA=$(git rev-parse HEAD)
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Sync workspace manifest against dev
         id: dev-sync
         if: ${{ steps.dev-ff.outputs.ff_done != 'true' }}
@@ -207,6 +230,14 @@ jobs:
             echo "✓ dev changelog mirror is stale after the freeze; reconciling"
           fi
 
+      - name: Require pinned commit base for API write 2
+        if: ${{ steps.dev-ff.outputs.ff_done != 'true' && steps.dev-sync.outputs.mirror_dirty == 'true' }}
+        env:
+          BASE_SHA: ${{ steps.dev-checkout-state.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$BASE_SHA" || { echo "::error::BASE_SHA is empty; refusing unpinned API commit"; exit 1; }
+
       - name: Commit reconciled mirror to dev via API
         if: ${{ steps.dev-ff.outputs.ff_done != 'true' && steps.dev-sync.outputs.mirror_dirty == 'true' }}
         uses: vig-os/commit-action@7ba7e1ae17547813e708d4cc6a771a09f978f724  # v0.3.3
@@ -214,6 +245,7 @@ jobs:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/dev
+          BASE_SHA: ${{ steps.dev-checkout-state.outputs.sha }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
             chore: reconcile workspace changelog mirror after freeze for ${{ inputs.version }}
