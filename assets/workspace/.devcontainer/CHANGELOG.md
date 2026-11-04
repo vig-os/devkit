@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Clean consumer changelog seed** ([#2025](https://github.com/vig-os/devkit/issues/2025))
+  - Restore the empty workspace changelog skeleton and guard it against devkit release entries.
+  - Document the root changelog, generated mirror and first-deploy seed responsibilities.
+
 - **Typst docs guard reconciliation** ([#2011](https://github.com/vig-os/devkit/issues/2011))
   - Namespace document recipes under `devkit-docs::`, skip conflicting consumer names,
     leave docs-OFF consumer exclusions untouched, and correct preview ownership reports,
