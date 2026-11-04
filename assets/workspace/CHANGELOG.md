@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Keep styled footer prefixes and a single bounded line, with a counter gap, explicit tall-object sizing, and matching non-empty glossary validation.
   - Split footer wrappers generically, retain oversized atoms visibly, measure scaled prefixes accurately, and respect RTL truncation.
   - Add a branded 16:9 slide layout with title, section and content slides, booktabs, captions and revision footers; retain older package imports.
+
 - **Opt-in Typst content guards** ([#1994](https://github.com/vig-os/devkit/issues/1994))
   - Check figure captions, table headers, house-style overrides and SVG text below 7 pt at its placed size, with skip globs and source-line suppression.
   - Retain prior house-style imports and add 0.2.1 guard-only layout measurements without changing normal PDF output.

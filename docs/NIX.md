@@ -406,7 +406,7 @@ With `@local/devkit-docs:0.2.1` and its document show rule, the guard-only input
 `devkit-guard-measure=true` enables image measurement and effective-style metadata. It resolves
 percentages, automatic sizing, grids, columns and figure bodies in their layout
 context. Without that input, the package emits no measurement metadata and
-canonical PDFs remain byte-identical to 0.1.1. Older imports remain available.
+canonical PDFs remain byte-identical to 0.2.0. Older imports remain available.
 
 Without measurement metadata, absolute image widths are used directly;
 percentages use the page width minus margins, with A4 and 2.5 cm margins as

@@ -189,7 +189,7 @@ def test_package_resolved_widths(doc, source, width):
 
 
 def test_normal_output_unchanged_and_old_package_retained(doc):
-    old = "0.1.1"
+    old = "0.2.0"
     old_source = ASSETS / "releases/devkit-docs" / old
     assert old_source.is_dir(), "Archive the shipped package before changing it"
     shutil.copytree(old_source, doc / ".registry/local/devkit-docs" / old)
@@ -811,6 +811,14 @@ def test_runtime_heading_sees_midpage_font_override(doc, capsys):
     write(
         'Normal\n\n#let apply = text\n#set apply(font: "New Computer Modern")\n= Changed\nText',
         package=True,
+    )
+    assert run("house-style-bypass") == 1
+    assert "detected at runtime on page 1" in capsys.readouterr().err
+
+
+def test_runtime_page_probe_survives_custom_header(doc, capsys):
+    write(
+        "#let apply = page\n#set apply(margin: 1cm, header: none)\nText", package=True
     )
     assert run("house-style-bypass") == 1
     assert "detected at runtime on page 1" in capsys.readouterr().err

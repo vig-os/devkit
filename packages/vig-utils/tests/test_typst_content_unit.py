@@ -362,6 +362,9 @@ def test_logo_direct_form_and_closing_line_suppression():
             "a.typ",
             origins,
         )
+        assert origins.get("image_calls"), (
+            "Direct template logo attribution is required"
+        )
         assert origins["image_calls"][0]["logo"]
         assert origins["image_calls"][0]["origin"][2] == {"figure-text-size"}
 
