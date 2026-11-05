@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-11-04T05:29:23Z
+updated: 2026-11-04T21:36:08Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-11-04T08:54:33.837Z
+synced: 2026-11-05T09:17:51.765Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -25,8 +25,8 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
 
  - [ ] <!-- rebase-branch=renovate/actions-create-github-app-token-digest -->[chore(deps): update actions/create-github-app-token digest to 64ab729](../pull/1903)
- - [ ] <!-- rebase-branch=renovate/github-codeql-action-digest -->[chore(deps): update github/codeql-action digest to 1fc58d0](../pull/1867)
- - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch)](../pull/1868) (`actions/download-artifact`, `actions/setup-node`, `actions/upload-artifact`, `aquasecurity/trivy`, `astral-sh/setup-uv`, `cachix/install-nix-action`, `docker/login-action`, `ossf/scorecard-action`)
+ - [ ] <!-- rebase-branch=renovate/github-codeql-action-digest -->[chore(deps): update github/codeql-action digest to 33d7b85](../pull/1867)
+ - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch)](../pull/1868) (`actions/download-artifact`, `actions/setup-node`, `actions/upload-artifact`, `aquasecurity/trivy`, `astral-sh/setup-uv`, `cachix/install-nix-action`, `docker/login-action`, `ossf/scorecard-action`, `sigstore/cosign-installer`)
  - [ ] <!-- rebase-branch=renovate/npm-(minor-and-patch) -->[build(npm): update dependency @devcontainers/cli to v0.90.0](../pull/1981)
  - [ ] <!-- rebase-branch=renovate/python-(minor-and-patch) -->[build(pip): update python (minor and patch)](../pull/1904) (`github-backup`, `pytest`, `pytest-docker`)
  - [ ] <!-- rebase-branch=renovate/node-26.x -->[ci(actions): update dependency node to v26](../pull/1982)
@@ -218,7 +218,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.7.0`]
- - `sigstore/cosign-installer v4.1.2@6f9f17788090df1f26f669e9d70d6ae9567deba6`
+ - `sigstore/cosign-installer v4.1.2@6f9f17788090df1f26f669e9d70d6ae9567deba6` → [Updates: `v4.1.3`]
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
@@ -263,7 +263,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `sigstore/cosign-installer v4.1.2@6f9f17788090df1f26f669e9d70d6ae9567deba6`
+ - `sigstore/cosign-installer v4.1.2@6f9f17788090df1f26f669e9d70d6ae9567deba6` → [Updates: `v4.1.3`]
  - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.7.0`]
  - `actions/download-artifact v8.0.1@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` → [Updates: `v8.0.2`]
  - `anchore/sbom-action v0.24.3@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c`
@@ -583,7 +583,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 <details><summary>pyproject.toml (18)</summary>
 
- - `github-backup ==0.65.1` → [Updates: `==0.66.1`]
+ - `github-backup ==0.65.1` → [Updates: `==0.67.0`]
  - `jinja2 ==3.1.6`
  - `pexpect ==4.9.0`
  - `pytest ==9.1.1` → [Updates: `==9.2.0`]
