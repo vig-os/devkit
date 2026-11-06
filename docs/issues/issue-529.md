@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-11-04T21:36:08Z
+updated: 2026-11-05T21:03:14Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-11-05T09:17:51.765Z
+synced: 2026-11-06T09:11:28.872Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -114,8 +114,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `ubuntu 26.04`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
- - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.1`]
- - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.1`]
+ - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.2`]
+ - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.2`]
  - `ubuntu 26.04`
  - `ubuntu 26.04`
 
@@ -163,8 +163,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.3`]
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
- - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.7.0`]
- - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.7.0`]
+ - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.8.0`]
+ - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.8.0`]
  - `ubuntu 26.04`
 
 </details>
@@ -217,13 +217,13 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>.github/workflows/promote-release.yml (16)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.7.0`]
+ - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.8.0`]
  - `sigstore/cosign-installer v4.1.2@6f9f17788090df1f26f669e9d70d6ae9567deba6` → [Updates: `v4.1.3`]
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
- - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.7.0`]
+ - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.8.0`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
@@ -264,7 +264,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `sigstore/cosign-installer v4.1.2@6f9f17788090df1f26f669e9d70d6ae9567deba6` → [Updates: `v4.1.3`]
- - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.7.0`]
+ - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.8.0`]
  - `actions/download-artifact v8.0.1@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c` → [Updates: `v8.0.2`]
  - `anchore/sbom-action v0.24.3@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c`
  - `anchore/sbom-action v0.24.3@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c`
@@ -282,7 +282,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/github-script v9.0.0@3a2844b7e9c422d3c10d287c895573f7108da1b3`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
- - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.1`]
+ - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.2`]
  - `ubuntu 26.04`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
@@ -316,8 +316,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `aquasecurity/trivy-action v0.36.0@ed142fd0673e97e23eac54620cfb913e5ce36c25`
  - `actions/upload-artifact v7.0.1@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` → [Updates: `v7.0.2`]
  - `ubuntu 26.04`
- - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.1`]
- - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.1`]
+ - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.2`]
+ - `aquasecurity/trivy v0.75.0` → [Updates: `v0.76.2`]
 
 </details>
 
@@ -573,13 +573,8 @@ The following updates have all been created. To force a retry/rebase of any, cli
 </blockquote>
 </details>
 
-<details><summary>pep621 (3)</summary>
+<details><summary>pep621 (2)</summary>
 <blockquote>
-
-<details><summary>packages/vig-utils/pyproject.toml</summary>
-
-
-</details>
 
 <details><summary>pyproject.toml (18)</summary>
 
