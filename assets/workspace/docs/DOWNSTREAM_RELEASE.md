@@ -214,6 +214,19 @@ This template does **not** implement upstream-only steps (GHCR `:latest`, cosign
 
 To **reject** a finalized-but-unpublished release instead of promoting it, run **`abandon-release.yml`** (or `just abandon-release X.Y.Z`; dispatches on `dev` by default — the release branch is about to be deleted, so it cannot be the dispatch ref; under the trunk model pass the ref explicitly: `just abandon-release X.Y.Z main`). As the Release App (tag-ruleset bypass, the same machinery as promote's RC prune) it deletes the **draft** GitHub Release, deletes the `<DEVKIT_TAG_PREFIX>X.Y.Z` tag, closes the release PR with an audit comment, and deletes `release/X.Y.Z`. The version number remains available for a re-cut; RC artifacts are **not** pruned (a re-cut of the same version reclaims them at its promote). Every step is idempotent, so a partially failed run can simply be re-dispatched.
 
+For a regular gitflow train, abandonment also folds dev's pending
+`## [X.Y.Z] - TBD` changelog entries back into Unreleased, combining categories
+and duplicate entries through `prepare-changelog unfreeze X.Y.Z`. The change
+uses the signed Commit App API path and the devkit-version-pinned host utility
+toolchain in every delivery mode (no project image or flake is required).
+Missing sections (including hotfix trains and completed reruns) are a no-op;
+trunk skips dev restoration. Restoration commits are pinned to the checkout SHA;
+if dev advances concurrently, the non-forced API update fails. Rerun abandonment
+from a fresh checkout. Dated releases are refused. The command preserves LF or
+CRLF line endings and entry spacing. Unsupported prose, comments or headings,
+and bullets outside recognised categories fail without rewriting the changelog:
+correct the reported section layout and rerun abandonment.
+
 This is the explicit, guarded exception to the no-tag-deletion rollback policy above: it is safe **only while the Release is a draft**, and the workflow hard-refuses a published release ([#1511](https://github.com/vig-os/devkit/issues/1511)). Publishing tombstones the tag name permanently — after promote, the only path is fixing forward with the next version.
 
 ## Hotfix lane (gitflow only)
@@ -505,7 +518,12 @@ Contract inputs — every one `required: false`, so devkit can add an input late
 - `mode` — resolved delivery mode (`devcontainer`/`direnv`/`both`/`bare`)
 - `image` — resolved container image (empty string in the host modes)
 - `image-tag` — resolved devkit image tag
-- `runner-json` — JSON array of runner labels (`DEVKIT_CI_RUNNER`); the stub's own `runs-on: ${{ fromJSON(inputs.runner-json) }}` takes its runner from this input rather than a literal label (actionlint does not know every hosted label, so a literal fails the moment you start editing the stub) and carries a safe default so the job still resolves on a direct call
+- `runner-json` — JSON label array from the resolved `extension` lane
+  (`runners.extension`), passed by managed `ci.yml`. Every lane defaults to SMALL;
+  the `.vig-os` key `DEVKIT_CI_LANE_SIZES=extension=large` opts this lane into `CI_RUNNER_LARGE`.
+  The stub uses `runs-on: ${{ fromJSON(inputs.runner-json) }}` and keeps a hosted
+  default for direct calls. The input name remains `runner-json` for compatibility;
+  managed workflows consume the resolver's `runners` object by lane.
 
 `summary` (`CI Summary`, the sole required check) lists `extension` in its `needs:` and fails the gate on `failure` or `cancelled`, exactly like every other lane — a failing or cancelled extension blocks the merge.
 

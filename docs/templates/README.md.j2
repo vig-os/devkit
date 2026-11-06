@@ -59,15 +59,27 @@ curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bas
 curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --org MyOrg ~/my-project
 
 # Choose the delivery mode: devcontainer | direnv | both (default: both)
+# direnv runs without Docker/Podman: it needs nix, jq and rsync, and scaffolds from the
+# devkit flake source at the .vig-os pin (upgrade) or the newest release (fresh install);
+# a direnv --force without --version keeps the .vig-os pin (container mode moves to latest)
 curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --mode direnv ~/my-project
 
-# Preview without executing
+# Print an offline plan without network or runtime probes
 curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --dry-run ~/my-project
+
+# Resolve the release and check runtime health (container modes) without changing files
+curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --preview ~/my-project
 
 # Force specific runtime
 curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --docker ~/my-project
 curl -sSfL https://raw.githubusercontent.com/vig-os/devkit/main/install.sh | bash -s -- --podman ~/my-project
 ```
+
+`--dry-run` uses local configuration and chooses a runtime from PATH only; a real
+run probes runtime health and may fall back from Docker to Podman. In direnv mode,
+an unresolved latest release appears as `<latest-release>`. Use `--preview` to
+see the resolved release and check runtime health in container modes; preview
+may access the network and fetch scaffold assets. Direnv mode uses no runtime.
 
 **Adopting solo?** For a single-user, private repo without the team/traceability
 layer (no release train, issue sync, or scanning), follow the
@@ -170,11 +182,15 @@ For detailed command descriptions, run `just --list --unsorted` or `just --help`
 
 > The image provides Python + uv, but the scaffold is **language-neutral** and ships no `pyproject.toml`. Add a Python package layout on demand with `nix flake init -t github:vig-os/devcontainer#python`.
 
+### **Rust**
+
+> A repo with a `Cargo.toml` gets the **Rust pack** on its first scaffold: a `flake.nix` on `vigos.lib.mkRustProject` (dev shell plus a `nix flake check` suite of fmt, clippy, nextest, doctests, rustdoc and cargo-deny), cargo `just lint` / `just test` recipes, and base `rustfmt.toml` / `clippy.toml` / `deny.toml`. Start a new crate with `nix flake init -t github:vig-os/devkit#rust`. See [Rust projects: the Rust pack](docs/MIGRATION.md#rust-projects-the-rust-pack).
+
 ### **Development Tools**
 
 - **pre-commit** - Git hook framework for code quality
 - **ruff** - Fast Python linter and formatter (replaces Black, isort, flake8, and more)
-- **typstyle** - Typo and style checks (e.g. in docs and prose)
+- **typstyle** - Typst document formatter
 - **just** - Command runner for task automation
 - **precommit alias** - Shortcut command for running pre-commit hooks
 

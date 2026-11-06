@@ -4,7 +4,8 @@
   inputs = {
     # Pinned stable channel: the controlled version document (flake.lock).
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
-    # Secondary channel, overlaid only for fast-moving tools (uv, gh, claude).
+    # Secondary channel for fast-moving tools: uv, gh, claude-code, and
+    # the Typst toolchain (typst, typstyle, tinymist).
     nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     flake-utils.url = "github:numtide/flake-utils";
     # treefmt-nix: one multi-language `nix fmt` entrypoint + a formatting check,
@@ -108,6 +109,9 @@
       fastMovers = [
         "uv"
         "gh"
+        "typst"
+        "typstyle"
+        "tinymist"
         # claude (claude-code) is an agent CLI that moves very fast; track unstable.
         "claude-code"
       ];
@@ -435,8 +439,10 @@
           # the shell stays byte-identical to the no-hooks builder (parity:
           # tests/test_flake_devshell.py, tests/test_flake_hooks.py).
           # ------------------------------------------------------------------
+          docsEnabled = builtins.any (entry: (normalizeModuleEntry entry).name == "docs") modules;
           hooksEnabled = hooks != null || hooksExcludes != [ ];
           consumerHooksBase = hooksModule.consumer pkgs {
+            docs = docsEnabled;
             inherit
               workflow
               branchTypes
@@ -845,8 +851,7 @@
       #     crates = [ "my-cli" ];
       #   };
       #   devShells.default = rust.devShell;
-      #   checks = rust.checks;
-      #   packages = rust.packages;
+      #   inherit (rust) checks packages;
       # ---------------------------------------------------------------------
       mkRustProject = import ./nix/mk-rust-project.nix {
         inherit mkProjectShell crane fenix;
@@ -902,6 +907,8 @@
         # agree on one formatting. Refs #777.
         treefmtEval = treefmt-nix.lib.evalModule pkgs {
           projectRootFile = "flake.nix";
+          # Keep vendored archives byte-identical to their recorded hashes.
+          settings.global.excludes = [ "assets/typst/vendor/**" ];
           programs = {
             nixfmt = {
               enable = true;
@@ -1311,6 +1318,79 @@
 
           # The sandbox-pure subset of the pre-commit hooks, run by the prek
           # runner via git-hooks.nix (see preCommitCheck above). Refs #778.
+          typst-canary =
+            pkgs.runCommand "typst-canary"
+              {
+                nativeBuildInputs = [
+                  pkgs.python314
+                  pkgs.git
+                  pkgs.prek
+                  pkgs.just
+                  pkgs.vig-utils
+                  pkgs.typst
+                  pkgs.typstyle
+                  pkgs.tinymist
+                  pkgs.poppler-utils
+                  pkgs.bash
+                ];
+              }
+              ''
+                export PREK_HOME="$TMPDIR/prek"
+                export FONTCONFIG_FILE=${pkgs.makeFontsConf { fontDirectories = [ pkgs.liberation_ttf ]; }}
+                python ${./tests/typst_canary.py} ${./assets/docs-hooks.json} ${./assets/justfile.d/docs.justfile} ${./assets} ${pkgs.liberation_ttf}
+                touch "$out"
+              '';
+
+          typst-house-style =
+            let
+              registry = import ./nix/typst-packages.nix pkgs;
+              docs = capabilityModules.docs pkgs { };
+            in
+            assert !(pkgs.lib.hasInfix "assets/typst/vendor" hooksModule.portable.scaffold.exclude);
+            assert !(builtins.elem "^assets/typst/vendor/" (hooksModule.consumer pkgs { }).excludes);
+            pkgs.runCommand "typst-house-style"
+              {
+                nativeBuildInputs = docs.packages ++ [
+                  pkgs.python314
+                  pkgs.git
+                  pkgs.prek
+                  pkgs.just
+                  pkgs.vig-utils
+                ];
+                TYPST_PACKAGE_PATH = toString registry;
+                TYPST_IGNORE_SYSTEM_FONTS = docs.env.TYPST_IGNORE_SYSTEM_FONTS or "false";
+                FONTCONFIG_FILE = pkgs.makeFontsConf { fontDirectories = [ pkgs.liberation_ttf ]; };
+              }
+              ''
+                export PREK_HOME="$TMPDIR/prek"
+                DEVKIT_TYPST_TEST_FONTS=${./tests/fixtures/typst-fonts} DEVKIT_TYPST_ASSETS=${./assets/typst} ${
+                  pkgs.python314.withPackages (ps: [ ps.pytest ])
+                }/bin/python -m pytest -q -o cache_dir="$TMPDIR/pytest-cache" ${./tests/typst_content.py}
+                python ${./tests/typst_house_style.py} ${registry} ${./assets/justfile.d/docs.justfile} ${./assets/docs-hooks.json} ${./assets/typst/devkit-docs/typst.toml}
+                python ${./tests/typst_house_style_regressions.py} ${registry} ${./docs/NIX.md} ${
+                  (hooksModule.consumer pkgs { docs = true; }).hooks.typst-compile.entry
+                } ${./assets/justfile.d/docs.justfile}
+                touch "$out"
+              '';
+
+          typst-content =
+            let
+              docs = capabilityModules.docs pkgs { };
+            in
+            pkgs.runCommand "typst-content"
+              {
+                nativeBuildInputs = docs.packages ++ [
+                  pkgs.python314Packages.pytest
+                  pkgs.vig-utils
+                ];
+                DEVKIT_TYPST_TEST_ASSETS = ./assets/typst;
+                DEVKIT_TYPST_CONTENT_FIXTURES = ./packages/vig-utils/tests/fixtures/typst-content;
+              }
+              ''
+                pytest -q ${./packages/vig-utils/tests/typst_content_contract.py} --basetemp="$TMPDIR/content-tests"
+                touch "$out"
+              '';
+
           pre-commit = preCommitCheck;
 
           # The dev-shell evaluates and its closure builds.
@@ -1773,6 +1853,10 @@
         # and ambient-PATH tool resolution (curl/git/docker) unchanged. Refs #777.
         # ------------------------------------------------------------------
         apps = {
+          app-provision = flake-utils.lib.mkApp {
+            drv = vigUtils;
+            name = "gh-app-provision";
+          };
           install = flake-utils.lib.mkApp {
             drv = pkgs.writeShellScriptBin "install" (builtins.readFile ./install.sh);
             name = "install";
@@ -1807,8 +1891,8 @@
       #
       # A consumer imports the module and flips one option to get exactly the
       # `devTools` set plus the machine-level agent CLI from agentTools.
-      # The fast-mover overlay (uv/gh/claude-code from unstable) is applied so
-      # those resolve to the intended versions; claude-code is unfree, so the
+      # The fast-mover overlay (uv/gh/claude-code/typst/typstyle/tinymist from
+      # unstable) ensures the intended versions; claude-code is unfree, so the
       # consumer must allow it (documented in docs/NIX.md). Refs #777.
       # ----------------------------------------------------------------------
       nixosModules.default =
@@ -1921,23 +2005,37 @@
         ];
       };
 
-      # `nix flake init -t github:vig-os/devcontainer#personal` scaffolds a
-      # ~40-line personal flake importing the vigos.* modules. NOT in the
-      # deadnix/statix scope: like the workspace scaffold, the template keeps
-      # idiomatic possibly-unused args. Refs #827.
-      templates.personal = {
-        path = ./templates/personal;
-        description = "Personal home-manager flake importing the vigOS home modules";
-      };
+      templates = {
+        # `nix flake init -t github:vig-os/devcontainer#personal` scaffolds a
+        # ~40-line personal flake importing the vigos.* modules. NOT in the
+        # deadnix/statix scope: like the workspace scaffold, the template keeps
+        # idiomatic possibly-unused args. Refs #827.
+        personal = {
+          path = ./templates/personal;
+          description = "Personal home-manager flake importing the vigOS home modules";
+        };
 
-      # `nix flake init -t github:vig-os/devcontainer#python` restores an opt-in
-      # Python package layout (pyproject + src/ + pytest) onto the now
-      # language-neutral scaffold (#929). `nix flake init -t` does no token
-      # substitution, so the template uses a concrete `example_pkg` the user
-      # renames (see templates/python/README.md). Refs #930.
-      templates.python = {
-        path = ./templates/python;
-        description = "Opt-in Python project starter (pyproject + src/ + pytest)";
+        # `nix flake init -t github:vig-os/devcontainer#python` restores an opt-in
+        # Python package layout (pyproject + src/ + pytest) onto the now
+        # language-neutral scaffold (#929). `nix flake init -t` does no token
+        # substitution, so the template uses a concrete `example_pkg` the user
+        # renames (see templates/python/README.md). Refs #930.
+        python = {
+          path = ./templates/python;
+          description = "Opt-in Python project starter (pyproject + src/ + pytest)";
+        };
+
+        # `nix flake init -t github:vig-os/devkit#rust` is the Rust pack's entry
+        # point (#1496, L7): a crate that passes mkRustProject's whole check
+        # suite as shipped (tests/test_rust_scaffold.py builds it). Run it
+        # BEFORE install.sh: the scaffold then detects Cargo.toml and seeds the
+        # mkRustProject flake.nix, the cargo justfile.project and the base
+        # rustfmt/clippy/deny configs. Same no-substitution rule as #python, so
+        # the crate is named `example` (see templates/rust/README.md).
+        rust = {
+          path = ./templates/rust;
+          description = "Rust crate starter for the vigOS Rust pack (Cargo.toml + lockfile + lib/bin + tests)";
+        };
       };
     };
 }

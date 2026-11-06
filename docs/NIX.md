@@ -134,10 +134,11 @@ devShells.default = vigos.lib.mkProjectShell {
     for consumers who previously hand-wired `extraPackages = [ pkgs.nodejs ]`.
   - `docs` ([#1178](https://github.com/vig-os/devkit/issues/1178)) — the
     document-edition capability: `typst` (the document compiler), `typstyle`
-    (its formatter) and `poppler-utils`
+    (its formatter), `tinymist` (the Typst language server with editor
+    diagnostics and preview), and `poppler-utils`
     ([#1573](https://github.com/vig-os/devkit/issues/1573)) in the shell, for
-    document-oriented consumers (exo-pet/vault, the future `qms` app, EXOMA
-    presentations/grants) that previously pinned `typst` via PyPI. Opt in with:
+    document-oriented consumers that previously pinned `typst` via PyPI.
+    Opt in with:
 
     ```nix
     devShells.default = vigos.lib.mkProjectShell {
@@ -146,17 +147,42 @@ devShells.default = vigos.lib.mkProjectShell {
     };
     ```
 
-    **No version option in v1** — nixpkgs carries a single `typst`/`typstyle`
-    per pin, so the module tracks the toolchain nixpkgs pin rather than exposing
-    a selectable version (typst output is not stable across versions, so a
-    consumer regenerates its `generated/` artifacts once under the pinned
-    toolchain — pin-tracking beats a bespoke version overlay).
+    **No version option in v1** — `typst`, `typstyle`, and `tinymist` come from
+    the locked nixpkgs-unstable input via `fastMovers`, including consumers
+    applying `overlays.default`. They share Typst minor 0.15 (currently 0.15.1,
+    0.15.2, and 0.15.10 respectively). Pass the overlaid `pkgs` to
+    `mkProjectShell`; direct module imports also use the supplied package set.
+
+    ### Migrating to Typst 0.15
+
+    This affects consumers of the `docs` module and `overlays.default`, plus
+    anyone formatting with the image's typstyle: the 0.14.4 → 0.15.2 update
+    can reformat `.typ` files. Rendered output changes too. Consumers comparing
+    canonical PDF hashes against issued documents will see hash drift.
+    Regenerate `generated/` deliberately in its own commit, review the output,
+    and re-issue documents where your process requires it. Documents relying
+    on Typst 0.14 behaviour may fail to compile; check the breaking changes in
+    the [upstream Typst 0.15 changelog](https://typst.app/docs/changelog/0.15.0/).
+
+    For stability, pin a devkit release tag and set
+    `DEVKIT_FLAKE_PIN_ADVANCE=false` to hold it. Lockstep pins now advance
+    with upgrades by default
+    ([#1856](https://github.com/vig-os/devkit/issues/1856)); `devkit-upgrade`
+    opens adoption PRs on a schedule. Typst tools now move with the weekly
+    nixpkgs-unstable bump, so patch releases can change rendered output
+    between devkit releases.
+
+    **Language-server cost:** tinymist adds about 258 MB beyond the combined
+    typst/typstyle closure on x86_64-linux (258,182,512 bytes at the current
+    pin, measured with cache-only `nix path-info -S` and deduplicated runtime
+    references). This cost applies to the opted-in docs shell; the image
+    includes only typstyle.
 
     **PDF reading is part of the capability.** `poppler-utils` puts `pdftotext`
     and `pdftoppm` on the shell PATH: without them there is no CLI path from a
     PDF to text, and an agent's file reader — which shells out to `pdftoppm` to
-    render a page — cannot open a PDF at all. Every named `docs` consumer
-    handles PDFs, and the ~140 MB closure is the small generic native CLI this
+    render a page — cannot open a PDF at all. Document-oriented consumers
+    handle PDFs, and the ~140 MB closure is the small generic native CLI this
     module exists to carry. **Deliberate v1 exclusions:** pandoc/LaTeX
     (ask-gated until a consumer needs them), headless drawio/excalidraw export
     (electron-shaped, stays repo-owned), Python doc-processing libraries
@@ -164,8 +190,7 @@ devShells.default = vigos.lib.mkProjectShell {
     `pyproject.toml` via uv, and **OCR** — `tesseract` (1.11 GB) and `ocrmypdf`
     (1.68 GB) would charge every `docs` consumer an order of magnitude more than
     `poppler-utils` for a capability most never use, so it stays repo-local
-    ([exo-pet/vault#70](https://github.com/exo-pet/vault/issues/70)) until a
-    second consumer justifies a dedicated `ocr` module.
+    until a dedicated `ocr` module is justified.
   - **Candidates (ask-gated, not shipped):** `geant4`, `rust`, `fortran`/`f2py`,
     `root`.
 - **Per-module options (the `node` version).** A `modules` entry is either a
@@ -196,6 +221,675 @@ devShells.default = vigos.lib.mkProjectShell {
   and a `tests/test_flake_modules.py` smoke test (for `native`, the uv
   C-extension sdist; for `node`, that `node`/`npm` resolve and the versioned
   form pins the major).
+
+### Docs module: Typst guards and reproducible recipes
+
+Enable `modules = [ "docs" ]` in `mkProjectShell` for the document toolchain.
+Committed-config consumers receive hooks through scaffold reconciliation alone.
+To request generated hooks explicitly, also set `hooks = { };`. Scaffolded
+projects declare `DEVKIT_MODULES="docs"` in `.vig-os` and rerun the installer;
+the default scaffold flake forwards docs activation. Other flakes, including
+preserved and language-pack flakes, must also enable the module themselves. Enter the project toolchain before installing or upgrading:
+reconciling a committed config requires its `reconcile-preserved-hooks` command on PATH.
+
+`nix/hooks.nix` defines the docs guards once. Its `portable.docs` render is committed
+as `assets/docs-hooks.json`; CI checks that asset for drift. The installer adds an
+owned block to committed hook configs and leaves generated store symlinks to the
+flake. This keeps the module contract at packages/env/shellHook and supports both
+config paths without teaching capability modules to overwrite consumer files.
+Removing `docs` and rerunning the installer removes its block and recipes, restoring
+consumer whitespace exclusions. `justfile.devkit-docs` is created with a managed header;
+an existing file is overwritten or deleted only with that header. Consumer-owned
+files (including symlinks) at that reserved name are retained with a notice in either module state.
+The import is emitted only with docs ON and a devkit-managed recipe file. The
+separate devkit name avoids collisions: consumer-owned `justfile.docs` files are
+never touched or imported.
+Comments and other hooks are preserved. Whitespace
+configs must use block-style repositories and hook mappings without YAML aliases.
+Mixed or legacy line endings are rejected without rewriting; uniform LF and CRLF
+are preserved.
+The docs module extends the existing preserved-hook range/splice engine (#1654),
+using the same exact feature markers and insert/fold/drift report channels.
+It extends an existing local hook sequence when available; otherwise it adds a
+local repository block. This avoids repeating existing sequence lint findings.
+Reversible exclusion records use repository and hook IDs, so hook insertion and
+reordering are safe. Parsed values allow formatter re-quoting. Managed-block edits, including comments,
+are detected before replacement; the installer warns with manual advice and
+continues, retaining the original config. Pre-release blocks with the old state
+format require manual removal of their block and generated exclusions first.
+If a fixer hook is deleted or its repository URL changes (including adding
+`.git`), restore that hook and URL, switch docs OFF, then reapply the edit and
+switch ON. If `exclude` was moved before `id`, move it after `id` and retry.
+Added inline comments on an injected exclude line require moving the comment to
+its own line before retrying; reconciliation refuses them without dropping text.
+If a restored fixer is missing its managed `exclude`, restore that value before
+switching docs OFF. Keep the local repository containing the docs block until
+after switching docs OFF. If that repository is deleted, generated exclusions
+without a docs block trigger a warning when docs is enabled, and reconciliation
+retains the config. With docs OFF, only devkit markers or recorded state trigger
+reconciliation; consumer-owned generated exclusions and YAML anchors are left alone.
+Restore the deleted repository/block and switch docs OFF before deleting it again.
+Without the block's recovery records, exclusions cannot be safely undone.
+Consumer-owned exclusions identical to the generated pattern are indistinguishable;
+remove those exclusions by hand before retrying reconciliation.
+The owned markers and state comments should be left intact. Both
+staged and installed output pass `prek validate-config`; failures retain the original
+bytes and print recovery instructions. Writes preserve the existing inode.
+Rollback also writes in place: a second interrupt or I/O error during rollback
+can prevent complete restoration. Restore the config from version control
+before retrying in that case. Reconciliation preserves
+consumer indentation, line endings, and final-newline presence. Enabling docs adds
+no strict scaffold yamllint findings to configurations that were clean. Configurations
+with existing findings (such as wide dash spacing or indentless hook lists) may
+gain findings; review the result with your lint configuration. Existing `typst-compile` or
+`typstyle` hooks are retained with a notice rather than duplicated.
+Non-docs upgrades add empty `DEVKIT_TYPST_SKIP` and `DEVKIT_TYPST_FONT_PATHS`
+keys, without additional hooks or a document-recipe import.
+
+The guards are `typstyle-check` (`typstyle --check`), `typst-compile` (all declared
+entries plus template smoke tests), `typst-preview-pins` (exact `@preview` versions),
+and `forbid-generated-pdf` (PDFs under any `generated/` in the Git index, case-insensitively). Generic
+whitespace, line-ending, and EOF fixers exclude `generated/` only with this module.
+The compile and PDF guards run on every commit, including changes to dependencies.
+
+Declare an entry with a standalone marker matching
+`(?m)^[ \t]*//[ \t]*devkit:[ \t]*entry[ \t]*$`: `//devkit: entry`,
+`// devkit: entry`, and trailing spaces or tabs are accepted. Suspicious unmarked
+files (page settings, show rules, or headings) and zero declared entries produce
+warnings when Typst files are present. Unmarked files are
+libraries, including files used only through includes/imports. Files under `parts/`,
+`generated/`, hidden directories, and `node_modules/` are excluded. Files under any
+`templates/` directory compile independently to `/dev/null`. This explicit rule
+avoids guessing entry points from Typst's dynamic imports. Add comma-separated,
+repository-relative skip globs in `.vig-os`, for example
+`DEVKIT_TYPST_SKIP="drafts/**,templates/experimental/**"`. Matching uses Python
+fnmatch (including `/`); skips apply to entries and template smoke tests.
+
+With docs enabled, the installer manages `justfile.devkit-docs`, loaded as
+`mod devkit-docs 'justfile.devkit-docs'`. Document recipes live in the `devkit-docs` namespace,
+so consumer recipes named `typst`, `typst-canonical`, or `typst-probe` remain usable.
+Upgrades replace the former flat import or `docs` module; use the namespaced commands below.
+If a consumer recipe, alias or module in `justfile`, `justfile.project` or
+`justfile.local` already uses `devkit-docs`, the installer skips loading the
+module and prints one notice. Rename that consumer declaration and rerun the
+installer to enable document commands. Consumer `docs` declarations coexist.
+Consumer-owned recipe files are retained and never loaded automatically:
+
+
+- `just devkit-docs::typst [--deps]` builds sibling `generated/<stem>.pdf` files with
+  `--input rev=<sha8>[-dirty]`; Git status determines the dirty suffix.
+- `just devkit-docs::typst-canonical [--deps]` omits the revision input for hash comparisons.
+- `just devkit-docs::typst-probe` prints JSON objects for Typst, typstyle, and tinymist, each
+  containing a resolved binary `path`, single-line `version`, and `version_source`.
+  Versions are parsed from each tool's own output. The pinned tinymist build omits
+  its own version there, so its resolved Nix store version is reported explicitly
+  with `version_source: "store-path"`; its embedded Typst version is never substituted.
+
+Every compile uses `--root . --ignore-system-fonts`, clears `TYPST_FONT_PATHS`,
+sets `SOURCE_DATE_EPOCH=0` and `TZ=UTC`, and rejects warnings. Fonts come from the
+compiler's built-ins (Libertinus Serif, New Computer Modern, DejaVu Sans Mono).
+For branding, set `DEVKIT_TYPST_FONT_PATHS="fonts:assets/fonts"` in `.vig-os`. Each
+colon-separated directory must exist within the repository and is passed as
+`--font-path` by hooks and both build recipes. Commit those fonts for reproducible
+canonical output. System fonts remain ignored even with project fonts enabled.
+Optional dependency lists are sibling `<stem>.deps.json` files. Ignore generated
+outputs in your project's `.gitignore` so they do not dirty subsequent stamped
+builds. Canonical hashes require identical source, packages, and pinned toolchains;
+documents must tolerate an absent `sys.inputs.rev`. The house-style diagram dependency closure is vendored. Other preview packages
+may need network access on first use. The pin guard conservatively
+checks preview references in source, including comments. Typstyle 0.15.2 exposes
+CLI formatting options with an 80-column default and no config-file option, so no
+`typstyle.toml` is scaffolded. The real-tool canary is `checks.<system>.typst-canary`.
+
+
+#### Content guards
+
+The docs-only `typst-content` hook runs all four checks on declared entries,
+including their dependencies, on every commit. It shares `DEVKIT_TYPST_SKIP`
+(comma-separated repository-relative globs) with the compile guard. Skipped
+includes still compile but produce no content findings. Templates get the
+existing smoke compile rather than content checks. Non-docs consumers receive
+no hook or configuration changes.
+
+| Check | Rejected content | Suppression on the opening or closing line |
+| --- | --- | --- |
+| `figure-caption` | Missing, empty, whitespace or hidden/zero-width-only captions | `// figure-caption: ignore` |
+| `table-header` | A table without `table.header` | `// table-header: ignore` |
+| `house-style-bypass` | Direct `set page(...)` or `set text(font: ...)` in entry sources and their local dependencies | `// house-style-bypass: ignore` |
+| `figure-text-size` | SVG text smaller than 7 pt at its placed width | `// figure-text-size: ignore` |
+
+In package documents, guard mode also records effective paper dimensions, margins
+and text font at each page start and heading. Settings differing from A4,
+2.5 cm on every side, or Libertinus Serif produce a house-style bypass diagnostic
+saying `detected at runtime on page N`, including overrides through aliases that
+have no source finding. Use `// house-style-bypass: ignore-document` in the entry
+file to suppress runtime findings for that document. This marker does not suppress
+source findings; their individual line markers still apply. Markers in strings,
+raw examples or included files do not suppress entry-level runtime findings.
+Older package versions without style metadata only receive the source scan.
+
+Run `typst-guard content` for all checks or `typst-guard <check>` individually.
+Captions follow `fig()` blankness: references, citations, styled visible text,
+images and math count as content. The source scan skips comments, strings and
+raw examples. Package source is outside the consumer scan. Use house-style
+parameters for branding and layout overrides.
+
+Guard runs share one ephemeral source tree across all entries. Image calls retain
+native image values; path-valued arguments retain the calling source file, so
+included parts and nested documents resolve assets correctly. Leading `/` uses
+the repository root. Query-only show rules emit image/page metadata. Direct
+figure/table calls and `fig()`, `booktabs-table()` and `plain-table()` get source
+labels for diagnostics and suppression. Unlabelled tables derived by the
+package are excluded from findings. Local template functions that set page or
+font count as bypasses, including multi-line `#let` signatures and `=> {`
+closures used by `#let`, `#show`, or imported local templates. Inline markup
+and caption prose remain markup even on lines containing `#` expressions;
+statement introducers (`let`, `set`, `show`, `context`, `import`, `include`, `if`, `for`,
+`while`) retain their code bodies. Suppressions belong
+to individual source calls, even when labels are repeated. The fallback maps
+figures using only compiler-reported dependencies in document order.
+
+If instrumentation fails or warns, the guard validates a clean plain compile
+before falling back for that entry with a warning. A plain compile failure
+still fails the guard. The fallback queries native figures and source-located
+tables and uses the documented image sizing fallback. Some custom helpers can
+have only an entry-file diagnostic; skip globs remain available. Compiler
+outputs live outside the mirrored assets so consumer files cannot be overwritten.
+Referenced assets under `generated/` remain available. Only dependency sources
+are instrumented; unrelated Typst sources are not scanned. Logo findings point
+to a direct `logo:` argument of `devkit-document` or `devkit-document.with`
+and support suppression on that line or the closing call line. Unrelated
+dictionary keys never supply logo attribution.
+Measurements belong to individual placements, including repeated logo/body assets.
+
+With `@local/devkit-docs:0.2.1` and its document show rule, the guard-only input
+`devkit-guard-measure=true` enables image measurement and effective-style metadata. It resolves
+percentages, automatic sizing, grids, columns and figure bodies in their layout
+context. Without that input, the package emits no measurement metadata and
+canonical PDFs remain byte-identical to 0.2.0. Older imports remain available.
+
+Without measurement metadata, absolute image widths are used directly;
+percentages use the page width minus margins, with A4 and 2.5 cm margins as
+the fallback. Automatic width uses the SVG intrinsic width capped at the page
+text width. This fallback does not infer grid or column widths. Unresolved
+sizes emit a warning naming the source file and do not fail the guard.
+Image sizing composes width and height, `contain`/`cover`/`stretch`, and SVG
+`preserveAspectRatio` meet/slice/none with the viewBox. Height-only images use
+their natural aspect ratio. A native Typst `scale(...)` around an image emits
+a warning instead of claiming a physical font size.
+The SVG check reads viewBox width (or intrinsic dimensions), inherited
+font-size, CSS `font` shorthand (including Matplotlib 3.6–3.9), inline styles
+and simple tag/class/id CSS rules with specificity and `!important` precedence. SVG px are user
+units; absolute font units are converted before applying the placed scale.
+Scale transforms are applied; rotations and translations preserve size. Complex
+CSS selectors, affine/skew transforms and unresolved font units emit a warning
+rather than an inaccurate measurement. Text converted to outlines cannot be
+identified as lettering. Unused `<defs>` and hidden text are ignored; local
+`<use>` references are followed, including nested SVG and symbol viewports.
+Zero-size text is ignored. Reference expansion is limited to 32 levels and
+32,768 visited nodes per SVG, including nodes revisited through `<use>`;
+exceeding either limit emits a warning. CSS selector count multiplied by XML node
+count is capped at 1,000,000 before cascading and across repeated reference visits; exceeding this work budget or
+an unclosed CSS rule emits a warning. Matplotlib DOCTYPEs are accepted without
+allowing entities or external XML references. Raster images are skipped: prefer
+SVG or native plots for charts. Images supplied as bytes (for example
+`image(bytes(read(...)))`) have no inspectable source path and are skipped.
+Unresolved font shorthand or sizes always warn. Uppercase font property names,
+CSS comments inside declaration blocks, and spaced `! important` markers are
+currently unsupported and emit a warning instead of assuming a default size.
+The supported `!important` suffix is case-insensitive. The hardened parser is a shared vig-utils runtime
+dependency (also installed for non-docs consumers); guard activation stays opt-in.
+
+The real-compiler contract runs in `checks.<system>.typst-content`, so the
+default non-docs test environment does not need Typst.
+
+Each entry first compiles unmodified sources to discover dependencies, then
+uses one instrumented compile and one combined Typst JSON query, with at most
+two compiler workers. A fallback also validates the plain compile.
+To reproduce timing for 20 entries and 30,000 unrelated files,
+run `uv run python packages/vig-utils/tests/benchmark_typst_content.py`.
+For a single large document, add
+`--entries 1 --figures-per-entry 4000 --unrelated-files 0` (4,000 figures and
+4,000 tables). The dependency pass adds a compile but avoids scanning unrelated
+sources and repeated scans of growing source prefixes. Import/include edges
+are tokenized once per source and reused for each ordered call query.
+
+#### House-style package
+
+The `docs` shell exposes an immutable registry through its Typst and Tinymist
+wrappers; `DEVKIT_TYPST_PACKAGE_PATH` identifies that registry. Import
+`@local/devkit-docs:0.2.1`. Its own SemVer is independent of devkit releases.
+Shipped versions remain available after an upgrade, and a content-hash lock
+checks their integrity. See the [version policy and registry layout](../assets/typst/README.md#local-package-versions).
+A package upgrade is explicit: read its changes and update imports together.
+If Typst reports `package not found`, enter the docs shell and check the version
+in your import. Other packages remain consumer-owned.
+
+Direct compiler calls, Tinymist, compile hooks and recipes search the consumer's
+`TYPST_PACKAGE_PATH` path list first, then the devkit registry, then standard
+Typst data-dir packages (`$XDG_DATA_HOME/typst/packages`, defaulting to
+`~/.local/share/typst/packages` on Linux; `~/Library/Application Support/typst/packages`
+on macOS). Typst 0.15 natively uses one path and skips the data directory when
+that path is set; the wrappers compose these registries temporarily and clean
+up after the process exits. First namespace/name/version wins. JSON dependency
+inputs point to stable source files, including when `--deps` is used directly.
+Both spaced and equals forms of `--deps` and `--deps-format` work. JSON, Make
+and `zero` outputs are rewritten in files or on stdout (`--deps -`). See the
+[registry guide](../assets/typst/README.md) for exact escaping limits and
+artifact I/O behavior. SIGHUP/SIGTERM/SIGINT reach the child compiler, and
+temporary registries are removed after it exits. Produced dependencies are
+stabilized even after a failed compile or signal termination, without changing
+the child exit status. Symlinked dependency paths retain the link and update
+the resolved target.
+Explicit CLI `--package-path` overrides this composition. Compilation errors,
+including invalid registry directories, propagate to the caller.
+
+A minimal entry document:
+
+```typst
+// devkit: entry
+#import "@local/devkit-docs:0.2.1": *
+#show: devkit-document.with(title: "Example report", authors: ("Example Author",))
+
+= Results
+#table(columns: 2, table.header([Item], [Value]), [Sample], number(12.3))
+#fig(rect(width: 20mm, height: 10mm), caption: [Example figure])
+```
+
+Use the `#show: devkit-document.with(...)` namespace form. Calling the namespace directly is a type error; passing
+body content to `.with(...)` gives an explicit show-rule usage error. Glob imports preserve the built-in `document` and `scale` functions. The defaults are A4, 2.5 cm margins, Libertinus Serif body text at 11 pt,
+9 pt small text and captions, numbered headings at 20/16/13/11 pt, and a running
+title and page `n / N`. Stamped builds also show `rev`; canonical builds omit
+it. Monospaced text uses DejaVu Sans Mono and math uses Typst's built-in
+New Computer Modern. `type-scale` exports these sizes, including `figure-min: 7pt`.
+Authors must keep figure lettering at least 7 pt at the final placed size.
+The content guard checks SVG text at its placed size. Prefer SVG or native plots
+for charts; raster images cannot be checked.
+
+All metadata is optional: `title`, `short-title` (running header/footer text),
+`subtitle`, `authors` (a string or tuple of names),
+`date` (display content), `version`, `status`, and `doc-id`. A title block
+appears only for supplied values. Its first-page header is suppressed; the
+footer still shows the short title (or title), page total, and optional revision. Branding parameters are `accent` (a color),
+`logo` (a resolved Typst path), and `labels`
+(a dictionary with optional `doc-id`, `version`, `status`, and `date` labels).
+For project images use `logo: path("logo.svg")`; the `path` constructor resolves
+the resource in your document before passing it to the package. See the
+[Typst path reference](https://typst.app/docs/reference/foundations/path/).
+There is no default branding.
+The docs shell sets `TYPST_IGNORE_SYSTEM_FONTS=true`, including direct compiler
+calls. Tinymist 0.15 does not read this variable; the module bridges the policy
+to `--ignore-system-fonts` for its compile, preview, and LSP commands.
+
+Plain `table(...)` uses booktabs: top and bottom rules, a rule below a bold,
+repeating header, and no vertical rules. Declare headers with `table.header(...)`
+(including multiple rows). Without an explicit header, body cells remain in their
+original grid positions; no header is synthesized. Header `repeat` and `level`
+settings are preserved. User `hline` and `vline` decorations are replaced by the
+house rules, including lines inside or before a header. Table figures are
+breakable and repeat their headers across pages by default.
+Use `plain-table(...)` to opt out for one table: it accepts native table arguments
+and preserves explicit or contextual `stroke`, `inset`, and line decorations.
+A non-default `stroke` on an ordinary table also preserves native rendering.
+Explicit arguments, `set table(...)`, and `show table: set table(...)` are
+honored where Typst exposes their resolved values. A custom inset retains
+booktabs when the stroke remains at its native default. Use
+`booktabs-table(inset: 5pt, ...)` to request booktabs with any inset, including
+Typst's native 5 pt. Typst exposes resolved values, not whether a default value
+was explicitly supplied: an ordinary table with explicit `stroke: stroke()`
+or `inset: 5pt` is indistinguishable from an omitted argument. Use `plain-table`
+for exact native defaults, or `booktabs-table` for an explicit booktabs inset.
+User labels and references work on both helpers. A nested plain-table only
+opts out its own table; an enclosing ordinary table keeps booktabs.
+Table column widths and alignment are retained. `number(value)`
+right-aligns a numeric cell with tabular lining digits;
+`align: numeric-columns(1, 2)` right-aligns zero-based numeric columns.
+These helpers do not parse or round values or align decimal separators.
+
+`fig(body, caption: [...], ..options)` forwards figure options and fails when
+its caption is absent, empty, whitespace only, or solely hidden/zero-width
+content. References, citations, styled text, context, images, math and unknown
+content elements are accepted. Captions use 9 pt text in a
+centered block at 85% of the available width. Table captions appear above;
+other captions appear below. Direct `figure(...)` receives the style too;
+the content guard also requires captions on direct figures.
+
+`note(body, label: [Note], accent: ...)` and
+`warning(body, label: [Warning], accent: ...)` render callouts. Override their
+labels and colors explicitly for branding or translation.
+`revision-history((version: "1", date: "2026-11-03", description: "Initial"), ...)`
+accepts revision dictionaries; override its `labels` dictionary to translate
+`version`, `date`, and `description` column labels.
+`doc-ref(id, title: none, target: none)` prints an identifier and optional title;
+`target` adds a Typst link (URL or label). It does not resolve document registers.
+
+`fletcher` and `cetz` re-export the pinned upstream modules. Their complete
+transitive dependency closure is vendored, with licenses and update instructions
+in [the registry guide](../assets/typst/README.md).
+`checks.<system>.typst-house-style` compiles real fixtures through guards and
+recipes in a network-free Nix sandbox, checks PDF text and table rules, tests
+caption failures and offline imports, and compares canonical hashes.
+
+`plot(x, y, xlabel: [...], ylabel: [...], width: 9cm, height: 5cm)` renders a
+native line plot using vendored lilaq 0.5.0. The coordinate arrays must satisfy
+lilaq's data requirements. Both axis labels must contain visible content;
+missing or blank labels panic. Tick and label text inherits `type-scale.small`
+(9 pt); explicit label or math text below 7 pt panics. Synthesized `super`
+and `sub` text uses 7 pt. Attached math scripts use a 14 pt base so New Computer
+Modern's smallest script style (50%) stays at least 7 pt; ordinary math ticks
+remain 9 pt. Dimensions change the data area,
+without shrinking lettering. Wrap the result in `fig` with a caption:
+
+```typst
+#fig(
+  plot((0, 1, 2), (1, 3, 2), xlabel: [Time (s)], ylabel: [Distance (m)]),
+  caption: [Measured trajectory],
+)
+```
+
+Do not shrink plots or label content with `scale`, `resize`, or transforms:
+those can change final lettering size after the helper checks it. Arbitrary
+user math (fractions, custom functions, contextual content, or manual math-size
+styles) cannot be checked generically; authors must verify its final PDF text.
+In particular, `$x^#text(size: 8pt)[k]$` can render the explicit text at 5.6 pt:
+the explicit 8 pt style overrides the helper's script base before math shrinking.
+Use ordinary attachments without explicit text sizes, or verify the final PDF.
+The helper checks explicit text styles and sizes ordinary attached scripts. Prefer SVG
+or native plots for charts; raster chart lettering cannot be checked.
+The helper intentionally exposes a single line series and dimensions. For other
+plot types use an explicitly pinned lilaq import; its upstream API does not
+provide the helper's label and size checks. All transitive packages, including
+optional computational plugins, are vendored and content locked.
+
+`term("id")` reads the canonical term from the consumer register. Unknown or
+duplicate IDs fail compilation. For an `acronym`, the first occurrence prints
+`definition (term)`; later occurrences print the canonical term. Supply the
+expanded name as the definition for acronym entries. `glossary()` renders only
+used entries, sorted by canonical term, with definitions. Place it at the end
+of the document as an appendix; `glossary(title: [Terminology])` changes its title.
+An empty used-term set produces no heading. Usage and first-use state are local
+to each compiled document, including terms in included files.
+
+```typst
+The #term("sample") was examined.
+#glossary()
+```
+
+Load the register explicitly from the entry document's filesystem scope:
+
+```typst
+#show: glossary-setup.with(yaml("/glossary.yaml"))
+```
+
+Place this after the package import and before any terms, including outlines.
+For a custom `DEVKIT_GLOSSARY`, pass that same file to `yaml` instead.
+Hooks and recipes pass no glossary input arguments: large registers, plain
+`typst compile --root . --ignore-system-fonts main.typ main.pdf`, and editor
+previews all use this API and track file changes natively. `glossary-schema`
+validates the configured register independently. Calling `term` without setup
+reports “no glossary loaded”; setup rejects duplicate IDs. Outline and figure
+outline copies use short forms and never consume the first body expansion.
+Place custom `show outline.entry` rules **before** `glossary-setup`: rules added
+after setup can replace its copy tracking and consume expansion in the TOC.
+First usage includes footnotes: if the first `term` call is in a footnote, its
+expansion appears in that footnote, and subsequent body calls use the short form.
+Both `term` and `glossary` require setup; an empty YAML file or empty register
+is an error. The glossary schema likewise requires at least one entry.
+
+PDF bookmarks cannot evaluate the legacy state-based `term` function. For
+headings with terms, bind the register before layout so bookmarks retain the
+canonical spelling:
+
+```typst
+#let g = glossary-tools(yaml("/glossary.yaml"))
+#let term = g.term
+#show: g.setup
+
+#outline()
+= Using #term("cpu")
+#glossary()
+```
+
+`glossary-tools` returns `term` and `setup` functions. Its setup validates the
+register and installs the same outline-copy tracking; place custom outline
+show rules before `#show: g.setup`. Keep the bound `term` in scope in each
+included source (or export it from a consumer-owned shared module). The original
+`glossary-setup` API remains supported, but its contextual terms have no PDF
+bookmark text. Bound terms keep static canonical text in bookmarks while
+retaining contextual first-use expansion in the body.
+
+For presentations, use the same import with `#show: slides.with(...)`:
+
+```typst
+#show: slides.with(title: [Example deck], authors: ("Example Author",))
+#section-slide[Results]
+#slide(title: [Measurements])[
+  #table(columns: 2, table.header([Item], [Value]), [Sample], number(12.3))
+  #fig(rect(width: 20mm, height: 10mm), caption: [Example figure])
+]
+```
+
+The layout is 256 × 144 mm (16:9), with 12 mm margins. A title slide is emitted
+when metadata is provided. `section-slide` centers its title; `slide` starts a
+content page with an optional heading. The same type scale, booktabs rules,
+figure captions, branding (`accent`, `logo`, `labels`), metadata, `short-title`,
+page totals and revision footer apply. The slide footer shows the plain text of
+`short-title` (fall back: `title`); styling is not carried into the footer;
+give a short plain `short-title` for best results. Containers contribute their
+text; math contributes text leaves (or `□` when there are none). Images, shapes and
+unknown atoms are omitted; a nonempty title with no extractable text shows `□`.
+Hidden content, footnotes, metadata, state, counters and placed content are
+skipped. Double smart quotes alternate opening and closing marks. A single
+quote after a letter or digit becomes an apostrophe (`’`) without changing
+quote state; single quotes at the start or after whitespace open a quotation.
+Same-type nested double quotes are not tracked by nesting depth: for example,
+`"a "b" c"` becomes `“a ”b“ c”` in the footer. Alternate single and double
+quotes, or provide a plain `short-title`, for nested quotations.
+Term-list items contribute `Term: Description`. Nonzero horizontal or vertical
+spacing, grid/table/stack cells, matrix and cases entries, and math attachments
+separate leaves with spaces; line breaks and whitespace collapse to single
+spaces. Extraction uses an explicit work stack, so nested containers do not
+consume recursive function-call depth. It visits at most one million work
+items and stops once the plain prefix exceeds 400 graphemes. Truncated
+extraction returns at most 400 graphemes including `…`; the remainder is not
+inspected. Footer width measurement therefore uses only this bounded prefix.
+
+The footer occupies one fixed line at the footer font size, without scaling.
+It truncates by measuring grapheme prefixes, adding `…` at the logical end,
+including for RTL text. A 2 mm gap separates it from the page counter.
+Sizes remain in points: choose slide
+content for the intended viewing distance. Content must fit a slide; there is
+no automatic shrinking or overflow clipping. Canonical builds omit the stamp.
+
+The network-free `typst-house-style` check also exercises these helpers with
+an empty package cache and inspects rendered PDF font sizes. Content guards
+(captions, table headers, style bypass and external SVG lettering) remain the
+next part of [#1994](https://github.com/vig-os/devkit/issues/1994).
+
+#### Terminology register
+
+The docs module also installs `glossary-schema` and `glossary-terms` hooks.
+Both validate the register; terms scans all selected sources on every run, so
+register edits also check existing documents. Without `glossary.yaml` they do
+nothing. Set `DEVKIT_GLOSSARY="docs/terms.yaml"` in `.vig-os` to select another
+repository-relative register (an explicitly configured missing file fails).
+The packaged `vig_utils/glossary.schema.json` defines a YAML list:
+
+```yaml
+- id: feed-pump
+  term: Feed Pump
+  definition: Moves fluid into the circuit.
+  kind: part
+  aliases: [Supply Pump]
+  forbidden:
+    - term: Input Pump
+      use: Feed Pump
+  part-number: FP-100
+  pattern: 'FP-\d+'
+  status: active
+```
+
+`id`, `term`, `definition`, and `kind` are required; IDs must be unique.
+Kinds are `term`, `part`, `component`, `acronym`, and `role`; optional status is
+`active` or `deprecated`. Duplicate YAML keys, names shared across entries
+(casefolded), aliases forbidden by another entry (same spelling), and `use`
+replacements absent from registered terms/aliases are rejected. Aliases must
+be unique within each entry. Deprecation status alone does not reject a name.
+
+Forbidden phrases normally match case-insensitively using Unicode casefolding.
+When a forbidden spelling casefolds to a registered term or alias, it matches
+case-sensitively: `Github` can suggest `GitHub`, and `us` can suggest `US`,
+without rejecting the correct spellings. Registered term and alias occurrences
+are protected, so a forbidden `pump` does not reject `Feed Pump` or `Supply Pump`.
+Protection is case-insensitive except for names with casing corrections.
+Underscores count as prose boundaries (`_emph_` and `__strong__`). Spaces, tabs,
+NBSP, and newlines are interchangeable within phrases, including hard wraps.
+Hyphens are literal characters, not whitespace separators.
+
+Part patterns are Python regular expressions with inline flags, compiled
+case-insensitively by default. Invalid flags, patterns matching empty text,
+and a part number not fully matching its own pattern fail schema validation,
+with the entry ID in the diagnostic. Known part numbers belong only to entries
+sharing the **identical pattern string**; repeat that pattern on each part in
+its family. A part with no pattern does not populate another family's known
+set. Each unknown token occurrence is reported once, even for overlapping
+families. Numbers inside scheme URLs (`https://...`), `mailto:`, and `www.`
+URLs are skipped.
+
+Only Git-tracked `.typ` and `.md` sources are scanned. Set comma-separated
+`DEVKIT_GLOSSARY_SOURCES="docs/**,manual/*.{md,typ}"` to select Git pathspecs relative
+to the repository root (`git ls-files` semantics after expanding brace
+alternatives; nested braces are unsupported). Untracked/ignored files,
+hidden directories, and `generated/` are excluded. There is **no non-Git
+fallback**: terms mode with a nonempty register requires a Git working tree.
+An undecodable source produces a file-specific UTF-8 error while other sources
+are still checked. Schema mode validates only the register and never scans.
+
+Append `// glossary: ignore` at the **end of a `.typ` line**, or
+`<!-- glossary: ignore -->` at the **end of a `.md` line**. Trailing spaces are
+allowed; trailing text and markers in the other file type do not suppress.
+The marker suppresses that line; hard-wrapped matches cannot cross it.
+Typst `/* glossary: ignore */` is not supported. Inline code and fenced code
+are scanned as ordinary source text; use the same per-line marker for examples
+that intentionally contain forbidden text. URLs and paths are also ordinary
+text for forbidden phrases (only part-number detection excludes URLs).
+Simple Markdown emphasis (`*`, `**`, `_`, `__`), code delimiters and Typst
+`#strong[...]` / `#emph[...]` are transparent; nested markup, links and arbitrary
+Typst expressions are not parsed. Emphasis is limited to a single line and
+1,024 content characters; longer spans retain their delimiters. Inline markup
+is unwrapped only at word boundaries so adjacent prefixes/plurals stay visible. Backticks become spaces, preserving code
+boundaries and offsets (for example, a plural after a code span cannot hide a
+forbidden term). Registered terms/aliases protect their exact spelling plus sentence-case
+and title-case forms, unless a derived form is explicitly forbidden by any
+entry. Literal registered names remain protected. ALLCAPS forms are not protected; use the per-line
+suppression marker above for intentional ALLCAPS headings. Other case variants
+remain unprotected; incidental lowercase matches such as `valve a little` do not.
+A registered span suppresses a forbidden hit only if it contains the hit or crosses one of its edges. This protects
+`the feed` in `the Feed Pump` and `pump station` in `Feed Pump station`. A
+registered name contained inside the forbidden hit never suppresses it: with
+`Valve` registered, `regulating valve` is still forbidden.
+Overlapping forbidden hits are reported once, keeping the longest rule (ties
+prefer the earliest position). Exact forbidden spellings equal to any registered
+term or alias are rejected as dead rules; casing corrections remain valid.
+Unsupported suffixes in source pathspecs warn on stderr. Run `glossary-guard schema` or `glossary-guard terms`
+manually from the repository root.
+
+Run `glossary-candidates` (or `just devkit-docs::glossary-candidates` with the docs module)
+from the repository root for advisory candidate discovery. It uses the same
+tracked source selection as terms mode, even without a register, and never
+installs a blocking hook. Invalid registers fail before scanning. Unreadable or
+non-UTF-8 sources are reported and skipped, remaining files are scanned, and
+the command exits 1. Findings alone exit 0; diagnostics name the invoked tool.
+Each JSON line contains `file`, first-occurrence `line`, `candidate`, per-file
+`count`, `nearest` canonical term (or null), `score` (0–1 difflib similarity,
+not confidence), and a short `context` snippet from the original source,
+including its markup and line breaks. Aliases and registered part
+numbers are subtracted case-insensitively. Output is ordered by file and name.
+
+An agent or reviewer goes through **each candidate** in the PR and answers:
+
+- **Synonym of X → use the canonical term.** Replace the invented name.
+- **New term → add it to `glossary.yaml` in this PR.** Supply its definition,
+  kind and any accepted aliases, then rerun both commands.
+
+Extraction recognizes consecutive title-case words (also across a single line
+break, never a blank line), CamelCase, letter/digit part numbers and ALLCAPS
+acronyms. Leading and trailing stopwords are removed; coordinating conjunctions
+split phrases while retaining the joined phrase as a candidate, and single
+title-case words are ignored. `--allow And` disables splitting at And, preserving
+names such as Research And Development. Joining stops at blank
+lines, list items, headings and standalone two/three-word title-case name lines.
+Prepared/reviewed/approved/signed/author labels followed by names are filtered.
+This conservative name-line boundary can also separate a wrapped domain name.
+Sentence-start connectives However, When, After, Before, Then, Also, Therefore,
+Meanwhile, Finally, Thus and Next are default stopwords. Common words/acronyms such as TODO, NOTE, JSON, MIT, PR, CI, AM and PM are skipped;
+add project-specific names with `glossary-candidates --stopwords NASA,FlowController`
+(case-insensitive, comma-separated, additive to the built-in list in
+`vig_utils.glossary.STOPWORDS`). The same option works with
+`glossary-guard candidates --stopwords ...`. Remove built-ins or additional
+stopwords with `--allow CD,EN` (case-insensitive; allow takes precedence).
+Allowing a standards prefix also reports its numbers, such as `EN-123`; other
+structural/code filters still apply. Both commands support these controls.
+
+Discovery filters YAML frontmatter, Markdown/Typst headings, Markdown pipe-table
+header rows, Markdown inline/reference links (including their text), URLs,
+backtick code spans/fences, underscore identifiers, citations (`[@key]`, `@key`),
+and Typst string literals and simple `#link(...)[text]` labels. Table body
+prose and simple emphasized prose remain eligible. UTF, SHA, ISO, ANSI, RFC, IEEE, IEC, DIN and EN numeric standards are
+filtered as standards rather than proposed parts. Deterministic terms mode
+continues scanning code, links and paths as described above.
+
+This is a lexical heuristic, not a grammatical noun parser or full markup
+parser. Lowercase/single-word title-case names, nested markup, complex links,
+non-pipe tables and unusual identifier/part/standard formats can be missed or
+need reviewer judgment. An actual new name appearing only in a filtered region
+is intentionally missed; register it during review. Ignore markers apply only
+to deterministic checks.
+
+The realistic Markdown/Typst fixtures in
+`packages/vig-utils/tests/fixtures/glossary/` contain headings, tables, links,
+URLs, code, citations, frontmatter, sentence-initial prose and Typst markup.
+They contain five distinct expected names: **precision 100% (5/5), recall 100%
+(5/5)**. Assertions also check repeated names, wrapped phrases, original-source
+context, sorted output and the closest choice among multiple registered terms.
+A second corpus in `fixtures/glossary/review/` models a README, commissioning
+report and Typst note with tables, citations, code and links. Measured distinct-name
+**precision is 100% (10/10), recall 90.9% (10/11)**; tests require ≥75% each.
+The lowercase `service manifold` is missed, reflecting the documented lexical
+limit rather than removing it from the expected set. These are fixture results,
+not an accuracy claim for arbitrary documents.
+
+Nearest-term comparisons are memoized per distinct candidate for each invocation.
+Reproduce the synthetic workload with
+`uv run python packages/vig-utils/tests/benchmark_glossary.py`: 300 tracked files,
+15,000 lines, a 300-term register, eight distinct names and 2,400 output rows.
+Single runs on the same shared host took **16.922 s before** (943a2f9b) and
+**1.112 s after**, about 15.2× faster. Timings vary with host load; the permanent
+cache regression asserts one comparison per term/name pair across files rather
+than imposing a machine-dependent time threshold.
+`uv run python packages/vig-utils/tests/benchmark_nearest.py` measures 2,000
+distinct names × 300 terms: **12.645 s before** (21bd9717), **6.774 s after**
+(about 1.9× faster, single shared-host runs). `real_quick_ratio` and `quick_ratio`
+upper bounds skip full comparisons only when strictly below the best score;
+equal-score ties retain the lexicographically greatest canonical spelling.
+Before/after result hashes match, including every score and term choice.
+
+For YAML language-server editor validation, put this header in the register,
+replacing `RELEASE_TAG` with an installed devkit release tag that includes the
+terminology register (for example, the tag recorded in your adoption PR):
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/vig-os/devkit/RELEASE_TAG/packages/vig-utils/src/vig_utils/glossary.schema.json
+```
+
+Pin the URL to that release tag, rather than `dev`, so editor and hook schemas
+stay aligned. The schema's `$id` is its canonical development-source identity;
+validation needs no network access because vig-utils packages the schema.
+`jsonschema` and its runtime dependencies are available in every devkit image
+and toolchain through vig-utils, even without the docs module. This shared
+package uses the standard validator so the shipped JSON Schema is the single
+structural-validation contract for both editors and hooks; hook activation
+and source scanning remain opt-in.
 
 ### `packages.<system>.guardrails` — the gates without a `mkProjectShell` migration
 
@@ -322,7 +1016,7 @@ flakes: `flake.lock` gained exactly two entries and nothing to `follows`.
 Measured cost (x86_64-linux, warm store): flake eval of the services app
 ~0.8 s, PoC closure build/substitute ~3 s, `process-compose` boot-to-healthy
 (both services) ~3 s. For comparison, the devenv path this replaces paid ~165 s
-of IFD on a cold eval (exo-pet/exo-fleet#76).
+of IFD on a cold eval.
 
 ### PoC S3 service: SeaweedFS, not MinIO
 
@@ -390,7 +1084,8 @@ pin wins and no download happens; the URL matters only on the CI runner.
   support, the project Python env (`vig-utils` + `pip-licenses` baked via
   `python314.withPackages`), the `prek` hook runner (via `devTools`),
   Rust/just tooling
-  (`cargo-binstall`, `just-lsp`, `typstyle`), core GNU utilities, `cacert`,
+  (`cargo-binstall`, `just-lsp`, and the unstable Typst formatter `typstyle`),
+  core GNU utilities, `cacert`,
   `openssh`, and `dockerTools.fakeNss` (a root uid-0 user database, without which
   `ssh`/`tmux`/`git` fail with "No user exists for uid 0").
 

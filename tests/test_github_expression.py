@@ -22,6 +22,7 @@ import yaml
 
 from tests import github_expression
 from tests.github_expression import evaluate, render, render_input
+from tests.workflow_scaffold import WORKFLOWS
 
 
 @pytest.mark.parametrize(
@@ -168,6 +169,61 @@ def test_cli(tmp_path, as_input):
     assert "position" in result.stderr
 
 
+@pytest.mark.parametrize("event", ["fork", "same-repo", "push"])
+@pytest.mark.parametrize("configured", [False, True])
+def test_shipped_workflows(event, configured):
+    variables = (
+        {
+            f"CI_RUNNER_{size}": f"pool-{size.lower()}"
+            for size in ("SMALL", "LARGE", "XLARGE")
+        }
+        if configured
+        else {}
+    )
+    runners = json.dumps(
+        dict.fromkeys(
+            ("small", "large", "xlarge", "lint", "test", "release-test", "extension"),
+            "ubuntu-26.04",
+        )
+    )
+    context = {
+        "vars": variables,
+        "inputs": {"runners": runners, "runner-json": '["ubuntu-26.04"]'},
+        "needs": {
+            job: {"outputs": {"runners": runners}}
+            for job in ("resolve-toolchain", "validate")
+        },
+        "secrets": {"GHCR_PULL_TOKEN": "test-token"},
+        "github": {"repository": "example/project", "event": {}},
+    }
+    if event != "push":
+        context["github"]["event"]["pull_request"] = {
+            "head": {"repo": {"fork": event == "fork", "full_name": "example/project"}}
+        }
+    runs = resolves = predicates = 0
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        for job in yaml.safe_load(path.read_text()).get("jobs", {}).values():
+            if "runs-on" in job:
+                value = job["runs-on"]
+                render(value, context)
+                runs += 1
+                if isinstance(value, str) and "github.event.pull_request" in value:
+                    predicates += 1
+                    assert render(value, context) == (
+                        "pool-small"
+                        if configured and event != "fork"
+                        else "ubuntu-26.04"
+                    )
+            for value in job.get("with", {}).values():
+                render_input(value, context)
+            for step in job.get("steps", []):
+                if "resolve-toolchain" in step.get("uses", ""):
+                    resolves += 1
+                    for value in step.get("with", {}).values():
+                        render_input(value, context)
+    assert runs and resolves and predicates
+
+
 def test_context_ambiguity():
     for context in ({"vars": {"x": 1, "X": 2}}, {"vars": {}, "VARS": {}}):
         with pytest.raises(ValueError, match="[Aa]mbiguous"):
@@ -237,6 +293,29 @@ def test_cli_context_errors(tmp_path, contents):
     assert result.returncode == 2
     assert "error:" in result.stderr
     assert "Traceback" not in result.stderr
+
+
+@pytest.mark.parametrize("mutation", ["fork", "reusable"])
+def test_workflow_mutations(tmp_path, monkeypatch, mutation):
+    # Mutate copies, leaving managed workflows untouched. Both must trip the gate.
+    for path in WORKFLOWS.glob("*.yml"):
+        data = yaml.safe_load(path.read_text())
+        if mutation == "fork" and path.name == "sync-issues.yml":
+            job = next(
+                job
+                for job in data["jobs"].values()
+                if "github.event.pull_request" in str(job.get("runs-on", ""))
+            )
+            job["runs-on"] = (
+                "${{ (github.event.pull_request.head.repo.fork && vars.ci_runner_small) || (!github.event.pull_request.head.repo.fork && vars.CI_RUNNER_SMALL) || 'ubuntu-26.04' }}"
+            )
+        if mutation == "reusable" and path.name == "release.yml":
+            job = next(job for job in data["jobs"].values() if "uses" in job)
+            job.setdefault("with", {})["runners"] = "${{ contains('x','x') }}"
+        (tmp_path / path.name).write_text(yaml.safe_dump(data))
+    monkeypatch.setitem(test_shipped_workflows.__globals__, "WORKFLOWS", tmp_path)
+    with pytest.raises(AssertionError if mutation == "fork" else ValueError):
+        test_shipped_workflows("fork", True)
 
 
 @pytest.mark.parametrize(

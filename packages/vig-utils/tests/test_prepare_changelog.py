@@ -2324,3 +2324,168 @@ class TestCLISubprocess:
         first = re.search(r"^## .+$", f.read_text(), re.MULTILINE)
         assert first is not None
         assert first.group(0) == "## Unreleased"
+
+
+class TestUnfreeze:
+    @pytest.mark.parametrize("empty", [False, True])
+    def test_merge_and_repeat(self, tmp_path, empty):
+        from vig_utils.prepare_changelog import unfreeze_changelog
+
+        path = tmp_path / "CHANGELOG.md"
+        current = "" if empty else "- current\n  - shared detail\n"
+        frozen = "" if empty else "- frozen\n  - shared detail\n"
+        path.write_text(
+            "# Custom header\n\n## Unreleased\n\n### Fixed\n\n"
+            + current
+            + "\n## [1.2.3] - TBD\n\n### Added\n\n- added\n\n### Fixed\n\n"
+            + current
+            + frozen
+            + "\n## [1.2.2] - 2026-01-01\n\n### Fixed\n\n- history\n"
+        )
+        assert unfreeze_changelog("1.2.3", path)
+        result = path.read_text()
+        assert "[1.2.3]" not in result
+        assert result.startswith("# Custom header\n\n## Unreleased\n")
+        assert result.count("- added") == 1
+        if not empty:
+            assert result.count("- current") == 1
+            assert result.count("  - shared detail") == 2
+            assert result.index("- current") < result.index("- frozen")
+        assert result.endswith("## [1.2.2] - 2026-01-01\n\n### Fixed\n\n- history\n")
+        assert not unfreeze_changelog("1.2.3", path)
+        assert path.read_text() == result
+
+    @pytest.mark.parametrize("heading", [""])
+    def test_absent_pending_section_is_unchanged(self, tmp_path, heading):
+        from vig_utils.prepare_changelog import unfreeze_changelog
+
+        path = tmp_path / "CHANGELOG.md"
+        original = "## Unreleased\n\n" + heading
+        path.write_text(original)
+        assert not unfreeze_changelog("1.2.3", path)
+        assert path.read_text() == original
+
+    def test_cli(self, tmp_path):
+        path = tmp_path / "CHANGELOG.md"
+        path.write_text("## Unreleased\n\n## [1.2.3] - TBD\n")
+        with patch("sys.argv", ["prepare-changelog", "unfreeze", "1.2.3", str(path)]):
+            main()
+        assert "[1.2.3]" not in path.read_text()
+
+    def test_merge_repeated_categories(self, tmp_path):
+        from vig_utils.prepare_changelog import unfreeze_changelog
+
+        path = tmp_path / "CHANGELOG.md"
+        path.write_text(
+            "## Unreleased\n\n### Fixed\n\n- first\n\n### Added\n\n- added\n\n"
+            "### Fixed\n\n- second\n\n## [1.2.3] - TBD\n\n### Fixed\n\n- third\n"
+        )
+        unfreeze_changelog("1.2.3", path)
+        text = path.read_text()
+        assert text.count("### Fixed") == 1
+        assert text.index("- first") < text.index("- second") < text.index("- third")
+
+    @pytest.mark.parametrize("body", ["- loose\n", "### Unknown\n\n- hidden\n"])
+    def test_malformed_pending_section_is_unchanged(self, tmp_path, body):
+        from vig_utils.prepare_changelog import unfreeze_changelog
+
+        path = tmp_path / "CHANGELOG.md"
+        original = "## Unreleased\n\n## [1.2.3] - TBD\n\n" + body
+        path.write_text(original)
+        with pytest.raises(ValueError, match="outside"):
+            unfreeze_changelog("1.2.3", path)
+        assert path.read_text() == original
+
+    @pytest.mark.parametrize("linked", [False, True])
+    def test_dated_section_is_refused_by_cli(self, tmp_path, linked, capsys):
+        path = tmp_path / "CHANGELOG.md"
+        link = "(https://example.com/release)" if linked else ""
+        original = f"## Unreleased\n\n## [1.2.3]{link} - 2026-01-01\n"
+        path.write_text(original)
+        with (
+            patch("sys.argv", ["prepare-changelog", "unfreeze", "1.2.3", str(path)]),
+            pytest.raises(SystemExit) as error,
+        ):
+            main()
+        assert error.value.code == 1
+        assert "released" in capsys.readouterr().err.lower()
+        assert path.read_text() == original
+
+    def test_crlf_and_history_are_preserved(self, tmp_path):
+        from vig_utils.prepare_changelog import unfreeze_changelog
+
+        path = tmp_path / "CHANGELOG.md"
+        history = b"## [1.2.2] - 2026-01-01\r\n\r\n### Fixed\r\n\r\n- old\r\n"
+        path.write_bytes(
+            b"## Unreleased\r\n\r\n### Fixed\r\n\r\n- current\r\n\r\n"
+            b"## [1.2.3] - TBD\r\n\r\n### Fixed\r\n\r\n- pending\r\n\r\n" + history
+        )
+        assert unfreeze_changelog("1.2.3", path)
+        result = path.read_bytes()
+        assert b"- pending\r\n" in result
+        assert b"\n" not in result.replace(b"\r\n", b"")
+        assert result.endswith(history)
+        assert not unfreeze_changelog("1.2.3", path)
+        assert path.read_bytes() == result
+
+    @pytest.mark.parametrize(
+        "where,body",
+        [
+            ("Unreleased", "A preamble.\n\n### Fixed\n\n- current\n"),
+            ("Unreleased", "<!-- retain this -->\n\n### Fixed\n\n- current\n"),
+            ("[1.2.3]", "### Other\n\nImportant release prose.\n"),
+            ("[1.2.3]", "### Fixed\n\nIntroductory prose.\n\n- pending\n"),
+            ("[1.2.3]", "- loose\n"),
+        ],
+    )
+    def test_unhandled_content_is_refused_with_section_name(
+        self, tmp_path, where, body
+    ):
+        from vig_utils.prepare_changelog import unfreeze_changelog
+
+        path = tmp_path / "CHANGELOG.md"
+        current = body if where == "Unreleased" else ""
+        pending = body if where != "Unreleased" else ""
+        original = f"## Unreleased\n\n{current}\n## [1.2.3] - TBD\n\n{pending}"
+        path.write_text(original)
+        with pytest.raises(ValueError, match=re.escape(where + " section")):
+            unfreeze_changelog("1.2.3", path)
+        assert path.read_text() == original
+
+    def test_entries_keep_blank_line_separation(self, tmp_path):
+        from vig_utils.prepare_changelog import unfreeze_changelog
+
+        path = tmp_path / "CHANGELOG.md"
+        path.write_text(
+            "## Unreleased\n\n### Fixed\n\n- current\n\n"
+            "## [1.2.3] - TBD\n\n### Fixed\n\n- pending\n"
+        )
+        unfreeze_changelog("1.2.3", path)
+        assert "- current\n\n- pending\n" in path.read_text()
+
+    @pytest.mark.parametrize(
+        "newline,history_newline", [("\r\n", "\n"), ("\n", "\r\n")]
+    )
+    def test_other_release_line_endings_are_untouched(
+        self, tmp_path, newline, history_newline
+    ):
+        from vig_utils.prepare_changelog import unfreeze_changelog
+
+        path = tmp_path / "CHANGELOG.md"
+        pending = (
+            (
+                "## Unreleased\n\n### Fixed\n\n- current\n\n"
+                "## [1.2.3] - TBD\n\n### Fixed\n\n- pending\n\n"
+            )
+            .replace("\n", newline)
+            .encode()
+        )
+        history = "## [1.2.2] - 2026-01-01\n\n### Fixed\n\n- old\n".replace(
+            "\n", history_newline
+        ).encode()
+        path.write_bytes(pending + history)
+        unfreeze_changelog("1.2.3", path)
+        result = path.read_bytes()
+        assert result.endswith(history)
+        restored = result[: -len(history)]
+        assert f"- current{newline}{newline}- pending{newline}".encode() in restored

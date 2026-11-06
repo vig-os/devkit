@@ -179,6 +179,19 @@ def _load_jsonc(path: Path) -> dict:
     return json.loads(body)
 
 
+def disable_git_auto_maintenance(repo: Path) -> None:
+    """Keep fixture git objects stable during clones, copies and walks (#1815).
+
+    Commits can spawn detached auto-maintenance that repacks and deletes loose
+    objects while another process reads them. Configure each fixture repository
+    before committing; both modern maintenance and legacy auto-gc are disabled.
+    """
+    for key, value in (("maintenance.auto", "false"), ("gc.auto", "0")):
+        subprocess.run(
+            ["git", "-C", str(repo), "config", "--local", key, value], check=True
+        )
+
+
 def scaffold_files(root: Path, excluded_dirs=()) -> list[Path]:
     """List the regular files of a scaffolded workspace, skipping ``.git/``.
 

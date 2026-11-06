@@ -19,17 +19,10 @@
 # This collapses the former per-mode ci.yml overlays (container / direnv / bare)
 # into a single managed file (#991).
 #
-# Runner selection (#1173): `resolve-toolchain` also emits `runner-json`, a JSON
-# array of runner labels from the optional `.vig-os` key `DEVKIT_CI_RUNNER`
-# (comma-separated; absent => the hosted default). The toolchain jobs (lint,
-# test, commit-checks) and the summary gate declare
-# `runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}`, so a
-# self-hosted consumer routes them onto its own runners without hand-editing this
-# managed file. `resolve-toolchain` itself cannot consume `runner-json` (it
-# produces the output — chicken-and-egg); its runner comes from the optional
-# repo/org variable `DEVKIT_CI_RESOLVE_RUNNER` instead, since `vars` resolves
-# before any runner exists (#1796). `dependency-review` stays hosted
-# (public-repo-only, toolchain-free, and reads GitHub's dependency-graph API).
+# Runner selection: resolve-toolchain validates CI_RUNNER_* variables and applies
+# the fork predicate before exposing class and lane label arrays as `runners`.
+# Every lane defaults to SMALL. runner-json remains a compatibility alias.
+# See https://github.com/vig-os/devkit/blob/dev/docs/rfcs/ADR-site-agnostic-projects.md.
 #
 # Dev-shell gcroot (#1601): those same three lanes pass the resolved
 # `dev-profile-path` (from the optional `.vig-os` key DEVKIT_DEV_PROFILE_PATH)
@@ -98,12 +91,14 @@ permissions:
 jobs:
   resolve-toolchain:
     name: Resolve toolchain
-    runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
+    runs-on: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
     timeout-minutes: 2
     outputs:
       mode: ${{ steps.resolve.outputs.mode }}
       image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
+      runners: ${{ steps.resolve.outputs.runners }}
+      runner-sources: ${{ steps.resolve.outputs.runner-sources }}
       runner-json: ${{ steps.resolve.outputs.runner-json }}
       # Dev-shell gcroot (#1601): re-export the vetted DEVKIT_DEV_PROFILE_PATH
       # so the toolchain lanes — the ones runner-json can move onto a
@@ -141,11 +136,19 @@ jobs:
             Cargo.toml
             flake.nix
           sparse-checkout-cone-mode: false
+          # Own path: on a persistent runner the sparse clone must not occupy the
+          # shared workspace root later jobs reuse (#1860).
+          path: .devkit-resolve
 
       - name: Resolve toolchain
         id: resolve
-        uses: ./.github/actions/resolve-toolchain
+        uses: ./.devkit-resolve/.github/actions/resolve-toolchain
         with:
+          runner-small: ${{ vars.CI_RUNNER_SMALL }}
+          runner-large: ${{ vars.CI_RUNNER_LARGE }}
+          runner-xlarge: ${{ vars.CI_RUNNER_XLARGE }}
+          legacy-resolve-runner: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER }}
+          working-directory: .devkit-resolve
           registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
           registry-username: ${{ github.actor }}
           image-tag: ${{ inputs.image-tag }}
@@ -171,6 +174,7 @@ jobs:
       # The declared list reaches the shell via env, never inline `${{ }}` (the
       # zizmor template-injection gate / #1279 env-routing pattern).
       - name: Check declared languages
+        working-directory: .devkit-resolve
         env:
           LANGUAGES: ${{ steps.resolve.outputs.languages }}
         run: |
@@ -199,7 +203,7 @@ jobs:
             if [[ -f "$marker" ]]; then
               echo "Declared language '$lang': $marker present."
             else
-              echo "::error::Declared language '$lang' but $marker is missing from the repository root."
+              echo "::error::Declared language '$lang' but $marker is missing from the resolved checkout (.devkit-resolve)."
               MISSING+=("$lang ($marker)")
             fi
           done
@@ -222,6 +226,7 @@ jobs:
       # A dispatch that reroutes the image makes image-tag diverge from .vig-os;
       # PR runs never set it.
       - name: Check flake pin lockstep
+        working-directory: .devkit-resolve
         if: ${{ !inputs.image-tag }}
         env:
           MODE: ${{ steps.resolve.outputs.mode }}
@@ -256,7 +261,7 @@ jobs:
   lint:
     name: Lint & Format
     needs: [resolve-toolchain]
-    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runners).lint }}
     # Empty image (direnv/bare) => runs on the host; non-empty => in-container.
     # The credentials block is inert on the host (proven by the #992 spike).
     container:
@@ -297,7 +302,7 @@ jobs:
   test:
     name: Tests
     needs: [resolve-toolchain]
-    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runners).test }}
     container:
       image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
@@ -338,7 +343,7 @@ jobs:
   commit-checks:
     name: Commit Messages
     needs: [resolve-toolchain]
-    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runners).small }}
     container:
       image: ${{ needs.resolve-toolchain.outputs.image }}
       credentials:
@@ -470,6 +475,14 @@ jobs:
   # .vig-os DEVKIT_VERSION line stable (the image's baked full version would
   # otherwise rewrite a floating pin and read as spurious drift).
   #
+  # direnv mode is Docker-free (#1861): there the pinned scaffold runs straight
+  # from the devkit flake source (`nix flake prefetch` -> its `assets/`) in a
+  # scratch clone under RUNNER_TEMP, with the image's two bake-time steps
+  # (the image-tag placeholder -> pin, the VERSION file) replayed, so no container runtime
+  # is needed on the runner. `install.sh` / `nix run ...#install` cannot be used
+  # for this: they `docker|podman run` the image themselves. The container path
+  # above stays as-is for devcontainer / both / bare.
+  #
   # Cost control: PRs only (the ~1.5 GiB image pull). A single workflow cannot
   # apply a per-job `paths` filter, so the job rides the same pull_request-only
   # gate as commit-checks/dependency-review; the DEVKIT_DRIFT_CHECK knob
@@ -477,7 +490,7 @@ jobs:
   scaffold-drift:
     name: Scaffold Drift
     needs: [resolve-toolchain]
-    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runners).small }}
     timeout-minutes: 15
     if: >-
       github.event_name == 'pull_request' &&
@@ -489,10 +502,84 @@ jobs:
         with:
           persist-credentials: false
 
+      # direnv mode: Nix (plus git/jq/rsync from the repo dev-shell) comes from
+      # the shared preamble; the other modes need no host toolchain here.
+      - name: Set up devkit toolchain
+        if: needs.resolve-toolchain.outputs.mode == 'direnv'
+        uses: ./.github/actions/setup-devkit-toolchain
+        with:
+          mode: ${{ needs.resolve-toolchain.outputs.mode }}
+          devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          dev-profile-path: ${{ needs.resolve-toolchain.outputs.dev-profile-path }}
+
+      # Same diff, no container (#1861). The pin's flake source is fetched by
+      # nix (read-only store path), its assets copied writable into a scratch
+      # dir, and init-workspace.sh run against a scratch CLONE of the checkout
+      # (never the workspace itself, so a persistent runner's tree is untouched
+      # and nothing is root-owned). The scratch dir is removed on exit.
+      - name: Check for scaffold drift (nix)
+        if: needs.resolve-toolchain.outputs.mode == 'direnv'
+        env:
+          IMAGE_TAG: ${{ needs.resolve-toolchain.outputs.image-tag }}
+          CONSUMER_REPOSITORY: ${{ github.repository }}
+          # Authenticated fetch of the pin's flake source: an anonymous
+          # github: fetch on a self-hosted runner shares one IP's API rate limit.
+          NIX_CONFIG: |
+            access-tokens = github.com=${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$IMAGE_TAG" ]]; then
+            echo "::error::Could not resolve DEVKIT_VERSION from .vig-os — cannot run the scaffold-drift check."
+            exit 1
+          fi
+          # The tag reaches a flake ref and a sed replacement: allow only the
+          # release-tag charset so it can neither break the substitution nor the ref.
+          if [[ ! "$IMAGE_TAG" =~ ^[0-9A-Za-z._-]+$ ]]; then
+            echo "::error::DEVKIT_VERSION '$IMAGE_TAG' is not a release tag (expected [0-9A-Za-z._-]+) — cannot run the scaffold-drift check."
+            exit 1
+          fi
+
+          scratch="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/devkit-drift.XXXXXX")"
+          trap 'chmod -R u+w "$scratch" 2>/dev/null || true; rm -rf "$scratch"' EXIT
+
+          echo "Fetching devkit ${IMAGE_TAG} via nix"
+          src="$(nix flake prefetch --json "github:vig-os/devkit/${IMAGE_TAG}" | jq -er .storePath)"
+          cp -R "$src/assets" "$scratch/assets"
+          chmod -R u+w "$scratch/assets"
+          # Replay the image's bake steps (flake.nix `bootstrap`): stamp the pin
+          # into the scaffolded .vig-os and record the built tag.
+          sed "s/[{][{]IMAGE_TAG[}][}]/${IMAGE_TAG}/g" "$scratch/assets/workspace/.vig-os" > "$scratch/vig-os.stamped"
+          mv "$scratch/vig-os.stamped" "$scratch/assets/workspace/.vig-os"
+          printf '%s\n' "$IMAGE_TAG" > "$scratch/assets/VERSION"
+
+          git clone --quiet "$GITHUB_WORKSPACE" "$scratch/workspace"
+
+          # `bash <script>`, not the shebang: it is /bin/bash, absent on NixOS runners
+          # and bash 3.2 on macOS, while PATH's bash (dev-shell) is current.
+          VIG_OS_VERSION="$IMAGE_TAG" \
+          GITHUB_REPOSITORY="$CONSUMER_REPOSITORY" \
+          TEMPLATE_DIR="$scratch/assets/workspace" \
+          VERSION_FILE="$scratch/assets/VERSION" \
+          WORKSPACE_DIR="$scratch/workspace" \
+            bash "$scratch/assets/init-workspace.sh" --force --no-prompts
+
+          cd "$scratch/workspace"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No scaffold drift detected — managed files match devkit ${IMAGE_TAG}."
+            exit 0
+          fi
+          echo "::error::Scaffold drift detected: the working tree diverges from what devkit ${IMAGE_TAG} would scaffold. Re-run the devkit upgrade (install.sh --force) and commit the result, or set DEVKIT_DRIFT_CHECK=false in .vig-os to opt out."
+          git --no-pager diff --cached
+          exit 1
+
       # All ${{ }} values reach the shell via env (never inline in run:), per the
       # zizmor template-injection gate. The inner `docker run` script is a
       # single-quoted literal — it reads only the -e env it is handed.
       - name: Check for scaffold drift
+        if: needs.resolve-toolchain.outputs.mode != 'direnv'
         env:
           IMAGE: ${{ needs.resolve-toolchain.outputs.drift-image }}
           IMAGE_TAG: ${{ needs.resolve-toolchain.outputs.image-tag }}
@@ -547,7 +634,7 @@ jobs:
   devkit-staleness:
     name: Devkit staleness
     needs: [resolve-toolchain]
-    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runners).small }}
     timeout-minutes: 5
     if: github.event_name == 'pull_request'
     permissions:
@@ -652,12 +739,12 @@ jobs:
       mode: ${{ needs.resolve-toolchain.outputs.mode }}
       image: ${{ needs.resolve-toolchain.outputs.image }}
       image-tag: ${{ needs.resolve-toolchain.outputs.image-tag }}
-      runner-json: ${{ needs.resolve-toolchain.outputs.runner-json }}
+      runner-json: ${{ toJSON(fromJSON(needs.resolve-toolchain.outputs.runners).extension) }}
     secrets: inherit
 
   summary:
     name: CI Summary
-    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runner-json) }}
+    runs-on: ${{ fromJSON(needs.resolve-toolchain.outputs.runners).small }}
     timeout-minutes: 5
     needs:
       [

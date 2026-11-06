@@ -141,6 +141,39 @@ gh pr create --base dev --head chore/<short-summary>
 
 ## Release Workflow Overview
 
+API file commits pin `BASE_SHA` to the SHA recorded immediately after the relevant
+checkout, before generating files. This applies to prepare, rollback, hotfix,
+finalization, extension hooks, issue snapshots, sync conflict resolution and
+lock updates in devkit and the consumer workflows. Capture steps run
+unconditionally or use a condition that also gates the commit, so a commit
+cannot normally run after a skipped capture. Immediately before every API file
+commit, a runtime guard checks the same `BASE_SHA` input and fails if it is empty,
+including when a capture was skipped because a referenced output did not exist
+yet. A failed SHA capture also stops the job. If the
+target advances before the API commit, the update fails rather
+than replacing concurrent changes with stale files; rerun from a fresh checkout
+after reviewing the failed phase and any partial release state. Prepare also
+uses that checkout SHA as its rollback baseline. A rejected freeze cannot trigger
+a changelog restore: rollback requires the exact SHA exported by the successful
+freeze action, and restores only while dev still equals that SHA. An empty
+freeze SHA or subsequent dev update skips restoration with a diagnostic; the
+pinned rollback commit also rejects updates arriving after that check. This
+keeps an earlier checkout baseline from undoing changes the run did not write.
+Both workflow copies export the freeze action’s `commit-sha` directly; the
+consumer visibility wait accepts only that exact SHA, never a concurrent tip.
+If the freeze target has advanced, rollback preserves it and reports that manual
+review of the release branch may be needed.
+Newly created or reset branches use their source checkout SHA; the extension fallback records dev after its
+second checkout, and sync records the newly checked-out sync branch.
+A capture that directly follows `actions/checkout` reads the action's `commit`
+output and runs no git: in a `container:` job, git refuses the workspace
+("dubious ownership") until `setup-devkit-toolchain` marks it a
+`safe.directory`, and the capture runs before that step. The extension fallback
+and sync captures follow a later manual checkout, so they record that new HEAD with `git rev-parse` and run after
+the toolchain setup. `tests/test_workflow_checkout_sha.py` fails if any
+container job runs git before its safe-directory setup
+([#2055](https://github.com/vig-os/devkit/issues/2055)).
+
 ### Release Lifecycle
 
 ```mermaid
@@ -208,6 +241,33 @@ This section applies to **`vig-os/devcontainer`** (this repo) and, for matching 
 - CHANGELOG Unreleased section has content
 - No other `release/*` branch exists — the `validate` job refuses to cut a second train (single-train policy, [#1627](https://github.com/vig-os/devkit/issues/1627)); promote or abandon the other one first
 - Every hook added to the scaffold since the last release has its row in `inserted_hook_blocks()` (`assets/init-workspace.sh`), and every row's version is the one being cut. A consumer with a preserved `.pre-commit-config.yaml` receives a new hook only through that table (`'<first release shipping it> <hook id> [feature group]'`), and the version is a literal nothing else checks: trains have been renamed mid-flight before, and a stale number either under-inserts (safe) or re-adds a hook a consumer deleted (the [#1651](https://github.com/vig-os/devkit/issues/1651) defect). Add or fix rows on the release branch, with `tests/test_scaffold_preserved_hooks.py` updated to match ([#1660](https://github.com/vig-os/devkit/issues/1660), [#1717](https://github.com/vig-os/devkit/issues/1717))
+
+The **Consumer Matrix** CI job runs every cell listed by
+`scripts/consumer-matrix/render-cell.sh list` against the current checkout's
+scaffold. Before release N, its runner migration cells prove:
+
+- `runner-key-only`: the legacy key still selects runners, with the complete
+  actionable deprecation warning in the CI log.
+- `ci-runner`: variables alone select SMALL/LARGE/XLARGE, with no legacy warning.
+  Managed workflow inputs and job runners are evaluated for same-repository
+  and fork PRs. Override the generic fixture labels with `CONSUMER_MATRIX_RUNNER_LABEL`,
+  `CONSUMER_MATRIX_RUNNER_LARGE`, and `CONSUMER_MATRIX_RUNNER_XLARGE`.
+- `runner-gitflow`: local `dev` is ahead of `main`; N adoption replays the upgrade and
+  PR-body steps in separate shells via the shared replay helper, evaluating
+  their own environment blocks from immutable tag `1.18.0` through the current installer,
+  targets `dev`, keeps the key, and omits
+  the migration section. The adoption's rendered resolver emits the full
+  warning independently of the old body builder.
+
+Move the pre-N tag forward only when the oldest supported pre-N release
+changes. CI fetches it explicitly; local runs fail if it is missing. A second
+adoption supplies N's migration environment and checks key removal and stock
+seeded-hook reconciliation through the installer's container boundary.
+
+Download, container execution, and PR API calls use local adapters that reject
+unrecognised commands. These cells execute rendered scripts locally; they do not schedule work on
+self-hosted runners. A live consumer run remains a release gate coordinated
+after merge. The matrix does not depend on the unmerged S6/S7b work.
 
 **Execute:**
 
@@ -903,7 +963,7 @@ gh workflow run prepare-release.yml --ref dev -f "version=1.0.0" -f "dry-run=tru
 - Audit trail in GitHub Actions logs
 - No dependency on local developer environment
 - Dispatch is pinned to `dev` (`--ref dev`) so workflow behavior matches the development branch
-- On failure, rollback removes partial release branch state and restores `CHANGELOG.md` on `dev`
+- On failure, rollback removes partial release branch state. It restores `CHANGELOG.md` on `dev` only when the freeze action exported its commit SHA and dev still equals that exact SHA
 
 #### release.yml (Unified Release Workflow)
 
@@ -1246,6 +1306,22 @@ git branch -D release/X.Y.Z
 gh pr close <PR_NUMBER>
 ```
 
+#### Recovering a manually merged release PR
+
+Don't merge the release PR by hand; let `promote-release` merge it after validation.
+If it happened, dispatch promote-release from main or dev, even if the release
+branch was deleted:
+
+```bash
+gh workflow run promote-release.yml --ref dev -f version=X.Y.Z
+```
+
+Recovery requires exactly one merged release PR, approval on its final head,
+and both its merge commit and the release tag to be ancestors of main.
+Closed unmerged or ambiguous PRs are refused. All other promotion checks still
+apply. The merge job reports who merged the PR and when, skips the duplicate
+merge, and succeeds so cleanup runs.
+
 #### Abandoning a Finalized Release (before promote)
 
 Rejecting a release at the promote gate — after finalize has already created
@@ -1262,6 +1338,27 @@ GitHub Release by id, deletes the `X.Y.Z` tag, closes the release PR with an
 audit comment, and deletes `release/X.Y.Z`. Every step is idempotent, so a
 partially failed run is simply re-dispatched. The version number remains
 available for a re-cut.
+
+For a regular gitflow train, abandon also runs `prepare-changelog unfreeze X.Y.Z`
+on dev, merging the pending `## [X.Y.Z] - TBD` entries into Unreleased by
+category, retaining entry order and removing duplicate entries. It re-syncs the
+workspace mirror and commits both files through the same signed, verified
+Commit App API path as prepare-release. Both workflows capture the checkout SHA
+immediately after checkout and pass it as `BASE_SHA`: the API commit uses that
+parent and a non-forced ref update. If dev advances concurrently, the update
+fails instead of overwriting entries; rerun abandonment from a fresh checkout.
+Missing sections are a no-op, including re-runs and hotfix trains, which never
+froze dev. A dated release section is refused with a non-zero exit code.
+Repeated categories are combined and entries keep blank-line separation. The
+command preserves LF or CRLF line endings and leaves other release sections
+unchanged. Bullets outside recognised categories, unknown headings, and prose
+or comments before categories or their entries fail without rewriting the file.
+Correct the reported section layout and rerun abandon. Consumer gitflow
+workflows use the same command; trunk workflows skip dev restoration.
+
+```bash
+uv run prepare-changelog unfreeze X.Y.Z [CHANGELOG.md]
+```
 
 **Draft-only, enforced server-side:** the workflow hard-refuses when the
 `X.Y.Z` Release is already **published** — deleting a published release

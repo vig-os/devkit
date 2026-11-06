@@ -31,12 +31,9 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 from . import nix_helpers
 from .nix_helpers import REPO_ROOT
@@ -318,31 +315,73 @@ def test_node_module_rejects_unknown_option(current_system: str) -> None:
 
 # ---------------------------------------------------------------------------
 # docs module (#1178) — the document-edition capability. v1 contract (packages
-# only): `typst` and `typstyle` on the dev-shell PATH so a document-oriented
-# consumer (exo-pet/vault, future qms, EXOMA presentations/grants) opts in with
-# `modules = [ "docs" ]` instead of a PyPI typst pin. No version option in v1 —
-# nixpkgs carries a single typst per pin and the module tracks that pin. See
+# only): the unstable Typst toolchain on the dev-shell PATH for document-oriented
+# consumers opting in with `modules = [ "docs" ]`. No version option in v1. See
 # docs/rfcs/ADR-capability-modules.md. #1573 adds the reading side of the same
 # capability (`poppler-utils`); OCR stays deliberately out (see that test).
 # ---------------------------------------------------------------------------
 
 
-def test_docs_module_provides_typst_and_typstyle(current_system: str) -> None:
-    """The ``docs`` module puts ``typst`` and ``typstyle`` on PATH (#1178).
+def test_docs_toolchain_tracks_unstable(current_system: str) -> None:
+    """All docs entry points use the same unstable Typst minor (#1993)."""
+    expr = f"""
+    let
+      flake = builtins.getFlake "path:{REPO_ROOT}";
+      system = "{current_system}";
+      pkgs = import flake.inputs.nixpkgs {{
+        inherit system;
+        overlays = [ flake.overlays.default ];
+        config.allowUnfree = true;
+      }};
+      unstable = import flake.inputs.nixpkgs-unstable {{ inherit system; }};
+      names = [ "typst" "typstyle" "tinymist" ];
+      describe = p: let upstream = p.unwrapped or p; in {{ inherit (upstream) pname version drvPath; }};
+      select = packages: map describe
+        (builtins.filter (p: builtins.elem (p.pname or "") names) packages);
+    in {{
+      unstable = map (name: describe unstable.${{name}}) names;
+      overlay = map (name: describe pkgs.${{name}}) names;
+      module = select ((import (flake.outPath + "/nix/modules/docs.nix")) pkgs {{}}).packages;
+      shell = select (flake.lib.mkProjectShell {{
+        inherit pkgs;
+        modules = [ "docs" ];
+      }}).nativeBuildInputs;
+      check = select flake.checks.${{system}}.module-docs.nativeBuildInputs;
+    }}
+    """
+    result = subprocess.run(
+        ["nix", "eval", "--impure", "--json", "--expr", expr],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stderr
+    paths = json.loads(result.stdout)
+    expected = {p["pname"]: p for p in paths.pop("unstable")}
+    assert len({".".join(p["version"].split(".")[:2]) for p in expected.values()}) == 1
+    for entry, packages in paths.items():
+        assert {p["pname"]: p for p in packages} == expected, (
+            f"{entry} must provide all three tools from unstable: {packages!r}"
+        )
+
+
+def test_docs_module_provides_typst_typstyle_and_tinymist(current_system: str) -> None:
+    """The ``docs`` module puts the Typst toolchain on PATH (#1178, #1993).
 
     The plain-string ``modules = [ "docs" ]`` form (exercised through the
     registry-generated ``module-docs`` check — which is also the proof the
-    registry resolves the name) contributes the nixpkgs-pinned ``typst`` and
-    ``typstyle``; both must resolve from the shell's own PATH, not the host's.
+    registry resolves the name) contributes unstable ``typst``, ``typstyle``,
+    and ``tinymist``; all must resolve from the shell's own PATH, not the host's.
     """
     proc = _develop_module(
         current_system,
         "docs",
-        "command -v typst && command -v typstyle "
-        "&& typst --version && typstyle --version",
+        "command -v typst && command -v typstyle && command -v tinymist "
+        "&& typst --version && typstyle --version && tinymist --version",
     )
     assert proc.returncode == 0, (
-        "docs-module devshell is missing typst/typstyle: "
+        "docs-module devshell is missing typst/typstyle/tinymist: "
         f"rc={proc.returncode} stdout={proc.stdout.strip()!r} "
         f"stderr={proc.stderr.strip()[:300]}"
     )
@@ -352,8 +391,7 @@ def test_docs_module_provides_poppler_utils(current_system: str) -> None:
     """The ``docs`` module puts ``pdftotext`` and ``pdftoppm`` on PATH (#1573).
 
     ``typst``/``typstyle`` cover writing documents; ``poppler-utils`` covers
-    *reading* them, which every named ``docs`` consumer needs (exo-pet/vault's
-    corpus is largely vendor PDFs, and qms/EXOMA share that profile).
+    *reading* them, which document-oriented consumers need.
     ``pdftoppm`` is the concrete blocker: it is what an agent's file reader
     shells out to in order to render a PDF page, so without it a ``docs``
     consumer cannot open a PDF at all. Both binaries must resolve from the
@@ -362,8 +400,7 @@ def test_docs_module_provides_poppler_utils(current_system: str) -> None:
     OCR (``tesseract`` at 1.11 GB, ``ocrmypdf`` at 1.68 GB) is deliberately NOT
     here — it would charge every ``docs`` consumer an order of magnitude more
     than ``poppler-utils``' 139 MB for a capability most never use; it stays
-    repo-local until a second consumer justifies its own module
-    (exo-pet/vault#70).
+    repo-local until a dedicated capability is justified.
     """
     proc = _develop_module(
         current_system,
@@ -983,6 +1020,67 @@ def test_mk_rust_project_accepts_crane_args_and_the_deprecated_alias(
         )
 
 
+def test_mk_rust_project_forwards_the_vig_os_hook_knobs(tmp_path: Path) -> None:
+    """The ``.vig-os`` hook knobs reach the Rust dev shell's hooks (#1810).
+
+    The scaffolded flake reads ``branchTypes`` / ``commitTypes`` /
+    ``refsPolicy`` / ``refsOptionalTypes`` from ``.vig-os`` and hands them to
+    ``mkProjectShell``. ``mkRustProject`` builds its shell through
+    ``mkProjectShell`` but did not accept them, so a Rust repo had to drop
+    them. Its ``DEVKIT_*`` settings then silently stopped reaching the branch
+    guard and the commit-message hook, and the unused bindings failed
+    deadnix on the first commit.
+
+    Asserted on the RENDERED config, not on argument acceptance: an argument
+    that is accepted but never forwarded is exactly the silent drop this
+    guards against.
+    """
+    src = _minimal_crate(tmp_path)
+    expr = _mk_rust_project_expr(
+        src,
+        "rust.devShell.hooksConfigFile",
+        extra="""
+        hooks = { };
+        branchTypes = [ "feature" "bugfix" "record" ];
+        commitTypes = [
+          "feat" "fix" "docs" "chore" "refactor" "perf" "test" "ci" "build"
+          "revert" "style" "record"
+        ];
+        refsPolicy = "required";
+        refsOptionalTypes = [ "chore" "record" ];
+        """,
+    )
+    result = subprocess.run(
+        ["nix", "build", "--impure", "--no-link", "--print-out-paths", "--expr", expr],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=1800,
+    )
+    assert result.returncode == 0, result.stderr[-1500:]
+    config_text = Path(result.stdout.strip()).read_text()
+    # JSON preceded by "# …" comment lines (see test_flake_hooks.py).
+    config = json.loads(
+        "\n".join(ln for ln in config_text.splitlines() if not ln.startswith("#"))
+    )
+    hooks = {h["id"]: h for repo in config["repos"] for h in repo["hooks"]}
+
+    def arg(hook_id: str, flag: str) -> str:
+        args = hooks[hook_id]["args"]
+        return args[args.index(flag) + 1]
+
+    assert arg("validate-commit-msg", "--types").endswith(",record"), (
+        "commitTypes must reach validate-commit-msg"
+    )
+    assert arg("validate-commit-msg", "--refs-optional-types") == "chore,record", (
+        "refsOptionalTypes (over refsPolicy) must reach validate-commit-msg"
+    )
+    branch_hook = next(h for i, h in hooks.items() if "branch" in i)
+    assert "record" in " ".join(branch_hook["args"]), (
+        "branchTypes must reach the branch guard"
+    )
+
+
 # ---------------------------------------------------------------------------
 # guardrails module (#1488) — the semantic-gate capability. Unlike `rust`, it
 # contributes `packages` ONLY: hook ENTRIES are a scaffold concern (#1492), so
@@ -1058,3 +1156,113 @@ def test_guardrails_rejects_an_unknown_option() -> None:
     assert "frobnicate" in result.stderr and "guardrails module" in result.stderr, (
         f"error must name the option and the module; got: {result.stderr[-500:]}"
     )
+
+
+def _crate_with_a_sandbox_hostile_test(root: Path) -> Path:
+    """A crate whose ``needs_a_pty`` test always fails, standing in for one
+    the Nix sandbox cannot run (PTY, signals, process groups)."""
+    _minimal_crate(root)
+    (root / "src" / "lib.rs").write_text(
+        "pub fn answer() -> u8 { 42 }\n\n"
+        "#[cfg(test)]\nmod tests {\n"
+        "    #[test]\n    fn answers() { assert_eq!(super::answer(), 42); }\n"
+        '    #[test]\n    fn needs_a_pty() { panic!("no PTY in the sandbox"); }\n'
+        "}\n"
+    )
+    return root
+
+
+def _build_nextest(src: Path, extra: str = "") -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            "nix",
+            "build",
+            "--impure",
+            "--no-link",
+            "--expr",
+            _mk_rust_project_expr(src, "rust.checks.nextest", extra=extra),
+        ],
+        capture_output=True,
+        text=True,
+        env=_nix_env(),
+        timeout=1800,
+    )
+
+
+def test_mk_rust_project_sandbox_excludes_skip_tests_in_the_nextest_check(
+    tmp_path: Path,
+) -> None:
+    """``sandboxExcludes`` keeps sandbox-hostile tests out of ``checks.nextest`` (#1834).
+
+    Suites that need a PTY, process groups or signals cannot pass inside the
+    Nix build sandbox. Before the seam, the only ways out were
+    ``nextest = false`` (which also drops every test that would have run) or an
+    undocumented ``craneArgs`` patch.
+
+    Built, not just evaluated: the exclusion is a nextest filterset, and only
+    nextest itself can say whether the expression actually matches. The
+    control run without the exclusion must FAIL, otherwise the passing run
+    proves nothing about the filter.
+    """
+    src = _crate_with_a_sandbox_hostile_test(tmp_path)
+
+    control = _build_nextest(src)
+    assert control.returncode != 0, (
+        "the fixture's needs_a_pty test must fail without an exclusion, or the "
+        "excluded run below proves nothing"
+    )
+    assert "needs_a_pty" in control.stderr, (
+        "the control run must fail ON the hostile test, not on something "
+        f"unrelated; got: {control.stderr[-1500:]}"
+    )
+
+    excluded = _build_nextest(src, extra='sandboxExcludes = [ "test(needs_a_pty)" ];')
+    assert excluded.returncode == 0, (
+        "checks.nextest must skip tests matched by sandboxExcludes; got: "
+        f"{excluded.stderr[-1500:]}"
+    )
+
+
+def test_mk_rust_project_sandbox_excludes_compose_with_crane_args(
+    tmp_path: Path,
+) -> None:
+    """A consumer's own ``cargoNextestExtraArgs`` survives ``sandboxExcludes`` (#1834).
+
+    ``craneArgs`` is the documented escape hatch, so the exclusion filter must
+    be appended to whatever nextest args it carries, never assigned over them.
+    """
+    src = _minimal_crate(tmp_path)
+    result = _nix_eval_expr(
+        _mk_rust_project_expr(
+            src,
+            "rust.checks.nextest.drvAttrs.checkPhase",
+            extra=(
+                'sandboxExcludes = [ "test(needs_a_pty)" "binary(supervisor)" ];\n'
+                'craneArgs = { cargoNextestExtraArgs = "--no-fail-fast"; };'
+            ),
+        )
+    )
+    assert result.returncode == 0, result.stderr[-1500:]
+    command = result.stdout
+    assert "--no-fail-fast" in command, (
+        f"the consumer's own nextest args must survive; got {command!r}"
+    )
+    assert "not (test(needs_a_pty)) and not (binary(supervisor))" in command, (
+        f"every exclusion must reach the nextest filter; got {command!r}"
+    )
+
+
+def test_mk_rust_project_rejects_a_malformed_sandbox_excludes(tmp_path: Path) -> None:
+    """A non-list or an empty entry fails eval with the argument named (#1834)."""
+    src = _minimal_crate(tmp_path)
+    for bad in ('"test(needs_a_pty)"', '[ "" ]'):
+        result = _nix_eval_expr(
+            _mk_rust_project_expr(
+                src, "rust.checks.nextest.drvPath", extra=f"sandboxExcludes = {bad};"
+            )
+        )
+        assert result.returncode != 0, f"sandboxExcludes = {bad} must be refused"
+        assert "sandboxExcludes must be" in result.stderr, (
+            "the error must name the argument and say what it takes; "
+            f"got: {result.stderr[-800:]}"
+        )

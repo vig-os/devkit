@@ -576,8 +576,10 @@ PYPROJECT_EOF"""
             assert host.file(lockfile_path).exists, "uv.lock file was not created"
             assert host.file(venv_path).is_directory, ".venv directory was not created"
 
-            # Step 3: Run uv add with a lightweight package (typing-extensions is very lightweight)
+            # Step 3: Add a lightweight package; it may also be a toolchain dependency.
             package_name = "typing-extensions"
+            system_import = "python3 -c 'import typing_extensions; print(typing_extensions.__file__)'"
+            system_before = host.run(system_import)
             result = host.run(
                 f"cd {test_dir} && UV_PROJECT_ENVIRONMENT= uv add {package_name}"
             )
@@ -596,19 +598,21 @@ PYPROJECT_EOF"""
             # Verify the package is installed in venv (not system-wide)
             # Use uv run to execute in the venv context
             result = host.run(
-                f"cd {test_dir} && UV_PROJECT_ENVIRONMENT= uv run python -c 'import {package_name.replace('-', '_')}; print(\"OK\")'"
+                f"cd {test_dir} && UV_PROJECT_ENVIRONMENT= uv run python -c 'import {package_name.replace('-', '_')}; print(\"OK\", typing_extensions.__file__)'"
             )
             assert result.rc == 0, (
                 f"{package_name} is not importable in venv after uv sync"
             )
             assert "OK" in result.stdout, f"Failed to import {package_name} in venv"
 
-            # Verify package is NOT available system-wide (should fail)
-            result = host.run(
-                f"python3 -c 'import {package_name.replace('-', '_')}; print(\"OK\")'"
-            )
-            assert result.rc != 0, (
-                f"{package_name} should not be available system-wide, only in venv"
+            assert venv_path in result.stdout, "Import must resolve inside the venv"
+
+            # uv must leave the system interpreter unchanged, even when it already
+            # has this package through a toolchain runtime dependency.
+            result = host.run(system_import)
+            assert (result.rc, result.stdout) == (
+                system_before.rc,
+                system_before.stdout,
             )
 
             # Step 5: Verify system packages (prek, ruff) are still available
