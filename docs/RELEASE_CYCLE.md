@@ -165,6 +165,14 @@ If the freeze target has advanced, rollback preserves it and reports that manual
 review of the release branch may be needed.
 Newly created or reset branches use their source checkout SHA; the extension fallback records dev after its
 second checkout, and sync records the newly checked-out sync branch.
+A capture that directly follows `actions/checkout` reads the action's `commit`
+output and runs no git: in a `container:` job, git refuses the workspace
+("dubious ownership") until `setup-devkit-toolchain` marks it a
+`safe.directory`, and the capture runs before that step. The extension fallback
+and sync captures follow a later manual checkout, so they record that new HEAD with `git rev-parse` and run after
+the toolchain setup. `tests/test_workflow_checkout_sha.py` fails if any
+container job runs git before its safe-directory setup
+([#2055](https://github.com/vig-os/devkit/issues/2055)).
 
 ### Release Lifecycle
 
