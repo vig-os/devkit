@@ -228,6 +228,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Keep local version pins and explicit runtime choices in the plan; discover runtimes through PATH only.
   - Label unresolved releases as placeholders and explain runtime fallback and preview verification.
 
+- **Record checkout SHAs without git in container jobs** ([#2055](https://github.com/vig-os/devkit/issues/2055))
+  - Take the API commit base from `actions/checkout`'s `commit` output, so Prepare Release, Prepare Hotfix, Release, Sync Issues and Sync Main to Dev no longer fail with "dubious ownership" (exit 128) in `devcontainer`/`both` mode.
+  - Fail closed when the checkout reports no commit; a static guard rejects any container job that runs git before its `safe.directory` setup.
+
 - **Protect workflow file commits from concurrent branch updates** ([#2028](https://github.com/vig-os/devkit/issues/2028))
   - Pin API commits to the checkout SHA in devkit and consumer workflows; fail closed when capture fails or the target advances.
   - Restore failed prepare freezes only when dev still matches the freeze action’s confirmed commit; preserve concurrent changes when the freeze was rejected.

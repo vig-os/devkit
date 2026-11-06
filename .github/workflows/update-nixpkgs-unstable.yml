@@ -39,6 +39,7 @@ jobs:
           private-key: ${{ secrets.COMMIT_APP_PRIVATE_KEY }}
 
       - name: Checkout dev
+        id: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: dev
@@ -46,9 +47,13 @@ jobs:
 
       - name: Record checkout SHA
         id: checkout-state
+        # actions/checkout reports the SHA it checked out; no git call, so this
+        # also works before a container job marks the workspace safe (#2055).
+        env:
+          CHECKOUT_SHA: ${{ steps.checkout.outputs.commit }}
         run: |
           set -euo pipefail
-          CHECKOUT_SHA=$(git rev-parse HEAD)
+          test -n "$CHECKOUT_SHA" || { echo "::error::actions/checkout reported no commit SHA"; exit 1; }
           echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Install Nix (upstream CppNix)

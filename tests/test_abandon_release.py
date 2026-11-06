@@ -249,6 +249,8 @@ def test_replay_checkout_sha_is_the_api_commit_base(tmp_path, copy):
     )
     capture = replay.steps[checkout_index + 1]
     assert capture["id"] == "checkout-state"
+    checkout_id = replay.steps[checkout_index]["id"]
+    replay.context = {"steps": {checkout_id: {"outputs": {"commit": checkout_sha}}}}
     replay.run(only=[capture["id"]])
     git(
         "-c",
@@ -271,21 +273,19 @@ def test_replay_checkout_sha_is_the_api_commit_base(tmp_path, copy):
 
 @pytest.mark.parametrize("copy", COPIES)
 def test_replay_checkout_sha_failure_stops_restoration(tmp_path, copy):
-    import os
     import subprocess
 
     from tests.workflow_replay import Replay
 
-    git = tmp_path / "git"
-    git.write_text("#!/bin/sh\nexit 1\n")
-    git.chmod(0o755)
+    # actions/checkout reported no commit: the capture fails closed (#2055).
     replay = Replay(
         COPIES[copy],
         "unfreeze",
-        {},
+        {"steps": {"checkout": {"outputs": {"commit": ""}}}},
         cwd=tmp_path,
-        base_env={"PATH": str(tmp_path) + os.pathsep + os.environ["PATH"]},
     )
     replay.job.pop("timeout-minutes")
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(subprocess.CalledProcessError) as error:
         replay.run(only=["checkout-state"])
+    assert error.value.returncode == 1
+    assert "::error::" in error.value.stdout
