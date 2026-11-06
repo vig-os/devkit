@@ -386,3 +386,63 @@ CVE-2026-53433
 # libunbound 1.26.1. All three are absent from the local rebuilt-closure scan;
 # the staging-26.05 backport NixOS/nixpkgs#565869 reached the pinned channel.
 # ============================================================================
+
+# ============================================================================
+# 2026-11-06 (#2052): sqlite 3.53.3 + rsync 3.5.0 advisory batch, found by the
+# release.yml Vulnix CVE Gate on 1.19.0-rc4 (run 42140837792). All five are
+# real product+version matches, published 2026-10-30 / 2026-11-03.
+#
+# Rationale class: awaiting-upstream. The fixes are released upstream (sqlite
+# 3.54.0 / 3.54.2, rsync 3.5.2) but NOT in nixpkgs: the pinned rev,
+# nixos-26.05 and nixpkgs-unstable all carry sqlite 3.53.3 and rsync 3.5.0
+# with no CVE-named patches (checked 2026-11-06), so the pin advance has
+# nowhere to land yet. Exit: the weekly pin advance (#1565) that ships the
+# fixed versions; delete the entries then, do not renew blindly.
+#
+# Scope: EXACT CVE@pname@version keys (pname/version as printed by the gate),
+# so a later build of either package at another version is gated afresh.
+# Advisory data verified 2026-11-06 against the GitHub advisory database
+# (GHSA ids per entry) and the rsync 3.5.2 NEWS.
+#
+# Expiry: 2026-11-18, the second Wednesday after this triage — two Monday pin
+# advances (11-09, 11-16) and their nightly deltas fall inside the window. It
+# shares the date with the two-entry fzf block above (7 entries in total), not
+# a register-wide cliff.
+# ============================================================================
+Expiration: 2026-11-18
+# sqlite 3.53.3 — transitive library dependency of the image closure (not a
+#   direct member of the image env in flake.nix or nix/devtools.nix). All four
+#   are CVSS 7.8 AV:L/UI:R: each needs the user to open attacker-supplied
+#   content locally; nothing in the image accepts SQLite input from the
+#   network. The image's own SQLite users (the Nix store DB, Python's sqlite3)
+#   operate on local, trusted databases.
+# CVE-2026-119373 (GHSA-mw7g-h5m4-mrxh) — FTS5 heap overflow in
+#   fts5MergeRowidLists(); needs a detail=none FTS5 table with negative rowids
+#   and a prefix MATCH query. Fixed in sqlite 3.54.0.
+CVE-2026-119373@sqlite@3.53.3
+# CVE-2026-119374 (GHSA-gr85-mf7f-6pq7) — FTS5 heap overflow in
+#   fts5DoSecureDelete(); needs a crafted DB file with a corrupted FTS5 index,
+#   deleted from with secure-delete on. Fixed in sqlite 3.54.0.
+CVE-2026-119374@sqlite@3.53.3
+# CVE-2026-119379 (GHSA-6w9f-4x4x-x559) — session-extension heap overflow in
+#   sqlite3changeset_apply(); needs a crafted changeset to be applied.
+#   Fixed in sqlite 3.54.0.
+CVE-2026-119379@sqlite@3.53.3
+# CVE-2026-119586 (GHSA-2h5x-4qp8-353h) — sqlite3 CLI `.recover` emits
+#   dot-commands planted in a crafted DB's schema verbatim; needs the user to
+#   run `.recover` on that DB and pipe the output back into sqlite3.
+#   Fixed in sqlite 3.54.2.
+CVE-2026-119586@sqlite@3.53.3
+# rsync 3.5.0 — direct member of the image env (flake.nix imageTools and
+#   nix/devtools.nix), used as a CLI by the workspace scaffold.
+# CVE-2026-119741 (GHSA-56w4-j8c7-xvrw) — CVSS 7.5 AV:N/PR:N, availability
+#   only: unbounded strong-checksum work in the delta-transfer sender's
+#   hash_search() when a malicious receiver sends colliding weak checksums;
+#   the advisory's attack is unauthenticated clients pulling from a public
+#   rsync daemon module. The image never runs an rsync daemon (verified
+#   2026-11-06 from flake.nix: the OCI config's Cmd is bash, it declares no
+#   ExposedPorts, and nothing in flake.nix, nix/ or assets/ ships an
+#   rsyncd.conf or invokes `rsync --daemon`). The residual path is a user
+#   pushing files to a hostile receiver, which can only stall that user's
+#   own rsync process. Fixed in rsync 3.5.2.
+CVE-2026-119741@rsync@3.5.0

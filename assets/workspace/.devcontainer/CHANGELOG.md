@@ -308,6 +308,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     bindings it reads, which made the first commit touching `flake.nix` fail
     deadnix
 
+### Security
+
+- **Accept five SQLite and rsync CVEs until 2026-11-18 pending nixpkgs** ([#2052](https://github.com/vig-os/devkit/issues/2052))
+  - SQLite 3.53.3: CVE-2026-119373, CVE-2026-119374 and CVE-2026-119379 (fixed in 3.54.0) and CVE-2026-119586 (fixed in 3.54.2). Each needs the user to open a crafted database or changeset locally.
+  - rsync 3.5.0: CVE-2026-119741 (fixed in 3.5.2), a CPU denial of service in a public rsync daemon's sender. The image never runs an rsync daemon.
+  - nixpkgs has none of these fixes yet, so `.vulnixignore` accepts the five as exact package/version exceptions. They are removed once a nixpkgs pin advance ships the fixed versions.
+
 ## [1.18.2](https://github.com/vig-os/devkit/releases/tag/1.18.2) - 2026-11-03
 
 ### Changed
