@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Portable direnv CI toolchain setup on macOS** ([#1857](https://github.com/vig-os/devkit/issues/1857))
+  - Preserve dev-shell PATH priority and shellHook environment forwarding with
+    Bash 3.2 and BSD tools; exercise the action on Linux and macOS in CI
+  - Keep Darwin build settings and Nix internal variables out of host steps, preserve
+    readonly/integer exports, and handle empty PYTHONPATH arrays on Bash 3.2
+
 ### Security
 
 ## [1.19.0] - TBD
