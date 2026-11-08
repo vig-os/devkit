@@ -9,7 +9,7 @@ the near-identical ``test_vig_os_declares_X_key`` /
 feature file (#1413).
 
 Refs: #1044, #1045, #1173, #1207, #1228, #1282, #1284, #1295, #1296, #1431,
-#1478, #1601, #1633, #1651, #1710, #1746, #1752
+#1478, #1601, #1633, #1651, #1710, #1746, #1752, #2045
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ MANIFEST_KEYS = [
     ("DEVKIT_FLOATING_TAGS", "#1045"),
     ("DEVKIT_CI_RUNNER", "#1173"),
     ("DEVKIT_CI_LANE_SIZES", "#1927"),
+    ("DEVKIT_CI_CONTAINER_RUNNERS", "#2045"),
     ("DEVKIT_DEV_PROFILE_PATH", "#1601"),
     ("DEVKIT_SYNC_TARGET", "#1228"),
     ("DEVKIT_SYNC_SCHEDULE", "#1228"),

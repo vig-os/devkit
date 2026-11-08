@@ -363,6 +363,64 @@ gh variable set CI_RUNNER_SMALL --body <label>
   error — see [Known symptoms](#known-symptoms).
 - **Unset or empty** means the hosted default, `ubuntu-26.04` — no change for
   a consumer that sets none of the three.
+- **Container modes opt in.** In `DEVKIT_MODE=devcontainer` or `both`, the
+  variables place lanes only when `.vig-os` also sets
+  `DEVKIT_CI_CONTAINER_RUNNERS=true` — see
+  [Container-mode CI runners](#container-mode-ci-runners).
+
+#### Container-mode CI runners
+
+A `devcontainer` or `both` repo runs its lanes as `container:` jobs, and in
+those modes Scaffold Drift and `devkit-upgrade` drive a docker daemon on the
+runner, so its runners need a container runtime. An organization variable cannot say
+whether its pool has one: `vars.CI_RUNNER_*` resolves organization and
+repository variables alike, and nothing tells them apart. So a container-mode
+repo states it itself:
+
+```ini
+# .vig-os
+DEVKIT_CI_CONTAINER_RUNNERS=true
+```
+
+- **Absent, empty or `false` (default):** every lane runs on the hosted
+  `ubuntu-26.04` runner, exactly as before 1.19.0, whatever `CI_RUNNER_*`
+  and `DEVKIT_CI_LANE_SIZES` say. When a `CI_RUNNER_*` variable is visible,
+  `resolve-toolchain` prints a `::notice::` naming this key.
+- **`true`:** the variables place lanes as described in this section.
+- **Any other value** fails `resolve-toolchain` and the scaffold write path.
+- **`direnv` and `bare`** ignore the key for placement (it is still
+  validated); the variables always apply there.
+- **Fork PRs** stay hosted either way.
+- **The legacy `DEVKIT_CI_RUNNER` key** still selects runners in container
+  modes without the opt-in, as it did in 1.18.x. The upgrade keeps it until
+  the repo sets `DEVKIT_CI_CONTAINER_RUNNERS=true`, because removing it
+  earlier would move the repo onto hosted runners.
+
+Set the key only once every `CI_RUNNER_*` pool the repo reaches can run
+container jobs; otherwise `container:` lanes fail at `Initialize containers`
+(`failed to connect to the docker API`).
+
+What a self-hosted `CI_RUNNER_*` pool must provide, per mode:
+
+- **`direnv`:** no docker at all. Scaffold Drift fetches the pin's scaffold
+  with `nix flake prefetch`, and the upgrade runs the installer without a
+  runtime. The pool needs `nix`, `jq` and `rsync`.
+- **`bare`:** `ci.yml`'s Scaffold Drift (`docker login`, `docker pull`,
+  `docker run`) and `devkit-upgrade`'s `upgrade` job
+  (`install.sh --docker`) need a docker CLI and a daemon. The key does not
+  gate `bare`, so a pool without a container runtime fails those two lanes.
+- **`devcontainer`/`both`, without the key:** every lane is hosted, but the
+  `resolve-toolchain` jobs still run on the direct
+  `vars.CI_RUNNER_SMALL || vars.DEVKIT_CI_RESOLVE_RUNNER` expression. Their
+  image probe (`docker login`, `docker manifest inspect`) talks to the
+  registry from the client, so those runners need a docker CLI but no
+  daemon.
+- **`devcontainer`/`both`, with the key:** the pools need a container
+  runtime (docker CLI and daemon), as above.
+
+The decision and its rationale:
+[ADR §5](rfcs/ADR-site-agnostic-projects.md#5-lane-classes)
+([#2045](https://github.com/vig-os/devkit/issues/2045)).
 
 #### Size classes and the lane override
 
@@ -370,7 +428,8 @@ Every managed lane belongs to one size class, and **every lane defaults to
 SMALL**: `resolve-toolchain` itself, the toolchain lanes (`lint`, `test`, the
 `extension` hook), the release train's `release-test`, the seeded release
 hooks, `commit-checks`, `scaffold-drift`, `devkit-staleness`, `summary`,
-`sync-issues`/`sync-main-to-dev` and `devkit-upgrade`. `CI_RUNNER_LARGE` and
+`sync-issues`/`sync-main-to-dev` and `devkit-upgrade` (whose installer job
+takes its runner from its own `resolve-toolchain` job). `CI_RUNNER_LARGE` and
 `CI_RUNNER_XLARGE` serve no lane by default — a project opts `lint`, `test`,
 `extension` or `release-test` into LARGE or XLARGE itself, in `.vig-os`:
 
@@ -778,6 +837,7 @@ unknown keys:
 | `DEVKIT_MODULES` | Reserved: space-separated capability modules mirroring `mkProjectShell`'s `modules = [ … ]` ([#884](https://github.com/vig-os/devkit/issues/884)) |
 | `DEVKIT_CI_RUNNER` | **Deprecated**, removed in release N+2: a comma-separated runner label list that once fed every lane directly. Self-hosted runners now come from the `CI_RUNNER_SMALL`/`LARGE`/`XLARGE` repository or organization variables; the key is kept only for the two-release compatibility window and is stripped automatically once those variables cover every required class (see [Run CI on self-hosted runners](#run-ci-on-self-hosted-runners), [#1173](https://github.com/vig-os/devkit/issues/1173), [#1908](https://github.com/vig-os/devkit/issues/1908)) |
 | `DEVKIT_CI_LANE_SIZES` | Comma-separated `lane=size` overrides (`lint`, `test`, `extension`, `release-test`; `small`, `large`, `xlarge`) that move a lane off the SMALL default; empty (default) => every lane SMALL. Labels still come from the `CI_RUNNER_*` variables (see [Size classes and the lane override](#size-classes-and-the-lane-override), [#1908](https://github.com/vig-os/devkit/issues/1908)) |
+| `DEVKIT_CI_CONTAINER_RUNNERS` | `true` \| `false`; empty (default) => `false`. Only for `DEVKIT_MODE=devcontainer`/`both`: `true` lets the `CI_RUNNER_*` variables place lanes, otherwise every lane runs hosted because an inherited organization variable cannot prove its pool has a container runtime. `direnv`/`bare` ignore it; any other value fails CI and the scaffold (see [Container-mode CI runners](#container-mode-ci-runners), [#2045](https://github.com/vig-os/devkit/issues/2045)) |
 | `DEVKIT_DEV_PROFILE_PATH` | Absolute path for the direnv-mode dev-shell gcroot profile on the runner host; empty (default) => `$RUNNER_TEMP/devkit-dev-profile`. An ephemeral self-hosted runner sets a persistent path outside its work tree so the closure survives the job (see [Keep the dev-shell gcroot across ephemeral self-hosted jobs](#keep-the-dev-shell-gcroot-across-ephemeral-self-hosted-jobs), [#1601](https://github.com/vig-os/devkit/issues/1601)) |
 | `DEVKIT_SYNC_TARGET` | Branch the scaffolded sync-issues job commits to; empty (default) => the workflow-model default (`dev`/`main`). A protected-`main` consumer sets an unprotected mirror branch, e.g. `sync/issue-mirror` (see [Point sync-issues at an unprotected mirror branch](#point-sync-issues-at-an-unprotected-mirror-branch-protected-main), [#1228](https://github.com/vig-os/devkit/issues/1228)) |
 | `DEVKIT_SYNC_SCHEDULE` | Cron override (5-field) for the sync-issues schedule trigger; empty (default) => the daily `0 2 * * *` ([#1228](https://github.com/vig-os/devkit/issues/1228)) |

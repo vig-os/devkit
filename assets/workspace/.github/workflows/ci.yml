@@ -476,7 +476,7 @@ jobs:
   # otherwise rewrite a floating pin and read as spurious drift).
   #
   # direnv mode is Docker-free (#1861): there the pinned scaffold runs straight
-  # from the devkit flake source (`nix flake metadata` -> its `assets/`) in a
+  # from the devkit flake source (`nix flake prefetch` -> its `assets/`) in a
   # scratch clone under RUNNER_TEMP, with the image's two bake-time steps
   # (the image-tag placeholder -> pin, the VERSION file) replayed, so no container runtime
   # is needed on the runner. `install.sh` / `nix run ...#install` cannot be used
@@ -545,7 +545,7 @@ jobs:
           trap 'chmod -R u+w "$scratch" 2>/dev/null || true; rm -rf "$scratch"' EXIT
 
           echo "Fetching devkit ${IMAGE_TAG} via nix"
-          src="$(nix flake metadata --json "github:vig-os/devkit/${IMAGE_TAG}" | jq -er .path)"
+          src="$(nix flake prefetch --json "github:vig-os/devkit/${IMAGE_TAG}" | jq -er .storePath)"
           cp -R "$src/assets" "$scratch/assets"
           chmod -R u+w "$scratch/assets"
           # Replay the image's bake steps (flake.nix `bootstrap`): stamp the pin

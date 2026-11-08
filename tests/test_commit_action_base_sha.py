@@ -30,6 +30,15 @@ def replay_for(path, job, tmp_path):
     return replay
 
 
+def seed_checkout(replay, capture, sha):
+    """Supply actions/checkout's commit output; return False for git captures."""
+    source = replay.steps[replay.steps.index(capture) - 1]
+    if "actions/checkout@" not in source.get("uses", ""):
+        return False
+    replay.context.setdefault("steps", {})[source["id"]] = {"outputs": {"commit": sha}}
+    return True
+
+
 def capture_for(replay, name):
     commit = next(s for s in replay.steps if s.get("name") == name)
     expression = commit["env"].get("BASE_SHA")
@@ -76,6 +85,7 @@ def test_api_commit_preserves_checkout_base(tmp_path, path, job, name):
     sha = git("rev-parse", "HEAD")
     replay = replay_for(path, job, tmp_path)
     capture, api_commit = capture_for(replay, name)
+    seed_checkout(replay, capture, sha)
     replay.run(only=[capture["id"]])
     commit()
     assert git("rev-parse", "HEAD") != sha
@@ -94,10 +104,12 @@ def test_failed_sha_capture_stops_job(tmp_path, path, job, name):
     replay = replay_for(path, job, tmp_path)
     replay.base_env["PATH"] = str(tmp_path) + os.pathsep + os.environ["PATH"]
     capture, _ = capture_for(replay, name)
+    # An empty checkout output fails closed; git captures surface git's code.
+    expected = 1 if seed_checkout(replay, capture, "") else 17
     replay.steps.append({"name": "Must not run", "run": "touch continued"})
     with pytest.raises(subprocess.CalledProcessError) as error:
         replay.run(only=[capture["id"], "Must not run"])
-    assert error.value.returncode == 17
+    assert error.value.returncode == expected
     assert replay.step_context[capture["id"]]["outputs"] == {}
     assert not (tmp_path / "continued").exists()
 

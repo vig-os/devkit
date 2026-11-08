@@ -183,12 +183,25 @@ def test_requires_app_identity_and_never_uses_github_token_for_pr() -> None:
             "${{ steps.app-token.outputs.token }}"
         )
     # Checkout persists the minted token so the push authenticates as the App.
-    checkout_steps = [s for s in steps if "actions/checkout" in str(s.get("uses", ""))]
+    jobs = _jobs(text)
+    checkout_steps = [
+        s
+        for s in jobs["upgrade"]["steps"]
+        if "actions/checkout" in str(s.get("uses", ""))
+    ]
     assert checkout_steps, "no checkout step found"
     for s in checkout_steps:
         assert s.get("with", {}).get("token") == (
             "${{ steps.app-token.outputs.token }}"
         )
+    # The read-only resolve job (#2045) never sees the App identity.
+    resolve_checkout = next(
+        s
+        for s in jobs["resolve-toolchain"]["steps"]
+        if "actions/checkout" in str(s.get("uses", ""))
+    )
+    assert "token" not in resolve_checkout["with"]
+    assert resolve_checkout["with"]["persist-credentials"] is False
 
 
 def test_legacy_numeric_app_id_removed() -> None:
@@ -456,10 +469,12 @@ def test_report_is_a_separate_result_gated_job() -> None:
     """
     jobs = _jobs()
     report = _report_job()
-    assert needs_of(report) == ["upgrade"]
+    assert needs_of(report) == ["resolve-toolchain", "upgrade"]
     cond = str(report["if"])
     assert "needs.upgrade.result == 'failure'" in cond
     assert "needs.upgrade.result == 'success'" in cond
+    # A failed resolve-toolchain job skips the upgrade; it must still report.
+    assert "needs.resolve-toolchain.result == 'failure'" in cond
     # Without a status-check function in the expression, Actions applies an
     # implicit success() to a job-level `if` — the report job would be skipped
     # on exactly the failed runs it exists for.
@@ -498,7 +513,9 @@ def test_report_mint_is_issues_scoped_and_best_effort() -> None:
 def test_failure_leg_files_or_reuses_one_marker_tracked_issue() -> None:
     """At most one open tracking issue per repo; repeats comment on it (#1530)."""
     step = step_by_name(_report_job()["steps"], "File or update")
-    assert step["if"] == "needs.upgrade.result == 'failure'"
+    assert step["if"] == (
+        "needs.upgrade.result == 'failure' || needs.resolve-toolchain.result == 'failure'"
+    )
     run = str(step["run"])
     # De-duplication keys on a body marker (exact, and immediately visible in
     # the REST issue list — unlike the eventually-consistent search index).

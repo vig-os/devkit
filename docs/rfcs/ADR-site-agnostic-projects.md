@@ -18,7 +18,10 @@ and by a gitignored `.site/` directory for everything else.
   never from repo content. Every managed lane belongs to one **size class**,
   and **every lane defaults to SMALL**. A project opts a lane into LARGE or
   XLARGE with `DEVKIT_CI_LANE_SIZES` (decision (b)). Unset or empty means the
-  hosted default, **`ubuntu-26.04`**.
+  hosted default, **`ubuntu-26.04`**. A container-mode repo (`devcontainer`,
+  `both`) uses the variables only after it opts in with
+  `DEVKIT_CI_CONTAINER_RUNNERS=true` (§5,
+  [#2045](https://github.com/vig-os/devkit/issues/2045)).
 - **Fork-safe on every path:** a pull request from another repository never
   requests a self-hosted label. This holds for the variables, for the legacy
   `.vig-os` key and for the legacy resolve variable. The check is explicit even
@@ -272,14 +275,19 @@ if raw != "" and V != "" and not match(raw, r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$"):
                            # rejects "," "[" "]" '"' and any surrounding or inner whitespace
 L = labels(.vig-os DEVKIT_CI_RUNNER)             # releases N, N+1 only: comma-split,
                                                  # each label trimmed, empties dropped
+G = mode in {devcontainer, both} and .vig-os DEVKIT_CI_CONTAINER_RUNNERS != "true"   # §5 gate
 if   F:                 runners[S] = [H];  source[S] = "fork"
-elif V != "":           runners[S] = [V];  source[S] = "variable"
+elif V != "" and not G: runners[S] = [V];  source[S] = "variable"
 elif L != []:           runners[S] = L;    source[S] = "legacy-key"     # releases N, N+1 only
 else:                   runners[S] = [H];  source[S] = "default"
 ```
 
 The precedence shown is decision (a)-1: the variable wins over the legacy
-key.
+key. Under the §5 container-mode gate `G` the variables place nothing: they
+are still validated, but neither override the key nor count as a configured
+class, and the lane map is the default (every lane SMALL) whatever
+`DEVKIT_CI_LANE_SIZES` says. Any `DEVKIT_CI_CONTAINER_RUNNERS` value other
+than `true`, `false` or empty is an `::error::` and exit 1, in every mode.
 
 Lane entries are then resolved from the lane → class map: built-in defaults
 (§5), plus the `.vig-os` `DEVKIT_CI_LANE_SIZES` override (decision (b)-1),
@@ -439,7 +447,7 @@ hosted uses the fork predicate.
 | `prepare-release-extension.yml` (workflow_call, seeded) | `extension` | resolve var | new scaffolds: S, direct expression; existing copies: decision (d) |
 | `release-extension.yml` (workflow_call, seeded) | `extension` | resolve var | same as above |
 | `publish-release-extension.yml` (release, workflow_dispatch; seeded) | `resolve`, `publish` | resolve var | same as above |
-| `devkit-upgrade.yml` (schedule, workflow_dispatch) | `upgrade`, `report` | `ubuntu-latest` | S, with the fork predicate (decision (e)-1) |
+| `devkit-upgrade.yml` (schedule, workflow_dispatch) | `resolve-toolchain` / `upgrade` / `report` | — / `ubuntu-latest` / `ubuntu-latest` | S, direct expression / S from the resolver (needs the §5 gate: `install.sh --docker`) / S, direct expression; all with the fork predicate (decision (e)-1) |
 | `codeql.yml` (pull_request, push, schedule) | `analyze` | hosted | hosted (public repos only) |
 | `assets/smoke-test/.github/workflows/ci-extension.yml` (workflow_call; the smoke-test fixture's hook) | `extension` | `fromJSON(inputs.runner-json)` | unchanged; receives the `extension` lane from the caller |
 | `assets/smoke-test/.github/workflows/direnv-smoke.yml`, `repository-dispatch.yml` | all jobs | hosted | hosted (devkit's own smoke-test fixture) |
@@ -502,8 +510,79 @@ XLARGE where its own tests need it. How heavy a project's tests are is a
 project property, so the opt-in lives in `.vig-os` (decision (b)), while which
 label serves each size stays in the variables.
 
-A container-mode consumer's runners already need a container
-runtime for the `container:` lanes, so any class it routes is container-capable.
+#### Container-mode consumers opt in
+
+*Amended 2026-11-04 (owner decision on
+[#2045](https://github.com/vig-os/devkit/issues/2045)).* This section first
+assumed that a container-mode consumer's runners already need a container
+runtime for the `container:` lanes, so any class it routes is
+container-capable. That holds for a repository variable a consumer sets on
+purpose. It does not hold for an **organization** variable: `vars.*` resolves
+both, an expression cannot tell them apart, and an org that sets
+`CI_RUNNER_*` for a pool with no container runtime (for example nix-native
+runners with no docker socket) moved every container-mode repo in it onto
+that pool on adoption. Every `container:` lane then failed at `Initialize
+containers`, and Scaffold Drift failed at `docker run`.
+
+Whether a repo's runners can run container jobs is therefore something the
+repo states, in `.vig-os`:
+
+| `DEVKIT_MODE` | `DEVKIT_CI_CONTAINER_RUNNERS` | Lane placement |
+|---|---|---|
+| `devcontainer`, `both` | absent, empty or `false` (default) | every lane on hosted `ubuntu-26.04`, as in 1.18.x; `CI_RUNNER_*` and `DEVKIT_CI_LANE_SIZES` are ignored for placement |
+| `devcontainer`, `both` | `true` | §3 as written |
+| `direnv`, `bare` | any valid value | §3 as written; the key is ignored |
+| any | any other value | `::error::` naming the key, exit 1 |
+
+- The fork predicate still wins (§2).
+- The repo's own legacy `DEVKIT_CI_RUNNER` key keeps its 1.18.x meaning
+  under the gate. It is a repository statement, which is exactly what the
+  gate asks for, and dropping it would move a self-hosted container-mode
+  repo onto hosted runners.
+- When the gate ignores a visible variable on a non-foreign run, the
+  resolver prints one `::notice::` naming `CI_RUNNER_*`, the mode and
+  `DEVKIT_CI_CONTAINER_RUNNERS=true`, and why. The partial-setup notice and
+  the opted-in-class warning (§3) do not fire, because nothing is placed.
+  The private-repo notice and the legacy-key migration warning also name
+  the key. `runner-sources` reports `default` (or `legacy-key`) for a gated
+  class, since that is where its lanes run.
+- **One gate, in `resolve-toolchain`.** Every job that needs a container
+  runtime (`container:`, `docker run`, the installer) takes its runner from
+  the resolver's `runners` output, directly or through a reusable workflow's
+  `runners` input. `devkit-upgrade` gained a `resolve-toolchain` job for this,
+  because its installer runs `install.sh --docker` in every mode but
+  `direnv`. That job reads `.vig-os` from the branch the upgrade rewrites
+  (`dev`, or `main` under trunk), not the default branch, and in a
+  container-ish mode it probes the current pin's image like every resolve
+  job, so an unreadable image (registry auth, rate limit) now fails the
+  upgrade at that probe and files the tracking issue. A static test fails
+  any future job that needs a runtime (`container:` or `services:`, a
+  `docker://` or `docker/*` action, any `docker`/`podman` CLI call or the
+  installer in `run:`, or a local composite action whose steps do any of
+  these) and bypasses the output. The resolve jobs below are its only,
+  explicitly listed, exception.
+- **Jobs that stay on the direct expression** need no daemon: the
+  `resolve-toolchain` jobs (their image probe is `docker login` plus
+  `docker manifest inspect`, which talk to the registry from the client;
+  they still need a `docker` CLI on the runner), the stock seeded release
+  hooks (shell only; a consumer whose own hook needs a runtime routes it
+  itself) and `devkit-upgrade`'s `report` job (`gh` only).
+
+**Known limit.** The gate is keyed on the delivery mode, as decided, so
+what a self-hosted `CI_RUNNER_*` pool must provide still depends on the
+mode:
+
+- **`direnv`:** no docker at all. Scaffold Drift fetches the pin's flake
+  source with `nix flake prefetch` (#2040) and the upgrade runs
+  `install.sh` without a runtime; the pool needs `nix`, `jq` and `rsync`.
+- **`bare`:** `ci.yml`'s Scaffold Drift (`docker login`/`pull`/`run`) and
+  `devkit-upgrade`'s `upgrade` job (`install.sh --docker`) need a docker
+  CLI and daemon. The gate does not apply in `bare`, so a `bare` repo whose
+  pool has no container runtime fails those two lanes.
+- **`devcontainer`/`both`, gated:** every lane is hosted, but the
+  `resolve-toolchain` jobs stay on the direct
+  `vars.CI_RUNNER_SMALL || vars.DEVKIT_CI_RESOLVE_RUNNER` expression and
+  need a docker CLI (no daemon) for their image probe.
 
 ### 6. Migration
 
@@ -575,6 +654,7 @@ The PR-body text a ≥N workflow shows, per case:
 | set | some required classes or none | which `CI_RUNNER_*` to set, at **repository level** if the repo is private on GitHub Free; the example command `gh variable set CI_RUNNER_<S> --body <label>` with `<S>` each required class; until N+2 the key keeps working, and after that CI fails until the variables are set |
 | unset, `vars.DEVKIT_CI_RESOLVE_RUNNER` visible | n/a | rename the variable to `CI_RUNNER_SMALL`, then delete the old one after decision (d)'s hook migration |
 | unset, repo private, no `CI_RUNNER_*` visible | none | one informational line: CI runs hosted; organization variables do not reach private repos on GitHub Free; set repository variables, or set them to `ubuntu-26.04` to declare hosted on purpose (§3) |
+| set, repo in `devcontainer`/`both` without `DEVKIT_CI_CONTAINER_RUNNERS=true` | any | key kept; the variables place lanes only with the opt-in key (§5); set it once the runners can run container jobs, and the next adoption removes the key |
 | unset, any other case | n/a | nothing (no line printed) |
 
 The PR body never repeats the label itself. It names variables, not values,
@@ -594,6 +674,21 @@ container `-e` paths. Without context `1`, variables are unknown and the key
 is always kept, including local force installs. With context `1`, stripping
 requires a non-empty valid single label for every required class. Migration
 text names variables and never repeats their values.
+
+#### Container-mode opt-in (#2045)
+
+No consumer changes on adoption: a container-mode repo with no
+`DEVKIT_CI_CONTAINER_RUNNERS` keeps the hosted runners it had in 1.18.x,
+even where its org sets `CI_RUNNER_*`. A container-mode repo that wants the
+variables sets `DEVKIT_CI_CONTAINER_RUNNERS=true` once its runners can run
+container jobs. `init-workspace.sh` validates the key and writes it back on
+every upgrade.
+
+The legacy-key strip (decision (c)-1) judges inertness under the gate: in a
+container-ish mode without the opt-in the variables place nothing, so the
+key is never inert there. The migrating adoption keeps it and prints a
+`ci-runner-migration:` line naming `DEVKIT_CI_CONTAINER_RUNNERS=true`; once
+the repo opts in, the next adoption strips it as usual.
 
 #### Deprecation timeline
 
@@ -894,6 +989,13 @@ The rejected options are kept with the costs that ruled them out.
 
 **Amendments**
 
+- **2026-11-04, owner decision on
+  [#2045](https://github.com/vig-os/devkit/issues/2045):** container-mode
+  consumers opt in to `CI_RUNNER_*` with the `.vig-os` key
+  `DEVKIT_CI_CONTAINER_RUNNERS=true`. Organization variables are inherited
+  and cannot be told apart from repository variables, so they cannot prove a
+  pool has a container runtime. Replaces the §5 assumption; see §5 and §6.
+
 - **2026-10-29, owner-confirmed correction:** self-hosted security comes from
   runner-side checks and org approval settings, never from workflow content.
   On `pull_request`, a fork controls the workflow and resolve action loaded from
@@ -1126,9 +1228,11 @@ collaborators). The §2 predicate treats them as foreign, so they run hosted.
   This is the #1908 acceptance, pinned by S1's no-variables test.
 - Fork PRs into public consumers can no longer reach self-hosted runners
   through any devkit-managed path.
-- Consumers that already set `CI_RUNNER_*` at org level adopt with no repo
-  change. GitHub Free private repos need repository-level variables, and the
-  docs, the step summary and the adoption PR say so.
+- `direnv` and `bare` consumers that already set `CI_RUNNER_*` at org level
+  adopt with no repo change. A container-mode consumer also sets
+  `DEVKIT_CI_CONTAINER_RUNNERS=true` (§5). GitHub Free private repos need
+  repository-level variables, and the docs, the step summary and the adoption
+  PR say so.
 - The `runner-json` action output and both legacy knobs disappear in N+2. The
   tombstones stay permanently.
 - `DEVKIT_DEV_PROFILE_PATH` ([#1601](https://github.com/vig-os/devkit/issues/1601))

@@ -182,6 +182,7 @@ cell_spec() {
             ;;
         ci-runner)
             CELL_MODE=both
+            CELL_SEED=("DEVKIT_CI_CONTAINER_RUNNERS=true")
             CELL_RUNNER_SMALL="${CONSUMER_MATRIX_RUNNER_LABEL:-pool-s}"
             CELL_RUNNER_LARGE="${CONSUMER_MATRIX_RUNNER_LARGE:-pool-l}"
             CELL_RUNNER_XLARGE="${CONSUMER_MATRIX_RUNNER_XLARGE:-pool-xl}"

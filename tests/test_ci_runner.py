@@ -119,6 +119,7 @@ RESOLVE_TOOLCHAIN_WORKFLOWS = (
     "prepare-hotfix.yml",
     "promote-release.yml",
     "release.yml",
+    "devkit-upgrade.yml",
 )
 
 
@@ -1043,7 +1044,9 @@ def test_runner_shape_is_fork_safe(path):
                 caller["with"]["runner-json"]
                 == "${{ toJSON(fromJSON(needs.resolve-toolchain.outputs.runners).extension) }}"
             )
-        elif path.name in SEEDED_HOOKS or path.name == "devkit-upgrade.yml":
+        elif path.name in SEEDED_HOOKS or (
+            path.name == "devkit-upgrade.yml" and name == "report"
+        ):
             assert expr == SAFE_SMALL_EXPR
         elif name == "resolve-toolchain" or (
             path.name == "prepare-release.yml" and name == "validate"

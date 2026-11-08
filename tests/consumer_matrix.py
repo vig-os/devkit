@@ -124,12 +124,18 @@ def expected_job_runner(name, job_id, is_resolver, ctx, labels, expected):
         ("codeql.yml", "analyze"),
         ("scorecard.yml", "analysis"),
     }
-    bootstrap = is_resolver or name in {
-        "devkit-upgrade.yml",
-        "prepare-release-extension.yml",
-        "release-extension.yml",
-        "publish-release-extension.yml",
-    }
+    # devkit-upgrade's `upgrade` job follows its resolver (#2045); only its
+    # gh-only `report` job keeps the direct SMALL expression.
+    bootstrap = (
+        is_resolver
+        or (name, job_id) == ("devkit-upgrade.yml", "report")
+        or name
+        in {
+            "prepare-release-extension.yml",
+            "release-extension.yml",
+            "publish-release-extension.yml",
+        }
+    )
     expected_label = (
         [HOSTED]
         if hosted
