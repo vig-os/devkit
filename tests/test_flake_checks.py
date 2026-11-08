@@ -784,3 +784,11 @@ def test_flake_check_succeeds() -> None:
     assert result.returncode == 0, (
         "nix flake check failed:\n" + result.stdout + "\n" + result.stderr
     )
+
+
+def test_app_provision_app_points_at_console_script() -> None:
+    """The provisioning app runs vig-utils directly without a prior install."""
+    app = nix_eval_json(f"{REPO_ROOT}#apps.{current_system()}.app-provision")
+    assert app["type"] == "app"
+    assert app["program"].startswith("/nix/store/")
+    assert app["program"].endswith("/bin/gh-app-provision")

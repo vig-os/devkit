@@ -27,6 +27,7 @@ uv run check-action-pins --help
 | `check-action-pins` | Python | Ensure GitHub Actions are SHA pinned |
 | `prepare-changelog` | Python | Validate/prepare/finalize/reset/unprepare changelog |
 | `release-version` | Python | Compute the release train's publish version from a pre-release format |
+| `gh-app-provision` | Python | Create a GitHub App from a manifest and store its credentials as secrets ([guide](../../docs/GITHUB_APP_PROVISIONING.md)) |
 | `gh-issues` | Python | Rich issue/PR dashboard via `gh` |
 | `prepare-commit-msg-strip-trailers` | Python | Remove blocked trailers from commit messages |
 | `check-agent-identity` | Python | Block commits from agent fingerprints in author identity |
@@ -258,6 +259,98 @@ The wrappers forward argv/stdin/stdout/stderr so they behave like native shell c
 | `BRANCH_SUMMARY_MODEL` | `derive-branch-summary` | Default model tier if arg omitted |
 | `DERIVE_BRANCH_TIMEOUT` | `derive-branch-summary` | Timeout seconds |
 | `CI` / `GITHUB_ACTIONS` | `check-agent-identity` | Skip local identity checks in CI |
+
+## Endpoint lint
+
+`check-hardcoded-endpoints FILE [FILE ...]` enforces the two narrow rules in
+[ADR §10](../../docs/rfcs/ADR-site-agnostic-projects.md#10-env-only-runtime-config-lint-and-leak-check-hook-point).
+The default-on `no-hardcoded-endpoints` hook scans shell (extension or shebang),
+Python, YAML, TOML and JSON. Its companion `no-hardcoded-endpoints-dotenv` selects
+`.env`, `.env.*` and `*.env` by path. Other text, including Markdown, is ignored.
+Shell/dotenv scan physical assignment lines without parse notices. Other parse/
+encoding failures emit one notice and scan each line. Only findings exit 1;
+unreadable inputs emit a notice. Diagnostics omit values. Variable/command and
+`{{ ... }}` / `{% ... %}` references, empty values and reserved hosts/subdomains
+are exempt. Parseable Python fixtures/docstrings stay inert; JSON comments and
+TOML multiline literals are supported.
+
+For an intentional literal, add `# devkit: allow-endpoint` on its assignment line.
+For a whole path, override the hook in the consumer's preserved `flake.nix`:
+
+```nix
+hooks.no-hardcoded-endpoints.excludes = [ "^tests/fixtures/legacy\\.py$" ];
+```
+
+Use `hooks.no-hardcoded-endpoints-dotenv.excludes` for dotenv paths. See the
+[upgrade guidance](../../docs/MIGRATION.md#env-only-endpoint-lint) for generated
+versus preserved hook configs. Broader patterns belong to the separate site
+leak check; this lint is not a full-history secret scanner.
+
+## Site leak check
+
+`site-leak-check` loads `$DEVKIT_LEAK_PATTERNS` (an absolute path), otherwise
+`.site/leak-patterns.toml` at the repository root. Without either, it exits 0
+silently, including when an explicitly selected file is missing; that never falls
+back to the local file. devkit ships no patterns. S6 uses
+`vig_utils.site_config.validate_patterns`; the rule is defined once in the
+**S4 pattern-file clarification** in the [ADR Amendments](../../docs/rfcs/ADR-site-agnostic-projects.md#decisions).
+Validation errors exit 2 with the validator's file/key message and no values.
+Keep rule IDs suitable for public logs. Tracked pattern files and files inside
+the worktree outside `.site/` are errors, including through symlinks.
+
+Linked git worktrees (for example, `just worktree-start`) do not inherit the
+main clone's gitignored `.site/`. Each worktree runs without patterns unless the
+operator provisions its own `.site/leak-patterns.toml` or sets the absolute
+`DEVKIT_LEAK_PATTERNS` path in its environment.
+
+With no arguments, the CLI snapshots full index contents at added, copied,
+modified, renamed and type-changed paths; deleted and untouched paths are skipped.
+A single `git cat-file --batch` reader streams raw blobs without attributes,
+textconv or checkout filters. All modes use the same gitleaks
+directory scanner. `--all-files` scans tracked and nonignored untracked working-tree
+files; explicit filenames scan those working-tree files. Only the active,
+untracked pattern file is excluded from selected inputs; selected `.site/`
+files, including force-added bindings, are scanned. Symlinks are committed as
+links; their link text is scanned as a regular file in the snapshot. Link targets
+are never followed or read through the link.
+This scans current content, not history; use the same config for a history scan.
+
+The hook selects text files and symlinks with `types_or: [text, symlink]` and
+`types: []` to clear the runner's default file-only filter. Filename mode skips
+files containing a NUL byte, even with a text extension; direct staged and `--all-files` scans include them.
+Pre-commit supplies staged text files and symlinks during commits, and tracked
+text files and symlinks for `pre-commit run --all-files`. Filename mode catches
+pure renames that a content diff would miss; index snapshots cover renamed paths too. Every hook
+passes `--` before filenames, including names beginning with `-`. Direct CLI
+callers must do the same; `-h` and `--help` are rejected rather than exiting
+successfully without scanning. See the [S6 ADR amendment](../../docs/rfcs/ADR-site-agnostic-projects.md).
+
+The executable requires gitleaks on PATH (provided by the devkit environment;
+Nix-generated hooks pin its executable). All scans use `--config` and `--redact`.
+Only file, line and rule ID are published; private scanner diagnostics, matched
+text and rule descriptions are suppressed. Matching file paths are printed
+as-is, even when a path contains a private name. Exit codes are 0 for clean, 1 for
+findings and 2 for configuration or scanner errors. Investigate errors locally
+with gitleaks and the private config; those diagnostics can disclose patterns.
+Filesystem errors identify the input path and OS reason without its contents.
+SIGINT, SIGTERM and SIGHUP remove the private snapshot and exit 130, 143 and 129.
+Termination signals are blocked during deletion on every exit path, then
+honoured after the private snapshot is gone.
+Project input syntax is not parsed, so malformed project syntax is harmless.
+
+For an intentional match, use gitleaks' same-line `gitleaks:allow` pragma or the
+site config's allowlist. For a whole path, override the generated consumer hook:
+
+```nix
+hooks.site-leak-check.excludes = [ "^tests/fixtures/legacy\\.txt$" ];
+```
+
+Exclusions apply to filenames supplied by pre-commit. Direct CLI staged/tree
+scans use the private config's allowlist. This hook is independent of the opt-in
+repo-level `gitleaks` hook and its `.gitleaks.toml`. Repository `.gitleaksignore`
+and `.gitleaks.toml` files cannot suppress site findings. With gitleaks 8.30.1,
+a root `.gitleaksignore` is scanned separately as data to prevent automatic
+loading as ignore configuration; its content remains covered by the check.
 
 ## Development and tests
 

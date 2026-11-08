@@ -420,6 +420,108 @@ def unprepare_changelog(filepath="CHANGELOG.md"):
     return True
 
 
+def _merge_entry_blocks(primary, secondary):
+    """Merge whole top-level bullets, preserving nested details and entry order."""
+    merged = {}
+    for category in STANDARD_SECTIONS:
+        entries = []
+        for source in (primary, secondary):
+            body = source.get(category, "")
+            for entry in re.split(r"(?m)(?=^- )", body):
+                entry = entry.strip("\n")
+                if entry and entry not in entries:
+                    entries.append(entry)
+        if entries:
+            merged[category] = "\n\n".join(entries)
+    return merged
+
+
+def _unfreeze_sections(body, where):
+    """Collect category entries, refusing content the merger cannot preserve."""
+    if body is None:
+        raise ValueError("No '## Unreleased' section found in CHANGELOG")
+    if _find_loose_bullets(body):
+        _reject_unparsable_body(body, where=where)
+    blocks = list(
+        re.finditer(r"^### ([^\n]+)\n(.*?)(?=^### |\Z)", body, re.MULTILINE | re.DOTALL)
+    )
+    preamble = body[: blocks[0].start()] if blocks else body
+    if preamble.strip():
+        raise ValueError(f"{where} has prose or comments outside recognised categories")
+    sections = {}
+    for block in blocks:
+        category = block[1].strip()
+        if category not in STANDARD_SECTIONS:
+            raise ValueError(f"{where} has unsupported heading '### {category}'")
+        entry = re.search(r"^- ", block[2], re.MULTILINE)
+        prefix = block[2][: entry.start()] if entry else block[2]
+        if prefix.strip():
+            raise ValueError(f"{where} has prose or comments before its entries")
+        if block[2].strip():
+            sections = _merge_entry_blocks(sections, {category: block[2].strip("\n")})
+    return sections
+
+
+def unfreeze_changelog(version, filepath="CHANGELOG.md"):
+    """Restore a pending version to Unreleased; an absent version is a no-op.
+
+    Preserve entry spacing, line endings, the header and release history. Refuse
+    released sections and unsupported prose before writing, rather than lose it.
+    """
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise ValueError(f"Invalid semantic version: {version}")
+    path = Path(filepath)
+    content = path.read_text(newline="")
+    pending = re.search(
+        rf"^## \[{re.escape(version)}\] - TBD[ \t]*\r?$\n?(.*?)(?=^## |\Z)",
+        content,
+        re.MULTILINE | re.DOTALL,
+    )
+    if not pending:
+        if re.search(
+            rf"^## \[{re.escape(version)}\](?:\([^)]*\))? - .+$", content, re.MULTILINE
+        ):
+            raise ValueError(
+                f"Cannot unfreeze released [{version}] section; only '- TBD' is allowed"
+            )
+        return False
+    # Normalize only parsed bodies; keep untouched header/history spans verbatim.
+    primary = _unfreeze_sections(
+        _unreleased_body(content.replace("\r\n", "\n")), "Unreleased section"
+    )
+    secondary = _unfreeze_sections(
+        pending[1].replace("\r\n", "\n"), f"[{version}] section"
+    )
+    merged = _merge_entry_blocks(primary, secondary)
+    remaining = content[: pending.start()] + content[pending.end() :]
+    match = re.search(
+        r"^## Unreleased[ \t]*\r?\n.*?(?=^## |\Z)", remaining, re.MULTILINE | re.DOTALL
+    )
+    newline = "\r\n" if match[0].partition("\n")[0].endswith("\r") else "\n"
+    body = "## Unreleased\n\n"
+    for category in STANDARD_SECTIONS:
+        body += f"### {category}\n\n"
+        if category in merged:
+            body += merged[category] + "\n\n"
+    path.write_text(
+        remaining[: match.start()]
+        + body.replace("\n", newline)
+        + remaining[match.end() :],
+        newline="",
+    )
+    return True
+
+
+def cmd_unfreeze(args):
+    """Handle idempotent pending-release restoration."""
+    changed = unfreeze_changelog(args.version, args.file)
+    print(
+        "Restored pending entries to Unreleased"
+        if changed
+        else "No pending section to restore"
+    )
+
+
 def prepare_changelog(version, filepath="CHANGELOG.md"):
     """
     Prepare CHANGELOG for release.
@@ -852,6 +954,13 @@ Examples:
         help="Path to CHANGELOG file (default: CHANGELOG.md)",
     )
     prepare_parser.set_defaults(func=cmd_prepare)
+
+    unfreeze_parser = subparsers.add_parser(
+        "unfreeze", help="Fold a pending [version] - TBD section into Unreleased"
+    )
+    unfreeze_parser.add_argument("version", help="Semantic version (e.g., 1.0.0)")
+    unfreeze_parser.add_argument("file", nargs="?", default="CHANGELOG.md")
+    unfreeze_parser.set_defaults(func=cmd_unfreeze)
 
     # seed command
     seed_parser = subparsers.add_parser(

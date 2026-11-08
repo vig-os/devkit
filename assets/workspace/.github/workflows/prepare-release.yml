@@ -23,7 +23,7 @@ permissions:
 jobs:
   validate:
     name: Validate Release Preparation
-    runs-on: ubuntu-26.04
+    runs-on: ${{ (github.event.pull_request && (github.event.pull_request.head.repo.fork || github.event.pull_request.head.repo.full_name != github.repository) && 'ubuntu-26.04') || vars.CI_RUNNER_SMALL || vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
     timeout-minutes: 10
     outputs:
       version: ${{ steps.vars.outputs.version }}
@@ -31,6 +31,9 @@ jobs:
       mode: ${{ steps.resolve.outputs.mode }}
       image: ${{ steps.resolve.outputs.image }}
       image-tag: ${{ steps.resolve.outputs.image-tag }}
+      runners: ${{ steps.resolve.outputs.runners }}
+      runner-sources: ${{ steps.resolve.outputs.runner-sources }}
+      runner-json: ${{ steps.resolve.outputs.runner-json }}
       tag-prefix: ${{ steps.resolve.outputs.tag-prefix }}
 
     steps:
@@ -66,6 +69,10 @@ jobs:
         id: resolve
         uses: ./.github/actions/resolve-toolchain
         with:
+          runner-small: ${{ vars.CI_RUNNER_SMALL }}
+          runner-large: ${{ vars.CI_RUNNER_LARGE }}
+          runner-xlarge: ${{ vars.CI_RUNNER_XLARGE }}
+          legacy-resolve-runner: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER }}
           registry-token: ${{ secrets.GHCR_PULL_TOKEN || github.token }}
           registry-username: ${{ github.actor }}
 
@@ -179,7 +186,7 @@ jobs:
   prepare:
     name: Prepare Release Branch
     needs: validate
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(needs.validate.outputs.runners).small }}
     container:
       image: ${{ needs.validate.outputs.image }}
       credentials:
@@ -201,7 +208,7 @@ jobs:
     outputs:
       changelog: ${{ steps.changelog.outputs.changelog }}
       prepare_start_sha: ${{ steps.pre_state.outputs.prepare_start_sha }}
-      freeze_sha: ${{ steps.freeze_wait.outputs.freeze_sha }}
+      freeze_sha: ${{ steps.freeze_commit.outputs.commit-sha }}
 
     steps:
       - name: Generate Commit App Token
@@ -212,10 +219,22 @@ jobs:
           private-key: ${{ secrets.COMMIT_APP_PRIVATE_KEY }}
 
       - name: Checkout dev branch
+        id: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: dev
           fetch-depth: 0
+
+      - name: Record checkout SHA
+        id: checkout-state
+        # actions/checkout reports the SHA it checked out; no git call, so this
+        # also works before a container job marks the workspace safe (#2055).
+        env:
+          CHECKOUT_SHA: ${{ steps.checkout.outputs.commit }}
+        run: |
+          set -euo pipefail
+          test -n "$CHECKOUT_SHA" || { echo "::error::actions/checkout reported no commit SHA"; exit 1; }
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Set up devkit toolchain
         uses: ./.github/actions/setup-devkit-toolchain
@@ -226,11 +245,9 @@ jobs:
       - name: Capture pre-prepare dev SHA
         id: pre_state
         env:
-          GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
+          PREPARE_START_SHA: ${{ steps.checkout-state.outputs.sha }}
         run: |
           set -euo pipefail
-          PREPARE_START_SHA=$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
-            gh api "repos/${{ github.repository }}/git/ref/heads/dev" --jq '.object.sha')
           echo "prepare_start_sha=$PREPARE_START_SHA" >> "$GITHUB_OUTPUT"
 
       # The release branch is cut from the base BEFORE the changelog freeze, so
@@ -336,12 +353,21 @@ jobs:
             echo "CHANGELOGEOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Require pinned commit base for API write 1
+        env:
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$BASE_SHA" || { echo "::error::BASE_SHA is empty; refusing unpinned API commit"; exit 1; }
+
       - name: Commit prepared CHANGELOG to dev via API
+        id: freeze_commit
         uses: vig-os/commit-action@7ba7e1ae17547813e708d4cc6a771a09f978f724  # v0.3.3
         env:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/dev
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
             chore: freeze changelog for release ${{ needs.validate.outputs.version }}
@@ -355,31 +381,27 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           FREEZE_REF: heads/dev
-          PREPARE_START_SHA: ${{ steps.pre_state.outputs.prepare_start_sha }}
+          EXPECTED_FREEZE_SHA: ${{ steps.freeze_commit.outputs.commit-sha }}
         run: |
           set -euo pipefail
-          # Wait for the freeze target to advance past the pre-freeze SHA (#617).
-          # The freeze commit-action updates that ref, but a REST ref read can
-          # briefly return the stale pre-freeze SHA (read-after-write lag); acting
-          # on it would fast-forward release/X.Y.Z to a commit without the freeze.
-          # `retry` only retries on failure, so a stale-but-successful read slips
-          # through -- assert the SHA actually changed instead of trusting the
-          # first read.
+          test -n "$EXPECTED_FREEZE_SHA" || { echo "::error::Freeze action returned no commit SHA"; exit 1; }
+          # Ref reads may lag the API write. Only this run's confirmed freeze
+          # can authorize the release-branch fast-forward or rollback.
           FREEZE_SHA=""
           for attempt in $(seq 1 8); do
             FREEZE_SHA=$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
               gh api "repos/${{ github.repository }}/git/ref/$FREEZE_REF" --jq '.object.sha')
-            if [ "$FREEZE_SHA" != "$PREPARE_START_SHA" ]; then
+            if [ "$FREEZE_SHA" = "$EXPECTED_FREEZE_SHA" ]; then
               break
             fi
-            echo "$FREEZE_REF still at pre-freeze SHA $FREEZE_SHA (attempt $attempt/8); waiting for the freeze to propagate..."
+            echo "$FREEZE_REF is at $FREEZE_SHA, waiting for confirmed freeze $EXPECTED_FREEZE_SHA (attempt $attempt/8)..."
             sleep 5
           done
-          if [ "$FREEZE_SHA" = "$PREPARE_START_SHA" ]; then
-            echo "ERROR: $FREEZE_REF did not advance past pre-freeze SHA $PREPARE_START_SHA; freeze commit not visible"
+          if [ "$FREEZE_SHA" != "$EXPECTED_FREEZE_SHA" ]; then
+            echo "::error::Confirmed freeze $EXPECTED_FREEZE_SHA is not the head of $FREEZE_REF; manual review may be needed"
             exit 1
           fi
-          echo "freeze_sha=$FREEZE_SHA" >> "$GITHUB_OUTPUT"
+          echo "freeze_sha=$EXPECTED_FREEZE_SHA" >> "$GITHUB_OUTPUT"
 
       # Fast-forward release/X.Y.Z onto the freeze commit, so the branch (and
       # every downstream consumer of `freeze_sha`) carries the frozen CHANGELOG.
@@ -439,7 +461,7 @@ jobs:
   open-pr:
     name: Open Draft Release PR
     needs: [validate, prepare, extension]
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(needs.validate.outputs.runners).small }}
     container:
       image: ${{ needs.validate.outputs.image }}
       credentials:
@@ -544,7 +566,7 @@ jobs:
   rollback:
     name: Roll Back Prepare Release on Failure or Cancellation
     needs: [validate, prepare, extension, open-pr]
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(needs.validate.outputs.runners).small }}
     container:
       image: ${{ needs.validate.outputs.image }}
       credentials:
@@ -585,7 +607,21 @@ jobs:
           private-key: ${{ secrets.COMMIT_APP_PRIVATE_KEY }}
 
       - name: Checkout repository
+        id: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: dev
+
+      - name: Record checkout SHA
+        id: checkout-state
+        # actions/checkout reports the SHA it checked out; no git call, so this
+        # also works before a container job marks the workspace safe (#2055).
+        env:
+          CHECKOUT_SHA: ${{ steps.checkout.outputs.commit }}
+        run: |
+          set -euo pipefail
+          test -n "$CHECKOUT_SHA" || { echo "::error::actions/checkout reported no commit SHA"; exit 1; }
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Set up devkit toolchain
         uses: ./.github/actions/setup-devkit-toolchain
@@ -604,10 +640,20 @@ jobs:
         run: |
           set -euo pipefail
           CHANGELOG_ROLLBACK_NEEDED=false
-          retry --retries 3 --backoff 5 --max-backoff 60 -- \
-            gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$RELEASE_BRANCH" || true
+          if retry --retries 3 --backoff 5 --max-backoff 60 -- \
+            gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/$RELEASE_BRANCH"; then
+            echo "✓ Deleted partial release branch $RELEASE_BRANCH"
+          else
+            echo "w Could not delete $RELEASE_BRANCH or it is already absent; manual review may be needed"
+          fi
 
-          if [ -z "${PREPARE_START_SHA:-}" ] || [ -z "${POST_FREEZE_SHA:-}" ]; then
+          if [ -z "${PREPARE_START_SHA:-}" ]; then
+            echo "i Skipping CHANGELOG rollback: pre-prepare SHA is empty"
+            echo "changelog_rollback_needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ -z "${POST_FREEZE_SHA:-}" ]; then
+            echo "i Skipping CHANGELOG rollback: freeze SHA is empty; no confirmed freeze to restore"
             echo "changelog_rollback_needed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -622,7 +668,13 @@ jobs:
           # below can then never touch the trunk (#1479).
           CURRENT_FREEZE_SHA=$(retry --retries 3 --backoff 5 --max-backoff 60 -- \
             gh api "repos/${{ github.repository }}/git/ref/$FREEZE_REF" --jq '.object.sha' || echo "")
+          if [ -z "$CURRENT_FREEZE_SHA" ]; then
+            echo "i Freeze target is absent; no CHANGELOG rollback needed"
+            echo "changelog_rollback_needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           if [ "$CURRENT_FREEZE_SHA" != "$POST_FREEZE_SHA" ]; then
+            echo "w Freeze target advanced after freeze; skipping CHANGELOG rollback; manual review of $RELEASE_BRANCH may be needed"
             echo "changelog_rollback_needed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -634,8 +686,19 @@ jobs:
           if ! cmp -s /tmp/changelog.pre.md /tmp/changelog.current.md; then
             cp /tmp/changelog.pre.md CHANGELOG.md
             CHANGELOG_ROLLBACK_NEEDED=true
+            echo "✓ Prepared CHANGELOG rollback content"
+          else
+            echo "i CHANGELOG already matches pre-prepare state; no rollback needed"
           fi
           echo "changelog_rollback_needed=$CHANGELOG_ROLLBACK_NEEDED" >> "$GITHUB_OUTPUT"
+
+      - name: Require pinned commit base for API write 2
+        if: ${{ steps.rollback_prepare.outputs.changelog_rollback_needed == 'true' }}
+        env:
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$BASE_SHA" || { echo "::error::BASE_SHA is empty; refusing unpinned API commit"; exit 1; }
 
       - name: Commit CHANGELOG rollback to dev via API
         if: ${{ steps.rollback_prepare.outputs.changelog_rollback_needed == 'true' }}
@@ -644,6 +707,7 @@ jobs:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/dev
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
             chore: rollback failed prepare-release ${{ needs.validate.outputs.version }}

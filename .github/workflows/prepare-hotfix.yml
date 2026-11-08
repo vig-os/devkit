@@ -230,10 +230,22 @@ jobs:
           private-key: ${{ secrets.COMMIT_APP_PRIVATE_KEY }}
 
       - name: Checkout main
+        id: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: main
           persist-credentials: false
+
+      - name: Record checkout SHA
+        id: checkout-state
+        # actions/checkout reports the SHA it checked out; no git call, so this
+        # also works before a container job marks the workspace safe (#2055).
+        env:
+          CHECKOUT_SHA: ${{ steps.checkout.outputs.commit }}
+        run: |
+          set -euo pipefail
+          test -n "$CHECKOUT_SHA" || { echo "::error::actions/checkout reported no commit SHA"; exit 1; }
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Set up environment
         uses: ./.github/actions/setup-env
@@ -304,6 +316,13 @@ jobs:
             echo "✓ CHANGELOG seeded with an empty [$VERSION] - TBD section (the fix PR fills it)"
           fi
 
+      - name: Require pinned commit base for API write 1
+        env:
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$BASE_SHA" || { echo "::error::BASE_SHA is empty; refusing unpinned API commit"; exit 1; }
+
       - name: Commit seeded CHANGELOG to the release branch via API
         id: seed-commit
         uses: vig-os/commit-action@7ba7e1ae17547813e708d4cc6a771a09f978f724  # v0.3.3
@@ -311,6 +330,7 @@ jobs:
           GH_TOKEN: ${{ steps.commit-app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/release/${{ needs.validate.outputs.version }}
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
             chore: ${{ needs.validate.outputs.changelog_mode }} changelog for hotfix ${{ needs.validate.outputs.version }}

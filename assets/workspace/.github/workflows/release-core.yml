@@ -49,6 +49,11 @@ on:  # yamllint disable-line rule:truthy
         required: false
         default: ""
         type: string
+      runners:
+        description: "JSON object of resolved runner classes and lanes from the caller"
+        required: false
+        default: '{"small":["ubuntu-26.04"],"release-test":["ubuntu-26.04"]}'
+        type: string
     secrets:
       token:
         required: false
@@ -122,7 +127,7 @@ permissions:
 jobs:
   validate:
     name: Validate Release Core
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(inputs.runners).small }}
     permissions:
       contents: read
       pull-requests: read
@@ -351,7 +356,7 @@ jobs:
   finalize:
     name: Finalize Release Core
     needs: validate
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(inputs.runners).small }}
     permissions:
       actions: read
       contents: read
@@ -411,11 +416,23 @@ jobs:
           fi
 
       - name: Checkout release branch
+        id: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           ref: release/${{ needs.validate.outputs.version }}
           fetch-depth: 0
           token: ${{ steps.auth.outputs.token }}
+
+      - name: Record checkout SHA
+        id: checkout-state
+        # actions/checkout reports the SHA it checked out; no git call, so this
+        # also works before a container job marks the workspace safe (#2055).
+        env:
+          CHECKOUT_SHA: ${{ steps.checkout.outputs.commit }}
+        run: |
+          set -euo pipefail
+          test -n "$CHECKOUT_SHA" || { echo "::error::actions/checkout reported no commit SHA"; exit 1; }
+          echo "sha=$CHECKOUT_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Set up devkit toolchain
         uses: ./.github/actions/setup-devkit-toolchain
@@ -458,6 +475,14 @@ jobs:
         if: ${{ inputs.release_kind == 'final' }}
         uses: ./.github/actions/build-bundle
 
+      - name: Require pinned commit base for API write 1
+        if: ${{ inputs.release_kind == 'final' }}
+        env:
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
+        run: |
+          set -euo pipefail
+          test -n "$BASE_SHA" || { echo "::error::BASE_SHA is empty; refusing unpinned API commit"; exit 1; }
+
       - name: Commit and push finalization changes via API
         if: ${{ inputs.release_kind == 'final' }}
         id: finalize_commit
@@ -466,6 +491,7 @@ jobs:
           GH_TOKEN: ${{ steps.commit_app_token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           TARGET_BRANCH: refs/heads/release/${{ needs.validate.outputs.version }}
+          BASE_SHA: ${{ steps.checkout-state.outputs.sha }}
           MAX_ATTEMPTS: "3"
           COMMIT_MESSAGE: |-
             chore: finalize release ${{ needs.validate.outputs.version }}
@@ -607,7 +633,7 @@ jobs:
   test:
     name: Test Finalized Release
     needs: [validate, finalize]
-    runs-on: ubuntu-26.04
+    runs-on: ${{ fromJSON(inputs.runners)['release-test'] }}
     container:
       image: ${{ inputs.toolchain_image }}
       credentials:

@@ -57,6 +57,7 @@ setup_file() {
     _seed_shared node-both package.json '{ "name": "probe" }'
     _seed_shared python-both pyproject.toml $'[project]\nname = "probe"'
     _seed_shared cargo-both Cargo.toml $'[package]\nname = "probe"'
+    _seed_shared cargo-direnv Cargo.toml $'[package]\nname = "probe"'
     _seed_shared nix-module-both nix/module.nix '{ }'
 
     # One line per fixture: <name> <mode> [extra args…]. Keep it declarative —
@@ -71,6 +72,7 @@ setup_file() {
         'python-both both'
         'trunk-both both --workflow trunk'
         'cargo-both both'
+        'cargo-direnv direnv'
         'nix-module-both both'
     )
 
@@ -102,7 +104,7 @@ setup_file() {
 # Path of the shared read-only scaffold fixture $1 (#1417). Fixture names are
 # the four delivery modes plus the seeded/flagged variants rendered by
 # setup_file above (node-both, python-both, trunk-both, cargo-both,
-# nix-module-both).
+# cargo-direnv, nix-module-both).
 _shared_tree() { printf '%s/shared-%s' "$BATS_FILE_TMPDIR" "$1"; }
 
 # Copy the setup_file-rendered fixture $1 into the absent-or-empty workspace $2
@@ -2112,7 +2114,7 @@ EOF
 }
 
 @test "--preview does not list template .typos.toml as ADDED under a legacy _typos.toml (#1196)" {
-    # Regression (#1196, exo-pet/vault#31): the real copy rsync-excludes the
+    # Regression (#1196): the real copy rsync-excludes the
     # template .typos.toml when the consumer carries _typos.toml (and no
     # .typos.toml), yet --preview reported it as ADDED — advertising a file the
     # upgrade then silently skips. Preview must mirror the copy's exclude set.
@@ -2654,7 +2656,7 @@ _upgrade_no_flags() {
         'DEVKIT_MODULES="native rust"'
         'DEVKIT_TAG_PREFIX=v'
         'DEVKIT_FLOATING_TAGS=major,minor'
-        'DEVKIT_CI_RUNNER=self-hosted,linux,x64,meatgrinder'
+        'DEVKIT_CI_RUNNER=self-hosted,pool-s'
         'DEVKIT_DEV_PROFILE_PATH=/var/lib/devkit/gcroots/dev-profile'
         'DEVKIT_DRIFT_CHECK=false'
         'DEVKIT_FEATURES_DISABLED=renovate,scanning'
@@ -4083,7 +4085,7 @@ _RELEASE_RESOLVERS_991=(
 
 @test "release/automation resolvers use the resolve-toolchain composite (#991)" {
     for wf in "${_RELEASE_RESOLVERS_991[@]}"; do
-        run grep -q 'uses: ./.github/actions/resolve-toolchain' "$TEMPLATE_DIR/.github/workflows/$wf"
+        run grep -Eq 'uses: ./(.devkit-resolve/)?.github/actions/resolve-toolchain' "$TEMPLATE_DIR/.github/workflows/$wf"
         assert_success
     done
 }
@@ -4105,7 +4107,7 @@ _RELEASE_RESOLVERS_991=(
 
 @test "release orchestrator threads toolchain_* into the reusable calls (#991)" {
     f="$TEMPLATE_DIR/.github/workflows/release.yml"
-    run grep -q 'uses: ./.github/actions/resolve-toolchain' "$f"
+    run grep -q 'uses: ./.devkit-resolve/.github/actions/resolve-toolchain' "$f"
     assert_success
     for input in 'toolchain_mode:' 'toolchain_image:' 'devkit_version:'; do
         run grep -q "$input" "$f"
@@ -4528,6 +4530,306 @@ _RELEASE_RESOLVERS_991=(
     assert_output --partial 'Seeded by vigOS devkit'
 }
 
+# ── Rust cold adoption: justfile, tool configs, flake (#1496, #1810) ──────────
+# A Rust repo used to get the Python justfile.project, whose recipes skip
+# without a pyproject.toml, so `just lint` / `just test` compiled nothing and
+# CI went green on a build of nothing. The first scaffold of a Rust consumer
+# now seeds cargo recipes (L4), the pack's base tool configs (L1) and, on a
+# fresh direnv scaffold, a flake on lib.mkRustProject.
+
+@test "first scaffold of a Rust consumer seeds cargo justfile.project recipes (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-seed"
+    mkdir -p "$ws"
+    run _clone_shared cargo-both "$ws"
+    assert_success
+    run cat "$ws/justfile.project"
+    assert_success
+    assert_output --partial 'cargo test --workspace'
+    assert_output --partial 'cargo clippy --workspace --all-targets'
+    assert_output --partial 'cargo fmt --all --check'
+    assert_output --partial 'cargo fetch'
+    # The Python template must NOT have been used: its recipes skip without a
+    # pyproject.toml, which is the silent no-op this seed exists to end.
+    refute_output --partial 'uv sync'
+    refute_output --partial 'npm ci'
+    # Placeholder resolved like every other managed file.
+    assert_output --partial 'testproj'
+    refute_output --partial '{{SHORT_NAME}}'
+}
+
+@test "the Rust justfile.project seed carries the preserved banner (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-banner"
+    mkdir -p "$ws"
+    run _clone_shared cargo-both "$ws"
+    assert_success
+    run head -1 "$ws/justfile.project"
+    assert_output --partial 'Seeded by vigOS devkit'
+}
+
+@test "an existing justfile.project is never replaced by the Rust seed (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-preserve"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf '# consumer-owned recipes\nmy-custom-recipe:\n\t@echo mine\n' \
+        >"$ws/justfile.project"
+    run _scaffold both "$ws"
+    assert_success
+    run cat "$ws/justfile.project"
+    assert_output --partial 'my-custom-recipe'
+    refute_output --partial 'cargo test'
+}
+
+@test "a Rust consumer gets the pack's base tool configs (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-statics"
+    mkdir -p "$ws"
+    run _clone_shared cargo-both "$ws"
+    assert_success
+    local f
+    for f in rustfmt.toml clippy.toml deny.toml; do
+        assert_file_exists "$ws/$f"
+        run head -1 "$ws/$f"
+        assert_output --partial 'Seeded by vigOS devkit'
+    done
+    # deny.toml is what turns on mkRustProject's `deny` check; it must not fail
+    # an unpublished crate (the consumer-matrix fixture has no license field).
+    run grep -A4 '^\[licenses\.private\]' "$ws/deny.toml"
+    assert_output --partial 'ignore = true'
+}
+
+@test "the Rust tool configs are scaffold-once: an existing one is never replaced (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-statics-preserve"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf '# mine\n[bans]\nmultiple-versions = "deny"\n' >"$ws/deny.toml"
+    run _scaffold both "$ws"
+    assert_success
+    run cat "$ws/deny.toml"
+    assert_output $'# mine\n[bans]\nmultiple-versions = "deny"'
+    # The configs it did not have are still seeded.
+    assert_file_exists "$ws/rustfmt.toml"
+    assert_file_exists "$ws/clippy.toml"
+}
+
+@test "an existing Rust consumer's upgrade seeds no tool configs (#1496)" {
+    # rust is already DECLARED: the repo owns its Rust policy. Dropping a
+    # deny.toml into it would silently switch on mkRustProject's `deny` check
+    # (it keys on the file's presence) and turn the upgrade PR red.
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-upgrade-no-statics"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf 'DEVKIT_LANGUAGES=rust\n' >"$ws/.vig-os"
+    run _scaffold both "$ws"
+    assert_success
+    assert_file_not_exists "$ws/deny.toml"
+    assert_file_not_exists "$ws/rustfmt.toml"
+    assert_file_not_exists "$ws/clippy.toml"
+}
+
+@test "a dot-prefixed or .cargo/ tool config counts as present (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-alias-configs"
+    mkdir -p "$ws/.cargo"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf 'max_width = 100\n' >"$ws/.rustfmt.toml"
+    printf '[bans]\n' >"$ws/.cargo/deny.toml"
+    run _scaffold both "$ws"
+    assert_success
+    assert_file_not_exists "$ws/rustfmt.toml"
+    assert_file_not_exists "$ws/deny.toml"
+    assert_file_exists "$ws/clippy.toml"
+}
+
+@test "--preview lists the Rust tool configs it would seed, and seeds nothing (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-preview-statics"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf 'max_width = 100\n' >"$ws/.rustfmt.toml"
+    printf 'DEVKIT_MODE=both\n' >"$ws/.vig-os"
+    run _preview "$ws" --force
+    assert_success
+    assert_output --partial '+  deny.toml (rust pack base config)'
+    assert_output --partial '+  clippy.toml (rust pack base config)'
+    # .rustfmt.toml is an equivalent: not offered.
+    refute_output --partial 'rustfmt.toml (rust pack base config)'
+    assert_file_not_exists "$ws/deny.toml"
+}
+
+@test "a non-Rust consumer gets none of the Rust tool configs (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-neutral-no-statics"
+    mkdir -p "$ws"
+    run _clone_shared both "$ws"
+    assert_success
+    assert_file_not_exists "$ws/rustfmt.toml"
+    assert_file_not_exists "$ws/clippy.toml"
+    assert_file_not_exists "$ws/deny.toml"
+}
+
+@test "a fresh direnv scaffold of a Rust consumer seeds the mkRustProject flake (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-flake"
+    mkdir -p "$ws"
+    run _clone_shared cargo-direnv "$ws"
+    assert_success
+    run cat "$ws/flake.nix"
+    assert_success
+    assert_output --partial 'vigos.lib.mkRustProject'
+    refute_output --partial 'vigos.lib.mkProjectShell'
+    # statix-clean output wiring (#1810).
+    assert_output --partial 'inherit (rust) checks packages;'
+    # The #1167 flake-hooks default still lands: its anchor line exists in the
+    # Rust flake too, so `hooks = { };` was inserted.
+    assert_output --partial 'hooks = { };'
+}
+
+@test "the Rust flake forwards every .vig-os hook setting (#1810)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1810-rust-flake-knobs"
+    mkdir -p "$ws"
+    run _clone_shared cargo-direnv "$ws"
+    assert_success
+    local arg
+    for arg in workflow branchTypes commitTypes refsPolicy refsOptionalTypes; do
+        run grep -c "builtins.functionArgs vigos.lib.mkRustProject ? $arg" "$ws/flake.nix"
+        assert_output 1
+    done
+}
+
+@test "an existing flake.nix is never replaced by the Rust flake (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-rust-flake-preserve"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf '{ outputs = _: { }; }\n' >"$ws/flake.nix"
+    run _scaffold direnv "$ws"
+    assert_success
+    run cat "$ws/flake.nix"
+    assert_output '{ outputs = _: { }; }'
+}
+
+# ── upgrade preflight: untracked build output the upgrade will ignore (#1826) ─
+# install.sh forwards the tree's untracked paths as DEVKIT_PREFLIGHT_UNTRACKED.
+# A path the UPGRADED root .gitignore covers (template base + the detected
+# languages' fragments + .gitignore.project) is left in place; anything else
+# refuses the upgrade before a single file is written.
+
+@test "preflight: a Rust repo's untracked target/ does not block the upgrade (#1826)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1826-target"
+    mkdir -p "$ws/target/debug"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    DEVKIT_PREFLIGHT_UNTRACKED=$'Cargo.toml\ntarget/' run _scaffold both "$ws"
+    assert_failure
+    # Cargo.toml is a real untracked change: it is named, target/ is not.
+    assert_output --partial 'refusing to upgrade on a dirty tree'
+    assert_output --partial '    Cargo.toml'
+    refute_output --partial '    target/'
+
+    ws="$BATS_TEST_TMPDIR/e2e-1826-target-only"
+    mkdir -p "$ws/target/debug"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    DEVKIT_PREFLIGHT_UNTRACKED='target/' run _scaffold both "$ws"
+    assert_success
+    assert_output --partial 'left in place: target/'
+    assert_file_exists "$ws/.vig-os"
+}
+
+@test "preflight: an untracked path the upgrade will not ignore refuses before writing anything (#1826)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1826-refuse"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf 'wip\n' >"$ws/notes.txt"
+    DEVKIT_PREFLIGHT_UNTRACKED=$'notes.txt\ntarget/' run _scaffold both "$ws"
+    assert_failure
+    assert_output --partial '    notes.txt'
+    assert_output --partial '--allow-untracked'
+    assert_output --partial '--skip-preflight'
+    assert_file_not_exists "$ws/.vig-os"
+    assert_file_not_exists "$ws/justfile"
+}
+
+@test "preflight: build output of an undetected language is not excused (#1826)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1826-undetected"
+    mkdir -p "$ws/node_modules/x"
+    # No package.json: the Node fragment will not be in the upgraded
+    # .gitignore, so node_modules/ would land in the upgrade's diff.
+    DEVKIT_PREFLIGHT_UNTRACKED='node_modules/' run _scaffold both "$ws"
+    assert_failure
+    assert_output --partial '    node_modules/'
+}
+
+@test "preflight: a flake-hooks consumer's untracked store symlink counts as covered (#1826)" {
+    # render_gitignore adds `.pre-commit-config.yaml` for a /nix/store symlink
+    # (#1092); the guard must assemble the same rules, not a hand-copied subset.
+    ws="$BATS_TEST_TMPDIR/e2e-1826-store-symlink"
+    mkdir -p "$ws"
+    ln -s /nix/store/00000000000000000000000000000000-pre-commit-config.json "$ws/.pre-commit-config.yaml"
+    DEVKIT_PREFLIGHT_UNTRACKED='.pre-commit-config.yaml' run _scaffold direnv "$ws"
+    assert_success
+    assert_output --partial 'left in place: .pre-commit-config.yaml'
+}
+
+@test "preflight: .gitignore.project entries count as covered (#1826)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1826-project-ignore"
+    mkdir -p "$ws/scratch"
+    printf 'scratch/\n' >"$ws/.gitignore.project"
+    DEVKIT_PREFLIGHT_UNTRACKED='scratch/' run _scaffold both "$ws"
+    assert_success
+    assert_output --partial 'left in place: scratch/'
+}
+
+# ── a Rust repo whose preserved files bypass the pack is told so (#1831) ─────
+# flake.nix and justfile.project are PRESERVE_FILES, so a repo that was
+# scaffolded before it had a Cargo.toml (or before #1496) keeps a flake that
+# never reaches lib.mkRustProject and recipes that never run cargo. The scaffold
+# cannot rewrite them; it names the gap and the doc section that closes it.
+
+@test "a Rust repo with a preserved non-pack flake.nix is pointed at mkRustProject (#1831)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1831-flake-notice"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf '{ outputs = _: { }; }\n' >"$ws/flake.nix"
+    run _scaffold direnv "$ws"
+    assert_success
+    assert_output --partial 'flake.nix does not use vigos.lib.mkRustProject'
+    assert_output --partial 'docs/MIGRATION.md#rust-projects-the-rust-pack'
+}
+
+@test "a Rust repo with a preserved non-cargo justfile.project is told its recipes skip Rust (#1831)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1831-justfile-notice"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf '# consumer-owned recipes\ntest:\n\t@echo none\n' >"$ws/justfile.project"
+    run _scaffold both "$ws"
+    assert_success
+    assert_output --partial 'justfile.project never runs cargo'
+    assert_output --partial 'docs/MIGRATION.md#rust-projects-the-rust-pack'
+}
+
+@test "a justfile.project that mentions cargo only in a comment still gets the notice (#1831)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1831-justfile-comment"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    printf '# TODO: switch these to cargo\ntest:\n\t@echo none\n' >"$ws/justfile.project"
+    run _scaffold both "$ws"
+    assert_success
+    assert_output --partial 'justfile.project never runs cargo'
+}
+
+@test "a fresh Rust scaffold gets no bypass notice (#1831)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1831-no-notice"
+    mkdir -p "$ws"
+    printf '[package]\nname = "probe"\n' >"$ws/Cargo.toml"
+    run _scaffold direnv "$ws"
+    assert_success
+    refute_output --partial 'does not use vigos.lib.mkRustProject'
+    refute_output --partial 'never runs cargo'
+}
+
+@test "a fresh direnv scaffold of a non-Rust consumer keeps the mkProjectShell flake (#1496)" {
+    ws="$BATS_TEST_TMPDIR/e2e-1496-neutral-flake"
+    mkdir -p "$ws"
+    run _clone_shared direnv "$ws"
+    assert_success
+    run cat "$ws/flake.nix"
+    assert_output --partial 'vigos.lib.mkProjectShell'
+    refute_output --partial 'mkRustProject'
+}
+
 # ── consumer-owned durable root ignores: .gitignore.project (#1092) ────────────
 # The managed root .gitignore is overwritten on every upgrade, and git honors a
 # repo-ROOT ignore only from that root .gitignore — so consumers had no durable
@@ -4786,7 +5088,7 @@ _RELEASE_RESOLVERS_991=(
 # scaffold-delivered script set (the template's .sh files), never on a
 # consumer's own sourced-only .sh libraries. A blanket `find … -name '*.sh'`
 # re-dirtied preserved consumer libs (mode 644 → 755) on every --force
-# re-scaffold — observed in the field on exo-fleet (#1195).
+# re-scaffold — observed in a consumer repo (#1195).
 
 @test "scaffold chmod +x skips a consumer's pre-existing sourced .sh lib (#1195)" {
     ws="$BATS_TEST_TMPDIR/e2e-1195-chmod-scope"
@@ -5976,4 +6278,272 @@ _assert_consumer_tokens_intact_1693() {
             git init -q &&
             actionlint
     )
+}
+
+
+@test "lane sizes persist across force upgrades (#1927)" {
+    ws="$BATS_TEST_TMPDIR/lane-sizes"
+    mkdir -p "$ws"
+    run _clone_shared direnv "$ws"
+    assert_success
+    grep -v '^DEVKIT_CI_LANE_SIZES=' "$ws/.vig-os" >"$BATS_TEST_TMPDIR/base"
+    cp "$BATS_TEST_TMPDIR/base" "$ws/.vig-os"
+    printf '\nDEVKIT_CI_LANE_SIZES=test=xlarge, lint=large\n' >>"$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -x 'DEVKIT_CI_LANE_SIZES=test=xlarge, lint=large' "$ws/.vig-os"
+    assert_success
+}
+
+@test "lane sizes reject invalid values before writing (#1927)" {
+    ws="$BATS_TEST_TMPDIR/lane-sizes-invalid"
+    mkdir -p "$ws"
+    run _clone_shared direnv "$ws"
+    assert_success
+    grep -v '^DEVKIT_CI_LANE_SIZES=' "$ws/.vig-os" >"$BATS_TEST_TMPDIR/original-manifest"
+    local value
+    for value in unknown=large test=huge small=large Test=large test=LARGE \
+        test =large test= test==large 'test=large,' ,test=large \
+        test=large,,lint=large 'test =large' 'test= large' \
+        test=large,test=xlarge test=large,test=large; do
+        cp "$BATS_TEST_TMPDIR/original-manifest" "$ws/.vig-os"
+        printf '\nDEVKIT_CI_LANE_SIZES=%s\n' "$value" >>"$ws/.vig-os"
+        cp "$ws/.vig-os" "$BATS_TEST_TMPDIR/before"
+        run _upgrade_no_flags "$ws"
+        assert_failure
+        assert_output --partial 'DEVKIT_CI_LANE_SIZES'
+        if [[ "$value" == test=large,test=* ]]; then
+            assert_output --partial 'Duplicate'
+            assert_output --partial 'test'
+        fi
+        run cmp "$BATS_TEST_TMPDIR/before" "$ws/.vig-os"
+        assert_success
+    done
+}
+
+@test "lane sizes template is empty and documented (#1927)" {
+    run grep -x 'DEVKIT_CI_LANE_SIZES=' "$TEMPLATE_DIR/.vig-os"
+    assert_success
+}
+
+@test "container runner opt-in persists across force upgrades (#2045)" {
+    ws="$BATS_TEST_TMPDIR/container-runners"
+    mkdir -p "$ws"
+    run _clone_shared both "$ws"
+    assert_success
+    grep -v '^DEVKIT_CI_CONTAINER_RUNNERS=' "$ws/.vig-os" >"$BATS_TEST_TMPDIR/base"
+    cp "$BATS_TEST_TMPDIR/base" "$ws/.vig-os"
+    printf '\nDEVKIT_CI_CONTAINER_RUNNERS=true\n' >>"$ws/.vig-os"
+    run _upgrade_no_flags "$ws"
+    assert_success
+    run grep -x 'DEVKIT_CI_CONTAINER_RUNNERS=true' "$ws/.vig-os"
+    assert_success
+}
+
+@test "container runner opt-in rejects invalid values before writing (#2045)" {
+    ws="$BATS_TEST_TMPDIR/container-runners-invalid"
+    mkdir -p "$ws"
+    run _clone_shared both "$ws"
+    assert_success
+    grep -v '^DEVKIT_CI_CONTAINER_RUNNERS=' "$ws/.vig-os" >"$BATS_TEST_TMPDIR/original-manifest"
+    local value
+    for value in yes True TRUE 1 on false,true maybe; do
+        cp "$BATS_TEST_TMPDIR/original-manifest" "$ws/.vig-os"
+        printf '\nDEVKIT_CI_CONTAINER_RUNNERS=%s\n' "$value" >>"$ws/.vig-os"
+        cp "$ws/.vig-os" "$BATS_TEST_TMPDIR/before"
+        run _upgrade_no_flags "$ws"
+        assert_failure
+        assert_output --partial 'Invalid DEVKIT_CI_CONTAINER_RUNNERS'
+        assert_output --partial 'true | false'
+        run cmp "$BATS_TEST_TMPDIR/before" "$ws/.vig-os"
+        assert_success
+    done
+}
+
+_runner_migration_upgrade() {
+    local ws="$1"
+    shift
+    env "$@" TEMPLATE_DIR="$TEMPLATE_DIR" WORKSPACE_DIR="$ws" \
+        bash "$INIT_WORKSPACE_SH" --force --no-prompts
+}
+
+# Migration runs the actual scaffold, with the default-branch workflow's env.
+_runner_migration_seed() {
+    ws="$BATS_TEST_TMPDIR/runner-migration"
+    mkdir -p "$ws"
+    _clone_shared direnv "$ws"
+    grep -vE '^DEVKIT_CI_(RUNNER|LANE_SIZES)=' "$ws/.vig-os" >"$ws/manifest.tmp"
+    mv "$ws/manifest.tmp" "$ws/.vig-os"
+    unset DEVKIT_UPGRADE_CONTEXT DEVKIT_UPGRADE_CI_RUNNER_SMALL \
+        DEVKIT_UPGRADE_CI_RUNNER_LARGE DEVKIT_UPGRADE_CI_RUNNER_XLARGE \
+        DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER DEVKIT_UPGRADE_REPO_PRIVATE
+}
+
+@test "runner migration strips only valid variables covering the effective map (#1929)" {
+    _runner_migration_seed
+    local -a migration_env=(DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_CI_RUNNER_SMALL=pool-s)
+    local sizes large xlarge expected
+    for spec in 'none|none|none|removed' 'test=large|pool-l|none|removed' \
+        'test=xlarge,lint=large|pool-l|pool-x|removed' \
+        'test=large|none|pool-x|kept' 'test=xlarge|pool-l|none|kept' \
+        'none|unused|unused|removed'; do
+        IFS='|' read -r sizes large xlarge expected <<<"$spec"
+        [[ "$sizes" != none ]] || sizes=''
+        migration_env=(DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_CI_RUNNER_SMALL=pool-s
+            "DEVKIT_UPGRADE_CI_RUNNER_LARGE=${large/none/}" "DEVKIT_UPGRADE_CI_RUNNER_XLARGE=${xlarge/none/}")
+        printf '\nDEVKIT_CI_RUNNER=private-pool\nDEVKIT_CI_LANE_SIZES=%s\n' "$sizes" >>"$ws/.vig-os"
+        run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+        assert_success
+        assert_output --partial 'ci-runner-migration:'
+        refute_output --partial 'private-pool'
+        if [[ "$expected" == removed ]]; then
+            run grep '^DEVKIT_CI_RUNNER=private-pool$' "$ws/.vig-os"
+            assert_failure
+        else
+            assert_output --partial 'repository level'
+            assert_output --partial 'N+2'
+            run grep '^DEVKIT_CI_RUNNER=private-pool$' "$ws/.vig-os"
+            assert_success
+        fi
+        # Remove duplicate keys before the next independent case.
+        grep -vE '^DEVKIT_CI_(RUNNER|LANE_SIZES)=' "$ws/.vig-os" >"$ws/manifest.tmp"
+        mv "$ws/manifest.tmp" "$ws/.vig-os"
+    done
+}
+
+# In a container-ish mode the variables place lanes only with the opt-in key
+# (#2045), so a legacy key is inert there only when the repo also opted in:
+# stripping it otherwise would move every lane onto hosted runners.
+@test "runner migration keeps the legacy key in a gated container mode (#2045)" {
+    local repo="$BATS_TEST_TMPDIR/runner-migration-gated"
+    mkdir -p "$repo"
+    _clone_shared both "$repo"
+    unset DEVKIT_UPGRADE_CI_RUNNER_LARGE DEVKIT_UPGRADE_CI_RUNNER_XLARGE \
+        DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER DEVKIT_UPGRADE_REPO_PRIVATE
+    local opt_in expected
+    for spec in 'none|kept' 'false|kept' 'true|removed'; do
+        IFS='|' read -r opt_in expected <<<"$spec"
+        grep -vE '^DEVKIT_CI_(RUNNER|LANE_SIZES|CONTAINER_RUNNERS)=' "$repo/.vig-os" >"$repo/manifest.tmp"
+        mv "$repo/manifest.tmp" "$repo/.vig-os"
+        printf '\nDEVKIT_CI_RUNNER=private-pool\n' >>"$repo/.vig-os"
+        [[ "$opt_in" == none ]] || printf 'DEVKIT_CI_CONTAINER_RUNNERS=%s\n' "$opt_in" >>"$repo/.vig-os"
+        run _runner_migration_upgrade "$repo" DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_CI_RUNNER_SMALL=pool-s
+        assert_success
+        refute_output --partial 'private-pool'
+        if [[ "$expected" == removed ]]; then
+            assert_output --partial 'ci-runner-migration: DEVKIT_CI_RUNNER removed'
+            run grep '^DEVKIT_CI_RUNNER=private-pool$' "$repo/.vig-os"
+            assert_failure
+        else
+            assert_output --partial 'ci-runner-migration: DEVKIT_CI_RUNNER kept'
+            assert_output --partial 'DEVKIT_CI_CONTAINER_RUNNERS=true'
+            run grep -x 'DEVKIT_CI_RUNNER=private-pool' "$repo/.vig-os"
+            assert_success
+        fi
+    done
+}
+
+@test "runner migration keeps malformed missing and whitespace variables (#1929)" {
+    _runner_migration_seed
+    local -a migration_env=(DEVKIT_UPGRADE_CONTEXT=1)
+    local value
+    for value in '' ' ' ' pool-s' 'pool-s ' 'pool,s' '["pool-s"]' 'pool s' 'pool@'; do
+        migration_env=(DEVKIT_UPGRADE_CONTEXT=1 "DEVKIT_UPGRADE_CI_RUNNER_SMALL=$value")
+        printf '\nDEVKIT_CI_RUNNER=private-pool\n' >>"$ws/.vig-os"
+        run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+        assert_success
+        assert_output --partial 'gh variable set CI_RUNNER_SMALL --body <label>'
+        run grep -x 'DEVKIT_CI_RUNNER=private-pool' "$ws/.vig-os"
+        assert_success
+    done
+}
+
+@test "runner migration local force never strips even with variables (#1929)" {
+    _runner_migration_seed
+    local -a migration_env=(DEVKIT_UPGRADE_CI_RUNNER_SMALL=pool-s)
+    printf '\nDEVKIT_CI_RUNNER=private-pool\n' >>"$ws/.vig-os"
+    run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+    assert_success
+    assert_output --partial 'ci-runner-migration:'
+    run grep -x 'DEVKIT_CI_RUNNER=private-pool' "$ws/.vig-os"
+    assert_success
+}
+
+@test "runner migration adopt N+1 before releasing N to main keeps key (#1929)" {
+    local -a migration_env=()
+    _runner_migration_seed
+    # main still has the pre-N install/PR-body steps: no upgrade env, and only
+    # flake-bump/preserved-hook lines lifted. dev may already carry N's files.
+    printf '\nDEVKIT_CI_RUNNER=private-pool\n' >>"$ws/.vig-os"
+    run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+    assert_success
+    assert_output --partial 'ci-runner-migration:'
+    local log="$output"
+    run grep -x 'DEVKIT_CI_RUNNER=private-pool' "$ws/.vig-os"
+    assert_success
+    run bash -c 'printf "%s\n" "$1" | grep -E "^(flake-bump:|preserved-hook-(drift|fold|insert):)" | grep "ci-runner-migration:"' bash "$log"
+    assert_failure
+}
+
+@test "runner migration no-key table legacy private public and configured (#1929)" {
+    _runner_migration_seed
+    local -a migration_env=(DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_LEGACY_RESOLVE_RUNNER=private-pool)
+    run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+    assert_success
+    assert_output --partial 'ci-runner-migration:'
+    assert_output --partial 'CI_RUNNER_SMALL'
+    assert_output --partial 'delete'
+    refute_output --partial 'private-pool'
+    migration_env=(DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_REPO_PRIVATE=true)
+    run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+    assert_success
+    assert_output --partial 'organization variables do not reach private repos on GitHub Free'
+    assert_output --partial 'ubuntu-26.04'
+    migration_env=(DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_REPO_PRIVATE=false)
+    run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+    assert_success
+    refute_output --partial 'ci-runner-migration:'
+    migration_env=(DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_REPO_PRIVATE=true DEVKIT_UPGRADE_CI_RUNNER_SMALL=ubuntu-26.04)
+    run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+    assert_success
+    refute_output --partial 'ci-runner-migration:'
+}
+
+@test "runner migration reconciles each stock seeded job and preserves drift (#1929)" {
+    local -a migration_env=(DEVKIT_UPGRADE_CONTEXT=1 DEVKIT_UPGRADE_CI_RUNNER_SMALL=pool-s)
+    _runner_migration_seed
+    local file
+    for file in prepare-release-extension release-extension publish-release-extension; do
+        cat >"$ws/.github/workflows/$file.yml" <<'YAML'
+name: Consumer hook
+on: workflow_call
+jobs:
+  stock:
+    runs-on: ${{ vars.DEVKIT_CI_RESOLVE_RUNNER || 'ubuntu-26.04' }}
+    steps: []
+  custom:
+    runs-on: custom-pool
+    steps: []
+  almost:
+    runs-on: ${{ vars.CUSTOM_RUNNER || 'ubuntu-26.04' }} # custom
+    steps: []
+YAML
+    done
+    run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+    assert_success
+    assert_output --partial 'ci-runner-migration: Seeded hook reconciled: stock in .github/workflows/'
+    assert_output --partial 'ci-runner-migration: Seeded hook drift: custom in .github/workflows/'
+    assert_output --partial 'ci-runner-migration: Seeded hook drift: almost in .github/workflows/'
+    for file in prepare-release-extension release-extension publish-release-extension; do
+        run grep -F 'vars.CI_RUNNER_SMALL' "$ws/.github/workflows/$file.yml"
+        assert_success
+        assert_output --partial 'github.event.pull_request.head.repo.full_name != github.repository'
+        run grep -F 'runs-on: custom-pool' "$ws/.github/workflows/$file.yml"
+        assert_success
+        run grep -F "}} # custom" "$ws/.github/workflows/$file.yml"
+        assert_success
+    done
+    run _runner_migration_upgrade "$ws" ${migration_env[@]+"${migration_env[@]}"}
+    assert_success
+    refute_output --partial 'Seeded hook reconciled: stock'
 }

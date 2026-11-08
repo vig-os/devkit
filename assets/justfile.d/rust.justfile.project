@@ -1,0 +1,133 @@
+# Seeded by vigOS devkit — yours to edit; upgrades never overwrite this file.
+# Bugs / missing tools: https://github.com/vig-os/devkit/issues
+
+# ===============================================================================
+# PROJECT RECIPES - Team-shared customizations (Rust / Cargo)
+# This file is git-tracked and preserved during devcontainer upgrades.
+# Add team-shared recipes here that everyone on the project should use.
+#
+# Seeded by init-workspace.sh on the FIRST scaffold of a Rust consumer (a
+# Cargo.toml was detected). It maps the CI-contract recipe names the base
+# justfile and ci.yml expect (sync/lint/test/…) onto cargo, so `just lint` and
+# `just test` compile and test the workspace instead of skipping it (#1496).
+# An EXISTING justfile.project is never replaced.
+#
+# `just test` runs the WHOLE suite with `cargo test`, doctests included. That
+# includes any test the flake's `checks.nextest` skips via mkRustProject's
+# `sandboxExcludes` (#1834): the Nix sandbox cannot give them a PTY or
+# signals, so `just test` (which CI runs) is where they execute.
+# ===============================================================================
+# ===============================================================================
+# PROJECT VARIABLES
+# ===============================================================================
+
+project := "{{SHORT_NAME}}"
+# ===============================================================================
+# INFO
+# ===============================================================================
+
+# Show project information
+[group('info')]
+info:
+    @echo "Project: {{ project }}"
+
+# -------------------------------------------------------------------------------
+# CODE QUALITY
+# -------------------------------------------------------------------------------
+
+# Like the stock template, every recipe REPORTS its skip when the marker file is
+# absent rather than exiting 0 in silence (#1478); CI's declared-language gate
+# asserts whether that skip is legitimate.
+
+# Run all linters (rustfmt check + clippy with warnings denied)
+[group('quality')]
+lint:
+    @if [ -f Cargo.toml ]; then cargo fmt --all --check && cargo clippy --workspace --all-targets -- --deny warnings; else echo "just lint: no Cargo.toml — skipping"; fi
+
+# Format code
+[group('quality')]
+format:
+    @if [ -f Cargo.toml ]; then cargo fmt --all; else echo "just format: no Cargo.toml — skipping"; fi
+
+# Run pre-commit hooks on all files
+[group('quality')]
+precommit:
+    prek run --all-files
+
+# -------------------------------------------------------------------------------
+# TESTING
+# -------------------------------------------------------------------------------
+
+# Run the test suite: unit, integration and doctests
+[group('test')]
+test *args:
+    @if [ -f Cargo.toml ]; then cargo test --workspace {{ args }}; else echo "just test: no Cargo.toml — skipping"; fi
+
+# Run tests with coverage (cargo-llvm-cov: add "llvm-cov" to mkRustProject's `tools`)
+[group('test')]
+test-cov *args:
+    @if [ -f Cargo.toml ]; then cargo llvm-cov --workspace {{ args }}; else echo "just test-cov: no Cargo.toml — skipping"; fi
+
+# -------------------------------------------------------------------------------
+# DEPENDENCIES
+# -------------------------------------------------------------------------------
+
+# Fetch dependencies into the local cache (writes Cargo.lock if it is missing)
+[group('deps')]
+sync *args:
+    @if [ -f Cargo.toml ]; then cargo fetch {{ args }}; else echo "just sync: no Cargo.toml — skipping"; fi
+
+# Update all dependencies (refreshes Cargo.lock)
+[group('deps')]
+update:
+    cargo update
+
+# -------------------------------------------------------------------------------
+# BUILD
+# -------------------------------------------------------------------------------
+
+# Build the workspace
+[group('build')]
+build *args:
+    @if [ -f Cargo.toml ]; then cargo build --workspace {{ args }}; else echo "just build: no Cargo.toml — skipping"; fi
+
+# Clean build artifacts
+[group('build')]
+clean-artifacts:
+    cargo clean
+
+# ===============================================================================
+# PROJECT-SPECIFIC RECIPES
+# ===============================================================================
+# Uncomment and customize for your project:
+# # Run the application
+# [group('app')]
+# run *args:
+#     cargo run -- {{args}}
+#
+# # Run the flake's sandboxed check suite (fmt, clippy, nextest, doctest, doc,
+# # deny, the package builds) exactly as CI's flake lane does
+# [group('test')]
+# check:
+#     nix flake check
+#
+# # Boot the local dev services declared in flake.nix (mkProjectServices,
+# # #795): daemonless process-compose stack, state in ./data (gitignore it).
+# [group('services')]
+# services *args:
+#     nix run .#services -- {{args}}
+#
+# # Prepare release branch (manual workflow dispatch helper)
+# [group('release')]
+# prepare-release version:
+#     gh workflow run prepare-release.yml --ref dev -f "version={{ version }}"
+#
+# # Finalize and publish release (manual workflow dispatch helper)
+# [group('release')]
+# finalize-release version:
+#     gh workflow run release.yml --ref release/{{ version }} -f "version={{ version }}" -f "release-kind=final" -f "dry-run=false"
+#
+# # Publish candidate release (manual workflow dispatch helper)
+# [group('release')]
+# publish-candidate version:
+#     gh workflow run release.yml --ref release/{{ version }} -f "version={{ version }}" -f "release-kind=candidate" -f "dry-run=false"

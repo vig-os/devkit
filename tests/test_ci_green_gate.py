@@ -92,10 +92,11 @@ T1 = "2026-08-14T10:00:00Z"
 T2 = "2026-08-14T11:00:00Z"
 
 
-def _gate(site: str) -> str:
+def _gate(site: str, *, pr_state: str = "OPEN") -> str:
     path, job, step_name = GATE_SITES[site]
     step = step_by_name(steps_of_job(load_workflow(path), job), step_name)
-    return extract_ci_gate(step["run"])
+    # The extracted slice omits the PR lookup that normally supplies this state.
+    return f"PR_STATE={pr_state}\n" + extract_ci_gate(step["run"])
 
 
 def check_run(name: str, conclusion: str | None, started: str) -> dict:
@@ -353,3 +354,11 @@ def test_recency_comes_from_timestamps_not_array_order(site: str) -> None:
     proc = run_ci_gate(gate, list(reversed(LATEST_FAILURE)))
     assert proc.returncode != 0
     assert "failed CI checks" in _output(proc)
+
+
+@pytest.mark.parametrize("site", ["promote/devkit/validate", "promote/devkit/merge"])
+@pytest.mark.parametrize("verdict", ["SUCCESS", "FAILURE", None])
+def test_merged_pr_skips_pending_but_retains_completed_ci_checks(site, verdict):
+    rollup = [check_run("CI", verdict, T1), check_run("Other", "SUCCESS", T1)]
+    proc = run_ci_gate(_gate(site, pr_state="MERGED"), rollup)
+    assert (proc.returncode == 0) == (verdict != "FAILURE"), _output(proc)

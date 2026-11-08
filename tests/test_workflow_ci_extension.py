@@ -89,7 +89,7 @@ def test_extension_job_passes_the_resolved_toolchain_context() -> None:
     assert with_block["image"] == "${{ needs.resolve-toolchain.outputs.image }}"
     assert with_block["image-tag"] == "${{ needs.resolve-toolchain.outputs.image-tag }}"
     assert with_block["runner-json"] == (
-        "${{ needs.resolve-toolchain.outputs.runner-json }}"
+        "${{ toJSON(fromJSON(needs.resolve-toolchain.outputs.runners).extension) }}"
     )
     assert job["secrets"] == "inherit"
 

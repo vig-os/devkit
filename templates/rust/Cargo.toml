@@ -1,0 +1,28 @@
+[package]
+name = "example"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A vigOS Rust pack starter"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+
+# Lint LEVELS live here (clippy.toml only tunes lint behaviour). In a
+# workspace, move this to [workspace.lints] and set `lints.workspace = true` in
+# each member; a deviation then goes in source as `#![allow(…)]`, where it is
+# visible and greppable.
+[lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+
+# The shipped artifact is stripped by cargo, not by Nix: mkRustProject sets
+# `dontStrip` and relies on this.
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
