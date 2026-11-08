@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-10-25T10:28:49Z
-updated: 2026-10-25T10:28:49Z
+updated: 2026-11-08T02:53:07Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1909
-comments: 0
+comments: 1
 labels: none
 assignees: none
-milestone: none
+milestone: 1.19.0
 projects: none
 parent: none
 children: none
-synced: 2026-10-26T07:40:28.514Z
+synced: 2026-11-08T08:50:22.074Z
 ---
 
 # [Issue 1909]: [Ship gh-app-provision (GitHub App from manifest -> secrets) as a devkit tool + agent skill](https://github.com/vig-os/devkit/issues/1909)
@@ -39,3 +39,11 @@ The only human steps are GitHub's own Create and Install clicks.
 **Acceptance:** `devkit app-provision --dry-run` prints the manifest; one real provisioning end to end; docs page.
 
 Related: #1754 (mentions it), #1907, #1908.
+---
+
+# [Comment #1]() by [gerchowl]()
+
+_Posted on November 8, 2026 at 02:53 AM_
+
+Shipped in [1.19.0](https://github.com/vig-os/devkit/releases/tag/1.19.0). Container-mode consumers opt in to self-hosted runners with `DEVKIT_CI_CONTAINER_RUNNERS=true` (#2045); see docs/MIGRATION.md.
+

@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-10-22T10:15:03Z
-updated: 2026-11-06T17:29:02Z
+updated: 2026-11-08T02:53:05Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1907
-comments: 2
+comments: 3
 labels: none
 assignees: none
 milestone: 1.19.0
 projects: none
 parent: none
 children: none
-synced: 2026-11-07T08:37:43.492Z
+synced: 2026-11-08T08:50:22.543Z
 ---
 
 # [Issue 1907]: [setup-devkit-toolchain: 'Configure host Nix' replaces the self-hosted runner's NIX_CONFIG instead of extending it](https://github.com/vig-os/devkit/issues/1907)
@@ -61,4 +61,12 @@ FYI from the ksb side: exo-pet/exo-fleet#1101 ships a workaround for ARC runner 
 Live-verified in a ksb pod with devkit main's current NIX_CONFIG shape overlaid (experimental-features + accept-flake-config + extra-substituters = https://vig-os.cachix.org + extra-trusted-public-keys for vig-os): 'nix config show' returns cores = 4, substituters = cache.nixos.org, 10.0.2.2:8093 (proxy), 10.0.2.2:8092/ksb (attic), vig-os.cachix.org, trusted-public-keys = cache.nixos.org-1 ksb vig-os. 'Set up devkit toolchain' on exo-fleet#1094 Lint & Format: was cancelling at 20 min, now 7-11 min and end-to-end SUCCESS.
 
 Independent of (and complementary to) #1916; the ksb workaround lives in the runner pod template so it stays useful for any other ksb consumers until devkit#1916 is released and adopted.
+
+---
+
+# [Comment #3]() by [gerchowl]()
+
+_Posted on November 8, 2026 at 02:53 AM_
+
+Shipped in [1.19.0](https://github.com/vig-os/devkit/releases/tag/1.19.0). Container-mode consumers opt in to self-hosted runners with `DEVKIT_CI_CONTAINER_RUNNERS=true` (#2045); see docs/MIGRATION.md.
 
