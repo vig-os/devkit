@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-10-29T02:32:35Z
-updated: 2026-10-29T02:32:35Z
+updated: 2026-11-08T14:36:58Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1957
-comments: 0
+comments: 1
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-10-29T08:18:28.729Z
+synced: 2026-11-09T09:33:50.258Z
 ---
 
 # [Issue 1957]: [rust pack: workspace template, layer check, affected-test and timings recipes](https://github.com/vig-os/devkit/issues/1957)
@@ -41,3 +41,15 @@ Proposed additions (generic, for any Rust project):
 5. **Docs.** A short guide on when to split a crate: acyclic and stable dependencies, common closure, heavy-dependency isolation, slow-test isolation, the orphan rule, and proc-macros.
 
 Consumer: gerchowl/cx will adopt items 1-4 when it splits `crates/cx-kernel` into layered crates (W2.5).
+---
+
+# [Comment #1]() by [gerchowl]()
+
+_Posted on November 8, 2026 at 02:36 PM_
+
+Second consumer: **nerdmachines/quench** (ADR 0001 axes/framework layering), 2026-11-08. Requirements from an adversarial review of quench's hand-rolled version (quench PR #50):
+- **Walk the resolved graph** (`cargo metadata` without `--no-deps`, `resolve.nodes`), not direct path deps only. A direct-only check passed `quench-core → quench-daemon{features=["image"]}`, i.e. a lower layer reaching an upper one through a crate that is in neither.
+- **Same-group edges allowed** (e.g. `quench-surfaces-cli → quench-surfaces` inside one axis). quench's layers aren't a total order: framework < {clipboard, image, vector, surfaces}, and those axes must not depend on each other. So `layers.toml` needs a 'siblings may not depend on each other' rule, not only a linear order.
+- **Per-layer external-crate denylist**: framework/portable crates must not reach Apple platform crates (`core-foundation*`, `security-framework*`, `objc2*`, `block2`, `cocoa` …). A Linux `cargo check` does NOT catch these: core-foundation-sys declarations compile on Linux because only linking is Apple-gated (probe: quench PR #50 round 4).
+quench will carry a local script until this ships, then migrate.
+
