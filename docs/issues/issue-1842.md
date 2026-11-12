@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-10-06T10:43:13Z
-updated: 2026-10-08T08:51:58Z
+updated: 2026-11-11T12:15:39Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1842
-comments: 1
+comments: 2
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-10-09T08:49:29.582Z
+synced: 2026-11-12T09:37:23.991Z
 ---
 
 # [Issue 1842]: [prepare-release: changelog freeze leaves a trailing blank line (end-of-file-fixer fails the release PR)](https://github.com/vig-os/devkit/issues/1842)
@@ -43,4 +43,12 @@ The frozen file ends with exactly one newline (strip trailing blank lines after 
 _Posted on October 8, 2026 at 08:51 AM_
 
 Confirmed on devkit 1.18.0 in a downstream consumer (trunk workflow): the freeze commit on `release/X.Y.Z` left `CHANGELOG.md` ending in `\n\n`, `end-of-file-fixer` failed Lint & Format on the release PR, and `release.yml`'s CI-green gate then refuses the final. Worked around with a one-line PR into the release branch that strips the extra newline.
+
+---
+
+# [Comment #2]() by [gerchowl]()
+
+_Posted on November 11, 2026 at 12:15 PM_
+
+Minimal repro, no earlier version section needed: a CHANGELOG ending `## Unreleased / ### Added / - A thing\n`; after `prepare-changelog prepare 0.1.0 CHANGELOG.md` the file ends in `\n\n`. Cause: `create_new_changelog` appends two newlines after the last frozen subsection and, when there is no later `## [` section (`rest_of_changelog == ''`), nothing follows to absorb them. With an earlier version section present the output ends in a single newline, so only a first release (or a changelog with no prior version) hits it.
 
