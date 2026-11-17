@@ -1913,10 +1913,19 @@
             let
               cfg = config.programs.vigos-devtools;
             in
-            lib.mkIf cfg.enable {
-              nixpkgs.overlays = [ overlay ];
-              environment.systemPackages = devTools pkgs ++ lib.optionals cfg.agentCli.enable (agentTools pkgs);
-            };
+            lib.mkIf cfg.enable (
+              lib.mkMerge [
+                {
+                  nixpkgs.overlays = [ overlay ];
+                  environment.systemPackages = devTools pkgs;
+                }
+                (lib.mkIf cfg.agentCli.enable {
+                  environment.systemPackages = agentTools pkgs;
+                  # Nix owns this claude's updates; the native self-updater stays off.
+                  environment.sessionVariables.DISABLE_AUTOUPDATER = lib.mkDefault "1";
+                })
+              ]
+            );
         };
 
       # ----------------------------------------------------------------------

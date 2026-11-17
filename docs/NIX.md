@@ -61,7 +61,10 @@ Machines that want devkit's pinned CLI opt in at the machine level:
   `vigos.packages.enable`). Nix then owns updates, so the module also exports
   `DISABLE_AUTOUPDATER=1`. Without the opt-in, devkit leaves the native updater
   alone.
-- NixOS: `programs.vigos-devtools.agentCli.enable = true`.
+- NixOS: `programs.vigos-devtools.agentCli.enable = true`, which likewise
+  exports `DISABLE_AUTOUPDATER=1`.
+
+`vigos.editor`'s `claudecode.nvim` bridge drives whichever `claude` is on PATH.
 
 `claude-code` is unfree, so an opted-in consumer must allow it
 (`nixpkgs.config.allowUnfree`).
