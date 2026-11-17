@@ -112,8 +112,8 @@ jobs:
           mode: ${{ needs.resolve-toolchain.outputs.mode }}
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
           cachix-cache: ${{ vars.CACHIX_CACHE }}
-          # Rollback/cleanup: gh, git, jq and retry only; never realise
-          # the dev-shell it may be rolling back from (#2010).
+          # git + retry only, under a 5-minute job timeout that no dev-shell
+          # realisation bound fits: provision the minimum (#2010).
           minimal: true
 
       - name: Check if dev is up to date with main

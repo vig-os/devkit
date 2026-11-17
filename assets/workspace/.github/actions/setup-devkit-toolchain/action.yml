@@ -97,7 +97,10 @@ inputs:
       diagnosis instead of a silent cancel. It also exceeds Nix's own per-path
       worst case (download-attempts x (connect-timeout +
       stalled-download-timeout) = 3 x 75 s), so transfer-level retries get to
-      run before the wall-clock bound.
+      run before the wall-clock bound. The default fits the pull-only
+      release lane, where a cold build is itself the bug; ci.yml, the lane
+      that fills the cache and may legitimately build, passes its job
+      timeout minus that 4-min margin.
     required: false
     default: '6'
   minimal:
@@ -392,8 +395,12 @@ runs:
               2>&1 1>&3 3>&- | tee -a "$devkit_nix_log" >&2
             rc="${PIPESTATUS[0]}"; } 3>&1
           set -e
-          # 124: TERM on expiry; 137: KILL after the grace.
-          if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+          # 124: TERM on expiry; 137: KILL after the grace. Both only count
+          # as the bound when the deadline really passed: a 137 before it is
+          # nix killed by something else (e.g. the OOM killer) and keeps its
+          # own exit code instead of being blamed on the wall clock.
+          if { [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; } \
+              && [ "$(date +%s)" -ge "$devkit_deadline" ]; then
             devkit_realisation_exceeded
           fi
           return "$rc"
