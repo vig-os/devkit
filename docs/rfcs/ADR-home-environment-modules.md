@@ -185,7 +185,9 @@ anthropics/claude-code#52525; atomic writes fail through multi-level symlinks â€
   permission-prompt skipping in shipped defaults (personal configs may add
   them). Auto-update disabled via `DISABLE_AUTOUPDATER=1`, set by the home
   modules through `home.sessionVariables` (not the user-editable seeded
-  settings.json); extending it to the dev-shell/image is a separate follow-up
+  settings.json). Amended by [#2076](https://github.com/vig-os/devkit/issues/2076):
+  only when `vigos.packages.agentCli.enable` installs devkit's pinned CLI,
+  which is now opt-in; extending it to the dev-shell/image is a separate follow-up
   chore outside this ADR.
 - **No home-level skills:** repos remain the skills SSoT (the existing
   `assets/workspace/.claude/` scaffold); the home layer carries only CLAUDE.md,

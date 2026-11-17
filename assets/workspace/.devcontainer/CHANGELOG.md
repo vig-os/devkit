@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Home and NixOS modules leave the agent CLI to the machine** ([#2076](https://github.com/vig-os/devkit/issues/2076))
+  - `vigos.packages.enable` and `programs.vigos-devtools.enable` no longer install devkit's pinned `claude-code`, so a machine's own `claude` (native install or a wrapper with its own channel and credentials) is never shadowed.
+  - Opt back in with `vigos.packages.agentCli.enable = true` (home-manager) or `programs.vigos-devtools.agentCli.enable = true` (NixOS).
+  - `DISABLE_AUTOUPDATER=1` is now set only with the home opt-in, where Nix owns updates; `vigos.claude` alone no longer disables the native updater.
+  - The container image keeps its CLI.
+
 ### Security
 
 ## [1.19.0](https://github.com/vig-os/devkit/releases/tag/1.19.0) - 2026-11-06

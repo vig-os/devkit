@@ -22,9 +22,10 @@
       homeConfigurations.me = home-manager.lib.homeManagerConfiguration {
         pkgs = import nixpkgs {
           system = "x86_64-linux"; # aarch64-darwin on an Apple-silicon Mac
-          # Fast-movers: claude-code, uv, gh, typst, typstyle, tinymist.
+          # Fast-movers: uv, gh, typst, typstyle, tinymist (+ claude-code
+          # when vigos.packages.agentCli.enable opts into devkit's pin).
           overlays = [ vigos.overlays.default ];
-          config.allowUnfree = true; # claude-code
+          config.allowUnfree = true; # claude-code, if opted in
         };
         modules = [
           vigos.homeManagerModules.default
