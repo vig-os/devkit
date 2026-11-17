@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-11-03T11:59:57Z
-updated: 2026-11-03T14:10:02Z
+updated: 2026-11-16T14:05:45Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/2010
-comments: 1
+comments: 3
 labels: bug, area:ci
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-11-04T08:54:32.454Z
+synced: 2026-11-17T10:29:10.831Z
 ---
 
 # [Issue 2010]: [[BUG] setup-devkit-toolchain hangs on cache.nixos.org substitution (direnv, hosted runner) until job timeout](https://github.com/vig-os/devkit/issues/2010)
@@ -68,4 +68,33 @@ Log of 125942926301: `copying path '…-stdenv-linux' from 'https://cache.nixos.
 So it isn't specific to `cache.nixos.org`: a substituter download stalls on an HTTP/2 stream, and Nix waits until the job timeout. Normal duration of the same step is about 1–2 minutes. In both cases a rerun of the same commit passed (the Semver job did, at least).
 
 Suggested root-cause fix in the toolchain action's nix.conf: set `stalled-download-timeout` (e.g. 60) so a stalled transfer fails fast and is retried; also consider `http2 = false` given the framing error. Raising job timeouts would only hide it.
+
+---
+
+# [Comment #2]() by [gerchowl]()
+
+_Posted on November 16, 2026 at 01:39 PM_
+
+The same hang hits a third consumer, `vig-os/stepv` (public, hosted `ubuntu-26.04`), and now it blocks a **release**:
+
+| Run / job | Job | Last log line before the hang | Cancelled |
+|---|---|---|---|
+| 43868408399 | Prepare Release Branch (`prepare-release.yml`, 0.1.0) | `building '/nix/store/ahb0kr7g…-rust-1.96.0.drv'...` at 13:14:23 | 13:27:45 |
+| 43868408399 | Roll Back Prepare Release | same step | 13:38:09 |
+| 42598328727 (2026-11-09) | Lint & Format, Commit Messages, Tests | `copying path '…-rust-1.96.0' from 'https://gerchowl.cachix.org'` | after the 15-min timeout, twice |
+
+The same release's dry run (43868346593) passed minutes earlier, and its validate job finished the step normally. The rollback job hung in the same step, so the rollback itself can't run. In this case it was harmless, because nothing had been pushed yet.
+
+**Ask:**
+- a per-step timeout plus retry around the substitution;
+- or prefetch the toolchain closure in a short separate step whose timeout fails fast and retries;
+- and a rollback job that doesn't depend on the full devkit toolchain.
+
+---
+
+# [Comment #3]() by [gerchowl]()
+
+_Posted on November 16, 2026 at 02:05 PM_
+
+Update from stepv: this is **deterministic for `prepare-release.yml`'s Prepare Release Branch job**, 2 of 2. The retry, run 43877817364, hung at exactly the same line: `building '/nix/store/ahb0kr7g…-rust-1.96.0.drv'...` at 13:41:24, cancelled at 13:54:36. In the same hour, the PR CI jobs on stepv (e.g. `feature/141-graph-colours`, 13:55) set up the same toolchain fine. So the Prepare job seems to **build** `rust-1.96.0.drv` (the joined toolchain) locally instead of substituting it, and that build never finishes. It may be missing the substituters or trusted keys the CI jobs have, or a sandbox/IO difference. stepv can't release until this is fixed. The workflow is devkit-managed, so stepv can't patch it.
 
