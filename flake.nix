@@ -1890,10 +1890,12 @@
       # importable NixOS or home-manager config.
       #
       # A consumer imports the module and flips one option to get exactly the
-      # `devTools` set plus the machine-level agent CLI from agentTools.
-      # The fast-mover overlay (uv/gh/claude-code/typst/typstyle/tinymist from
-      # unstable) ensures the intended versions; claude-code is unfree, so the
-      # consumer must allow it (documented in docs/NIX.md). Refs #777.
+      # `devTools` set. The agent CLI from agentTools is a separate opt-in
+      # (`agentCli.enable`, default off, #2076) so a machine's own `claude`
+      # is never shadowed. The fast-mover overlay (uv/gh/claude-code/typst/
+      # typstyle/tinymist from unstable) ensures the intended versions;
+      # claude-code is unfree, so an opted-in consumer must allow it
+      # (documented in docs/NIX.md). Refs #777.
       # ----------------------------------------------------------------------
       nixosModules.default =
         {
@@ -1903,11 +1905,27 @@
           ...
         }:
         {
-          options.programs.vigos-devtools.enable = lib.mkEnableOption "the vigOS devcontainer toolchain (devTools)";
-          config = lib.mkIf config.programs.vigos-devtools.enable {
-            nixpkgs.overlays = [ overlay ];
-            environment.systemPackages = devTools pkgs ++ agentTools pkgs;
+          options.programs.vigos-devtools = {
+            enable = lib.mkEnableOption "the vigOS devcontainer toolchain (devTools)";
+            agentCli.enable = lib.mkEnableOption "devkit's pinned agent CLI (claude-code); shadows any machine `claude`";
           };
+          config =
+            let
+              cfg = config.programs.vigos-devtools;
+            in
+            lib.mkIf cfg.enable (
+              lib.mkMerge [
+                {
+                  nixpkgs.overlays = [ overlay ];
+                  environment.systemPackages = devTools pkgs;
+                }
+                (lib.mkIf cfg.agentCli.enable {
+                  environment.systemPackages = agentTools pkgs;
+                  # Nix owns this claude's updates; the native self-updater stays off.
+                  environment.sessionVariables.DISABLE_AUTOUPDATER = lib.mkDefault "1";
+                })
+              ]
+            );
         };
 
       # ----------------------------------------------------------------------
