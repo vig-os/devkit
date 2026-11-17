@@ -291,6 +291,10 @@ jobs:
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # The cache-filling lane: a cold realisation may legitimately
+          # build here, so the bound is the job timeout minus the 4-min
+          # margin, not the pull-only release-lane default (#2010).
+          realisation-timeout-minutes: '11'
           dev-profile-path: ${{ needs.resolve-toolchain.outputs.dev-profile-path }}
 
       - name: Sync project dependencies
@@ -327,6 +331,10 @@ jobs:
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # The cache-filling lane: a cold realisation may legitimately
+          # build here, so the bound is the job timeout minus the 4-min
+          # margin, not the pull-only release-lane default (#2010).
+          realisation-timeout-minutes: '16'
           dev-profile-path: ${{ needs.resolve-toolchain.outputs.dev-profile-path }}
 
       - name: Sync project dependencies
@@ -368,6 +376,10 @@ jobs:
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # The cache-filling lane: a cold realisation may legitimately
+          # build here, so the bound is the job timeout minus the 4-min
+          # margin, not the pull-only release-lane default (#2010).
+          realisation-timeout-minutes: '11'
           dev-profile-path: ${{ needs.resolve-toolchain.outputs.dev-profile-path }}
 
       # Branch-name gate (#1432 / #1430): validate the PR head ref with
@@ -512,6 +524,10 @@ jobs:
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
           cachix-cache: ${{ vars.CACHIX_CACHE }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # The cache-filling lane: a cold realisation may legitimately
+          # build here, so the bound is the job timeout minus the 4-min
+          # margin, not the pull-only release-lane default (#2010).
+          realisation-timeout-minutes: '11'
           dev-profile-path: ${{ needs.resolve-toolchain.outputs.dev-profile-path }}
 
       # Same diff, no container (#1861). The pin's flake source is fetched by

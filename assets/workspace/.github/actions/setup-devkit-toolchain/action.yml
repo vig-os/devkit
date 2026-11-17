@@ -27,6 +27,37 @@
 #   direnv + bare        both host modes additionally install a self-contained
 #                        `retry` shim via BASH_ENV (the scaffold cannot source a
 #                        devkit-internal script, so the function is embedded).
+#
+# minimal: true (#2010) provisions only what rollback/cleanup jobs use — gh,
+# git, jq, base64 from the runner or image, plus the `retry` helper. In
+# devcontainer/both it keeps the in-image env and safe.directory fix but skips
+# the prek skew guard; in direnv it installs no Nix and realises no dev-shell;
+# in bare it installs no uv tools. A rollback must not depend on the toolchain
+# it may be rolling back from (the prepare-release rollback hung in the very
+# realisation that had just hung the prepare job). Any value other than
+# 'true' keeps the full toolchain, so a typo errs towards doing more.
+#
+# Consumer Cachix cache (direnv; the CACHIX_CACHE repo variable, #2010/#2077).
+# Every scaffolded call site passes `cachix-cache: ${{ vars.CACHIX_CACHE }}` so
+# release-lane jobs substitute the same consumer-only paths CI does instead of
+# building them from source. Without a token cachix/cachix-action (v17, read
+# at the pinned SHA) installs cachix if absent, runs `cachix use <name>` to add
+# the substituter, and disables pushing ("Missing a Cachix auth token") — so a
+# name alone is a pure pull. Only ci.yml passes `cachix-auth-token`; the push
+# policy is #1784/#1881's. Cachix is an optimisation correctness does not
+# depend on: if the step fails (cachix not installable, cache unreachable),
+# the job continues on the remaining substituters with a ::warning:: naming
+# the reason — a documented, visible degradation, never a hard failure.
+#
+# Bounded realisation (direnv, #2010). Nix's own network knobs bound every
+# transfer (connect-timeout, stalled-download-timeout, download-attempts; see
+# the install step), and the dev-shell step enforces a wall-clock budget of
+# `realisation-timeout-minutes` over ALL its nix calls, failing with
+# "toolchain realisation exceeded N min; last nix activity: …" instead of a
+# silent job cancel. Composite steps have no `timeout-minutes` (metadata
+# syntax: https://docs.github.com/en/actions/reference/workflows-and-actions/metadata-syntax#runssteps),
+# so the bound is coreutils `timeout` with a kill grace. No shell retry wraps
+# nix: retries happen per transfer via download-attempts.
 
 name: Setup devkit toolchain
 description: Mode-aware step-level toolchain preamble (container in-image env, direnv Nix dev-shell, bare uv install)
@@ -42,13 +73,44 @@ inputs:
     required: false
     default: ''
   cachix-cache:
-    description: Optional consumer-owned Cachix cache name (direnv mode; pulls need no token)
+    description: >-
+      Optional consumer-owned Cachix cache name (direnv mode; pulls need no
+      token). Every scaffolded call site passes vars.CACHIX_CACHE. A failing
+      Cachix step degrades to a ::warning:: and the job continues on the
+      remaining substituters.
     required: false
     default: ''
   cachix-auth-token:
-    description: Optional Cachix auth token for pushing to cachix-cache (direnv mode)
+    description: >-
+      Optional Cachix auth token for pushing to cachix-cache (direnv mode).
+      Only ci.yml passes it; release-lane jobs stay pull-only (#1881).
     required: false
     default: ''
+  realisation-timeout-minutes:
+    description: >-
+      Wall-clock budget (whole minutes) for the direnv dev-shell realisation
+      and its follow-up evaluations. On expiry the step fails with
+      "toolchain realisation exceeded N min; last nix activity: …". Healthy
+      warm realisations take 1-2 min; the default 6 leaves at least 4 min of
+      every scaffolded caller's job timeout (10-20 min) for checkout, Nix
+      install, Cachix and the job's own work, so the bound fires first with a
+      diagnosis instead of a silent cancel. It also exceeds Nix's own per-path
+      worst case (download-attempts x (connect-timeout +
+      stalled-download-timeout) = 3 x 75 s), so transfer-level retries get to
+      run before the wall-clock bound. The default fits the pull-only
+      release lane, where a cold build is itself the bug; ci.yml, the lane
+      that fills the cache and may legitimately build, passes its job
+      timeout minus that 4-min margin.
+    required: false
+    default: '6'
+  minimal:
+    description: >-
+      'true' provisions only what rollback/cleanup jobs use: the retry helper
+      (host modes) and the in-image env + safe.directory fix (container
+      modes). No Nix, no dev-shell, no uv tools, no prek guard. Default
+      'false' (full toolchain).
+    required: false
+    default: 'false'
   dev-profile-path:
     description: >-
       Optional ABSOLUTE path for the direnv-mode dev-shell gcroot profile; empty
@@ -73,6 +135,8 @@ runs:
     - name: Configure in-container toolchain env
       if: inputs.mode == 'devcontainer' || inputs.mode == 'both'
       shell: bash
+      env:
+        DEVKIT_MINIMAL: ${{ inputs.minimal }}
       run: |
         set -euo pipefail
         # Reuse the venv already present in the image instead of creating a new
@@ -87,6 +151,13 @@ runs:
         # The workspace is bind-mounted with a different owner than the image
         # root user; mark it safe so git operations do not abort.
         git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+        # Rollback/cleanup jobs (minimal) run no prek, so an old image must not
+        # block them on the skew guard below (#2010).
+        if [ "${DEVKIT_MINIMAL:-false}" = true ]; then
+          echo "minimal toolchain: in-image env and safe.directory only."
+          exit 0
+        fi
 
         # Version-skew guard (#854): fail with an actionable message if the CI
         # image predates the prek hook runner (#778), instead of an opaque
@@ -103,7 +174,7 @@ runs:
     # install-nix-action would abort on them and leave NIX_CONFIG malformed
     # (#1192), so detect first and take the matching path below.
     - name: Detect host Nix
-      if: inputs.mode == 'direnv'
+      if: inputs.mode == 'direnv' && inputs.minimal != 'true'
       id: detect-nix
       shell: bash
       run: |
@@ -125,8 +196,21 @@ runs:
     # binary-cache pull; accept-flake-config lets the pinned vigos input
     # contribute its own substituters. Keep extra_nix_config in lockstep with
     # the "Configure host Nix" step below (enforced by test).
+    #
+    # Network bounds (#2010), per the Nix settings reference
+    # (https://nix.dev/manual/nix/latest/command-ref/conf-file.html):
+    #   connect-timeout = 15           a reachable cache connects in well under
+    #                                  a second; 15 s fails a dead endpoint fast
+    #                                  (older Nix defaults to 0 = curl's 300 s).
+    #   stalled-download-timeout = 60  default 300; a healthy cache never goes a
+    #                                  minute without sending a byte, and the
+    #                                  observed hangs sat silent for 20+ min.
+    #   download-attempts = 3          default 5; with the two above a dead
+    #                                  path costs at most ~3 x 75 s before Nix
+    #                                  gives up and falls back (or fails), which
+    #                                  fits inside realisation-timeout-minutes.
     - name: Install Nix (upstream CppNix)
-      if: inputs.mode == 'direnv' && steps.detect-nix.outputs.has-nix != 'true'
+      if: inputs.mode == 'direnv' && inputs.minimal != 'true' && steps.detect-nix.outputs.has-nix != 'true'
       uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31.11.1
       with:
         extra_nix_config: |
@@ -134,6 +218,9 @@ runs:
           accept-flake-config = true
           extra-substituters = https://vig-os.cachix.org
           extra-trusted-public-keys = vig-os.cachix.org-1:yoOYRi3bvnM6ThxO0joLt7vtzhTfkq3r6jykeUMg7Bk=
+          connect-timeout = 15
+          stalled-download-timeout = 60
+          download-attempts = 3
 
     # Preinstalled host Nix: check and keep ambient NIX_CONFIG, then add
     # devkit settings via a well-formed multi-line export instead of installing. On a multi-user host Nix
@@ -142,7 +229,7 @@ runs:
     # lockstep with extra_nix_config above, except host experimental features use
     # extra-experimental-features to extend nix.conf (enforced by test).
     - name: Configure host Nix
-      if: inputs.mode == 'direnv' && steps.detect-nix.outputs.has-nix == 'true'
+      if: inputs.mode == 'direnv' && inputs.minimal != 'true' && steps.detect-nix.outputs.has-nix == 'true'
       shell: bash
       run: |
         set -euo pipefail
@@ -209,30 +296,116 @@ runs:
           echo 'accept-flake-config = true'
           echo 'extra-substituters = https://vig-os.cachix.org'
           echo 'extra-trusted-public-keys = vig-os.cachix.org-1:yoOYRi3bvnM6ThxO0joLt7vtzhTfkq3r6jykeUMg7Bk='
+          # Network bounds (#2010): rationale at the install step above. Later
+          # lines win in NIX_CONFIG, so these override a runner's own values.
+          echo 'connect-timeout = 15'
+          echo 'stalled-download-timeout = 60'
+          echo 'download-attempts = 3'
           echo "$delimiter"
         } >> "$GITHUB_ENV"
         echo "Configured preinstalled host Nix via NIX_CONFIG."
 
-    # Optional: push this repo's own closure to a consumer-owned Cachix cache.
-    # Skipped unless the repo passes cachix-cache; pulls need no token, so the
-    # vig-os substituter above already warms the dev-shell.
+    # Optional: pull (and, with a token, push) this repo's own closure from a
+    # consumer-owned Cachix cache. Skipped unless the repo passes cachix-cache.
+    # Without a token the action only adds the substituter (see the header).
+    # continue-on-error (supported on composite steps, unlike timeout-minutes):
+    # Cachix is an optimisation, so a failure degrades to the warning below and
+    # the realisation proceeds on the remaining substituters (#2077).
     - name: Configure Cachix
-      if: inputs.mode == 'direnv' && inputs.cachix-cache != ''
+      id: cachix
+      if: inputs.mode == 'direnv' && inputs.minimal != 'true' && inputs.cachix-cache != ''
+      continue-on-error: true
       uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866  # v17
       with:
         name: ${{ inputs.cachix-cache }}
         authToken: ${{ inputs.cachix-auth-token }}
 
+    - name: Report Cachix degradation
+      if: steps.cachix.outcome == 'failure'
+      shell: bash
+      env:
+        DEVKIT_CACHIX_CACHE: ${{ inputs.cachix-cache }}
+      run: |
+        set -euo pipefail
+        # Name the likeliest reason with two cheap probes; the action's own
+        # error is in the Configure Cachix step log just above.
+        url="https://${DEVKIT_CACHIX_CACHE}.cachix.org"
+        if ! command -v cachix >/dev/null 2>&1; then
+          reason="the cachix binary is not available (cachix-action could not install it)"
+        elif ! curl -fsS --max-time 15 -o /dev/null "$url/nix-cache-info" 2>/dev/null; then
+          reason="$url is unreachable"
+        else
+          reason="cachix-action failed; see the Configure Cachix step log"
+        fi
+        echo "::warning::Cachix cache '${DEVKIT_CACHIX_CACHE}' unavailable: ${reason}. Cachix is an optimisation; continuing without it on the remaining substituters, so consumer-only paths may be built from source (#2077)."
+
     - name: Build repo flake dev-shell and export PATH
-      if: inputs.mode == 'direnv'
+      if: inputs.mode == 'direnv' && inputs.minimal != 'true'
       shell: bash
       # Routed through the environment, never inline `${{ }}` in `run:` — a
       # consumer-supplied value expanded into the script is the
       # template-injection shape the zizmor gate rejects (#1279).
       env:
         DEVKIT_DEV_PROFILE_PATH: ${{ inputs.dev-profile-path }}
+        DEVKIT_REALISATION_TIMEOUT_MINUTES: ${{ inputs.realisation-timeout-minutes }}
       run: |
         set -euo pipefail
+        # ── Wall-clock bound on the realisation (#2010) ─────────────────────
+        # One budget across every nix call below, so a hang in the profile
+        # build OR a later evaluation fails at the same deadline, with the
+        # cause and the last line nix printed, instead of a silent job cancel.
+        # DEVKIT_REALISATION_BUDGET_SECONDS exists SOLELY so the test harness
+        # can use a seconds-scale budget; CI never sets it.
+        devkit_timeout_minutes="${DEVKIT_REALISATION_TIMEOUT_MINUTES:-}"
+        if [[ ! "$devkit_timeout_minutes" =~ ^[1-9][0-9]*$ ]]; then
+          echo "::error::setup-devkit-toolchain: realisation-timeout-minutes must be a positive whole number of minutes (got '$devkit_timeout_minutes')."
+          exit 1
+        fi
+        if ! command -v timeout >/dev/null 2>&1; then
+          echo "::error::setup-devkit-toolchain: coreutils 'timeout' is required to bound the toolchain realisation."
+          exit 1
+        fi
+        devkit_budget="${DEVKIT_REALISATION_BUDGET_SECONDS:-$((devkit_timeout_minutes * 60))}"
+        # TERM first so nix can release its locks, KILL after the grace (a
+        # wedged transfer may ignore TERM). The grace never exceeds the budget.
+        devkit_kill_grace=$(( devkit_budget < 15 ? devkit_budget : 15 ))
+        devkit_deadline=$(( $(date +%s) + devkit_budget ))
+        devkit_nix_log="$RUNNER_TEMP/devkit-nix-activity.log"
+        : > "$devkit_nix_log"
+
+        devkit_realisation_exceeded() {
+          local last
+          last="$(grep -v '^[[:space:]]*$' "$devkit_nix_log" | tail -n1 | tr -d '\r' | cut -c1-300 || true)"
+          echo "::error::setup-devkit-toolchain: toolchain realisation exceeded ${devkit_timeout_minutes} min; last nix activity: ${last:-<none: nix printed nothing>}. Nix's own transfer bounds did not end it: look for a stalled substituter or a local build of a path no cache serves (is cachix-cache set?)." >&2
+          exit 1
+        }
+
+        # Run one nix command under the remaining budget. stderr goes through
+        # tee into the activity log (and still streams to the job log); stdout
+        # bypasses the pipe on fd 3, so command substitutions keep working.
+        # The pipeline waits for tee, so the log is complete when read.
+        devkit_nix() {
+          local remaining rc
+          remaining=$(( devkit_deadline - $(date +%s) ))
+          if [ "$remaining" -le 0 ]; then
+            devkit_realisation_exceeded
+          fi
+          set +e
+          { timeout --kill-after="$devkit_kill_grace" "$remaining" nix "$@" \
+              2>&1 1>&3 3>&- | tee -a "$devkit_nix_log" >&2
+            rc="${PIPESTATUS[0]}"; } 3>&1
+          set -e
+          # 124: TERM on expiry; 137: KILL after the grace. Both only count
+          # as the bound when the deadline really passed: a 137 before it is
+          # nix killed by something else (e.g. the OOM killer) and keeps its
+          # own exit code instead of being blamed on the wall clock.
+          if { [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; } \
+              && [ "$(date +%s)" -ge "$devkit_deadline" ]; then
+            devkit_realisation_exceeded
+          fi
+          return "$rc"
+        }
+
         # Where the dev-shell gcroot lands (#1601). `--profile` is what makes
         # the realisation below a gcroot rather than a bare `nix develop`, and
         # under RUNNER_TEMP that root is wiped with the job. Right for a hosted
@@ -284,9 +457,9 @@ runs:
         # GITHUB_PATH so every following step runs as if inside `nix develop`.
         # Mirrors the devkit's setup-env action (adapted: the consumer flake at
         # the repo root, not the devkit's).
-        nix develop --profile "$DEVKIT_DEV_PROFILE" --command true
+        devkit_nix develop --profile "$DEVKIT_DEV_PROFILE" --command true
 
-        SHELL_PATH="$(nix develop --profile "$DEVKIT_DEV_PROFILE" \
+        SHELL_PATH="$(devkit_nix develop --profile "$DEVKIT_DEV_PROFILE" \
           --command bash -c 'printf "%s" "$PATH"')"
 
         # Always exclude the flake's podman (rootless podman on GitHub runners
@@ -324,7 +497,7 @@ runs:
         # carries PATH only): `uv sync` needs it to fetch the project's pinned
         # CPython, which nixpkgs does not package. Python consumers only (#1028).
         if [[ -f pyproject.toml ]]; then
-          UV_DL_JSON_URL="$(nix develop --profile "$DEVKIT_DEV_PROFILE" \
+          UV_DL_JSON_URL="$(devkit_nix develop --profile "$DEVKIT_DEV_PROFILE" \
             --command bash -c 'printf "UV_PYTHON_DOWNLOADS_JSON_URL=%s\n" "${UV_PYTHON_DOWNLOADS_JSON_URL:-}"' \
             | grep '^UV_PYTHON_DOWNLOADS_JSON_URL=' | tail -n1 | cut -d= -f2-)"
           if [ -n "$UV_DL_JSON_URL" ]; then
@@ -350,7 +523,7 @@ runs:
         # `nix develop` stdout would also capture shellHook output (the
         # scaffolded flake echoes a banner), gluing it onto the first NUL
         # record and corrupting GITHUB_ENV (#1189).
-        nix develop --profile "$DEVKIT_DEV_PROFILE" \
+        devkit_nix develop --profile "$DEVKIT_DEV_PROFILE" \
           --command bash -c 'env -0 > "$1"' _ "$RUNNER_TEMP/devkit-devshell-env"
 
         # Denylist: shell session state (must never override the CI shell) and
@@ -468,7 +641,7 @@ runs:
         echo "Repo flake dev-shell provisioned; tools added to PATH."
 
     - name: Verify toolchain (prek present in dev-shell)
-      if: inputs.mode == 'direnv'
+      if: inputs.mode == 'direnv' && inputs.minimal != 'true'
       shell: bash
       run: |
         set -euo pipefail
@@ -482,11 +655,11 @@ runs:
 
     # ── bare — host, provision the pinned toolchain with uv ───────────────────
     - name: Set up uv
-      if: inputs.mode == 'bare'
+      if: inputs.mode == 'bare' && inputs.minimal != 'true'
       uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
 
     - name: Install host toolchain (just, prek, vig-utils)
-      if: inputs.mode == 'bare'
+      if: inputs.mode == 'bare' && inputs.minimal != 'true'
       shell: bash
       env:
         DEVKIT_VERSION: ${{ inputs.devkit-version }}
