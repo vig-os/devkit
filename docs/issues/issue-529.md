@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-11-11T22:40:37Z
+updated: 2026-11-17T12:04:03Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-11-12T09:37:24.733Z
+synced: 2026-11-17T20:22:47.895Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -598,7 +598,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `pexpect ==4.9.0`
  - `testcontainers ==4.15.0`
  - `bcrypt ==5.0.0`
- - `certifi lock file @ 2026.7.22` → [Updates: `2026.10.18`]
+ - `certifi lock file @ 2026.7.22` → [Updates: `lock file @ 2026.10.18`]
 
 </details>
 
