@@ -11,17 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Home and NixOS modules leave the agent CLI to the machine** ([#2076](https://github.com/vig-os/devkit/issues/2076))
-  - Upgrade note: machines that got `claude` from `vigos.packages.enable` or `programs.vigos-devtools.enable` must install it themselves or opt back in with `vigos.packages.agentCli.enable = true` (home-manager) or `programs.vigos-devtools.agentCli.enable = true` (NixOS).
-  - Without the opt-in, a machine's own `claude` (native install, or a wrapper with its own release channel and credentials) is never shadowed by devkit's pin.
-  - `DISABLE_AUTOUPDATER=1` is set only with an opt-in, where Nix owns updates; `vigos.claude` alone no longer disables the native updater.
-  - The container image keeps its CLI.
-
 ### Deprecated
 
 ### Removed
 
 ### Fixed
+
+### Security
+
+## [1.19.1] - TBD
+
+### Changed
+
+- **Home and NixOS modules leave the agent CLI to the machine** ([#2076](https://github.com/vig-os/devkit/issues/2076))
+  - Upgrade note: machines that got `claude` from `vigos.packages.enable` or `programs.vigos-devtools.enable` must install it themselves or opt back in with `vigos.packages.agentCli.enable = true` (home-manager) or `programs.vigos-devtools.agentCli.enable = true` (NixOS).
+  - Without the opt-in, a machine's own `claude` (native install, or a wrapper with its own release channel and credentials) is never shadowed by devkit's pin.
+  - `DISABLE_AUTOUPDATER=1` is set only with an opt-in, where Nix owns updates; `vigos.claude` alone no longer disables the native updater.
+  - The container image keeps its CLI.
 
 ### Security
 
