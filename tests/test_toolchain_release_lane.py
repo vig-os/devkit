@@ -216,6 +216,18 @@ def test_realisation_bound_fires_before_the_job_timeout(
     )
 
 
+@pytest.mark.parametrize(("wf", "job_id", "job", "step"), CALL_SITES, ids=SITE_IDS)
+def test_cache_filling_lane_bound_is_sized_to_its_job(
+    wf: str, job_id: str, job: dict, step: dict
+) -> None:
+    """ci.yml fills the cache, so a cold build there is legitimate: its bound is
+    the job timeout minus the margin, not the pull-only release-lane default."""
+    if "cachix-auth-token" not in _with(step) or wf != "ci.yml":
+        pytest.skip("not a cache-filling ci.yml lane")
+    bound = int(_with(step)[TIMEOUT_INPUT])
+    assert bound == job["timeout-minutes"] - JOB_MARGIN_MINUTES
+
+
 def _write_hanging_nix(bin_dir: Path, *, hang_on: str, ignore_term: bool) -> None:
     """A fake ``nix`` that hangs on one invocation, after printing activity."""
     bin_dir.mkdir(parents=True, exist_ok=True)
@@ -296,6 +308,21 @@ def test_hung_realisation_fails_with_an_explicit_error(
     assert "::error::" in out
     assert "toolchain realisation exceeded 6 min" in out
     assert "last nix activity: building '/nix/store/aaaaaaaa-rust-1.96.0.drv'" in out
+
+
+def test_nix_killed_before_the_deadline_is_not_blamed_on_the_bound(
+    tmp_path: Path,
+) -> None:
+    """A 137 well before the deadline (e.g. the OOM killer) keeps its own exit
+    code instead of a misleading "realisation exceeded" diagnosis."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "nix"
+    stub.write_text("#!/usr/bin/env bash\nexit 137\n", encoding="utf-8")
+    stub.chmod(0o755)
+    proc = _run_devshell(tmp_path, bin_dir)
+    assert proc.returncode == 137, proc.stdout + proc.stderr
+    assert "realisation exceeded" not in proc.stdout + proc.stderr
 
 
 @pytest.mark.parametrize("value", ["", "0", "abc", "-3", "1.5"])
