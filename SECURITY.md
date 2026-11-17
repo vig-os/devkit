@@ -105,13 +105,8 @@ and decision flow.
 
 CI-only npm dependencies are minimal (`@devcontainers/cli`); the BATS test
 framework and its helpers are now provided by the Nix toolchain (`flake.nix`)
-rather than npm, removing the legacy transitive advisory surface. The sole
-standing `dependency-review` exception is a documented false positive:
-
-- **bats-file** (GHSA-wvrr-2x4r-394v): the advisory flags the npm-registry
-  `bats-file@0.2.0` as malware; the project installs from the official GitHub
-  source (`github:bats-core/bats-file#v0.4.0`), whose `package.json` simply never
-  bumped its version field. Tracked in `.github/dependency-review-allow.txt` with
-  an expiration.
+rather than npm, removing the legacy transitive advisory surface. No
+`dependency-review` exceptions are standing; any new one goes in
+`.github/dependency-review-allow.txt` with a rationale and an expiration.
 
 Production deployments do not include or execute any test dependencies.

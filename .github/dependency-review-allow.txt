@@ -3,10 +3,7 @@
 # Mirrors .trivyignore conventions: each GHSA entry requires an Expiration
 # directive. Expired exceptions cause CI to fail, forcing periodic review.
 # Expiration dates land on a Wednesday, per the expiry grid documented in
-# docs/CONTAINER_SECURITY.md (#1337); the date below was snapped onto that grid
-# on 2026-08-04 (+1 day), leaving its risk assessment unchanged. The entry has
-# since moved off 2026-09-02 (#1553), the date 29 of the 33 live entries across
-# the three registers shared — see its note below.
+# docs/CONTAINER_SECURITY.md (#1337).
 #
 # Format:
 #   # <GHSA-ID>: <short description>
@@ -16,17 +13,7 @@
 #   Expiration: <YYYY-MM-DD>
 #   <GHSA-ID>
 
-# GHSA-wvrr-2x4r-394v: bats-file@0.2.0 malware (false positive)
-# Risk Assessment: FALSE POSITIVE
-# - Advisory flags npm registry bats-file@0.2.0 as malware
-# - We install from official GitHub source (github:bats-core/bats-file#v0.4.0)
-# - Upstream package.json has never updated its version field from 0.2.0
-# - The lock file records 0.2.0 regardless of which git tag is used
-# Mitigation: Source is verified GitHub repository, not npm registry
-# Re-dated 2026-08-20 (#1553): 2026-09-02 -> 2026-11-11, the latest slot on the
-# staggered grid. This is a definitive false positive that can only change if
-# the advisory is withdrawn or upstream finally bumps its package.json version
-# field, neither of which a weekly review can influence. Scheduling only; the
-# risk assessment above is unchanged.
-Expiration: 2026-11-11
-GHSA-wvrr-2x4r-394v
+# (GHSA-wvrr-2x4r-394v — bats-file@0.2.0 npm malware false positive — was
+#  removed on 2026-11-17 (#2043): bats-file now comes from nixpkgs via
+#  nix/bats.nix, and no npm manifest in the repo references it, so
+#  dependency-review can no longer report it. The register holds no entries.)

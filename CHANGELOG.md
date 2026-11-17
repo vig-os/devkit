@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Drop the dead bats-file dependency-review exception** ([#2043](https://github.com/vig-os/devkit/issues/2043))
+  - GHSA-wvrr-2x4r-394v expired on 2026-11-11 and failed every PR's Dependency Review; bats-file now comes from nixpkgs and no npm manifest references it, so the entry is removed rather than renewed
+
 ## [1.19.0](https://github.com/vig-os/devkit/releases/tag/1.19.0) - 2026-11-06
 
 ### Added
