@@ -85,6 +85,15 @@
 # Grid: lower-reachability 09-30, fzf 10-07, glibc 10-14, curl+openssl 10-21,
 # libxml2 10-28, Class-1 (shellcheck only) 2027-06-23.
 #
+# RECONCILED 2026-11-17 (#2052): the two 2026-11-18 blocks (fzf, and
+# sqlite+rsync) were re-verified against nightly run 44099322680, NVD and the
+# nixpkgs branches. No entry is fixed at the pin, so none is deleted. They
+# are re-dated by lever, one block per Wednesday. rsync goes to 12-02: it is
+# fixed on nixos-26.05 head and waits only for the next pin advance. sqlite
+# goes to 12-09: no 26.05 backport yet. fzf goes to 12-16: its backport was
+# closed unmerged. Grid: glibc 11-25, Brotli + rsync 12-02, sqlite 12-09,
+# fzf 12-16, Class-1 2027-06-23.
+#
 # Tracking: https://github.com/vig-os/devkit/issues/637
 
 # ============================================================================
@@ -251,7 +260,7 @@ CVE-2026-5928
 #      2026-07-28 "no fix in the pinned channel" note was already stale.
 #    - CVE-2026-56123: the pin ships socat 1.8.1.3, past the 1.8.1.2 fix.)
 
-Expiration: 2026-11-18
+Expiration: 2026-12-16
 # (gzip CVE-2026-41992 removed 2026-08-04 (#1327): contrary to the "no nixpkgs
 #   patch yet" note above, the pinned rev applies CVE-2026-41992.patch to gzip
 #   1.14, so vulnix no longer reports it.)
@@ -285,6 +294,19 @@ Expiration: 2026-11-18
 #   Both findings remain availability-only on a 64-bit image (53432 is
 #   32-bit-only, 53433 is fzf's opt-in localhost --listen server). Renewed
 #   risk acceptance, not a date bump. Moved to 2026-11-18.
+# Renewed 2026-11-17 (#2052): both are still live findings against
+#   fzf-0.72.0 in the dev lane of nightly run 44099322680 (2026-11-17). The
+#   lever is still missing. The pin 08d3a975, the open pin-advance PR #1821
+#   (f1e5c356), nixos-26.05 head b349185b and release-, staging- and
+#   staging-next-26.05 all ship 0.72.0. The only 26.05 backport,
+#   NixOS/nixpkgs#572684 (0.72.0 -> 0.74.5, base release-26.05), was closed
+#   unmerged on 2026-10-11, and none is open. Unstable ships 0.75.0. NVD
+#   (checked 2026-11-17) still lists cpe:2.3:a:junegunn:fzf below 0.73.1 for
+#   both CVEs, so the match is the right product and version, and no newer fzf
+#   CVE matches 0.72.0. Both findings remain availability-only on a 64-bit
+#   image, so this is a renewed risk acceptance, not a date bump. The block
+#   moves to 2026-12-16, on its own Wednesday after the sqlite block (12-09),
+#   because no backport is in flight to land in an earlier week.
 CVE-2026-53432
 CVE-2026-53433
 
@@ -392,49 +414,98 @@ CVE-2026-53433
 # release.yml Vulnix CVE Gate on 1.19.0-rc4 (run 42140837792). All five are
 # real product+version matches, published 2026-10-30 / 2026-11-03.
 #
-# Rationale class: awaiting-upstream. The fixes are released upstream (sqlite
-# 3.54.0 / 3.54.2, rsync 3.5.2) but NOT in nixpkgs: the pinned rev,
-# nixos-26.05 and nixpkgs-unstable all carry sqlite 3.53.3 and rsync 3.5.0
-# with no CVE-named patches (checked 2026-11-06), so the pin advance has
-# nowhere to land yet. Exit: the weekly pin advance (#1565) that ships the
-# fixed versions; delete the entries then, do not renew blindly.
+# RECONCILED 2026-11-17 (#2052), the day before the 2026-11-18 expiry. All
+# five are still live findings in the dev lane of nightly run 44099322680
+# (2026-11-17, pin 08d3a975). The pin advance that could clear them has not
+# merged. The open weekly advance #1821 moves the pin to f1e5c356
+# (2026-11-13), and that rev still ships sqlite 3.53.3 and rsync 3.5.0. The
+# two packages now have different exits, so they no longer share a date:
+#  - rsync is FIXED on nixos-26.05 after the pin and waits only for the next
+#    pin advance (block below, 2026-12-02);
+#  - sqlite has no fix in any 26.05 branch, and one of its four CVEs has no
+#    upstream fix at all (this block, 2026-12-09).
+#
+# NVD data, checked 2026-11-17: every CPE range has an upper bound.
+# sqlite:sqlite is < 3.54.0 for 119373/119374/119379 and <= 3.54.1 for
+# 119586; samba:rsync is <= 3.5.1. The #2052 review worry that the open-ended
+# ranges would also flag the fixed versions no longer applies to rsync 3.5.2.
+# NVD lists no other CVE with CVSS >= 7.0 for sqlite 3.53.3 or rsync 3.5.0
+# (the seven further sqlite 2026-10-30 CVEs are 2.5-5.5 and do not gate).
 #
 # Scope: EXACT CVE@pname@version keys (pname/version as printed by the gate),
 # so a later build of either package at another version is gated afresh.
-# Advisory data verified 2026-11-06 against the GitHub advisory database
-# (GHSA ids per entry) and the rsync 3.5.2 NEWS.
-#
-# Expiry: 2026-11-18, the second Wednesday after this triage — two Monday pin
-# advances (11-09, 11-16) and their nightly deltas fall inside the window. It
-# shares the date with the two-entry fzf block above (7 entries in total), not
-# a register-wide cliff.
 # ============================================================================
-Expiration: 2026-11-18
-# sqlite 3.53.3 — transitive library dependency of the image closure (not a
-#   direct member of the image env in flake.nix or nix/devtools.nix). All four
-#   are CVSS 7.8 AV:L/UI:R: each needs the user to open attacker-supplied
-#   content locally; nothing in the image accepts SQLite input from the
-#   network. The image's own SQLite users (the Nix store DB, Python's sqlite3)
-#   operate on local, trusted databases.
+# sqlite 3.53.3. Rationale class: awaiting-upstream (nixpkgs) for 119373,
+#   119374 and 119379; not-exploitable for 119586, which has no upstream fix.
+#   Transitive library dependency of the image closure (not a direct member of
+#   the image env in flake.nix or nix/devtools.nix). All four are CVSS 7.8
+#   AV:L/UI:R: each needs the user to open attacker-supplied content locally;
+#   nothing in the image accepts SQLite input from the network. The image's
+#   own SQLite users (the Nix store DB, Python's sqlite3) operate on local,
+#   trusted databases.
+# Lever, checked 2026-11-17: 3.54.0 is in nixpkgs master/unstable only
+#   (NixOS/nixpkgs#572495, base staging, merged 2026-10-16; 3.54.1 is open as
+#   #585237, also staging). The pin 08d3a975, #1821's f1e5c356, nixos-26.05
+#   head b349185b and release-, staging- and staging-next-26.05 all ship 3.53.3
+#   with no CVE-named patches, and no 26.05 backport PR is open. The 3.53.x
+#   line has no fix either: the three fix commits below are not in upstream
+#   tag version-3.53.4 (the closed #547246 would not have helped). Exit: the
+#   pin advance that ships sqlite >= 3.54.0; delete 119373/119374/119379
+#   then. 119586 then needs a re-keyed, re-verified entry, not a renewal.
+# Expiry 2026-12-09: three Monday advances fall inside the window (11-23,
+#   11-30, 12-07). It sits on its own Wednesday, one week after rsync, because
+#   its lever is a 26.05 backport that does not exist yet.
+Expiration: 2026-12-09
 # CVE-2026-119373 (GHSA-mw7g-h5m4-mrxh) — FTS5 heap overflow in
 #   fts5MergeRowidLists(); needs a detail=none FTS5 table with negative rowids
-#   and a prefix MATCH query. Fixed in sqlite 3.54.0.
+#   and a prefix MATCH query. Fixed in sqlite 3.54.0 (upstream commit
+#   e1c9934f9f11a499029abb020ea715a08970da80, in tag version-3.54.0).
 CVE-2026-119373@sqlite@3.53.3
 # CVE-2026-119374 (GHSA-gr85-mf7f-6pq7) — FTS5 heap overflow in
 #   fts5DoSecureDelete(); needs a crafted DB file with a corrupted FTS5 index,
-#   deleted from with secure-delete on. Fixed in sqlite 3.54.0.
+#   deleted from with secure-delete on. Fixed in sqlite 3.54.0 (upstream commit
+#   d9de6eedbe918c074c7556400fa21df5960704d9, in tag version-3.54.0).
 CVE-2026-119374@sqlite@3.53.3
 # CVE-2026-119379 (GHSA-6w9f-4x4x-x559) — session-extension heap overflow in
 #   sqlite3changeset_apply(); needs a crafted changeset to be applied.
-#   Fixed in sqlite 3.54.0.
+#   Fixed in sqlite 3.54.0 (upstream commit
+#   64459c87cc702d600704fb77ee40ca1782398a52, in tag version-3.54.0).
 CVE-2026-119379@sqlite@3.53.3
 # CVE-2026-119586 (GHSA-2h5x-4qp8-353h) — sqlite3 CLI `.recover` emits
 #   dot-commands planted in a crafted DB's schema verbatim; needs the user to
-#   run `.recover` on that DB and pipe the output back into sqlite3.
-#   Fixed in sqlite 3.54.2.
+#   run `.recover` on that DB and pipe the output into a second sqlite3 started
+#   without --safe. CORRECTION 2026-11-17: the 2026-11-06 note said "fixed in
+#   sqlite 3.54.2". That is wrong. 3.54.2 does not exist (the latest upstream
+#   release is 3.54.1, 2026-10-16), and NVD's range is "through 3.54.1".
+#   Upstream rejects it as "not a bug in the core SQLite library"; the
+#   documented mitigation is the CLI's --safe option
+#   (https://www.sqlite.org/cves.html, checked 2026-11-17). No version lever
+#   exists. The entry is accepted as not-exploitable without that deliberate,
+#   unsafe two-step user action. It stays under the exact @3.53.3 key, so the
+#   sqlite version change at the pin advance re-gates it for fresh triage.
 CVE-2026-119586@sqlite@3.53.3
+
 # rsync 3.5.0 — direct member of the image env (flake.nix imageTools and
 #   nix/devtools.nix), used as a CLI by the workspace scaffold.
+#   Rationale class: patched-in-nixpkgs, after the pin. The fix has landed on
+#   the pinned channel, but the pin predates it. nixpkgs commit
+#   190957f1efbe20fe20a941c0894300ebcb4bcb5b ("rsync: 3.5.0 -> 3.5.2",
+#   backport NixOS/nixpkgs#584501 to staging-26.05, merged 2026-11-07) reached
+#   release-26.05 with staging-next-26.05 iteration 10 (NixOS/nixpkgs#584522,
+#   merge b349185bb79c7cf7ad8ea8c097931730bf473c71, 2026-11-15). That merge is
+#   nixos-26.05 head as of 2026-11-17, which ships rsync 3.5.2. The pin 08d3a975
+#   (behind 190957f1) and #1821's f1e5c356 (diverged from it, without it) both
+#   ship 3.5.0.
+#   Exit: the next pin advance to a nixos-26.05 rev at or after 190957f1
+#   (b349185b or later). Delete the entry after that advance's first nightly
+#   scan. NVD's range (<= 3.5.1) no longer matches 3.5.2, so no re-keying is
+#   expected. Do not renew it: if the entry expires, the advance has stalled,
+#   and that is what needs fixing.
+# Expiry 2026-12-02: two Monday advance windows (11-23, 11-30) fall inside.
+#   One window would be enough on the happy path, but #1821 is red, and its
+#   next refresh must move past b349185b. The date is shared with the
+#   one-entry Brotli Class-1 block, so two entries expire that day, not a cliff.
+Expiration: 2026-12-02
 # CVE-2026-119741 (GHSA-56w4-j8c7-xvrw) — CVSS 7.5 AV:N/PR:N, availability
 #   only: unbounded strong-checksum work in the delta-transfer sender's
 #   hash_search() when a malicious receiver sends colliding weak checksums;
@@ -444,5 +515,6 @@ CVE-2026-119586@sqlite@3.53.3
 #   ExposedPorts, and nothing in flake.nix, nix/ or assets/ ships an
 #   rsyncd.conf or invokes `rsync --daemon`). The residual path is a user
 #   pushing files to a hostile receiver, which can only stall that user's
-#   own rsync process. Fixed in rsync 3.5.2.
+#   own rsync process. Fixed in rsync 3.5.2 (upstream commit
+#   a7404a9a633cff28ee1602f328b9c3fa69cdbd04).
 CVE-2026-119741@rsync@3.5.0
