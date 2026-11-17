@@ -255,6 +255,11 @@ jobs:
       # into the IMAGE's nix.conf, where any container-run foreign flake could
       # redirect the substituters. Here it is per-runner, in a job that
       # evaluates this repo's flake and nothing else.
+      #
+      # The network bounds (connect-timeout, stalled-download-timeout,
+      # download-attempts) fail a stalled substituter transfer instead of
+      # hanging the job (#2010); their rationale lives at the same settings in
+      # setup-devkit-toolchain's installer step.
       - name: Install Nix
         if: steps.resolve.outputs.proceed == 'true'
         uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31.11.1
@@ -264,6 +269,9 @@ jobs:
             accept-flake-config = true
             extra-substituters = https://vig-os.cachix.org
             extra-trusted-public-keys = vig-os.cachix.org-1:yoOYRi3bvnM6ThxO0joLt7vtzhTfkq3r6jykeUMg7Bk=
+            connect-timeout = 15
+            stalled-download-timeout = 60
+            download-attempts = 3
 
       - name: Run the devkit upgrade (install.sh --force)
         id: upgrade

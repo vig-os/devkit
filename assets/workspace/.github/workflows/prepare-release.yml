@@ -241,6 +241,7 @@ jobs:
         with:
           mode: ${{ needs.validate.outputs.mode }}
           devkit-version: ${{ needs.validate.outputs.image-tag }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
 
       - name: Capture pre-prepare dev SHA
         id: pre_state
@@ -493,6 +494,7 @@ jobs:
         with:
           mode: ${{ needs.validate.outputs.mode }}
           devkit-version: ${{ needs.validate.outputs.image-tag }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
 
       - name: Create draft PR to main
         id: pr
@@ -628,6 +630,10 @@ jobs:
         with:
           mode: ${{ needs.validate.outputs.mode }}
           devkit-version: ${{ needs.validate.outputs.image-tag }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          # Rollback/cleanup: gh, git, jq and retry only; never realise
+          # the dev-shell it may be rolling back from (#2010).
+          minimal: true
 
       - name: Roll back prepare-release side effects
         id: rollback_prepare

@@ -111,6 +111,10 @@ jobs:
         with:
           mode: ${{ needs.resolve-toolchain.outputs.mode }}
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          # Rollback/cleanup: gh, git, jq and retry only; never realise
+          # the dev-shell it may be rolling back from (#2010).
+          minimal: true
 
       - name: Check if dev is up to date with main
         id: check
@@ -175,6 +179,7 @@ jobs:
         with:
           mode: ${{ needs.resolve-toolchain.outputs.mode }}
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
 
       - name: Re-check if dev is still behind main
         id: recheck

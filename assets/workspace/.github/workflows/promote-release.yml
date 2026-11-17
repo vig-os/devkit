@@ -100,6 +100,7 @@ jobs:
         with:
           mode: ${{ needs.resolve-toolchain.outputs.mode }}
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
 
       - name: Generate release app token
         id: release_app_token
@@ -387,6 +388,7 @@ jobs:
         with:
           mode: ${{ needs.resolve-toolchain.outputs.mode }}
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
 
       - name: Generate release app token
         id: release_app_token
@@ -443,6 +445,7 @@ jobs:
         with:
           mode: ${{ needs.resolve-toolchain.outputs.mode }}
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
 
       - name: Generate release app token
         id: release_app_token
@@ -589,6 +592,10 @@ jobs:
         with:
           mode: ${{ needs.resolve-toolchain.outputs.mode }}
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
+          # Rollback/cleanup: gh, git, jq and retry only; never realise
+          # the dev-shell it may be rolling back from (#2010).
+          minimal: true
 
       - name: Generate release app token
         id: release_app_token
@@ -739,6 +746,7 @@ jobs:
         with:
           mode: ${{ needs.resolve-toolchain.outputs.mode }}
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
 
       - name: Move floating major/minor tags
         env:
