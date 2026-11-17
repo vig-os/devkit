@@ -41,6 +41,10 @@ let
         {
           options.environment.systemPackages = lib.mkOption { type = lib.types.listOf lib.types.package; };
           options.nixpkgs.overlays = lib.mkOption { type = lib.types.listOf lib.types.raw; };
+          options.environment.sessionVariables = lib.mkOption {
+            type = lib.types.attrsOf lib.types.str;
+            default = { };
+          };
           config.programs.vigos-devtools.enable = true;
         }
         extra
@@ -73,7 +77,9 @@ let
       agentCli.enable = true;
     };
   };
-  autoupdaterOff = cfg: (cfg.config.home.sessionVariables.DISABLE_AUTOUPDATER or null) == "1";
+  autoupdaterOff = vars: (vars.DISABLE_AUTOUPDATER or null) == "1";
+  # A devTools package proves the module actually ran (not merely "no claude").
+  hasDevTools = packages: builtins.elem pkgs.ripgrep packages;
 in
 assert !hasAgent default.nativeBuildInputs;
 assert !hasAgent consumer.nativeBuildInputs;
@@ -85,14 +91,19 @@ assert hasAgent flake.devShells.${system}.with-agent-cli.nativeBuildInputs;
 assert !hasAgent rust.devShell.nativeBuildInputs;
 assert hasAgent rustOptedIn.devShell.nativeBuildInputs;
 # Machine-level surfaces leave claude to the machine unless opted in (#2076).
+assert hasDevTools home.config.home.packages;
 assert !hasAgent home.config.home.packages;
+assert hasDevTools homeLegacy.config.home.packages;
 assert !hasAgent homeLegacy.config.home.packages;
-assert !autoupdaterOff home;
+assert !autoupdaterOff home.config.home.sessionVariables;
 assert hasAgent homeOptedIn.config.home.packages;
 assert builtins.elem pkgs.claude-code homeOptedIn.config.home.packages;
-assert autoupdaterOff homeOptedIn;
+assert autoupdaterOff homeOptedIn.config.home.sessionVariables;
+assert hasDevTools machine.config.environment.systemPackages;
 assert !hasAgent machine.config.environment.systemPackages;
+assert !autoupdaterOff machine.config.environment.sessionVariables;
 assert hasAgent machineOptedIn.config.environment.systemPackages;
+assert autoupdaterOff machineOptedIn.config.environment.sessionVariables;
 {
   agentCliPolicy = true;
 }
