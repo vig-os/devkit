@@ -398,13 +398,14 @@ def test_wave1_full_profile_config() -> None:
 def test_claude_module_policy() -> None:
     """vigos.claude must honor the ADR Axis-5 policy (#823).
 
-    DISABLE_AUTOUPDATER set via sessionVariables (Nix owns updates), the
+    DISABLE_AUTOUPDATER unset: the full profile leaves the agent CLI to the
+    machine, so its native updater stays the machine's (#2076); the
     workspace-CLAUDE.md management option present but empty by default, and
     no home-level skills directory managed.
     """
     cfg = _ci_full_config()
     assert cfg["claudeEnabled"] is True
-    assert cfg["autoupdater"] == "1"
+    assert cfg["autoupdater"] is None
     assert cfg["workspaceFiles"] == {}
 
 

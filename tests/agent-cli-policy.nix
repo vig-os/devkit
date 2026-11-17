@@ -32,25 +32,48 @@ let
     src = ../templates/rust;
     withAgentCli = true;
   };
-  machine = lib.evalModules {
-    specialArgs = { inherit pkgs; };
-    modules = [
-      flake.nixosModules.default
-      {
-        options.environment.systemPackages = lib.mkOption { type = lib.types.listOf lib.types.package; };
-        options.nixpkgs.overlays = lib.mkOption { type = lib.types.listOf lib.types.raw; };
-        config.programs.vigos-devtools.enable = true;
-      }
-    ];
+  machineWith =
+    extra:
+    lib.evalModules {
+      specialArgs = { inherit pkgs; };
+      modules = [
+        flake.nixosModules.default
+        {
+          options.environment.systemPackages = lib.mkOption { type = lib.types.listOf lib.types.package; };
+          options.nixpkgs.overlays = lib.mkOption { type = lib.types.listOf lib.types.raw; };
+          config.programs.vigos-devtools.enable = true;
+        }
+        extra
+      ];
+    };
+  machine = machineWith { };
+  machineOptedIn = machineWith { programs.vigos-devtools.agentCli.enable = true; };
+  homeWith =
+    extra:
+    lib.evalModules {
+      specialArgs = { inherit pkgs; };
+      modules = [
+        ../nix/home/packages.nix
+        {
+          options.home.packages = lib.mkOption { type = lib.types.listOf lib.types.package; };
+          options.home.sessionVariables = lib.mkOption {
+            type = lib.types.attrsOf lib.types.str;
+            default = { };
+          };
+        }
+        extra
+      ];
+    };
+  home = homeWith { vigos.packages.enable = true; };
+  # Legacy option name, shimmed by mkRenamedOptionModule in packages.nix.
+  homeLegacy = homeWith { programs.vigos-devtools.enable = true; };
+  homeOptedIn = homeWith {
+    vigos.packages = {
+      enable = true;
+      agentCli.enable = true;
+    };
   };
-  home = lib.evalModules {
-    specialArgs = { inherit pkgs; };
-    modules = [
-      ../nix/home/packages.nix
-      { options.home.packages = lib.mkOption { type = lib.types.listOf lib.types.package; }; }
-      { programs.vigos-devtools.enable = true; }
-    ];
-  };
+  autoupdaterOff = cfg: (cfg.config.home.sessionVariables.DISABLE_AUTOUPDATER or null) == "1";
 in
 assert !hasAgent default.nativeBuildInputs;
 assert !hasAgent consumer.nativeBuildInputs;
@@ -61,8 +84,15 @@ assert builtins.elem pkgs.claude-code optedIn.nativeBuildInputs;
 assert hasAgent flake.devShells.${system}.with-agent-cli.nativeBuildInputs;
 assert !hasAgent rust.devShell.nativeBuildInputs;
 assert hasAgent rustOptedIn.devShell.nativeBuildInputs;
-assert hasAgent home.config.home.packages;
-assert hasAgent machine.config.environment.systemPackages;
+# Machine-level surfaces leave claude to the machine unless opted in (#2076).
+assert !hasAgent home.config.home.packages;
+assert !hasAgent homeLegacy.config.home.packages;
+assert !autoupdaterOff home;
+assert hasAgent homeOptedIn.config.home.packages;
+assert builtins.elem pkgs.claude-code homeOptedIn.config.home.packages;
+assert autoupdaterOff homeOptedIn;
+assert !hasAgent machine.config.environment.systemPackages;
+assert hasAgent machineOptedIn.config.environment.systemPackages;
 {
   agentCliPolicy = true;
 }
