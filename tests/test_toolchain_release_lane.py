@@ -32,12 +32,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from tests.github_expression import evaluate
 from tests.workflow_scaffold import (
     NIX_NETWORK_SETTINGS,
     SMOKE_WORKFLOWS,
     WORKFLOWS,
     WORKSPACE,
-    evaluate_if,
     load_workflow,
 )
 
@@ -81,6 +81,20 @@ HOST_MODES = ("direnv", "bare")
 
 
 # ── call-site discovery ──────────────────────────────────────────────────────
+
+
+def _if(
+    expr: str,
+    inputs: dict[str, str],
+    *,
+    outcomes: dict[str, str] | None = None,
+    has_nix: str = "false",
+) -> bool:
+    """Execute a step ``if:`` with the strict managed-expression evaluator."""
+    steps: dict[str, dict] = {"detect-nix": {"outputs": {"has-nix": has_nix}}}
+    for step_id, outcome in (outcomes or {}).items():
+        steps.setdefault(step_id, {})["outcome"] = outcome
+    return bool(evaluate(expr, {"inputs": inputs, "steps": steps}))
 
 
 def _call_sites() -> list[tuple[str, str, dict, dict]]:
@@ -215,6 +229,7 @@ def _write_hanging_nix(bin_dir: Path, *, hang_on: str, ignore_term: bool) -> Non
         + "fi\n"
         'case "$joined" in\n'
         "  *PATH*) printf '%s' /nix/store/bbbbbbbb-prek-1/bin ;;\n"
+        '  *"env -0 >"*) : > "${@: -1}" ;;\n'
         "esac\n"
         "exit 0\n",
         encoding="utf-8",
@@ -330,20 +345,16 @@ def test_cachix_step_failure_does_not_fail_the_job() -> None:
 def test_cachix_degradation_is_reported_only_on_failure(
     outcome: str, expected: bool
 ) -> None:
-    got = evaluate_if(
-        _degradation_step()["if"],
-        inputs=DIRENV_INPUTS,
-        outcomes={CACHIX_STEP_ID: outcome},
+    got = _if(
+        _degradation_step()["if"], DIRENV_INPUTS, outcomes={CACHIX_STEP_ID: outcome}
     )
     assert got is expected
 
 
 def test_realisation_proceeds_after_a_cachix_failure() -> None:
     for name in (DEVSHELL_STEP_NAME, "Verify toolchain (prek present in dev-shell)"):
-        assert evaluate_if(
-            _step(name)["if"],
-            inputs=DIRENV_INPUTS,
-            outcomes={CACHIX_STEP_ID: "failure"},
+        assert _if(
+            _step(name)["if"], DIRENV_INPUTS, outcomes={CACHIX_STEP_ID: "failure"}
         ), f"{name} must still run when Cachix failed"
 
 
@@ -403,13 +414,7 @@ def _realises_or_provisions(step: dict) -> bool:
 def _running_steps(mode: str, minimal: str, has_nix: str) -> list[dict]:
     inputs = {"mode": mode, "cachix-cache": "acme", MINIMAL_INPUT: minimal}
     return [
-        s
-        for s in _steps()
-        if evaluate_if(
-            str(s.get("if", "true")),
-            inputs=inputs,
-            step_outputs={"detect-nix": {"has-nix": has_nix}},
-        )
+        s for s in _steps() if _if(str(s.get("if", "true")), inputs, has_nix=has_nix)
     ]
 
 

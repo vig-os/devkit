@@ -31,13 +31,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.workflow_scaffold import WORKFLOWS, evaluate_if, load_workflow
+from tests.workflow_scaffold import WORKFLOWS, load_workflow
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -255,8 +256,24 @@ def fake(tmp_path: Path) -> Fake:
 
 
 def _evaluate_if(expr: str, *, failure: bool, outcomes: dict[str, str]) -> bool:
-    """Execute the cleanup ``if:`` with the shared expression evaluator."""
-    return evaluate_if(expr, failure=failure, outcomes=outcomes)
+    """Evaluate the GitHub-expression subset the cleanup ``if:`` uses.
+
+    Supports ``failure()``, ``steps.<id>.outcome``, string literals, ``==``,
+    ``!=``, ``&&``, ``||``, ``!`` and parentheses — enough to execute the
+    condition instead of pattern-matching its text.
+    """
+    body = expr.strip()
+    body = re.sub(r"^\$\{\{\s*|\s*\}\}$", "", body)
+    body = body.replace("failure()", repr(failure))
+
+    def outcome(m: re.Match[str]) -> str:
+        return repr(outcomes.get(m.group(1), "skipped"))
+
+    body = re.sub(r"steps\.(\w+)\.outcome", outcome, body)
+    body = body.replace("&&", " and ").replace("||", " or ")
+    body = re.sub(r"!(?!=)", " not ", body)
+    assert re.fullmatch(r"[\sA-Za-z_'()=!]*", body), f"unsupported expression: {expr}"
+    return bool(eval(body, {"__builtins__": {}}, {}))  # noqa: S307
 
 
 CLEANUP_CASES = [

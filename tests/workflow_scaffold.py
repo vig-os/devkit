@@ -96,51 +96,6 @@ def parse_nix_settings(text: str) -> dict[str, str]:
     return settings
 
 
-def evaluate_if(
-    expr: str,
-    *,
-    inputs: dict[str, str] | None = None,
-    step_outputs: dict[str, dict[str, str]] | None = None,
-    outcomes: dict[str, str] | None = None,
-    failure: bool = False,
-) -> bool:
-    """Evaluate the GitHub-expression subset step/job ``if:`` conditions use.
-
-    Supports ``inputs.<name>``, ``steps.<id>.outputs.<name>`` (missing: ``''``),
-    ``steps.<id>.outcome`` (missing: ``'skipped'``), ``failure()``, string
-    literals, ``==``, ``!=``, ``&&``, ``||``, ``!`` and parentheses — enough to
-    EXECUTE a condition instead of pattern-matching its text.
-    """
-    inputs = inputs or {}
-    step_outputs = step_outputs or {}
-    outcomes = outcomes or {}
-    body = re.sub(r"^\$\{\{\s*|\s*\}\}$", "", expr.strip())
-    body = body.replace("failure()", repr(failure))
-    body = re.sub(
-        r"steps\.([\w-]+)\.outputs\.([\w-]+)",
-        lambda m: repr(step_outputs.get(m.group(1), {}).get(m.group(2), "")),
-        body,
-    )
-    body = re.sub(
-        r"steps\.([\w-]+)\.outcome",
-        lambda m: repr(outcomes.get(m.group(1), "skipped")),
-        body,
-    )
-
-    def _input(m: re.Match[str]) -> str:
-        assert m.group(1) in inputs, f"expression reads unset input {m.group(1)!r}"
-        return repr(inputs[m.group(1)])
-
-    body = re.sub(r"inputs\.([\w-]+)", _input, body)
-    body = body.replace("&&", " and ").replace("||", " or ")
-    body = re.sub(r"!(?!=)", " not ", body)
-    unquoted = re.sub(r"'[^']*'", "''", body)
-    assert re.fullmatch(r"[\sA-Za-z_'()=!]*", unquoted), (
-        f"unsupported expression: {expr}"
-    )
-    return bool(eval(body, {"__builtins__": {}}, {}))  # noqa: S307
-
-
 def load_workflow(path: Path) -> dict:
     """Parse a workflow/action YAML file."""
     return yaml.safe_load(path.read_text(encoding="utf-8"))
