@@ -19,6 +19,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [1.19.1](https://github.com/vig-os/devkit/releases/tag/1.19.1) - 2026-11-17
+
+### Changed
+
+- **Home and NixOS modules leave the agent CLI to the machine** ([#2076](https://github.com/vig-os/devkit/issues/2076))
+  - Upgrade note: machines that got `claude` from `vigos.packages.enable` or `programs.vigos-devtools.enable` must install it themselves or opt back in with `vigos.packages.agentCli.enable = true` (home-manager) or `programs.vigos-devtools.agentCli.enable = true` (NixOS).
+  - Without the opt-in, a machine's own `claude` (native install, or a wrapper with its own release channel and credentials) is never shadowed by devkit's pin.
+  - `DISABLE_AUTOUPDATER=1` is set only with an opt-in, where Nix owns updates; `vigos.claude` alone no longer disables the native updater.
+  - The container image keeps its CLI.
+
+### Security
+
+- **Drop the dead bats-file dependency-review exception** ([#2043](https://github.com/vig-os/devkit/issues/2043))
+  - GHSA-wvrr-2x4r-394v expired on 2026-11-11 and failed every PR's Dependency Review; bats-file now comes from nixpkgs and no npm manifest references it, so the entry is removed rather than renewed
+
+- **Re-verify the seven Nix image exceptions that expired on 2026-11-18** ([#2052](https://github.com/vig-os/devkit/issues/2052))
+  - None is fixed at the pinned nixpkgs rev, so none is deleted. All seven are still live findings in the 2026-11-17 nightly scan, and NVD still matches each one to the right product and version.
+  - rsync CVE-2026-119741 is fixed by rsync 3.5.2, which is on `nixos-26.05` but newer than the pin. The entry now expires on 2026-12-02 and is deleted by the next pin advance.
+  - SQLite CVE-2026-119373, CVE-2026-119374 and CVE-2026-119379 are fixed by SQLite 3.54.0, which is not yet backported to 26.05. They now expire on 2026-12-09. fzf CVE-2026-53432 and CVE-2026-53433 have no 26.05 backport; they stay availability-only and now expire on 2026-12-16.
+  - Correction: SQLite CVE-2026-119586 has no fixed release. Upstream rejects it as not a core-library bug and points to the CLI's `--safe` option. The earlier "fixed in 3.54.2" note was wrong.
+
 ## [1.19.0](https://github.com/vig-os/devkit/releases/tag/1.19.0) - 2026-11-06
 
 ### Added

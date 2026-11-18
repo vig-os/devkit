@@ -34,9 +34,10 @@ everywhere — the dev-shell now and the image's `imageTools` set.
   are exported as system-independent outputs so consumers can follow the same
   pinned `nixpkgs`.
 - **`nixosModules.default`** / **`homeManagerModules.default`** install the same
-  `devTools` set plus the machine-level agent CLI into a NixOS or home-manager configuration — flip
-  `programs.vigos-devtools.enable = true`. `claude-code` is unfree, so the
-  consumer must allow it (`nixpkgs.config.allowUnfree`). The NixOS module applies
+  `devTools` set into a NixOS or home-manager configuration — flip
+  `programs.vigos-devtools.enable = true` (NixOS) or `vigos.packages.enable = true`
+  (home-manager). The agent CLI is a separate opt-in, off by default — see
+  [Agent CLI opt-in](#agent-cli-opt-in). The NixOS module applies
   `overlays.default` for the fast-movers; a home-manager consumer that passes its
   own `pkgs` should apply the overlay itself (home-manager rejects a module-set
   `nixpkgs.overlays` in that case).
@@ -46,11 +47,27 @@ everywhere — the dev-shell now and the image's `imageTools` set.
 
 ### Agent CLI opt-in
 
-Project shells leave `claude` to the machine by default. Install it machine-wide,
-including through `vigos.packages.enable = true` (or the legacy
-`programs.vigos-devtools.enable` home option). `nix/home/claude.nix` configures
-Claude; the packages module continues to install its CLI. `templates/personal`
-continues to use these machine-level modules.
+Devkit leaves `claude` to the machine by default, on every surface except the
+container image: project shells, the home module (`vigos.packages`) and the NixOS
+module (`programs.vigos-devtools`) all ship without it ([#1967](https://github.com/vig-os/devkit/issues/1967),
+[#2076](https://github.com/vig-os/devkit/issues/2076)). Install it however the
+machine prefers — a native install with its own updater, or a wrapper that picks
+a release channel and loads per-profile credentials. `nix/home/claude.nix`
+(`vigos.claude`) configures Claude Code and works with any of these installs.
+
+Machines that want devkit's pinned CLI opt in at the machine level:
+
+- home-manager: `vigos.packages.agentCli.enable = true` (alongside
+  `vigos.packages.enable`). Nix then owns updates, so the module also exports
+  `DISABLE_AUTOUPDATER=1`. Without the opt-in, devkit leaves the native updater
+  alone.
+- NixOS: `programs.vigos-devtools.agentCli.enable = true`, which likewise
+  exports `DISABLE_AUTOUPDATER=1`.
+
+`vigos.editor`'s `claudecode.nvim` bridge drives whichever `claude` is on PATH.
+
+`claude-code` is unfree, so an opted-in consumer must allow it
+(`nixpkgs.config.allowUnfree`).
 
 Machines without their own CLI can set `withAgentCli = true` in
 `vigos.lib.mkProjectShell { inherit pkgs; withAgentCli = true; }`, including in
@@ -86,7 +103,8 @@ access is unavailable, so the dev-shell/image parity test stays a CI pytest):
 - **`devShell`** — the dev-shell closure builds.
 - **`devShellTools`** — the parity-test SSoT evaluates to a non-empty list.
 - **`agentCliPolicy`** — evaluation-only assertions exclude `claude-code` from
-  default and scaffolded shells, verify the opt-in pin, and preserve home installs.
+  default and scaffolded shells and from the home and NixOS modules, and verify
+  each opt-in installs the pin.
 - **`module-<name>`** — one devshell build per shipped capability module,
   generated from the `nix/modules/` registry (a module cannot ship without
   its check).

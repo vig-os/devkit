@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-11-03T09:28:09Z
-updated: 2026-11-03T10:33:49Z
+updated: 2026-11-03T13:05:57Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1997
-comments: 1
+comments: 2
 labels: feature, area:workspace
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-11-03T12:24:01.303Z
+synced: 2026-11-04T08:54:32.956Z
 ---
 
 # [Issue 1997]: [[FEATURE] Plan-aware scaffold: detect a private repo in a Free org and adapt (scanning, rulesets, auto-merge, dependency review)](https://github.com/vig-os/devkit/issues/1997)
@@ -58,4 +58,12 @@ _Posted on November 3, 2026 at 10:33 AM_
 **Correction (verified after filing):** the org secrets do **not** reach this private repo at runtime. `repos/R/actions/organization-secrets` lists `COMMIT_APP_*`, `RELEASE_APP_*` and `DEVKIT_UPGRADE_APP_*` as available, but a dispatched `devkit-upgrade.yml` (https://github.com/exoma-ch/ravmatic/actions/runs/41620166248) failed with `DEVKIT_UPGRADE_APP_CLIENT_ID / DEVKIT_UPGRADE_APP_PRIVATE_KEY secrets are not configured`. That matches GitHub's Free-plan rule (org secrets aren't available to private repos). The earlier `sync-main-to-dev` success was the early 'dev is up to date' exit, so it never needed a token.
 
 This makes secret visibility the **most important** check for this issue: the listing API gives a false positive, so the only reliable probe is a workflow run. Every App-token feature (the release train, sync-issues, devkit-upgrade) needs **repo-level** secret copies on Free + private. The scaffold should say so up front and point at the runbook.
+
+---
+
+# [Comment #2]() by [gerchowl]()
+
+_Posted on November 3, 2026 at 01:05 PM_
+
+One more Free-plan pitfall, hit for real: with `delete_branch_on_merge=true` (devkit's own setting, which consumers copy), merging any PR whose **head is `dev`** (here a manual `dev` -> `main` promotion, https://github.com/exoma-ch/ravmatic/pull/13) makes GitHub **delete `dev`**. On Team, the dev ruleset exempts it; on Free nothing does. It was restored from `main` and the rule is documented downstream. The plan-aware check should warn about it, or set a `dev` -> `main` promotion helper that always branches first.
 

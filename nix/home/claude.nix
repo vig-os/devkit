@@ -12,7 +12,9 @@
 # The user-owned ~/.claude/CLAUDE.md gets a single `@vigos.md` import line
 # seeded (created if missing, appended once if absent — Claude Code itself
 # writes to this file via the memory feature, so it is never overwritten).
-# Packages: none — claude-code, nodejs, uv ship via vigos.packages (devTools + agent-tools).
+# Packages: none — nodejs and uv ship via vigos.packages (devTools); the
+# claude-code CLI is the machine's own unless vigos.packages.agentCli.enable
+# opts into devkit's pin, which also owns DISABLE_AUTOUPDATER (#2076).
 # Org defaults pre-authorize nothing (no permission modes in the seed).
 {
   config,
@@ -54,10 +56,6 @@ in
 
   config = lib.mkIf cfg.enable {
     home = {
-      # Nix owns claude-code updates; the native self-updater stays off. Set
-      # here (not in the user-editable seed) so the promise survives edits.
-      sessionVariables.DISABLE_AUTOUPDATER = lib.mkDefault "1";
-
       file = lib.mapAttrs (_name: source: { inherit source; }) cfg.claudeMd.workspaceFiles;
 
       activation.vigosClaude = lib.hm.dag.entryAfter [ "writeBoundary" ] ''

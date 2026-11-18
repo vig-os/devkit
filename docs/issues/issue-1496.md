@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-08-13T10:18:37Z
-updated: 2026-10-01T14:59:45Z
+updated: 2026-11-08T14:36:59Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1496
-comments: 1
+comments: 2
 labels: feature, priority:medium, area:workspace, effort:large, semver:minor
 assignees: none
 milestone: none
 projects: none
-parent: none
+parent: 1833
 children: none
-synced: 2026-10-02T08:18:27.227Z
+synced: 2026-11-09T09:33:51.009Z
 ---
 
 # [Issue 1496]: [Rust pack: L1/L4/L7 never shipped — the pack cannot be adopted cold](https://github.com/vig-os/devkit/issues/1496)
@@ -66,4 +66,12 @@ Refs: #1400
 _Posted on October 1, 2026 at 02:59 PM_
 
 The consumer-matrix `rust` cell (PR #1807, `scripts/consumer-matrix/render-cell.sh`) is the acceptance test for this issue. It scaffolds a zero-dependency Rust hello world (`tests/fixtures/consumer/rust/`) and requires `just test` to actually run its `#[test]`. Today it fails with the silent no-op this issue describes ("`just test` exited 0 but the rust fixture suite never ran"), so the cell carries a strict expected-fail marker: `EXPECTED_FAIL[rust]="test #1496"` in that script. Once Rust consumers get a real test recipe, the cell starts passing and CI fails on purpose ("rust now passes — remove the #1496 expected-fail marker"). **The PR that fixes this issue must remove that marker.**
+
+---
+
+# [Comment #2]() by [gerchowl]()
+
+_Posted on November 8, 2026 at 02:36 PM_
+
+For L1's `deny.toml` starter (from nerdmachines/quench, 2026-11-08): include **`Unicode-3.0`** in the default licence allowlist. `unicode-ident` is licensed "(MIT OR Apache-2.0) AND Unicode-3.0" and sits under every proc-macro (serde derive, thiserror, clap derive), so an allowlist seeded only from the obvious MIT/Apache set fails `cargo deny check licenses` on the first derive. quench hit exactly this.
 

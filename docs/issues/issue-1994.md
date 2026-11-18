@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-11-03T09:22:18Z
-updated: 2026-11-03T09:56:34Z
+updated: 2026-11-04T03:48:28Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/1994
-comments: 2
+comments: 3
 labels: none
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-11-03T12:24:02.435Z
+synced: 2026-11-04T08:54:33.384Z
 ---
 
 # [Issue 1994]: [docs: opinionated Typst house style: template package, layout guards, reproducible build (design)](https://github.com/vig-os/devkit/issues/1994)
@@ -140,4 +140,19 @@ Owner decisions (2026-11-03):
 - **Smallest figure text:** 7 pt at final placed size.
 - **Defaults, no objection raised:** A4 paper, 2.5 cm margins, slides layout in scope (phase 2).
 - **Glossary:** in scope (see the addendum above).
+
+---
+
+# [Comment #3]() by [gerchowl]()
+
+_Posted on November 4, 2026 at 03:48 AM_
+
+Delivered on dev for the next minor:
+- **Phase 1 guards and recipes:** #2005, plus follow-ups #2012.
+- **Glossary register and guards:** #2013 and #2014.
+- **House-style package `@local/devkit-docs`:** core in #2015 (0.1.x); plots, glossary helpers and slides in #2017 (0.2.0).
+- **Content guards and runtime bypass detection:** #2019 (0.2.1).
+- **Typst toolchain on unstable:** #1995.
+
+Open follow-ups: #2016 (devkit-docs module clash edges) and #2022 (content-guard edges).
 
