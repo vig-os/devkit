@@ -213,6 +213,7 @@ jobs:
         with:
           mode: ${{ inputs.toolchain_mode }}
           devkit-version: ${{ inputs.devkit_version }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
 
       - name: Record pre-finalization SHA
         id: pre_sha
@@ -439,6 +440,7 @@ jobs:
         with:
           mode: ${{ inputs.toolchain_mode }}
           devkit-version: ${{ inputs.devkit_version }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
 
       # Regenerate the bot-entry block inside [VERSION] - TBD before stamping
       # the date: any bot PR merged into the release branch mid-train is
@@ -677,6 +679,7 @@ jobs:
         with:
           mode: ${{ inputs.toolchain_mode }}
           devkit-version: ${{ inputs.devkit_version }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
 
       - name: Sync dependencies
         run: just sync

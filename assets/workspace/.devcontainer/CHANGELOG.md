@@ -19,6 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [1.19.2](https://github.com/vig-os/devkit/releases/tag/1.19.2) - 2026-11-18
+
+### Fixed
+
+- **Release-lane toolchain setup pulls the consumer cache, is bounded and degrades softly** ([#2010](https://github.com/vig-os/devkit/issues/2010), [#2077](https://github.com/vig-os/devkit/issues/2077))
+  - Every scaffolded `setup-devkit-toolchain` call site now passes `cachix-cache: ${{ vars.CACHIX_CACHE }}`, pull-only, so release-lane jobs substitute consumer-only paths instead of building them from source into the job timeout.
+  - Nix network bounds (`connect-timeout`, `stalled-download-timeout`, `download-attempts`) on every runner-side Nix config, plus a `realisation-timeout-minutes` wall-clock bound that fails with `toolchain realisation exceeded N min; last nix activity: …` instead of a silent cancel.
+  - A failing Configure Cachix step now warns with the reason and continues on the remaining substituters instead of failing every job.
+  - Rollback and cleanup jobs pass `minimal: true` and no longer realise the dev-shell they may be rolling back from.
+
 ## [1.19.1](https://github.com/vig-os/devkit/releases/tag/1.19.1) - 2026-11-17
 
 ### Changed

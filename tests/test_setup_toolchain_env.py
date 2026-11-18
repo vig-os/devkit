@@ -362,6 +362,8 @@ def _execute_devshell_step(
         # (never inline `${{ }}` in `run:`), so the harness sets it the same way.
         "DEVKIT_DEV_PROFILE_PATH": dev_profile_path or "",
         "DEVKIT_STUB_PROFILE_LOG": str(profile_log),
+        # The action routes realisation-timeout-minutes the same way (#2010).
+        "DEVKIT_REALISATION_TIMEOUT_MINUTES": "6",
         # Ambient var that the dev-shell leaves unchanged: must be filtered out.
         "AMBIENT_SHARED": "same-on-both-sides",
     }

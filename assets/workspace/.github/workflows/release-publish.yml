@@ -156,6 +156,7 @@ jobs:
         with:
           mode: ${{ inputs.toolchain_mode }}
           devkit-version: ${{ inputs.devkit_version }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
 
       - name: Extract release notes from CHANGELOG
         env:

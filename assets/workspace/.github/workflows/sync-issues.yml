@@ -131,6 +131,7 @@ jobs:
         with:
           mode: ${{ needs.resolve-toolchain.outputs.mode }}
           devkit-version: ${{ needs.resolve-toolchain.outputs.image-tag }}
+          cachix-cache: ${{ vars.CACHIX_CACHE }}
 
       - name: Restore sync state (last synced timestamp)
         id: restore-state

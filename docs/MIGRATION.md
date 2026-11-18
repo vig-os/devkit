@@ -125,6 +125,21 @@ flake dev-shell in `direnv`, or a `uv` host install in `bare`. After that
 preamble the same `just sync|precommit|test` contract runs in every mode — no
 per-mode overlay.
 
+**Consumer Cachix cache, bounds and degradation (`direnv`,
+[#2010](https://github.com/vig-os/devkit/issues/2010),
+[#2077](https://github.com/vig-os/devkit/issues/2077)):** set the
+`CACHIX_CACHE` repository variable to your own Cachix cache and every managed
+job — CI and the release lane alike — pulls from it (no token needed to pull;
+only `ci.yml` receives `CACHIX_AUTH_TOKEN`). If the Cachix step fails, the job
+logs a `::warning::` with the reason and continues on the remaining
+substituters, so it may build consumer-only paths from source. The dev-shell
+realisation is bounded: Nix's own network timeouts fail a stalled transfer, and
+past `realisation-timeout-minutes` (default 6) the step fails with
+`toolchain realisation exceeded N min; last nix activity: …`. Rollback and
+cleanup jobs use `minimal: true` and never realise the dev-shell. The full
+contract lives in the
+[`setup-devkit-toolchain` header](../assets/workspace/.github/actions/setup-devkit-toolchain/action.yml).
+
 **Release/automation set is now mode-aware
 ([#991](https://github.com/vig-os/devkit/issues/991)):** the release and
 automation workflows provision their toolchain the same way `ci.yml` does — a

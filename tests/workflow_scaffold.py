@@ -53,12 +53,24 @@ ACTION_PIN_RE = re.compile(r"^[\w.-]+/[\w.-]+@[0-9a-f]{40}$")
 # the consumer's OWN repo flake contribute the substituters it declares — this
 # is not the baked-image trapdoor #773 removed, which trusted any FOREIGN flake.
 _NIX_EXPERIMENTAL_FEATURES = "nix-command flakes"
+# Nix's own network knobs (Nix settings reference, conf-file): seconds to
+# connect, seconds without received data before a transfer is cancelled, and
+# attempts per file. Shared so the workflow and the bound tests agree (#2010).
+NIX_NETWORK_SETTINGS = {
+    "connect-timeout": "15",
+    "stalled-download-timeout": "60",
+    "download-attempts": "3",
+}
 _NIX_SHARED_SETTINGS = {
     "accept-flake-config": "true",
     "extra-substituters": "https://vig-os.cachix.org",
     "extra-trusted-public-keys": (
         "vig-os.cachix.org-1:yoOYRi3bvnM6ThxO0joLt7vtzhTfkq3r6jykeUMg7Bk="
     ),
+    # Transfer-level bounds (#2010): a stalled or unreachable substituter
+    # fails and is retried by Nix itself instead of hanging the job. The
+    # rationale for each value lives next to the settings in the action.
+    **NIX_NETWORK_SETTINGS,
 }
 
 
