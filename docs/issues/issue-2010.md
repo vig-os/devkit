@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-11-03T11:59:57Z
-updated: 2026-11-16T14:05:45Z
+updated: 2026-11-17T19:41:07Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/2010
-comments: 3
+comments: 5
 labels: bug, area:ci
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-11-17T10:29:10.831Z
+synced: 2026-11-17T20:22:47.424Z
 ---
 
 # [Issue 2010]: [[BUG] setup-devkit-toolchain hangs on cache.nixos.org substitution (direnv, hosted runner) until job timeout](https://github.com/vig-os/devkit/issues/2010)
@@ -97,4 +97,28 @@ The same release's dry run (43868346593) passed minutes earlier, and its validat
 _Posted on November 16, 2026 at 02:05 PM_
 
 Update from stepv: this is **deterministic for `prepare-release.yml`'s Prepare Release Branch job**, 2 of 2. The retry, run 43877817364, hung at exactly the same line: `building '/nix/store/ahb0kr7g…-rust-1.96.0.drv'...` at 13:41:24, cancelled at 13:54:36. In the same hour, the PR CI jobs on stepv (e.g. `feature/141-graph-colours`, 13:55) set up the same toolchain fine. So the Prepare job seems to **build** `rust-1.96.0.drv` (the joined toolchain) locally instead of substituting it, and that build never finishes. It may be missing the substituters or trusted keys the CI jobs have, or a sandbox/IO difference. stepv can't release until this is fixed. The workflow is devkit-managed, so stepv can't patch it.
+
+---
+
+# [Comment #4]() by [gerchowl]()
+
+_Posted on November 17, 2026 at 04:20 PM_
+
+Root cause for the stepv Prepare Release hang: in the scaffold, only `ci.yml` passes `cachix-cache: ${{ vars.CACHIX_CACHE }}` to `setup-devkit-toolchain`. The release-lane workflows (prepare-release, prepare-hotfix, release, release-core, release-publish, promote-release, abandon-release, sync-issues, sync-main-to-dev, devkit-upgrade) call it without that input.
+
+In stepv run 43877817364, "Configure Cachix" was skipped and 0 paths came from the consumer cache. The job then built the consumer-only derivations from source, including a patched `opencascade-occt-7.9.3`, and was cancelled at its 15-minute timeout. The `rust-1.96.0.drv` line is only the last build to *start*. The same hour, CI run 43880461559 pulled both paths from the consumer cache in seconds.
+
+A fix is in progress on `bugfix/2010-release-lane-cachix`:
+1. Pass the Cachix input (pull-only) at every call site, with a guard test.
+2. Bound the realisation, using Nix's network timeouts plus an explicit wall-clock error.
+3. Let a failing Cachix step degrade to a warning instead of failing the job (the devkit part of #2077).
+4. Stop the rollback and cleanup jobs from realising the dev-shell.
+
+---
+
+# [Comment #5]() by [gerchowl]()
+
+_Posted on November 17, 2026 at 07:41 PM_
+
+The devkit fix is merged to dev in #2082 (1851247a). It missed the 1.19.1 cut, so it ships in the next release.
 
