@@ -2,18 +2,18 @@
 type: issue
 state: open
 created: 2026-11-17T16:13:49Z
-updated: 2026-11-17T19:41:10Z
+updated: 2026-11-18T10:26:56Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/2077
-comments: 3
+comments: 4
 labels: bug
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-11-17T20:22:45.561Z
+synced: 2026-11-19T10:06:55.525Z
 ---
 
 # [Issue 2077]: [[BUG] 1.19.0 setup-devkit-toolchain: cachix-action fails 'Error: not found: cachix' (stepv adoption PR)](https://github.com/vig-os/devkit/issues/2077)
@@ -61,4 +61,12 @@ Root cause found downstream: the runner's local substituter `10.0.2.2:8093` refu
 _Posted on November 17, 2026 at 07:41 PM_
 
 The devkit fix is merged to dev in #2082 (1851247a). It missed the 1.19.1 cut, so it ships in the next release. That covers the devkit part only: a failing Configure Cachix step now degrades to a warning. The runner-local substituter is a fleet-side issue.
+
+---
+
+# [Comment #4]() by [gerchowl]()
+
+_Posted on November 18, 2026 at 10:26 AM_
+
+The devkit part shipped in [1.19.2](https://github.com/vig-os/devkit/releases/tag/1.19.2) (#2082). A failing Configure Cachix step now gives a `::warning::` and the job continues without the consumer cache. The runner-side cause, an unreachable local substituter, is fleet infrastructure and not devkit's to fix. I'm leaving this open in case the stepv adoption PR still fails on 1.19.2 for that reason; please close it once stepv's 1.19.2 adoption is green.
 

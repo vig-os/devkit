@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-11-18T00:27:25Z
+updated: 2026-11-19T07:16:42Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-11-18T01:22:36.931Z
+synced: 2026-11-19T10:06:58.791Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -25,7 +25,7 @@ This issue lists Renovate updates and detected dependencies. Read the [Dependenc
 The following updates have all been created. To force a retry/rebase of any, click on a checkbox below.
 
  - [ ] <!-- rebase-branch=renovate/pypi-certifi-vulnerability -->[build(pip): update dependency certifi to v2026.10.18 [security]](../pull/2068)
- - [ ] <!-- rebase-branch=renovate/actions-create-github-app-token-digest -->[chore(deps): update actions/create-github-app-token digest to 64ab729](../pull/1903)
+ - [ ] <!-- rebase-branch=renovate/actions-create-github-app-token-digest -->[chore(deps): update actions/create-github-app-token digest to f418cff](../pull/1903)
  - [ ] <!-- rebase-branch=renovate/github-codeql-action-digest -->[chore(deps): update github/codeql-action digest to 33d7b85](../pull/1867)
  - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch)](../pull/1868) (`actions/dependency-review-action`, `actions/download-artifact`, `actions/setup-node`, `actions/upload-artifact`, `aquasecurity/trivy`, `astral-sh/setup-uv`, `cachix/install-nix-action`, `docker/login-action`, `ossf/scorecard-action`, `sigstore/cosign-installer`)
  - [ ] <!-- rebase-branch=renovate/npm-(minor-and-patch) -->[build(npm): update dependency @devcontainers/cli to v0.90.0](../pull/1981)
@@ -303,7 +303,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>.github/workflows/scorecard.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc` → [Updates: `v2.5.0`]
+ - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc` → [Updates: `v2.6.0`]
  - `github/codeql-action v4@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2` → [Updates: `v4`]
  - `ubuntu 26.04`
 
@@ -531,7 +531,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>assets/workspace/.github/workflows/scorecard.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc` → [Updates: `v2.5.0`]
+ - `ossf/scorecard-action v2.4.4@2d1146689b8cda280b9bc96326124645441f03bc` → [Updates: `v2.6.0`]
  - `github/codeql-action v4@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2` → [Updates: `v4`]
  - `ubuntu 26.04`
 

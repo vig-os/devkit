@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-11-03T11:59:57Z
-updated: 2026-11-17T19:41:07Z
+updated: 2026-11-18T10:26:54Z
 author: gerchowl
 author_url: https://github.com/gerchowl
 url: https://github.com/vig-os/devkit/issues/2010
-comments: 5
+comments: 6
 labels: bug, area:ci
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-11-17T20:22:47.424Z
+synced: 2026-11-19T10:06:58.288Z
 ---
 
 # [Issue 2010]: [[BUG] setup-devkit-toolchain hangs on cache.nixos.org substitution (direnv, hosted runner) until job timeout](https://github.com/vig-os/devkit/issues/2010)
@@ -121,4 +121,12 @@ A fix is in progress on `bugfix/2010-release-lane-cachix`:
 _Posted on November 17, 2026 at 07:41 PM_
 
 The devkit fix is merged to dev in #2082 (1851247a). It missed the 1.19.1 cut, so it ships in the next release.
+
+---
+
+# [Comment #6]() by [gerchowl]()
+
+_Posted on November 18, 2026 at 10:26 AM_
+
+Shipped in [1.19.2](https://github.com/vig-os/devkit/releases/tag/1.19.2), via #2082. Consumers get it through the scheduled devkit-upgrade PR, or by running the upgrade now. Once on 1.19.2, stepv's `prepare-release.yml` pulls its toolchain from the `vars.CACHIX_CACHE` cache, so the patched OCCT and the rust toolchain no longer build locally. Toolchain setup is now limited to 6 minutes and ends with an explicit error if it runs over. Follow-ups are in #2085.
 

@@ -1,19 +1,19 @@
 ---
 type: issue
-state: open
+state: closed
 created: 2026-11-11T12:25:42Z
-updated: 2026-11-11T12:25:42Z
+updated: 2026-11-18T10:27:07Z
 author: github-actions[bot]
 author_url: https://github.com/github-actions[bot]
 url: https://github.com/vig-os/devkit/issues/2072
-comments: 0
+comments: 1
 labels: security, security-scan
 assignees: none
 milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-11-12T09:37:23.287Z
+synced: 2026-11-19T10:06:57.746Z
 ---
 
 # [Issue 2072]: [Security exception register (dev): exceptions expire 2026-11-18](https://github.com/vig-os/devkit/issues/2072)
@@ -39,3 +39,11 @@ The following security exceptions on `dev` expire on **2026-11-18** — within 7
 3. Renew only what is still genuinely accepted, re-stating the rationale, and snap the new date onto the Wednesday grid.
 
 See `docs/CONTAINER_SECURITY.md` (*Exception registers* / *Expiry dates land on a Wednesday*). Close this issue once the register has been reconciled.
+---
+
+# [Comment #1]() by [gerchowl]()
+
+_Posted on November 18, 2026 at 10:27 AM_
+
+Resolved on dev by #2081: the 7 entries are re-triaged and the next expiries are 2026-12-02, 12-09 and 12-16. Main got the fix in 1.19.1, and #2073 is closed.
+
