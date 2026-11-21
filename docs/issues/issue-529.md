@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-11-19T07:16:42Z
+updated: 2026-11-21T02:48:40Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,12 +13,18 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-11-19T10:06:58.791Z
+synced: 2026-11-21T09:30:54.746Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
 
 This issue lists Renovate updates and detected dependencies. Read the [Dependency Dashboard](https://docs.renovatebot.com/key-concepts/dashboard/) docs to learn more.<br>[View this repository on the Mend.io Web Portal](https://developer.mend.io/github/vig-os/devkit).
+
+## Awaiting Schedule
+
+The following updates are awaiting their schedule. To get an update now, click on a checkbox below.
+
+ - [ ] <!-- unschedule-branch=renovate/cachix-install-nix-action-32.x -->ci(actions): update cachix/install-nix-action action to v32
 
 ## Open
 
@@ -26,10 +32,10 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - [ ] <!-- rebase-branch=renovate/pypi-certifi-vulnerability -->[build(pip): update dependency certifi to v2026.10.18 [security]](../pull/2068)
  - [ ] <!-- rebase-branch=renovate/actions-create-github-app-token-digest -->[chore(deps): update actions/create-github-app-token digest to f418cff](../pull/1903)
- - [ ] <!-- rebase-branch=renovate/github-codeql-action-digest -->[chore(deps): update github/codeql-action digest to 33d7b85](../pull/1867)
+ - [ ] <!-- rebase-branch=renovate/github-codeql-action-digest -->[chore(deps): update github/codeql-action digest to 1bd86f2](../pull/1867)
  - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch)](../pull/1868) (`actions/dependency-review-action`, `actions/download-artifact`, `actions/setup-node`, `actions/upload-artifact`, `aquasecurity/trivy`, `astral-sh/setup-uv`, `cachix/install-nix-action`, `docker/login-action`, `ossf/scorecard-action`, `sigstore/cosign-installer`)
- - [ ] <!-- rebase-branch=renovate/npm-(minor-and-patch) -->[build(npm): update dependency @devcontainers/cli to v0.90.0](../pull/1981)
- - [ ] <!-- rebase-branch=renovate/python-(minor-and-patch) -->[build(pip): update python (minor and patch)](../pull/1904) (`github-backup`, `pytest`, `pytest-docker`)
+ - [ ] <!-- rebase-branch=renovate/npm-(minor-and-patch) -->[build(npm): update dependency @devcontainers/cli to v0.91.0](../pull/1981)
+ - [ ] <!-- rebase-branch=renovate/python-(minor-and-patch) -->[build(pip): update python (minor and patch)](../pull/1904) (`github-backup`, `pytest`, `pytest-docker`, `pyyaml`)
  - [ ] <!-- rebase-branch=renovate/node-26.x -->[ci(actions): update dependency node to v26](../pull/1982)
  - [ ] <!-- rebase-branch=renovate/lock-file-maintenance -->[build(pip): lock file maintenance](../pull/1872)
  - [ ] <!-- rebase-all-open-prs -->**Click on this checkbox to rebase all open PRs at once**
@@ -41,7 +47,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 <details><summary>.github/actions/setup-env/action.yml (3)</summary>
 
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`, `v32.0.0`]
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
  - `actions/setup-node v7.0.0@820762786026740c76f36085b0efc47a31fe5020` → [Updates: `v7.1.0`]
 
@@ -141,10 +147,10 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>.github/workflows/home-matrix.yml (7)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`, `v32.0.0`]
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`, `v32.0.0`]
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
  - `ubuntu 26.04-arm`
 
@@ -153,7 +159,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>.github/workflows/nix-cachix.yml (4)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`, `v32.0.0`]
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
  - `ubuntu 26.04`
 
@@ -162,7 +168,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>.github/workflows/nix-image.yml (6)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`, `v32.0.0`]
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
  - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.8.0`]
  - `docker/login-action v4.6.0@dbcb813823bdd20940b903addbd779551569679f` → [Updates: `v4.8.0`]
@@ -350,7 +356,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`, `v32.0.0`]
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `ubuntu 26.04`
@@ -361,7 +367,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`, `v32.0.0`]
  - `vig-os/commit-action v0.3.3@7ba7e1ae17547813e708d4cc6a771a09f978f724`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `ubuntu 26.04`
@@ -371,7 +377,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 <details><summary>assets/smoke-test/.github/workflows/direnv-smoke.yml (5)</summary>
 
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`, `v32.0.0`]
  - `ubuntu 26.04`
  - `ubuntu 26.04`
  - `ubuntu 26.04`
@@ -407,9 +413,9 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 <details><summary>assets/workspace/.github/actions/setup-devkit-toolchain/action.yml (3)</summary>
 
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`, `v32.0.0`]
  - `cachix/cachix-action v17@38b082610b782e7e93e209c35fd730d399dee866`
- - `astral-sh/setup-uv v10.2.0@c18668ad3cf93ea998bef934396af7bb5c839dc7` → [Updates: `v10.3.3`]
+ - `astral-sh/setup-uv v10.2.0@c18668ad3cf93ea998bef934396af7bb5c839dc7` → [Updates: `v10.4.0`]
 
 </details>
 
@@ -450,7 +456,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
  - `actions/checkout v7.0.1@3d3c42e5aac5ba805825da76410c181273ba90b1`
- - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`]
+ - `cachix/install-nix-action v31.11.1@13d8dd58da0234aa297dedd986986ccb8e7f3e24` → [Updates: `v31.11.5`, `v32.0.0`]
  - `actions/create-github-app-token v3@bcd2ba49218906704ab6c1aa796996da409d3eb1` → [Updates: `v3`]
 
 </details>
@@ -568,7 +574,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 <details><summary>package.json (1)</summary>
 
- - `@devcontainers/cli 0.89.0` → [Updates: `0.90.0`]
+ - `@devcontainers/cli 0.89.0` → [Updates: `0.91.0`]
 
 </details>
 
@@ -584,7 +590,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - `jinja2 ==3.1.6`
  - `pexpect ==4.9.0`
  - `pytest ==9.1.1` → [Updates: `==9.2.0`]
- - `pyyaml ==6.0.3`
+ - `pyyaml ==6.0.3` → [Updates: `==6.0.4`]
  - `testinfra ==6.0.0`
  - `rich ==15.0.0`
  - `pip-licenses ==5.5.5`
