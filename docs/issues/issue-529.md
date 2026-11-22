@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-11-21T02:48:40Z
+updated: 2026-11-22T06:02:49Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-11-21T09:30:54.746Z
+synced: 2026-11-22T09:37:00.585Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -33,7 +33,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
  - [ ] <!-- rebase-branch=renovate/pypi-certifi-vulnerability -->[build(pip): update dependency certifi to v2026.10.18 [security]](../pull/2068)
  - [ ] <!-- rebase-branch=renovate/actions-create-github-app-token-digest -->[chore(deps): update actions/create-github-app-token digest to f418cff](../pull/1903)
  - [ ] <!-- rebase-branch=renovate/github-codeql-action-digest -->[chore(deps): update github/codeql-action digest to 1bd86f2](../pull/1867)
- - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch)](../pull/1868) (`actions/dependency-review-action`, `actions/download-artifact`, `actions/setup-node`, `actions/upload-artifact`, `aquasecurity/trivy`, `astral-sh/setup-uv`, `cachix/install-nix-action`, `docker/login-action`, `ossf/scorecard-action`, `sigstore/cosign-installer`)
+ - [ ] <!-- rebase-branch=renovate/github-actions-(minor-and-patch) -->[ci(actions): update github-actions (minor and patch)](../pull/1868) (`actions/dependency-review-action`, `actions/download-artifact`, `actions/setup-node`, `actions/upload-artifact`, `aquasecurity/trivy`, `astral-sh/setup-uv`, `cachix/install-nix-action`, `dataaxiom/ghcr-cleanup-action`, `docker/login-action`, `ossf/scorecard-action`, `sigstore/cosign-installer`)
  - [ ] <!-- rebase-branch=renovate/npm-(minor-and-patch) -->[build(npm): update dependency @devcontainers/cli to v0.91.0](../pull/1981)
  - [ ] <!-- rebase-branch=renovate/python-(minor-and-patch) -->[build(pip): update python (minor and patch)](../pull/1904) (`github-backup`, `pytest`, `pytest-docker`, `pyyaml`)
  - [ ] <!-- rebase-branch=renovate/node-26.x -->[ci(actions): update dependency node to v26](../pull/1982)
@@ -139,7 +139,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 <details><summary>.github/workflows/ghcr-cleanup.yml (2)</summary>
 
- - `dataaxiom/ghcr-cleanup-action v1.2.2@d52806a0dc70b430571a37da1fde39733ffd640f`
+ - `dataaxiom/ghcr-cleanup-action v1.2.2@d52806a0dc70b430571a37da1fde39733ffd640f` → [Updates: `v1.3.0`]
  - `ubuntu 26.04`
 
 </details>
