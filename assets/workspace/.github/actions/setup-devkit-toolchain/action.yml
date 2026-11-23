@@ -211,7 +211,7 @@ runs:
     #                                  fits inside realisation-timeout-minutes.
     - name: Install Nix (upstream CppNix)
       if: inputs.mode == 'direnv' && inputs.minimal != 'true' && steps.detect-nix.outputs.has-nix != 'true'
-      uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31.11.1
+      uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877  # v32.1.0
       with:
         extra_nix_config: |
           experimental-features = nix-command flakes
