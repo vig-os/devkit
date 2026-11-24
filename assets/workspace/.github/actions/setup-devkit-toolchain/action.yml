@@ -211,7 +211,7 @@ runs:
     #                                  fits inside realisation-timeout-minutes.
     - name: Install Nix (upstream CppNix)
       if: inputs.mode == 'direnv' && inputs.minimal != 'true' && steps.detect-nix.outputs.has-nix != 'true'
-      uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24  # v31.11.1
+      uses: cachix/install-nix-action@3dc140bfc76c49fbd4dd958429132e3746bcb086  # v31.11.5
       with:
         extra_nix_config: |
           experimental-features = nix-command flakes
@@ -656,7 +656,7 @@ runs:
     # ── bare — host, provision the pinned toolchain with uv ───────────────────
     - name: Set up uv
       if: inputs.mode == 'bare' && inputs.minimal != 'true'
-      uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d  # v10.4.0
 
     - name: Install host toolchain (just, prek, vig-utils)
       if: inputs.mode == 'bare' && inputs.minimal != 'true'
