@@ -2,7 +2,7 @@
 type: issue
 state: open
 created: 2026-04-29T14:40:41Z
-updated: 2026-11-24T23:42:37Z
+updated: 2026-11-27T02:08:36Z
 author: renovate[bot]
 author_url: https://github.com/renovate[bot]
 url: https://github.com/vig-os/devkit/issues/529
@@ -13,7 +13,7 @@ milestone: none
 projects: none
 parent: none
 children: none
-synced: 2026-11-25T11:04:15.467Z
+synced: 2026-11-27T10:43:41.604Z
 ---
 
 # [Issue 529]: [Dependency Dashboard](https://github.com/vig-os/devkit/issues/529)
@@ -581,7 +581,7 @@ The following updates have all been created. To force a retry/rebase of any, cli
 
 <details><summary>pyproject.toml (19)</summary>
 
- - `github-backup ==0.65.1` → [Updates: `==0.68.0`]
+ - `github-backup ==0.65.1` → [Updates: `==0.69.1`]
  - `jinja2 ==3.1.6`
  - `pexpect ==4.9.0`
  - `pytest ==9.1.1` → [Updates: `==9.2.0`]
